@@ -49,11 +49,15 @@ struct PaneColumnsView: View {
     /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
     /// holding it may not be this one) and only the host can see both sides.
     let onBackgroundDeselect: (Int?) -> Void
-    /// The download request this pane is watching. Owned — and polled — by the hosting
+    /// The downloads this pane is watching, by path. Owned — and polled — by the hosting
     /// `FileTreeView`, which holds the pane's single (pane-scoped) subscription; read here by the
-    /// row whose file it names (`FileRowView.awaitingDownloadID`) and by the preview column showing
-    /// that file (`ColumnPreviewColumn.awaitingDownloadPath`).
-    var awaitingDownload: CloudDownloadRequest?
+    /// row whose file each one names (`FileRowView.awaitingDownloadID`) and by the preview column
+    /// showing that file (`ColumnPreviewColumn.isAwaitingDownload`).
+    ///
+    /// A dictionary rather than the `PaneDownloadWatch` object itself: a class reference compares
+    /// identical on every render, so SwiftUI could skip this subtree while the watches changed
+    /// underneath it. A value cannot be missed that way.
+    var awaitingDownloads: [String: CloudDownloadRequest] = [:]
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
 
@@ -216,7 +220,7 @@ struct PaneColumnsView: View {
                     item: previewTarget,
                     actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
                     paneToken: paneToken,
-                    awaitingDownloadPath: awaitingDownload?.path)
+                    isAwaitingDownload: awaitingDownloads[previewTarget.path] != nil)
                     .frame(width: previewWidth)
                     // On the preview's LEADING edge, and it resizes the preview. This is the drag
                     // that could not work while the preview lived in the scroll view: pinned to the
@@ -601,7 +605,7 @@ struct PaneColumnsView: View {
             density: density,
             showsChevron: node.isDirectory,
             fonts: fonts,
-            awaitingDownloadID: awaitingDownload?.idIfWatching(node.id)
+            awaitingDownloadID: awaitingDownloads[node.id]?.requestID
         )
         .tag(node.id)
         // Single click opens a folder's column, per the decision — the one real change to the

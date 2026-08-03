@@ -20,8 +20,8 @@ extension Notification.Name {
     ///
     /// There is deliberately no matching "poll concluded" notification. The pane runs the watch
     /// itself, so it needs no one to tell it the watch is over; the two views that care read the
-    /// latch they are already handed (`FileRowView.awaitingDownloadID`,
-    /// `ColumnPreviewColumn.awaitingDownloadPath`).
+    /// pane's watches they are already handed (`FileRowView.awaitingDownloadID`,
+    /// `ColumnPreviewColumn.isAwaitingDownload`).
     static let cloudDownloadRequested = Notification.Name("SyncCloudCloudDownloadRequested")
 }
 
@@ -140,16 +140,19 @@ public struct FileTreeView: View, Equatable {
     /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
-    /// The download request THIS pane is watching, and the pane's own watch is what clears it —
-    /// see `watchRequestedDownload()`. While it is set, the row showing that file re-resolves its
-    /// badge and the preview column showing that file says "Downloading…"; both read it from here
-    /// rather than watching anything themselves.
+    /// The downloads THIS pane is watching, keyed by path — see `PaneDownloadWatch`. While a path is
+    /// in there, the row showing that file re-resolves its badge and the preview column showing it
+    /// says "Downloading…"; both read it from here rather than watching anything themselves.
+    ///
+    /// A collection, not a single latch. One latch meant a second download in this pane — a
+    /// different file, queued back to back from the row menu — cancelled the first one's watch, and
+    /// that file then landed unobserved behind a stale cloud-only badge.
     ///
     /// One subscription here rather than one per row. `FileRowView` used to observe
     /// `.cloudDownloadRequested` itself, which meant a live Combine subscription per VISIBLE ROW,
     /// churned as the list recycled them, to deliver a notice that at most one row per session
     /// ever acts on.
-    @State private var awaitingDownload: CloudDownloadRequest?
+    @StateObject private var downloads = PaneDownloadWatch()
 
     /// This pane's identity for download-notification scoping — the receiving side of
     /// `CloudDownloadRequest.paneToken`. Computed from facts already compared by `==`, so it adds
@@ -327,12 +330,12 @@ public struct FileTreeView: View, Equatable {
     public var body: some View {
         ZStack {
             presentation
-                // The pane's single subscription for the whole list — see `awaitingDownload`.
+                // The pane's single subscription for the whole list — see `downloads`.
                 // Scoped: another pane's request (the same absolute path can be on screen in both
                 // panes) is ignored rather than latched.
                 .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadRequested)) { note in
                     if let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken) {
-                        awaitingDownload = request
+                        downloads.begin(request)
                     }
                 }
                 // A republish is the moment every other fact on a row is refreshed, so it is the
@@ -403,40 +406,24 @@ public struct FileTreeView: View, Equatable {
                 .allowsHitTesting(false)
             }
         }
-        // The pane's own download watch — see `watchRequestedDownload()`. On the ZStack rather than
-        // on `presentation`, which is an if/else over the view mode: switching Tree↔Columns swaps
-        // that branch for a different view, which would tear this task down and start it over from
-        // attempt zero (a second `forget` and a fresh ten seconds) mid-download.
-        .task(id: awaitingDownload?.requestID) { await watchRequestedDownload() }
     }
 
-    /// Watches the download this pane latched, then drops the latch.
-    ///
     /// **The pane polls, not the row and not the preview column.** Both of those used to, for the
     /// same request: the row ran ten one-second probes and the preview column's Download button ran
     /// twenty at 1.5 s, each preceded by its own `CloudOnlyBadgeCache.forget`. Two forgets means two
     /// generation bumps, and a bump invalidates every in-flight badge stat in BOTH panes — the very
     /// harm the pane-scoped request payload was added to remove. One owner, one forget.
     ///
-    /// It also bounds the latch. Owned by the row, the watch only ran when that row was realized,
-    /// so a request for a row offscreen in a long list (or in a column the user has navigated away
-    /// from — and a preview-started download need not have its row on screen at all) left the latch
+    /// It also bounds the watch. Owned by the row, it only ran when that row was realized, so a
+    /// request for a row offscreen in a long list (or in a column the user has navigated away from —
+    /// and a preview-started download need not have its row on screen at all) left the pane's state
     /// set indefinitely, and then ran a full ten-second poll minutes later for a download that had
-    /// long since finished. Here it always concludes within `CloudDownloadPoll`'s budget of the
-    /// request, whatever the list happens to be showing.
+    /// long since finished. Owned by `PaneDownloadWatch` it always concludes within
+    /// `CloudDownloadPoll`'s budget of the request, whatever the list happens to be showing.
     ///
     /// The result is published through the memo rather than back to the row directly: `record`ing
-    /// the landed answer, then dropping the latch, re-keys that row's badge task (see
+    /// the landed answer, then dropping the watch, re-keys that row's badge task (see
     /// `FileRowView.BadgeID`) which re-reads it — one dictionary hit, no second syscall.
-    /// The steps live in `CloudDownloadPoll.watch` so that "one forget per download", "record only
-    /// what landed" and the identity-guarded conclusion are testable; the latch is read through a
-    /// closure because only this view can see it, and only at the END — a repeat download of the
-    /// same file cancels this task and re-arms the latch with a fresh request for the identical
-    /// path, and a cancelled task still runs everything after its last `await`.
-    private func watchRequestedDownload() async {
-        guard let request = awaitingDownload else { return }
-        if await CloudDownloadPoll.watch(request, latch: { awaitingDownload }) { awaitingDownload = nil }
-    }
 
     /// Placeholder for states the user fixes in Settings (missing root, disabled provider):
     /// warning icon, explanation, optionally the offending path, and an Open Settings button.
@@ -472,7 +459,7 @@ public struct FileTreeView: View, Equatable {
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
                 onQuickLook: { quickLookItem = $0 },
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
-                awaitingDownload: awaitingDownload,
+                awaitingDownloads: downloads.requests,
                 fonts: rowFonts
             )
             .contentSurface(hue: glassHue, tint: surfaceTint)
@@ -581,7 +568,7 @@ public struct FileTreeView: View, Equatable {
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
             fonts: rowFonts,
-            awaitingDownloadID: awaitingDownload?.idIfWatching(node.id)
+            awaitingDownloadID: downloads.request(forPath: node.id)?.requestID
         )
         .tag(node.id)
         .contextMenu {

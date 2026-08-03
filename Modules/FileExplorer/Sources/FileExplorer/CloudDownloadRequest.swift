@@ -66,13 +66,6 @@ struct CloudDownloadRequest: Equatable, Sendable {
         return request.paneToken == paneToken ? request : nil
     }
 
-    /// This request's identity if it is watching `path`, nil otherwise — what the pane hands the
-    /// row for that file as part of its badge task id, so the badge re-resolves when this request
-    /// is armed and again when it concludes.
-    func idIfWatching(_ path: String) -> UUID? {
-        self.path == path ? requestID : nil
-    }
-
     /// Whether a watch that has just finished for THIS request may drop the pane's latch.
     ///
     /// Identity, never path. A path can recur: the user clicks Download, the attempts run out, and

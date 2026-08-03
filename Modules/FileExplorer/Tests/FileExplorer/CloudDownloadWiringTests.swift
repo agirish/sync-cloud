@@ -85,6 +85,23 @@ import Sync
         return (window, box)
     }
 
+    /// Tears a mounted pane down at the end of the test that made it.
+    ///
+    /// **Not tidiness — the pane holds a live `.cloudDownloadRequested` subscription.** Leaving it
+    /// to be collected whenever ARC gets round to it means a LEFT pane from one test can still be
+    /// listening while the next test posts from `.left` to prove a RIGHT pane ignores it: the stale
+    /// pane accepts, its watch calls `CloudOnlyBadgeCache.forget`, and the ghost this suite asserts
+    /// on goes nil for a reason that has nothing to do with the pane under test. Observed as exactly
+    /// that — `theRightPaneIgnoresTheLeftPanesRequest` failing with `cached(ghost) == nil` in a full
+    /// run and passing under `--filter`.
+    private func teardown(_ window: NSWindow) {
+        // Just the content view. `close()` releases a `.titled` window by default
+        // (`isReleasedWhenClosed`), which over-releases the local reference and takes the whole test
+        // process down with no verdict at all. Dropping the hosting view is what actually matters:
+        // it is the last reference to the SwiftUI graph, so the subscription goes with it.
+        window.contentView = nil
+    }
+
     /// Turns the run loop until `condition` holds, or the timeout expires. Returns whether it held,
     /// so a caller asserts on the answer rather than assuming it.
     @discardableResult
@@ -113,6 +130,7 @@ import Sync
         let ghost = "/wiring/left/ghost.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
         let (window, _) = mount(isLeft: true, currentPath: "/wiring/left")
+        defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
         post(ghost, from: .left)
@@ -127,6 +145,7 @@ import Sync
         let ghost = "/wiring/right/ghost.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
         let (window, _) = mount(isLeft: false, currentPath: "/wiring/right")
+        defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
         post(ghost, from: .right)
@@ -141,6 +160,7 @@ import Sync
         let ghost = "/wiring/left/ignored.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
         let (window, _) = mount(isLeft: true, currentPath: "/wiring/left")
+        defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
         post(ghost, from: .right)
@@ -157,6 +177,7 @@ import Sync
         let ghost = "/wiring/right/ignored.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
         let (window, _) = mount(isLeft: false, currentPath: "/wiring/right")
+        defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
         post(ghost, from: .left)
@@ -171,12 +192,140 @@ import Sync
         let ghost = "/wiring/rail/ignored.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
         let (window, _) = mount(isLeft: true, isSingleSource: true, currentPath: "/wiring/rail")
+        defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
         post(ghost, from: .left)
 
         await settle(window, timeout: 1) { CloudOnlyBadgeCache.cached(ghost) != true }
         #expect(CloudOnlyBadgeCache.cached(ghost) == true)
+    }
+
+    // MARK: - Two downloads at once
+
+    /// Two downloads in ONE pane are two watches, not one.
+    ///
+    /// The pane held a single latch, watched by a `.task(id: awaitingDownload?.requestID)`, so a
+    /// second request — a different file, queued back to back from the row menu — changed the id and
+    /// cancelled the first watch. Request A's content then landed with nothing observing it: nobody
+    /// recorded the landed answer, and the memo went on serving whatever the arming re-stat had left
+    /// there until the next republish.
+    ///
+    /// Real files, not the ghosts the routing tests use, because this one needs both watches to
+    /// CONCLUDE: `MaterializationStatus` answers a definite "not cloud-only" for a file that is
+    /// there, and only a definite answer counts as landed.
+    @Test func aSecondDownloadInThePaneDoesNotOrphanTheFirst() async throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("CloudDownloadWiring-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let first = dir.appendingPathComponent("first.bin").path
+        let second = dir.appendingPathComponent("second.bin").path
+        try Data("a".utf8).write(to: URL(fileURLWithPath: first))
+        try Data("b".utf8).write(to: URL(fileURLWithPath: second))
+
+        CloudOnlyBadgeCache.clear(underRoot: dir.path)
+        let (window, _) = mount(isLeft: true, currentPath: dir.path)
+        defer { teardown(window) }
+        CloudOnlyBadgeCache.record(first, isCloudOnly: true)
+        CloudOnlyBadgeCache.record(second, isCloudOnly: true)
+
+        post(first, from: .left)
+        post(second, from: .left)
+
+        #expect(await settle(window, timeout: 20) {
+            CloudOnlyBadgeCache.cached(first) == false && CloudOnlyBadgeCache.cached(second) == false
+        }, "one of the two downloads was never watched to its end — first: \(String(describing: CloudOnlyBadgeCache.cached(first))), second: \(String(describing: CloudOnlyBadgeCache.cached(second)))")
+    }
+
+    /// The same file asked for twice is still ONE watch, and it is the NEWER request.
+    ///
+    /// Two watches on one path would mean two `CloudOnlyBadgeCache.forget` calls, and every forget
+    /// bumps the memo generation, invalidating every in-flight badge stat in BOTH panes — verbatim
+    /// the harm the pane-scoped payload exists to prevent. Keyed by request id instead of by path,
+    /// that is exactly what a repeat Download would produce.
+    ///
+    /// Driven directly rather than through a mounted pane: the question is what the collection holds
+    /// the instant the second request arrives, which is a synchronous fact, and reading it through
+    /// the badge memo could only see it long after both watches had concluded. Paths under a
+    /// throwaway directory so the bounded polls these start touch nothing another suite reads.
+    @Test func aSecondRequestForOneFileSupersedesRatherThanAdds() {
+        let dir = "/cloud-download-watch/\(UUID().uuidString)"
+        let watch = PaneDownloadWatch()
+        let first = CloudDownloadRequest(path: "\(dir)/first.bin", paneToken: .left)
+        let other = CloudDownloadRequest(path: "\(dir)/other.bin", paneToken: .left)
+        let firstAgain = CloudDownloadRequest(path: first.path, paneToken: .left)
+
+        watch.begin(first)
+        watch.begin(other)
+        #expect(watch.requests.count == 2, "two files are two watches")
+
+        watch.begin(firstAgain)
+        #expect(watch.requests.count == 2, "a repeat of one file added a second watch for it")
+        #expect(watch.request(forPath: first.path)?.requestID == firstAgain.requestID,
+                "the older request still holds the slot, so the new watch cannot conclude")
+        #expect(watch.request(forPath: other.path)?.requestID == other.requestID,
+                "the repeat disturbed the OTHER file's watch")
+    }
+
+    /// Superseding a path CANCELS the watch it replaces, rather than leaving it running.
+    ///
+    /// A leaked watch is invisible in the collection — the new request has already taken the slot —
+    /// and its only trace in the app is a second `CloudOnlyBadgeCache.forget`, which nothing counts.
+    /// So the watch is injected here and reports its own cancellation. Every wait below is bounded
+    /// by a deadline the watch itself enforces; nothing spins.
+    @Test func aRepeatRequestCancelsTheWatchItReplaces() async {
+        let log = WatchLog()
+        let watch = PaneDownloadWatch { request, _ in
+            log.started.insert(request.requestID)
+            // A cancelled task's sleep throws at once, so this both parks the watch and detects the
+            // cancellation — with a ceiling, so a watch nobody cancels ends on its own.
+            if (try? await Task.sleep(for: .seconds(45))) == nil {
+                log.cancelled.insert(request.requestID)
+            }
+            return false
+        }
+        let dir = "/cloud-download-watch/\(UUID().uuidString)"
+        let first = CloudDownloadRequest(path: "\(dir)/first.bin", paneToken: .left)
+        let firstAgain = CloudDownloadRequest(path: first.path, paneToken: .left)
+        let other = CloudDownloadRequest(path: "\(dir)/other.bin", paneToken: .left)
+
+        watch.begin(first)
+        watch.begin(other)
+        watch.begin(firstAgain)
+
+        // A generous ceiling, because this waits for something to HAPPEN rather than bounding an
+        // absence: the watch task is main-actor isolated, and in a full parallel run the main actor
+        // is contended enough that this repo has measured deferred work landing 13s late. A short
+        // deadline here would report starvation as a missing cancellation.
+        #expect(await hold(upTo: 30) { log.cancelled.contains(first.requestID) },
+                "the superseded watch for \(first.path) is still running")
+        #expect(log.started.contains(firstAgain.requestID), "the repeat request started no watch")
+        #expect(!log.cancelled.contains(other.requestID),
+                "superseding one path cancelled another path's watch")
+        // And the watch that just ended must not take the slot with it. A cancelled task still runs
+        // everything after its last `await`, so the superseded watch reaches its conclusion AFTER
+        // the new one took the path — `CloudDownloadRequest.concludes(latch:)` comparing request ids
+        // is the only thing between that and a watch being killed a moment after it started.
+        #expect(watch.request(forPath: first.path)?.requestID == firstAgain.requestID,
+                "the superseded watch cleared the slot its replacement had taken")
+    }
+
+    /// What an injected watch reports back.
+    @MainActor private final class WatchLog {
+        var started: Set<UUID> = []
+        var cancelled: Set<UUID> = []
+    }
+
+    /// Yields until `condition` holds or the deadline passes — no window to pump here, since nothing
+    /// is mounted. Returns whether it held.
+    private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return condition()
     }
 
     // MARK: - The republish clear's root

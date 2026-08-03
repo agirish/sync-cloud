@@ -164,17 +164,21 @@ struct ColumnPreviewColumn: View {
     /// Nothing legitimately needs nil (the sole production caller is `PaneColumnsView`, which always
     /// knows its side), so the silent path is gone and the omission is a compile error instead.
     let paneToken: PaneToken
-    /// The path of the download the pane is currently watching, or nil. Handed down by
-    /// `PaneColumnsView` from `FileTreeView`'s latch: this column shows "Downloading…" while that
-    /// path is the one on screen, and re-probes when the pane's watch concludes.
+    /// Whether the pane is watching a download of the file this column is showing. Handed down by
+    /// `PaneColumnsView` from the pane's `PaneDownloadWatch`: this column shows "Downloading…" while
+    /// it is true, and re-probes when it goes false — the pane's watch concluding is what tells a
+    /// materialized file it may be previewed.
     ///
     /// Read rather than run. This column used to keep its own `Task`, its own poll (twenty probes
     /// at 1.5 s) and its own `CloudOnlyBadgeCache.forget` for a download the pane's row was already
     /// polling — two watches and two forgets per download, and every forget invalidates every
-    /// in-flight badge stat in BOTH panes. The pane is the single owner now
-    /// (`FileTreeView.watchRequestedDownload()`), and a pane-owned watch also covers the case this
-    /// column made common: a download whose row is not realized at all.
-    var awaitingDownloadPath: String? = nil
+    /// in-flight badge stat in BOTH panes. The pane is the single owner now (`PaneDownloadWatch`),
+    /// and a pane-owned watch also covers the case this column made common: a download whose row is
+    /// not realized at all.
+    ///
+    /// No default, for the reason `paneToken` has none: a `Bool` defaulting to `false` is an
+    /// argument whose deletion compiles and silently disables the whole downloading state.
+    let isAwaitingDownload: Bool
 
     /// The height the bar's band actually needs: its own height plus the padding the overlay adds
     /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
@@ -246,13 +250,6 @@ struct ColumnPreviewColumn: View {
     /// Whether `previewSettleDelay` has passed for the file on screen right now.
     private var hasSettled: Bool { probed?.path == item.path && probed?.hasSettled == true }
 
-    /// Whether the "Downloading…" state applies to the file on screen right now.
-    ///
-    /// Derived from the pane's latch, so it cannot outlive the download the way the old captured
-    /// `item.path` comparison did — and it lights up for a download started from the ROW's menu
-    /// for the previewed file too, which the column's private watch could not see.
-    private var isWatchingDownload: Bool { awaitingDownloadPath == item.path }
-
     /// Shared by the two date rows; `DateFormatter` is expensive to construct and `body` is not the
     /// place to do it (the same reason `DetailsSidebar` keeps one).
     private static let dateFormatter: DateFormatter = {
@@ -312,10 +309,10 @@ struct ColumnPreviewColumn: View {
         // probe again so a file that materialized mounts its preview, and one that did not settles
         // back on the offer. Only the falling edge — arming the watch changes nothing on disk.
         //
-        // Nothing to cancel when the selection moves on: this column owns no task now, and
-        // `isWatchingDownload` is a comparison against the pane's live latch, so it simply reads
-        // false for a file the column no longer shows.
-        .onChange(of: isWatchingDownload) { wasWatching, isWatching in
+        // Nothing to cancel when the selection moves on: this column owns no task now, and the pane
+        // resolves this flag against the file the column is CURRENTLY showing, so it simply reads
+        // false once the selection has moved off the downloading one.
+        .onChange(of: isAwaitingDownload) { wasWatching, isWatching in
             if wasWatching, !isWatching { probeGeneration += 1 }
         }
     }
@@ -328,8 +325,8 @@ struct ColumnPreviewColumn: View {
         case .quickLook where hasSettled:
             QuickLookPreview(url: URL(fileURLWithPath: item.path))
         case .cloudOnly:
-            placeholder(caption: isWatchingDownload ? "Downloading…" : "Not downloaded") {
-                if isWatchingDownload {
+            placeholder(caption: isAwaitingDownload ? "Downloading…" : "Not downloaded") {
+                if isAwaitingDownload {
                     ProgressView().controlSize(.small)
                 } else {
                     Button("Download", action: requestDownload)
