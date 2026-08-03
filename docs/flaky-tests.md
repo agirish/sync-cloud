@@ -253,8 +253,9 @@ with `openPreview`'s trailing `settle` removed so the retry is guaranteed outsta
 restoring it passes. A flake fix that can only be argued from pass rates is a flake fix you cannot
 check; find the ordering that makes it certain. Mutation-tested on the defect the test exists for —
 the unconditional falling-edge reveal — which still fails `maxOriginDrift`, i.e. reaches the real
-assertion instead of dying at the fixture. Then 8 loaded full-package runs, zero occurrences of
-either preview flake, against 5 of 7 before.
+assertion instead of dying at the fixture. Then loaded full-package runs, zero occurrences: 8 while
+this fix was carried alongside an equivalent-in-spirit version of the entry above, and 5 more on the
+shipped pairing of the two (3 on `v2.x`, 2 on `main`), plus CI green on both. Before: 5 of 7.
 
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
