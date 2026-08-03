@@ -183,6 +183,26 @@ front of an absence: remove the mechanism (does the wait notice it never happene
 bug (does the assertion still fire, and does the wait land before the damage is visible?). Passing
 the second alone is what a vacuous wait looks like.
 
+**A sleep that sets up an interleaving is guessing at a PRECONDITION — wait for that, and assert
+it.** The sweep's last instance, `BulkOperationsTests.testLatestQueuedScanWins`, slept 10ms between
+starting one scan and issuing a second so the second would be *queued* rather than run. Unlike the
+cases above, that sleep bridged a real gap — but losing the guess did not fail the test. The two
+scans simply ran in sequence, the outcome assertions (one difference, `latest.txt`) held anyway,
+and the queue the test is named for went unexercised. **With `runOrQueueScan` mutated never to
+queue, the pre-fix test passed.** A sleep protecting a setup step tends to hide a missing assertion
+about that step, because the happy path usually produces the same visible outcome either way.
+
+`executeScan` sets `isScanning` synchronously on entry, so the precondition is observable and the
+wait can *be* the precondition. Waiting on it also collapsed the test: with the slot held,
+`runOrQueueScan` returns without scanning, so the second request needs no Task of its own and
+`pendingScanRequest` can be read straight after the call — which is the assertion that was missing.
+Dropping the wait now fails three assertions *deterministically*, where the sleep made the same
+mistake only under load.
+
+Convert the hand-rolled `while … Date() < deadline` settle loops when you meet them, too: bounded,
+so never a hang, but wall-clock rather than `ContinuousClock`, and a loop whose exit condition has
+more clauses than the assertions after it passes on timeout for the clauses nobody re-checks.
+
 **A condition wait is a fixed window too — read what its budget is denominated in, 2026-08-03.**
 `walkingOntoACloudOnlyFileNeverHandsItToQuickLook` in
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift` did everything this
@@ -276,6 +296,7 @@ shipped pairing of the two (3 on `v2.x`, 2 on `main`), plus CI green on both. Be
 `ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*;
 `f3a93bdf` — *Let the drain be the gate the two redo tests already had*;
 `41651669` — *Wait for the insurance filter pass to publish, not for 100ms*;
+`2a2c64d0` — *Wait for the scan slot the queued-scan test needs, and assert it got queued*;
 `pumpFloor` and `pump` in `Modules/FileExplorer/Tests/FileExplorer/LayoutPumpWait.swift`;
 `quiesceReveals` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift` — the
 last two cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
