@@ -186,3 +186,37 @@ x86_64 → 1; env and cwd innocent). The workflow therefore runs the payload
 as `arch -arm64 swift test …`. When checking test outcomes by hand, never
 judge from piped output (`… | tail`) — the pipe masks the real exit code;
 that mistake let this slip past local verification once already.
+
+### Transient: SPM dependency resolution times out
+
+The app-target step resolves Swift packages over the network before it builds
+anything, so a momentary loss of reachability to github.com fails the step
+without a single test having run. Seen on main `405cc6f5` (run 30776561209):
+
+```
+skipping cache due to an error: Couldn’t fetch updates from remote repositories
+xcodebuild: error: Could not resolve package dependencies:
+  Failed to clone repository https://github.com/pointfreeco/swift-snapshot-testing:
+    fatal: unable to access '…': Recv failure: Operation timed out
+```
+
+**It reads like a code failure and is not one.** The job's verdict is
+`failure`, the step named is `App-target tests (xcodegen + xcodebuild)`, and
+the obvious reading — the commit broke the app target — is wrong. Three things
+identify it, all cheaper than a bisect:
+
+- The **package suites in the same run passed**. They build from the same
+  checkout; a real compile or test break would take them down too.
+- The error is `Could not resolve package dependencies`, above any compiler
+  diagnostic. Nothing was built, so nothing in the commit was exercised.
+- The step is fast — it dies at the network timeout, not after a full build.
+
+`gh run rerun <id> --failed` is the fix; `405cc6f5` went green on the first
+re-run with every step passing. Unlike the pending-eviction case above, the run
+does have jobs (`… /jobs --jq .total_count` → `1`), so a re-run reliably gets a
+slot. If it fails twice in a row on the same SHA, stop treating it as transient
+and check the runner's own connectivity — the resolution step has no retry of
+its own.
+
+Deliberately here and not in [flaky-tests.md](flaky-tests.md): that file is
+about tests whose *verdict* the machine decided. Here no test ran at all.
