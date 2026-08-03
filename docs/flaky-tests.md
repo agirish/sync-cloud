@@ -201,12 +201,47 @@ fails on the cloud-only path reaching Quick Look, not on the wait.
 them was starved; one that gave up after 1010 was disproved. That is the difference between this
 mechanism and a real bug, and it costs one integer to report.
 
+**Live instance, 2026-08-03 — quiescence cannot see a scroll that moves nothing.**
+`ColumnPreviewRevealTests.testClosingThePreviewLeavesAScrolledBackStackWhereItWas` failed its
+fixture, `#require(clip.bounds.origin.x == 0)` reading **570.0**, "fixture failed to scroll the
+stack back". A reveal is two attempts: one deferred a main-queue hop, one at `revealRetryDelay`.
+Both resolve the same target, so once the first has landed **the second moves the stack by zero
+points** — there is no movement for a quiescence window to see, and `settle` reports the stack at
+rest while the retry's `proxy.scrollTo` is still owed a SwiftUI update. Idle, that update is the
+very next turn (measured: one turn after the attempt makes its call, 3/3) and nobody notices. Under
+the congestion the entry above measures it arrived over a second later — *after* the test's own
+scroll-back — and put the stack back on the reveal's target. Traced on a failing run: retry issued
+at t+0.52s, test scrolled to 0 at t+0.85s, stack at 570 by t+2.3s with no attempt having run in
+between.
+
+This is the trap `settle`'s own doc comment names, arriving from the side it does not cover.
+Waiting for the movement you expect first is not enough when a *later* mover is a no-op at the
+moment it fires: quiescence cannot tell "finished" from "issued, and worth zero points until you
+move".
+
+Fixed by draining the reveal chain *before* the scroll-back rather than trusting stillness after it
+(`quiesceReveals`, called from `scrollBack`), bounded by the QUEUE the way `maxOriginDrift` already
+bounds its absence: a marker queued now has a strictly later deadline than any retry an earlier
+trigger queued, and the main queue drains `asyncAfter` blocks in deadline order, so when it fires
+every attempt has RUN however far the machine has slipped. **Running is not landing**, so a turn
+drain follows it.
+
+**Verified deterministically rather than by re-rolling the flake**, which is the part worth copying:
+with `openPreview`'s trailing `settle` removed so the retry is guaranteed outstanding, removing
+`quiesceReveals` reproduces `origin.x → 570.0` on an **idle** machine under `--filter`, and
+restoring it passes. A flake fix that can only be argued from pass rates is a flake fix you cannot
+check; find the ordering that makes it certain. Mutation-tested on the defect the test exists for —
+the unconditional falling-edge reveal — which still fails `maxOriginDrift`, i.e. reaches the real
+assertion instead of dying at the fixture. Then 8 loaded full-package runs, zero occurrences of
+either preview flake, against 5 of 7 before.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;
 `9543b941` — *Let the drain be the gate the two redo tests already had*;
-`pumpFloor` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift` —
-cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
+`pumpFloor` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift`;
+`quiesceReveals` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift` — the
+last two cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
 cherry-pick between `v2.x` and `main` has to swap every one of them by hand.
 
 ### 3. Process-wide state, and suites running in parallel
@@ -241,20 +276,35 @@ three pane-width keys on every mount; the failures land at exactly 150pt and 570
 in ~20 full-suite runs, so it stays unfixed — **if it does fire, that is the signal to spend the
 restructure**, and worth a line here recording that it finally did.
 
-**It fired, 2026-08-03 — twice, on both of its tests, at both of its numbers.**
-`testClosingThePreviewLeavesAScrolledBackStackWhereItWas` failed `clip.bounds.origin.x == 0` reading
-**exactly 570.0** on `main` at `05c7a81c`, and `testAPreviewWidthCommitLeavesAPreviewlessPaneAlone`
-failed the same assertion reading **exactly 150.0** on `v2.x` at `4fa91ae4`. Each was the only
-preview-suite issue in an otherwise green full-package run; all four parts of the signature present
-both times. That the two firings landed on the two tests named above, at the two extents named
-above, is about as cleanly as a predicted mechanism can confirm itself.
+**It looked like it fired, 2026-08-03 — and it had not. Read this before spending the
+restructure.** Two full-package runs under load failed `clip.bounds.origin.x == 0` at exactly the
+two numbers this section predicts: **570.0** in `testClosingThePreviewLeavesAScrolledBackStackWhereItWas`
+on `main` at `05c7a81c`, **150.0** in `testAPreviewWidthCommitLeavesAPreviewlessPaneAlone` on `v2.x`
+at `4fa91ae4`. Two tests, two extents, both named above. It was recorded here as the predicted
+mechanism confirming itself; it was not that, and the way it was caught is worth more than the
+correction.
 
-Both came out of seven full-package runs deliberately loaded with 8 CPU spinners while reproducing
-the mechanism-2 flake above. Load is an amplifier here rather than a different phenomenon — it
-widens the observation window an absence test holds open, so a foreign write is likelier to land
-inside it. So the count is 2 in 7 *under load* against 0 in ~20 idle: still not a rate worth
-quoting, but no longer zero evidence, and the restructure this section defers (nesting the suites
-under one `.serialized` parent) now has the signal it was told to wait for.
+**Both are `#require`s in the FIXTURE, not the absence assertions.** The signature's first point is
+that an *absence* assertion fails — the `maxOriginDrift` line, "this must stay where the user put
+it". `clip.bounds.origin.x == 0` two lines above it is the fixture checking its own scroll-back took,
+and it fails with the message "fixture failed to scroll the stack back". Same test, same number,
+different claim. The cause is the pane's **own** reveal retry landing after that scroll-back —
+mechanism 2, written up under [that section](#2-fixed-pumps-and-fixed-sleeps) — and it was then
+reproduced **deterministically on an idle machine under `--filter`, with three tests of this one
+suite running and `ColumnPreviewLayoutTests` nowhere in the process.** No foreign write can be
+involved in a run that mounts no foreign pane. Since the fix, 8 loaded full-package runs, zero
+occurrences.
+
+So the residual **remains unfired**, and the restructure it defers still has no signal. What this
+episode adds is a sharper test for the next candidate, because the number and the test name are now
+known to be reachable two ways:
+
+- **Check which line failed.** Absence assertion, or fixture? Only the first is this mechanism.
+- **Check whether a foreign pane was even mounted.** `--filter` to this suite alone: if it still
+  reproduces, nothing process-wide is involved. This is the step that settles it, and it is cheap.
+- A re-render driven by another store's write was measured *not* to move a stack by itself — SwiftUI
+  restores no remembered offset here — so a foreign write can only reach a pane through a reveal
+  DRIVER its edge guards let through. That narrows what to look for to four `onChange` handlers.
 
 **See.** `d282ac6` — *Isolate DifferencesView test mounts in per-mount scratch defaults*;
 `Modules/FileExplorer/Tests/FileExplorer/CloudOnlyBadgeCacheTests.swift` for the shape of the note.
