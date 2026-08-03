@@ -369,18 +369,48 @@ known to be reachable two ways:
 
 ### 4. Leaked defaults suites
 
-**Symptom.** Not a failure — accumulating `<SuiteName>-<UUID>.plist` files in
-`~/Library/Preferences`, and occasionally a test reading a previous run's value.
+**Symptom.** Accumulating `<SuiteName>-<UUID>.plist` files in `~/Library/Preferences`, and
+occasionally a test reading a previous run's value. **At enough scale it stops being cosmetic and
+starts failing tests** — see the stall below.
 
 **Mechanism.** A defaults suite outlives the test that made it; `cfprefsd` rewrites the backing
 plist after the process exits.
 
 **Fix.** Tear the suite down *and* delete its backing plist; record every wiped suite in the
-ledger. The residue is bounded and self-clearing — the count oscillates rather than growing — so
-measure across several runs before concluding the mechanism is broken.
+ledger, and sweep by SHAPE as well as by name (below).
+
+**"Bounded and self-clearing" was wrong — 3,551 had accumulated by 2026-08-03.** This entry used
+to say the count oscillates rather than grows, and to measure across several runs before believing
+the mechanism was broken. Do not trust that: it is exactly the advice that lets a real leak sit.
+The ledger can only ever sweep what a *previous run recorded*, and most creation sites are a bare
+`UserDefaults(suiteName:)` with a `defer` — they record at wipe time, so a run that is **killed**
+(cancelled CI job, interrupted `swift test`, a mutation experiment stopped by hand) leaves suites
+nothing will ever name. A session doing many such runs leaks steadily and invisibly. The ledger
+held ~108 names against 3,551 files on disk.
+
+The sweep now also matches `<prefix><-|.><UUID>.plist` with **uppercase** hex, older than an hour,
+which needs no prior record and so covers killed runs too. Two edges, both mutation-tested in
+`ScratchPlistSweepTests`: the **uppercase requirement is the safety margin**, because real domains
+carrying a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.164320f2-…`) — relax it to
+case-insensitive and the sweep deletes real preferences. The **age floor** is what makes it safe
+while other worktrees are testing concurrently; their live suites are minutes old.
+
+**What it costs when it gets bad.** Cold `defaults domains` — which enumerates that directory —
+measured **2.38s** at 4,036 files and **0.10s** at 538. `cfprefsd` is one daemon shared by every
+process on the machine, so a stall there is felt process-wide, by every test touching defaults at
+once.
+
+**Telling that stall from ordinary machine load — read the PASSING durations, not just the
+failures.** On 2026-08-03 six tests failed and it looked selective, which points away from
+environment. It wasn't: **259 of 1226 tests took ≥10s in that run, against 3 in a green one**, and
+the run's total wall clock was only 14.76s — impossible unless everything in flight went through
+one global ~10s freeze. The six "failures" were merely the only tests carrying a 10s bound; they
+were the detector, not the cause. Chasing what those six had in common (they shared the semaphore
+gates) was a wrong turn — the shared thing was the deadline.
 
 **See.** `8c46d65` — *Delete the backing plist when a test's scratch defaults suite is torn down*;
-`5b495f7` — *Record every wiped defaults suite in the ledger, not just ScratchDefaults'*.
+`5b495f7` — *Record every wiped defaults suite in the ledger, not just ScratchDefaults'*;
+`8f112ecb` — *Sweep the scratch plists a killed run could never record*.
 
 ### 5. Tests racing a real-time window
 
