@@ -154,9 +154,14 @@ extension FileSyncManager {
         // would clear the offer only does so when it COMPLETES — seconds later on a large tree.
         // A confirm inside that window would bulk-overwrite the bytes the operation just wrote.
         // Refuse it: the operation's rescan is already on its way to re-derive fresh rows.
+        // The wording says only what the guard OBSERVED. It compares epochs, so all it knows is
+        // that some file operation ran — it cannot tell whether that operation touched a single
+        // verified file. A filing move on the other pane, an undo of a folder rename, an
+        // unrelated delete: every one of them lands here, and "Files changed since verification"
+        // would state as fact something the guard never established.
         guard fileOperationsEpoch == verifiedIdenticalForCopyEpoch else {
             verifiedIdenticalForCopy = nil
-            banner = .warning("Files changed since verification — run Verify All again")
+            banner = .warning("A file operation ran since verification — run Verify All again")
             return nil
         }
         verifiedIdenticalForCopy = nil
