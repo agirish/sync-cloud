@@ -121,8 +121,8 @@ enum CloudDownloadPoll {
         _ request: CloudDownloadRequest,
         attempts: Int = attempts,
         interval: Duration = interval,
-        isCloudOnly: @Sendable (String) async -> Bool = { path in
-            await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        isCloudOnly: @Sendable (String) async -> Bool? = { path in
+            await Task.detached { MaterializationStatus.isCloudOnlyIfKnown(atPath: path) }.value
         },
         latch: @MainActor () -> CloudDownloadRequest?
     ) async -> Bool {
@@ -132,13 +132,21 @@ enum CloudDownloadPoll {
         CloudOnlyBadgeCache.forget(request.path)
         let landed = await run(path: request.path, attempts: attempts, interval: interval,
                                isCloudOnly: isCloudOnly)
-        // Only on landing. A watch that ran out of attempts observed nothing new — writing
-        // anything there would claim the file had materialized when the badge should stay.
+        // Only on landing, and landing means a DEFINITE "not a placeholder" — see `run`. A watch
+        // that ran out of attempts observed nothing new, and writing anything there would claim the
+        // file had materialized when the badge should stay.
         if landed { CloudOnlyBadgeCache.record(request.path, isCloudOnly: false) }
         return request.concludes(latch: latch())
     }
 
     /// Polls until the content lands or the attempts run out. Returns whether it landed.
+    ///
+    /// **Landed means a DEFINITE "not a placeholder".** The probe answers nil when the path cannot
+    /// be statted at all, and that is not an arrival — a file deleted mid-download reads exactly
+    /// that way, and treating it as materialized had the watch record local content for a path with
+    /// no file behind it. A nil keeps polling (the provider may be momentarily unreachable) and, if
+    /// every attempt is nil, the watch ends having observed nothing, which is the honest result: the
+    /// badge stays and the memo is left alone.
     ///
     /// `isCloudOnly` is injectable for the same reason `CloudOnlyBadgeCache.isCloudOnly`'s stat is:
     /// the real one is a detached `lstat` against a provider, and a test needs the loop without the
@@ -147,8 +155,8 @@ enum CloudDownloadPoll {
         path: String,
         attempts: Int = attempts,
         interval: Duration = interval,
-        isCloudOnly: @Sendable (String) async -> Bool = { path in
-            await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        isCloudOnly: @Sendable (String) async -> Bool? = { path in
+            await Task.detached { MaterializationStatus.isCloudOnlyIfKnown(atPath: path) }.value
         }
     ) async -> Bool {
         for _ in 0..<attempts {
@@ -157,7 +165,7 @@ enum CloudDownloadPoll {
             guard (try? await Task.sleep(for: interval)) != nil else { return false }
             let stillCloudOnly = await isCloudOnly(path)
             if Task.isCancelled { return false }
-            if !stillCloudOnly { return true }
+            if stillCloudOnly == false { return true }
         }
         return false
     }

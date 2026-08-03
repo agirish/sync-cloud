@@ -142,6 +142,37 @@ import Foundation
         #expect(await probes.count == 4)
     }
 
+    /// A path that cannot be statted is not a landing.
+    ///
+    /// `lstat` reports "not dataless" and "not there" through the same failure, and the poll used to
+    /// read a bare `false` as YES — so a file deleted mid-download counted as materialized, and the
+    /// watch recorded local content for a path with no file behind it. The probe answers nil for
+    /// that now, the poll keeps going, and a run of nothing but nils ends having observed nothing.
+    @Test func aProbeThatCannotAnswerIsNotALanding() async {
+        let probes = Probes()
+        let landed = await CloudDownloadPoll.run(path: Self.path, attempts: 3, interval: .zero,
+                                                 isCloudOnly: { _ in _ = await probes.record(); return nil })
+
+        #expect(!landed, "an unstattable path was reported as materialized")
+        #expect(await probes.count == 3, "the poll gave up instead of trying again")
+    }
+
+    /// And the real probe answers nil for a path that is not there — the production default, not an
+    /// injected stand-in, because that mapping is the whole of this fix.
+    @MainActor
+    @Test func aVanishedPathLeavesNothingInTheMemo() async {
+        let gone = "/iCloud/vanished-\(UUID().uuidString).mov"
+        CloudOnlyBadgeCache.record(gone, isCloudOnly: true)
+        let request = CloudDownloadRequest(path: gone, paneToken: .left)
+
+        // Default `isCloudOnly`, so this runs `MaterializationStatus.isCloudOnlyIfKnown` for real.
+        _ = await CloudDownloadPoll.watch(request, attempts: 2, interval: .milliseconds(5),
+                                          latch: { request })
+
+        #expect(CloudOnlyBadgeCache.cached(gone) == nil,
+                "the watch recorded an answer about a path with no file behind it")
+    }
+
     /// Cancellation reports no landing rather than a false one. The interval is a minute: without
     /// the cancellation this test could not finish, which is the assertion behind the assertion.
     @Test func aCancelledPollReportsNoLanding() async {
