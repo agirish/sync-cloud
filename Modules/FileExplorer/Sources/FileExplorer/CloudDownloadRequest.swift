@@ -12,6 +12,19 @@ import Sync
 /// Derived from the two facts a pane surface already carries (`isLeft` / `isSingleSource`) rather
 /// than a fresh identity object, so the posting context menu and the receiving pane — separate
 /// views with no shared state — compute the same token from the same inputs.
+///
+/// **The accepted cost: a twin row keeps its badge until the next republish.** The very case that
+/// motivates the scoping — both panes showing the same folder — is also the case where it shows.
+/// Pane A requests a download, A's watch records `isCloudOnly: false` into the process-wide memo
+/// when the content lands, and A's row re-reads it because the conclusion re-keys that row's badge
+/// task. B ignored the request, so nothing re-keys B's row: it goes on rendering the `true` its own
+/// stat resolved, and the two panes disagree on screen about one file until B republishes.
+///
+/// Left as is, deliberately. Closing it means either the un-scoped post this token replaced (twin
+/// watches, twin forgets, a memo generation bump per download app-wide) or making the row's badge
+/// key depend on the memo's generation — which re-keys EVERY realized row in both panes on every
+/// forget, so one download would re-stat the whole visible list, twice over. Both cost more than a
+/// stale badge on the pane the user is not acting in, and the badge is one republish from correct.
 enum PaneToken: Equatable, Sendable {
     /// The left comparison pane.
     case left

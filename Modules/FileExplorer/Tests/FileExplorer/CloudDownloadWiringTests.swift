@@ -157,48 +157,56 @@ import Sync
     /// absolute path can be on screen twice, and the pane that did NOT ask must not start a second
     /// watch (nor a second `forget`, which invalidates every in-flight badge stat in both panes).
     @Test func aPaneIgnoresTheOtherPanesRequest() async {
-        let ghost = "/wiring/left/ignored.bin"
-        CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _) = mount(isLeft: true, currentPath: "/wiring/left")
-        defer { teardown(window) }
-        CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
-
-        post(ghost, from: .right)
-
-        // Given the positive control above, "still holding after a full settle window" means the
-        // post was ignored rather than merely slow.
-        await settle(window, timeout: 1) { CloudOnlyBadgeCache.cached(ghost) != true }
-        #expect(CloudOnlyBadgeCache.cached(ghost) == true)
+        await expectIgnored(mounting: (isLeft: true, isSingleSource: false),
+                            at: "/wiring/left", from: .right, whileTaking: .left)
     }
 
     /// And in the other direction, which is what tells a correct receiver apart from one hardcoded
     /// to `.left`.
     @Test func theRightPaneIgnoresTheLeftPanesRequest() async {
-        let ghost = "/wiring/right/ignored.bin"
-        CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _) = mount(isLeft: false, currentPath: "/wiring/right")
-        defer { teardown(window) }
-        CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
-
-        post(ghost, from: .left)
-
-        await settle(window, timeout: 1) { CloudOnlyBadgeCache.cached(ghost) != true }
-        #expect(CloudOnlyBadgeCache.cached(ghost) == true)
+        await expectIgnored(mounting: (isLeft: false, isSingleSource: false),
+                            at: "/wiring/right", from: .left, whileTaking: .right)
     }
 
     /// The Tidy rail is a third surface, not the left pane: it passes `isLeft: true`, and taking
     /// the left pane's posts would have it watch downloads from a provider it is not showing.
     @Test func theSingleSourceRailIgnoresTheLeftPanesRequest() async {
-        let ghost = "/wiring/rail/ignored.bin"
+        await expectIgnored(mounting: (isLeft: true, isSingleSource: true),
+                            at: "/wiring/rail", from: .left, whileTaking: .singleSource)
+    }
+
+    /// Mounts a pane at `root`, posts one request it must IGNORE and then one it must TAKE, and
+    /// asserts the first path is untouched once the second has been acted on.
+    ///
+    /// **The absence is bounded by the second post, not by a clock.** It used to be a 1s settle,
+    /// which is the trap this repo has documented repeatedly: under the loads recorded here —
+    /// deferred main-queue work landing 13s late — a wrongly ACCEPTED post whose `forget` arrives
+    /// after the window closes passes the test with the defect fully present, and nothing would ever
+    /// flag it. The two posts are delivered in order and each watch's `forget` is the first thing its
+    /// task does, so a `forget` for the ignored path would necessarily have happened BEFORE the one
+    /// this waits for. Seeing the second means the first has had its chance.
+    ///
+    /// The taken post doubles as the positive control: a pane that had stopped watching its own
+    /// requests altogether fails here rather than passing the absence vacuously.
+    private func expectIgnored(mounting surface: (isLeft: Bool, isSingleSource: Bool),
+                               at root: String, from ignoredToken: PaneToken,
+                               whileTaking takenToken: PaneToken) async {
+        let ignored = "\(root)/ignored.bin"
+        let taken = "\(root)/taken.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _) = mount(isLeft: true, isSingleSource: true, currentPath: "/wiring/rail")
+        let (window, _) = mount(isLeft: surface.isLeft, isSingleSource: surface.isSingleSource,
+                                currentPath: root)
         defer { teardown(window) }
-        CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
+        CloudOnlyBadgeCache.record(ignored, isCloudOnly: true)
+        CloudOnlyBadgeCache.record(taken, isCloudOnly: true)
 
-        post(ghost, from: .left)
+        post(ignored, from: ignoredToken)
+        post(taken, from: takenToken)
 
-        await settle(window, timeout: 1) { CloudOnlyBadgeCache.cached(ghost) != true }
-        #expect(CloudOnlyBadgeCache.cached(ghost) == true)
+        #expect(await settle(window) { CloudOnlyBadgeCache.cached(taken) != true },
+                "the pane never acted on its OWN request — the absence below proves nothing")
+        #expect(CloudOnlyBadgeCache.cached(ignored) == true,
+                "the pane acted on \(ignoredToken)'s request")
     }
 
     // MARK: - Two downloads at once
