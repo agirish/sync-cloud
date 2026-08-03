@@ -1231,6 +1231,82 @@ import Sync
                 "a vertical gesture in pane A reverted pane B's own scroll — B's reveal is defeated again")
     }
 
+    /// The question the pane's reveal asks before it scrolls — `PaneColumnHoldGate.isStackHeld` —
+    /// must be the SCOPED one, per stack, exactly like the revert it exists to avoid.
+    ///
+    /// Nothing else can kill an unscoped simplification of it. The mounted reveal test proves the
+    /// gate defers a reveal in the gesture's OWN pane, and would pass just as happily if the gate
+    /// asked the app-wide query — at which point a flick in one pane would stall the other pane's
+    /// reveal for the whole momentum tail, which is the cross-pane coupling
+    /// `shouldHoldHorizontalDrift(for:)` was added to remove (from the revert's side then, from
+    /// the reveal's side now).
+    ///
+    /// Pane A answering true is what keeps pane B's false from being a vacuous absence.
+    @Test func testTheRevealsHoldQuestionIsScopedToItsOwnPane() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        defer { _ = window }
+        let lock = WheelGestureTracker()
+        func addPane(x: CGFloat) -> (clip: NSClipView, gate: PaneColumnHoldGate) {
+            let scroller = NSScrollView(frame: NSRect(x: x, y: 0, width: 200, height: 100))
+            let clip = StrandableClipView()
+            clip.automaticallyAdjustsContentInsets = false
+            scroller.contentView = clip
+            scroller.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+            let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+            watchdog.axisLock = lock
+            let gate = PaneColumnHoldGate()
+            watchdog.holdGate = gate
+            scroller.documentView?.addSubview(watchdog)
+            window.contentView?.addSubview(scroller)
+            return (clip, gate)
+        }
+        let paneA = addPane(x: 0)
+        let paneB = addPane(x: 260)
+        await pump(seconds: 0.3)
+
+        // Before any gesture, neither pane defers a reveal.
+        #expect(!paneA.gate.isStackHeld && !paneB.gate.isStackHeld,
+                "a stack reported held with no gesture in flight — every reveal would be deferred")
+
+        // A vertical drag in pane A, dated ahead of the wall clock so the hold cannot lapse
+        // mid-test (the shape the enforcement tests above use).
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        let inA = paneA.clip.convert(NSPoint(x: 20, y: 20), to: nil)
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                    window: window, locationInWindow: inA, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                    window: window, locationInWindow: inA, at: ahead + 0.01)
+
+        #expect(paneA.gate.isStackHeld,
+                "the gesture's own pane did not report held — its reveal will be issued into the hold and reverted")
+        #expect(!paneB.gate.isStackHeld,
+                "a gesture in pane A held pane B's gate — B's reveal is stalled by a flick it has nothing to do with")
+    }
+
+    /// A gate with no watchdog — or one whose watchdog has not resolved a scroll view yet — must
+    /// read as NOT held. There is nothing to revert in that state, so a reveal has nothing to lose
+    /// by going ahead, and a gate that failed CLOSED would defer every reveal made before the
+    /// ancestor walk lands.
+    @Test func testAnUnresolvedGateNeverDefersAReveal() throws {
+        let gate = PaneColumnHoldGate()
+        #expect(!gate.isStackHeld, "a gate with no watchdog reported held — every reveal would wait")
+
+        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        let lock = WheelGestureTracker()
+        watchdog.axisLock = lock
+        watchdog.holdGate = gate
+        // Unattributed and vertical: the lock holds EVERYWHERE, so only the missing scroll view
+        // can make this false.
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: ahead + 0.01)
+        try #require(lock.shouldHoldHorizontalDrift(for: NSView()),
+                     "the fixture's own lock is not holding — the gate's false below proves nothing")
+        #expect(!gate.isStackHeld,
+                "a watchdog that has resolved no scroll view reported held — reveals would wait on a stack it is not guarding")
+    }
+
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {
         let (window, clip, watchdog, lock) = mount()
         defer { _ = window }

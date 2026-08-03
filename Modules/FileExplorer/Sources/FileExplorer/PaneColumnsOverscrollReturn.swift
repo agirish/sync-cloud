@@ -194,6 +194,32 @@ final class WheelGestureTracker {
     }
 }
 
+/// A pane's handle on the overscroll watchdog mounted inside its own column stack, so the pane's
+/// reveal can ask whether THAT stack is currently held by the axis lock.
+///
+/// Why a handle at all, rather than asking `WheelGestureTracker.shared` outright: the lock is
+/// app-wide and the question is per-pane. Only `shouldHoldHorizontalDrift(for:)` scopes it, and
+/// that needs a view inside the stack in question — which a SwiftUI `View` does not have and the
+/// watchdog does. Asking the UNSCOPED query instead would make a flick in one pane defer the other
+/// pane's reveal, re-creating from the reveal's side exactly the cross-pane coupling the scoped
+/// query was added to remove.
+///
+/// Deliberately not `ObservableObject`: nothing here drives a re-render. It is a one-way pointer
+/// the watchdog registers itself in, read once per reveal attempt.
+@MainActor
+final class PaneColumnHoldGate {
+    /// `nonisolated` so `@State`'s initializer — which runs outside the actor — can build one.
+    nonisolated init() {}
+
+    /// The watchdog mounted in this pane's stack, re-registered on every SwiftUI update pass.
+    /// Weak, so a torn-down pane's watchdog cannot be kept alive by its gate; `nil` reads as NOT
+    /// held, which is what the reveal did before this existed.
+    fileprivate weak var watchdog: PaneColumnsOverscrollReturn.WatchdogView?
+
+    /// Whether a hold-worthy wheel gesture is in flight inside this pane's own stack right now.
+    var isStackHeld: Bool { watchdog?.isStackHeld ?? false }
+}
+
 /// Returns the column stack from an overscrolled position when the platform fails to.
 ///
 /// The stack is a horizontal `ScrollView` whose children are `List`s — nested scroll views. Wheel
@@ -217,15 +243,33 @@ final class WheelGestureTracker {
 /// resolves that scroll view and not a column's list — a column's scroll view hosts an
 /// `NSTableView` as its document, the stack's does not.
 struct PaneColumnsOverscrollReturn: NSViewRepresentable {
-    func makeNSView(context: Context) -> WatchdogView { WatchdogView() }
+    /// This pane's handle on the watchdog mounted below — see `PaneColumnHoldGate`. `nil` for the
+    /// synthetic suites that build a `WatchdogView` directly.
+    var holdGate: PaneColumnHoldGate?
+
+    func makeNSView(context: Context) -> WatchdogView {
+        let view = WatchdogView()
+        view.holdGate = holdGate
+        return view
+    }
     /// A SwiftUI update can rebuild the scroll view under us, so re-resolve rather than trusting
-    /// one pass.
-    func updateNSView(_ view: WatchdogView, context: Context) { view.rearm() }
+    /// one pass. The gate is re-attached on every pass for the same reason: a remount hands the
+    /// pane a different `WatchdogView`, and a gate still pointing at the old one would answer for
+    /// a stack that is no longer on screen.
+    func updateNSView(_ view: WatchdogView, context: Context) {
+        view.holdGate = holdGate
+        view.rearm()
+    }
 
     final class WatchdogView: NSView {
         /// The gesture-axis lock the snap consults. `.shared` in the app; tests inject their own
         /// and drive it directly.
         var axisLock: WheelGestureTracker = .shared
+        /// The pane's handle on this watchdog, so `PaneColumnsView.revealDeepestColumn` can ask
+        /// the scoped hold question before it scrolls. Assigned by the representable.
+        var holdGate: PaneColumnHoldGate? {
+            didSet { holdGate?.watchdog = self }
+        }
         /// The stack's horizontal rest, updated on every bounds change made OUTSIDE a
         /// vertical-dominant gesture. While one is in flight, this is the position the stack is
         /// held at — the leak-snap below reverts any drift straight back to it.
@@ -318,6 +362,19 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             ]
             observedScroller = scroller
             restX = clip.bounds.origin.x
+        }
+
+        /// Whether a hold-worthy wheel gesture is in flight in THIS stack right now — the exact
+        /// question `holdAgainstVerticalGestureLeak` asks before it schedules a revert, exposed so
+        /// the pane's reveal can ask it BEFORE it scrolls rather than discovering the answer as a
+        /// reverted scroll it never retries.
+        ///
+        /// False while nothing is resolved yet: with no observed scroller there is no revert
+        /// either, so a reveal has nothing to lose by going ahead — the same fail-open the reveal
+        /// had before this existed.
+        var isStackHeld: Bool {
+            guard let scroller = observedScroller else { return false }
+            return axisLock.shouldHoldHorizontalDrift(for: scroller.contentView)
         }
 
         /// The axis lock's enforcement: while a vertical-dominant wheel gesture is in flight, the
