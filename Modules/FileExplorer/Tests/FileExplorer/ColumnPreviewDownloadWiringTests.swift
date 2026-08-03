@@ -1,0 +1,252 @@
+import AppKit
+import Design
+import Quartz
+import SwiftUI
+import Sync
+import Testing
+import UniformTypeIdentifiers
+@testable import FileExplorer
+
+/// The preview column's half of a download, mounted through the real pane.
+///
+/// Everything below the pane was tested and everything above it was tested; the three expressions
+/// joining them were not, and all three survived deletion:
+///
+/// - `ColumnPreviewColumn(… paneToken:)` — the argument was optional with a `nil` default, and
+///   `requestDownload` downgraded nil to "requested, unwatched" behind a debug log. Deleting it
+///   compiled and left the suite green while every preview-started download lost its watch. That
+///   one is now a compile error (the property has no default), which is why no test here can fail
+///   for it.
+/// - `ColumnPreviewColumn(… awaitingDownloadPath:)` — deleting it leaves the column sitting on its
+///   pre-download answer for good: no "Downloading…", and no re-probe when the content lands. That
+///   is what `thePaneWatchIsWhatTellsThePreviewTheFileArrived` fails on.
+/// - `PaneColumnsView.paneToken` — a send hardcoded to `.left` routes every preview-started
+///   download to the left pane. `PaneColumnsView` derives it from the same two facts `FileTreeView`
+///   derives its receiving token from, and the derivation is pinned below.
+///
+/// **What no test here can reach, and why.** Clicking the column's own Download button. It renders
+/// only for a `.cloudOnly` probe, and `requestDownload` then calls
+/// `MaterializationStatus.download` — which throws for every provider but iCloud and falls back to
+/// `NSWorkspace.activateFileViewerSelecting`, i.e. it opens Finder on the test machine. So the
+/// button's `paneToken` argument is proven by the type system (no default to fall back to) and its
+/// value by the derivation test, not by a click.
+///
+/// The probe is injected through the environment (`ColumnPreviewProbeReader`) because `.cloudOnly`
+/// is otherwise unreachable: `SF_DATALESS` is an `SF_` system flag, settable only by root and in
+/// practice only by a File Provider. Every caption this suite reads renders in that state alone.
+///
+/// `.serialized` because the badge memo and the download notification are both process-wide.
+@MainActor
+@Suite(.serialized) struct ColumnPreviewDownloadWiringTests {
+
+    private static let root = "/download-wiring"
+
+    private struct StubDelegate: FileActionDelegate {
+        func handleRefresh() {}
+        func handleFocus(_ node: FileNode) {}
+        func handleCopy(_ nodes: [FileNode]) {}
+        func handleMove(_ nodes: [FileNode]) {}
+        func handleDelete(_ nodes: [FileNode]) {}
+        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
+        func handlePaste(_ targetDir: FileNode) {}
+        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
+        func handlePasteToPath(_ path: String) {}
+        func handleRename(_ node: FileNode) {}
+        func handleCreateFolder(at path: String) {}
+        func handleGetInfo(for path: String) {}
+        func handleSort(_ option: SortOption) {}
+        func handleIgnore(_ nodes: [FileNode]) {}
+        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
+    }
+
+    private final class Box: ObservableObject {
+        @Published var browsePath = PaneBrowsePath()
+        @Published var selection: Set<String> = []
+    }
+
+    /// What the injected probe answers, and which paths it has answered for.
+    ///
+    /// Mutable so the test can stage a materialization: `.cloudOnly` before the download,
+    /// `.quickLook` after. Main-actor isolated (and therefore `Sendable`) so the `@Sendable` reader
+    /// closure can reach it with one hop.
+    @MainActor private final class ProbeSwitch {
+        var source: ColumnPreviewSource = .cloudOnly
+        var answered: Set<String> = []
+    }
+
+    /// The whole pane, in Columns mode, exactly as `ContentView` mounts it — so the notification
+    /// subscription, the latch, the hand-off to `PaneColumnsView` and the hand-off from there to the
+    /// preview column are all the app's own code rather than arguments this test supplied.
+    private struct Harness: View {
+        @ObservedObject var box: Box
+        let tree: PaneTree
+        let index: PaneChildrenIndex
+        let isLeft: Bool
+        let defaults: UserDefaults
+        let probe: ProbeSwitch
+
+        var body: some View {
+            let probe = self.probe
+            return FileTreeView(
+                tree: tree,
+                otherTree: PaneTree(side: isLeft ? .right : .left, version: 1, nodes: []),
+                isLoading: false, currentPath: ColumnPreviewDownloadWiringTests.root,
+                selection: $box.selection, otherSelection: [],
+                isLeft: isLeft, delegate: StubDelegate(),
+                viewMode: .columns, childrenIndex: index, browsePath: $box.browsePath
+            )
+            .defaultAppStorage(defaults)
+            .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
+                await MainActor.run {
+                    probe.answered.insert(path)
+                    return ColumnPreviewProbe(source: probe.source, created: nil)
+                }
+            })
+        }
+    }
+
+    private static func tree() -> PaneTree {
+        PaneTree(side: .left, version: 1, nodes: [
+            FileNode(id: "\(root)/movie.mov", name: "movie.mov", isDirectory: false,
+                     fileSize: 4_000_000_000, kind: UTType.quickTimeMovie.identifier),
+        ])
+    }
+
+    /// A pane with the one file selected, so the preview column is up and showing it.
+    private func mount(isLeft: Bool, probe: ProbeSwitch = ProbeSwitch()) -> (window: NSWindow, host: NSView) {
+        let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
+        defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
+        defaults.set(Double(PaneViewMode.defaultColumnWidth),
+                     forKey: PaneViewMode.columnWidthDefaultsKey)
+        defaults.set(Double(PaneViewMode.defaultPreviewColumnWidth),
+                     forKey: PaneViewMode.previewColumnWidthDefaultsKey)
+        let box = Box()
+        box.selection = ["\(Self.root)/movie.mov"]
+        let tree = Self.tree()
+        let host = NSHostingView(rootView: Harness(
+            box: box, tree: tree, index: PaneChildrenIndex(tree: tree, treeRoot: Self.root),
+            isLeft: isLeft, defaults: defaults, probe: probe))
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.layoutIfNeeded()
+        return (window, host)
+    }
+
+    /// Every path a live `QLPreviewView` in the tree is previewing.
+    ///
+    /// **The observation channel, and it is the only one available.** The captions are the obvious
+    /// thing to read — "Not downloaded" against "Downloading…" — but SwiftUI builds no accessibility
+    /// tree at all unless an assistive client is attached to the process, so `accessibilityChildren()`
+    /// on a hosted pane comes back empty under `swift test` and every caption assertion would pass
+    /// vacuously. An `NSViewRepresentable` is real AppKit and is simply there in the subtree, which
+    /// makes the Quick Look mount readable.
+    ///
+    /// It is not a proxy for the caption either; it is the OTHER half of the same wiring, and the
+    /// half with teeth. `ColumnPreviewColumn` re-probes on the FALLING edge of `isWatchingDownload`
+    /// — the pane's watch concluding is what tells a downloaded file it may be previewed — so a
+    /// mount here proves the latch reached this column, went true, and went false again. Threading
+    /// that is dead (the argument deleted, or a constant `nil`) never raises the edge and never
+    /// re-probes: the column sits on its pre-download answer forever, which is exactly the shipped
+    /// symptom.
+    private func quickLookPaths(in root: NSView) -> [String] {
+        var found: [String] = []
+        func walk(_ view: NSView) {
+            if let preview = view as? QLPreviewView,
+               let url = (preview.previewItem as? NSURL) as URL? {
+                found.append(url.path)
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return found
+    }
+
+    @discardableResult
+    private func wait(_ window: NSWindow, upTo seconds: Double,
+                      for condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            window.layoutIfNeeded()
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        window.layoutIfNeeded()
+        return condition()
+    }
+
+    /// A one-shot flag a queued block can set — the queue is the bound, not the clock.
+    private final class Marker {
+        var fired = false
+    }
+
+    // MARK: - The latch reaches the preview column
+
+    /// A download this pane started is watched by this pane, and the preview column showing that
+    /// file learns when the watch ends.
+    ///
+    /// The file answers `.cloudOnly` until the request goes out and `.quickLook` afterwards — a
+    /// materialization, staged. The column may only notice it by way of the pane's latch: its probe
+    /// re-runs on `probeGeneration`, and nothing else bumps that. So the Quick Look mount at the end
+    /// is the whole chain reporting in — `CloudDownloadRequest.post` → the pane's scoped
+    /// `.onReceive` → `awaitingDownload` → `PaneColumnsView(awaitingDownload:)` →
+    /// `ColumnPreviewColumn(awaitingDownloadPath:)` → the falling edge → the re-probe.
+    ///
+    /// Delete the `awaitingDownloadPath:` argument at `PaneColumnsView.swift`'s preview call site
+    /// and this is the test that goes red; the rest of the target stays green, which is how the
+    /// threading shipped unproven.
+    @Test func thePaneWatchIsWhatTellsThePreviewTheFileArrived() async {
+        let path = "\(Self.root)/movie.mov"
+        let probe = ProbeSwitch()
+        let (window, host) = mount(isLeft: true, probe: probe)
+        defer { withExtendedLifetime(window) {} }
+
+        // The resting state: a cloud-only placeholder is never handed to Quick Look.
+        let settled = await wait(window, upTo: 10) { probe.answered.contains(path) }
+        #expect(settled, "the column never probed its file — nothing below can be observed")
+        #expect(!quickLookPaths(in: host).contains(path))
+
+        // The content lands. On its own this changes nothing on screen: the column has no reason to
+        // ask again, and a probe that re-ran for any other reason would make the mount below prove
+        // nothing about the latch.
+        probe.source = .quickLook
+        let idle = Marker()
+        DispatchQueue.main.async { MainActor.assumeIsolated { idle.fired = true } }
+        var remountedUnprompted = false
+        _ = await wait(window, upTo: 10) {
+            if quickLookPaths(in: host).contains(path) { remountedUnprompted = true }
+            return idle.fired
+        }
+        #expect(!remountedUnprompted, "the column re-probed without the pane's watch concluding")
+
+        CloudDownloadRequest.post(path: path, from: .left)
+
+        // `CloudDownloadPoll` is bounded by `attempts × interval`, so this cannot hang on a pane
+        // that simply never concludes; it fails instead.
+        #expect(await wait(window, upTo: 30) { quickLookPaths(in: host).contains(path) },
+                "the pane's watch never reached the preview column showing that file")
+    }
+
+    // MARK: - The token the column sends with
+
+    /// `PaneColumnsView` sends from the pane it IS. Hardcoded to `.left`, every preview-started
+    /// download in the app would be watched by the left pane — the exact defect the pane-scoped
+    /// payload exists to prevent, arriving from the sending side instead of the receiving one.
+    @Test(arguments: [(true, false, PaneToken.left), (false, false, .right), (true, true, .singleSource)])
+    func thePreviewColumnSendsFromItsOwnPane(isLeft: Bool, isSingleSource: Bool,
+                                             expected: PaneToken) {
+        let tree = Self.tree()
+        let view = PaneColumnsView(
+            tree: tree, otherTree: PaneTree(side: .right, version: 1, nodes: []),
+            childrenIndex: PaneChildrenIndex(tree: tree, treeRoot: Self.root), treeRoot: Self.root,
+            browsePath: .constant(PaneBrowsePath()), onNavigate: { _ in },
+            selection: .constant([]), otherSelection: [], isLeft: isLeft,
+            delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+            isSingleSource: isSingleSource, density: .compact, isActivePane: true,
+            placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
+            onBackgroundDeselect: { _ in })
+        #expect(view.paneToken == expected)
+    }
+}
