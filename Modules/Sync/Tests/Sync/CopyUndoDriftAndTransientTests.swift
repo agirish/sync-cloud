@@ -71,8 +71,16 @@ import Events
         // Redo must skip the refused item: nothing is re-copied over the drifted survivor.
         manager.banner = nil
         manager.undoManager?.redo()
+        // The drain is the whole gate, and it is a real one rather than quiescence that cannot
+        // tell "finished" from "not started": `registerCopyRedo`'s handler runs synchronously
+        // inside `redo()` and calls `preCountFileOperation()` BEFORE spawning its Task, so the
+        // count is already above zero by the time this line runs — unconditionally, even when
+        // the redo has no params to act on. `enqueueFileOperation` decrements only after its
+        // body has run to completion, so a count back at zero means the redo's copy loop
+        // finished. A flat 200ms sleep used to follow this wait; it was guarding an absence with
+        // a guessed window (mechanism 2), and it guarded nothing the drain had not already
+        // settled.
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
-        try await Task.sleep(nanoseconds: 200_000_000)
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 777)
     }
 

@@ -75,9 +75,12 @@ import Foundation
         await waitUntil("redo re-trashes the restored item") {
             mockFM.virtualDisk["/docs/notes.txt"] == nil
         }
+        // Draining IS "the loop finished", so no beat is needed after it: `registerTrashItems`'
+        // handler runs synchronously inside `redo()` and pre-counts the operation before spawning
+        // its Task, and `enqueueFileOperation` decrements only once its body has returned. A flat
+        // 300ms used to follow this line — a guessed window guarding an absence assertion
+        // (mechanism 2), which is the shape that goes vacuous rather than merely slow.
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
-        // Give the enqueued redo task a beat to finish its loop.
-        try await Task.sleep(nanoseconds: 300_000_000)
 
         #expect(mockFM.virtualDisk["/docs/report.pdf"] != nil,
                 "redo after a refused undo must not trash the unrelated occupant")
