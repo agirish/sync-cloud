@@ -72,7 +72,7 @@ import UniformTypeIdentifiers
             let cloudOnlyPath = self.cloudOnlyPath
             let heldFor = self.heldFor
             let log = self.log
-            return ColumnPreviewColumn(item: box.item, paneToken: .left)
+            return ColumnPreviewColumn(item: box.item, paneToken: .left, isAwaitingDownload: false)
                 .frame(width: 420, height: 520)
                 .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                     let isCloudOnly = path == cloudOnlyPath
@@ -154,7 +154,7 @@ import UniformTypeIdentifiers
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        defer { withExtendedLifetime(window) {} }
+        defer { window.contentView = nil }
 
         // Settle on a previewable file — the only state the defect needs, and the one that gives
         // this test a live `QLPreviewView` to watch.

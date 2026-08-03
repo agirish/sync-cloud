@@ -79,8 +79,8 @@ struct CloudDownloadRoutingTests {
         let second = CloudDownloadRequest(path: path, paneToken: .left)
 
         let idle = FileRowView.BadgeID(path: path, awaitingDownloadID: nil)
-        let watchingFirst = FileRowView.BadgeID(path: path, awaitingDownloadID: first.idIfWatching(path))
-        let watchingSecond = FileRowView.BadgeID(path: path, awaitingDownloadID: second.idIfWatching(path))
+        let watchingFirst = FileRowView.BadgeID(path: path, awaitingDownloadID: first.requestID)
+        let watchingSecond = FileRowView.BadgeID(path: path, awaitingDownloadID: second.requestID)
 
         // Arming the watch re-resolves the badge, and so does concluding it (idle → watching → idle).
         #expect(idle != watchingFirst)
@@ -90,20 +90,24 @@ struct CloudDownloadRoutingTests {
     }
 
     /// A row the pane is not watching keeps a stable key, so nothing re-stats while another file
-    /// downloads.
-    @Test func anUnwatchedRowsBadgeKeyIsStable() {
-        let request = CloudDownloadRequest(path: "/iCloud/big.mov", paneToken: .left)
-        let other = "/iCloud/notes.txt"
-
-        #expect(FileRowView.BadgeID(path: other, awaitingDownloadID: request.idIfWatching(other))
-                == FileRowView.BadgeID(path: other, awaitingDownloadID: nil))
-    }
-
-    /// Only the requested file's row watches; every other row sees nil.
-    @Test func onlyTheRequestedPathIsWatched() {
+    /// downloads — and only the requested file's row watches.
+    ///
+    /// The lookup is the pane's own: `PaneDownloadWatch` is keyed by path, and the row is handed
+    /// `requests[node.id]?.requestID`, so "is this row's file being downloaded" is a dictionary hit
+    /// rather than a comparison a caller could get backwards.
+    @MainActor @Test func onlyTheRequestedPathIsWatched() {
+        let watch = PaneDownloadWatch { _, _ in
+            // Never concludes within this test; nothing here waits on it.
+            _ = try? await Task.sleep(for: .seconds(5))
+            return false
+        }
         let request = CloudDownloadRequest(path: "/iCloud/report.pdf", paneToken: .right)
+        watch.begin(request)
 
-        #expect(request.idIfWatching("/iCloud/report.pdf") == request.requestID)
-        #expect(request.idIfWatching("/iCloud/other.pdf") == nil)
+        #expect(watch.request(forPath: "/iCloud/report.pdf")?.requestID == request.requestID)
+        #expect(watch.request(forPath: "/iCloud/other.pdf") == nil)
+        #expect(FileRowView.BadgeID(path: "/iCloud/other.pdf",
+                                    awaitingDownloadID: watch.request(forPath: "/iCloud/other.pdf")?.requestID)
+                == FileRowView.BadgeID(path: "/iCloud/other.pdf", awaitingDownloadID: nil))
     }
 }
