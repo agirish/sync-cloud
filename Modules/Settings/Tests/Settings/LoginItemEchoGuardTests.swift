@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import Settings
 
 /// Pins `LoginItemEchoGuard` — the launch-at-login toggle's echo/reconcile state machine.
@@ -9,6 +10,11 @@ import Testing
 /// 113/113 green, which is how a double-fire shipped in it.
 @Suite struct LoginItemEchoGuardTests {
 
+    /// A pinned instant for the direct-guard tests. The guard's decisions are now dated (a
+    /// round-trip's claim expires — see `roundTripGoesStaleAfter`), and a test that read the real
+    /// clock would be judging itself against wall time it does not control.
+    private let t0 = Date(timeIntervalSince1970: 1_000_000)
+
     // MARK: - The echo guard
 
     @Test func theFirstMoveOfTheSwitchIsAlwaysAGesture() {
@@ -16,16 +22,16 @@ import Testing
         // (the getter is a synchronous XPC call), so the user can reach the switch first.
         let guardState = LoginItemEchoGuard()
 
-        #expect(guardState.shouldStartRoundTrip(for: true))
-        #expect(guardState.shouldStartRoundTrip(for: false))
+        #expect(guardState.shouldStartRoundTrip(for: true, at: t0))
+        #expect(guardState.shouldStartRoundTrip(for: false, at: t0))
     }
 
     @Test func aProgrammaticSetIsSwallowed() {
         var guardState = LoginItemEchoGuard()
         guardState.markApplied(true)
 
-        #expect(!guardState.shouldStartRoundTrip(for: true), "the initial read's own write must not register as a flip")
-        #expect(guardState.shouldStartRoundTrip(for: false), "but moving away from it is a real gesture")
+        #expect(!guardState.shouldStartRoundTrip(for: true, at: t0), "the initial read's own write must not register as a flip")
+        #expect(guardState.shouldStartRoundTrip(for: false, at: t0), "but moving away from it is a real gesture")
     }
 
     // MARK: - Settling a finished round-trip
@@ -33,14 +39,19 @@ import Testing
     @Test func aSuccessWithAStillSwitchIsDone() {
         var guardState = LoginItemEchoGuard()
 
-        #expect(guardState.settle(applied: true, toggle: true, succeeded: true) == .settled)
+        let token = guardState.beginRoundTrip(at: t0)
+
+        #expect(guardState.settle(token: token, applied: true, toggle: true, succeeded: true)
+                == .settled)
     }
 
     @Test func aFailureWithAStillSwitchAdoptsTheServiceState() {
         // Nothing was overwritten, so the UI must stop claiming a state the system rejected.
         var guardState = LoginItemEchoGuard()
 
-        #expect(guardState.settle(applied: true, toggle: true, succeeded: false)
+        let token = guardState.beginRoundTrip(at: t0)
+
+        #expect(guardState.settle(token: token, applied: true, toggle: true, succeeded: false)
                 == .adoptServiceState)
     }
 
@@ -49,7 +60,9 @@ import Testing
         // is the only thing left to act on it.
         var guardState = LoginItemEchoGuard()
 
-        #expect(guardState.settle(applied: true, toggle: false, succeeded: true)
+        let token = guardState.beginRoundTrip(at: t0)
+
+        #expect(guardState.settle(token: token, applied: true, toggle: false, succeeded: true)
                 == .reapply(false, refreshApprovalHint: false))
     }
 
@@ -58,7 +71,9 @@ import Testing
         // published from it without overwriting the toggle the user just moved.
         var guardState = LoginItemEchoGuard()
 
-        #expect(guardState.settle(applied: true, toggle: false, succeeded: false)
+        let token = guardState.beginRoundTrip(at: t0)
+
+        #expect(guardState.settle(token: token, applied: true, toggle: false, succeeded: false)
                 == .reapply(false, refreshApprovalHint: true))
     }
 
@@ -66,11 +81,12 @@ import Testing
     @Test(arguments: [true, false])
     func settlingMarksTheValueApplied(_ succeeded: Bool) {
         var guardState = LoginItemEchoGuard()
-        _ = guardState.settle(applied: true, toggle: true, succeeded: succeeded)
+        let token = guardState.beginRoundTrip(at: t0)
+        _ = guardState.settle(token: token, applied: true, toggle: true, succeeded: succeeded)
 
-        #expect(!guardState.shouldStartRoundTrip(for: true),
+        #expect(!guardState.shouldStartRoundTrip(for: true, at: t0),
                 "settle must record what it pushed, or the next echo reads as a gesture")
-        #expect(guardState.shouldStartRoundTrip(for: false))
+        #expect(guardState.shouldStartRoundTrip(for: false, at: t0))
     }
 
     // MARK: - The whole loop, with the service modelled
@@ -92,6 +108,11 @@ import Testing
         }
 
         var guardState = LoginItemEchoGuard()
+        /// The clock the guard is judged against. Pinned rather than real: the staleness window
+        /// is 15s, and a test that waited it out in real time would be 15s of dead suite.
+        var now = Date(timeIntervalSince1970: 1_000_000)
+        /// Token of each started call, by id, so a completion settles as ITS OWN round-trip.
+        private var tokens: [Int: LoginItemEchoGuard.RoundTripToken] = [:]
         /// Where the switch sits — the view's `launchAtLogin`.
         var toggle: Bool
         /// Whether the modelled login item is registered right now.
@@ -115,14 +136,14 @@ import Testing
         /// The user flips the switch — the `Toggle`'s `onChange` handler.
         func flip(to value: Bool) {
             toggle = value
-            guard guardState.shouldStartRoundTrip(for: value) else { return }
+            guard guardState.shouldStartRoundTrip(for: value, at: now) else { return }
             start(value)
         }
 
         /// `updateLoginItem` — begin a round-trip.
         private func start(_ value: Bool) {
-            guardState.beginRoundTrip()
             let call = Call(id: calls.count, value: value)
+            tokens[call.id] = guardState.beginRoundTrip(at: now)
             calls.append(call)
             inFlight.append(call)
             peakConcurrency = max(peakConcurrency, inFlight.count)
@@ -143,7 +164,9 @@ import Testing
             // The failure path re-reads the service before it settles; the success path has no
             // status in hand (it publishes the approval flag the round-trip returned instead).
             let status: Bool? = succeeded ? nil : serviceRegistered
-            switch guardState.settle(applied: call.value, toggle: toggle, succeeded: succeeded) {
+            let token = tokens[call.id] ?? guardState.beginRoundTrip(at: now)
+            switch guardState.settle(
+                token: token, applied: call.value, toggle: toggle, succeeded: succeeded) {
             case .settled:
                 break
             case .adoptServiceState:
@@ -174,7 +197,7 @@ import Testing
 
         /// That read returns and publishes — if the guard still lets it.
         func landActivationRead(_ read: (status: Bool, epoch: LoginItemEchoGuard.StatusReadEpoch)) {
-            guard guardState.mayPublishStatus(readAt: read.epoch) else { return }
+            guard guardState.mayPublishStatus(readAt: read.epoch, at: now) else { return }
             adopt(read.status)
         }
 
@@ -182,6 +205,82 @@ import Testing
         func activate() {
             landActivationRead(beginActivationRead())
         }
+    }
+
+    // MARK: - A wedged round-trip must not latch the guard shut forever
+
+    /// The guard's claim is bounded, so an `smd` that never answers cannot kill the toggle.
+    ///
+    /// `settle` is the only thing that clears the claim, and the call site reaches it only after
+    /// its XPC `await` returns. A wedged `smd` therefore used to leave the guard shut for the life
+    /// of the view: every later flip swallowed (the switch MOVES and nothing happens), every
+    /// activation read dropped so the toggle could not self-correct either. That is worse than the
+    /// double-fire this type exists to fix — that one at least left a way out.
+    @MainActor
+    @Test func aWedgedRoundTripStopsBlockingOnceItsClaimGoesStale() {
+        let driver = Driver(startingRegistered: false)
+
+        driver.flip(to: true)                     // call 0 — wedges, never completes
+        #expect(driver.calls.count == 1)
+
+        // Inside the window the claim is live, so the ON -> OFF -> ON trace must still not double
+        // up. (The OFF is swallowed as an echo: it puts the toggle back where the service already
+        // is. The second ON differs from the marker, so the CLAIM is what refuses it.)
+        driver.now += LoginItemEchoGuard.roundTripGoesStaleAfter / 2
+        driver.flip(to: false)
+        driver.flip(to: true)
+        #expect(driver.calls.count == 1, "a live round-trip still carries mid-flight gestures")
+
+        // Past the window the wedged call has lost its claim, so the user gets a response.
+        driver.now += LoginItemEchoGuard.roundTripGoesStaleAfter
+        driver.flip(to: false)
+        driver.flip(to: true)
+        #expect(driver.calls.count == 2, "a stale round-trip must not swallow later gestures")
+
+        driver.complete(1, succeeded: true)
+        #expect(driver.serviceHistory == [true], "the user's position reached the service")
+        #expect(driver.toggle == driver.serviceRegistered)
+    }
+
+    /// An activation read is the only thing that can re-sync the toggle while a call is wedged,
+    /// so it is allowed through once the claim goes stale — and refused while it is still live.
+    @MainActor
+    @Test func anActivationReadIsAllowedThroughOnceTheClaimGoesStale() {
+        let driver = Driver(startingRegistered: false)
+        driver.flip(to: true)                     // call 0 — wedges
+        driver.serviceChangedExternally(to: false)
+
+        driver.activate()
+        #expect(driver.toggle, "a LIVE round-trip still owns the toggle")
+
+        driver.now += LoginItemEchoGuard.roundTripGoesStaleAfter
+        driver.activate()
+        #expect(!driver.toggle, "a stale claim must not keep the toggle out of step forever")
+    }
+
+    /// The superseded call settles into nothing. Once the wedged call has lost its claim and a
+    /// later gesture has started its own round-trip, the wedged one may still return — and must
+    /// not clear the live call's claim, move the marker, or drive the service from a decision
+    /// made against a toggle position two gestures old.
+    @MainActor
+    @Test func aSupersededRoundTripSettlesIntoNothing() {
+        let driver = Driver(startingRegistered: false)
+        driver.flip(to: true)                     // call 0 — wedges
+        driver.now += LoginItemEchoGuard.roundTripGoesStaleAfter
+        driver.flip(to: false)
+        driver.flip(to: true)                     // call 1 — supersedes it
+        #expect(driver.calls.count == 2)
+
+        driver.complete(0, succeeded: true)       // the wedged one finally returns
+
+        #expect(driver.calls.count == 2, "a superseded settle must not start a follow-up")
+        // Call 1 must still own the claim: a fresh gesture is still carried by it, not doubled.
+        driver.flip(to: false)
+        driver.flip(to: true)
+        #expect(driver.calls.count == 2, "the superseded settle must not free call 1's claim")
+
+        driver.complete(1, succeeded: true)
+        #expect(driver.toggle == driver.serviceRegistered)
     }
 
     // MARK: - The defect: on -> off -> on starts a SECOND concurrent round-trip
@@ -305,7 +404,7 @@ import Testing
         driver.activate()
 
         #expect(!driver.toggle, "an idle read is how that discovery reaches the switch")
-        #expect(!driver.guardState.shouldStartRoundTrip(for: false), "the read's own write is an echo, not a flip")
+        #expect(!driver.guardState.shouldStartRoundTrip(for: false, at: t0), "the read's own write is an echo, not a flip")
     }
 
     // MARK: - One gesture, one round-trip
@@ -372,6 +471,6 @@ import Testing
 
         #expect(driver.calls.map(\.value) == [true])
         #expect(driver.peakConcurrency == 1)
-        #expect(!driver.guardState.shouldStartRoundTrip(for: true))
+        #expect(!driver.guardState.shouldStartRoundTrip(for: true, at: t0))
     }
 }

@@ -510,7 +510,15 @@ struct GeneralSettingsTab: View {
             SettingsSection {
                 Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
-                        guard loginItemEcho.shouldStartRoundTrip(for: enabled) else { return }
+                        guard loginItemEcho.shouldStartRoundTrip(for: enabled, at: Date()) else {
+                            // Echo of a programmatic set, or a gesture the in-flight call will
+                            // carry in its `settle`. Logged because the second case is the one
+                            // shape of this guard the user can FEEL — the switch moves and
+                            // nothing happens — and with no line here a guard stuck shut was
+                            // invisible in the log by construction.
+                            Logger.shared.debug("Launch-at-login: no round-trip started for \(enabled) (echo, or one already in flight)")
+                            return
+                        }
                         updateLoginItem(enabled)
                     }
             } caption: {
@@ -608,7 +616,7 @@ struct GeneralSettingsTab: View {
         Task {
             let epoch = loginItemEcho.epoch
             let status = await Self.readStatusOffMain()
-            guard loginItemEcho.mayPublishStatus(readAt: epoch) else { return }
+            guard loginItemEcho.mayPublishStatus(readAt: epoch, at: Date()) else { return }
             applyLoginItemState(status)
         }
     }
@@ -634,11 +642,12 @@ struct GeneralSettingsTab: View {
     private func updateLoginItem(_ enabled: Bool) {
         // Synchronously, before the `Task` is even scheduled: two `onChange` turns must not
         // both pass `shouldStartRoundTrip` and start a call apiece.
-        loginItemEcho.beginRoundTrip()
+        let token = loginItemEcho.beginRoundTrip(at: Date())
         Task {
             do {
                 let needsApproval = try await Self.applyLoginItemOffMain(enabled)
-                let followUp = loginItemEcho.settle(applied: enabled, toggle: launchAtLogin, succeeded: true)
+                let followUp = loginItemEcho.settle(
+                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: true)
                 loginItemNeedsApproval = needsApproval
                 if needsApproval {
                     Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
@@ -647,7 +656,8 @@ struct GeneralSettingsTab: View {
             } catch {
                 Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
                 let status = await Self.readStatusOffMain()
-                let followUp = loginItemEcho.settle(applied: enabled, toggle: launchAtLogin, succeeded: false)
+                let followUp = loginItemEcho.settle(
+                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: false)
                 perform(followUp, status: status)
             }
         }
