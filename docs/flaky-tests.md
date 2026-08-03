@@ -162,10 +162,52 @@ been charging half a second for the same verdict.
 A trailing sleep after a wait is worth reading as a signal, not noise: either the wait is not a gate
 and needs replacing, or it is and the sleep is dead weight. Establish which before deleting it.
 
+**A condition wait is a fixed window too — read what its budget is denominated in, 2026-08-03.**
+`walkingOntoACloudOnlyFileNeverHandsItToQuickLook` in
+`Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift` did everything this
+section asks: it polled a real observable — is a `QLPreviewView` mounted yet — and gave up at a
+deadline. It flaked anyway, twice during the v2.9 pre-tag review, because **waiting for the right
+thing is only half of it.** Its budget was ten wall-clock seconds, spent one 8ms layout pass at a
+time; what it was actually waiting for was main-actor turns. Under a full-package run those two
+units come apart:
+
+| Machine | Layout passes the wait got | Wall clock they cost | Held? |
+|---|---|---|---|
+| idle, `--filter` | 21 | 0.19s | yes |
+| full package, 8 spinners | **3** | 13.25s | **no** |
+
+Reproduced deliberately on the procedure above, and the pass count is the whole diagnosis: a loop
+sleeping 8ms per turn should manage well over a thousand passes in ten seconds and got three,
+because a hundred `@MainActor` suites were mounting views on the one main actor it needed back. Note
+which way the requirement moves — the *slower* the machine, the *fewer* passes are needed, since
+the 180ms settle and the 1200ms held probe are long elapsed by the second pass. Measured need under
+load: **5**, for the probe's hop off the main actor, its resumption, the settle, the state write and
+the layout that finally builds the view. It got 3.
+
+Those numbers are from `main` at `05c7a81c`. The file is byte-identical on both lines and it
+reproduces on `v2.x` at `4fa91ae4` as well — 1 full-package run in 3 under 8 spinners, failing the
+same `settled` require — which is why the fix landed on `v2.x` first.
+
+So the fix is not a longer deadline and not a shorter settle — **neither buys a turn.** It is a
+floor on passes: give up only once the deadline has passed *and* `pumpFloor` (50) layout passes
+have been made. On a healthy machine the floor is reached in half a second and the deadline still
+governs — a regression injected at `hasSettled` still fails in 10.10s, exactly as before, now
+naming the 1010 passes it made. Starved, the same wait now clears at pass 5 whenever that arrives:
+4/4 full-package runs under 8 spinners, one taking 25.3s to do what takes 1.5s idle. Mutation-tested
+on the defect the test exists to catch — the stale probe surviving the item change — which still
+fails on the cloud-only path reaching Quick Look, not on the wait.
+
+**The failure message should name the passes, not just the verdict.** A wait that gave up after 3 of
+them was starved; one that gave up after 1010 was disproved. That is the difference between this
+mechanism and a real bug, and it costs one integer to report.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*;
-`f3a93bdf` — *Let the drain be the gate the two redo tests already had*.
+`f3a93bdf` — *Let the drain be the gate the two redo tests already had*;
+`pumpFloor` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift` —
+cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
+cherry-pick between `v2.x` and `main` has to swap every one of them by hand.
 
 ### 3. Process-wide state, and suites running in parallel
 
@@ -198,6 +240,21 @@ That combination is another suite's mount, not your bug. The live instance is
 three pane-width keys on every mount; the failures land at exactly 150pt and 570pt. Never observed
 in ~20 full-suite runs, so it stays unfixed — **if it does fire, that is the signal to spend the
 restructure**, and worth a line here recording that it finally did.
+
+**It fired, 2026-08-03 — twice, on both of its tests, at both of its numbers.**
+`testClosingThePreviewLeavesAScrolledBackStackWhereItWas` failed `clip.bounds.origin.x == 0` reading
+**exactly 570.0** on `main` at `05c7a81c`, and `testAPreviewWidthCommitLeavesAPreviewlessPaneAlone`
+failed the same assertion reading **exactly 150.0** on `v2.x` at `4fa91ae4`. Each was the only
+preview-suite issue in an otherwise green full-package run; all four parts of the signature present
+both times. That the two firings landed on the two tests named above, at the two extents named
+above, is about as cleanly as a predicted mechanism can confirm itself.
+
+Both came out of seven full-package runs deliberately loaded with 8 CPU spinners while reproducing
+the mechanism-2 flake above. Load is an amplifier here rather than a different phenomenon — it
+widens the observation window an absence test holds open, so a foreign write is likelier to land
+inside it. So the count is 2 in 7 *under load* against 0 in ~20 idle: still not a rate worth
+quoting, but no longer zero evidence, and the restructure this section defers (nesting the suites
+under one `.serialized` parent) now has the signal it was told to wait for.
 
 **See.** `d282ac6` — *Isolate DifferencesView test mounts in per-mount scratch defaults*;
 `Modules/FileExplorer/Tests/FileExplorer/CloudOnlyBadgeCacheTests.swift` for the shape of the note.

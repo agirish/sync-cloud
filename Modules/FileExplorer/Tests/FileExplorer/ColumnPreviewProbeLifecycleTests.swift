@@ -129,18 +129,52 @@ import UniformTypeIdentifiers
         return nil
     }
 
-    /// Pumps layout until `condition` holds or the deadline passes; returns whether it held.
+    /// The fewest layout passes a wait will make before it may give up, however little of its
+    /// deadline is left.
+    ///
+    /// **The deadline is in seconds; everything it waits for arrives on main-actor turns, and under
+    /// full-suite congestion those two units come apart.** Each pass costs 8ms of sleep on an idle
+    /// machine and however long the main actor takes to come back when a hundred other suites are
+    /// mounting views on it. Measured on this commit, 2026-08-03:
+    ///
+    /// | Machine | Passes the first wait needed | Wall clock they cost |
+    /// |---|---|---|
+    /// | idle, `--filter` | 21 | 0.19s |
+    /// | full package, 8 spinners | 5 | 7.9s / 12.2s / **21.1s** |
+    ///
+    /// So the ten seconds bought 3 passes where the condition needed 5, and the run failed `settled`
+    /// with nothing wrong but the queue it was waiting in. Note which way the requirement moves: the
+    /// *slower* the machine, the *fewer* passes are needed, because the 180ms settle and the 1200ms
+    /// held probe are long since elapsed by the second one. What a starved run needs is not more
+    /// seconds but more turns — five of them, for the probe's hop off the main actor, its
+    /// resumption, the settle, the state write, and the layout that finally builds `QLPreviewView`.
+    ///
+    /// Ten times that, so the floor is also above the 21 an idle machine wants and carries either
+    /// wait on its own. It costs nothing when the machine is healthy — the deadline is reached long
+    /// after the floor — and it cannot spin: a genuine regression still gets a verdict, after this
+    /// many passes rather than after this many seconds.
+    ///
+    /// Raising the deadline instead would not have fixed it; nor would injecting the settle delay.
+    /// Neither buys a turn.
+    private static let pumpFloor = 50
+
+    /// Pumps layout until `condition` holds, or until BOTH the deadline has passed and `pumpFloor`
+    /// passes have been made. Returns whether it held, and how many passes that took — a wait that
+    /// gave up after a handful of passes was starved, not disproved, and the message it fails with
+    /// should be able to say so.
     @discardableResult
     private func wait(_ window: NSWindow, upTo seconds: Double,
-                      for condition: () -> Bool) async -> Bool {
+                      for condition: () -> Bool) async -> (held: Bool, pumps: Int) {
+        var pumps = 0
         let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
+        while pumps < Self.pumpFloor || Date() < deadline {
             window.layoutIfNeeded()
-            if condition() { return true }
+            pumps += 1
+            if condition() { return (true, pumps) }
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
         window.layoutIfNeeded()
-        return condition()
+        return (condition(), pumps + 1)
     }
 
     @Test func walkingOntoACloudOnlyFileNeverHandsItToQuickLook() async throws {
@@ -159,7 +193,8 @@ import UniformTypeIdentifiers
         // Settle on a previewable file — the only state the defect needs, and the one that gives
         // this test a live `QLPreviewView` to watch.
         let settled = await wait(window, upTo: 10) { quickLookView(in: host) != nil }
-        try #require(settled, "no Quick Look mounted for the first file — the column never settled")
+        try #require(settled.held,
+                     "no Quick Look mounted for the first file after \(settled.pumps) layout passes — the column never settled")
         let preview = try #require(quickLookView(in: host))
 
         let spy = PreviewItemSpy(watching: preview)
@@ -181,7 +216,8 @@ import UniformTypeIdentifiers
         // The assignment this forbids happens in the FIRST committed body after the item changes,
         // which is inside the first pass below.
         let probed = await wait(window, upTo: 20) { log.completed.contains(Self.cloudOnly) }
-        #expect(probed, "the second probe never completed — the interval sampled was not the stale one")
+        #expect(probed.held,
+                "the second probe never completed after \(probed.pumps) layout passes — the interval sampled was not the stale one")
         #expect(!spy.assigned.contains(Self.cloudOnly),
                 "\(Self.cloudOnly) was handed to Quick Look before its probe answered — mounting a preview on a cloud-only placeholder is the provider download this column exists to avoid")
     }
