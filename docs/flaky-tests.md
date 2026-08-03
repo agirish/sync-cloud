@@ -162,6 +162,27 @@ been charging half a second for the same verdict.
 A trailing sleep after a wait is worth reading as a signal, not noise: either the wait is not a gate
 and needs replacing, or it is and the sleep is dead weight. Establish which before deleting it.
 
+**When the effect is invisible, add the seam — do not settle for a sleep.** The same sweep's last
+statement-level instance,
+`PaneRetargetInvalidationTests.retargetInvalidationClearsDifferencesButKeepsDuplicates`, slept 100ms
+before asserting that `invalidateDifferencesForPaneRetarget`'s follow-up `applyFilters()` pass had
+resurrected nothing. Nothing observable moves: the pass runs over already-cleared state, computes
+what is already published, and every assignment in the publish block is guarded by "assign only what
+changed", so it writes no published property. A queue marker does not substitute — `applyFilters`
+suspends on a detached compute, so a Task enqueued behind it runs *during* that suspension, long
+before the publish. **Started is not landed**, and that trap catches marker-drains specifically.
+
+The fix was to relax `lastPublishedFilterGeneration` from `private` to a readable (still not
+writable) test seam: it moves at the exact moment a pass commits, which is the only thing that
+happens at all. Prefer that to a sleep whenever the alternative is a guess — an access level is a
+compile-time change, while a guessed window is a permanent hole in the assertion.
+
+That hole was real here, not theoretical. Deleting the insurance pass **entirely** passed under the
+100ms sleep and fails at the deadline now. Mutate in both directions when you replace a sleep in
+front of an absence: remove the mechanism (does the wait notice it never happened?) *and* model the
+bug (does the assertion still fire, and does the wait land before the damage is visible?). Passing
+the second alone is what a vacuous wait looks like.
+
 **A condition wait is a fixed window too — read what its budget is denominated in, 2026-08-03.**
 `walkingOntoACloudOnlyFileNeverHandsItToQuickLook` in
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift` did everything this
@@ -239,6 +260,7 @@ either preview flake, against 5 of 7 before.
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*;
 `f3a93bdf` — *Let the drain be the gate the two redo tests already had*;
+`41651669` — *Wait for the insurance filter pass to publish, not for 100ms*;
 `pumpFloor` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift`;
 `quiesceReveals` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift` — the
 last two cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
