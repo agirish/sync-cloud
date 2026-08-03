@@ -105,12 +105,7 @@ import Foundation
         let pass = Task { @MainActor in
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
         }
-        await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                _ = gate.entered.wait(timeout: .now() + 10)
-                cont.resume()
-            }
-        }
+        await awaitSignal(gate.entered)
 
         // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
         // moves, and — the exact race — `scanRequestGeneration` has NOT been bumped yet.
@@ -122,6 +117,7 @@ import Foundation
 
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds.isEmpty, "verdicts hashed across a file operation must be discarded")
         #expect(manager.differences.count == 2)
@@ -142,15 +138,11 @@ import Foundation
         let pass = Task { @MainActor in
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
         }
-        await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                _ = gate.entered.wait(timeout: .now() + 10)
-                cont.resume()
-            }
-        }
+        await awaitSignal(gate.entered)
         let epochBefore = manager.fileOperationsEpoch
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "the gated fixture must still hash and hide the identical pair")
@@ -183,12 +175,7 @@ import Foundation
         let pass = Task { @MainActor in
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
         }
-        await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                _ = gate.entered.wait(timeout: .now() + 10)
-                cont.resume()
-            }
-        }
+        await awaitSignal(gate.entered)
 
         // The user opens a copy and declines its confirmation while the hash is parked.
         var prompted = false
@@ -204,6 +191,7 @@ import Foundation
 
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "a declined confirmation runs no I/O, so it must not discard the batch")
@@ -242,12 +230,7 @@ import Foundation
         let pass = Task { @MainActor in
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
         }
-        await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                _ = gate.entered.wait(timeout: .now() + 10)
-                cont.resume()
-            }
-        }
+        await awaitSignal(gate.entered)
 
         let epochBefore = manager.fileOperationsEpoch
         #expect(manager.sweepOrphanedTempArtifacts(), "the sweep must have been allowed to look")
@@ -268,6 +251,7 @@ import Foundation
 
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "a removal-only sweep cannot falsify an identical verdict, so the batch must commit")
@@ -302,6 +286,7 @@ import Foundation
 
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         // The user declines after the pass committed; the batch must already be in place.
         manager.cancelPreCountedFileOperation()
@@ -336,6 +321,7 @@ import Foundation
 
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "the prepare phase has written nothing, so the batch must commit")
