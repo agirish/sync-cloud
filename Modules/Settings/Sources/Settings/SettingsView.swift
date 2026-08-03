@@ -451,9 +451,10 @@ struct GeneralSettingsTab: View {
     /// The login item is registered but awaits the user's consent in System Settings →
     /// Login Items; shown distinctly so a pending approval doesn't read as a broken toggle.
     @State private var loginItemNeedsApproval = false
-    /// Tells a user's flip apart from the echo of a programmatic set, and decides what a
-    /// finished round-trip owes the user — see `LoginItemEchoGuard`, where the whole state
-    /// machine lives so it can be tested without an SMAppService round-trip.
+    /// Tells a user's flip apart from the echo of a programmatic set, keeps the register /
+    /// unregister calls serialised to one at a time, and decides what a finished round-trip
+    /// owes the user — see `LoginItemEchoGuard`, where the whole state machine lives so it can
+    /// be tested without an SMAppService round-trip.
     @State private var loginItemEcho = LoginItemEchoGuard()
     @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
@@ -470,7 +471,7 @@ struct GeneralSettingsTab: View {
             SettingsSection {
                 Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
-                        guard loginItemEcho.isGesture(enabled) else { return }
+                        guard loginItemEcho.shouldStartRoundTrip(for: enabled) else { return }
                         updateLoginItem(enabled)
                     }
             } caption: {
@@ -558,9 +559,18 @@ struct GeneralSettingsTab: View {
 
     /// Reflects the real service state into the toggle and approval hint. A pending
     /// approval counts as "on": the item *is* registered, just not yet consented to.
+    ///
+    /// Dated against the echo guard: this runs on `.task` and on EVERY app re-activation, so
+    /// without the epoch check a cmd-tab away and back mid-gesture published a service state
+    /// that predated the user's flip, moving the toggle out from under the running round-trip.
+    /// That call then settled against the "moved" toggle and drove the service back, losing a
+    /// registration that had succeeded.
     private func readLoginItemState() {
         Task {
-            applyLoginItemState(await Self.readStatusOffMain())
+            let epoch = loginItemEcho.epoch
+            let status = await Self.readStatusOffMain()
+            guard loginItemEcho.mayPublishStatus(readAt: epoch) else { return }
+            applyLoginItemState(status)
         }
     }
 
@@ -583,6 +593,9 @@ struct GeneralSettingsTab: View {
     /// Registers/unregisters the login item, reverting the toggle to the real service state on
     /// failure so the UI never claims a state the system rejected.
     private func updateLoginItem(_ enabled: Bool) {
+        // Synchronously, before the `Task` is even scheduled: two `onChange` turns must not
+        // both pass `shouldStartRoundTrip` and start a call apiece.
+        loginItemEcho.beginRoundTrip()
         Task {
             do {
                 let needsApproval = try await Self.applyLoginItemOffMain(enabled)
