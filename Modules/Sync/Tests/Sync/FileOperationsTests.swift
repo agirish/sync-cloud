@@ -272,9 +272,17 @@ import Foundation
         #expect(manager.undoManager?.canUndo == true)
         
         manager.undoManager?.undo()
-        try await Task.sleep(nanoseconds: 100_000_000)
-        
-        #expect(mockFM.virtualDisk["/src/New Folder"] == nil)
+        // The undo handler removes the folder from inside `Task { await enqueueFileOperation … }`,
+        // so it lands at a time the test cannot predict. A fixed 100ms window was ample on an idle
+        // machine and short of it under full-suite load on the self-hosted runner, which failed
+        // this assertion on a commit that passed on a re-run of the same SHA (v2.x run
+        // 30823146574, 2026-08-03). Waiting on the effect makes a genuinely slow undo fail late
+        // rather than fail wrongly, and `waitUntil` records the timeout itself — the removal is
+        // never asserted only by a wait whose result went unread.
+        await waitUntil("undo removes the created folder") {
+            mockFM.virtualDisk["/src/New Folder"] == nil
+        }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
     }
     
     /// An empty parent path means the pane's provider vanished from settings while its stale
