@@ -49,21 +49,42 @@ import Sync
         let tree: PaneTree
         let otherTree: PaneTree
         let delegate: FileActionDelegate
+        let downloads: NotificationCenter
 
         var body: some View {
             FileTreeView(
                 tree: tree, otherTree: otherTree, isLoading: false,
                 currentPath: BadgeMemoFixture.root,
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: delegate, diffIndex: .empty)
+                delegate: delegate, diffIndex: .empty,
+                downloadChannel: downloads)
         }
     }
 
+    /// The pane is mounted on a `NotificationCenter` of this suite's own.
+    ///
+    /// It wants nothing from `.cloudDownloadRequested`, but a mounted `FileTreeView` subscribes
+    /// whether the test asks or not, so on `.default` it would accept any parallel suite's `.left`
+    /// post — and accepting one republishes `downloads.requests`, which rebuilds this pane's body.
+    ///
+    /// **Measured, not assumed, because the obvious worry is wrong.** One foreign post mid-test
+    /// cost this pane a whole extra render — `riskyNameReason` asks went 861 → 984 — and moved the
+    /// evaluation count by exactly nothing, 15 → 15. That is the memo doing its job, and it is why
+    /// the assertion is stated as *distinct names asked == evaluations* rather than as a number:
+    /// the equality is invariant under renders nobody here triggered. So this channel is not
+    /// propping up the verdict.
+    ///
+    /// It is here because the rule is the rule (see `docs/flaky-tests.md` mechanism 9) and because
+    /// the render is not free: 123 wasted asks and a full pass through the pane's body, inside a
+    /// `.serialized` suite, at a moment another suite chose. A count-based test earns its exactness
+    /// by having nothing else able to touch what it counts — including the parts that would have
+    /// been absorbed this time.
     private func mount(_ box: Box, delegate: FileActionDelegate) -> NSWindow {
         BadgeMemoMount.window(Harness(box: box,
                                       tree: BadgeMemoFixture.tree(side: .left),
                                       otherTree: BadgeMemoFixture.tree(side: .right),
-                                      delegate: delegate))
+                                      delegate: delegate,
+                                      downloads: NotificationCenter()))
     }
 
     private func renderPass(_ window: NSWindow, _ box: Box, selecting index: Int) {

@@ -103,19 +103,28 @@ import Sync
         let tree: PaneTree
         let otherTree: PaneTree
         let delegate: FileActionDelegate
+        let downloads: NotificationCenter
 
         var body: some View {
             FileTreeView(
                 tree: tree, otherTree: otherTree, isLoading: false,
                 currentPath: RiskyNameBadgeCostBenchmark.root,
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: delegate, diffIndex: .empty)
+                delegate: delegate, diffIndex: .empty,
+                downloadChannel: downloads)
         }
     }
 
+    /// The pane is mounted on a `NotificationCenter` of this suite's own — it wants nothing from
+    /// `.cloudDownloadRequested`, but a mounted `FileTreeView` subscribes regardless, and on
+    /// `.default` a parallel suite's `.left` post would be accepted here and republish
+    /// `downloads.requests`. On the identically-mounted pane in `RiskyNameBadgeMemoTests` one such
+    /// post was measured to cost a full extra render pass. This suite's arms are render timings, so
+    /// that lands squarely inside the window being measured. See `docs/flaky-tests.md` mechanism 9.
     private func mount(_ box: Box, delegate: FileActionDelegate, tree: PaneTree, otherTree: PaneTree) -> NSWindow {
         let host = NSHostingView(rootView: Harness(box: box, tree: tree, otherTree: otherTree,
-                                                   delegate: delegate))
+                                                   delegate: delegate,
+                                                   downloads: NotificationCenter()))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
