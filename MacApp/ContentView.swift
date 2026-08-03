@@ -974,10 +974,15 @@ struct ContentView: View {
     static func applyFullSettingsReset(
         settings: SettingsManager,
         syncManager: FileSyncManager,
-        setLogLevel: (LogLevel) -> Void = { Logger.shared.minimumLevel = $0 }
+        // Optional rather than a defaulted closure. A default argument is evaluated in a
+        // *nonisolated* context, so `{ Logger.shared.minimumLevel = $0 }` sitting there mutated
+        // main-actor state from outside the actor — a warning today and an error under Swift 6.
+        // Resolving the fallback inside this `@MainActor` body puts the same write where it is
+        // already isolated, with no change to what production does.
+        setLogLevel: ((LogLevel) -> Void)? = nil
     ) {
         settings.resetAllSettings()
-        setLogLevel(.debug)
+        (setLogLevel ?? { Logger.shared.minimumLevel = $0 })(.debug)
         syncManager.clearAllIgnoredItems()
     }
 
@@ -1094,12 +1099,8 @@ struct ContentView: View {
         .contentSurface(hue: glassHue, tint: surfaceTint)
         // The level at face value, with a ground under the content — see `groundedGlassCard`.
         // Flooring this to Frosted is what made Clear and Frosted indistinguishable.
+        // The hairline comes from `groundedGlassCard`, which now owns it in both schemes.
         .groundedGlassCard(level: glassLevel)
-        // The same light-mode hairline the other three in-window panels carry.
-        .overlay(
-            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        )
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
@@ -1146,14 +1147,9 @@ struct ContentView: View {
         .environmentObject(settings)
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)
-        // Kept alongside `groundedGlassCard`, exactly as the Help and Welcome cards keep it.
-        // `OverlayCardChrome` draws an edge in DARK only, so in light this hairline is the card's
-        // only boundary against the scrim — dropping it here left the three in-window panels with
-        // two different treatments in light mode.
-        .overlay(
-            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        )
+        // The hairline comes from `groundedGlassCard` — it draws `.quaternary` in light and the
+        // specular edge in dark, so a card no longer adds one of its own (that is what doubled the
+        // dark border on all four panels).
         // The floating-modal drop shadow, deeper than a content card's: this panel is meant to
         // read as lifted off the window, whatever material it resolved to.
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
@@ -1433,7 +1429,10 @@ struct ContentView: View {
     }
 
     /// One resizable file pane: provider header stacked over its file tree.
-    @ViewBuilder
+    ///
+    /// No `@ViewBuilder`: the body computes its locals and then has a single `return`, which
+    /// *disables* the builder outright (the compiler says so). Carrying the attribute anyway
+    /// claimed a multi-statement build that was never happening.
     func paneColumn(isLeft: Bool) -> some View {
         let pane = paneContext(isLeft: isLeft)
         // Resolve the action-bar selection ONCE per render (a tree walk over ~40k nodes) and reuse

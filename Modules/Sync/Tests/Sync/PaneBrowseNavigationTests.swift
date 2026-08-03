@@ -155,6 +155,58 @@ import Events
         #expect(m.leftBrowsePath.currentDirectory(treeRoot: "/r") == "/r/Documents")
     }
 
+    // MARK: - The Tidy rail shares the left pane's column stack
+
+    // The rail renders through the left pane's state — focus, selection, history AND browse path —
+    // so a column stack built in Tidy is still there when the user switches to Compare. That is
+    // deliberate continuity, but until now nothing pinned WHICH half of it is deliberate: the stack
+    // survives only while it still describes real folders in the tree the pane actually has. These
+    // three tests fix that boundary, so a future change to the rail cannot quietly turn shared
+    // continuity into a stack pointing at the wrong tree.
+
+    /// Continuity: no re-root, so the stack the rail built is the stack Compare shows.
+    @Test func testTheRailsColumnStackSurvivesIntoCompareWhenTheRootIsUnchanged() {
+        let m = FileSyncManager()
+        m.focusOn(relativePath: "Inbox", isLeft: true)
+        m.leftBrowsePath.drill(into: "Receipts", atDepth: 0)
+        m.leftBrowsePath.drill(into: "2025", atDepth: 1)
+
+        // Switching surfaces re-asserts the same focus. `focusOn` guards on an unchanged relative
+        // path and returns BEFORE its reset, which is exactly what preserves the stack.
+        m.focusOn(relativePath: "Inbox", isLeft: true)
+
+        #expect(m.leftBrowsePath.components == ["Receipts", "2025"])
+    }
+
+    /// …but a lens that re-roots the rail is a different scope, and the stack must NOT ride along:
+    /// its component names were resolved against a tree that no longer applies.
+    @Test func testARailReRootDropsTheColumnStack() {
+        let m = FileSyncManager()
+        m.focusOn(relativePath: "Inbox", isLeft: true)
+        m.leftBrowsePath.drill(into: "Receipts", atDepth: 0)
+
+        m.focusOn(relativePath: "Archive", isLeft: true)
+
+        #expect(m.leftBrowsePath.isEmpty, "a re-root resets rather than prunes — new scope, not a changed one")
+        #expect(m.leftRelativePath == "Archive")
+    }
+
+    /// And the surviving stack is still only as deep as the tree supports: a folder deleted while
+    /// the rail was showing it is pruned on the next republish, so Compare cannot inherit a stack
+    /// into a folder that is gone.
+    @Test func testASharedStackIsStillPrunedAgainstTheTreeItLandsOn() {
+        let m = FileSyncManager()
+        m.leftBrowsePath.drill(into: "Receipts", atDepth: 0)
+        m.leftBrowsePath.drill(into: "2025", atDepth: 1)
+
+        // The republished tree has Receipts but no longer has 2025 under it.
+        let receipts = FileNode(id: "/r/Receipts", name: "Receipts", isDirectory: true, children: [])
+        let index = PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: [receipts]), treeRoot: "/r")
+        m.pruneBrowsePath(isLeft: true, against: index, treeRoot: "/r")
+
+        #expect(m.leftBrowsePath.components == ["Receipts"])
+    }
+
     /// Browsing must not clear session-ignored paths — that clear belongs to a change of
     /// comparison scope, and stepping out of a column changes only where you are looking.
     @Test func testSteppingOutOfAColumnKeepsIgnoredPaths() {

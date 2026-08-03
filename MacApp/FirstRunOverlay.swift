@@ -112,11 +112,9 @@ struct FirstRunOverlay: View {
     private var card: some View {
         cardContent
             .contentSurface(hue: glassHue, tint: surfaceTint)
+            // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
+            // one on top put a second border over the dark specular edge.
             .groundedGlassCard(level: glassLevel)
-            .overlay(
-                RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 0.5)
-            )
             .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 

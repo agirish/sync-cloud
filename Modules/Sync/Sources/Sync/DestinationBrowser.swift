@@ -15,6 +15,26 @@ public struct DestinationFolder: Identifiable, Hashable, Sendable {
     }
 }
 
+/// What a bounded search found, and whether it saw everything.
+///
+/// The flag exists because all three of `search`'s caps stop it *early* — a match limit, a listing
+/// budget, a depth ceiling — and a truncated walk returning a bare array is indistinguishable from a
+/// complete one. That is the difference between "these are the folders that match" and "these are
+/// the first folders that match", and only the picker can say which it is showing.
+public struct DestinationSearchOutcome: Equatable, Sendable {
+    /// The folders found, in discovery (breadth-first) order.
+    public let matches: [DestinationFolder]
+    /// True when the walk stopped before exhausting the tree, so more matches may exist.
+    public let isTruncated: Bool
+
+    public static let empty = DestinationSearchOutcome(matches: [], isTruncated: false)
+
+    public init(matches: [DestinationFolder], isTruncated: Bool) {
+        self.matches = matches
+        self.isTruncated = isTruncated
+    }
+}
+
 /// The folder tree behind the destination picker.
 ///
 /// Deliberately **not** `PaneChildrenIndex`. That index is built from a pane's published tree,
@@ -94,9 +114,9 @@ public enum DestinationBrowser {
         maxListings: Int = 3000,
         fileManager: FileManaging,
         isCancelled: () -> Bool = { false }
-    ) -> [DestinationFolder] {
+    ) -> DestinationSearchOutcome {
         let needle = query.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty, limit > 0, maxDepth > 0, maxListings > 0 else { return [] }
+        guard !needle.isEmpty, limit > 0, maxDepth > 0, maxListings > 0 else { return .empty }
 
         var matches: [DestinationFolder] = []
         var frontier = [PaneBrowsePath.normalized(root)]
@@ -106,13 +126,13 @@ public enum DestinationBrowser {
         while !frontier.isEmpty, depth < maxDepth, matches.count < limit {
             var next: [String] = []
             for directory in frontier {
-                if isCancelled() { return matches }
-                if listings >= maxListings { return matches }
+                if isCancelled() { return .init(matches: matches, isTruncated: true) }
+                if listings >= maxListings { return .init(matches: matches, isTruncated: true) }
                 listings += 1
                 for folder in subfolders(of: directory, showHidden: showHidden, fileManager: fileManager) {
                     if folder.name.localizedCaseInsensitiveContains(needle) {
                         matches.append(folder)
-                        if matches.count >= limit { return matches }
+                        if matches.count >= limit { return .init(matches: matches, isTruncated: true) }
                     }
                     next.append(folder.path)
                 }
@@ -120,7 +140,9 @@ public enum DestinationBrowser {
             frontier = next
             depth += 1
         }
-        return matches
+        // Falling out with directories still queued means the DEPTH cap stopped it, which is the
+        // third way to leave matches unseen. Only an exhausted frontier is a complete answer.
+        return .init(matches: matches, isTruncated: !frontier.isEmpty)
     }
 
     /// Orders search results so the folder the user meant is first.

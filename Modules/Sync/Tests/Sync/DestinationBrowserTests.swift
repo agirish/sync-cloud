@@ -59,14 +59,14 @@ import Foundation
     /// Both `Divit` folders are found, from different depths.
     @Test func testSearchFindsMatchesAtEveryDepth() throws {
         let fm = try fixture()
-        let paths = Set(DestinationBrowser.search("divit", under: "/p", fileManager: fm).map(\.path))
+        let paths = Set(DestinationBrowser.search("divit", under: "/p", fileManager: fm).matches.map(\.path))
         #expect(paths == ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"])
     }
 
     /// Case-insensitive and substring, so three characters reach a long folder name.
     @Test func testSearchIsCaseInsensitiveSubstring() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("PRESCRIP", under: "/p", fileManager: fm).map(\.name) == ["Prescriptions"])
+        #expect(DestinationBrowser.search("PRESCRIP", under: "/p", fileManager: fm).matches.map(\.name) == ["Prescriptions"])
     }
 
     /// Breadth-first: the shallow match is reached before the deep one, so a truncated result set
@@ -74,22 +74,22 @@ import Foundation
     @Test func testSearchIsBreadthFirst() throws {
         let fm = try fixture()
         let first = DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: fm)
-        #expect(first.map(\.path) == ["/p/School/Divit"], "School/Divit is two levels up from Kaiser/Divit")
+        #expect(first.matches.map(\.path) == ["/p/School/Divit"], "School/Divit is two levels up from Kaiser/Divit")
     }
 
     /// The depth cap stops the walk before the deep match.
     @Test func testSearchRespectsMaxDepth() throws {
         let fm = try fixture()
         let shallow = DestinationBrowser.search("divit", under: "/p", maxDepth: 2, fileManager: fm)
-        #expect(shallow.map(\.path) == ["/p/School/Divit"])
+        #expect(shallow.matches.map(\.path) == ["/p/School/Divit"])
     }
 
     /// An empty or whitespace query matches nothing rather than everything — the picker shows the
     /// browse columns in that state, and a full-tree dump behind them would be noise.
     @Test func testBlankQueryMatchesNothing() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).isEmpty)
-        #expect(DestinationBrowser.search("   ", under: "/p", fileManager: fm).isEmpty)
+        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).matches.isEmpty)
+        #expect(DestinationBrowser.search("   ", under: "/p", fileManager: fm).matches.isEmpty)
     }
 
     // MARK: - Ranking
@@ -423,8 +423,38 @@ import Foundation
         fm.onEnumerate = { _ in listings += 1 }
         let found = DestinationBrowser.search("divit", under: "/p", fileManager: fm,
                                               isCancelled: { true })
-        #expect(found.isEmpty)
+        #expect(found.matches.isEmpty)
         #expect(listings == 0, "cancelled before the first directory was even read")
+    }
+
+    // MARK: - Truncation is reported, not silent
+
+    /// A walk that exhausts the tree is COMPLETE — the flag must not simply always be true, or the
+    /// picker would permanently caveat results it fully searched.
+    @Test func testAnExhaustiveSearchIsNotTruncated() throws {
+        let fm = try fixture()
+        let outcome = DestinationBrowser.search("divit", under: "/p", fileManager: fm)
+        #expect(outcome.matches.count == 2)
+        #expect(outcome.isTruncated == false)
+    }
+
+    /// Each of the three caps stops the walk early, and each must say so — a partial list that
+    /// reads as the complete one is how "the folder isn't there" becomes a wrong conclusion.
+    @Test func testEveryCapReportsTruncation() throws {
+        let fm = try fixture()
+        #expect(DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: fm).isTruncated,
+                "match limit")
+        #expect(DestinationBrowser.search("divit", under: "/p", maxDepth: 2, fileManager: fm).isTruncated,
+                "depth ceiling — Kaiser/Divit is below it")
+        #expect(DestinationBrowser.search("divit", under: "/p", maxListings: 1, fileManager: fm).isTruncated,
+                "listing budget")
+    }
+
+    /// A blank query is not a truncated search — it is no search. Otherwise the picker would show
+    /// its "showing the first N" caveat over the browse columns, which ran no walk at all.
+    @Test func testABlankQueryIsNotTruncated() throws {
+        let fm = try fixture()
+        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).isTruncated == false)
     }
 
     /// …and an uncancelled walk is unaffected, so the hook cannot silently disable search.
@@ -432,6 +462,6 @@ import Foundation
         let fm = try fixture()
         let found = DestinationBrowser.search("divit", under: "/p", fileManager: fm,
                                               isCancelled: { false })
-        #expect(Set(found.map(\.path)) == ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"])
+        #expect(Set(found.matches.map(\.path)) == ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"])
     }
 }
