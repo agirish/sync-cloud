@@ -421,6 +421,13 @@ struct PaneColumnsView: View {
     /// preview, aimed at the column the user just clicked in, so the correction lands where they
     /// were already looking.
     ///
+    /// The hold deferral below widens that window, and the exact shape is worth stating: when this
+    /// pane is held, the window runs until the gesture holding it ends, not until
+    /// `revealRetryDelay`. It cannot be closed by anything the held pane does horizontally,
+    /// though — a hold means no horizontal gesture is in flight there, and the stack is being held
+    /// still anyway. The scroll a late reveal can override is one made by a NEW gesture, in the
+    /// moment after the old one released.
+    ///
     /// `anchor: .trailing` always yields a WHOLE column rather than a sliver: `showsPreviewColumn`
     /// refuses a preview unless a full column fits beside it, and `previewPaneWidth` caps the
     /// preview at the pane minus one column, so the stack's viewport is never narrower than
