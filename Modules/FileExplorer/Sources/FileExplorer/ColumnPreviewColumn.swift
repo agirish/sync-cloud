@@ -108,6 +108,37 @@ struct ColumnPreviewProbe: Equatable, Sendable {
     }
 }
 
+/// How a preview column probes the file it is showing.
+///
+/// A seam, not a policy — the default is the real `ColumnPreviewProbe.read`, unconditionally. It
+/// exists because `.cloudOnly` is otherwise unreachable from a test, and `.cloudOnly` is the state
+/// the entire download half of this column renders in: the Download button, the "Downloading…"
+/// caption, and the re-probe when the pane's watch concludes. `SF_DATALESS` is an `SF_` *system*
+/// flag — `chflags` refuses it to anyone but root, and in practice only a File Provider ever sets
+/// it — so no fixture a test can build classifies as cloud-only, and that whole half shipped with
+/// no mounted coverage at all.
+///
+/// Carried in the ENVIRONMENT rather than as an argument, because the wiring under test runs
+/// through views the test cannot pass arguments to: `FileTreeView` owns the pane's watch,
+/// `PaneColumnsView` hands it to this column, and a test has to mount the real pair to prove those
+/// two hops are live. An environment value reaches through both without either having to know.
+struct ColumnPreviewProbeReader: Sendable {
+    let read: @Sendable (String) async -> ColumnPreviewProbe
+
+    static let live = ColumnPreviewProbeReader { await ColumnPreviewProbe.read(path: $0) }
+}
+
+private struct ColumnPreviewProbeKey: EnvironmentKey {
+    static let defaultValue = ColumnPreviewProbeReader.live
+}
+
+extension EnvironmentValues {
+    var columnPreviewProbe: ColumnPreviewProbeReader {
+        get { self[ColumnPreviewProbeKey.self] }
+        set { self[ColumnPreviewProbeKey.self] = newValue }
+    }
+}
+
 /// Finder's column-view preview, as this pane's rightmost column: the selected file rendered by
 /// Quick Look, over the identity lines that say what it is.
 ///
@@ -124,9 +155,15 @@ struct ColumnPreviewColumn: View {
     var actionBarClearance: CGFloat = 0
     /// The pane this preview belongs to, so a download started HERE is watched by that pane — the
     /// same handshake a row-menu download uses (the notification is pane-scoped: see
-    /// `CloudDownloadRequest`). `nil` for hosts with no pane around them (tests): the download is
-    /// still requested, but nothing watches it.
-    var paneToken: PaneToken? = nil
+    /// `CloudDownloadRequest`).
+    ///
+    /// **Required, with no default, deliberately.** It was `PaneToken? = nil`, and `requestDownload`
+    /// downgraded the nil to "requested, unwatched" behind a debug log — so DELETING the argument at
+    /// the one call site compiled, left the whole suite green, and cost every preview-started
+    /// download its watch: no "Downloading…" caption, no badge clearing when the content landed.
+    /// Nothing legitimately needs nil (the sole production caller is `PaneColumnsView`, which always
+    /// knows its side), so the silent path is gone and the omission is a compile error instead.
+    let paneToken: PaneToken
     /// The path of the download the pane is currently watching, or nil. Handed down by
     /// `PaneColumnsView` from `FileTreeView`'s latch: this column shows "Downloading…" while that
     /// path is the one on screen, and re-probes when the pane's watch concludes.
@@ -165,6 +202,10 @@ struct ColumnPreviewColumn: View {
 
     /// How long a file must stay selected before Quick Look is mounted for it.
     static let previewSettleDelay = Duration.milliseconds(180)
+
+    /// How to probe a path — the real `lstat` everywhere but in the tests that need `.cloudOnly`.
+    /// See `ColumnPreviewProbeReader`.
+    @Environment(\.columnPreviewProbe) private var probeReader
 
     /// `nil` while the probe is in flight.
     @State private var probe: ColumnPreviewProbe?
@@ -218,7 +259,7 @@ struct ColumnPreviewColumn: View {
         .accessibilityLabel("Preview of \(item.name)")
         .task(id: ProbeID(path: item.path, generation: probeGeneration)) {
             hasSettled = false
-            let resolved = await ColumnPreviewProbe.read(path: item.path)
+            let resolved = await probeReader.read(item.path)
             // `.task(id:)` cancels on a new id but the body still runs to its next suspension, so
             // every resumption re-checks: without this a fast walk down a column could commit an
             // earlier file's probe over a later one's.
@@ -349,13 +390,6 @@ struct ColumnPreviewColumn: View {
             // latch when the content lands or the attempts run out. This column re-probes off that
             // latch (`awaitingDownloadPath`) instead of running a second poll — two watches meant
             // two `forget`s, and each one invalidates every in-flight badge stat in both panes.
-            guard let paneToken else {
-                // No pane around this column (test hosts only — `PaneColumnsView` always supplies
-                // one). The provider was still asked for the file; there is simply nobody to watch
-                // it land, so the column keeps offering the download until its next probe.
-                Logger.shared.debug("[preview] no pane token for \(path) — download requested unwatched")
-                return
-            }
             CloudDownloadRequest.post(path: path, from: paneToken)
         } catch {
             Logger.shared.warning("[preview] no download API for \(path): \(error.localizedDescription) — revealing in Finder")

@@ -57,6 +57,16 @@ struct PaneColumnsView: View {
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
 
+    /// This pane's identity for download-notification scoping, handed to the preview column so a
+    /// download started there is watched by the pane it was started from.
+    ///
+    /// Named and non-private for the reason `FileTreeView.paneToken` is: the derivation is one
+    /// expression inside a view body, and a receiver or sender hardcoded to `.left` routes the whole
+    /// app's downloads to one pane while passing everything else in the suite.
+    /// `PaneColumnsPaneTokenTests` pins it. Computed from the same two facts `FileTreeView` computes
+    /// its own from, so the sending and receiving sides cannot drift.
+    var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
+
     /// One width shared by both panes, so the two sides stay symmetric while you read them against
     /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
     @AppStorage(PaneViewMode.columnWidthDefaultsKey) private var storedColumnWidth: Double =
@@ -205,7 +215,7 @@ struct PaneColumnsView: View {
                 ColumnPreviewColumn(
                     item: previewTarget,
                     actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
-                    paneToken: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                    paneToken: paneToken,
                     awaitingDownloadPath: awaitingDownload?.path)
                     .frame(width: previewWidth)
                     // On the preview's LEADING edge, and it resizes the preview. This is the drag

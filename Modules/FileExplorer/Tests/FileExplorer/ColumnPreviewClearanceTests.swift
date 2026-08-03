@@ -149,7 +149,8 @@ import UniformTypeIdentifiers
     /// arriving as a plausible position.
     func inkBounds(clearance: CGFloat, height: CGFloat) -> (top: CGFloat, bottom: CGFloat)? {
         let size = CGSize(width: 500, height: height)
-        let subject = ColumnPreviewColumn(item: Self.item, actionBarClearance: clearance)
+        let subject = ColumnPreviewColumn(item: Self.item, actionBarClearance: clearance,
+                                          paneToken: .left)
             .frame(width: size.width, height: size.height)
             .background(Color.white)
             .environment(\.colorScheme, .light)
