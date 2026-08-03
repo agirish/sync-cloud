@@ -5,29 +5,74 @@
 /// unregister call:
 ///
 /// - The switch binds to local `@State`, so a PROGRAMMATIC write (the initial status read, a
-///   failure revert) flows out through the same `onChange` a user's flip does. `isGesture`
-///   swallows those echoes — the same `lastApplied` idiom `AutomationToggleEchoGuard` uses.
+///   failure revert) flows out through the same `onChange` a user's flip does. Comparing
+///   against `lastApplied` swallows those echoes — the same idiom `AutomationToggleEchoGuard`
+///   uses.
 /// - The call is a round-trip, so the user can flip the switch again while it is in flight.
-///   That flip's `onChange` compares against the stale marker and is SUPPRESSED, which means
-///   nobody is left to act on it — so `settle` hands it back as a follow-up when the call
-///   returns.
+///   Such a flip does not start a call of its own; `settle` compares the toggle's position
+///   against what the finished call pushed and hands the difference back as a follow-up.
 ///
-/// The marker deliberately does NOT move in `isGesture`. Moving it there would let a mid-flight
-/// flip start a second concurrent round-trip for one gesture; leaving it stale until `settle`
-/// is what serialises them — at most one call in flight, and the toggle's latest position
-/// applied when it lands.
+/// **The invariant: at most one round-trip is in flight, and no status read may overwrite the
+/// toggle while one is.** Both halves are enforced by explicit state — `isRoundTripInFlight`
+/// and `roundTripEvents` — rather than inferred from `lastApplied`, which is what the previous
+/// version tried and could not do:
+///
+/// - Serialisation used to rest on the marker being stale mid-flight, so a flip back to the
+///   in-flight value would compare equal and be suppressed. That holds for ONE mid-flight
+///   flip, not two. From toggle off / service off, ON → OFF → ON suppresses the OFF (it
+///   matches the stale `false`) but NOT the second ON, which differs from it — so `onChange`
+///   started a second round-trip alongside the first. If the first then failed and the second
+///   succeeded, the first's re-read saw a service that was still off, adopted it, snapped the
+///   toggle OFF, and the second settled against a toggle that had "moved" — unregistering the
+///   login item its own call had just registered. Internally consistent, and the opposite of
+///   what the user asked for.
+/// - A background status read (`.task`, and every app re-activation) publishes the service's
+///   state into the toggle. Landing that mid-flight moved the toggle out from under a running
+///   call, which then settled against the "moved" toggle and drove the service back — losing a
+///   registration that had SUCCEEDED. `StatusReadEpoch` dates a read against the guard's
+///   round-trip state, so a read that is stale, or that overlaps a call, is dropped rather
+///   than published.
+///
+/// The marker still deliberately does NOT move in `shouldStartRoundTrip` — it names the value
+/// last pushed at the service, and mid-flight nothing new has been pushed.
 struct LoginItemEchoGuard {
     /// The last toggle value known to match the value last pushed at the service. `nil` until
     /// the first status read lands, so the very first move of the switch always counts.
     private var lastApplied: Bool?
 
-    /// The toggle moved to `value`. Returns whether that is a genuine user gesture to send to
-    /// the service (false when it is the echo of a programmatic set).
+    /// Whether a register/unregister round-trip is running right now. This — not the stale
+    /// marker — is what serialises the calls.
+    private var isRoundTripInFlight = false
+
+    /// Bumped every time a round-trip starts and every time one settles, so a status read that
+    /// began before either can tell it is now out of date. Only ever compared for equality.
+    private var roundTripEvents = 0
+
+    /// Dates a background status read against the guard's round-trip state. Captured when the
+    /// read starts, handed back to `mayPublishStatus(readAt:)` before it publishes.
+    struct StatusReadEpoch: Equatable {
+        fileprivate let events: Int
+    }
+
+    /// The epoch to capture at the start of a status read.
+    var epoch: StatusReadEpoch { StatusReadEpoch(events: roundTripEvents) }
+
+    /// Whether the toggle's move to `value` should start a round-trip **now**.
     ///
-    /// Non-`mutating` on purpose, and that is load-bearing rather than tidiness: see the note on
-    /// `settle` about why the marker must not move here.
-    func isGesture(_ value: Bool) -> Bool {
-        value != lastApplied
+    /// False for the echo of a programmatic set, and false while a call is already in flight —
+    /// in that second case the move is a real gesture, but the in-flight call's `settle` is
+    /// what carries it, so starting one here would double up.
+    func shouldStartRoundTrip(for value: Bool) -> Bool {
+        !isRoundTripInFlight && value != lastApplied
+    }
+
+    /// Whether a status read that began at `epoch` may still be published to the toggle.
+    ///
+    /// No, if a call is in flight — that call owns the toggle until it settles. No, if any
+    /// round-trip has started or settled since the read began — the status in hand predates it,
+    /// and publishing it would walk the toggle backwards.
+    func mayPublishStatus(readAt epoch: StatusReadEpoch) -> Bool {
+        !isRoundTripInFlight && epoch == self.epoch
     }
 
     /// A programmatic write put the toggle at `value` — mark it so its `onChange` is swallowed.
@@ -35,16 +80,22 @@ struct LoginItemEchoGuard {
         lastApplied = value
     }
 
+    /// A round-trip is starting. Must be called synchronously with the decision to start one —
+    /// if it waited for the call's `Task` to be scheduled, two gestures could both pass
+    /// `shouldStartRoundTrip` before either marked itself in flight.
+    mutating func beginRoundTrip() {
+        isRoundTripInFlight = true
+        roundTripEvents += 1
+    }
+
     /// A round-trip that tried to apply `enabled` has returned; `toggle` is where the switch
     /// sits now, and `succeeded` says whether the service took the value.
     ///
-    /// **The marker moves to `enabled` first, on BOTH paths.** That ordering is what makes the
-    /// premise "the mid-flight flip was suppressed, so this follow-up is the only one acting on
-    /// it" true more than once. With the marker left stale — which is what the failure path did
-    /// before this type existed — the *next* mid-flight flip is not suppressed, so `onChange`
-    /// starts a round-trip AND this follow-up starts one: two concurrent `SMAppService` calls
-    /// for a single gesture, fanning out again on every subsequent failure.
+    /// **The marker moves to `enabled` first, on BOTH paths.** With it left stale — which is
+    /// what the failure path did before this type existed — the next echo reads as a gesture.
     mutating func settle(applied enabled: Bool, toggle: Bool, succeeded: Bool) -> LoginItemFollowUp {
+        isRoundTripInFlight = false
+        roundTripEvents += 1
         lastApplied = enabled
         guard toggle != enabled else {
             // Nothing moved. A success has already published the truth; a failure has not, so
