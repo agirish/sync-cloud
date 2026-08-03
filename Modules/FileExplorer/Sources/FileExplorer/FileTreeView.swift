@@ -994,6 +994,43 @@ struct FileRowView: View {
         let awaitingDownloadID: UUID?
     }
 
+    /// One row's badge answer, or nil when this resolution was SUPERSEDED and must not be written.
+    ///
+    /// A named function, and not private, for the reason `BadgeID` is a named type: what it pins is
+    /// otherwise a claim about `.task(id:)`'s cancellation that no test can reach. The row's task
+    /// assigns whatever this returns, so "returns nil" and "the badge does not move" are the same
+    /// statement.
+    ///
+    /// **The `Task.isCancelled` check after the stat is the whole point.** The memo grew two guards
+    /// for exactly this race — a stat that was out while an invalidation landed hands its answer
+    /// back but writes nothing — and the row sat one layer above them, assigning unconditionally.
+    /// The window: a download is requested, `PaneDownloadWatch.begin` forgets the memo and re-keys
+    /// this task, whose arming re-stat suspends inside `Task.detached { lstat }.value`. A detached
+    /// task does not inherit cancellation and `.value` on `Task<Bool?, Never>` does not throw, so
+    /// when the watch concludes and `.task(id:)` cancels this one, it still RESUMES carrying the
+    /// pre-download `true`. The replacement task reads the memo's `false`; which of the two writes
+    /// last is unconstrained. The badge then went on claiming cloud-only for a file that had
+    /// landed, until the row recycled or the pane republished — precisely the harm the memo's own
+    /// guards were added to stop, surviving one layer above them. Needs an `lstat` slower than the
+    /// poll's ~1 s interval (a wedged provider), which is narrow and is not never.
+    ///
+    /// `stat` is injectable for the same reason the memo's is: the race has no seam otherwise — a
+    /// test cannot land a cancellation inside a real detached `lstat`.
+    @MainActor
+    static func resolveBadge(
+        path: String,
+        isDirectory: Bool,
+        stat: @MainActor (String) async -> Bool? = { p in
+            await Task.detached { MaterializationStatus.isCloudOnlyIfKnown(atPath: p) }.value
+        }
+    ) async -> Bool? {
+        // No suspension on this branch, so there is no window to be superseded in.
+        guard !isDirectory else { return false }
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: stat)
+        guard !Task.isCancelled else { return nil }
+        return answer
+    }
+
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
     /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
@@ -1062,9 +1099,14 @@ struct FileRowView: View {
         // answer and drops its latch, and that last step re-keys this task to re-read it. Both
         // re-reads are cheap — the one on arming stats a file the user just clicked, the one on
         // conclusion is a dictionary hit.
+        //
+        // The assignment is conditional because a superseded resolution must not make it — see
+        // `resolveBadge`, which is where that decision lives so a test can reach it.
         .task(id: BadgeID(path: node.id, awaitingDownloadID: awaitingDownloadID)) {
-            guard !node.isDirectory else { isCloudOnly = false; return }
-            isCloudOnly = await CloudOnlyBadgeCache.isCloudOnly(atPath: node.id)
+            if let answer = await FileRowView.resolveBadge(path: node.id,
+                                                          isDirectory: node.isDirectory) {
+                isCloudOnly = answer
+            }
         }
     }
 
