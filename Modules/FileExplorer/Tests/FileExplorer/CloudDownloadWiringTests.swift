@@ -18,6 +18,15 @@ import Sync
 /// the paths asserted on are "ghosts" with no row in the tree — a realized row would re-stat its
 /// own path and write the answer back underneath the assertion.
 ///
+/// **Every pane this suite mounts gets its own `NotificationCenter`, and every post goes through
+/// that same one.** A mounted `FileTreeView` is a live subscriber and `.default` is process-wide, so
+/// a token — which names a SURFACE, not a test — cannot separate this suite's panes from the ones
+/// other suites mount in parallel. That cut both ways: a foreign left pane accepted the `.left`
+/// posts made here to prove a right pane ignores them (mechanism 9), and, worse, a foreign pane on
+/// the surface a routing test uses as its POSITIVE control forgot that path for it — so the test
+/// went green with the pane under test completely deaf. Neither is reachable through a channel
+/// nobody else holds. See `docs/flaky-tests.md` mechanism 9.
+///
 /// `.serialized` because the memo is process-wide.
 @MainActor
 @Suite(.serialized) struct CloudDownloadWiringTests {
@@ -51,6 +60,7 @@ import Sync
         let isSingleSource: Bool
         let currentPath: String
         let rootPath: String?
+        let channel: NotificationCenter
 
         var body: some View {
             FileTreeView(
@@ -60,7 +70,8 @@ import Sync
                 selection: .constant([]), otherSelection: [],
                 isLeft: isLeft, delegate: StubDelegate(),
                 rootPath: rootPath,
-                isSingleSource: isSingleSource
+                isSingleSource: isSingleSource,
+                downloadChannel: channel
             )
         }
     }
@@ -70,30 +81,36 @@ import Sync
                  nodes: [FileNode(id: "\(root)/row.bin", name: "row.bin", isDirectory: false)])
     }
 
-    /// Mounts a pane and returns it with its window, kept alive by the caller.
+    /// Mounts a pane on a channel of its own and returns it with its window and that channel, all
+    /// kept alive by the caller.
+    ///
+    /// The channel is what makes this pane the ONLY thing a post from this test can reach, and the
+    /// only thing that can reach it — see the suite comment.
     private func mount(isLeft: Bool, isSingleSource: Bool = false,
-                       currentPath: String, rootPath: String? = nil) -> (NSWindow, Box) {
+                       currentPath: String, rootPath: String? = nil) -> (NSWindow, Box, NotificationCenter) {
         let box = Box(Self.tree(1, root: currentPath))
+        let channel = NotificationCenter()
         let host = NSHostingView(rootView: Harness(box: box, isLeft: isLeft,
                                                    isSingleSource: isSingleSource,
-                                                   currentPath: currentPath, rootPath: rootPath))
+                                                   currentPath: currentPath, rootPath: rootPath,
+                                                   channel: channel))
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 320)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.contentView = host
         window.layoutIfNeeded()
-        return (window, box)
+        return (window, box, channel)
     }
 
     /// Tears a mounted pane down at the end of the test that made it.
     ///
-    /// **Not tidiness — the pane holds a live `.cloudDownloadRequested` subscription.** Leaving it
-    /// to be collected whenever ARC gets round to it means a LEFT pane from one test can still be
-    /// listening while the next test posts from `.left` to prove a RIGHT pane ignores it: the stale
-    /// pane accepts, its watch calls `CloudOnlyBadgeCache.forget`, and the ghost this suite asserts
-    /// on goes nil for a reason that has nothing to do with the pane under test. Observed as exactly
-    /// that — `theRightPaneIgnoresTheLeftPanesRequest` failing with `cached(ghost) == nil` in a full
-    /// run and passing under `--filter`.
+    /// **The pane holds a live `.cloudDownloadRequested` subscription**, and left to ARC it goes on
+    /// holding it well past the test that made it. Since `mount` gives every pane a channel of its
+    /// own, that afterlife can no longer be heard — a later post goes through a later channel — so
+    /// this is now belt and braces rather than the load-bearing part. It was load-bearing while the
+    /// panes shared `.default`: `theRightPaneIgnoresTheLeftPanesRequest` failed with
+    /// `cached(ghost) == nil` in a full run and passed under `--filter`, for a `forget` a pane from
+    /// an earlier test had run.
     private func teardown(_ window: NSWindow) {
         // Just the content view. `close()` releases a `.titled` window by default
         // (`isReleasedWhenClosed`), which over-releases the local reference and takes the whole test
@@ -117,9 +134,10 @@ import Sync
     }
 
     /// The real poster both Download buttons use — so these tests exercise the payload the app
-    /// actually sends, not one assembled here.
-    private func post(_ path: String, from token: PaneToken) {
-        CloudDownloadRequest.post(path: path, from: token)
+    /// actually sends, not one assembled here. `through` is the only argument the app leaves at its
+    /// default; the routing decision the pane then makes is the same one either way.
+    private func post(_ path: String, from token: PaneToken, through channel: NotificationCenter) {
+        CloudDownloadRequest.post(path: path, from: token, through: channel)
     }
 
     // MARK: - Routing
@@ -129,11 +147,11 @@ import Sync
     @Test func aPaneWatchesItsOwnRequest() async {
         let ghost = "/wiring/left/ghost.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _) = mount(isLeft: true, currentPath: "/wiring/left")
+        let (window, _, channel) = mount(isLeft: true, currentPath: "/wiring/left")
         defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
-        post(ghost, from: .left)
+        post(ghost, from: .left, through: channel)
 
         #expect(await settle(window) { CloudOnlyBadgeCache.cached(ghost) != true })
     }
@@ -144,11 +162,11 @@ import Sync
     @Test func theRightPaneWatchesItsOwnRequest() async {
         let ghost = "/wiring/right/ghost.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _) = mount(isLeft: false, currentPath: "/wiring/right")
+        let (window, _, channel) = mount(isLeft: false, currentPath: "/wiring/right")
         defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
-        post(ghost, from: .right)
+        post(ghost, from: .right, through: channel)
 
         #expect(await settle(window) { CloudOnlyBadgeCache.cached(ghost) != true })
     }
@@ -182,26 +200,32 @@ import Sync
     /// which is the trap this repo has documented repeatedly: under the loads recorded here —
     /// deferred main-queue work landing 13s late — a wrongly ACCEPTED post whose `forget` arrives
     /// after the window closes passes the test with the defect fully present, and nothing would ever
-    /// flag it. The two posts are delivered in order and each watch's `forget` is the first thing its
-    /// task does, so a `forget` for the ignored path would necessarily have happened BEFORE the one
-    /// this waits for. Seeing the second means the first has had its chance.
+    /// flag it. The two posts are delivered in order and accepting one forgets its path
+    /// SYNCHRONOUSLY, inside `PaneDownloadWatch.begin` (which is why the forget lives there and not
+    /// in the watch task), so a `forget` for the ignored path would necessarily have happened
+    /// BEFORE the one this waits for. Seeing the second means the first has had its chance.
     ///
-    /// The taken post doubles as the positive control: a pane that had stopped watching its own
-    /// requests altogether fails here rather than passing the absence vacuously.
+    /// **The taken post is the positive control, and only the pane under test can satisfy it.** It
+    /// goes through this mount's own channel, which nothing else in the process holds — so a pane
+    /// that had stopped watching its own requests altogether fails here rather than passing the
+    /// absence vacuously. That was not true while every pane shared `.default`: with
+    /// `takenToken == .singleSource` another suite's mounted rail forgot the path for us, and
+    /// mutating the pane's `.onReceive` to drop EVERY post left this whole helper green.
     private func expectIgnored(mounting surface: (isLeft: Bool, isSingleSource: Bool),
                                at root: String, from ignoredToken: PaneToken,
                                whileTaking takenToken: PaneToken) async {
         let ignored = "\(root)/ignored.bin"
         let taken = "\(root)/taken.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _) = mount(isLeft: surface.isLeft, isSingleSource: surface.isSingleSource,
-                                currentPath: root)
+        let (window, _, channel) = mount(isLeft: surface.isLeft,
+                                         isSingleSource: surface.isSingleSource,
+                                         currentPath: root)
         defer { teardown(window) }
         CloudOnlyBadgeCache.record(ignored, isCloudOnly: true)
         CloudOnlyBadgeCache.record(taken, isCloudOnly: true)
 
-        post(ignored, from: ignoredToken)
-        post(taken, from: takenToken)
+        post(ignored, from: ignoredToken, through: channel)
+        post(taken, from: takenToken, through: channel)
 
         #expect(await settle(window) { CloudOnlyBadgeCache.cached(taken) != true },
                 "the pane never acted on its OWN request — the absence below proves nothing")
@@ -233,13 +257,13 @@ import Sync
         try Data("b".utf8).write(to: URL(fileURLWithPath: second))
 
         CloudOnlyBadgeCache.clear(underRoot: dir.path)
-        let (window, _) = mount(isLeft: true, currentPath: dir.path)
+        let (window, _, channel) = mount(isLeft: true, currentPath: dir.path)
         defer { teardown(window) }
         CloudOnlyBadgeCache.record(first, isCloudOnly: true)
         CloudOnlyBadgeCache.record(second, isCloudOnly: true)
 
-        post(first, from: .left)
-        post(second, from: .left)
+        post(first, from: .left, through: channel)
+        post(second, from: .left, through: channel)
 
         #expect(await settle(window, timeout: 20) {
             CloudOnlyBadgeCache.cached(first) == false && CloudOnlyBadgeCache.cached(second) == false
@@ -346,8 +370,9 @@ import Sync
         let inside = "/wiring/provider/sub/ghost.bin"
         let outside = "/wiring/provider/elsewhere/ghost.bin"
         CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, box) = mount(isLeft: true, currentPath: "/wiring/provider/sub",
-                                  rootPath: "/wiring/provider")
+        let (window, box, _) = mount(isLeft: true, currentPath: "/wiring/provider/sub",
+                                     rootPath: "/wiring/provider")
+        defer { teardown(window) }
         CloudOnlyBadgeCache.record(inside, isCloudOnly: true)
         CloudOnlyBadgeCache.record(outside, isCloudOnly: true)
 

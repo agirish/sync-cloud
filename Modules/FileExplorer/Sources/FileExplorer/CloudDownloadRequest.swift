@@ -64,10 +64,16 @@ struct CloudDownloadRequest: Equatable, Sendable {
     /// `accepted(from:paneToken:)` — and the round trip through `NotificationCenter` has one place
     /// a test can drive it from. Neither call site can be reached by a test itself: both sit behind
     /// a real `MaterializationStatus` call against a provider placeholder.
+    ///
+    /// - Parameter channel: which `NotificationCenter` to announce on. `.default` is the app's, and
+    ///   the app never passes anything else — a test that mounts a pane gives it a private channel
+    ///   (`FileTreeView.downloadChannel`) and posts through the same one, so no two mounted panes in
+    ///   the process can hear each other. See `docs/flaky-tests.md` mechanism 9.
     @discardableResult
-    static func post(path: String, from paneToken: PaneToken) -> CloudDownloadRequest {
+    static func post(path: String, from paneToken: PaneToken,
+                     through channel: NotificationCenter = .default) -> CloudDownloadRequest {
         let request = CloudDownloadRequest(path: path, paneToken: paneToken)
-        NotificationCenter.default.post(name: .cloudDownloadRequested, object: request)
+        channel.post(name: .cloudDownloadRequested, object: request)
         return request
     }
 
@@ -116,15 +122,19 @@ enum CloudDownloadPoll {
     static let attempts = 10
     static let interval = Duration.seconds(1)
 
-    /// The whole watch as the pane runs it: forget the memo's pre-download answer, poll, record the
-    /// landed one, and decide whether the latch may be dropped. Returns that decision.
+    /// The watch as the pane runs it: poll, record the landed answer, and decide whether the latch
+    /// may be dropped. Returns that decision.
     ///
     /// Extracted from `FileTreeView` — which is left holding two lines — because the properties
-    /// that regressed here are properties of the SEQUENCE, not of any one step: that a download
-    /// costs exactly ONE `forget` (two pollers meant two, and each invalidates every in-flight
-    /// badge stat in both panes), that a watch which found nothing leaves the memo alone, and that
-    /// only the request the latch still holds may clear it. None of those are observable from a
-    /// view, and all three are one edit away from silently coming back.
+    /// that regressed here are properties of the SEQUENCE, not of any one step: that a watch which
+    /// found nothing leaves the memo alone, and that only the request the latch still holds may
+    /// clear it. Neither is observable from a view, and both are one edit away from silently
+    /// coming back.
+    ///
+    /// The memo's pre-download answer is dropped by `PaneDownloadWatch.begin`, not here — before
+    /// this task exists, so "exactly one `forget` per download" is a synchronous property of
+    /// arming a watch rather than one that depends on the main actor draining equal-priority jobs
+    /// in FIFO order (true in practice, guaranteed nowhere).
     ///
     /// - Parameter latch: read at the END, deliberately: it is the pane's live latch, and what
     ///   matters is which request it holds *now* — after ten seconds in which the user may have
@@ -139,10 +149,6 @@ enum CloudDownloadPoll {
         },
         latch: @MainActor () -> CloudDownloadRequest?
     ) async -> Bool {
-        // On the way in, not the way out: the answer the memo holds is the pre-download one, and a
-        // row recycling mid-download would otherwise read "cloud-only" straight back out of cache
-        // and undo the watch's result.
-        CloudOnlyBadgeCache.forget(request.path)
         let landed = await run(path: request.path, attempts: attempts, interval: interval,
                                isCloudOnly: isCloudOnly)
         // Only on landing, and landing means a DEFINITE "not a placeholder" — see `run`. A watch

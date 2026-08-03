@@ -43,14 +43,21 @@ struct CloudDownloadRoutingTests {
     /// The round trip through `NotificationCenter`, from the one poster both Download buttons use
     /// to the routing decision every pane applies: what `post` sends is exactly what the posting
     /// pane accepts, and what every other pane declines.
+    ///
+    /// Through a channel of this test's own, not `.default`: an observer on `.default` picks up
+    /// whatever any suite running in parallel posts, and `received` would then be somebody else's
+    /// request — the assertions below would fail naming a routing defect that was never there. The
+    /// `.default` the app actually runs on is exercised end to end by the mounted-pane suites. See
+    /// `docs/flaky-tests.md` mechanism 9.
     @Test func aPostedRequestIsAcceptedByItsOwnPaneAlone() async {
         let path = "/iCloud/posted.pdf"
         var received: Notification?
-        let observer = NotificationCenter.default.addObserver(
+        let channel = NotificationCenter()
+        let observer = channel.addObserver(
             forName: .cloudDownloadRequested, object: nil, queue: nil) { received = $0 }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        defer { channel.removeObserver(observer) }
 
-        let posted = CloudDownloadRequest.post(path: path, from: .right)
+        let posted = CloudDownloadRequest.post(path: path, from: .right, through: channel)
 
         let notification = try! #require(received)
         #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .right) == posted)

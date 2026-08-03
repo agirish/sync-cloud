@@ -490,7 +490,7 @@ struct ColumnPreviewColumn: View {
             // Exactly the handshake the row menu's Download uses: hand the watch to the pane, which
             // forgets the memo's pre-download answer, polls once for the whole app, and drops its
             // latch when the content lands or the attempts run out. This column re-probes off that
-            // latch (`awaitingDownloadPath`) instead of running a second poll — two watches meant
+            // latch (`isAwaitingDownload`) instead of running a second poll — two watches meant
             // two `forget`s, and each one invalidates every in-flight badge stat in both panes.
             CloudDownloadRequest.post(path: path, from: paneToken)
         } catch {

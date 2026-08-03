@@ -18,44 +18,70 @@ import Foundation
 
     private static let path = "/iCloud/big.mov"
 
-    /// The whole point: ONE forget per download, on the way in and never again.
+    /// Arming a watch drops the memo's pre-download answer, and does it SYNCHRONOUSLY — no await
+    /// between `begin` returning and the entry being gone.
+    ///
+    /// That is the whole of the ordering guarantee. The forget used to be the first line of the
+    /// watch task, which made "the memo is clear by the time anyone reads it again" rest on the
+    /// main actor draining equal-priority jobs in FIFO order — true in practice, guaranteed
+    /// nowhere — while `begin` had already published `requests`, re-keying the badge task of the
+    /// row showing that file. A row that re-read the memo in that window got the pre-download
+    /// "cloud-only" answer straight back out of cache. Asserted with no `await` at all, because a
+    /// suspension point here would be the test admitting the property it is checking.
+    @MainActor
+    @Test func arrivingAtAWatchForgetsThePathSynchronously() {
+        CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
+        CloudOnlyBadgeCache.record(Self.path, isCloudOnly: true)
+        // The watch puts the entry straight back, so the assertion below fails if the forget was
+        // the task's doing rather than `begin`'s — a `nil` here means the memo was cleared before
+        // the task had run at all, which is the claim.
+        let watch = PaneDownloadWatch { request, _ in
+            CloudOnlyBadgeCache.record(request.path, isCloudOnly: true)
+            return false
+        }
+
+        watch.begin(CloudDownloadRequest(path: Self.path, paneToken: .left))
+
+        #expect(CloudOnlyBadgeCache.cached(Self.path) == nil)
+    }
+
+    /// ONE forget per download: `begin` does it, and nothing after it does it again.
     ///
     /// Asserted per path rather than off a global invalidation counter, which cannot be read
     /// reliably: the memo is process-wide and every mounted pane suite running in parallel bumps
-    /// it on republish. The probe writes the entry back mid-poll, so a second forget after the
-    /// poll — the shape two owners produced — leaves the entry missing at the end.
+    /// it on republish. The injected watch writes the entry back — the row recycling mid-download —
+    /// so a second forget anywhere in the sequence leaves the entry missing at the end.
     @MainActor
-    @Test func aWatchForgetsOnceOnTheWayInAndNotAgainAfter() async {
+    @Test func nothingAfterTheArmingForgetsThePathAgain() async {
+        CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
+        let armed = Marker()
+        let watch = PaneDownloadWatch { request, _ in
+            CloudOnlyBadgeCache.record(request.path, isCloudOnly: true)
+            armed.fired = true
+            return false
+        }
+
+        watch.begin(CloudDownloadRequest(path: Self.path, paneToken: .left))
+        let ran = await hold(upTo: 30) { armed.fired }
+        #expect(ran, "the injected watch never ran — the assertion below would prove nothing")
+
+        #expect(CloudOnlyBadgeCache.cached(Self.path) == true)
+    }
+
+    /// The real watch forgets nothing itself — the arming already did, and a second forget is two
+    /// generation bumps for one download, which invalidates every in-flight badge stat in both
+    /// panes. Driven straight at `CloudDownloadPoll.watch` so the split is pinned on both sides.
+    @MainActor
+    @Test func thePollingWatchItselfForgetsNothing() async {
         CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
         CloudOnlyBadgeCache.record(Self.path, isCloudOnly: true)
         let request = CloudDownloadRequest(path: Self.path, paneToken: .left)
 
         // Exhausting rather than landing, so the watch's own `record` cannot mask the difference.
-        _ = await CloudDownloadPoll.watch(request, attempts: 1, interval: .zero, isCloudOnly: { path in
-            await MainActor.run { CloudOnlyBadgeCache.record(path, isCloudOnly: true) }
-            return true
-        }, latch: { request })
+        _ = await CloudDownloadPoll.watch(request, attempts: 1, interval: .zero,
+                                          isCloudOnly: { _ in true }, latch: { request })
 
         #expect(CloudOnlyBadgeCache.cached(Self.path) == true)
-    }
-
-    /// The forget happens on the way IN, so a row recycling mid-download cannot read the
-    /// pre-download "cloud-only" answer back out of cache and undo the watch's result.
-    @MainActor
-    @Test func theMemosPreDownloadAnswerIsDroppedBeforeThePollRuns() async {
-        CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
-        CloudOnlyBadgeCache.record(Self.path, isCloudOnly: true)
-        let request = CloudDownloadRequest(path: Self.path, paneToken: .left)
-
-        let memoWasStillHolding = Flag()
-        _ = await CloudDownloadPoll.watch(request, attempts: 1, interval: .zero, isCloudOnly: { path in
-            if await MainActor.run(body: { CloudOnlyBadgeCache.cached(path) }) != nil {
-                await memoWasStillHolding.raise()
-            }
-            return true
-        }, latch: { request })
-
-        #expect(!(await memoWasStillHolding.value))
     }
 
     /// A watch that saw the content land records it, so the row's badge re-read is a dictionary
@@ -159,10 +185,14 @@ import Foundation
 
     /// And the real probe answers nil for a path that is not there — the production default, not an
     /// injected stand-in, because that mapping is the whole of this fix.
+    ///
+    /// Nothing is seeded into the memo first: the arming forget that used to clear a seed lives in
+    /// `PaneDownloadWatch.begin` now, and this drives `watch` directly. The assertion is unchanged
+    /// in force — a poll that read "cannot stat" as a landing would `record(false)` here, which is
+    /// not `nil`.
     @MainActor
     @Test func aVanishedPathLeavesNothingInTheMemo() async {
         let gone = "/iCloud/vanished-\(UUID().uuidString).mov"
-        CloudOnlyBadgeCache.record(gone, isCloudOnly: true)
         let request = CloudDownloadRequest(path: gone, paneToken: .left)
 
         // Default `isCloudOnly`, so this runs `MaterializationStatus.isCloudOnlyIfKnown` for real.
@@ -185,10 +215,25 @@ import Foundation
         #expect(await task.value == false)
     }
 
-    /// A one-way observation made from inside the poll's `@Sendable` closure.
-    private actor Flag {
-        private(set) var value = false
-        func raise() { value = true }
+    /// A one-shot flag the injected watch can set — main-actor isolated, like the watch itself.
+    @MainActor private final class Marker {
+        var fired = false
+    }
+
+    /// Yields until `condition` holds or the deadline passes. Returns whether it held, so the
+    /// caller asserts on the answer rather than assuming it.
+    ///
+    /// Generous, because it waits for something to HAPPEN rather than bounding an absence: the
+    /// watch task is main-actor isolated and in a full parallel run this repo has measured deferred
+    /// main-actor work landing 13 s late. A short deadline would report starvation as a defect.
+    @MainActor
+    private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return condition()
     }
 
     /// Counts probes across the poll's `@Sendable` closure without a data race.

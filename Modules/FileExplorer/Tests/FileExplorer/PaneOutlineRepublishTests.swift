@@ -36,6 +36,17 @@ import Sync
         FileNode(id: "/root/\(name)", name: name, isDirectory: false)
     }
 
+    /// A channel of this suite's own, so the panes it mounts are deaf to every download post any
+    /// other suite makes.
+    ///
+    /// This suite has no interest in downloads at all — but a mounted `FileTreeView` subscribes to
+    /// `.cloudDownloadRequested` whether the test wants it or not, and on `.default` these left
+    /// panes accepted the `.left` posts `CloudDownloadWiringTests` makes to prove a RIGHT pane
+    /// ignores them. Their watches then ran `CloudOnlyBadgeCache.forget` on that suite's ghost
+    /// paths and failed its assertions with a message indistinguishable from a real routing defect.
+    /// See `docs/flaky-tests.md` mechanism 9.
+    private let downloads = NotificationCenter()
+
     private func view(_ tree: PaneTree) -> FileTreeView {
         FileTreeView(
             tree: tree,
@@ -45,7 +56,8 @@ import Sync
             selection: .constant([]),
             otherSelection: [],
             isLeft: true,
-            delegate: StubDelegate()
+            delegate: StubDelegate(),
+            downloadChannel: downloads
         )
     }
 
@@ -59,6 +71,11 @@ import Sync
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.contentView = host
+        // Dropped again before returning: the hosting view is the last reference to the SwiftUI
+        // graph, and the graph is what holds the pane's live notification subscription. Not
+        // `close()` — a `.titled` window is released on close, which over-releases this local and
+        // takes the process down with no verdict (mechanism 8).
+        defer { window.contentView = nil }
         window.layoutIfNeeded()
         host.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
@@ -98,7 +115,8 @@ import Sync
         let theirs = PaneTree(side: .right, version: 1, nodes: [file("x")])
         let v = FileTreeView(
             tree: mine, otherTree: theirs, isLoading: false, currentPath: "/root",
-            selection: .constant([]), otherSelection: [], isLeft: true, delegate: StubDelegate()
+            selection: .constant([]), otherSelection: [], isLeft: true, delegate: StubDelegate(),
+            downloadChannel: downloads
         )
         guard let rows = laidOutRowCount(v) else { return }
         #expect(rows == 2)          // mine, not theirs (which has 1)

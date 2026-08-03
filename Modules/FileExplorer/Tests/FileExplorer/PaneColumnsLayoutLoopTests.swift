@@ -77,6 +77,7 @@ import Sync
         let index: PaneChildrenIndex
         let placement: PaneBarPlacement
         let counter: Counter
+        let downloads: NotificationCenter
         @State private var barAtTop = false
 
         var body: some View {
@@ -101,7 +102,8 @@ import Sync
                 viewMode: .columns,
                 childrenIndex: index,
                 browsePath: $box.browsePath,
-                onColumnNavigate: { box.browsePath = $0 }
+                onColumnNavigate: { box.browsePath = $0 },
+                downloadChannel: downloads
             )
             .overlay(alignment: edge ? .top : .bottom) {
                 if !box.hostSelection.isEmpty {
@@ -114,12 +116,20 @@ import Sync
     /// Mounts the harness in a real (never ordered-in) window, the way the snapshot harness does —
     /// a `List` only bridges to an `NSTableView`, and preferences only carry real geometry, inside
     /// a window that actually lays out.
+    ///
+    /// The pane is mounted on a `NotificationCenter` of this suite's own. It wants nothing from
+    /// `.cloudDownloadRequested`, but a mounted `FileTreeView` subscribes regardless, and on
+    /// `.default` this left pane accepted the `.left` posts `CloudDownloadWiringTests` makes to
+    /// prove a RIGHT pane ignores them — running `CloudOnlyBadgeCache.forget` on that suite's
+    /// ghosts and failing it for a defect that was never there. See `docs/flaky-tests.md`
+    /// mechanism 9.
     private func mount(_ box: Box, counter: Counter) -> (NSWindow, PaneBarPlacement) {
         let tree = Self.tree(folders: 40)
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
         let placement = PaneBarPlacement()
         let host = NSHostingView(
-            rootView: Harness(box: box, tree: tree, index: index, placement: placement, counter: counter)
+            rootView: Harness(box: box, tree: tree, index: index, placement: placement,
+                              counter: counter, downloads: NotificationCenter())
         )
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
@@ -155,6 +165,9 @@ import Sync
         let box = Box()
         let counter = Counter()
         let (window, placement) = mount(box, counter: counter)
+        // Drops the last reference to the SwiftUI graph, and with it the pane's live subscription,
+        // rather than leaving it to ARC. Not `close()` — see mechanism 8.
+        defer { window.contentView = nil }
         pump(window, seconds: 0.3)
 
         // Proof the pane really laid out: the root column's rows, and nothing else yet.

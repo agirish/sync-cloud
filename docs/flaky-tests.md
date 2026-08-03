@@ -298,34 +298,50 @@ unrelated suite gains a mounted-view test. It passes under `--filter` every time
 full run most times. The value it reads has been changed by nobody it can see.
 
 **Mechanism.** A mounted SwiftUI view is not inert — it holds whatever subscriptions its body
-declares, and `NotificationCenter` is process-wide. `FileTreeView` carries one
-`.onReceive(.cloudDownloadRequested)`, scoped by `PaneToken`, and a token names a *surface*, not a
-test: **every mounted left pane in the process accepts every `.left` post in the process.** So
-`CloudDownloadWiringTests` posts from `.left` to prove a right pane ignores it, a left pane mounted
-by a different suite latches it instead, that pane's watch calls `CloudOnlyBadgeCache.forget`, and
-the ghost path the assertion rests on goes `nil`. Measured on 2026-08-02: adding one left-pane
-mount to `ColumnPreviewDownloadWiringTests` took `theRightPaneIgnoresTheLeftPanesRequest` from
-"never seen to fail" to 3 failures in 3 full runs.
+declares, and `NotificationCenter.default` is process-wide. `FileTreeView` carries one
+`.onReceive(.cloudDownloadRequested)`, and it used to be scoped by `PaneToken` alone — a token
+names a *surface*, not a test, so **every mounted left pane in the process accepted every `.left`
+post in the process.** `CloudDownloadWiringTests` posts from `.left` to prove a right pane ignores
+it, a left pane mounted by a different suite latched it instead, that pane's watch called
+`CloudOnlyBadgeCache.forget`, and the ghost path the assertion rests on went `nil`. Measured on
+2026-08-02: adding one left-pane mount to `ColumnPreviewDownloadWiringTests` took
+`theRightPaneIgnoresTheLeftPanesRequest` from "never seen to fail" to 3 failures in 3 full runs.
 
 It is mechanism 3's family, but the actor is different and so is the fix: no cache is being
 written and no defaults key is shared. What is shared is the *notification*, and `.serialized`
 cannot help because the two suites are different suites.
 
-**Fix.** Pick a token no other suite posts. There are three surfaces — `.left`, `.right`,
-`.singleSource` — and the Tidy rail is the one the routing suite only ever posts *at*, never *from*.
-`ColumnPreviewDownloadWiringTests` mounts the rail for exactly this reason, and says so at the top.
-Any new suite that mounts a `FileTreeView` has to make the same choice deliberately.
+**The token workaround this section used to prescribe was bankrupt, in two ways.** Pick a surface
+no other suite posts — except all three are already spoken for as the *ignored* token somewhere
+(`.left` by two routing tests, `.right` by a third, `.singleSource` by the suite that took it), so
+a fourth mounting suite has nothing left to pick. And worse, it hid the failure the other way
+round: a foreign pane on the surface a routing test uses as its POSITIVE control forgets that path
+*for* it, so the control is satisfied by a stranger. Mutating the pane's `.onReceive` to drop
+EVERY post left `theSingleSourceRailIgnoresTheLeftPanesRequest` green — the test passing with the
+pane under test completely deaf.
+
+**Fix — give each mounted pane a channel of its own.** `FileTreeView(downloadChannel:)` takes the
+`NotificationCenter` its subscription is built on, and `CloudDownloadRequest.post(…, through:)`
+takes the one to announce on. Both default to `.default`, which is what the app runs on — it has
+exactly one pane per surface, so the routing decision is unchanged there. A test passes a fresh
+`NotificationCenter()` per mount and posts through that same one. Two panes on two channels cannot
+reach each other whatever tokens they carry, and a positive control can only be satisfied by the
+pane the test mounted.
+
+**Every test that mounts a `FileTreeView` passes one** — including the ones with no interest in
+downloads at all (`PaneOutlineRepublishTests`, `PaneColumnsLayoutLoopTests`,
+`ColumnClickCostBenchmark`), because the subscription exists whether the test wants it or not.
+Unlike picking a token, this never runs out.
 
 Tear the mount down too — `window.contentView = nil` in a `defer`, which drops the last reference
-to the SwiftUI graph and takes the subscription with it. Necessary but not sufficient: it bounds a
-pane's afterlife, it does not stop two suites overlapping while both are legitimately alive. And do
-not reach for `window.close()`: a `.titled` window is released on close by default
-(`isReleasedWhenClosed`), which over-releases the test's own reference and kills the process with no
-verdict at all — mechanism 8's signature, from a line that looks like tidying up.
+to the SwiftUI graph and takes the subscription with it. It bounds a pane's afterlife within its
+own suite; the channel is what separates one suite from another. And do not reach for
+`window.close()`: a `.titled` window is released on close by default (`isReleasedWhenClosed`),
+which over-releases the test's own reference and kills the process with no verdict at all —
+mechanism 8's signature, from a line that looks like tidying up.
 
-**See.** `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewDownloadWiringTests.swift` (the
-suite comment), `Modules/FileExplorer/Tests/FileExplorer/CloudDownloadWiringTests.swift`
-(`teardown(_:)`).
+**See.** `Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift` (`downloadChannel`),
+`Modules/FileExplorer/Tests/FileExplorer/CloudDownloadWiringTests.swift` (`mount`, `teardown(_:)`).
 
 ---
 

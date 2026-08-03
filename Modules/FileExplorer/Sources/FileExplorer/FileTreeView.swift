@@ -152,7 +152,31 @@ public struct FileTreeView: View, Equatable {
     /// `.cloudDownloadRequested` itself, which meant a live Combine subscription per VISIBLE ROW,
     /// churned as the list recycled them, to deliver a notice that at most one row per session
     /// ever acts on.
+    ///
+    /// The result reaches the row through the MEMO rather than back down the tree: the watch
+    /// `record`s the landed answer and then drops its entry here, and dropping it re-keys that
+    /// row's badge task (see `FileRowView.BadgeID`), which re-reads the memo — one dictionary hit,
+    /// no second syscall.
     @StateObject private var downloads = PaneDownloadWatch()
+
+    /// The channel `.cloudDownloadRequested` travels on for THIS pane — `.default` in the app, and
+    /// a private `NotificationCenter` in a test that mounts a pane.
+    ///
+    /// `NotificationCenter` is process-wide and a mounted SwiftUI view is a live subscriber, so
+    /// `paneToken` alone cannot separate two panes on the same surface: it names a *surface*, and
+    /// under `swift test` several suites mount one at once. Every mounted left pane in the process
+    /// therefore accepted every `.left` post in the process — one suite's post ran another suite's
+    /// watch, and its `CloudOnlyBadgeCache.forget` moved the value that suite was asserting on.
+    /// Picking a token no other suite posts was the previous answer and it has run out: all three
+    /// surfaces are already used as the *ignored* token somewhere, and a foreign pane on the same
+    /// surface can accept the very post a routing test uses as its POSITIVE control — which passes
+    /// the test with the pane under test completely deaf.
+    ///
+    /// A channel is the identity a token is not. Production has exactly one pane per surface and
+    /// passes nothing, so `.default` is what the app runs on and the routing decision it makes is
+    /// bit-identical; a test gives each mounted pane its own channel and no two can reach each
+    /// other, whatever tokens they use. See `docs/flaky-tests.md` mechanism 9.
+    public let downloadChannel: NotificationCenter
 
     /// This pane's identity for download-notification scoping — the receiving side of
     /// `CloudDownloadRequest.paneToken`. Computed from facts already compared by `==`, so it adds
@@ -173,7 +197,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -203,6 +227,7 @@ public struct FileTreeView: View, Equatable {
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
         self.onBackgroundDeselect = onBackgroundDeselect
+        self.downloadChannel = downloadChannel
     }
 
     /// See the note on the type. Every stored property is accounted for here: the value ones by
@@ -238,6 +263,7 @@ public struct FileTreeView: View, Equatable {
             && lhs.childrenIndex == rhs.childrenIndex
             && lhs.browsePath == rhs.browsePath
             && lhs.placement === rhs.placement
+            && lhs.downloadChannel === rhs.downloadChannel
             && (lhs.onOpenSettings == nil) == (rhs.onOpenSettings == nil)
             && (lhs.onBarEdgeFlip == nil) == (rhs.onBarEdgeFlip == nil)
             && (lhs.onColumnNavigate == nil) == (rhs.onColumnNavigate == nil)
@@ -331,9 +357,11 @@ public struct FileTreeView: View, Equatable {
         ZStack {
             presentation
                 // The pane's single subscription for the whole list — see `downloads`.
-                // Scoped: another pane's request (the same absolute path can be on screen in both
-                // panes) is ignored rather than latched.
-                .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadRequested)) { note in
+                // Scoped twice over: by `downloadChannel` (which pane INSTANCE — one channel in the
+                // app, one per mounted pane in a test) and by `paneToken` (which surface, so the
+                // other pane's request for a path both panes are showing is ignored rather than
+                // latched).
+                .onReceive(downloadChannel.publisher(for: .cloudDownloadRequested)) { note in
                     if let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken) {
                         downloads.begin(request)
                     }
@@ -407,23 +435,6 @@ public struct FileTreeView: View, Equatable {
             }
         }
     }
-
-    /// **The pane polls, not the row and not the preview column.** Both of those used to, for the
-    /// same request: the row ran ten one-second probes and the preview column's Download button ran
-    /// twenty at 1.5 s, each preceded by its own `CloudOnlyBadgeCache.forget`. Two forgets means two
-    /// generation bumps, and a bump invalidates every in-flight badge stat in BOTH panes — the very
-    /// harm the pane-scoped request payload was added to remove. One owner, one forget.
-    ///
-    /// It also bounds the watch. Owned by the row, it only ran when that row was realized, so a
-    /// request for a row offscreen in a long list (or in a column the user has navigated away from —
-    /// and a preview-started download need not have its row on screen at all) left the pane's state
-    /// set indefinitely, and then ran a full ten-second poll minutes later for a download that had
-    /// long since finished. Owned by `PaneDownloadWatch` it always concludes within
-    /// `CloudDownloadPoll`'s budget of the request, whatever the list happens to be showing.
-    ///
-    /// The result is published through the memo rather than back to the row directly: `record`ing
-    /// the landed answer, then dropping the watch, re-keys that row's badge task (see
-    /// `FileRowView.BadgeID`) which re-reads it — one dictionary hit, no second syscall.
 
     /// Placeholder for states the user fixes in Settings (missing root, disabled provider):
     /// warning icon, explanation, optionally the offending path, and an Open Settings button.
@@ -929,7 +940,7 @@ struct FileRowView: View {
     /// The row does not poll. It briefly did — ten one-second detached `lstat`s of its own, plus
     /// its own `CloudOnlyBadgeCache.forget` — which duplicated the preview column's watch for a
     /// preview-started download and tied the watch's lifetime to whether this row was ever
-    /// realized. The pane owns it now: see `FileTreeView.watchRequestedDownload()`.
+    /// realized. The pane owns it now: see `PaneDownloadWatch`.
     ///
     /// Supplied by the pane rather than discovered here. Every row used to hold its own
     /// `.onReceive(NotificationCenter…)` subscription for the download notice — one live Combine
