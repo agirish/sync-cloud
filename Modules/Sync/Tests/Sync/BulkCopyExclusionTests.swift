@@ -62,9 +62,9 @@ import Foundation
         try #require(manager.activeFileOperationsCount == 0)
 
         manager.isBulkSyncRunning = true
-        manager.verifiedIdenticalForCopy = diffs
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch)
         // Both confirm-time guards pass; only bulkCopy's exclusion can refuse from here.
-        try #require(manager.fileOperationsEpoch == manager.verifiedIdenticalForCopyEpoch)
+        try #require(manager.verifiedIdenticalForCopy?.asOf == manager.fileOperationsEpoch)
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
 
@@ -84,7 +84,7 @@ import Foundation
         let (manager, mockFM, diffs) = try makeFixture(names: ["a.txt"])
 
         manager.isVerifyAllRunning = true
-        manager.verifiedIdenticalForCopy = diffs
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch)
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
 
@@ -95,7 +95,7 @@ import Foundation
 
         // With the verify run finished, the identical offer goes through.
         manager.banner = nil
-        manager.verifiedIdenticalForCopy = diffs
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch)
         await manager.confirmVerifiedCopy()?.value
         #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
         #expect(!refused(manager))
@@ -134,7 +134,7 @@ import Foundation
             _ = release.wait(timeout: .now() + 10)
         }
 
-        manager.verifiedIdenticalForCopy = [verifiedDiff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [verifiedDiff], asOf: manager.fileOperationsEpoch)
         let copyTask = manager.confirmVerifiedCopy()
         try #require(copyTask != nil, "nothing is in flight and the stamp is current: the confirm must be accepted")
         await awaitSignal(inCopy)

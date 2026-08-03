@@ -132,7 +132,7 @@ import Foundation
         let diff = makeDifference()
         manager.rawDifferences = [diff]
         manager.verifiedSameDifferenceIds = [diff.id]
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
 
         #expect(manager.swapPanes())
 
@@ -209,7 +209,7 @@ import Foundation
         manager.rawDifferences = [diff]
         manager.differences = [diff]
         manager.verifiedSameDifferenceIds = [diff.id]
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
         manager.hasScanned = true
         let node = FileNode(id: "/left/a.txt", name: "a.txt", isDirectory: false)
         manager.rawLeftTree = [node]

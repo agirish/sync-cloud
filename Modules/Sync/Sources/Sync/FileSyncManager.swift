@@ -219,22 +219,14 @@ public class FileSyncManager: ObservableObject {
     internal var verifiedSameDifferenceIds: Set<UUID> = []
     /// When non-nil, a "Verify All" run is in progress: (completed count, total count).
     @Published public var verifyAllProgress: (completed: Int, total: Int)?
-    /// After Verify All completes, the list of differences that verified identical; UI shows dialog to copy left→right. Cleared when user copies or cancels.
-    @Published public var verifiedIdenticalForCopy: [FileDifference]? {
-        // Stamp the offer with the epoch it was published under, on EVERY assignment. The
-        // stamp is what `confirmVerifiedCopy()` compares against to refuse a copy whose
-        // verdicts a file operation has since invalidated, and doing it here rather than at
-        // the one publish site is deliberate: this property is publicly settable, so a stamp
-        // maintained beside the assignment would silently desynchronize for any other writer
-        // and fail CLOSED — refusing a perfectly good copy offer with no way to tell why.
-        didSet { verifiedIdenticalForCopyEpoch = fileOperationsEpoch }
-    }
-    /// `fileOperationsEpoch` at the moment `verifiedIdenticalForCopy` was last assigned — the
-    /// epoch its verdicts were hashed under. `confirmVerifiedCopy()` compares it against the
-    /// live epoch and refuses the bulk copy if any file operation started since: the dialog can
-    /// outlive its verdicts (an unguarded ⌘Z undo lands while it is up), and the rescan that
-    /// clears the offer only does so when it COMPLETES, seconds later on a large tree.
-    internal private(set) var verifiedIdenticalForCopyEpoch = 0
+    /// After Verify All completes, the differences that verified identical — the UI offers to
+    /// copy them left→right. Cleared when the user copies or cancels, and whenever the rows
+    /// underneath are superseded (rescan, pane retarget, swap).
+    ///
+    /// The list and the epoch its verdicts were hashed under travel together as one value
+    /// (see ``VerifiedCopyOffer``), so an offer without its stamp is unrepresentable. Settable
+    /// only inside this module — the app side reads it and nothing more.
+    @Published public internal(set) var verifiedIdenticalForCopy: VerifiedCopyOffer?
     /// Filtered list of differences between the left and right panes (respects `showHiddenFiles`, `ignoredPaths`, and `verifiedSameDifferenceIds`).
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.

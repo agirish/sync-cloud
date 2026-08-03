@@ -45,7 +45,7 @@ import Foundation
     @MainActor
     @Test func testConfirmVerifiedCopyCopiesEvenWhenDismissBindingFiresFirst() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
 
         let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter (dismiss)
         let copyTask = manager.confirmVerifiedCopy()   // confirm button, same main-actor turn
@@ -67,7 +67,7 @@ import Foundation
     @MainActor
     @Test func testConfirmVerifiedCopyCopiesWhenConfirmRunsFirst() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
 
         let copyTask = manager.confirmVerifiedCopy()
         let dismissCleanup = manager.verifiedCopyDialogDismissed()
@@ -84,7 +84,7 @@ import Foundation
     @MainActor
     @Test func testCancelVerifiedCopyHidesWithoutCopying() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
 
         manager.dismissVerifiedCopyDialogWithoutCopy() // Cancel button
         let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter also fires

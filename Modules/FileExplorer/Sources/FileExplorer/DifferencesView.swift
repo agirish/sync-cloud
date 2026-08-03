@@ -124,7 +124,7 @@ public struct DifferencesView: View {
         syncManager.differences.contains { $0.isSyncing } || isBulkSyncing || isVerifyAllInProgress
     }
     private var verifiedIdenticalCount: Int {
-        syncManager.verifiedIdenticalForCopy?.count ?? 0
+        syncManager.verifiedIdenticalForCopy?.differences.count ?? 0
     }
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue

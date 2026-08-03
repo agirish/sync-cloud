@@ -1,6 +1,36 @@
 import Events
 import Foundation
 
+/// A "copy the verified-identical files left→right" offer, together with the
+/// `fileOperationsEpoch` its verdicts were hashed under.
+///
+/// The two are ONE value on purpose. `confirmVerifiedCopy()` compares `asOf` against the live
+/// epoch and refuses the bulk copy if a file operation has intervened, so the stamp is the
+/// difference between a checked write and an unchecked one. Kept as a separate property it was
+/// maintained by a `didSet` on the list, which certified whatever anyone assigned as current —
+/// and that made a data-integrity guard fail OPEN. A writer that publishes a STALE list (a
+/// stashed offer, a restored one, a future caller reusing the property) got it waved through
+/// into a silent bulk overwrite, which is the expensive direction. Making the stamp part of the
+/// value means it cannot be forgotten rather than being supplied wrongly by default; and a
+/// caller who supplies the wrong one now fails CLOSED — one refused copy and a banner saying
+/// so, which is visible and recoverable.
+///
+/// It also restores the state space to tests. While every assignment auto-certified itself, an
+/// offer stamped BEHIND the live epoch could not be constructed at all except by driving a real
+/// verify pass across a real file operation, so exactly one test covered the guard and every
+/// other test of this path was blind to it.
+public struct VerifiedCopyOffer: Equatable, Sendable {
+    /// The differences that verified byte-identical.
+    public let differences: [FileDifference]
+    /// `fileOperationsEpoch` as it stood when these verdicts were taken.
+    public let asOf: Int
+
+    public init(differences: [FileDifference], asOf: Int) {
+        self.differences = differences
+        self.asOf = asOf
+    }
+}
+
 extension FileSyncManager {
 
     /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but same size).
@@ -97,10 +127,12 @@ extension FileSyncManager {
         // verdicts describe, before its rescan could move the generation).
         if !verifiedIdentical.isEmpty, scanRequestGeneration == startGeneration,
            fileOperationsEpoch == startOperationsEpoch {
-            // The assignment stamps `verifiedIdenticalForCopyEpoch` itself (see its didSet); the
-            // guard above has just established that the live epoch is still the one these
-            // verdicts were hashed under, so the stamp is exactly `startOperationsEpoch`.
-            verifiedIdenticalForCopy = verifiedIdentical
+            // Stamped with the epoch the verdicts were actually hashed under, not with whatever
+            // the live epoch happens to read at this instant. The guard above has just
+            // established the two are the same, so this is the honest one of the pair.
+            verifiedIdenticalForCopy = VerifiedCopyOffer(
+                differences: verifiedIdentical, asOf: startOperationsEpoch
+            )
         }
         var parts: [String] = []
         if !verifiedIdentical.isEmpty { parts.append("\(verifiedIdentical.count) identical") }
@@ -119,8 +151,8 @@ extension FileSyncManager {
 
     /// Dismisses the "copy verified" dialog without copying; hides the verified identical items from the list.
     public func dismissVerifiedCopyDialogWithoutCopy() {
-        guard let list = verifiedIdenticalForCopy else { return }
-        for diff in list {
+        guard let offer = verifiedIdenticalForCopy else { return }
+        for diff in offer.differences {
             verifiedSameDifferenceIds.insert(diff.id)
         }
         verifiedIdenticalForCopy = nil
@@ -148,7 +180,7 @@ extension FileSyncManager {
     /// - Returns: The copy task, so tests can await completion. `nil` if there was nothing to copy.
     @discardableResult
     public func confirmVerifiedCopy() -> Task<Void, Never>? {
-        guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return nil }
+        guard let offer = verifiedIdenticalForCopy, !offer.differences.isEmpty else { return nil }
         // The offer can outlive its verdicts: a file operation (an unguarded ⌘Z undo, most
         // directly) landing while the dialog is up rewrites verified bytes, and the rescan that
         // would clear the offer only does so when it COMPLETES — seconds later on a large tree.
@@ -176,14 +208,13 @@ extension FileSyncManager {
         // The wording says only what the guard OBSERVED — "an operation ran, or one is pending".
         // It cannot tell whether any VERIFIED file was touched: a filing move on the other pane,
         // an undo of a folder rename, an unrelated delete all land here too.
-        guard fileOperationsEpoch == verifiedIdenticalForCopyEpoch,
-              activeFileOperationsCount == 0 else {
+        guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else {
             verifiedIdenticalForCopy = nil
             banner = .warning("A file operation ran or is pending — run Verify All again")
             return nil
         }
         verifiedIdenticalForCopy = nil
-        return Task { await self.bulkCopyDifferencesLeftToRight(list) }
+        return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences) }
     }
 
     /// The scan-time checksum pass behind `autoVerifySameSizeDuringScan`: hashes each pair that

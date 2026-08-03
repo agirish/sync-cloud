@@ -46,7 +46,7 @@ import Foundation
         manager.rawDifferences = [diff]
         manager.differences = [diff]
         manager.verifiedSameDifferenceIds = [diff.id]
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
         manager.lastScanDate = Date()
         manager.hasScanned = true
 
