@@ -210,6 +210,14 @@ struct ColumnPreviewColumn: View {
     /// argument whose deletion compiles and silently disables the whole downloading state.
     let isAwaitingDownload: Bool
 
+    /// Where this column ANNOUNCES a download, and it must be the same channel the pane that will
+    /// watch it is listening on — see `PaneColumnsView.downloadChannel`, which supplies it.
+    ///
+    /// Defaulted, unlike the two properties above, because `.default` is a correct answer rather
+    /// than a silently broken one: it is the channel the app runs on, and the only callers that
+    /// pass anything else are tests isolating themselves from each other.
+    var downloadChannel: NotificationCenter = .default
+
     /// The height the bar's band actually needs: its own height plus the padding the overlay adds
     /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
     /// near its column's bottom, and there it covers the Quick Look area instead — an image that
@@ -492,7 +500,7 @@ struct ColumnPreviewColumn: View {
             // latch when the content lands or the attempts run out. This column re-probes off that
             // latch (`isAwaitingDownload`) instead of running a second poll — two watches meant
             // two `forget`s, and each one invalidates every in-flight badge stat in both panes.
-            CloudDownloadRequest.post(path: path, from: paneToken)
+            CloudDownloadRequest.post(path: path, from: paneToken, through: downloadChannel)
         } catch {
             Logger.shared.warning("[preview] no download API for \(path): \(error.localizedDescription) — revealing in Finder")
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])

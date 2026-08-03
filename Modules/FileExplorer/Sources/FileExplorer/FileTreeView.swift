@@ -471,7 +471,8 @@ public struct FileTreeView: View, Equatable {
                 onQuickLook: { quickLookItem = $0 },
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
                 awaitingDownloads: downloads.requests,
-                fonts: rowFonts
+                fonts: rowFonts,
+                downloadChannel: downloadChannel
             )
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
@@ -594,7 +595,8 @@ public struct FileTreeView: View, Equatable {
                 delegate: delegate,
                 otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource,
-                onQuickLook: { quickLookItem = $0 }
+                onQuickLook: { quickLookItem = $0 },
+                downloadChannel: downloadChannel
             )
         }
         // Every visible row reports its bottom edge so the clicked row's position is already known
@@ -726,6 +728,14 @@ struct FileContextMenu: View {
     /// table's row menu); provided by the owning pane's `FileTreeView`.
     let onQuickLook: (URL) -> Void
 
+    /// Where this menu's Download ANNOUNCES the request, which must be the channel the pane that
+    /// will watch it is listening on — the owning pane's `FileTreeView.downloadChannel`, passed
+    /// down by whichever presentation built this menu.
+    ///
+    /// Defaulted to the app's, because that is a correct answer and not a silently broken one:
+    /// only a test isolating itself from the other suites passes anything else.
+    var downloadChannel: NotificationCenter = .default
+
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
         if selection.isEmpty {
@@ -775,9 +785,15 @@ struct FileContextMenu: View {
                             // clears; on the failure path the badge (correctly) stays. Scoped to
                             // THIS pane — the twin row the other pane may show for the same path
                             // must not start a second poll.
+                            //
+                            // And through this pane's own CHANNEL, not `.default`. In the app they
+                            // are the same object, so this changes no shipped behaviour; it makes
+                            // the invariant true rather than incidentally true — a pane and its own
+                            // poster are on one channel, whichever channel that is.
                             CloudDownloadRequest.post(
                                 path: singleNode.id,
-                                from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource))
+                                from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                                through: downloadChannel)
                         } catch {
                             Logger.shared.warning("Download unavailable for “\(singleNode.name)” — reveal it in Finder to download it (\(error.localizedDescription))")
                         }
