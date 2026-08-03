@@ -91,6 +91,7 @@ import Sync
         let diffIndex: DiffStatusIndex
         let delegate: FileActionDelegate
         let counter: Counter
+        let downloads: NotificationCenter
 
         var body: some View {
             counter.bodies += 1
@@ -101,11 +102,19 @@ import Sync
                 delegate: delegate, diffIndex: diffIndex,
                 viewMode: .columns, childrenIndex: index,
                 browsePath: $box.browsePath,
-                onColumnNavigate: { box.browsePath = $0 }
+                onColumnNavigate: { box.browsePath = $0 },
+                downloadChannel: downloads
             )
         }
     }
 
+    /// Mounts the pane on a `NotificationCenter` of its own.
+    ///
+    /// This benchmark wants nothing from `.cloudDownloadRequested`, but a mounted `FileTreeView`
+    /// subscribes regardless, and it is machine-pinned — so on `.default` it sits in the process
+    /// for a 1.5 s pump accepting the `.left` posts `CloudDownloadWiringTests` makes to prove a
+    /// RIGHT pane ignores them, running `CloudOnlyBadgeCache.forget` on that suite's ghosts. See
+    /// `docs/flaky-tests.md` mechanism 9.
     private func mount(_ box: Box, counter: Counter) -> NSWindow {
         let tree = Self.bigTree(side: .left)
         let otherTree = Self.bigTree(side: .right)
@@ -113,7 +122,8 @@ import Sync
         let delegate = StubDelegate(ignored: [])
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree, otherTree: otherTree, index: index,
-            diffIndex: .empty, delegate: delegate, counter: counter))
+            diffIndex: .empty, delegate: delegate, counter: counter,
+            downloads: NotificationCenter()))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -179,6 +189,9 @@ import Sync
         let box = Box()
         let counter = Counter()
         let window = mount(box, counter: counter)
+        // Drops the last reference to the SwiftUI graph, and with it the pane's live subscription,
+        // rather than leaving it to ARC. Not `close()` — see mechanism 8.
+        defer { window.contentView = nil }
         // Two columns deep, as the user was: /root/top3/mid7 open, its files listed.
         box.browsePath = PaneBrowsePath(components: ["top3", "mid7"])
         pump(window, seconds: 1.5)

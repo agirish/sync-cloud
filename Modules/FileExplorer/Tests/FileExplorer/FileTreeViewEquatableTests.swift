@@ -78,7 +78,8 @@ import Design
         childrenIndex: PaneChildrenIndex? = nil,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         onColumnNavigate: ((PaneBrowsePath) -> Void)? = { _ in },
-        onBackgroundDeselect: ((Int?) -> Void)? = { _ in }
+        onBackgroundDeselect: ((Int?) -> Void)? = { _ in },
+        downloadChannel: NotificationCenter = .default
     ) -> FileTreeView {
         FileTreeView(
             tree: tree, otherTree: otherTree, isLoading: isLoading, currentPath: currentPath,
@@ -90,7 +91,7 @@ import Design
             placement: placement, onBarEdgeFlip: onBarEdgeFlip, isActivePane: isActivePane,
             viewMode: viewMode, childrenIndex: childrenIndex,
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
-            onBackgroundDeselect: onBackgroundDeselect)
+            onBackgroundDeselect: onBackgroundDeselect, downloadChannel: downloadChannel)
     }
 
     @Test("An unchanged pane compares equal — otherwise the gate never engages at all")
@@ -200,6 +201,16 @@ import Design
     @Test("A different placement box is noticed — two panes must never share one")
     func placementIsComparedByIdentity() {
         #expect(pane(placement: PaneBarPlacement()) != pane(placement: PaneBarPlacement()))
+    }
+
+    /// The channel the pane's `.cloudDownloadRequested` subscription is built on. Compared by
+    /// identity, like the placement box: `.onReceive` is declared in `body`, so a pane that keeps
+    /// the view it already has keeps the subscription it already has — and would go on listening to
+    /// the channel it was first mounted with. In the app that never changes; in a test it is the
+    /// only thing separating one mounted pane from another, which is a bad thing to hold stale.
+    @Test("A different download channel is noticed — it decides which posts the pane hears")
+    func downloadChannelIsComparedByIdentity() {
+        #expect(pane(downloadChannel: NotificationCenter()) != pane(downloadChannel: NotificationCenter()))
     }
 
     @Test("Gaining or losing a callback is noticed — presence changes what the pane offers")

@@ -43,9 +43,9 @@ final class PaneDownloadWatch: ObservableObject {
     ///
     /// Injectable for one property this class owns and that class does not: that superseding a path
     /// CANCELS the watch it replaces. A leaked watch is invisible in `requests` — the new one has
-    /// already taken the slot — and its only externally visible trace is a second
-    /// `CloudOnlyBadgeCache.forget`, which the memo does not count. A watch that reports its own
-    /// cancellation makes it observable.
+    /// already taken the slot — and it leaves no trace in the memo either: it forgot nothing (that
+    /// happens in `begin`) and, if it ever lands, it records the same answer the live watch will.
+    /// A watch that reports its own cancellation is what makes it observable at all.
     typealias Watch = @MainActor (CloudDownloadRequest,
                                   @escaping @MainActor () -> CloudDownloadRequest?) async -> Bool
 
@@ -56,8 +56,21 @@ final class PaneDownloadWatch: ObservableObject {
     }
 
     /// Starts watching `request`, superseding any watch this pane already had for the same path.
+    ///
+    /// **The `forget` happens here, synchronously, before anything is published or scheduled.** It
+    /// used to be the first line of the watch task, which made "exactly one forget per download"
+    /// — the property the single-owner design exists for — depend on the main actor draining
+    /// equal-priority jobs in FIFO order: true in practice, guaranteed by nothing. Done here it is
+    /// a property of arming a watch, and it also closes a window the old order left open: arming
+    /// publishes `requests`, which re-keys the badge task of the row showing that file, and a row
+    /// that re-read the memo before the task's first line ran got the pre-download "cloud-only"
+    /// answer straight back out of cache.
     func begin(_ request: CloudDownloadRequest) {
         tasks[request.path]?.cancel()
+        // On the way in, not the way out: the answer the memo holds is the pre-download one, and a
+        // row recycling mid-download would otherwise read "cloud-only" back out of cache and undo
+        // the watch's result.
+        CloudOnlyBadgeCache.forget(request.path)
         requests[request.path] = request
         tasks[request.path] = Task { [weak self] in
             guard let self else { return }
