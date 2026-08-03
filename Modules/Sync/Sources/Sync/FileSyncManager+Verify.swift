@@ -222,13 +222,22 @@ extension FileSyncManager {
         // now. Checked AFTER the last suspension point above, so a scan requested while the
         // collector drained can't slip past the gate.
         guard scanGeneration == scanRequestGeneration else { return }
-        // Re-check the entry exclusions at commit time (see `startOperationsEpoch` above): an
+        // Re-check the operations epoch at commit time (see `startOperationsEpoch` above): an
         // operation that started — even one that already finished — since entry may have
         // rewritten the very bytes these verdicts describe. Discard the batch; the operation's
         // own rescan re-runs this pass over fresh rows.
-        guard fileOperationsEpoch == startOperationsEpoch,
-              activeFileOperationsCount == 0, !isBulkSyncRunning else {
-            Logger.shared.debug("Scan checksum pass: discarded — a file operation started mid-hash")
+        //
+        // The epoch is the WHOLE commit-time exclusion, deliberately: re-checking the entry
+        // guard's other two terms discarded batches that nothing had written. The count can
+        // only exceed the epoch's knowledge for an operation pre-counted but not yet enqueued
+        // — its confirmation prompt still up — and `isBulkSyncRunning` is latched before
+        // syncAll's read-only stat pass and prompts; in both states not a byte has been
+        // written, since every write goes through `enqueueFileOperation`, which bumps the
+        // epoch first. Discarding on them cost real coverage: if the user then DECLINED, no
+        // I/O ran, nothing sent `refreshSubject`, and no rescan re-ran this pass — so pairs
+        // already hashed as identical stayed listed until a manual rescan.
+        guard fileOperationsEpoch == startOperationsEpoch else {
+            Logger.shared.debug("Scan checksum pass: discarded — the file operations epoch moved mid-hash")
             return
         }
         let liveIds = Set(rawDifferences.map(\.id))
