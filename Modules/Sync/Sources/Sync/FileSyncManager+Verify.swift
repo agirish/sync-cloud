@@ -40,9 +40,14 @@ extension FileSyncManager {
     ///
     /// When done it publishes `verifiedIdenticalForCopy` — the offer the UI turns into a
     /// copy-left→right dialog — stamped with the file-operations epoch its verdicts were hashed
-    /// under, and only while nothing has superseded them. A pass that verifies nothing identical
-    /// RETRACTS any offer still standing rather than leaving it: this is read-only, so the
-    /// confirm-time guards would see an unmoved epoch and let the old list through.
+    /// under, and only while nothing has superseded them.
+    ///
+    /// A pass that ends with nothing to offer RETRACTS any offer still standing rather than
+    /// leaving it, and that covers all three ways of getting there: no ELIGIBLE candidates, no
+    /// pair verifying identical, or CANCELLATION — which keeps only the partial set that
+    /// happened to drain before the click, and is the one the user actively asked to stop.
+    /// Retracting matters because this pass is read-only: the confirm-time guards would see an
+    /// unmoved epoch and a zero count, and let the old list through to a bulk disk write.
     public func verifyAllWithChecksum(subset: [FileDifference]? = nil) async {
         // Refuse to start while anything is writing — or is about to write — the files this
         // run would hash: a file mid-overwrite can checksum as "identical" and poison
