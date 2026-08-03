@@ -17,9 +17,10 @@ import UniformTypeIdentifiers
 ///   compiled and left the suite green while every preview-started download lost its watch. That
 ///   one is now a compile error (the property has no default), which is why no test here can fail
 ///   for it.
-/// - `ColumnPreviewColumn(… awaitingDownloadPath:)` — deleting it leaves the column sitting on its
-///   pre-download answer for good: no "Downloading…", and no re-probe when the content lands. That
-///   is what `thePaneWatchIsWhatTellsThePreviewTheFileArrived` fails on.
+/// - `ColumnPreviewColumn(… isAwaitingDownload:)` — pinning it to `false` at the call site leaves
+///   the column sitting on its pre-download answer for good: no "Downloading…", and no re-probe
+///   when the content lands. That is what `thePaneWatchIsWhatTellsThePreviewTheFileArrived` fails
+///   on.
 /// - `PaneColumnsView.paneToken` — a send hardcoded to `.left` routes every preview-started
 ///   download to the left pane. `PaneColumnsView` derives it from the same two facts `FileTreeView`
 ///   derives its receiving token from, and the derivation is pinned below.
@@ -35,15 +36,27 @@ import UniformTypeIdentifiers
 /// is otherwise unreachable: `SF_DATALESS` is an `SF_` system flag, settable only by root and in
 /// practice only by a File Provider. Every caption this suite reads renders in that state alone.
 ///
-/// **This suite mounts the Tidy rail, and posts from `.singleSource`, deliberately.** Suites run in
-/// PARALLEL, the download notification is process-wide, and a mounted `FileTreeView` accepts any
-/// post carrying its own token no matter which test made it. A left pane mounted here therefore
-/// latches the `.left` posts `CloudDownloadWiringTests` issues to prove a RIGHT pane ignores them —
-/// and its watch's `CloudOnlyBadgeCache.forget` clears the very ghost that suite asserts on.
-/// Measured: mounted as a left pane, `theRightPaneIgnoresTheLeftPanesRequest` failed in 3 of 3 full
-/// runs and passed under `--filter` every time. The rail is the surface no other suite posts to, so
-/// the two cannot reach each other. Any new suite that mounts a `FileTreeView` has to make the same
-/// choice.
+/// **The pane this suite mounts is on a `NotificationCenter` of its own, and the one post below
+/// goes through that same one.** Suites run in PARALLEL, `.default` is process-wide, and a mounted
+/// `FileTreeView` is a live subscriber that accepts any post carrying its own token no matter which
+/// test made it — a token names a SURFACE, not a test. A pane mounted here on `.default` therefore
+/// latched posts `CloudDownloadWiringTests` issues to prove another pane ignores them, and its
+/// watch's `CloudOnlyBadgeCache.forget` cleared the very ghost that suite asserts on: measured,
+/// `theRightPaneIgnoresTheLeftPanesRequest` failed in 3 of 3 full runs and passed under `--filter`
+/// every time. Picking a surface nobody else posts to was the old answer here and it is gone — all
+/// three are already spoken for as the *ignored* token somewhere, so there was no fourth to pick,
+/// and it hid the opposite failure too (a foreign pane satisfying a positive control for the pane
+/// under test). A channel nobody else holds is reachable by nothing else, whatever token it
+/// carries. See `docs/flaky-tests.md` mechanism 9.
+///
+/// Which leaves the token free to be the one this pane really is: `isSingleSource: true` mounts the
+/// Tidy rail, so it derives `.singleSource`, and the post below sends from `.singleSource` because
+/// that is what the rail's own preview column would send.
+///
+/// The `.default` the app runs on is no longer exercised end to end from here. Both halves of that
+/// default are pinned directly instead — `CloudDownloadRoutingTests.theDefaultChannelIsTheAppsOwn`
+/// for the poster, `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault` for the
+/// receiver.
 ///
 /// `.serialized` because the badge memo and the download notification are both process-wide.
 @MainActor
@@ -100,6 +113,7 @@ import UniformTypeIdentifiers
         let root: String
         let defaults: UserDefaults
         let probe: ProbeSwitch
+        let channel: NotificationCenter
 
         var body: some View {
             let probe = self.probe
@@ -110,7 +124,8 @@ import UniformTypeIdentifiers
                 selection: $box.selection, otherSelection: [],
                 isLeft: true, delegate: StubDelegate(),
                 isSingleSource: true,
-                viewMode: .columns, childrenIndex: index, browsePath: $box.browsePath
+                viewMode: .columns, childrenIndex: index, browsePath: $box.browsePath,
+                downloadChannel: channel
             )
             .defaultAppStorage(defaults)
             .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
@@ -129,10 +144,14 @@ import UniformTypeIdentifiers
         ])
     }
 
-    /// The rail with the one file selected, so the preview column is up and showing it. See the
-    /// suite comment for why this is the rail and not a comparison pane.
-    private func mount(root: String = root,
-                       probe: ProbeSwitch = ProbeSwitch()) -> (window: NSWindow, host: NSView) {
+    /// The rail with the one file selected, so the preview column is up and showing it, on a
+    /// download channel of its own.
+    ///
+    /// The channel comes back with the window because it is the only way in: a post through
+    /// anything else — including the `.default` the app runs on — reaches this pane not at all. See
+    /// the suite comment.
+    private func mount(root: String = root, probe: ProbeSwitch = ProbeSwitch())
+    -> (window: NSWindow, host: NSView, channel: NotificationCenter) {
         let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
         defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(PaneViewMode.defaultColumnWidth),
@@ -142,16 +161,17 @@ import UniformTypeIdentifiers
         let box = Box()
         box.selection = ["\(root)/movie.mov"]
         let tree = Self.tree(root: root)
+        let channel = NotificationCenter()
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree, index: PaneChildrenIndex(tree: tree, treeRoot: root),
-            root: root, defaults: defaults, probe: probe))
+            root: root, defaults: defaults, probe: probe, channel: channel))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.layoutIfNeeded()
-        return (window, host)
+        return (window, host, channel)
     }
 
     /// Every path a live `QLPreviewView` in the tree is previewing.
@@ -210,12 +230,14 @@ import UniformTypeIdentifiers
     /// materialization, staged. The column may only notice it by way of the pane's latch: its probe
     /// re-runs on `probeGeneration`, and nothing else bumps that. So the Quick Look mount at the end
     /// is the whole chain reporting in — `CloudDownloadRequest.post` → the pane's scoped
-    /// `.onReceive` → `awaitingDownload` → `PaneColumnsView(awaitingDownload:)` →
-    /// `ColumnPreviewColumn(awaitingDownloadPath:)` → the falling edge → the re-probe.
+    /// `.onReceive` → `downloads.requests` → `PaneColumnsView(awaitingDownloads:)` →
+    /// `ColumnPreviewColumn(isAwaitingDownload:)` → the falling edge → the re-probe.
     ///
-    /// Delete the `awaitingDownloadPath:` argument at `PaneColumnsView.swift`'s preview call site
-    /// and this is the test that goes red; the rest of the target stays green, which is how the
-    /// threading shipped unproven.
+    /// Pin `isAwaitingDownload:` to `false` at `PaneColumnsView.swift`'s preview call site and this
+    /// is the test that goes red — verified, on this channel, failing on the Quick Look mount after
+    /// its full 30 s; the rest of the target stays green, which is how the threading shipped
+    /// unproven. Posting through `.default` instead of this mount's channel fails it the same way,
+    /// which is what says the pane really is listening where this test posts.
     ///
     /// **A REAL file, under a per-test directory, and that is load-bearing.** The pane's watch is
     /// the app's own `CloudDownloadPoll`, whose probe is the production
@@ -236,10 +258,12 @@ import UniformTypeIdentifiers
         try Data("frames".utf8).write(to: URL(fileURLWithPath: path))
 
         let probe = ProbeSwitch()
-        let (window, host) = mount(root: dir.path, probe: probe)
+        let (window, host, channel) = mount(root: dir.path, probe: probe)
         // Torn down rather than merely kept alive: this pane holds a live
-        // `.cloudDownloadRequested` subscription, and one left listening past its test accepts the
-        // next test's posts. `CloudDownloadWiringTests.teardown` documents the failure that caused.
+        // `.cloudDownloadRequested` subscription, and one left listening past its test would go on
+        // accepting posts through this channel. Belt and braces now that the channel is per-mount —
+        // nothing later posts through this one — but `CloudDownloadWiringTests.teardown` documents
+        // the failure a shared channel caused, and `close()` is still the wrong way to do it.
         defer { window.contentView = nil }
 
         // The resting state: a cloud-only placeholder is never handed to Quick Look.
@@ -260,7 +284,9 @@ import UniformTypeIdentifiers
         }
         #expect(!remountedUnprompted, "the column re-probed without the pane's watch concluding")
 
-        CloudDownloadRequest.post(path: path, from: .singleSource)
+        // Through this mount's own channel, which nothing else in the process holds — so the latch
+        // that rises below can only be this pane's, and only this post can raise it.
+        CloudDownloadRequest.post(path: path, from: .singleSource, through: channel)
 
         // `CloudDownloadPoll` is bounded by `attempts × interval`, so this cannot hang on a pane
         // that simply never concludes; it fails instead. The file is on disk, so the FIRST probe
