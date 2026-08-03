@@ -1307,6 +1307,54 @@ import Sync
                 "a watchdog that has resolved no scroll view reported held — reveals would wait on a stack it is not guarding")
     }
 
+    /// A pane parks at most ONE deferred reveal, and can drop it.
+    ///
+    /// Four drivers schedule a reveal — `browsePath`, the preview's rising edge, and each of the
+    /// two stored widths growing — and the column width is `@AppStorage`, so its driver fires in
+    /// BOTH panes. Each reveal issues two attempts, and every attempt that finds the stack held
+    /// re-checks on its own timer, so drilling three times inside one hold used to leave six
+    /// independent chains polling at 10Hz. They never disagreed (each attempt re-resolves its
+    /// target live), so the cost is not correctness — it is that each chain STRONGLY retains the
+    /// pane's captures (its tree, its children index, its delegate, its closures) and the
+    /// `ScrollViewProxy`, for the whole budget, whether or not the pane still exists. A
+    /// `DispatchQueue.main.asyncAfter` block cannot be cancelled and knows nothing about view
+    /// lifetime, which is why the cancellable has to live on the gate.
+    ///
+    /// Measured as DEALLOCATION rather than as a chain count, because retention is the actual
+    /// claim. A count would pass just as well with the blocks kept alive somewhere else.
+    @Test func testAPaneParksOneDeferredRevealAndDropsTheRest() {
+        final class Probe {}
+        let gate = PaneColumnHoldGate()
+        // Long enough that nothing below is racing a deadline: every deallocation asserted here is
+        // caused by a replacement or a cancel, never by the block simply having run.
+        let farOut: TimeInterval = 600
+
+        weak var first: Probe?
+        do {
+            let probe = Probe()
+            first = probe
+            gate.deferReveal(by: farOut) { _ = probe }
+        }
+        #expect(first != nil,
+                "a parked reveal does not retain its captures at all — every assertion below would pass vacuously")
+
+        // A second reveal REPLACES the first rather than joining it.
+        weak var second: Probe?
+        do {
+            let probe = Probe()
+            second = probe
+            gate.deferReveal(by: farOut) { _ = probe }
+        }
+        #expect(first == nil,
+                "a second reveal left the first chain parked — a pane under a sustained hold accumulates one chain per driver, each holding the pane for the whole budget")
+        #expect(second != nil, "the replacement was not parked")
+
+        // And a teardown drops what is parked.
+        gate.cancelPendingReveal()
+        #expect(second == nil,
+                "cancelling left the chain holding the pane — a reveal outliving the pane it was revealing is exactly what a queued block cannot notice on its own")
+    }
+
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {
         let (window, clip, watchdog, lock) = mount()
         defer { _ = window }

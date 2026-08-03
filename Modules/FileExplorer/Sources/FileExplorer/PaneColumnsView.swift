@@ -101,20 +101,38 @@ struct PaneColumnsView: View {
     /// `revealDeepestColumn`.
     static let revealRetryDelay: TimeInterval = 0.25
 
-    /// How many times a reveal held off by a wheel gesture in its OWN pane re-checks the hold
-    /// before giving up, spaced `WheelGestureTracker.staleness` apart — nominally five seconds of
-    /// a gesture that keeps delivering.
+    /// How many times a reveal held off by a wheel gesture in its OWN pane re-checks the hold,
+    /// spaced `WheelGestureTracker.staleness` apart — a minute of a gesture that keeps delivering.
     ///
     /// **Counted, not clocked**, and that is the point. Each check schedules the next, so a
     /// starved main thread stretches the budget rather than burning it — a wall-clock deadline
     /// would expire unused on exactly the loaded machine where the reveal is slowest to land.
     ///
-    /// A budget exists at all only as a stop for a lock that never releases. That is not
-    /// hypothetical here: a latched axis lock has shipped twice (the phase-less wheel mouse, whose
-    /// events clear nothing), and an unbounded re-check would answer that bug with a chain of
-    /// timers running for the life of the pane. Under a lock that behaves, the wait ends when the
-    /// gesture does, and this number is never reached.
-    static let revealHoldChecks = 50
+    /// **What this bounds is retention, not a latched lock — and the number was set against the
+    /// latch, which is why it was wrong.** The doc here used to justify 50 (five seconds) as a stop
+    /// for a lock that never releases, citing the phase-less wheel mouse whose events clear
+    /// nothing. That lock cannot happen through this gate: `shouldHoldHorizontalDrift(at:)` ands in
+    /// `now - lastEventAt < staleness` *unconditionally*, so the hold decays 100ms after the last
+    /// wheel event whatever the phase machinery decides. A latch can hold the axis DECISION
+    /// forever; it cannot hold the gate open across a quiet gap.
+    ///
+    /// So the cap never caught the bug it named. What five seconds caught was a person: a flick's
+    /// momentum, then more scrolling, then more — five unbroken seconds of it is an ordinary read
+    /// of a long folder, and reaching the end of the budget cost them the reveal outright (the
+    /// attempt returned, having scrolled nothing and logged nothing, which is byte-for-byte the
+    /// defect the deferral was added to fix). Exhaustion no longer drops the reveal — it logs and
+    /// scrolls anyway, see `revealDeepestColumn` — so this number no longer has to bound a broken
+    /// lock's damage, and can be set purely long enough that no real gesture reaches it: sixty
+    /// seconds requires a wheel-event stream with never a 100ms gap in it, for a minute.
+    ///
+    /// It still bounds how long ONE chain retains the pane's captures, which is the cost that
+    /// argues against removing the cap altogether. The other half of that cost is answered where
+    /// it belongs — `PaneColumnHoldGate` keeps at most one chain per pane and cancels it on
+    /// teardown — so what is left here is armor with a diagnosable failure, not a data loss.
+    ///
+    /// `nonisolated` so the environment key below can default to it: an `EnvironmentKey` is a plain
+    /// nonisolated type, and a MainActor-isolated default value cannot be read from one.
+    nonisolated static let revealHoldChecks = 600
 
     /// This pane's handle on its own mounted overscroll watchdog — see `PaneColumnHoldGate`.
     @State private var holdGate = PaneColumnHoldGate()
@@ -127,6 +145,11 @@ struct PaneColumnsView: View {
     /// The modifiers a click here is read as carrying, or `nil` — the shipped default — to ask the
     /// keyboard. See `paneClickModifiers`.
     @Environment(\.paneClickModifiers) private var pinnedClickModifiers
+
+    /// How many hold re-checks a deferred reveal gets. Defaults to `revealHoldChecks`, so every
+    /// host that does not deliberately shorten it behaves exactly as shipped — see
+    /// `paneColumnRevealHoldChecks`.
+    @Environment(\.paneColumnRevealHoldChecks) private var revealHoldChecks
 
     /// What every navigation guard in this view tests. `nil` is the shipped value and this is then
     /// literally `NSEvent.modifierFlags`, which is what all three call sites read before the pin
@@ -397,6 +420,10 @@ struct PaneColumnsView: View {
                 guard current > previous else { return }
                 revealDeepestColumn(proxy)
             }
+            // A reveal waiting out a hold must not outlive the pane it was revealing. The chain is
+            // a queued block holding this view's captures and the `ScrollViewProxy`, and a queued
+            // block has no idea the pane is gone — see `PaneColumnHoldGate.cancelPendingReveal`.
+            .onDisappear { holdGate.cancelPendingReveal() }
         }
     }
 
@@ -472,23 +499,56 @@ struct PaneColumnsView: View {
     /// The alternative — letting the revert record what it defeated and replaying it on release —
     /// was rejected: the watchdog sees only a bounds change, so replaying would restore the
     /// gesture's own leaked drift as readily as a reveal, which is the jitter bug.
+    ///
+    /// **The waiting is one chain per pane, not one per attempt.** It is parked on the gate, so a
+    /// later reveal replaces it rather than joining it, a pane teardown can cancel it, and the
+    /// stale-`treeRoot` window a long wait opens is closed by the same replacement. See
+    /// `PaneColumnHoldGate.deferReveal(by:_:)` and `revealHoldChecks` for what bounds it.
     private func revealDeepestColumn(_ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         let gate = holdGate
+        let budget = revealHoldChecks
+        // A fresh reveal supersedes any chain still waiting out a hold. Every attempt re-resolves
+        // its own target, so the new chain says everything the old one would have — and says it
+        // against the `treeRoot` of the pane that exists now. See `cancelPendingReveal`.
+        gate.cancelPendingReveal()
         func attempt(checksLeft: Int) {
-            guard !MainActor.assumeIsolated({ gate.isStackHeld }) else {
-                guard checksLeft > 0 else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + WheelGestureTracker.staleness) {
-                    attempt(checksLeft: checksLeft - 1)
+            if gate.isStackHeld {
+                if checksLeft > 0 {
+                    gate.deferReveal(by: WheelGestureTracker.staleness) {
+                        attempt(checksLeft: checksLeft - 1)
+                    }
+                    return
                 }
-                return
+                // **Exhaustion scrolls anyway, and says so.** Returning here was the same
+                // user-visible outcome as the bug the deferral fixed — deepest column stranded
+                // behind the pane's edge, nothing in the log — and it was strictly worse than
+                // trying: a scroll `enforceHold` reverts leaves the stack exactly where returning
+                // would have, and if the hold lapsed since the last check it lands. The line is
+                // the only evidence a hold that long ever happened, which is what makes a genuinely
+                // stuck lock diagnosable instead of being reported as "the column just hides".
+                Logger.shared.debug(String(
+                    format: "[columns] reveal waited out %d hold checks (%.0fs) and is scrolling anyway",
+                    budget, Double(budget) * WheelGestureTracker.staleness))
             }
             guard let deepest = browsePath.columnDirectories(treeRoot: treeRoot).last else { return }
             withAnimation(animation) { proxy.scrollTo(deepest, anchor: .trailing) }
+            // The gate answer above is a SNAPSHOT of `now - lastEventAt < staleness`. A main-thread
+            // hitch that opens a >100ms gap in momentum delivery and lands on a check makes it read
+            // false: this scrolls, the next momentum event re-engages the lock, `enforceHold`
+            // reverts the scroll, and the chain is spent having achieved nothing. So re-ask one
+            // runloop turn later — after any revert that scroll provoked has had its own hop — and
+            // go back to waiting if the hold is (still) engaged. Costs an unheld reveal one queued
+            // gate read, and consumes a check, so it stays inside the same budget.
+            guard checksLeft > 0 else { return }
+            gate.deferReveal(by: 0) {
+                guard gate.isStackHeld else { return }
+                attempt(checksLeft: checksLeft - 1)
+            }
         }
-        DispatchQueue.main.async { attempt(checksLeft: Self.revealHoldChecks) }
+        DispatchQueue.main.async { attempt(checksLeft: budget) }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay) {
-            attempt(checksLeft: Self.revealHoldChecks)
+            attempt(checksLeft: budget)
         }
     }
 
@@ -994,5 +1054,33 @@ extension EnvironmentValues {
     var paneColumnRevealAnimation: Animation? {
         get { self[PaneColumnRevealAnimationKey.self] }
         set { self[PaneColumnRevealAnimationKey.self] = newValue }
+    }
+}
+
+// MARK: - Reveal hold budget
+
+private struct PaneColumnRevealHoldChecksKey: EnvironmentKey {
+    /// The shipped budget, so nothing that does not deliberately shorten it changes at all.
+    static let defaultValue = PaneColumnsView.revealHoldChecks
+}
+
+extension EnvironmentValues {
+    /// How many times a deferred reveal re-checks this pane's hold before it stops waiting and
+    /// scrolls anyway — `PaneColumnsView.revealHoldChecks` unless a host shortens it.
+    ///
+    /// This exists to make the exhaustion branch reachable in a test. The shipped budget is sixty
+    /// seconds of a gesture with never a 100ms gap in it, which is the point of the number — no
+    /// real gesture gets there — and it is also why the branch at the end of it was shipped
+    /// untested: a suite cannot hold a stack for a minute. It is exactly the branch worth pinning,
+    /// because what it used to do (return, having scrolled nothing and logged nothing) was
+    /// indistinguishable from the defect the deferral was added to fix.
+    ///
+    /// Injected rather than made a `var` on the view for the same reason
+    /// `paneColumnRevealAnimation` is: the reveal reads it from inside a closure the test cannot
+    /// reach, and every call site that constructs a `PaneColumnsView` would otherwise have to
+    /// thread a parameter none of them care about.
+    var paneColumnRevealHoldChecks: Int {
+        get { self[PaneColumnRevealHoldChecksKey.self] }
+        set { self[PaneColumnRevealHoldChecksKey.self] = newValue }
     }
 }
