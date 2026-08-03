@@ -5,8 +5,9 @@ time, the failure looked exactly like a real defect. `ColumnPreviewRevealTests` 
 deepest column is hidden behind the preview: column 420…630, visible 0…270", which is the precise
 geometry of the bug it exists to catch. Nothing about that message says *the machine decided this*.
 
-This file records the mechanisms that have actually produced false failures in this repo, how to
-tell one from a regression before you start bisecting, and the fix pattern for each. See
+This file records the mechanisms that have actually produced false failures in this repo — plus
+one, mechanism 8, that produces no failure at all and hangs the run instead — how to tell each
+from a regression before you start bisecting, and the fix pattern for each. See
 [ci.md](ci.md) for what CI runs and the runner's own quirks.
 
 ---
@@ -15,6 +16,10 @@ tell one from a regression before you start bisecting, and the fix pattern for e
 
 Do these in order. Steps 1–3 cost about a minute and have each been skipped, at least once, in
 favour of a wrong conclusion.
+
+**No verdict at all?** If the run never finished — no output, log frozen mid-line, nothing named —
+none of the steps below apply: they all assume a failure you can read. Go straight to
+[mechanism 8](#8-the-wait-that-hangs-instead-of-failing).
 
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
@@ -228,6 +233,49 @@ today, but the seam is the answer if one grows.
 
 **See.** `Modules/FileExplorer/Tests/FileExplorer/ColumnDrillSourceTests.swift`;
 `paneClickModifiers` in `PaneColumnsView.swift`.
+
+### 8. The wait that hangs instead of failing
+
+**Symptom.** No verdict at all. The run produces no test output and never finishes; the log stops
+mid-line — often right after `Build complete!` — and names no test. One core sits pegged near
+100%.
+
+**Mechanism.** This one is *not* a flake: it is deterministic, and it is in this file because the
+symptom sends you hunting for one. An unbounded `while <condition> { await Task.yield() }` has no
+exit but the condition, so a regression that stops the condition from ever holding converts a test
+*failure* into an infinite busy spin. Two things then conspire to tell you nothing: `swift test`
+buffers stdout in blocks, so the log freezes rather than reporting how far it got, and a live pid
+is not evidence of progress. On 2026-08-02 a change that made `confirmVerifiedCopy()` return nil
+left `testVerifiedCopyExcludesConcurrentBulkRuns` spinning on `bulkSyncProgress == nil` for 15+
+minutes at 25% CPU. This is the worst case on the self-hosted runner, which is the same Mac local
+builds use.
+
+**Diagnosing it.** `sample <pid>` is the only truth — macOS has no `timeout(1)`, and neither the
+log nor the pid will tell you which test is stuck:
+
+```bash
+pgrep -f SyncPackageTests
+sample <pid> 5 -file /tmp/hang.txt
+```
+
+**Fix.** `waitUntil(_:timeout:_:)` in `Modules/Sync/Tests/Sync/TestSupport.swift`. It polls a
+main-actor condition, gives up at its deadline, and records a **labeled** `#expect` failure, so the
+run continues on to the real assertions instead of parking. Measured with the same regression
+injected at the call site: the old spin was still running at 155s at 117% CPU and never
+terminates; the bounded wait failed at 5.03s naming its condition, followed by the five downstream
+assertions.
+
+Bounded waits are fine and should be left alone — a `ContinuousClock` deadline in the loop
+condition, or a `for _ in 0..<N { await Task.yield() }` settle loop. Both terminate. Grep for the
+shape; every hit must carry a deadline:
+
+```bash
+grep -rn "await Task.yield()" Modules/*/Tests | grep "while "
+```
+
+**See.** `75cf7904` — *Bound the four spin-waits that could hang the Sync suite instead of
+failing*; `Modules/Sync/Tests/Sync/BulkCopyExclusionTests.swift`,
+`Modules/Sync/Tests/Sync/InFlightSyncStateTests.swift`.
 
 ---
 
