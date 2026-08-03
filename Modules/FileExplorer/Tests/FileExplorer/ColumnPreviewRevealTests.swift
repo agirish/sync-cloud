@@ -508,8 +508,9 @@ import Sync
     /// SwiftUI update. Idle that update is the very next turn and nobody notices. Under full-suite
     /// load the main actor is unavailable in multi-second stretches, so it can arrive well over a
     /// second later — after the scroll-back — and it puts the stack back on the reveal's target.
-    /// Traced on a failing run: the retry issued at t+0.52s, the test scrolled to 0 at t+0.85s,
-    /// and the stack was at 570 by t+2.3s with no attempt having run in between.
+    /// Traced on a failing run, timed from the FIRST attempt rather than from the trigger: the
+    /// retry issued at +0.52s (its 0.25s deadline, plus the slip), the test scrolled to 0 at
+    /// +0.85s, and the stack was at 570 by +2.3s with no attempt having run in between.
     ///
     /// **570 is exactly the value mechanism 3's known residual warns about** — the pane's legal
     /// extreme, in this very suite. It is not that: no foreign suite is involved, the actor is this
@@ -522,9 +523,29 @@ import Sync
     /// far the machine has slipped. Running is not landing, hence the drain after it: a
     /// `scrollTo` is applied by the next SwiftUI update, measured at one turn after the issue.
     ///
-    /// Costs the four scroll-back tests ~0.7s each — this suite 38.6s → 41.6s idle in isolation,
+    /// **That deadline argument holds only while nothing DEFERS.** An attempt made against a HELD
+    /// stack does not run and retire — it re-parks itself `WheelGestureTracker.staleness` later,
+    /// repeatedly, for up to `revealHoldChecks` (600) checks, which is a minute of chain queued
+    /// entirely *after* this marker. So the marker would fire with the chain still pending and
+    /// this helper would quietly promise something it had not delivered. No hold test scrolls back
+    /// today, which is why the assertion below is a guard on a future one rather than a fix.
+    ///
+    /// Costs the five scroll-back tests ~0.6s each — this suite 38.6s → 41.6s idle in isolation,
     /// the whole package 57.2s → 58.1s, since this suite is already its critical path.
+    ///
+    /// The shipped trade-off this works around — "a deliberate scroll made within
+    /// `revealRetryDelay` of opening a preview gets overridden", per `revealDeepestColumn` — is
+    /// deliberately NOT pinned by a test. Staging it means scrolling inside a 0.25s window timed
+    /// from a trigger whose own delivery slips by seconds under load, so the test would assert
+    /// against whether the machine beat a timer: precisely the shape this suite is being cleared
+    /// of. The retry's other properties are covered without racing it, by
+    /// `testALateRetryFollowsTheStackAsItIsWhenItRuns` and
+    /// `testACancelledRevealsQueuedRetryScrollsNothing`.
     private func quiesceReveals(_ mounted: Mounted) async {
+        // The precondition the deadline argument rests on. `watchdogs` rather than `soleWatchdog`
+        // so a pane that somehow mounted two does not swallow the one that is held.
+        #expect(watchdogs(mounted).allSatisfy { !$0.isStackHeld },
+                "this pane's stack is held, so a reveal chain can be parked past this marker — the wait below does not cover it")
         let marker = Marker()
         DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.3) {
             MainActor.assumeIsolated { marker.fired = true }
@@ -542,7 +563,7 @@ import Sync
 
     /// How many main-queue turns an issued `proxy.scrollTo` is given to actually reach the clip.
     ///
-    /// Measured at **one** turn after the attempt logs its call, three runs out of three. Twelve
+    /// Measured at **one** turn after the attempt makes its call, three runs out of three. Twelve
     /// because turns are the cheap thing here — the queue-ordered marker above is what does the
     /// waiting — and because the measurement was made idle, where a turn is one update; under load
     /// a turn is a real main-actor turn, which is the unit that scales.
@@ -626,6 +647,13 @@ import Sync
                 "a preview took room from this pane — the premise of a preview-less pane is gone")
 
         // The drill's own reveal parked the stack at its trailing edge; the user scrolls back.
+        // WAITED for, not sampled: `mount`'s trailing `settle` is a wall-clock quiescence window,
+        // and under the contention `docs/flaky-tests.md` mechanism 2 measures it can be satisfied
+        // by a single long main-actor block before the drill's reveal has landed at all. Sampling
+        // here would then fail this premise for the machine's reason rather than the pane's — the
+        // same family as the clobber `quiesceReveals` fixes, arriving one line earlier. The
+        // `#expect` still decides: a reveal that never comes fails it with the same message.
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
         #expect(clip.bounds.origin.x > 0,
                 "the drill never revealed, so the scroll-back below distinguishes nothing")
         await scrollBack(mounted, toX: 0)
@@ -711,6 +739,9 @@ import Sync
         let contentBefore = mounted.stack.documentView?.frame.width ?? 0
         #expect(contentBefore > clip.bounds.width,
                 "fixture does not overflow its viewport (content \(contentBefore)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible")
+        // Waited for rather than sampled, for the reason given in
+        // `testAPreviewWidthCommitLeavesAPreviewlessPaneAlone`.
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
         #expect(clip.bounds.origin.x > 0, "the drill never revealed, so the scroll-back proves nothing")
         await scrollBack(mounted, toX: 0)
         try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
