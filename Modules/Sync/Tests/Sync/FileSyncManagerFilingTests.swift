@@ -957,7 +957,7 @@ final class CallCounter: @unchecked Sendable {
     /// `tryAnotherFolder` releases its in-flight id in a `defer` — but only if it returns, and
     /// `FilingClassifier` has no timeout. A round-trip that never comes back would latch the id
     /// forever, making every later "Try another" for that card a silent no-op with no way out.
-    /// `clearFiling()` (switch providers, rescan) is that way out, so it must clear the set —
+    /// `clearFiling()` (switch providers) is that way out, so it must clear the set —
     /// it resets every other piece of filing state on the same line.
     @MainActor
     @Test func clearFilingReleasesStuckTryAnotherIds() async throws {
@@ -1028,12 +1028,12 @@ final class CallCounter: @unchecked Sendable {
         let arrivalB = ContinuousClock.now.advanced(by: .seconds(10))
         while calls.value < 2, ContinuousClock.now < arrivalB { await Task.yield() }
         #expect(calls.value == 2, "round-trip B must reach the classifier")
-        #expect(!manager.filingTryAnotherInFlight.isEmpty, "B's re-ask is out, so its guard is armed")
+        #expect(manager.filingTryAnotherInFlight[s.id] != nil, "B's re-ask is out, so its guard is armed")
 
         // A finally returns. Its defer is stale — it must NOT release B's guard.
         releaseA.value = true
         await a.value
-        #expect(!manager.filingTryAnotherInFlight.isEmpty,
+        #expect(manager.filingTryAnotherInFlight[s.id] != nil,
                 "A's stale defer released B's still-out guard — the ownership check is gone")
 
         // And with B still out, another click must be refused, not start a third round-trip.
@@ -1045,7 +1045,7 @@ final class CallCounter: @unchecked Sendable {
         // B returns: its own defer releases its own entry, and its verdict lands as usual.
         releaseB.value = true
         await b.value
-        #expect(manager.filingTryAnotherInFlight.isEmpty, "B's completed re-ask must release its own entry")
+        #expect(manager.filingTryAnotherInFlight[s.id] == nil, "B's completed re-ask must release its own entry")
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
                 "the CURRENT round-trip's verdict still lands")
     }
