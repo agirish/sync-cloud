@@ -878,6 +878,15 @@ private struct LiquidGlassBackground: ViewModifier {
 private struct OverlayCardChrome: ViewModifier {
     let cornerRadius: CGFloat
     let lightShadow: Bool
+    /// Whether to draw the light-mode `.quaternary` hairline.
+    ///
+    /// Off by default so the banner and the ⌘K palette keep exactly the chrome they have. The
+    /// full-size panels — Settings, Help, Welcome, the destination picker — turn it on, because in
+    /// light this modifier draws no edge at all and those cards need one against the scrim. Each of
+    /// them used to hand-roll that stroke as its own `.overlay`, which meant that in DARK it landed
+    /// on top of the specular hairline below and every one of them wore two borders. Owning both
+    /// schemes here is what makes the two mutually exclusive by construction.
+    var lightBorder: Bool = false
     @Environment(\.colorScheme) private var scheme
 
     @ViewBuilder
@@ -890,14 +899,16 @@ private struct OverlayCardChrome: ViewModifier {
                                    startPoint: .top, endPoint: .bottom),
                     lineWidth: 1))
                 .shadow(color: .black.opacity(0.55), radius: 34, y: 12)
-        } else if lightShadow {
-            content.shadow(
-                color: LiquidGlass.cardShadow.color,
-                radius: LiquidGlass.cardShadow.radius,
-                x: LiquidGlass.cardShadow.x,
-                y: LiquidGlass.cardShadow.y)
         } else {
             content
+                .overlay {
+                    if lightBorder { shape.strokeBorder(.quaternary, lineWidth: 0.5) }
+                }
+                .shadow(
+                    color: lightShadow ? LiquidGlass.cardShadow.color : .clear,
+                    radius: lightShadow ? LiquidGlass.cardShadow.radius : 0,
+                    x: lightShadow ? LiquidGlass.cardShadow.x : 0,
+                    y: lightShadow ? LiquidGlass.cardShadow.y : 0)
         }
     }
 }
@@ -984,7 +995,11 @@ private struct GroundedGlassCard: ViewModifier {
     func body(content: Content) -> some View {
         let radius = LiquidGlass.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        let chrome = OverlayCardChrome(cornerRadius: radius, lightShadow: level.needsExplicitChrome)
+        // `lightBorder: true` — this modifier backs the full-size in-window panels, and in light
+        // the chrome draws no edge of its own. Each caller used to add that stroke itself, which
+        // doubled the dark hairline; now the chrome owns both schemes and the callers own neither.
+        let chrome = OverlayCardChrome(cornerRadius: radius, lightShadow: level.needsExplicitChrome,
+                                       lightBorder: true)
         // Drawn UNDER the content and OVER the material: a background applied first sits nearest
         // the content, so the stack reads text → ground → glass → window.
         let grounded = content

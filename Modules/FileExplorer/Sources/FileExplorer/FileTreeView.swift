@@ -569,7 +569,9 @@ public struct FileTreeView: View, Equatable {
 
     /// One tree row: content and its context menu. Single-click selection is left entirely to
     /// the List; drilling into a folder is via the Compare button / context menu.
-    @ViewBuilder
+    ///
+    /// No `@ViewBuilder` — the single `return` below disables it anyway, so the attribute only
+    /// advertised a capability this body does not use.
     private func treeRow(for row: PaneRow) -> some View {
         let node = row.node
         return FileRowView(

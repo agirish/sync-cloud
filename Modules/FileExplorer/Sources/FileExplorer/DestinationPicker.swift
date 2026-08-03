@@ -112,6 +112,9 @@ public struct DestinationPicker: View {
     /// the same distinction the columns draw with their spinner. Without it the results pane
     /// asserted "No folders match" from the first keystroke, before anything had been read.
     @State private var isSearchRunning = false
+    /// Whether the last walk stopped early (match limit, listing budget, or depth ceiling). The
+    /// results list says so rather than presenting a partial answer as the whole one.
+    @State private var isSearchTruncated = false
     /// Per-directory listings. Absent means "not asked yet"; the column shows a spinner until it
     /// lands, which is what distinguishes loading from a genuinely empty folder.
     @State private var listings: [String: [DestinationFolder]] = [:]
@@ -182,6 +185,27 @@ public struct DestinationPicker: View {
                 : "All \(request.sourcePaths.count) items are already there."
         }
         return nil
+    }
+
+    /// What a Copy into the items' own folder will actually do, or nil when that is not the case.
+    ///
+    /// **Not** a refusal, deliberately: duplicating a file in place is a real thing to want, and the
+    /// transfer supports it — `generateUniqueURL` appends " 2". But nothing said so. The move gets a
+    /// refusal here because a move onto itself genuinely does nothing; a copy onto itself does
+    /// something, just not the thing "Copy to this folder" sounds like. Naming the duplicate is the
+    /// difference between a surprising outcome and an intended one.
+    private var duplicateNotice: String? {
+        guard !request.isMove, !highlighted.isEmpty,
+              DestinationBrowser.allSourcesAlreadyIn(highlighted, sources: request.sourcePaths)
+        else { return nil }
+        if request.sourcePaths.count == 1 {
+            let name = request.firstItemName
+            let stem = (name as NSString).deletingPathExtension
+            let ext = (name as NSString).pathExtension
+            let copy = ext.isEmpty ? "\(stem) 2" : "\(stem) 2.\(ext)"
+            return "“\(name)” is already here — copying will make “\(copy)”."
+        }
+        return "All \(request.sourcePaths.count) items are already here — copying will make numbered duplicates."
     }
 
     private var canCommit: Bool { !highlighted.isEmpty && refusal == nil }
@@ -407,7 +431,12 @@ public struct DestinationPicker: View {
                     if isSearchRunning {
                         ProgressView().controlSize(.small).padding(20)
                     } else {
-                        Text("No folders match “\(query)”")
+                        // A truncated walk that found nothing has NOT established that nothing
+                        // matches — it stopped looking. Saying "no folders match" there is a claim
+                        // the search never earned.
+                        Text(isSearchTruncated
+                             ? "No matches in the folders searched — “\(query)” may be deeper in, or further afield."
+                             : "No folders match “\(query)”")
                             .scaledFont(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .padding(20)
@@ -424,6 +453,17 @@ public struct DestinationPicker: View {
                             accentFill: glassHue.accentFillColor,
                             onTap: { highlighted = folder.path }
                         )
+                    }
+                    // The search is bounded three ways and every one of them stops it early. Say
+                    // so, rather than letting a partial list read as the complete one — the folder
+                    // the user wants may simply not be in it.
+                    if isSearchTruncated {
+                        Label("Showing the first \(ranked.count) — narrow the search, or browse to it.",
+                              systemImage: "ellipsis.circle")
+                            .scaledFont(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 22)
+                            .padding(.top, 6)
                     }
                 }
             }
@@ -442,6 +482,14 @@ public struct DestinationPicker: View {
                 Label(refusal, systemImage: "exclamationmark.triangle.fill")
                     .scaledFont(.system(size: 11.5))
                     .foregroundStyle(SemanticColor.warning)
+                    .lineLimit(2)
+            } else if let duplicateNotice {
+                // Ahead of the collision preview: the items are already here, so the only names
+                // they can collide with are their own, and "you'll be asked what to do" would be
+                // wrong — nothing prompts, a numbered duplicate is simply made.
+                Label(duplicateNotice, systemImage: "plus.square.on.square")
+                    .scaledFont(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
             } else if !collidingNames.isEmpty {
                 Label(collisionSummary, systemImage: "doc.on.doc")
@@ -627,7 +675,8 @@ public struct DestinationPicker: View {
         }
         let found = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         guard !Task.isCancelled else { return }
-        matches = found
+        matches = found.matches
+        isSearchTruncated = found.isTruncated
     }
 
     // MARK: - New folder
