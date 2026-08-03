@@ -176,17 +176,14 @@ import Sync
     }
 
     /// Pumps until `condition` holds, or the deadline passes. Returns whether it held.
+    ///
+    /// The loop itself is `LayoutPumpWait.pump` — shared because a private copy of it per suite is
+    /// how two of the three kept a defect the third had already fixed. See `pumpFloor` there for why
+    /// a deadline alone is not a bound on a congested main actor.
     @discardableResult
     private func wait(_ window: NSWindow, upTo seconds: Double,
                       for condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
-        return condition()
+        await LayoutPumpWait.pump(window, upTo: seconds, until: condition).held
     }
 
     /// Pumps until the stack's horizontal offset has held still for `quiet` seconds.
