@@ -316,9 +316,10 @@ no other suite posts — except all three are already spoken for as the *ignored
 (`.left` by two routing tests, `.right` by a third, `.singleSource` by the suite that took it), so
 a fourth mounting suite has nothing left to pick. And worse, it hid the failure the other way
 round: a foreign pane on the surface a routing test uses as its POSITIVE control forgets that path
-*for* it, so the control is satisfied by a stranger. Mutating the pane's `.onReceive` to drop
-EVERY post left `theSingleSourceRailIgnoresTheLeftPanesRequest` green — the test passing with the
-pane under test completely deaf.
+*for* it, so the control is satisfied by a stranger and the test asserts nothing about the pane it
+mounted. **No mutation could have caught that**, which is the sharpest way to see it: on a shared
+channel the pane under test and a foreign pane of the same surface run the same code, so any edit
+that deafens one deafens both. There was nothing to vary.
 
 **Fix — give each mounted pane a channel of its own.** `FileTreeView(downloadChannel:)` takes the
 `NotificationCenter` its subscription is built on, and `CloudDownloadRequest.post(…, through:)`
@@ -328,10 +329,16 @@ exactly one pane per surface, so the routing decision is unchanged there. A test
 reach each other whatever tokens they carry, and a positive control can only be satisfied by the
 pane the test mounted.
 
-**Every test that mounts a `FileTreeView` passes one** — including the ones with no interest in
+**Every test that mounts a `FileTreeView` must pass one** — including the ones with no interest in
 downloads at all (`PaneOutlineRepublishTests`, `PaneColumnsLayoutLoopTests`,
-`ColumnClickCostBenchmark`), because the subscription exists whether the test wants it or not.
-Unlike picking a token, this never runs out.
+`ColumnClickCostBenchmark` all do), because the subscription exists whether the test wants it or
+not. Unlike picking a token, this never runs out. `ColumnPreviewDownloadWiringTests` is the one
+still on `.default`, which is safe only for as long as it is the last one there — it is also what
+exercises the shipped default end to end, so when it moves, that coverage has to move with it.
+
+Verified by mutation, from a pristine copy: with the pane's `.onReceive` dropping every post, all
+three ignore tests fail on their TAKEN assertion rather than passing the absence vacuously. The
+control is load-bearing at last.
 
 Tear the mount down too — `window.contentView = nil` in a `defer`, which drops the last reference
 to the SwiftUI graph and takes the subscription with it. It bounds a pane's afterlife within its
