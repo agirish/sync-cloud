@@ -1,3 +1,5 @@
+import Foundation
+
 /// The launch-at-login toggle's echo/reconcile state machine, extracted from
 /// `GeneralSettingsTab` so it can be tested without an `SMAppService` round-trip.
 ///
@@ -12,10 +14,16 @@
 ///   Such a flip does not start a call of its own; `settle` compares the toggle's position
 ///   against what the finished call pushed and hands the difference back as a follow-up.
 ///
-/// **The invariant: at most one round-trip is in flight, and no status read may overwrite the
-/// toggle while one is.** Both halves are enforced by explicit state — `isRoundTripInFlight`
-/// and `roundTripEvents` — rather than inferred from `lastApplied`, which is what the previous
-/// version tried and could not do:
+/// **The invariant: at most one round-trip holds a live claim, and no status read may overwrite
+/// the toggle while one does.** Both halves are enforced by explicit state — `inFlight` and
+/// `roundTripEvents` — rather than inferred from `lastApplied`, which is what the previous
+/// version tried and could not do.
+///
+/// "Live claim" rather than "in flight", because the claim EXPIRES: a round-trip that has not
+/// returned within `roundTripGoesStaleAfter` stops blocking, and its late settle is ignored by
+/// token. Stating it as "at most one in flight" would be a promise this type cannot keep — the
+/// call it is guarding is an XPC round-trip it can neither cancel nor time out, only stop waiting
+/// on. See `roundTripGoesStaleAfter` for what that unbounded version cost.
 ///
 /// - Serialisation used to rest on the marker being stale mid-flight, so a flip back to the
 ///   in-flight value would compare equal and be suppressed. That holds for ONE mid-flight
@@ -40,13 +48,48 @@ struct LoginItemEchoGuard {
     /// the first status read lands, so the very first move of the switch always counts.
     private var lastApplied: Bool?
 
-    /// Whether a register/unregister round-trip is running right now. This — not the stale
-    /// marker — is what serialises the calls.
-    private var isRoundTripInFlight = false
+    /// The round-trip running right now, if any. This — not the stale marker — is what
+    /// serialises the calls.
+    private var inFlight: RoundTrip?
 
     /// Bumped every time a round-trip starts and every time one settles, so a status read that
     /// began before either can tell it is now out of date. Only ever compared for equality.
     private var roundTripEvents = 0
+
+    /// A started round-trip: which one it is, and when it started.
+    private struct RoundTrip {
+        let token: RoundTripToken
+        let startedAt: Date
+    }
+
+    /// Names one round-trip, so a settle can be matched against the call that is actually in
+    /// flight. Needed because a round-trip can now be SUPERSEDED (see `roundTripGoesStaleAfter`)
+    /// and a superseded call must not clear its successor's claim on the way out — the same
+    /// ownership rule the filing lens's re-ask guard needs, for the same reason.
+    struct RoundTripToken: Equatable {
+        fileprivate let value: Int
+    }
+
+    /// How long an unfinished round-trip keeps its exclusive claim on the toggle.
+    ///
+    /// **Without a bound this guard could latch shut permanently.** The in-flight flag used to
+    /// be cleared only in `settle`, which the call site reaches only after its `await` returns —
+    /// and that await is an XPC call into `smd`, the very hazard the SettingsView helpers run off
+    /// the main thread to survive. `Task.value` does not resume early on cancellation, so a wedged
+    /// `smd` left the flag set for the life of the view: every later flip was swallowed (the
+    /// switch MOVED and nothing happened), every status read was dropped so the toggle could not
+    /// self-correct either, and nothing was logged because nothing had failed. That is strictly
+    /// worse than the double-fire this type was written to fix, which at least left the user a way
+    /// out.
+    ///
+    /// 15 seconds is far longer than a live round-trip takes (sub-second normally, a few seconds
+    /// for a slow `smd`), so an impatient double-flip during a healthy call is still suppressed
+    /// rather than doubled up; and it is short enough that a user who sees nothing happen and
+    /// tries again gets a response. The deadline lives HERE rather than as a timeout around the
+    /// await deliberately: the call cannot be cancelled (a blocked synchronous XPC call ignores
+    /// cancellation), so there is nothing to abandon — what has to recover is this guard's claim,
+    /// which is a pure decision and can therefore be tested without any concurrency plumbing.
+    static let roundTripGoesStaleAfter: TimeInterval = 15
 
     /// Dates a background status read against the guard's round-trip state. Captured when the
     /// read starts, handed back to `mayPublishStatus(readAt:)` before it publishes.
@@ -59,20 +102,29 @@ struct LoginItemEchoGuard {
 
     /// Whether the toggle's move to `value` should start a round-trip **now**.
     ///
-    /// False for the echo of a programmatic set, and false while a call is already in flight —
-    /// in that second case the move is a real gesture, but the in-flight call's `settle` is
-    /// what carries it, so starting one here would double up.
-    func shouldStartRoundTrip(for value: Bool) -> Bool {
-        !isRoundTripInFlight && value != lastApplied
+    /// False for the echo of a programmatic set, and false while a LIVE call is already in
+    /// flight — in that second case the move is a real gesture, but the in-flight call's `settle`
+    /// is what carries it, so starting one here would double up. A call that has gone stale
+    /// (see `roundTripGoesStaleAfter`) has lost its claim and no longer blocks.
+    func shouldStartRoundTrip(for value: Bool, at now: Date) -> Bool {
+        value != lastApplied && !hasLiveRoundTrip(at: now)
     }
 
     /// Whether a status read that began at `epoch` may still be published to the toggle.
     ///
-    /// No, if a call is in flight — that call owns the toggle until it settles. No, if any
+    /// No, if a live call is in flight — that call owns the toggle until it settles. No, if any
     /// round-trip has started or settled since the read began — the status in hand predates it,
-    /// and publishing it would walk the toggle backwards.
-    func mayPublishStatus(readAt epoch: StatusReadEpoch) -> Bool {
-        !isRoundTripInFlight && epoch == self.epoch
+    /// and publishing it would walk the toggle backwards. Once the in-flight call has gone stale
+    /// it owns nothing, so a read is allowed through: with the call wedged, an activation read is
+    /// the only thing left that can put the toggle back in step with the service.
+    func mayPublishStatus(readAt epoch: StatusReadEpoch, at now: Date) -> Bool {
+        epoch == self.epoch && !hasLiveRoundTrip(at: now)
+    }
+
+    /// Whether a round-trip is in flight AND still within its claim window.
+    private func hasLiveRoundTrip(at now: Date) -> Bool {
+        guard let inFlight else { return false }
+        return now.timeIntervalSince(inFlight.startedAt) < Self.roundTripGoesStaleAfter
     }
 
     /// A programmatic write put the toggle at `value` — mark it so its `onChange` is swallowed.
@@ -83,9 +135,14 @@ struct LoginItemEchoGuard {
     /// A round-trip is starting. Must be called synchronously with the decision to start one —
     /// if it waited for the call's `Task` to be scheduled, two gestures could both pass
     /// `shouldStartRoundTrip` before either marked itself in flight.
-    mutating func beginRoundTrip() {
-        isRoundTripInFlight = true
+    ///
+    /// Returns the token that names it; hand it back to `settle` so a superseded call cannot
+    /// clear its successor's claim.
+    mutating func beginRoundTrip(at now: Date) -> RoundTripToken {
         roundTripEvents += 1
+        let token = RoundTripToken(value: roundTripEvents)
+        inFlight = RoundTrip(token: token, startedAt: now)
+        return token
     }
 
     /// A round-trip that tried to apply `enabled` has returned; `toggle` is where the switch
@@ -93,8 +150,20 @@ struct LoginItemEchoGuard {
     ///
     /// **The marker moves to `enabled` first, on BOTH paths.** With it left stale — which is
     /// what the failure path did before this type existed — the next echo reads as a gesture.
-    mutating func settle(applied enabled: Bool, toggle: Bool, succeeded: Bool) -> LoginItemFollowUp {
-        isRoundTripInFlight = false
+    ///
+    /// **A superseded call settles into nothing.** Once a round-trip has gone stale a later
+    /// gesture can start its own, and the wedged one may still return afterwards. Letting that
+    /// late settle run would clear the live call's claim, move the marker to a value nobody is
+    /// pushing any more, and drive the service from a decision made against a toggle position two
+    /// gestures old. It owns nothing, so it does nothing.
+    mutating func settle(
+        token: RoundTripToken,
+        applied enabled: Bool,
+        toggle: Bool,
+        succeeded: Bool
+    ) -> LoginItemFollowUp {
+        guard inFlight?.token == token else { return .settled }
+        inFlight = nil
         roundTripEvents += 1
         lastApplied = enabled
         guard toggle != enabled else {
