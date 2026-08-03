@@ -79,8 +79,16 @@ struct CloudDownloadRoutingTests {
     /// **Observing `.default` is safe here only because of the path filter.** Suites run in
     /// parallel and any of them may post; a bare `received = $0` would latch a stranger's request
     /// and this test would pass on it. The path is unique per run, so what arrives under it can
-    /// only have come from the call below. Nothing here mounts a view, so this observer is the only
-    /// thing the test puts on the shared channel, and it is removed on the way out.
+    /// only have come from the call below, and the observer is removed on the way out.
+    ///
+    /// **The post is the half that needs the rule, and it runs the other way.** This test cannot
+    /// pin the default without putting a real `.cloudDownloadRequested` on `.default`, which makes
+    /// it the only thing in the target that does. Nothing hears it: `FileTreeView`'s `.onReceive`
+    /// is the sole subscriber to that name anywhere in the codebase, and no test mounts a pane on
+    /// `.default` any more (mechanism 9). So the two depend on each other — mount a pane on
+    /// `.default` again and this post arms a real `.left` watch inside it, on a path with no file
+    /// behind it, for the poll's full ten-second budget. That is the same collision from the
+    /// posting side, and the reason the rule is stated as *every* mounting test.
     @Test func theDefaultChannelIsTheAppsOwn() {
         let path = "/iCloud/default-channel-\(UUID().uuidString).pdf"
         var received: CloudDownloadRequest?

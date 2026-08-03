@@ -523,6 +523,14 @@ built the way `ContentView` builds one. Both were mutation-checked against the r
 **Anything given a test-only default needs this**: the moment the last real user of a default is a
 test that stopped using it, it is unpinned.
 
+**And note what pinning the poster costs: the rule now runs both ways.** `theDefaultChannelIsTheAppsOwn`
+cannot pin `post`'s default without putting a real `.cloudDownloadRequested` on `.default`, so it is
+the one thing in the target that posts there. Nothing hears it today — `FileTreeView`'s `.onReceive`
+is the only subscriber to that name in the codebase, and no test mounts a pane on `.default`. Mount
+one there again and that post arms a real `.left` watch inside it, against a path with no file
+behind it, for the poll's full ten-second budget. So "every mounting test passes its own channel" is
+not merely hygiene for the mounting suite; it is what keeps the poster's pin harmless.
+
 Tear the mount down too — `window.contentView = nil` in a `defer`, which drops the last reference
 to the SwiftUI graph and takes the subscription with it. It bounds a pane's afterlife within its
 own suite; the channel is what separates one suite from another. And do not reach for

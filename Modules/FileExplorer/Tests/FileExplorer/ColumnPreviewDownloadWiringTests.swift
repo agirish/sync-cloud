@@ -58,7 +58,8 @@ import UniformTypeIdentifiers
 /// for the poster, `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault` for the
 /// receiver.
 ///
-/// `.serialized` because the badge memo and the download notification are both process-wide.
+/// `.serialized` because the badge memo is process-wide. The download notification no longer is,
+/// for this suite — that is what the channel above buys — so the memo is now the whole reason.
 @MainActor
 @Suite(.serialized) struct ColumnPreviewDownloadWiringTests {
 
