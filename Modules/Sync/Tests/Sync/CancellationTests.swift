@@ -16,19 +16,25 @@ import Foundation
         enum Op { case copy, move, trash }
         private let inner: MockFileManager
         private let gatedOp: Op
-        let entered = DispatchSemaphore(value: 0)
-        let release = DispatchSemaphore(value: 0)
+        /// The park itself, so the bound RECORDS a timeout instead of discarding it. Bounding the
+        /// wait only stops a mis-wired test from hanging; on its own it replaces the hang with
+        /// something worse, because the parked item resumes by itself and every assertion below
+        /// still reads as if the test had held it. Tests `try #require(!fm.releasedByTimeout)`.
+        private let gate = ParkGate()
         private let lock = NSLock()
         private var gated = false
 
         init(inner: MockFileManager, gate op: Op) { self.inner = inner; gatedOp = op }
 
+        var entered: DispatchSemaphore { gate.entered }
+        var release: DispatchSemaphore { gate.release }
+        var releasedByTimeout: Bool { gate.releasedByTimeout }
+
         private func gateIfFirst(_ op: Op) {
             guard op == gatedOp else { return }
             lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
             guard first else { return }
-            entered.signal()
-            _ = release.wait(timeout: .now() + 10) // timeout so a mis-wired test fails instead of hanging
+            gate.park()
         }
 
         func copyItem(at s: URL, to d: URL) throws { gateIfFirst(.copy); try inner.copyItem(at: s, to: d) }
@@ -58,18 +64,6 @@ import Foundation
         for n in names { inner.virtualDisk["\(dir)/\(n)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil) }
     }
 
-    /// Awaits the gate being entered (first item in flight) off the main actor, so the main-actor
-    /// test can then cancel `activeProgress` while that item is parked.
-    private func awaitEntered(_ gate: FirstOpGate) async {
-        // The blocking semaphore wait must run off an async context (GCD queue), then resume.
-        await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                _ = gate.entered.wait(timeout: .now() + 10)
-                cont.resume()
-            }
-        }
-    }
-
     @MainActor
     private func manager() -> FileSyncManager {
         let m = FileSyncManager()
@@ -97,10 +91,11 @@ import Foundation
         let nodes = ["a.txt", "b.txt", "c.txt"].map { FileNode(id: "/src/\($0)", name: $0, isDirectory: false) }
         let op = Task { await m.copyItems(nodes: nodes, toPath: "/dst", fileManager: fm) }
 
-        await awaitEntered(fm)          // first copy is parked in flight
+        await awaitSignal(fm.entered, "the operation never reached the gated seam — nothing was in flight to cancel")   // first copy parked in flight
         m.activeProgress?.cancel()      // cancel while it is parked
         fm.release.signal()             // let the in-flight copy finish
         let transferred = await op.value
+        try #require(!fm.releasedByTimeout, "the gate timed out: the item was never actually held in flight")
 
         // Exactly one item completed (the in-flight one), atomically; the other two never started.
         #expect(transferred.count == 1)
@@ -125,10 +120,11 @@ import Foundation
         let nodes = ["a.txt", "b.txt", "c.txt"].map { FileNode(id: "/src/\($0)", name: $0, isDirectory: false) }
         let op = Task { await m.moveItems(nodes: nodes, toPath: "/dst", fileManager: fm) }
 
-        await awaitEntered(fm)
+        await awaitSignal(fm.entered, "the operation never reached the gated seam — nothing was in flight to cancel")
         m.activeProgress?.cancel()
         fm.release.signal()
         let transferred = await op.value
+        try #require(!fm.releasedByTimeout, "the gate timed out: the item was never actually held in flight")
 
         // One item moved (present at dest, gone from source); the remaining two stayed put.
         #expect(transferred.count == 1)
@@ -149,10 +145,11 @@ import Foundation
 
         let op = Task { await m.deleteItems(at: ["/src/a.txt", "/src/b.txt", "/src/c.txt"], fileManager: fm) }
 
-        await awaitEntered(fm)
+        await awaitSignal(fm.entered, "the operation never reached the gated seam — nothing was in flight to cancel")
         m.activeProgress?.cancel()
         fm.release.signal()
         _ = await op.value
+        try #require(!fm.releasedByTimeout, "the gate timed out: the item was never actually held in flight")
 
         // Exactly one item was trashed; the other two remain on disk (cancel observed before them).
         #expect(inner.trashedPaths.count == 1)

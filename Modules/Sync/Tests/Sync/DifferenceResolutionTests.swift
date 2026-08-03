@@ -381,7 +381,7 @@ import Foundation
         let mockFM = MockFileManager()
         // Deterministic: the slow load's walk parks at the gate (no wall-clock delay/sleep
         // pairing to lose under a loaded parallel test run).
-        let gate = (entered: DispatchSemaphore(value: 0), release: DispatchSemaphore(value: 0))
+        let gate = ParkGate()
         mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
@@ -396,6 +396,7 @@ import Foundation
         await manager.loadTree(path: "/fast", isLeft: true)
         gate.release.signal()                        // let the cancelled slow walk unwind
         await slowLoad.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the slow walk was never actually held in flight")
 
         #expect(!manager.isLoadingLeftTree)    // regression: spinner used to stick forever
         #expect(manager.leftTree.count == 1)
@@ -410,7 +411,7 @@ import Foundation
     @Test func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
         let mockFM = MockFileManager()
         // Same deterministic gate as testPrefetchFastPathClearsStaleLoadingSpinner above.
-        let gate = (entered: DispatchSemaphore(value: 0), release: DispatchSemaphore(value: 0))
+        let gate = ParkGate()
         mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
@@ -424,6 +425,7 @@ import Foundation
         load.cancel()
         gate.release.signal()                        // let the cancelled walk unwind
         await load.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the walk was never actually held in flight")
 
         #expect(!manager.isLoadingRightTree)   // regression: a cancelled load used to strand the spinner
     }

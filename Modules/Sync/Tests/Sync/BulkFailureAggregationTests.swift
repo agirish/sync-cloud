@@ -92,7 +92,10 @@ import Events
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
-        await manager.bulkCopyDifferencesLeftToRight([makeMissingSourceDiff("onlyCopyLog.txt")])
+        // Current stamp: this test is about the per-file failure log, not the staleness guard.
+        await manager.bulkCopyDifferencesLeftToRight(
+            [makeMissingSourceDiff("onlyCopyLog.txt")], asOf: manager.fileOperationsEpoch
+        )
 
         #expect(await loggerHasError(containing: "onlyCopyLog.txt"))
     }

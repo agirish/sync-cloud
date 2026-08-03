@@ -43,6 +43,20 @@ import Events
         private var arrived = 0
         private let barrier = DispatchSemaphore(value: 0)
         private let progressBox = LockedBox<Progress?>(nil)
+        private var timedOut = false
+
+        /// True if a worker gave up at the barrier, or if the cancelling worker never got the
+        /// run's Progress. Both bounds exist so a mis-wire fails instead of hanging — but a
+        /// discarded bound is worse than none: the rendezvous silently degrades into four
+        /// independent copies, no cancel ever lands, and "the gate never engaged" becomes
+        /// indistinguishable from "cancellation was observed and four items still landed",
+        /// which is precisely what these tests assert. Tests `try #require(!gate.releasedByTimeout)`.
+        var releasedByTimeout: Bool {
+            lock.lock(); defer { lock.unlock() }
+            return timedOut
+        }
+
+        private func recordTimeout() { lock.lock(); timedOut = true; lock.unlock() }
 
         init(inner: MockFileManager, width: Int) { self.inner = inner; self.width = width }
 
@@ -62,9 +76,9 @@ import Events
         func copyItem(at s: URL, to d: URL) throws {
             lock.lock(); arrived += 1; let n = arrived; lock.unlock()
             if n < width {
-                _ = barrier.wait(timeout: .now() + 30)
+                if barrier.wait(timeout: .now() + 30) == .timedOut { recordTimeout() }
             } else if n == width {
-                awaitProgress()?.cancel()
+                if let progress = awaitProgress() { progress.cancel() } else { recordTimeout() }
                 for _ in 0..<(width - 1) { barrier.signal() }
             }
             try inner.copyItem(at: s, to: d)
@@ -142,6 +156,7 @@ import Events
         await waitUntil("the run publishes a cancellable Progress") { manager.activeProgress != nil }
         gate.installProgress(try #require(manager.activeProgress))
         await run.value
+        try #require(!gate.releasedByTimeout, "the barrier timed out: the four workers never rendezvoused, so no cancel landed mid-run")
 
         // Exactly the four in-flight items landed — each one whole, none half-written.
         let landed = files(disk, under: "/dst")
@@ -188,10 +203,12 @@ import Events
         manager.rawDifferences = diffs
         manager.differences = diffs
 
-        let run = Task { await manager.bulkCopyDifferencesLeftToRight(diffs) }
+        // Current stamp: this test is about mid-run cancellation, not the staleness guard.
+        let run = Task { await manager.bulkCopyDifferencesLeftToRight(diffs, asOf: manager.fileOperationsEpoch) }
         await waitUntil("the run publishes a cancellable Progress") { manager.activeProgress != nil }
         gate.installProgress(try #require(manager.activeProgress))
         await run.value
+        try #require(!gate.releasedByTimeout, "the barrier timed out: the four workers never rendezvoused, so no cancel landed mid-run")
 
         let landed = files(disk, under: "/dst")
         #expect(landed.count == 4, "only the in-flight items may complete, got \(landed.sorted())")

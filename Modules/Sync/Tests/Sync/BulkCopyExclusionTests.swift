@@ -79,9 +79,18 @@ import Foundation
 
     /// Pin: a verified copy also refuses while Verify All is running — its overwrites would be
     /// hashed mid-write and could record bogus "identical" results.
+    ///
+    /// Built at a MOVED epoch, like its sibling above: at the initial 0 the stamp and the live
+    /// epoch match vacuously, so the guards this test passes THROUGH on its way to the
+    /// `isVerifyAllRunning` exclusion prove nothing about themselves. One real operation first
+    /// makes them non-vacuous without changing what is being pinned.
     @MainActor
     @Test func testVerifiedCopyRefusedWhileVerifyAllInFlight() async throws {
         let (manager, mockFM, diffs) = try makeFixture(names: ["a.txt"])
+
+        await manager.enqueueFileOperation { }
+        try #require(manager.fileOperationsEpoch > 0)
+        try #require(manager.activeFileOperationsCount == 0)
 
         manager.isVerifyAllRunning = true
         manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch)
@@ -123,31 +132,48 @@ import Foundation
         let bulkDiff = diffs[1]
 
         // Park the FIRST copy this run makes, so the run is genuinely in flight while the
-        // assertions below run — no wall-clock sleeps, and nothing queued ahead of it.
-        let inCopy = DispatchSemaphore(value: 0)
-        let release = DispatchSemaphore(value: 0)
+        // assertions below run — no wall-clock sleeps, and nothing queued ahead of it. The park
+        // is bounded AND records its timeout: an unrecorded bound would let the copy resume on
+        // its own, and "the run was never held" would then be indistinguishable from "the run
+        // was held and the drop still happened" — which is the whole claim of this test.
+        let gate = ParkGate()
         let parked = LockedBox(false)
         mockFM.beforeCopyItem = { _ in
             let isFirst = parked.withLock { seen in defer { seen = true }; return !seen }
             guard isFirst else { return }
-            inCopy.signal()
-            _ = release.wait(timeout: .now() + 10)
+            gate.park()
         }
 
         manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [verifiedDiff], asOf: manager.fileOperationsEpoch)
         let copyTask = manager.confirmVerifiedCopy()
         try #require(copyTask != nil, "nothing is in flight and the stamp is current: the confirm must be accepted")
-        await awaitSignal(inCopy)
+        await awaitSignal(gate.entered)
         #expect(manager.isBulkSyncRunning)
         #expect(manager.bulkSyncProgress != nil)
 
         // A bulk sync started now must be dropped, not queued behind the run.
+        //
+        // Awaited BEFORE the release, which is what makes the drop observable at all: `syncAll`
+        // discards a re-entrant run SILENTLY, so there is nothing to poll for, and the yield
+        // loop this replaces was waiting on a signal that never existed. It returns through its
+        // guard without suspending on the copy, so this `await` completes while the verified run
+        // is demonstrably still parked — a deterministic proof the drop happened with the run
+        // genuinely in flight.
+        //
+        // The SILENCE is what identifies which guard did it, and it has to be asserted: this
+        // run also holds `syncingDifferenceIds` (markSyncing runs before the copy), so with the
+        // `isBulkSyncRunning` drop removed the very next guard catches the run and every other
+        // assertion here still passes — b.txt untouched, flag still held. That guard announces
+        // itself with a banner; the drop under test does not.
         let syncAllTask = Task { await manager.syncAll(direction: .copyToRight, subset: [bulkDiff]) }
-        for _ in 0..<100 { await Task.yield() }
-
-        release.signal()
-        await copyTask?.value
         await syncAllTask.value
+        #expect(manager.isBulkSyncRunning, "the verified run must still hold the exclusion it was dropped against")
+        #expect(manager.banner == nil,
+                "a re-entrant bulk run is dropped silently — a banner means a different guard refused it")
+
+        gate.release.signal()
+        await copyTask?.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the run was never actually held in flight")
 
         // Only the verified run's work happened; the dropped syncAll never touched b.txt.
         #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)

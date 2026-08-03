@@ -63,7 +63,19 @@ extension FileSyncManager {
 
         let candidates = subset ?? differences
         let toVerify = candidates.filter { $0.type == .differentDates && $0.sizesMatch }
-        guard !toVerify.isEmpty else { return }
+        // Retract here too, not only at the empty-verdict branch below: this early return is in
+        // FRONT of it, so a pass with no eligible candidates used to leave a standing offer
+        // untouched — and that is the COMMON empty case, not the rare one. Verify All is always
+        // invoked with a subset in production (the current selection), so "the selection holds
+        // no date-only same-size row" is one stray click away, while an eligible set that
+        // verifies nothing identical takes a real hashing pass to reach. Same reasoning as
+        // below: this pass has nothing to offer, so the standing offer is no better supported
+        // than it was, and verify writes nothing — the confirm-time guards would see an unmoved
+        // epoch and wave the old list through.
+        guard !toVerify.isEmpty else {
+            verifiedIdenticalForCopy = nil
+            return
+        }
 
         // The differences being hashed belong to this scan generation. A rescan can complete
         // during the long parallel hashing (a finished file op fires refreshSubject), replacing
@@ -127,18 +139,28 @@ extension FileSyncManager {
         }
 
         let (verifiedIdentical, differed, skipped) = await collector.get()
-        if verifiedIdentical.isEmpty {
-            // Nothing verified identical, so retract any offer a previous pass left standing.
+        if progress.isCancelled || verifiedIdentical.isEmpty {
+            // Nothing this pass stands behind, so retract any offer a previous pass left standing.
             // Falling through instead — which is what the publish condition alone did — leaves
             // the old list AND its old stamp in place, and nothing downstream would catch it:
             // verify writes nothing, so the epoch has not moved and the count is zero, and
             // `confirmVerifiedCopy`'s guards both pass. The user would confirm a bulk copy over
             // a list this very pass declined to stand behind.
             //
-            // Deliberately unconditional on the two supersedence checks below, and on
-            // cancellation. Whatever the reason this pass has nothing to offer, the standing
-            // offer is no better supported than it was — and the cost of dropping it is one
-            // re-verify, against a bulk disk write for keeping it.
+            // Deliberately unconditional on the two supersedence checks below. Whatever the
+            // reason this pass has nothing to offer, the standing offer is no better supported
+            // than it was — and the cost of dropping it is one re-verify, against a bulk disk
+            // write for keeping it.
+            //
+            // Cancellation lands here for the same reason, and it is the branch's live case.
+            // `processInParallel` stops pulling items once the progress is cancelled, so the
+            // collector holds whatever happened to drain first — a PARTIAL result the user
+            // never asked to have completed. Publishing it offered someone who had just hit
+            // Cancel a one-permission bulk write over however many pairs got hashed before the
+            // click ("180 files verified identical… No per-file confirmation"), behind a banner
+            // reading "Verify All cancelled". The two surfaces contradicted each other, and the
+            // expensive one won. Those partial verdicts are sound, but nobody asked for them:
+            // re-run Verify All to get an offer.
             verifiedIdenticalForCopy = nil
         } else if scanRequestGeneration == startGeneration,
                   fileOperationsEpoch == startOperationsEpoch {
@@ -169,13 +191,27 @@ extension FileSyncManager {
         }
     }
 
-    /// Dismisses the "copy verified" dialog without copying; hides the verified identical items from the list.
+    /// Dismisses the "copy verified" dialog without copying; hides the verified identical items
+    /// from the list — but only on verdicts still worth acting on.
+    ///
+    /// Hiding a row is a claim about the files ("these two are byte-identical, stop showing me"),
+    /// so it rests on the same verdicts the copy would have. `confirmVerifiedCopy` refuses
+    /// outright once the epoch has moved or an operation is pending; dismissing under those same
+    /// conditions used to hide every row in the offer regardless, which is the one thing a
+    /// refusal is not allowed to do — quietly resolve what it declined to act on. An undo landing
+    /// while the dialog is up makes a verified pair genuinely differ again, and Cancel would hide
+    /// it along with the rest; the undo's own rescan re-derives the row, but only if it completes
+    /// and is not superseded, so the hide could outlive its justification until a manual rescan.
+    ///
+    /// Same terms as the confirm guard, for the same reasons (see there). Dropping the offer is
+    /// unconditional either way — it is the hiding that has to be earned.
     public func dismissVerifiedCopyDialogWithoutCopy() {
         guard let offer = verifiedIdenticalForCopy else { return }
+        verifiedIdenticalForCopy = nil
+        guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else { return }
         for diff in offer.differences {
             verifiedSameDifferenceIds.insert(diff.id)
         }
-        verifiedIdenticalForCopy = nil
         Task { await self.applyFilters() }
     }
 
@@ -214,9 +250,14 @@ extension FileSyncManager {
         // this type is `@MainActor` that hop is a real suspension point. On the epoch alone a
         // confirm placed in that gap passes, the undo's task then claims the serial queue
         // first, and the bulk copy queues behind it and overwrites the bytes the undo just
-        // restored. `bulkCopyDifferencesLeftToRight` deliberately does not refuse on the count,
-        // so nothing downstream would catch it. Same pairing as this file's entry guard and
-        // `sweepOrphanedTempArtifactsNow`.
+        // restored. The count term is the one this file's entry guard and
+        // `sweepOrphanedTempArtifactsNow` also carry; the PAIRING is unique to here, since
+        // neither of those looks at the epoch at all.
+        //
+        // Checked again inside `bulkCopyDifferencesLeftToRight`, on the same two terms, because
+        // these readings age: the run is several main-actor hops from ordering its write. This
+        // guard is still the one that keeps the offer and the banner honest at click time — the
+        // one downstream refuses a run that is already under way.
         //
         // Not in tension with the scan-checksum pass, which is epoch-ONLY at commit time on
         // purpose (see `autoVerifySameSizePairs`): there, a pre-counted operation the user then
@@ -234,7 +275,9 @@ extension FileSyncManager {
             return nil
         }
         verifiedIdenticalForCopy = nil
-        return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences) }
+        // Hand the stamp on so the run can re-check it at the moment it orders the write; these
+        // readings are already several main-actor hops old by the time that happens.
+        return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences, asOf: offer.asOf) }
     }
 
     /// The scan-time checksum pass behind `autoVerifySameSizeDuringScan`: hashes each pair that
