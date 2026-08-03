@@ -262,8 +262,10 @@ reproduces on the exact signature, which is how it was confirmed — and that pi
 its own right, covering the ⇧-selects-without-navigating rule that had no mounted coverage.
 
 Any ambient global read has this shape. `NSEvent.modifierFlags` is still read directly in
-`DifferencesView`, `PaneBreadcrumb` and `ModifierTracker`; none is under a test that drives it
-today, but the seam is the answer if one grows.
+`DifferencesView`, `PaneBreadcrumb`, `ModifierTracker` and `MacApp/ContentView.swift`'s
+`applyColumnNavigation` — that last reads the same link-or-⌥ test as `PaneBreadcrumb`, so the app
+target is NOT clean either. None is under a test that drives it today, but the seam is the answer
+if one grows.
 
 **See.** `Modules/FileExplorer/Tests/FileExplorer/ColumnDrillSourceTests.swift`;
 `paneClickModifiers` in `PaneColumnsView.swift`.
@@ -301,11 +303,20 @@ assertions.
 
 Bounded waits are fine and should be left alone — a `ContinuousClock` deadline in the loop
 condition, or a `for _ in 0..<N { await Task.yield() }` settle loop. Both terminate. Grep for the
-shape; every hit must carry a deadline:
+shape; every hit must carry a deadline. Scope it across **both** test corpora — `Modules/*/Tests`
+alone cannot see the app-level `SyncCloudTests/` target, and a check that never looks at a third
+of the tests will eventually certify a hang it never examined:
 
 ```bash
-grep -rn "await Task.yield()" Modules/*/Tests | grep "while "
+grep -rn "await Task.yield()" Modules SyncCloudTests | grep "while "
 ```
+
+A deadline is only half of it: a bound whose **expiry is discarded** converts a hang into a
+vacuous pass. The loop returns, the test carries on against state it never actually reached, and a
+positive control asserts nothing — "the gate engaged and the result still published" and "the gate
+never engaged" look identical afterwards. Record the timeout and assert on it, the way
+`awaitSignal` and `FirstStatGate.releasedByTimeout` in `Modules/Sync/Tests/Sync/TestSupport.swift`
+do, and `parkUntilReleased` in `FileSyncManagerFilingTests.swift` does for the classifier parks.
 
 **See.** `437b5b52` — *Bound the four spin-waits that could hang the Sync suite instead of
 failing*; `Modules/Sync/Tests/Sync/InFlightSyncStateTests.swift`.

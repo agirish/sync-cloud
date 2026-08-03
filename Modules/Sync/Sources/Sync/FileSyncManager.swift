@@ -371,7 +371,7 @@ public class FileSyncManager: ObservableObject {
     /// The Filing scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
     @Published public internal(set) var filingScanLifecycle = ScanLifecycle()
     /// Filing suggestions from the most recent scan of a picked folder.
-    @Published public var filingSuggestions: [FilingSuggestion] = []
+    @Published public internal(set) var filingSuggestions: [FilingSuggestion] = []
     /// Counts WHOLESALE replacements of `filingSuggestions` — the scan's single publish and
     /// `clearFiling()`, and nothing else. It is the currency check a "Try another" round-trip
     /// needs across its await: "is the list my verdict was computed against still the list on

@@ -224,21 +224,20 @@ private func diff(
         #expect(store.session?.verdict(for: queue[0].id) == .identical)
     }
 
-    /// The A3 defect itself, at the seam that owns it. The store's token check is only as good
-    /// as WHEN the token was read: reading it after the decision's await (what `reviewPrimary`
-    /// used to do) reads the session that exists on RETURN, so an exit + restart over the same
-    /// un-rescanned set — same difference ids — would have the replacement's token compared
-    /// against itself and pass. `decide` reads it before `perform` starts, so the outcome is
-    /// dropped. Every other test in this file stays green if that capture moves; this one does
-    /// not.
+    /// The A3 defect itself, at the seam that owns it. The token the outcome is applied under is
+    /// the CALLER's — read from the session the decision was made against, in the same
+    /// synchronous slot that raised `isActing` (see `reviewPrimary`). An exit + restart over the
+    /// same un-rescanned set — same difference ids — must therefore be caught, because the old
+    /// token no longer matches the live session.
     @Test func decideCapturesTheTokenBeforeTheAwaitNotAfter() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
-        store.session = try #require(ReviewSession(queue: queue, isMove: false))
+        let original = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = original
         store.isActing = true
 
         let replacement = try #require(ReviewSession(queue: queue, isMove: false))
-        let applied = await store.decide(for: queue[0].id) {
+        let applied = await store.decide(for: queue[0].id, token: original.sessionToken) {
             // Exit + restart lands WHILE the copy is out — the window the token exists for.
             store.session = replacement
             await Task.yield()
@@ -254,14 +253,43 @@ private func diff(
         #expect(!store.isActing)
     }
 
-    /// The counterpart: an ordinary slow decision on the still-live session applies and advances.
-    @Test func decideAppliesAnOutcomeToTheSessionItStartedUnder() async throws {
+    /// The token is a PARAMETER, not something `decide` re-reads. If it ever went back to reading
+    /// `session?.sessionToken` itself, this passes a token belonging to no session at all while a
+    /// live session sits in the store — a re-read would find the live token, match it against
+    /// itself and apply. Only honoring the argument drops it.
+    ///
+    /// This is the store-side proxy for the caller-side window: `reviewPrimary` raises `isActing`
+    /// and then hops through a `Task`, so a teardown plus a fresh `startReview` inside that hop
+    /// would hand `decide` a session whose token was never the one the user decided under. That
+    /// hop cannot be driven from a test — `reviewPrimary` is private to the `DifferencesView`
+    /// struct and needs a mounted SwiftUI view plus a live `FileSyncManager` — so what is pinned
+    /// here is the contract that makes the caller's capture load-bearing.
+    @Test func decideAppliesTheTokenItWasGivenNotTheLiveOne() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
         store.session = try #require(ReviewSession(queue: queue, isMove: false))
         store.isActing = true
 
-        let applied = await store.decide(for: queue[0].id) {
+        let applied = await store.decide(for: queue[0].id, token: UUID()) {
+            await Task.yield()
+            return .copied
+        }
+
+        #expect(!applied, "an outcome carrying a foreign token must not land in the live session")
+        #expect(store.session?.outcome(for: queue[0].id) == nil)
+        #expect(store.session?.current?.id == queue[0].id, "the cursor must not have advanced")
+        #expect(!store.isActing)
+    }
+
+    /// The counterpart: an ordinary slow decision on the still-live session applies and advances.
+    @Test func decideAppliesAnOutcomeToTheSessionItStartedUnder() async throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a"), diff("b")]
+        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = session
+        store.isActing = true
+
+        let applied = await store.decide(for: queue[0].id, token: session.sessionToken) {
             await Task.yield()
             return .copied
         }
@@ -287,7 +315,7 @@ private func diff(
         let store = ReviewSessionStore()
         store.isActing = true
         var ran = false
-        let applied = await store.decide(for: UUID()) {
+        let applied = await store.decide(for: UUID(), token: UUID()) {
             ran = true
             return .copied
         }
