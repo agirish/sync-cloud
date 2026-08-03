@@ -179,8 +179,18 @@ public class SettingsManager: ObservableObject {
     @discardableResult
     public func addFolderSource(path: String) -> String {
         let normalized = FolderSource.abbreviated(path)
-        if let existing = availableProviders.first(where: { FolderSource.sameFolder($0.path, normalized) }) {
+        // `folderSources` FIRST, and not `availableProviders` alone: discovery is async and stats
+        // network-backed CloudStorage mounts, so the published list lags this one by however long
+        // that takes. Consulting only what has been published would mint a second row for one
+        // folder in exactly that window — two adds in a row, no wait between them, which is what
+        // a double-click on Add Folder… is.
+        if let existing = folderSources.first(where: { FolderSource.sameFolder($0.path, normalized) }) {
             Logger.shared.info("Folder source already exists for \(normalized): selecting \(existing.id)")
+            return existing.id
+        }
+        // Then the discovered accounts, which is the other thing a chosen path can already be.
+        if let existing = availableProviders.first(where: { FolderSource.sameFolder($0.path, normalized) }) {
+            Logger.shared.info("\(normalized) is already \(existing.id)'s root: selecting it")
             return existing.id
         }
         let source = FolderSource.new(path: normalized)

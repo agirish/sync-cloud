@@ -126,6 +126,22 @@ import Sync
         #expect(settings.folderSources.count == 1)
     }
 
+    /// The duplicate check must hold on the SECOND add too, with no discovery in between.
+    /// `discoverProviders` is async and stats network-backed mounts, so `availableProviders` can
+    /// lag `folderSources` by however long that takes — and a check that consults only the
+    /// published list would mint a second row for one folder in exactly that window.
+    @MainActor
+    @Test func addingTwiceWithoutWaitingForDiscoveryStillSelects() {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults)
+
+        let first = settings.addFolderSource(path: "/Users/u/Projects")
+        let second = settings.addFolderSource(path: "/Users/u/Projects")
+
+        #expect(second == first)
+        #expect(settings.folderSources.count == 1)
+    }
+
     /// Nesting is still allowed — `~` and `~/Projects` are both reasonable sources, and
     /// `inferredType` resolves the overlap. Only an EXACT repeat is refused.
     @MainActor
