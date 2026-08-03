@@ -74,14 +74,20 @@ import UniformTypeIdentifiers
         @Published var selection: Set<String> = []
     }
 
-    /// What the injected probe answers, and which paths it has answered for.
+    /// What the injected probe answers, and every path it has answered for, in order.
     ///
     /// Mutable so the test can stage a materialization: `.cloudOnly` before the download,
     /// `.quickLook` after. Main-actor isolated (and therefore `Sendable`) so the `@Sendable` reader
     /// closure can reach it with one hop.
+    ///
+    /// A list rather than a set, because one of the tests below asks *how many times* a path was
+    /// probed: a re-probe is the only trace the falling edge leaves when the download did not land,
+    /// and a set cannot count it.
     @MainActor private final class ProbeSwitch {
         var source: ColumnPreviewSource = .cloudOnly
-        var answered: Set<String> = []
+        var answered: [String] = []
+
+        func probes(of path: String) -> Int { answered.filter { $0 == path }.count }
     }
 
     /// The whole pane, in Columns mode, exactly as `ContentView` mounts it — so the notification
@@ -91,6 +97,7 @@ import UniformTypeIdentifiers
         @ObservedObject var box: Box
         let tree: PaneTree
         let index: PaneChildrenIndex
+        let root: String
         let defaults: UserDefaults
         let probe: ProbeSwitch
 
@@ -99,7 +106,7 @@ import UniformTypeIdentifiers
             return FileTreeView(
                 tree: tree,
                 otherTree: PaneTree(side: .right, version: 1, nodes: []),
-                isLoading: false, currentPath: ColumnPreviewDownloadWiringTests.root,
+                isLoading: false, currentPath: root,
                 selection: $box.selection, otherSelection: [],
                 isLeft: true, delegate: StubDelegate(),
                 isSingleSource: true,
@@ -108,14 +115,14 @@ import UniformTypeIdentifiers
             .defaultAppStorage(defaults)
             .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                 await MainActor.run {
-                    probe.answered.insert(path)
+                    probe.answered.append(path)
                     return ColumnPreviewProbe(source: probe.source, created: nil)
                 }
             })
         }
     }
 
-    private static func tree() -> PaneTree {
+    private static func tree(root: String = root) -> PaneTree {
         PaneTree(side: .left, version: 1, nodes: [
             FileNode(id: "\(root)/movie.mov", name: "movie.mov", isDirectory: false,
                      fileSize: 4_000_000_000, kind: UTType.quickTimeMovie.identifier),
@@ -124,7 +131,8 @@ import UniformTypeIdentifiers
 
     /// The rail with the one file selected, so the preview column is up and showing it. See the
     /// suite comment for why this is the rail and not a comparison pane.
-    private func mount(probe: ProbeSwitch = ProbeSwitch()) -> (window: NSWindow, host: NSView) {
+    private func mount(root: String = root,
+                       probe: ProbeSwitch = ProbeSwitch()) -> (window: NSWindow, host: NSView) {
         let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
         defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(PaneViewMode.defaultColumnWidth),
@@ -132,11 +140,11 @@ import UniformTypeIdentifiers
         defaults.set(Double(PaneViewMode.defaultPreviewColumnWidth),
                      forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let box = Box()
-        box.selection = ["\(Self.root)/movie.mov"]
-        let tree = Self.tree()
+        box.selection = ["\(root)/movie.mov"]
+        let tree = Self.tree(root: root)
         let host = NSHostingView(rootView: Harness(
-            box: box, tree: tree, index: PaneChildrenIndex(tree: tree, treeRoot: Self.root),
-            defaults: defaults, probe: probe))
+            box: box, tree: tree, index: PaneChildrenIndex(tree: tree, treeRoot: root),
+            root: root, defaults: defaults, probe: probe))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -208,10 +216,27 @@ import UniformTypeIdentifiers
     /// Delete the `awaitingDownloadPath:` argument at `PaneColumnsView.swift`'s preview call site
     /// and this is the test that goes red; the rest of the target stays green, which is how the
     /// threading shipped unproven.
-    @Test func thePaneWatchIsWhatTellsThePreviewTheFileArrived() async {
-        let path = "\(Self.root)/movie.mov"
+    ///
+    /// **A REAL file, under a per-test directory, and that is load-bearing.** The pane's watch is
+    /// the app's own `CloudDownloadPoll`, whose probe is the production
+    /// `MaterializationStatus.isCloudOnlyIfKnown` — and that answers nil, not `false`, for a path
+    /// with nothing behind it. Against the ghost path this used to post for, `stillCloudOnly ==
+    /// false` never held, so every run spent the poll's full `attempts × interval` budget and
+    /// concluded EXHAUSTED: ~10 s inside a `.serialized` suite, exercising the opposite branch to
+    /// the one this name and prose describe. (It was not vacuous — the falling edge fires either
+    /// way — but it silently stopped covering the arrival path when the probe went three-way.) With
+    /// a file on disk the first probe lands, which is the ~1 s arrival this test is about; the
+    /// exhaustion branch keeps its own test below.
+    @Test func thePaneWatchIsWhatTellsThePreviewTheFileArrived() async throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ColumnPreviewDownloadWiring-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("movie.mov").path
+        try Data("frames".utf8).write(to: URL(fileURLWithPath: path))
+
         let probe = ProbeSwitch()
-        let (window, host) = mount(probe: probe)
+        let (window, host) = mount(root: dir.path, probe: probe)
         // Torn down rather than merely kept alive: this pane holds a live
         // `.cloudDownloadRequested` subscription, and one left listening past its test accepts the
         // next test's posts. `CloudDownloadWiringTests.teardown` documents the failure that caused.
@@ -238,9 +263,95 @@ import UniformTypeIdentifiers
         CloudDownloadRequest.post(path: path, from: .singleSource)
 
         // `CloudDownloadPoll` is bounded by `attempts × interval`, so this cannot hang on a pane
-        // that simply never concludes; it fails instead.
+        // that simply never concludes; it fails instead. The file is on disk, so the FIRST probe
+        // lands and the budget is one interval rather than all ten.
         #expect(await wait(window, upTo: 30) { quickLookPaths(in: host).contains(path) },
                 "the pane's watch never reached the preview column showing that file")
+    }
+
+    // MARK: - A watch that ends without an arrival
+
+    /// The other end of the same latch: a download that never materializes.
+    ///
+    /// The falling edge is raised by the watch CONCLUDING, not by the content arriving, and both
+    /// endings raise it. If only the arrival case re-probed, a stalled download would leave the
+    /// column captioned "Downloading…" under a spinner for as long as the file stayed selected —
+    /// the state `PreviewAccessory.decide` renders for `isAwaitingDownload`, with nothing left to
+    /// take it down.
+    ///
+    /// Driven at the column instead of through the pane, for the reason the test above no longer
+    /// has to be: reaching exhaustion through a mounted `FileTreeView` costs the poll's whole
+    /// `attempts × interval` budget — ten seconds, inside a `.serialized` suite — and that budget
+    /// is not injectable from here (`@StateObject private var downloads = PaneDownloadWatch()`).
+    /// The pane's contribution is the edge itself, which the test above proves arrives; what is
+    /// left is what the column does with an edge whose file did not change, and that needs no poll
+    /// at all.
+    ///
+    /// The re-probe IS the observation. Nothing else changes: the file is still a placeholder, so
+    /// no Quick Look mounts either way, and the caption is unreadable from a hosted view (see
+    /// `quickLookPaths`). A probe that ran is the trace the column leaves.
+    @Test func aWatchThatEndsWithoutAnArrivalStillReleasesTheColumn() async throws {
+        let path = "\(Self.root)/stalled.mov"
+        let probe = ProbeSwitch()
+        let watching = WatchBox()
+        let item = try #require(ColumnPreview.item(
+            selection: [path],
+            deepestRows: PaneRow.project([FileNode(id: path, name: "stalled.mov",
+                                                   isDirectory: false, fileSize: 4_000_000_000,
+                                                   kind: UTType.quickTimeMovie.identifier)],
+                                         side: .left, version: 1)))
+        let host = NSHostingView(rootView: ColumnHarness(watching: watching, item: item,
+                                                         probe: probe))
+        host.frame = NSRect(x: 0, y: 0, width: 400, height: 600)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.layoutIfNeeded()
+        defer { window.contentView = nil }
+
+        #expect(await wait(window, upTo: 10) { probe.probes(of: path) == 1 },
+                "the column never probed its file — nothing below can be observed")
+
+        // Arming the watch changes nothing on disk, so it must not cost a probe. Without this the
+        // assertion below would pass on the RISING edge and prove the opposite of its name.
+        watching.isAwaiting = true
+        let armed = Marker()
+        DispatchQueue.main.async { MainActor.assumeIsolated { armed.fired = true } }
+        _ = await wait(window, upTo: 10) { armed.fired }
+        #expect(probe.probes(of: path) == 1, "arming the watch re-probed a file nothing had touched")
+
+        // The watch ends having found nothing — the file is still a placeholder.
+        watching.isAwaiting = false
+
+        #expect(await wait(window, upTo: 10) { probe.probes(of: path) == 2 },
+                "an exhausted watch left the column on its pre-download answer")
+        #expect(!quickLookPaths(in: host).contains(path),
+                "a placeholder was handed to Quick Look")
+    }
+
+    /// Whether the column's pane is watching a download of its file, drivable from a test.
+    private final class WatchBox: ObservableObject {
+        @Published var isAwaiting = false
+    }
+
+    /// The preview column alone, with the pane's latch replaced by a binding this test drives.
+    private struct ColumnHarness: View {
+        @ObservedObject var watching: WatchBox
+        let item: ColumnPreviewItem
+        let probe: ProbeSwitch
+
+        var body: some View {
+            let probe = self.probe
+            return ColumnPreviewColumn(item: item, paneToken: .singleSource,
+                                       isAwaitingDownload: watching.isAwaiting)
+                .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
+                    await MainActor.run {
+                        probe.answered.append(path)
+                        return ColumnPreviewProbe(source: probe.source, created: nil)
+                    }
+                })
+        }
     }
 
     // MARK: - The token the column sends with
