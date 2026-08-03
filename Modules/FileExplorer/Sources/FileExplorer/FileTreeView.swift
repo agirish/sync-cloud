@@ -1032,17 +1032,28 @@ struct FileRowView: View {
     ///
     /// `stat` is injectable for the same reason the memo's is: the race has no seam otherwise — a
     /// test cannot land a cancellation inside a real detached `lstat`.
+    ///
+    /// **Optional rather than defaulted, so the shipped stat has exactly one definition.** Giving
+    /// this parameter its own copy of the real one reads as harmless — the literal is identical —
+    /// but it made the row pass that copy on every production render, which left
+    /// `CloudOnlyBadgeCache.isCloudOnly`'s own default with no production caller at all. The two
+    /// could then drift with every test still green, and the copy the app actually runs is this
+    /// one. `nil` here means "whatever the memo ships", which is what the row asked for before this
+    /// function existed.
     @MainActor
     static func resolveBadge(
         path: String,
         isDirectory: Bool,
-        stat: @MainActor (String) async -> Bool? = { p in
-            await Task.detached { MaterializationStatus.isCloudOnlyIfKnown(atPath: p) }.value
-        }
+        stat: (@MainActor (String) async -> Bool?)? = nil
     ) async -> Bool? {
         // No suspension on this branch, so there is no window to be superseded in.
         guard !isDirectory else { return false }
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: stat)
+        let answer: Bool
+        if let stat {
+            answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: stat)
+        } else {
+            answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path)
+        }
         guard !Task.isCancelled else { return nil }
         return answer
     }
