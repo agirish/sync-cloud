@@ -250,24 +250,33 @@ import Foundation
             await manager.scanDirectories(left: source, leftPath: "/src1", right: destination, rightPath: "/dst1")
         }
 
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // The test's whole premise is that the second request arrives while the first scan holds
+        // the slot, so it is QUEUED rather than run. `executeScan` sets `isScanning` synchronously
+        // on entry, which makes that precondition directly observable — where the flat 10ms this
+        // replaces was only a guess at how long the Task takes to start. Losing that guess did not
+        // fail the test, which is what made it worth fixing: the two scans just ran in sequence
+        // and every assertion below still held, with the queue never exercised at all.
+        await waitUntil("the first scan holds the scan slot") { manager.isScanning }
 
-        let secondScan = Task {
-            await manager.scanDirectories(left: source, leftPath: "/src2", right: destination, rightPath: "/dst2")
-        }
+        // Queued, not run — `runOrQueueScan` takes its queue branch and returns without scanning,
+        // so this call needs no Task of its own and the pending request is observable right after
+        // it. Asserting that is the point: if the slot had somehow been free, this scan would have
+        // run inline and the test would be pinning sequential scans under a name that promises
+        // queued ones.
+        await manager.scanDirectories(left: source, leftPath: "/src2", right: destination, rightPath: "/dst2")
+        #expect(manager.pendingScanRequest != nil, "the second request must queue behind the in-flight scan")
 
         await firstScan.value
-        await secondScan.value
 
         // The queued scan is drained on a fresh task (so it can't inherit a superseded scan's
-        // cancellation); wait for it to settle rather than piggybacking on the first task.
-        let deadline = Date().addingTimeInterval(5)
-        while !(manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil), Date() < deadline {
-            try await Task.sleep(nanoseconds: 5_000_000)
+        // cancellation); wait for it to settle rather than piggybacking on the first task. All
+        // three clauses are the gate — the drained scan is only finished once nothing is left
+        // pending, and the hand-rolled loop this replaces dropped that clause on timeout because
+        // only the first two were re-asserted afterwards.
+        await waitUntil("the drained scan settles") {
+            manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil
         }
 
-        #expect(manager.hasScanned)
-        #expect(!manager.isScanning)
         #expect(manager.differences.count == 1)
         #expect(manager.differences.first?.relativePath == "latest.txt")
     }
