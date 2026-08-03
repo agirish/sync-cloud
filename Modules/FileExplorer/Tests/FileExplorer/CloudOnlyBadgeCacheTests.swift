@@ -128,6 +128,56 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == false)
     }
 
+    /// An answer RECORDED while a stat was out wins over that stat's own, later, staler one.
+    ///
+    /// The generation counter cannot see this: `record` does not bump it, and must not — bumping
+    /// there would have one row's answer invalidate every other row's in-flight stat, and a `List`
+    /// realizes rows by the dozen. So the memoizing tail checks the entry itself instead. The case
+    /// that matters is narrow and real: a download's watch records `false` the moment the content
+    /// lands, while the arming re-stat for the same row is still out carrying the pre-download
+    /// `true`. Without this the resuming stat wrote that `true` straight over the landed answer, and
+    /// the badge went on claiming cloud-only for a file on disk until the next republish.
+    @MainActor
+    @Test func anAnswerRecordedWhileTheStatWasOutIsNotOverwritten() async {
+        reset()
+        let path = "/fixture/landed-mid-stat.bin"
+
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: { probed in
+            // The download lands while this stat is out.
+            CloudOnlyBadgeCache.record(probed, isCloudOnly: false)
+            return true    // ...and this is the pre-landing answer, now stale.
+        })
+
+        #expect(answer, "the caller must still get its own best available truth")
+        #expect(CloudOnlyBadgeCache.cached(path) == false,
+                "the resuming stat overwrote an answer that had seen more than it did")
+    }
+
+    /// And ANOTHER path's `record` leaves this stat free to memoize — the reason the check above is
+    /// per-entry rather than a generation bump inside `record`.
+    ///
+    /// Bumping there is the obvious one-line alternative and it is wrong: a `List` realizes rows by
+    /// the dozen, every one of them stats and records, so each landing answer would invalidate every
+    /// other stat still in flight and the memo would write almost nothing during exactly the
+    /// scrolling it exists for. This is the contrast with `aForgetOfAnotherPathAlsoDeclinesToMemoize`
+    /// — a forget IS deliberately global, because it throws an answer away; a record only adds one.
+    @MainActor
+    @Test func anotherPathsRecordDoesNotStopThisStatMemoizing() async {
+        reset()
+        let mine = "/fixture/mine.bin"
+        let neighbour = "/fixture/neighbour.bin"
+
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: mine, stat: { _ in
+            // A row beside this one resolves while this stat is out.
+            CloudOnlyBadgeCache.record(neighbour, isCloudOnly: true)
+            return true
+        })
+
+        #expect(answer)
+        #expect(CloudOnlyBadgeCache.cached(mine) == true,
+                "a neighbouring row's answer cost this one its memo entry")
+    }
+
     // MARK: - Root-scoped clear (C11)
 
     /// The reason `clear(underRoot:)` exists: one pane's republish must not wipe the answers the

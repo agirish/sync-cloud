@@ -26,7 +26,9 @@ enum CloudOnlyBadgeCache {
     private static var known: [String: Bool] = [:]
 
     /// Bumped by every invalidation (`clear` and `forget`). A stat that was already in flight when
-    /// one happened returns its answer to the caller but does NOT write it to the memo.
+    /// one happened returns its answer to the caller but does NOT write it to the memo. (A plain
+    /// `record` does not bump — see `isCloudOnly(atPath:stat:)` for why, and for the second, finer
+    /// check that covers what the counter deliberately cannot.)
     ///
     /// Without this the memo re-adopted answers the invalidation had just thrown away: the stat
     /// runs off the main actor, so a pane republish landing mid-stat cleared the table and the
@@ -152,7 +154,17 @@ enum CloudOnlyBadgeCache {
         let answer = await stat(path)
         // Superseded while we were out: hand the answer back (it is this caller's best available
         // truth) but leave the memo alone — see `generation`.
-        guard generation == started else { return answer }
+        //
+        // Two ways to be superseded, and the counter only sees one. An invalidation bumps it. A
+        // `record` does not, deliberately — bumping there would mean one row's answer landing
+        // invalidated every other row's in-flight stat, and a list realizes rows by the dozen, so
+        // the memo would stop memoizing under exactly the scrolling it exists for. But a `record`
+        // that landed while this stat was out is still newer than this stat: the sharp case is a
+        // download's watch recording `false` the moment the content arrives, racing the arming
+        // re-stat that is still carrying the pre-download `true`. This entry was nil on the way in
+        // (a hit returns above), so anything here now was written while we were out — and whoever
+        // wrote it saw more than we did.
+        guard generation == started, cached(path) == nil else { return answer }
         record(path, isCloudOnly: answer)
         return answer
     }
