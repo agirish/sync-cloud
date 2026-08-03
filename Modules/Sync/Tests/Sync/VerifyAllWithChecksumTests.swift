@@ -146,6 +146,7 @@ import Foundation
 
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedIdenticalForCopy == nil,
                 "verdicts hashed across a file operation must not become a bulk-copy offer")
@@ -169,6 +170,7 @@ import Foundation
         let epochBefore = manager.fileOperationsEpoch
         gate.release.signal()
         await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id],
                 "the gated fixture must still hash and offer the identical pair")

@@ -3,14 +3,23 @@ import Testing
 @testable import Sync
 
 /// Awaits a semaphore off the main actor (a blocking `wait` on the test's actor would deadlock
-/// anything the signaller needs from it). Bounded, so a mis-wired test fails instead of hanging.
-func awaitSignal(_ semaphore: DispatchSemaphore, timeout: TimeInterval = 10) async {
-    await withCheckedContinuation { cont in
+/// anything the signaller needs from it). Bounded, and the timeout is RECORDED as a failure —
+/// discarding it made the bound worse than useless: a test whose signal never arrives would
+/// wait out the ten seconds and then carry on ungated, asserting against a state it never
+/// actually reached. A positive control is where that hurts most, because "the gate never
+/// engaged" and "the gate engaged and the pass still published" look identical afterwards.
+func awaitSignal(
+    _ semaphore: DispatchSemaphore,
+    timeout: TimeInterval = 10,
+    _ what: Comment = "the signal never arrived — the test ran on ungated state",
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    let result = await withCheckedContinuation { cont in
         DispatchQueue.global().async {
-            _ = semaphore.wait(timeout: .now() + timeout)
-            cont.resume()
+            cont.resume(returning: semaphore.wait(timeout: .now() + timeout))
         }
     }
+    #expect(result == .success, what, sourceLocation: sourceLocation)
 }
 
 /// A tiny lock-guarded box for collecting values out of `@Sendable` callbacks in tests
@@ -68,14 +77,27 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
     let release = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var gated = false
+    private var timedOut = false
 
     init(inner: FileManager) { self.inner = inner }
+
+    /// True if the parked stat gave up waiting instead of being released. The wait is bounded so
+    /// a mis-wired test fails instead of hanging, but a bound whose result is discarded turns a
+    /// hang into something worse: the hash resumes on its own and the test goes on to assert
+    /// against a pass that was never actually held. Tests `try #require(!gate.releasedByTimeout)`
+    /// after the pass, so that becomes a stated failure rather than a silent one.
+    var releasedByTimeout: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return timedOut
+    }
 
     private func gateIfFirst() {
         lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
         guard first else { return }
         entered.signal()
-        _ = release.wait(timeout: .now() + 10) // timeout so a mis-wired test fails instead of hanging
+        if release.wait(timeout: .now() + 10) == .timedOut {
+            lock.lock(); timedOut = true; lock.unlock()
+        }
     }
 
     func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
