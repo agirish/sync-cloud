@@ -485,11 +485,81 @@ import Sync
 
     /// Scrolls the stack back to a legal origin, the way a user reading earlier columns does,
     /// and waits for it to rest there.
+    ///
+    /// The reveal chain is drained FIRST, and that is not tidiness — see `quiesceReveals`. Every
+    /// caller scrolls back after something that triggers a reveal (the drill, or the preview
+    /// opening), and a reveal attempt still owed its scroll lands on top of this one.
     private func scrollBack(_ mounted: Mounted, toX x: CGFloat) async {
+        await quiesceReveals(mounted)
         let clip = mounted.stack.contentView
         clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
         mounted.stack.reflectScrolledClipView(clip)
         await settle(mounted)
+    }
+
+    /// Waits out every attempt of any reveal chain scheduled BEFORE this call — both issued and
+    /// landed — so that a scroll made after it is the last word on the stack's origin.
+    ///
+    /// **`settle` cannot do this, and that is `docs/flaky-tests.md` mechanism 2 in its exact
+    /// shape.** A reveal is two attempts: one deferred a main-queue hop, one at
+    /// `revealRetryDelay`. Both resolve the same target, so once the first has landed the second
+    /// moves the stack by ZERO points — there is no movement for a quiescence window to see, and
+    /// `settle` reports the stack at rest while the retry's `proxy.scrollTo` is still owed a
+    /// SwiftUI update. Idle that update is the very next turn and nobody notices. Under full-suite
+    /// load the main actor is unavailable in multi-second stretches, so it can arrive well over a
+    /// second later — after the scroll-back — and it puts the stack back on the reveal's target.
+    /// Traced on a failing run: the retry issued at t+0.52s, the test scrolled to 0 at t+0.85s,
+    /// and the stack was at 570 by t+2.3s with no attempt having run in between.
+    ///
+    /// **570 is exactly the value mechanism 3's known residual warns about** — the pane's legal
+    /// extreme, in this very suite. It is not that: no foreign suite is involved, the actor is this
+    /// pane's own retry, and a re-render driven by another store's write was measured NOT to move
+    /// the stack (SwiftUI does not restore a remembered offset here). Read the trace, not the number.
+    ///
+    /// The bound is the QUEUE, as in `maxOriginDrift`: a marker queued NOW has a strictly later
+    /// deadline than any retry an earlier trigger queued, and the main queue drains
+    /// `asyncAfter` blocks in deadline order — so when it fires, every attempt has RUN, however
+    /// far the machine has slipped. Running is not landing, hence the drain after it: a
+    /// `scrollTo` is applied by the next SwiftUI update, measured at one turn after the issue.
+    ///
+    /// Costs the four scroll-back tests ~0.7s each — this suite 38.6s → 41.6s idle in isolation,
+    /// the whole package 57.2s → 58.1s, since this suite is already its critical path.
+    private func quiesceReveals(_ mounted: Mounted) async {
+        let marker = Marker()
+        DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.3) {
+            MainActor.assumeIsolated { marker.fired = true }
+        }
+        // A wall-clock ceiling is tolerable for exactly this one wait — what it bounds is a queued
+        // block 0.55s out, not a render chain — but it is sized for the contention measured on this
+        // machine rather than for an idle one: at the worst observed 4.6s per turn, 60s is still a
+        // dozen turns past the marker's deadline.
+        let fired = await wait(mounted.window, upTo: 60) { marker.fired }
+        // Asserted rather than discarded: a wait whose expiry nobody reads turns this into the
+        // vacuous pass it exists to prevent.
+        #expect(fired, "the reveal marker never drained in 60s — the scroll below is not the last word on the stack")
+        await drain(mounted.window, turns: Self.applyTurns)
+    }
+
+    /// How many main-queue turns an issued `proxy.scrollTo` is given to actually reach the clip.
+    ///
+    /// Measured at **one** turn after the attempt logs its call, three runs out of three. Twelve
+    /// because turns are the cheap thing here — the queue-ordered marker above is what does the
+    /// waiting — and because the measurement was made idle, where a turn is one update; under load
+    /// a turn is a real main-actor turn, which is the unit that scales.
+    private static let applyTurns = 12
+
+    /// Runs `turns` real main-queue turns, laying the window out around each.
+    ///
+    /// Turns, not wall time, for the reason `wait` cannot use here: this drains work that is
+    /// already queued, and a queue turn is exactly one unit of that however slow the machine is.
+    private func drain(_ window: NSWindow, turns: Int) async {
+        for _ in 0..<turns {
+            window.layoutIfNeeded()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        window.layoutIfNeeded()
     }
 
     /// Widening the COLUMNS pushes the deepest column's trailing edge past the preview's seam —
