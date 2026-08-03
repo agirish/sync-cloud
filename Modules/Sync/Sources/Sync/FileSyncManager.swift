@@ -1084,8 +1084,24 @@ public class FileSyncManager: ObservableObject {
     public var activeFileOperationsCount = 0
     /// Monotonic count of file operations ever STARTED, and never decremented, so a long async
     /// pass can tell that an operation ran even when it started AND finished during the pass —
-    /// re-checking `activeFileOperationsCount == 0` alone cannot see that window. The scan-time
-    /// checksum pass captures this at entry and discards its batch if it moved by commit time.
+    /// re-checking `activeFileOperationsCount == 0` alone cannot see that window.
+    ///
+    /// Three consumers, answering two different questions:
+    ///
+    /// - `autoVerifySameSizePairs` and `verifyAllWithChecksum` capture it at entry and discard
+    ///   their batch if it moved by commit time — "did anything rewrite the bytes I hashed while
+    ///   I was hashing them?".
+    /// - `confirmVerifiedCopy` compares it against the epoch stamped into the standing offer —
+    ///   "have those verdicts been invalidated in the time the dialog has been up?".
+    ///
+    /// The epoch answers both only for operations that have STARTED. It says nothing about one
+    /// that is claimed and imminent, because the bump happens at enqueue time (below) while the
+    /// claim happens earlier, at `preCountFileOperation()`. Whether that gap matters depends on
+    /// the consumer, so the two questions take different guards and MUST NOT be unified:
+    /// `confirmVerifiedCopy` pairs the epoch with `activeFileOperationsCount == 0` because it is
+    /// about to write and a pending write must stop it; the scan pass deliberately does not,
+    /// because a pre-counted operation the user then declines never runs, and voiding a whole
+    /// hashed batch for it cost real coverage. Each guard carries the reasoning at its site.
     ///
     /// Bumped in `enqueueFileOperation`, NOT alongside `activeFileOperationsCount` — the two
     /// deliberately move at different moments. The count moves at PRE-count time because the

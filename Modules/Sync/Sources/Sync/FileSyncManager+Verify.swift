@@ -36,7 +36,13 @@ extension FileSyncManager {
     /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but same size).
     /// Pass `subset` to scope verification to specific differences (e.g. the current table selection or
     /// filtered set); `nil` verifies every eligible difference. Runs up to 4 verifications in parallel.
-    /// Cancellable via activeProgress. When done, if any verified identical, sets `verifiedIdenticalForCopy` so the UI can offer to copy left→right.
+    /// Cancellable via activeProgress.
+    ///
+    /// When done it publishes `verifiedIdenticalForCopy` — the offer the UI turns into a
+    /// copy-left→right dialog — stamped with the file-operations epoch its verdicts were hashed
+    /// under, and only while nothing has superseded them. A pass that verifies nothing identical
+    /// RETRACTS any offer still standing rather than leaving it: this is read-only, so the
+    /// confirm-time guards would see an unmoved epoch and let the old list through.
     public func verifyAllWithChecksum(subset: [FileDifference]? = nil) async {
         // Refuse to start while anything is writing — or is about to write — the files this
         // run would hash: a file mid-overwrite can checksum as "identical" and poison
