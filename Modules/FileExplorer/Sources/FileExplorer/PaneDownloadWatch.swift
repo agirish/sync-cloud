@@ -13,10 +13,20 @@ import Foundation
 ///
 /// - Two paths are two independent watches. Neither may disturb the other; that is the whole defect
 ///   above.
-/// - The SAME path asked for twice is one watch, and the newer request wins. Two watches on one path
-///   would mean two `CloudOnlyBadgeCache.forget` calls, and every forget bumps the memo generation,
-///   invalidating every in-flight badge stat in BOTH panes — verbatim the harm the pane-scoped
-///   request payload was added to remove. Cancelling the older one keeps it at one.
+/// - The SAME path asked for twice is one live watch, and the newer request wins. What supersession
+///   bounds is WATCHES, not forgets: two of them would poll one path twice over, and the loser is
+///   the older — whose conclusion would otherwise arrive after the newer one had taken the slot and
+///   clear a watch that had barely started. Cancelling it keeps exactly one download per file being
+///   watched, which is the property the identity guard below then only has to defend rather than
+///   establish.
+///
+///   It does NOT bound the forgets, and it never did. `begin` forgets unconditionally, before it
+///   schedules anything, so a repeat Download costs a second `CloudOnlyBadgeCache.forget` and a
+///   second generation bump whatever cancellation does — and that is right, not a leak: the user
+///   asked again, so the memo's answer for that path genuinely is stale again. (This bullet used to
+///   claim the cancellation was what held it to one forget. That was already untrue when the forget
+///   was the watch task's first line — a task cancelled before its first resume still runs its body
+///   — so the COUNT has not changed here; only the argument for it has.)
 ///
 /// The identity guard inside `CloudDownloadPoll.watch` still does the deciding, and still by
 /// `requestID`: a cancelled watch runs everything after its last `await`, so the superseded watch

@@ -184,7 +184,7 @@ import UniformTypeIdentifiers
     /// makes the Quick Look mount readable.
     ///
     /// It is not a proxy for the caption either; it is the OTHER half of the same wiring, and the
-    /// half with teeth. `ColumnPreviewColumn` re-probes on the FALLING edge of `isWatchingDownload`
+    /// half with teeth. `ColumnPreviewColumn` re-probes on the FALLING edge of `isAwaitingDownload`
     /// — the pane's watch concluding is what tells a downloaded file it may be previewed — so a
     /// mount here proves the latch reached this column, went true, and went false again. Threading
     /// that is dead (the argument deleted, or a constant `nil`) never raises the edge and never
@@ -219,6 +219,35 @@ import UniformTypeIdentifiers
     /// A one-shot flag a queued block can set — the queue is the bound, not the clock.
     private final class Marker {
         var fired = false
+    }
+
+    /// How many main-queue turns an absence assertion in this suite is bounded by.
+    ///
+    /// A number rather than one queued block, because the effect being ruled out is not one turn
+    /// long: a re-probe travels state write → `body` → `.onChange` → `.task(id:)` → the probe
+    /// closure's own `await MainActor.run`, and each of those is at least a turn. Bounded by ONE,
+    /// "nothing happened" and "it has not happened yet" are the same reading, which is mechanism 2
+    /// in `docs/flaky-tests.md`.
+    ///
+    /// Comfortably above what a real re-probe costs here, and that margin is CHECKED rather than
+    /// assumed — `aWatchThatEndsWithoutAnArrivalStillReleasesTheColumn` measures the live edge in
+    /// these same units and fails naming the number if this constant ever stops clearing it.
+    private static let absenceTurns = 24
+
+    /// Runs `turns` real main-queue turns, laying the window out around each.
+    ///
+    /// Turns, not wall time: this is the self-hosted runner, where suites run in parallel and a
+    /// fixed millisecond window is ample idle and nowhere near enough under load. `layoutIfNeeded`
+    /// between them is what lets SwiftUI actually commit a render in the turn it was given, so the
+    /// chain being bounded can make progress rather than merely be waited on.
+    private func drain(_ window: NSWindow, turns: Int) async {
+        for _ in 0..<turns {
+            window.layoutIfNeeded()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        window.layoutIfNeeded()
     }
 
     // MARK: - The latch reaches the preview column
@@ -342,16 +371,39 @@ import UniformTypeIdentifiers
         // Arming the watch changes nothing on disk, so it must not cost a probe. Without this the
         // assertion below would pass on the RISING edge and prove the opposite of its name.
         watching.isAwaiting = true
-        let armed = Marker()
-        DispatchQueue.main.async { MainActor.assumeIsolated { armed.fired = true } }
-        _ = await wait(window, upTo: 10) { armed.fired }
+        await drain(window, turns: Self.absenceTurns)
         #expect(probe.probes(of: path) == 1, "arming the watch re-probed a file nothing had touched")
 
         // The watch ends having found nothing — the file is still a placeholder.
         watching.isAwaiting = false
 
-        #expect(await wait(window, upTo: 10) { probe.probes(of: path) == 2 },
+        // Counted in the same units the absence above was bounded in, so the two are comparable and
+        // the margin between them can be asserted rather than hoped for. Deadlined as well, because
+        // a starved main actor must report as a failed wait rather than spin.
+        var turnsToReprobe = 0
+        let deadline = Date().addingTimeInterval(10)
+        while probe.probes(of: path) < 2, Date() < deadline {
+            await drain(window, turns: 1)
+            turnsToReprobe += 1
+        }
+        #expect(probe.probes(of: path) >= 2,
                 "an exhausted watch left the column on its pre-download answer")
+
+        // AT the edge, not past it — and this is the half that has teeth against an inverted edge.
+        // `>=` above is satisfied the instant the count reaches 2, so a source that re-probed on
+        // BOTH edges would sail through it on its way to 3; the exact count, read after the queue
+        // has been given as long again as the absence was, is what refuses that.
+        await drain(window, turns: Self.absenceTurns)
+        #expect(probe.probes(of: path) == 2,
+                "the falling edge cost more than one re-probe")
+
+        // The absence above was bounded by more turns than a real re-probe actually needs, so
+        // "nothing happened" there was a verdict and not a head start. This is the assertion that
+        // keeps `absenceTurns` honest on a machine slower than the one it was measured on: if it
+        // ever fails, raise the constant — do not delete the check.
+        #expect(turnsToReprobe < Self.absenceTurns,
+                "a real re-probe cost \(turnsToReprobe) turns; the absence above allowed only \(Self.absenceTurns)")
+
         #expect(!quickLookPaths(in: host).contains(path),
                 "a placeholder was handed to Quick Look")
     }
