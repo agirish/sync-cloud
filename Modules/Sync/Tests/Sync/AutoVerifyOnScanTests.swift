@@ -274,6 +274,74 @@ import Foundation
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
     }
 
+    /// A transfer whose confirmation modal is STILL PENDING at commit time (pre-counted, epoch
+    /// unmoved) must not void the batch. No I/O has run — the epoch bump in
+    /// `enqueueFileOperation` still stands between the prompt and the first byte written — so
+    /// the verdicts are sound; and if the user then DECLINES, nothing runs, nothing refreshes,
+    /// and a discarded batch would leave hashed-identical rows listed until a manual rescan
+    /// (the stuck-rows symptom the commit-time count term re-admitted). If the user ACCEPTS,
+    /// the operation's own completion rescan clears `verifiedSameDifferenceIds` and regenerates
+    /// every row id, superseding whatever committed here.
+    @MainActor
+    @Test func testPendingPreCountedPromptAtCommitDoesNotVoidTheBatch() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        let pass = Task { @MainActor in
+            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }
+        await awaitSignal(gate.entered)
+
+        // The prompt goes up mid-hash and is still up at commit: counted, epoch unmoved.
+        let epochBefore = manager.fileOperationsEpoch
+        manager.preCountFileOperation()
+        #expect(manager.activeFileOperationsCount == 1)
+        #expect(manager.fileOperationsEpoch == epochBefore)
+
+        gate.release.signal()
+        await pass.value
+
+        // The user declines after the pass committed; the batch must already be in place.
+        manager.cancelPreCountedFileOperation()
+        #expect(manager.activeFileOperationsCount == 0)
+        #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
+                "a pending prompt has written nothing, so the batch must commit")
+        #expect(manager.differences.map(\.id) == [fixture.differed.id])
+    }
+
+    /// Same shape for `syncAll`'s prepare phase: the bulk flag is latched before the batch
+    /// stat pass and the collision prompts, all read-only — every write goes through the
+    /// single `enqueueFileOperation` afterwards, which bumps the epoch first. A commit that
+    /// beats that bump commits sound pre-write verdicts (and the run's completion rescan
+    /// supersedes them); a commit after it is discarded on the epoch.
+    @MainActor
+    @Test func testBulkSyncPreparePhaseAtCommitDoesNotVoidTheBatch() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        let pass = Task { @MainActor in
+            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }
+        await awaitSignal(gate.entered)
+
+        // syncAll latches the flag before its read-only prepare work; nothing written yet.
+        let epochBefore = manager.fileOperationsEpoch
+        manager.isBulkSyncRunning = true
+        defer { manager.isBulkSyncRunning = false }
+        #expect(manager.fileOperationsEpoch == epochBefore)
+
+        gate.release.signal()
+        await pass.value
+
+        #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
+                "the prepare phase has written nothing, so the batch must commit")
+        #expect(manager.differences.map(\.id) == [fixture.differed.id])
+    }
+
     @MainActor
     @Test func testDisabledToggleIsANoOp() async throws {
         let fixture = try makeFixture()
