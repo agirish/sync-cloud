@@ -124,11 +124,25 @@ import Foundation
         let group = makeGroup()
         manager.duplicateGroups = [group]
 
+        let publishedFilterGenerationBefore = manager.lastPublishedFilterGeneration
         manager.invalidateComparisonState()
 
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
         #expect(manager.hasScanned == false)
+        #expect(manager.leftTree.isEmpty)
+        #expect(manager.leftItemCount == 0)
+        #expect(manager.duplicateGroups == [group])
+
+        // `invalidateComparisonState` clears the trees and then delegates to
+        // `invalidateDifferencesForPaneRetarget`, so it inherits the same insurance filter pass —
+        // and therefore the same exposure the sibling test above gates against. Asserting only
+        // synchronously would leave this test blind to a pass that republished the very rows and
+        // trees it just checked were gone.
+        await waitUntil("the insurance filter pass publishes") {
+            manager.lastPublishedFilterGeneration > publishedFilterGenerationBefore
+        }
+        #expect(manager.differences.isEmpty)
         #expect(manager.leftTree.isEmpty)
         #expect(manager.leftItemCount == 0)
         #expect(manager.duplicateGroups == [group])
