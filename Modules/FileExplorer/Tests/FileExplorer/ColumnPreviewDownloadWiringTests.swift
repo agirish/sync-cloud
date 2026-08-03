@@ -35,6 +35,16 @@ import UniformTypeIdentifiers
 /// is otherwise unreachable: `SF_DATALESS` is an `SF_` system flag, settable only by root and in
 /// practice only by a File Provider. Every caption this suite reads renders in that state alone.
 ///
+/// **This suite mounts the Tidy rail, and posts from `.singleSource`, deliberately.** Suites run in
+/// PARALLEL, the download notification is process-wide, and a mounted `FileTreeView` accepts any
+/// post carrying its own token no matter which test made it. A left pane mounted here therefore
+/// latches the `.left` posts `CloudDownloadWiringTests` issues to prove a RIGHT pane ignores them —
+/// and its watch's `CloudOnlyBadgeCache.forget` clears the very ghost that suite asserts on.
+/// Measured: mounted as a left pane, `theRightPaneIgnoresTheLeftPanesRequest` failed in 3 of 3 full
+/// runs and passed under `--filter` every time. The rail is the surface no other suite posts to, so
+/// the two cannot reach each other. Any new suite that mounts a `FileTreeView` has to make the same
+/// choice.
+///
 /// `.serialized` because the badge memo and the download notification are both process-wide.
 @MainActor
 @Suite(.serialized) struct ColumnPreviewDownloadWiringTests {
@@ -81,7 +91,6 @@ import UniformTypeIdentifiers
         @ObservedObject var box: Box
         let tree: PaneTree
         let index: PaneChildrenIndex
-        let isLeft: Bool
         let defaults: UserDefaults
         let probe: ProbeSwitch
 
@@ -89,10 +98,11 @@ import UniformTypeIdentifiers
             let probe = self.probe
             return FileTreeView(
                 tree: tree,
-                otherTree: PaneTree(side: isLeft ? .right : .left, version: 1, nodes: []),
+                otherTree: PaneTree(side: .right, version: 1, nodes: []),
                 isLoading: false, currentPath: ColumnPreviewDownloadWiringTests.root,
                 selection: $box.selection, otherSelection: [],
-                isLeft: isLeft, delegate: StubDelegate(),
+                isLeft: true, delegate: StubDelegate(),
+                isSingleSource: true,
                 viewMode: .columns, childrenIndex: index, browsePath: $box.browsePath
             )
             .defaultAppStorage(defaults)
@@ -112,8 +122,9 @@ import UniformTypeIdentifiers
         ])
     }
 
-    /// A pane with the one file selected, so the preview column is up and showing it.
-    private func mount(isLeft: Bool, probe: ProbeSwitch = ProbeSwitch()) -> (window: NSWindow, host: NSView) {
+    /// The rail with the one file selected, so the preview column is up and showing it. See the
+    /// suite comment for why this is the rail and not a comparison pane.
+    private func mount(probe: ProbeSwitch = ProbeSwitch()) -> (window: NSWindow, host: NSView) {
         let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
         defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(PaneViewMode.defaultColumnWidth),
@@ -125,7 +136,7 @@ import UniformTypeIdentifiers
         let tree = Self.tree()
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree, index: PaneChildrenIndex(tree: tree, treeRoot: Self.root),
-            isLeft: isLeft, defaults: defaults, probe: probe))
+            defaults: defaults, probe: probe))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -200,8 +211,11 @@ import UniformTypeIdentifiers
     @Test func thePaneWatchIsWhatTellsThePreviewTheFileArrived() async {
         let path = "\(Self.root)/movie.mov"
         let probe = ProbeSwitch()
-        let (window, host) = mount(isLeft: true, probe: probe)
-        defer { withExtendedLifetime(window) {} }
+        let (window, host) = mount(probe: probe)
+        // Torn down rather than merely kept alive: this pane holds a live
+        // `.cloudDownloadRequested` subscription, and one left listening past its test accepts the
+        // next test's posts. `CloudDownloadWiringTests.teardown` documents the failure that caused.
+        defer { window.contentView = nil }
 
         // The resting state: a cloud-only placeholder is never handed to Quick Look.
         let settled = await wait(window, upTo: 10) { probe.answered.contains(path) }
@@ -221,7 +235,7 @@ import UniformTypeIdentifiers
         }
         #expect(!remountedUnprompted, "the column re-probed without the pane's watch concluding")
 
-        CloudDownloadRequest.post(path: path, from: .left)
+        CloudDownloadRequest.post(path: path, from: .singleSource)
 
         // `CloudDownloadPoll` is bounded by `attempts × interval`, so this cannot hang on a pane
         // that simply never concludes; it fails instead.

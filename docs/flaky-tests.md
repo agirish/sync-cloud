@@ -277,6 +277,42 @@ grep -rn "await Task.yield()" Modules/*/Tests | grep "while "
 failing*; `Modules/Sync/Tests/Sync/BulkCopyExclusionTests.swift`,
 `Modules/Sync/Tests/Sync/InFlightSyncStateTests.swift`.
 
+### 9. A mounted view is a live subscriber, in every suite at once
+
+**Symptom.** A suite that asserts one surface *ignored* something starts failing the day an
+unrelated suite gains a mounted-view test. It passes under `--filter` every time; it fails in the
+full run most times. The value it reads has been changed by nobody it can see.
+
+**Mechanism.** A mounted SwiftUI view is not inert — it holds whatever subscriptions its body
+declares, and `NotificationCenter` is process-wide. `FileTreeView` carries one
+`.onReceive(.cloudDownloadRequested)`, scoped by `PaneToken`, and a token names a *surface*, not a
+test: **every mounted left pane in the process accepts every `.left` post in the process.** So
+`CloudDownloadWiringTests` posts from `.left` to prove a right pane ignores it, a left pane mounted
+by a different suite latches it instead, that pane's watch calls `CloudOnlyBadgeCache.forget`, and
+the ghost path the assertion rests on goes `nil`. Measured on 2026-08-02: adding one left-pane
+mount to `ColumnPreviewDownloadWiringTests` took `theRightPaneIgnoresTheLeftPanesRequest` from
+"never seen to fail" to 3 failures in 3 full runs.
+
+It is mechanism 3's family, but the actor is different and so is the fix: no cache is being
+written and no defaults key is shared. What is shared is the *notification*, and `.serialized`
+cannot help because the two suites are different suites.
+
+**Fix.** Pick a token no other suite posts. There are three surfaces — `.left`, `.right`,
+`.singleSource` — and the Tidy rail is the one the routing suite only ever posts *at*, never *from*.
+`ColumnPreviewDownloadWiringTests` mounts the rail for exactly this reason, and says so at the top.
+Any new suite that mounts a `FileTreeView` has to make the same choice deliberately.
+
+Tear the mount down too — `window.contentView = nil` in a `defer`, which drops the last reference
+to the SwiftUI graph and takes the subscription with it. Necessary but not sufficient: it bounds a
+pane's afterlife, it does not stop two suites overlapping while both are legitimately alive. And do
+not reach for `window.close()`: a `.titled` window is released on close by default
+(`isReleasedWhenClosed`), which over-releases the test's own reference and kills the process with no
+verdict at all — mechanism 8's signature, from a line that looks like tidying up.
+
+**See.** `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewDownloadWiringTests.swift` (the
+suite comment), `Modules/FileExplorer/Tests/FileExplorer/CloudDownloadWiringTests.swift`
+(`teardown(_:)`).
+
 ---
 
 ## When you fix one
