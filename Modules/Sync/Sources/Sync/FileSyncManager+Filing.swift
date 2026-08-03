@@ -253,7 +253,7 @@ extension FileSyncManager {
         }
 
         if Task.isCancelled { return }
-        self.filingSuggestions = suggestions   // single publish
+        self.publishFilingSuggestions(suggestions)   // single publish
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
@@ -610,10 +610,16 @@ extension FileSyncManager {
         // text, and the `defer` then blanked the line while that scan was still going — leaving the
         // scanning view with no status until its next update. Epoch-scoped like every other status
         // write (see `updateScan`): if a scan starts while the classifier is out, it owns the line
-        // and this re-ask neither sets nor clears it. The same epoch also gates the result write
-        // below — it is the pre-await marker for "the filing session this verdict was computed
-        // against is still the one on screen".
+        // and this re-ask neither sets nor clears it. The epoch is the right currency for the
+        // STATUS LINE specifically — a cancelled scan clears the line in its `defer` and bumps the
+        // epoch there, which is exactly when this re-ask must stop clearing it. It is the wrong
+        // currency for the RESULT write; that one uses the generation, below.
         let preAwaitEpoch = filingScanLifecycle.epoch
+        // The pre-await marker for "the list my verdict is about is still the list on screen".
+        // See ``filingSuggestionsGeneration``: it counts wholesale republishes only, so a scan
+        // that was CANCELLED — which never reaches the publish, and deliberately leaves the old
+        // cards standing — does not invalidate this verdict, though it did bump the epoch twice.
+        let preAwaitGeneration = filingSuggestionsGeneration
         let ownsStatusLine = !filingScanLifecycle.isRunning
         if ownsStatusLine {
             filingScanStatus = FilingScanPhase.lookingForDifferent.status
@@ -635,10 +641,10 @@ extension FileSyncManager {
         // writing the old verdict into it is a stale overwrite. Two ways the state moves on, two
         // checks: `clearFiling()` (provider switch) releases this invocation's entry, so the
         // token no longer matches; a Filing rescan never touches the in-flight dictionary but
-        // does bump the scan epoch. Either way, drop the result — the defer above still releases
-        // only what this invocation owns.
+        // does republish the list, which bumps the generation. Either way, drop the result — the
+        // defer above still releases only what this invocation owns.
         guard filingTryAnotherInFlight[suggestion.id] == invocation,
-              filingScanLifecycle.epoch == preAwaitEpoch else { return }
+              filingSuggestionsGeneration == preAwaitGeneration else { return }
         // Mark new-vs-existing against the FULL folder set (uncapped), so a real folder beyond the
         // classifier's cap isn't mislabeled as one to create. Fall back to the (capped) list sent
         // to the classifier if the full set wasn't captured. Both from the pre-await snapshots —
@@ -652,6 +658,14 @@ extension FileSyncManager {
         } else {
             replaceFilingSuggestion(suggestion.id, candidates: [])
         }
+    }
+
+    /// The one way to WHOLESALE replace the published suggestion list. Bumps
+    /// ``filingSuggestionsGeneration`` with the assignment so the two can never drift — see that
+    /// property for why per-item edits are excluded.
+    func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
+        filingSuggestions = suggestions
+        filingSuggestionsGeneration &+= 1
     }
 
     /// Replaces a suggestion's candidates in place (keeps the card, updates its shown home).
@@ -687,7 +701,7 @@ extension FileSyncManager {
     /// Clears suggestions (e.g. when switching providers).
     public func clearFiling() {
         filingScanTask?.cancel()
-        filingSuggestions = []
+        publishFilingSuggestions([])
         filingScanFolder = nil
         hasSuggestedFiling = false
         filingLastProviderRoot = nil
