@@ -33,7 +33,7 @@ import Foundation
     /// point the real one is suspended off-actor.
     @MainActor
     private func statThatInvalidates(_ invalidate: @escaping @MainActor () -> Void)
-    -> @MainActor (String) async -> Bool {
+    -> @MainActor (String) async -> Bool? {
         { _ in
             invalidate()
             return true
@@ -176,6 +176,47 @@ import Foundation
         #expect(answer)
         #expect(CloudOnlyBadgeCache.cached(mine) == true,
                 "a neighbouring row's answer cost this one its memo entry")
+    }
+
+    // MARK: - A stat that could not answer
+
+    /// The memo's other door onto the same defect.
+    ///
+    /// The harm the download poll's three-way probe closed is "an entry asserting local content for
+    /// a file that does not exist" — but the poll was only one of two writers into this table. The
+    /// badge's own stat kept calling the two-way `MaterializationStatus.isCloudOnly`, which folds
+    /// "cannot stat" into `false`, so a row realized for a path that had just vanished memoized
+    /// exactly that entry by the other route, and every later realization of the row was served it
+    /// without a syscall.
+    ///
+    /// The caller still gets `false` — rendering is unchanged, a row for a file that is not there
+    /// carries no badge either way — so this is a caching decision and only a caching decision.
+    ///
+    /// The production default, not an injected stand-in, because that mapping is the whole fix. A
+    /// UUID name under `/fixture`, so nothing in the table another suite is asserting on is touched.
+    @MainActor
+    @Test func aStatThatCouldNotAnswerIsNotMemoized() async {
+        let gone = "/fixture/vanished-\(UUID().uuidString).bin"
+
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: gone)
+
+        #expect(!answer, "a path with no answer must still render as un-badged")
+        #expect(CloudOnlyBadgeCache.cached(gone) == nil,
+                "the memo holds an entry asserting local content for a path with no file behind it")
+    }
+
+    /// The same rule at the seam, so the branch is pinned without depending on the filesystem —
+    /// and so the mutation guard for it (`aStatWithNoInvalidationIsMemoized`, which proves a
+    /// DEFINITE answer still memoizes) sits beside it on the same injected path.
+    @MainActor
+    @Test func anInjectedStatWithNoAnswerIsNotMemoized() async {
+        reset()
+        let path = "/fixture/no-answer.bin"
+
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: { _ in nil })
+
+        #expect(!answer)
+        #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
     // MARK: - Root-scoped clear (C11)

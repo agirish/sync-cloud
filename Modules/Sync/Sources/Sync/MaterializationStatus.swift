@@ -22,7 +22,10 @@ public enum MaterializationStatus {
     /// `lstat` reports through the same failure. A download poll asking "has the content landed
     /// yet?" reads a bare `false` as YES: a file deleted mid-download counted as materialized, and
     /// the memo gained an entry asserting local content for a path with no file behind it. Nil says
-    /// "no answer", which is the truth, and lets that caller decline to record anything.
+    /// "no answer", which is the truth, and lets a caller decline to record anything.
+    ///
+    /// Used by the two callers that WRITE what they learn into the process-wide badge memo — the
+    /// download poll and the memo's own stat. Everything else takes the two-way form below.
     ///
     /// One `lstat` — cheap enough to call lazily per visible row.
     public static func isCloudOnlyIfKnown(atPath path: String) -> Bool? {
@@ -34,11 +37,29 @@ public enum MaterializationStatus {
     /// True when the file at `path` is a cloud-only placeholder. False on any stat error and for
     /// anything without the flag (ordinary local files, directories).
     ///
-    /// The two-way form, kept for every caller that is deciding whether to READ a file — the badge
-    /// memo, `FileContentVerifier`, the duplicate hasher, the row menu's Download item. For all of
-    /// them "cannot stat" and "not a placeholder" lead to the same next step: proceed, and let the
-    /// open fail if the file is gone. Only the download poll needs the distinction, and it asks
-    /// `isCloudOnlyIfKnown` directly.
+    /// The two-way form, kept for every caller where **"cannot stat" and "not a placeholder" lead
+    /// to the same next step** — don't skip the read, don't offer the download, don't badge it:
+    /// proceed, and let whatever comes next fail on its own. That is the property its callers
+    /// share, and it is not "deciding whether to read a file": two of the four are not reads at all.
+    ///
+    /// - `FileContentVerifier.hashOutcome` — a read decision proper: a placeholder is skipped
+    ///   rather than force-fetched. Reached only after a successful `fileExists`, so nil here would
+    ///   mean a path that vanished in between — and hashing it fails at the open regardless.
+    /// - `FileSyncManager+Duplicates.hashFilesCounting` — the duplicate hasher, which routes
+    ///   through that same call and inherits the same answer.
+    /// - `FileTreeView`'s row context menu — whether to SHOW the Download item, not whether to
+    ///   read. A path that cannot be statted is not one to offer a download for, which is what
+    ///   `false` produces.
+    /// - `ColumnPreviewProbe.read` — CLASSIFICATION, not a read: `ColumnPreviewSource.classify`
+    ///   pairs it with an existence check, so an unstattable path lands on `.missing` ("this file
+    ///   is no longer here"), which is the honest answer for it.
+    ///
+    /// The distinction is needed only where a non-answer must not be written down as a fact, and
+    /// both such callers ask `isCloudOnlyIfKnown` directly. `CloudDownloadPoll.run` is the sharp
+    /// case — it asks "has it ARRIVED yet?", for which the two are opposites. `CloudOnlyBadgeCache`
+    /// is the quiet one: it hands its caller the same `false` this would, and differs only in
+    /// declining to MEMOIZE it, so the next realization of that row asks the filesystem again
+    /// instead of being served what one stat failed to find out.
     public static func isCloudOnly(atPath path: String) -> Bool {
         isCloudOnlyIfKnown(atPath: path) ?? false
     }

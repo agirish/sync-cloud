@@ -50,8 +50,8 @@ enum CloudOnlyBadgeCache {
     /// The stat itself, memoized — see `Table.isCloudOnly(atPath:stat:)`.
     static func isCloudOnly(
         atPath path: String,
-        stat: @MainActor (String) async -> Bool = { p in
-            await Task.detached { MaterializationStatus.isCloudOnly(atPath: p) }.value
+        stat: @MainActor (String) async -> Bool? = { p in
+            await Task.detached { MaterializationStatus.isCloudOnlyIfKnown(atPath: p) }.value
         }
     ) async -> Bool {
         await table.isCloudOnly(atPath: path, stat: stat)
@@ -177,12 +177,26 @@ final class Table {
     /// The stat itself, memoized. Runs off the main actor: `lstat` is cheap but it is still I/O, and
     /// against an unmounted or slow provider "cheap" is not a promise the main thread can rely on.
     ///
+    /// **`stat` answers three ways, and only two of them are memoizable.** It is
+    /// `MaterializationStatus.isCloudOnlyIfKnown`, which says nil when the path cannot be statted at
+    /// all — because "not dataless" and "not there" are opposite facts `lstat` reports through the
+    /// same failure. Folding nil into `false` here (which the two-way `isCloudOnly` did) wrote an
+    /// entry asserting local content for a path with no file behind it, and every later realization
+    /// of that row was served it without a syscall. That is verbatim the harm the download poll's
+    /// three-way probe closed, arriving by this table's OTHER door: the poll and this stat are the
+    /// two writers into one memo, and only the poll's door was shut.
+    ///
+    /// The caller still gets `false`, so nothing about rendering changes — a row for a path that is
+    /// not there carries no badge either way. Only the caching does: a non-answer is not a fact, so
+    /// the next realization asks the filesystem again rather than being told what this one failed to
+    /// find out.
+    ///
     /// `stat` is injectable so the invalidation race has a seam to be tested through — the real one
     /// is a detached `lstat`, and a test cannot otherwise land a `clear()` inside that window.
     func isCloudOnly(
         atPath path: String,
-        stat: @MainActor (String) async -> Bool = { p in
-            await Task.detached { MaterializationStatus.isCloudOnly(atPath: p) }.value
+        stat: @MainActor (String) async -> Bool? = { p in
+            await Task.detached { MaterializationStatus.isCloudOnlyIfKnown(atPath: p) }.value
         }
     ) async -> Bool {
         if let hit = cached(path) { return hit }
@@ -200,9 +214,10 @@ final class Table {
         // re-stat that is still carrying the pre-download `true`. This entry was nil on the way in
         // (a hit returns above), so anything here now was written while we were out — and whoever
         // wrote it saw more than we did.
-        guard generation == started, cached(path) == nil else { return answer }
-        record(path, isCloudOnly: answer)
-        return answer
+        guard generation == started, cached(path) == nil else { return answer ?? false }
+        // A stat that could not answer memoizes nothing — see above.
+        if let answer { record(path, isCloudOnly: answer) }
+        return answer ?? false
     }
 }
 
