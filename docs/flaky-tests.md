@@ -410,7 +410,7 @@ gates) was a wrong turn — the shared thing was the deadline.
 
 **See.** `8c46d65` — *Delete the backing plist when a test's scratch defaults suite is torn down*;
 `5b495f7` — *Record every wiped defaults suite in the ledger, not just ScratchDefaults'*;
-`8f112ecb` — *Sweep the scratch plists a killed run could never record*.
+`074ba127` — *Sweep the scratch plists a killed run could never record*.
 
 ### 5. Tests racing a real-time window
 
