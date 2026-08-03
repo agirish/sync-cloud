@@ -134,8 +134,11 @@ import Sync
     }
 
     /// The real poster both Download buttons use — so these tests exercise the payload the app
-    /// actually sends, not one assembled here. `through` is the only argument the app leaves at its
-    /// default; the routing decision the pane then makes is the same one either way.
+    /// actually sends, not one assembled here.
+    ///
+    /// `through:` is the one argument that differs from a shipped post, and only in WHICH centre it
+    /// names: the app's two posters pass their own pane's channel, which in the app is `.default`.
+    /// The routing decision the pane then makes is the same one either way.
     private func post(_ path: String, from token: PaneToken, through channel: NotificationCenter) {
         CloudDownloadRequest.post(path: path, from: token, through: channel)
     }

@@ -359,6 +359,18 @@ exactly one pane per surface, so the routing decision is unchanged there. A test
 reach each other whatever tokens they carry, and a positive control can only be satisfied by the
 pane the test mounted.
 
+**The two production posters thread it as well, as of 2026-08-03.** The row context menu's Download
+(`FileContextMenu`) and the preview column's button (`ColumnPreviewColumn`) both used to call
+`post` with no `through:`, so they resolved to `.default` however the pane around them was mounted.
+In the app that is the same object and nothing shipped changes; the gap was that the invariant
+above held only for tests posting *directly*. A test that mounted a pane on a private channel and
+drove the real Download would have posted to `.default` — the pane under test never hears its own
+request, which reads as a routing defect that does not exist, while whatever else is on `.default`
+acts on it. The channel is now carried down `FileTreeView` → `PaneColumnsView` → `FileContextMenu`
+/ `ColumnPreviewColumn`, so a pane and its own posters are on one channel whichever channel that
+is. Neither call site is reachable from a test today (both sit behind a real `MaterializationStatus`
+call against a provider placeholder), which is exactly why this was worth fixing before it bit.
+
 **Every test that mounts a `FileTreeView` must pass one** — including the ones with no interest in
 downloads at all (`PaneOutlineRepublishTests`, `PaneColumnsLayoutLoopTests`,
 `ColumnClickCostBenchmark` all do), because the subscription exists whether the test wants it or

@@ -61,6 +61,17 @@ struct PaneColumnsView: View {
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
 
+    /// The `NotificationCenter` this pane's downloads are announced on, handed straight to the
+    /// preview column so its Download button posts where the pane that owns it is LISTENING.
+    ///
+    /// `.default` is the app's, and the app is the only caller that leaves it alone — see
+    /// `FileTreeView.downloadChannel`, which is where this comes from. It is threaded rather than
+    /// left to default here because a poster on `.default` under a pane mounted on a private
+    /// channel is a request the pane cannot hear and every other listener can: not a defect the
+    /// app has (both are `.default` there), but one a test would read as a routing failure that
+    /// does not exist. See `docs/flaky-tests.md` mechanism 9.
+    var downloadChannel: NotificationCenter = .default
+
     /// This pane's identity for download-notification scoping, handed to the preview column so a
     /// download started there is watched by the pane it was started from.
     ///
@@ -243,7 +254,8 @@ struct PaneColumnsView: View {
                     item: previewTarget,
                     actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
                     paneToken: paneToken,
-                    isAwaitingDownload: awaitingDownloads[previewTarget.path] != nil)
+                    isAwaitingDownload: awaitingDownloads[previewTarget.path] != nil,
+                    downloadChannel: downloadChannel)
                     .frame(width: previewWidth)
                     // On the preview's LEADING edge, and it resizes the preview. This is the drag
                     // that could not work while the preview lived in the scroll view: pinned to the
@@ -718,7 +730,8 @@ struct PaneColumnsView: View {
                 row: row, selection: selection, tree: tree, otherTree: otherTree,
                 otherSelection: otherSelection, isLeft: isLeft, currentPath: treeRoot,
                 delegate: delegate, otherPaneName: otherPaneName, isSingleSource: isSingleSource,
-                onQuickLook: onQuickLook
+                onQuickLook: onQuickLook,
+                downloadChannel: downloadChannel
             )
         }
         .background(rowPositionProbe(for: node))
