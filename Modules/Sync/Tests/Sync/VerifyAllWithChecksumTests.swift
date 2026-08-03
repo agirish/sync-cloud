@@ -288,4 +288,38 @@ import Foundation
         #expect(manager.verifiedSameDifferenceIds.isEmpty)
         #expect(manager.differences.count == 2)
     }
+
+    /// A Verify All that finds NOTHING identical must retract a standing offer, not leave it be.
+    ///
+    /// The publish is conditional on `!verifiedIdentical.isEmpty`, so an empty pass used to fall
+    /// straight through and the previous pass's offer survived with its old stamp. Nothing
+    /// downstream catches that: verify is read-only, so the epoch has NOT moved and the count is
+    /// zero — `confirmVerifiedCopy`'s guards both pass, and the bulk copy runs over a list this
+    /// pass just declined to stand behind.
+    ///
+    /// Not reachable from today's UI (Verify All is only invokable from the in-view action bar,
+    /// with no shortcut or menu item, and the offer's dialog is window-modal, so no second pass
+    /// can run while an offer stands) — one keyboard shortcut away from being reachable, and the
+    /// failure it opens is a bulk disk write.
+    @MainActor
+    @Test func testAVerifyPassFindingNothingIdenticalRetractsTheStandingOffer() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        let epochAtOffer = manager.fileOperationsEpoch
+
+        // A second pass over only the pair that genuinely differs: nothing verifies identical.
+        await manager.verifyAllWithChecksum(subset: [fixture.differed])
+
+        // The epoch is untouched — verify writes nothing — so the confirm-time guards cannot be
+        // what saves this. The offer itself has to go.
+        try #require(manager.fileOperationsEpoch == epochAtOffer)
+        try #require(manager.activeFileOperationsCount == 0)
+        #expect(manager.verifiedIdenticalForCopy == nil,
+                "a pass that verified nothing identical must not leave the previous offer standing")
+        #expect(manager.confirmVerifiedCopy() == nil)
+    }
 }
