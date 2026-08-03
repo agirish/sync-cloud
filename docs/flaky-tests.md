@@ -351,13 +351,25 @@ pane the test mounted.
 **Every test that mounts a `FileTreeView` must pass one** — including the ones with no interest in
 downloads at all (`PaneOutlineRepublishTests`, `PaneColumnsLayoutLoopTests`,
 `ColumnClickCostBenchmark` all do), because the subscription exists whether the test wants it or
-not. Unlike picking a token, this never runs out. `ColumnPreviewDownloadWiringTests` is the one
-still on `.default`, which is safe only for as long as it is the last one there — it is also what
-exercises the shipped default end to end, so when it moves, that coverage has to move with it.
+not. Unlike picking a token, this never runs out. As of 2026-08-03 every mounting test in the
+package carries its own channel; none is left on `.default`.
 
 Verified by mutation, from a pristine copy: with the pane's `.onReceive` dropping every post, all
 three ignore tests fail on their TAKEN assertion rather than passing the absence vacuously. The
 control is load-bearing at last.
+
+**Which cost the shipped default its only coverage, so pin it directly.** While one mounting suite
+was still on `.default`, a default post really did travel to a default-channel pane once per run.
+Now nothing exercises `.default` at all, and both halves of it are a silent edit away: retarget
+`CloudDownloadRequest.post`'s `through:` default and the app's Download button announces into a
+void, retarget `FileTreeView.downloadChannel`'s and every pane goes deaf — with every suite green
+either way, because they all pass their own. Two assertions close it, and neither mounts anything:
+`CloudDownloadRoutingTests.theDefaultChannelIsTheAppsOwn` posts with no `through:` and observes
+`.default` (filtering on a per-run unique path, or a parallel suite's post would satisfy it), and
+`FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault` reads the property off a pane
+built the way `ContentView` builds one. Both were mutation-checked against the retargeted defaults.
+**Anything given a test-only default needs this**: the moment the last real user of a default is a
+test that stopped using it, it is unpinned.
 
 Tear the mount down too — `window.contentView = nil` in a `defer`, which drops the last reference
 to the SwiftUI graph and takes the subscription with it. It bounds a pane's afterlife within its
@@ -367,7 +379,9 @@ which over-releases the test's own reference and kills the process with no verdi
 mechanism 8's signature, from a line that looks like tidying up.
 
 **See.** `Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift` (`downloadChannel`),
-`Modules/FileExplorer/Tests/FileExplorer/CloudDownloadWiringTests.swift` (`mount`, `teardown(_:)`).
+`Modules/FileExplorer/Tests/FileExplorer/CloudDownloadWiringTests.swift` (`mount`, `teardown(_:)`),
+`Modules/FileExplorer/Tests/FileExplorer/CloudDownloadRoutingTests.swift`
+(`theDefaultChannelIsTheAppsOwn`).
 
 ---
 

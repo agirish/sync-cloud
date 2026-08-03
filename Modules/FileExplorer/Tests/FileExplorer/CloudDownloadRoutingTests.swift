@@ -47,7 +47,7 @@ struct CloudDownloadRoutingTests {
     /// Through a channel of this test's own, not `.default`: an observer on `.default` picks up
     /// whatever any suite running in parallel posts, and `received` would then be somebody else's
     /// request — the assertions below would fail naming a routing defect that was never there. The
-    /// `.default` the app actually runs on is exercised end to end by the mounted-pane suites. See
+    /// `.default` the app actually runs on is pinned by `theDefaultChannelIsTheAppsOwn` below. See
     /// `docs/flaky-tests.md` mechanism 9.
     @Test func aPostedRequestIsAcceptedByItsOwnPaneAlone() async {
         let path = "/iCloud/posted.pdf"
@@ -63,6 +63,41 @@ struct CloudDownloadRoutingTests {
         #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .right) == posted)
         #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .left) == nil)
         #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .singleSource) == nil)
+    }
+
+    /// The channel argument every test above supplies is the one thing the APP never passes, so its
+    /// default is the only part of `post` no other test can reach.
+    ///
+    /// That default used to be covered incidentally: while `ColumnPreviewDownloadWiringTests`
+    /// mounted its pane on `.default`, a default post really did travel to a default-channel pane
+    /// once per run. Every mounting suite now carries a channel of its own (mechanism 9), so
+    /// nothing exercised `.default` at all — and `post(…, through: NotificationCenter())` would
+    /// have gone on satisfying every other test in this file while the app's own Download button
+    /// announced into a void nothing subscribes to. The pane's half of the same default is pinned
+    /// by `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault`.
+    ///
+    /// **Observing `.default` is safe here only because of the path filter.** Suites run in
+    /// parallel and any of them may post; a bare `received = $0` would latch a stranger's request
+    /// and this test would pass on it. The path is unique per run, so what arrives under it can
+    /// only have come from the call below. Nothing here mounts a view, so this observer is the only
+    /// thing the test puts on the shared channel, and it is removed on the way out.
+    @Test func theDefaultChannelIsTheAppsOwn() {
+        let path = "/iCloud/default-channel-\(UUID().uuidString).pdf"
+        var received: CloudDownloadRequest?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .cloudDownloadRequested, object: nil, queue: nil) { note in
+                guard let request = note.object as? CloudDownloadRequest,
+                      request.path == path else { return }
+                received = request
+            }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        // No `through:` — exactly what `CloudDownloadRequest.post`'s two real call sites pass.
+        let posted = CloudDownloadRequest.post(path: path, from: .left)
+
+        // Synchronous: `NotificationCenter.post` delivers to a `queue: nil` observer inline, so a
+        // nil here is a post that never reached `.default` rather than one still in flight.
+        #expect(received == posted, "a default post did not arrive on the channel the app runs on")
     }
 
     /// The three pane surfaces map onto three distinct tokens — in particular the Tidy rail is not

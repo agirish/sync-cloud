@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import SwiftUI
 import Sync
 @testable import FileExplorer
@@ -62,6 +63,20 @@ import Sync
         #expect(treeView(isLeft: false, otherPaneName: nil).paneToken == .right)
         // The Tidy rail passes isLeft: true and must NOT be confusable with the left pane.
         #expect(treeView(isLeft: true, otherPaneName: nil, isSingleSource: true).paneToken == .singleSource)
+    }
+
+    /// The receiving half of the shipped default: a pane built the way `ContentView` builds one —
+    /// passing no `downloadChannel` — subscribes to the app's own `NotificationCenter`.
+    ///
+    /// Every suite that MOUNTS a pane now hands it a private channel instead (mechanism 9), which
+    /// is what keeps them out of each other's posts and also means not one of them touches this
+    /// default any more. Retarget it — `= NotificationCenter()` on the parameter — and every one of
+    /// those suites stays green while the app's panes go deaf to the app's own Download button.
+    ///
+    /// Constructed, not mounted: a `FileTreeView` value holds no subscription until SwiftUI builds
+    /// its body, so reading the property here puts nothing on `.default`.
+    @Test func testAPaneMountsOnTheAppsChannelByDefault() {
+        #expect(treeView(isLeft: true, otherPaneName: nil).downloadChannel === NotificationCenter.default)
     }
 
     /// A republish's badge-memo clear is scoped to the folder the pane is SHOWING, not to its
