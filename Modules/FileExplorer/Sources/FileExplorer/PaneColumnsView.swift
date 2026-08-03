@@ -87,6 +87,24 @@ struct PaneColumnsView: View {
     /// `revealDeepestColumn`.
     static let revealRetryDelay: TimeInterval = 0.25
 
+    /// How many times a reveal held off by a wheel gesture in its OWN pane re-checks the hold
+    /// before giving up, spaced `WheelGestureTracker.staleness` apart — nominally five seconds of
+    /// a gesture that keeps delivering.
+    ///
+    /// **Counted, not clocked**, and that is the point. Each check schedules the next, so a
+    /// starved main thread stretches the budget rather than burning it — a wall-clock deadline
+    /// would expire unused on exactly the loaded machine where the reveal is slowest to land.
+    ///
+    /// A budget exists at all only as a stop for a lock that never releases. That is not
+    /// hypothetical here: a latched axis lock has shipped twice (the phase-less wheel mouse, whose
+    /// events clear nothing), and an unbounded re-check would answer that bug with a chain of
+    /// timers running for the life of the pane. Under a lock that behaves, the wait ends when the
+    /// gesture does, and this number is never reached.
+    static let revealHoldChecks = 50
+
+    /// This pane's handle on its own mounted overscroll watchdog — see `PaneColumnHoldGate`.
+    @State private var holdGate = PaneColumnHoldGate()
+
     /// The animation `revealDeepestColumn` scrolls with. Defaults to the shipped ease, so every
     /// window that does not opt out scrolls exactly as it always did — see
     /// `paneColumnRevealAnimation`.
@@ -249,7 +267,7 @@ struct PaneColumnsView: View {
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
                 // rather than a column's own list. See `PaneColumnsOverscrollReturn`.
-                .background(PaneColumnsOverscrollReturn())
+                .background(PaneColumnsOverscrollReturn(holdGate: holdGate))
             }
             .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
@@ -412,14 +430,45 @@ struct PaneColumnsView: View {
     /// run one can say so — see `paneColumnRevealAnimation`. Read once, before the closure, so both
     /// attempts scroll with the value this update carried — the opposite of the TARGET, which each
     /// attempt re-resolves for the reason given above.
+    ///
+    /// **An attempt made while this pane's own stack is HELD is deferred, not spent.** The axis
+    /// lock's `enforceHold` reverts any horizontal movement of a stack whose pane has a
+    /// vertical-dominant wheel gesture in flight, and it cannot tell that gesture's leaked
+    /// sideways deltas — the drift it exists to erase — from this reveal's programmatic scroll.
+    /// A momentum tail routinely outlasts `revealRetryDelay`: flick vertically in a column, then
+    /// drill (by keyboard, or by a click that does not kill the coast), and BOTH attempts land
+    /// inside the hold and are reverted. The lock then decays and nothing else fires —
+    /// `browsePath` has already moved, the preview and both widths are untouched, and the reverted
+    /// origin is perfectly legal so the quiescence return has nothing to clamp. The freshly opened
+    /// deepest column stayed hidden behind the pane's edge for good.
+    ///
+    /// Asking the hold first is what makes the reveal WAIT the gesture out instead of losing to
+    /// it, and it leaves the hold itself exactly as it was: while the gesture delivers, the stack
+    /// still holds still (that is the sideways-wiggle fix), and `enforceHold` keeps its one-revert-
+    /// per-runloop-turn bound — the deferral means there is simply nothing for it to revert. The
+    /// question is the SCOPED one, per pane, so a flick in the other pane defers nothing here.
+    ///
+    /// The alternative — letting the revert record what it defeated and replaying it on release —
+    /// was rejected: the watchdog sees only a bounds change, so replaying would restore the
+    /// gesture's own leaked drift as readily as a reveal, which is the jitter bug.
     private func revealDeepestColumn(_ proxy: ScrollViewProxy) {
         let animation = revealAnimation
-        func scroll() {
+        let gate = holdGate
+        func attempt(checksLeft: Int) {
+            guard !MainActor.assumeIsolated({ gate.isStackHeld }) else {
+                guard checksLeft > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + WheelGestureTracker.staleness) {
+                    attempt(checksLeft: checksLeft - 1)
+                }
+                return
+            }
             guard let deepest = browsePath.columnDirectories(treeRoot: treeRoot).last else { return }
             withAnimation(animation) { proxy.scrollTo(deepest, anchor: .trailing) }
         }
-        DispatchQueue.main.async(execute: scroll)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay, execute: scroll)
+        DispatchQueue.main.async { attempt(checksLeft: Self.revealHoldChecks) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay) {
+            attempt(checksLeft: Self.revealHoldChecks)
+        }
     }
 
     /// Whether this pane is wide enough to hold a preview column at all — the gate on *offering* the

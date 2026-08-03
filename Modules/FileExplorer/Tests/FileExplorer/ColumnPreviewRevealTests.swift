@@ -265,6 +265,20 @@ import Sync
         return found
     }
 
+    /// The overscroll watchdogs mounted under this pane. The watchdog is where the axis lock is
+    /// consulted and enforced, so swapping its `axisLock` for a test-owned tracker is the only way
+    /// to put a *mounted* stack under a hold deterministically — `WheelGestureTracker.shared`
+    /// installs a real event monitor and is driven by the machine's own trackpad.
+    private func watchdogs(_ mounted: Mounted) -> [PaneColumnsOverscrollReturn.WatchdogView] {
+        var found: [PaneColumnsOverscrollReturn.WatchdogView] = []
+        func walk(_ v: NSView) {
+            if let w = v as? PaneColumnsOverscrollReturn.WatchdogView { found.append(w) }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(mounted.window.contentView!)
+        return found
+    }
+
     /// Mounts the pane at `paneWidth` over a `depth`-deep tree, with `(openTo ?? depth) + 1`
     /// columns open, after the drill's own auto-scroll has settled.
     ///
@@ -744,6 +758,95 @@ import Sync
         let visible = visibleSpan(mounted)
         #expect(deepest.maxX <= visible.upperBound + 1,
                 "the drill never revealed its deepest column: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// A reveal must survive the user's own in-flight vertical momentum in the SAME pane, instead
+    /// of being permanently defeated by it.
+    ///
+    /// `enforceHold` reverts ANY horizontal movement of the stack — the reveal's own programmatic
+    /// scroll included — while a vertical-dominant gesture in that pane is inside the axis lock's
+    /// `staleness` window. A trackpad or Magic Mouse momentum tail routinely outlasts
+    /// `revealRetryDelay`, so BOTH of the reveal's attempts land inside the hold and both are
+    /// reverted. The lock then decays and no further driver fires — not `browsePath` (it already
+    /// moved), not `showsPreview`, not either stored width, not the quiescence return (the reverted
+    /// origin is perfectly legal). The freshly opened deepest column stays behind the pane's edge
+    /// for good.
+    ///
+    /// The hold is NOT the bug and is asserted here as well: while the gesture is delivering, the
+    /// stack must hold still — that is the axis lock's whole job, and the sideways wiggle it fixed
+    /// would be back the moment a reveal were allowed to win the fight. What must change is that
+    /// the reveal WAITS the gesture out rather than losing to it.
+    ///
+    /// Bounded by a queued marker rather than the wall clock, for the reason `maxOriginDrift`
+    /// gives: the marker is queued after the drill's own layout change has been observed, so it
+    /// drains strictly after everything that drill scheduled, however loaded the machine.
+    @Test func testAnInFlightVerticalGestureDefersARevealInsteadOfDefeatingIt() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4, openTo: 2)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        // Three 210pt columns fit a 690pt pane, so nothing has revealed yet and every point of
+        // movement below belongs to the drill this test makes.
+        try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
+
+        // Take this pane's watchdog off the app-wide lock (which a real trackpad feeds) and onto a
+        // tracker this test drives by hand.
+        let watchdog = try #require(watchdogs(mounted).first, "no watchdog mounted in the stack")
+        let lock = WheelGestureTracker()
+        watchdog.axisLock = lock
+
+        // A vertical drag delivering right now, INSIDE this stack. Dated ahead of the wall clock —
+        // `PaneColumnsAxisLockTests`' shape — so the hold cannot lapse on its own while the test
+        // runs; the release below is then the only thing that can end it.
+        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                    window: mounted.window, locationInWindow: inStack, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                    window: mounted.window, locationInWindow: inStack, at: ahead + 0.01)
+        try #require(lock.shouldHoldHorizontalDrift(for: clip),
+                     "the fixture's gesture does not hold this stack — nothing below is under a hold")
+
+        // Drill one deeper: four 210pt columns are 840pt of content in a 690pt pane, so the new
+        // deepest column is off the trailing edge and only a reveal can bring it back.
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
+                     "the drill never opened a fourth column")
+
+        // Both reveal attempts happen inside this window and the hold is still engaged throughout.
+        let marker = Marker()
+        DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.3) {
+            MainActor.assumeIsolated { marker.fired = true }
+        }
+        _ = await wait(mounted.window, upTo: 30) { marker.fired }
+        #expect(clip.bounds.origin.x == 0,
+                "the stack moved sideways while a vertical gesture was delivering in its own pane — the axis lock's hold is gone")
+        try #require(lock.shouldHoldHorizontalDrift(for: clip),
+                     "the hold lapsed early — the reveal was never actually fought")
+
+        // Nothing is vacuous: four columns, and they overflow the viewport.
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — the reveal is unobservable here")
+
+        // The finger leaves and the momentum runs out: `momentumPhase.ended` is exactly how the
+        // tracker releases a real flick.
+        lock.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0,
+                    window: mounted.window, locationInWindow: inStack, at: ahead + 0.5)
+        try #require(!lock.shouldHoldHorizontalDrift(for: clip),
+                     "the fixture failed to release the hold")
+
+        let revealed = await wait(mounted.window, upTo: 25) {
+            guard let deepest = self.columnFrames(mounted).last else { return false }
+            return deepest.maxX <= self.visibleSpan(mounted).upperBound + 1
+        }
+        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
+        let visible = visibleSpan(mounted)
+        #expect(revealed,
+                "the reveal was defeated by the pane's own in-flight gesture and never re-issued: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+        #expect(deepest.minX >= visible.lowerBound - 1,
+                "the re-issued reveal cut the deepest column off on its leading edge: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
     }
 
     /// The one case the preview's un-driven falling edge really does leave to someone else: an
