@@ -62,10 +62,10 @@ private actor Gate {
     @MainActor
     private func startGatedSyncAll(_ manager: FileSyncManager, gate: Gate) async -> Task<Void, Never> {
         Task { await manager.enqueueFileOperation { await gate.wait() } }
-        while manager.activeFileOperationsCount == 0 { await Task.yield() }
+        await waitUntil("the gated operation occupies the queue") { manager.activeFileOperationsCount > 0 }
 
         let syncTask = Task { await manager.syncAll(direction: .copyToRight) }
-        while manager.syncingDifferenceIds.isEmpty { await Task.yield() }
+        await waitUntil("syncAll marks its rows in-flight") { !manager.syncingDifferenceIds.isEmpty }
         return syncTask
     }
 

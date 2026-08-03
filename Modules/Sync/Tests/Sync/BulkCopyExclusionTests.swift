@@ -115,11 +115,11 @@ private actor Gate {
         // Park the operation queue so the verified-copy run stays mid-flight.
         let gate = Gate()
         Task { await manager.enqueueFileOperation { await gate.wait() } }
-        while manager.activeFileOperationsCount == 0 { await Task.yield() }
+        await waitUntil("the gated operation occupies the queue") { manager.activeFileOperationsCount > 0 }
 
         manager.verifiedIdenticalForCopy = [verifiedDiff]
         let copyTask = manager.confirmVerifiedCopy()
-        while manager.bulkSyncProgress == nil { await Task.yield() }
+        await waitUntil("the verified copy publishes bulk progress") { manager.bulkSyncProgress != nil }
         #expect(manager.isBulkSyncRunning)
 
         // A bulk sync started now must be dropped, not queued behind the gate.
