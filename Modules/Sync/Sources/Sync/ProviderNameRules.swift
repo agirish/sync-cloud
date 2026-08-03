@@ -220,14 +220,20 @@ public enum ProviderNameRules {
     /// Characters OneDrive forbids anywhere in a name ("/" can't occur in a single component).
     private static let oneDriveForbiddenCharacters = Set<Character>("\"*:<>?/\\|")
 
-    /// Why `name` can't be stored by `provider`, or nil when it is acceptable. iCloud and
-    /// Google Drive accept anything the local filesystem does, so they never report one.
+    /// Why `name` can't be stored by `provider`, or nil when it is acceptable. iCloud, Google Drive
+    /// and a plain folder accept anything the local filesystem does, so they never report one.
+    ///
+    /// A folder source belongs in that branch on the merits — a local volume accepts what a local
+    /// volume accepts — and the question users actually want asked of a folder ("would this survive
+    /// being put on OneDrive?") is answered a layer up, by `CloudProvider.nameRuleType(for:
+    /// folderRule:)`, which substitutes the ruleset before this is ever called. Keeping the
+    /// substitution out of here leaves this function answering only what it claims to.
     public static func violation(name: String, provider: CloudProvider.ProviderType) -> Violation? {
         func make(_ reason: String) -> Violation {
             Violation(componentName: name, reason: reason, sanitizedName: sanitized(name: name, for: provider))
         }
         switch provider {
-        case .iCloud, .googleDrive:
+        case .iCloud, .googleDrive, .localFolder:
             return nil
         case .dropBox:
             if name.hasSuffix(" ") {

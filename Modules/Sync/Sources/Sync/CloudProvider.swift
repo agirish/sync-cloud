@@ -20,6 +20,32 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
         case oneDrive = "OneDrive"
         case dropBox = "Dropbox"
         case googleDrive = "Google Drive"
+        /// A plain folder the user added as a source — no account, no cloud behind it. Everything
+        /// downstream of `CloudProvider` (panes, Tidy, the diff engine, undo, history, automations,
+        /// the CLI) treats it exactly like any other source; the case exists so the two places that
+        /// *are* type-gated can tell the difference: name rules (a local volume accepts what a local
+        /// volume accepts, see `ProviderNameRules.violation`) and the Google Drive date-noise
+        /// filter, which simply never fires.
+        case localFolder = "Folder"
+    }
+
+    /// Whether this source is a plain folder rather than a cloud account.
+    public var isLocalFolder: Bool { type == .localFolder }
+
+    /// The ruleset a name should be judged against for a source of `type`.
+    ///
+    /// Every type but `.localFolder` answers for itself. A folder has no rules of its own — it
+    /// stores whatever the volume stores — so judging names against it reports nothing, which over
+    /// a folder full of names OneDrive would reject is an empty all-clear rather than an answer.
+    /// The useful question about a folder is *"would this survive being put on <somewhere>?"*, and
+    /// only the user knows where; `folderRule` is their standing answer (Settings ▸ Sources,
+    /// default `.oneDrive`, the strictest). Passing `.localFolder` as `folderRule` means "don't
+    /// check", and this becomes the identity.
+    public static func nameRuleType(
+        for type: ProviderType,
+        folderRule: ProviderType
+    ) -> ProviderType {
+        type == .localFolder ? folderRule : type
     }
 
     /// The provider type governing a bare filesystem path, inferred from the discovered providers
@@ -62,6 +88,16 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
     /// to somewhere outside CloudStorage contributes only its own root, which is the whole of what
     /// is known about it.
     private static func claimRoots(of provider: CloudProvider) -> [String] {
+        // A folder source claims nothing, at any depth. A claim exists to carry a provider's
+        // *stricter* rules onto a path that has no identity of its own, and `.localFolder` has no
+        // rules to carry — so letting one claim can only ever REMOVE a guard. Concretely: a folder
+        // source added inside a Dropbox root would win `inferredType`'s longest-root-wins rule and
+        // type that subtree `.localFolder`, and a path-addressed CLI copy into it would stop
+        // skipping the trailing-space names Dropbox cannot store. Claiming nothing leaves the
+        // cloud truth underneath intact, and a path under a standalone folder source resolves
+        // exactly as it did before folder sources existed (nothing claims it; the CLI falls back
+        // to `.iCloud`'s empty rule set).
+        guard !provider.isLocalFolder else { return [] }
         let components = URL(fileURLWithPath: provider.path).standardizedFileURL.pathComponents
         // A provider's Location is user-settable to ANY folder, and a claim is not a harmless label:
         // it decides whether a path-addressed CLI root inherits that provider's name rules, which

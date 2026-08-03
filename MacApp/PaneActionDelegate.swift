@@ -103,12 +103,12 @@ struct PaneActionDelegate: FileActionDelegate {
     func handlePasteToPath(_ path: String) { handler?.pasteClipboard(toPath: path) }
     func handleRename(_ node: FileNode) { handler?.beginRename(node) }
 
-    /// This pane's provider ruleset. Falls back to OneDrive — the strictest — when the id can't be
-    /// resolved, matching `tidyProviderType`, so an unresolved provider over-reports rather than
-    /// letting a name that will break a sync pass unflagged.
+    /// This pane's name ruleset — the source's own, except where `SettingsManager.nameRuleType(for:)`
+    /// substitutes: OneDrive (the strictest) when the id can't be resolved, so an unresolved source
+    /// over-reports rather than letting a name that will break a sync pass unflagged, and the
+    /// user's `folderNameRule` for a folder source, which has no rules of its own.
     private var paneProviderType: CloudProvider.ProviderType {
-        let id = isLeft ? leftProviderId : rightProviderId
-        return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
+        settings.nameRuleType(for: isLeft ? leftProviderId : rightProviderId)
     }
 
     func riskyName(for node: FileNode) -> RiskyName? {

@@ -781,14 +781,13 @@ struct ContentView: View {
 
     /// Both panes' name rulesets, for the Differences table's risky-name badge.
     ///
-    /// Falls back to OneDrive — the strictest — for a provider id that won't resolve, matching
-    /// `PaneActionDelegate.paneProviderType`: an unresolved provider over-reports rather than
-    /// letting a name that will break a sync pass unflagged.
+    /// `SettingsManager.nameRuleType(for:)` owns both substitutions: OneDrive — the strictest — for
+    /// a provider id that won't resolve, so an unresolved source over-reports rather than letting a
+    /// name that will break a sync pass unflagged; and the user's `folderNameRule` for a folder
+    /// source, which has no rules of its own to check against.
     var paneRules: PaneProviderRules {
-        func type(_ id: String) -> CloudProvider.ProviderType {
-            settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
-        }
-        return PaneProviderRules(left: type(leftProviderId), right: type(rightProviderId))
+        PaneProviderRules(left: settings.nameRuleType(for: leftProviderId),
+                          right: settings.nameRuleType(for: rightProviderId))
     }
 
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
@@ -957,6 +956,24 @@ struct ContentView: View {
     private func openProviderSettings() {
         settingsTab = .providers
         showSettings = true
+    }
+
+    /// "Choose Folder…" from a source menu: pick a folder, make it a source, and hand the id back
+    /// so the caller can point its own pane at it — the create-and-select gesture, as against
+    /// Settings ▸ Sources ▸ Add Folder…, which is the deliberate door and selects nothing.
+    ///
+    /// Choosing a folder that is ALREADY a source (or is a discovered provider's own root) selects
+    /// that source instead of adding a second — `addFolderSource` returns the existing id, so this
+    /// closure does the right thing either way without knowing which happened.
+    private func chooseFolderSource(_ select: @escaping (String) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder to use as a source"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        select(settings.addFolderSource(path: url.path))
     }
 
     /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for the
@@ -1333,12 +1350,12 @@ struct ContentView: View {
         return (settings.path(for: id) as NSString).expandingTildeInPath
     }
 
-    /// The provider ruleset the name check runs against — the targeted pane's provider (the left
-    /// rail in single-source; the focused pane in compare). Falls back to OneDrive, the strictest
-    /// ruleset, when the type can't be resolved, so nothing risky slips past.
+    /// The provider ruleset the name check runs against — the targeted pane's source (the left
+    /// rail in single-source; the focused pane in compare). See `SettingsManager.nameRuleType(for:)`
+    /// for the two substitutions it makes: OneDrive for an unresolvable id, and the user's
+    /// `folderNameRule` for a folder source.
     var tidyProviderType: CloudProvider.ProviderType {
-        let id = tidyTargetIsRight ? rightProviderId : leftProviderId
-        return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
+        settings.nameRuleType(for: tidyTargetIsRight ? rightProviderId : leftProviderId)
     }
 
     /// Toggles the shared Quick Look panel for `url`: opens a preview of that file, or — when the
@@ -1492,6 +1509,9 @@ struct ContentView: View {
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
                 },
                 onManageProviders: openProviderSettings,
+                onChooseFolder: { chooseFolderSource { id in
+                    if isLeft { leftProviderId = id } else { rightProviderId = id }
+                } },
                 sortOption: $syncManager.sortOption,
                 // Only the single-source Tidy rail collapses itself (back to the spine); the two
                 // comparison panes never collapse individually.
@@ -1937,6 +1957,7 @@ struct ContentView: View {
                 currentProviderId: leftProviderId,
                 onSelectProvider: { leftProviderId = $0 },
                 onManageProviders: openProviderSettings,
+                onChooseFolder: { chooseFolderSource { leftProviderId = $0 } },
                 onCompareCopies: reviewCoordinator.compareCopies,
                 onRequestDestination: { presentDestination($0) }
             )

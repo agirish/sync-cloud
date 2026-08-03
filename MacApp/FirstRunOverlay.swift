@@ -269,7 +269,11 @@ private func providerAssetName(_ displayName: String) -> String? {
     case .dropbox:     return "dropbox"
     case .oneDrive:    return "onedrive"
     case .googleDrive: return "googledrive"
-    case .box, .neutral: return nil
+    // `.folder` is unreachable from here and listed only for exhaustiveness: it is returned solely
+    // when a caller passes `isLocalFolder:`, and the tour classifies a bare display name. That the
+    // arm is dead is the right outcome rather than a gap to plumb around — the tour runs before any
+    // source has been added, so its two panes are always cloud accounts.
+    case .box, .folder, .neutral: return nil
     }
 }
 

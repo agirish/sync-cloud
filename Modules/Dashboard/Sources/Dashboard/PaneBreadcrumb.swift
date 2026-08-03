@@ -35,6 +35,10 @@ struct PaneBreadcrumb: View {
     /// read fine, so light keeps H2 intact. See `PaneHeader.providerCapsule` for the full
     /// measurement; the name above it splits the same way.
     let providerName: String?
+    /// Whether that source is a plain folder rather than a cloud account — a folder wears
+    /// `ProviderHue.folder` (graphite), which no display name can classify into. Defaulted so the
+    /// crumb keeps its old behaviour for every caller that has no source in hand.
+    var providerIsLocalFolder: Bool = false
     let relativePath: String
     /// The pane's live show-hidden-files state, forwarded to the quick-jump menu so its sibling
     /// list matches what the pane shows.
@@ -61,7 +65,9 @@ struct PaneBreadcrumb: View {
                 isCurrent: crumbs.isEmpty,
                 helpPath: rootPath,
                 tint: ChromeInk.tint(colorScheme,
-                                     light: providerName.map { ProviderHue.classify($0).tint })
+                                     light: providerName.map {
+                                         ProviderHue.classify($0, isLocalFolder: providerIsLocalFolder).tint
+                                     })
             )
 
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in

@@ -81,7 +81,11 @@ public struct SettingsView: View {
             switch self {
             case .general: return "General"
             case .appearance: return "Appearance"
-            case .providers: return "Providers"
+            // "Sources", not "Providers": the tab lists plain folders alongside the cloud accounts
+            // now, and a folder is not a provider — "Discovered providers" over a row saying
+            // ~/Projects was the tell. The case keeps its name so the stable `settingsSelectedTab`
+            // raw value, and every `selectedTab = .providers` deep link, are untouched.
+            case .providers: return "Sources"
             case .sync: return "Sync"
             case .filing: return "Organize"
             case .duplicates: return "Duplicates"
@@ -323,15 +327,23 @@ enum SettingsSearchIndex {
         .init(tab: .appearance, title: "List density",
               keywords: ["density", "compact", "comfortable", "row height", "spacing", "tighter rows", "row size"]),
 
-        // Providers
-        .init(tab: .providers, title: "Discovered providers",
-              keywords: ["providers", "cloud", "discover", "refresh", "cloudstorage"]),
-        .init(tab: .providers, title: "Provider name",
+        // Sources
+        .init(tab: .providers, title: "Cloud providers",
+              keywords: ["providers", "cloud", "discover", "refresh", "cloudstorage", "sources",
+                         "icloud", "dropbox", "onedrive", "google drive"]),
+        .init(tab: .providers, title: "Local folders",
+              keywords: ["folder", "local", "add folder", "choose folder", "mac", "home folder",
+                         "volume", "disk", "external drive", "source", "remove folder"]),
+        .init(tab: .providers, title: "Check folder names against",
+              keywords: ["names", "risky names", "rename", "name rules", "onedrive rules",
+                         "reserved", "check names", "folder names"]),
+        .init(tab: .providers, title: "Source name",
               keywords: ["rename", "name", "provider name", "custom name", "label"]),
         .init(tab: .providers, title: "Synchronized path",
               keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
-        .init(tab: .providers, title: "Enable or disable a provider",
-              keywords: ["enable", "disable", "show", "hide", "sidebar", "toggle provider"]),
+        .init(tab: .providers, title: "Enable or disable a source",
+              keywords: ["enable", "disable", "show", "hide", "sidebar", "toggle provider",
+                         "toggle source"]),
 
         // Sync
         .init(tab: .sync, title: "When a file already exists",
@@ -871,20 +883,36 @@ struct HueOptionView: View {
     }
 }
 
-// MARK: - Providers
+// MARK: - Sources
 
-/// Discovered cloud providers: enable/disable each, and configure its synchronized root path.
+/// The sources panes can be pointed at: the cloud accounts discovered on this Mac, and the plain
+/// folders the user added. Two sub-sections, because they are two different kinds of thing — one is
+/// found, the other is chosen — and the controls differ accordingly: a cloud account can be
+/// refreshed but never removed, a folder can be removed but never discovered.
 struct ProvidersSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
     @State private var isRefreshingProviders = false
+    /// Ids of the rows the user has opened. Collapsed is the default and the point: this tab grows
+    /// with every account the Mac has plus every folder added, and at four expanded rows the list
+    /// already scrolls past the sheet. State, not a persisted default — which row you last opened
+    /// is not a preference, and restoring it would reopen the scroll problem on the next launch.
+    @State private var expandedIds: Set<String> = []
+
+    private var cloudProviders: [CloudProvider] {
+        settings.availableProviders.filter { !$0.isLocalFolder }
+    }
+
+    private var folderProviders: [CloudProvider] {
+        settings.availableProviders.filter(\.isLocalFolder)
+    }
 
     var body: some View {
         SettingsPage {
             SettingsSection(
-                caption: "Providers are discovered from ~/Library/CloudStorage. Disabled providers stay configured but are hidden from the pane sidebar. At least one provider must remain enabled."
+                caption: "Cloud accounts are discovered from ~/Library/CloudStorage. Disabled sources stay configured but are hidden from the pane sidebar. At least one source must remain enabled."
             ) {
                 HStack {
-                    Text("Discovered providers")
+                    Text("Cloud providers")
                         .scaledFont(.body.weight(.medium))
                     Spacer()
                     Button(action: refreshProviders) {
@@ -899,12 +927,71 @@ struct ProvidersSettingsTab: View {
             }
 
             // This tab is the one that legitimately keeps scrolling: it grows with every
-            // provider the Mac has, so no sheet height can promise to hold it.
-            ForEach(settings.availableProviders) { provider in
+            // provider the Mac has, so no sheet height can promise to hold it. Collapsed rows are
+            // what keep that growth linear in sources rather than in sources × four fields.
+            ForEach(cloudProviders) { provider in
                 Divider()
-                ProviderSettingsSection(provider: provider)
+                ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
+            }
+
+            Divider()
+
+            SettingsSection(
+                caption: "Any folder on this Mac can be a source — Compare and Tidy work the same over it. Folders you add appear in every workspace. Removing one leaves the folder itself untouched."
+            ) {
+                HStack {
+                    Text("Local folders")
+                        .scaledFont(.body.weight(.medium))
+                    Spacer()
+                    Button(action: addFolder) {
+                        Label("Add Folder…", systemImage: "plus")
+                    }
+                    .controlSize(.small)
+                }
+
+                if folderProviders.isEmpty {
+                    Text("No folders added.")
+                        .scaledFont(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                SettingsRow("Check folder names against") {
+                    Picker("Check folder names against", selection: $settings.folderNameRule) {
+                        ForEach(FolderNameRuleOption.all) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help(
+                        "A folder accepts any name, so \"risky name\" has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
+                    )
+                }
+            }
+
+            ForEach(folderProviders) { provider in
+                Divider()
+                ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
             }
         }
+    }
+
+    /// One row's open/closed state. A binding over the shared set rather than per-row `@State`, so
+    /// a row that is rebuilt when discovery republishes `availableProviders` — which happens on
+    /// every path edit, every rename, every Refresh — doesn't silently snap shut mid-edit.
+    private func expansionBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedIds.contains(id) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedIds.insert(id)
+                } else {
+                    expandedIds.remove(id)
+                }
+            }
+        )
     }
 
     private func refreshProviders() {
@@ -915,11 +1002,49 @@ struct ProvidersSettingsTab: View {
             await MainActor.run { isRefreshingProviders = false }
         }
     }
+
+    /// Picks a folder and adds it as a source — opening the new row, so the thing that just
+    /// appeared is the thing you can see. Adding a folder that is already a source opens *that*
+    /// row instead of adding a second (see `SettingsManager.addFolderSource`).
+    private func addFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder to use as a source"
+        panel.prompt = "Add Folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        expandedIds.insert(settings.addFolderSource(path: url.path))
+    }
 }
 
-/// One provider's rows: identity + enable switch, then its root-path configuration.
+/// The rulesets a folder source's names can be checked against, in the order the picker lists them.
+///
+/// Only the two that HAVE rules, plus off. iCloud and Google Drive accept anything the local
+/// filesystem does, so offering them would be offering two more spellings of "don't check" —
+/// three ways to say one thing, two of which look like they mean something.
+struct FolderNameRuleOption: Identifiable {
+    static let all: [FolderNameRuleOption] = [
+        .init(value: .oneDrive, label: "OneDrive (strictest)"),
+        .init(value: .dropBox, label: "Dropbox"),
+        .init(value: .localFolder, label: "Don't check"),
+    ]
+
+    let value: CloudProvider.ProviderType
+    let label: String
+    var id: String { value.rawValue }
+
+    init(value: CloudProvider.ProviderType, label: String) {
+        self.value = value
+        self.label = label
+    }
+}
+
+/// One source's rows: identity + enable switch, then — once opened — its root-path config.
 struct ProviderSettingsSection: View {
     let provider: CloudProvider
+    /// Whether the path configuration is showing. The header line is always there.
+    @Binding var isExpanded: Bool
     @EnvironmentObject var settings: SettingsManager
     // The path draft is a value type rather than a bare String: Reset, focus-blur commit, and the
     // discovery refresh all move it, and getting Reset wrong left the field blank. See
@@ -956,9 +1081,16 @@ struct ProviderSettingsSection: View {
                             if !focused { commitName() }
                         }
                         .help("Click to rename. Clear the name to restore the default.")
-                    Text(provider.id)
+                    // What identifies this source at a glance while the row is shut. A cloud
+                    // account is identified by its id (`OneDrive-Personal`) — that IS the
+                    // account, and its path is a consequence of it. A folder source's id is a
+                    // UUID that says nothing to anyone; the folder IS the path, so that shows.
+                    Text(provider.isLocalFolder ? provider.path : provider.id)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(provider.isLocalFolder ? provider.path : provider.id)
                 }
 
                 Spacer()
@@ -973,9 +1105,11 @@ struct ProviderSettingsSection: View {
                     .disabled(isEnabled && !settings.canDisable(provider.id))
                     .help(
                         isEnabled && !settings.canDisable(provider.id)
-                            ? "At least one provider must remain enabled."
+                            ? "At least one source must remain enabled."
                             : "Show \(provider.displayName) in the pane sidebar."
                     )
+
+                disclosureButton
             }
             .padding(.vertical, 2)
             .onAppear {
@@ -991,43 +1125,74 @@ struct ProviderSettingsSection: View {
                 }
             }
 
-            // The path gets its own full-width line rather than sharing one with its label.
-            // Beside the label it had ~300pt, and every provider under ~/Library/CloudStorage
-            // runs past that — the paths were clipped at the pane edge with no ellipsis, so the
-            // tail that actually distinguishes them (…/OneDrive-Personal/Documents from
-            // …/OneDrive-Personal/Desktop) was the part you couldn't see.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Location")
-                // Mirrors the name field above: Enter or clicking away commits.
-                // No Save button — focus-loss covers the same ground, so the two
-                // fields commit through one identical set of triggers.
-                TextField("Synchronized path", text: $pathDraft.value)
-                    .textFieldStyle(.plain)
-                    .scaledFont(.system(.callout, design: .monospaced))
-                    .labelsHidden()
-                    .focused($pathFieldFocused)
-                    .onSubmit { commitPath() }
-                    .onChange(of: pathFieldFocused) { _, focused in
-                        if !focused { commitPath() }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // A TextField scrolls rather than ellipsizing, so a path longer than even the
-                    // full width still hides its tail. The tooltip is the backstop — the same
-                    // answer the ignored-items list already uses for long root-relative paths.
-                    .help(pathDraft.value)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(!isEnabled)
+            if isExpanded {
+                // The path gets its own full-width line rather than sharing one with its label.
+                // Beside the label it had ~300pt, and every provider under
+                // ~/Library/CloudStorage runs past that — the paths were clipped at the pane edge
+                // with no ellipsis, so the tail that distinguishes them
+                // (…/OneDrive-Personal/Documents from …/Desktop) was the part you couldn't see.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Location")
+                    // Mirrors the name field above: Enter or clicking away commits.
+                    // No Save button — focus-loss covers the same ground, so the two
+                    // fields commit through one identical set of triggers.
+                    TextField("Synchronized path", text: $pathDraft.value)
+                        .textFieldStyle(.plain)
+                        .scaledFont(.system(.callout, design: .monospaced))
+                        .labelsHidden()
+                        .focused($pathFieldFocused)
+                        .onSubmit { commitPath() }
+                        .onChange(of: pathFieldFocused) { _, focused in
+                            if !focused { commitPath() }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // A TextField scrolls rather than ellipsizing, so a path longer than even the
+                        // full width still hides its tail. The tooltip is the backstop — the same
+                        // answer the ignored-items list already uses for long root-relative paths.
+                        .help(pathDraft.value)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!isEnabled)
 
-            HStack(spacing: 8) {
-                Button("Browse…") { selectDirectory() }
-                Button("Reset") { resetToDefault() }
-                Button("Show in Finder") { openInFinder() }
-                Spacer()
+                HStack(spacing: 8) {
+                    Button("Browse…") { selectDirectory() }
+                    // A folder source has no discovered default to reset TO — the user chose
+                    // the path, and that choice is the whole record. Remove takes its place: the
+                    // one thing a folder source can do that a cloud account cannot.
+                    if provider.isLocalFolder {
+                        Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
+                    } else {
+                        Button("Reset") { resetToDefault() }
+                    }
+                    Button("Show in Finder") { openInFinder() }
+                    Spacer()
+                }
+                .controlSize(.small)
+                // Remove stays live on a disabled source: a folder switched off is exactly the
+                // one you are most likely to be removing, and leaving the only way to get rid of
+                // it behind a toggle you have to switch back on first is a trap.
+                .disabled(!isEnabled && !provider.isLocalFolder)
             }
-            .controlSize(.small)
-            .disabled(!isEnabled)
         }
+    }
+
+    /// Opens and shuts the row. Down-chevron to open, up-chevron to shut — the arrow points at
+    /// where the content will be, not at where it is.
+    private var disclosureButton: some View {
+        Button {
+            isExpanded.toggle()
+        } label: {
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .scaledFont(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                // A bare chevron is a ~7pt target. The frame is the hit area, not the drawing.
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .chromeHover()
+        .help(isExpanded ? "Hide \(provider.displayName)'s location" : "Show \(provider.displayName)'s location")
+        .accessibilityLabel(isExpanded ? "Collapse \(provider.displayName)" : "Expand \(provider.displayName)")
     }
 
     private var enabledBinding: Binding<Bool> {
@@ -1870,7 +2035,7 @@ struct AdvancedSettingsTab: View {
 
             if let onResetAllSettings {
                 SettingsSection(
-                    caption: "Restores defaults for appearance, sync behavior, and provider names and paths. Your files aren't affected."
+                    caption: "Restores defaults for appearance, sync behavior, and source names and paths, and clears the folders you added as sources. Your files aren't affected."
                 ) {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)
@@ -1887,7 +2052,10 @@ struct AdvancedSettingsTab: View {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Reset all settings?"
-        alert.informativeText = "Appearance, sync behavior, ignored items, and provider names and paths return to their defaults. Files on disk are not affected."
+        // Names the folder list explicitly. "Files on disk are not affected" is true and used to be
+        // the whole of the reassurance, which read as "nothing you care about is lost" while the
+        // curated list of folder sources went with the defaults domain.
+        alert.informativeText = "Appearance, sync behavior, ignored items, and source names and paths return to their defaults, and any folders you added as sources are removed from the list. Files on disk are not affected."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {

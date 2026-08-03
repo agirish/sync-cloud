@@ -61,6 +61,8 @@ public class SettingsManager: ObservableObject {
     private static let autoVerifySameSizeDuringScanKey = "autoVerifySameSizeDuringScan"
     private static let rememberIgnoredItemsKey = "rememberIgnoredItems"
     private static let ignorePatternsKey = "ignorePatterns"
+    private static let folderSourcesKey = "folderSources"
+    private static let folderNameRuleKey = "folderNameRuleProvider"
 
     /// The UserDefaults domain the app persists settings to — its bundle identifier, which is what
     /// `.standard` resolves to inside the bundled app. Un-bundled processes (the `synccloud` CLI)
@@ -130,6 +132,81 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    /// The plain folders the user added as sources, in the order they were added. Merged into
+    /// `availableProviders` by every discovery pass, after the discovered cloud accounts.
+    ///
+    /// Persisted as JSON under one key rather than as a defaults array of dictionaries: the list is
+    /// read and written whole, and a `Codable` round-trip keeps `FolderSource`'s shape in one place
+    /// instead of spreading key strings through the manager.
+    @Published public private(set) var folderSources: [FolderSource] {
+        didSet {
+            guard folderSources != oldValue else { return }
+            userDefaults.set(try? JSONEncoder().encode(folderSources), forKey: Self.folderSourcesKey)
+        }
+    }
+
+    /// The ruleset names under a *folder* source are checked against — the standing answer to
+    /// "would this folder survive being put somewhere that has rules?". Defaults to `.oneDrive`,
+    /// the strictest; `.localFolder` means "don't check". See `CloudProvider.nameRuleType`.
+    @Published public var folderNameRule: CloudProvider.ProviderType {
+        didSet {
+            userDefaults.set(folderNameRule.rawValue, forKey: Self.folderNameRuleKey)
+        }
+    }
+
+    /// The ruleset a name found under `providerId` should be judged against: the source's own type,
+    /// except for a folder source, which has none of its own and borrows `folderNameRule`.
+    ///
+    /// Falls back to OneDrive — the strictest — when the id resolves to no provider, so an
+    /// unresolved source over-reports rather than going quiet. That fallback predates folder
+    /// sources and is preserved exactly; the folder substitution is layered on top of it.
+    public func nameRuleType(for providerId: String) -> CloudProvider.ProviderType {
+        let type = availableProviders.first(where: { $0.id == providerId })?.type ?? .oneDrive
+        return CloudProvider.nameRuleType(for: type, folderRule: folderNameRule)
+    }
+
+    /// Adds `path` as a folder source and returns the id to select.
+    ///
+    /// Adding a path that is already a source **selects** it rather than creating a second row:
+    /// nested and overlapping sources are legitimate (`~` and `~/Projects` both make sense, and so
+    /// does a folder inside a cloud root), but two rows for one folder are just a duplicate the
+    /// user then has to tell apart by name. The existing source's own id comes back, so the caller
+    /// that wanted a pane pointed at that folder still gets what it asked for.
+    ///
+    /// A path that is already a *discovered* provider's root is also returned rather than added,
+    /// for the same reason and a stronger one: the cloud account knows things about that folder
+    /// (its name rules, its date behaviour) that a folder source would throw away.
+    @discardableResult
+    public func addFolderSource(path: String) -> String {
+        let normalized = FolderSource.abbreviated(path)
+        if let existing = availableProviders.first(where: { FolderSource.sameFolder($0.path, normalized) }) {
+            Logger.shared.info("Folder source already exists for \(normalized): selecting \(existing.id)")
+            return existing.id
+        }
+        let source = FolderSource.new(path: normalized)
+        Logger.shared.info("User added folder source \(source.path) (\(source.id))")
+        folderSources.append(source)
+        Task {
+            await discoverProviders()
+        }
+        return source.id
+    }
+
+    /// Removes a folder source and everything keyed to it — its name override, its enabled state.
+    /// Discovered providers are not removable and are ignored here.
+    public func removeFolderSource(id: String) {
+        guard folderSources.contains(where: { $0.id == id }) else { return }
+        Logger.shared.info("User removed folder source: \(id)")
+        folderSources.removeAll { $0.id == id }
+        userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(id)")
+        if disabledProviderIds.remove(id) != nil {
+            userDefaults.set(disabledProviderIds.sorted(), forKey: Self.disabledProviderIdsKey)
+        }
+        Task {
+            await discoverProviders()
+        }
+    }
+
     /// Adds a normalized ignore pattern; whitespace-only input and duplicates are dropped.
     /// - Returns: True when the pattern was added.
     @discardableResult
@@ -165,6 +242,12 @@ public class SettingsManager: ObservableObject {
         conflictPolicy = .ask
         defaultSortOption = .name
         disabledProviderIds = []
+        // The curated folder list goes with the domain. `removePersistentDomain` has already taken
+        // it; this republishes the emptiness so the UI and `availableProviders` agree without
+        // waiting for a relaunch. The confirmation names it — "files on disk are untouched" is true
+        // and was the whole of what it said, which read as reassurance while the list disappeared.
+        folderSources = []
+        folderNameRule = .oneDrive
         Task {
             await discoverProviders()
         }
@@ -203,6 +286,10 @@ public class SettingsManager: ObservableObject {
         self.conflictPolicy = ConflictPolicy.persisted(from: userDefaults)
         self.defaultSortOption = userDefaults.string(forKey: Self.defaultSortOptionKey).flatMap(SortOption.init(rawValue:)) ?? .name
         self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
+        self.folderSources = userDefaults.data(forKey: Self.folderSourcesKey)
+            .flatMap { try? JSONDecoder().decode([FolderSource].self, from: $0) } ?? []
+        self.folderNameRule = userDefaults.string(forKey: Self.folderNameRuleKey)
+            .flatMap(CloudProvider.ProviderType.init(rawValue:)) ?? .oneDrive
         // Seed with the always-present iCloud provider so the app can start immediately,
         // before the first (off-main) discovery publishes. The seed goes through the same
         // mapping as discovery — persisted path/name overrides included, validity computed
@@ -213,6 +300,7 @@ public class SettingsManager: ObservableObject {
         self.availableProviders = Self.mapProviders(
             cloudStorageFolders: [],
             iCloudDefaultPath: Self.iCloudDefaultPath,
+            folderSources: self.folderSources,
             pathOverride: { pathOverrides[$0] },
             nameOverride: { nameOverrides[$0] }
         )
@@ -261,14 +349,16 @@ public class SettingsManager: ObservableObject {
     /// - Parameters:
     ///   - cloudStorageFolders: Account folder URLs found under the CloudStorage root.
     ///   - iCloudDefaultPath: Path used for the always-present iCloud provider absent an override.
+    ///   - folderSources: The plain folders the user added, in the order they were added.
     ///   - pathOverride: Returns the user's custom path for a provider id, or nil for the default.
     ///   - nameOverride: Returns the user's custom display name for a provider id, or nil for
     ///     the discovered default (e.g. "Google Drive (someone@gmail.com)").
-    /// - Returns: The providers sorted iCloud → OneDrive → Google Drive → Dropbox, then by
-    ///   display name within each type; unrecognized folders are ignored.
+    /// - Returns: The providers sorted iCloud → OneDrive → Google Drive → Dropbox → folder sources,
+    ///   then by display name within each type; unrecognized folders are ignored.
     nonisolated static func mapProviders(
         cloudStorageFolders: [URL],
         iCloudDefaultPath: String,
+        folderSources: [FolderSource] = [],
         pathOverride: (String) -> String?,
         nameOverride: (String) -> String? = { _ in nil }
     ) -> [CloudProvider] {
@@ -341,8 +431,31 @@ public class SettingsManager: ObservableObject {
             }
         }
 
+        // 3. The user's folder sources, appended AFTER the sort so they land last as a block and
+        //    keep the order the user added them in. Deliberately not folded into the sort: sorting
+        //    them by display name would reshuffle the list every time one is renamed, and the whole
+        //    point of putting them last is that the existing picker is visually untouched above.
+        //
+        //    Path overrides are not applied here — `setPath` writes a folder source's new path
+        //    straight into `folderSources`, so this path is already the effective one. A folder
+        //    source has no discovered default for an override to sit on top of.
+        sorted.append(contentsOf: folderSources.map { source in
+            CloudProvider(
+                id: source.id,
+                displayName: displayName(source.defaultDisplayName, id: source.id),
+                imageName: folderImageName,
+                path: source.path,
+                type: .localFolder
+            )
+        })
+
         return sorted
     }
+
+    /// The mark a folder source wears in place of a brand logo. An SF Symbol name, not an asset:
+    /// `ProviderLogo` falls back to `Image(systemName:)` when no asset by that name is bundled,
+    /// which is what lets one `imageName` field carry both kinds of mark.
+    nonisolated static let folderImageName = "folder.fill"
 
     /// Scans the local filesystem's CloudStorage mounting point to detect configured provider accounts.
     /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
@@ -362,6 +475,7 @@ public class SettingsManager: ObservableObject {
         let overrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
         let nameOverrides = overridesByProviderId(keyPrefix: Self.nameOverrideKeyPrefix)
         let iCloudPath = Self.iCloudDefaultPath
+        let sources = folderSources
         // The whole pass — listing, mapping, and validity stats — runs off the main
         // actor: validating a root stats network-backed CloudStorage mounts, which can
         // block for seconds and would beachball the Settings window if done here.
@@ -369,6 +483,7 @@ public class SettingsManager: ObservableObject {
             let providers = Self.mapProviders(
                 cloudStorageFolders: lister(),
                 iCloudDefaultPath: iCloudPath,
+                folderSources: sources,
                 pathOverride: { overrides[$0] },
                 nameOverride: { nameOverrides[$0] }
             )
@@ -469,6 +584,20 @@ public class SettingsManager: ObservableObject {
     ///   - path: The new folder target path.
     ///   - providerId: The targeted provider ID.
     public func setPath(_ path: String, for providerId: String) {
+        // A folder source has no discovered default, so there is nothing for an override to sit on
+        // top of: its stored path IS its path. Writing an override here instead would leave the
+        // list holding the old path and the provider the new one — two truths, and Remove would
+        // clear only one of them.
+        if let index = folderSources.firstIndex(where: { $0.id == providerId }) {
+            let normalized = FolderSource.abbreviated(path)
+            guard !path.isEmpty, normalized != folderSources[index].path else { return }
+            Logger.shared.info("User moved folder source \(providerId) to \(normalized)")
+            folderSources[index].path = normalized
+            Task {
+                await discoverProviders()
+            }
+            return
+        }
         if path.isEmpty {
             Logger.shared.info("User cleared custom path mapping for provider: \(providerId)")
             userDefaults.removeObject(forKey: "\(Self.overrideKeyPrefix)\(providerId)")

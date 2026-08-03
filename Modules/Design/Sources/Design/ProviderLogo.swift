@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// A cloud provider's brand mark — the one place a provider logo is drawn.
 ///
@@ -28,9 +31,41 @@ public struct ProviderLogo: View {
     }
 
     public var body: some View {
-        Image(imageName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
+        if hasBundledAsset {
+            Image(imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            // A source with no bundled brand mark — a local folder wears `folder.fill`. Rendering
+            // the same field as a symbol (rather than adding a second, mutually-exclusive field to
+            // `CloudProvider` that every construction site would have to get right) keeps one
+            // "what mark does this source wear" answer, at all three call sites and all three
+            // sizes. Tinted `.secondary`: a folder has no brand, and the app accent is spoken for
+            // — `ProviderHue.folder` uses it for the name, and two accents in one row read as one
+            // smear.
+            Image(systemName: imageName)
+                .resizable()
+                .scaledToFit()
+                .fontWeight(.regular)
+                .foregroundStyle(.secondary)
+                // A symbol fills its frame edge-to-edge where a logo asset carries its own
+                // padding; at 0.82 the folder sits on the same optical rung as the brand marks.
+                .frame(width: size * 0.82, height: size * 0.82)
+                .frame(width: size, height: size)
+        }
+    }
+
+    /// Whether `imageName` names a bundled brand asset rather than an SF Symbol.
+    ///
+    /// `Image(_:)` on a missing asset renders an empty placeholder rather than failing, so the
+    /// choice has to be made against the catalog before building the view. Resolved per render,
+    /// which costs an `NSImage(named:)` lookup — the asset catalog memoizes those.
+    private var hasBundledAsset: Bool {
+        #if canImport(AppKit)
+        NSImage(named: imageName) != nil
+        #else
+        true
+        #endif
     }
 }

@@ -27,10 +27,11 @@ and SyncCloud can already answer it per file without new machinery. Path contain
 today). Materialization is one `lstat` for `SF_DATALESS` via `MaterializationStatus` (what already
 draws the ☁ badge on pane rows). The two signals have simply never been crossed and reported.
 
-The third ask is not a sibling — it is the **prerequisite**. "What would I lose" is rooted at *the
-Mac*, and the Mac is not a provider: `leftProviderId` keys into a list `SettingsManager` builds by
-enumerating `~/Library/CloudStorage` plus a hardcoded iCloud entry, so nothing can be pointed at `~`
-or `~/Projects`.
+The third ask was not a sibling — it was the **prerequisite**, and it has landed. "What would I
+lose" is rooted at *the Mac*, and the Mac was not a provider; a plain folder is now a source of its
+own (`ProviderType.localFolder`, the `folderSources` list in Settings ▸ Sources, **Choose Folder…**
+in every pane's source menu), so a pane, a scan, or a lens can be pointed at `~` or `~/Projects`.
+Both items below assume it.
 
 This item **subsumes the former "scheduled / automatic sync" entry**, which sat open because a
 scheduler with no specific job to do is a solution hunting a problem. The lens supplies the problem
@@ -46,54 +47,6 @@ Every file classifies into exactly one state, from one walk of the tree:
 | **No copy in the cloud** | Only on this Mac — gone with the Mac | path is outside every enabled provider's claim roots, and no backup job covers it |
 | **No copy on this Mac** | Only in a provider's cloud, not downloaded | `MaterializationStatus.isCloudOnly` |
 | **A copy in both** | Inside a cloud root and materialized, or put there by a job | neither of the above |
-
-### 1a. Folder sources — build first
-
-**What:** Make a plain folder a first-class source by adding a fifth `CloudProvider.ProviderType`
-case, `localFolder`. Because the whole app already talks to sources through one `CloudProvider`
-type, *nothing downstream changes*: panes, Tidy, `FileDiffEngine`, `FileOperations`, undo, history,
-automations and the CLI all keep working. The only type-gated behaviour in the diff path — the
-Google Drive date-noise filter — keys off `.googleDrive` and is simply never triggered.
-
-Two entry points, one mechanism: **Settings ▸ Providers ▸ Add Folder…** for deliberate setup, and
-**Choose Folder…** at the foot of any pane's provider menu, which creates the source and selects it
-in that pane in one gesture. Folder sources sort *after* the cloud accounts so the existing picker
-is visually untouched. Persist as JSON (`folderSources`) in the app's defaults domain and merge into
-`SettingsManager.mapProviders`.
-
-**Touch list:** `CloudProvider.swift` (the enum case) · `SettingsManager.swift` (persist + merge +
-`addFolderSource` / `removeFolderSource`) · `ProviderNameRules.swift` (new case joins the `.iCloud,
-.googleDrive` branch — a local volume accepts what a local volume accepts) · `ProviderHue.swift`
-(graphite pair, `folder.fill` instead of a brand logo) · `SettingsView.swift` (Add Folder… + Remove)
-· `ProviderMenu.swift` (divider + Choose Folder…) · `FirstRunOverlay.swift` (glyph map).
-
-**Four things that will bite:**
-
-- **The Rename lens goes silent.** `startNameScan(root:provider:)` takes the source's own type, so a
-  folder source checks names against "local filesystem" and finds *nothing* — an empty success state
-  over a folder full of names OneDrive would reject. Fix: when the source is a folder, the Rename
-  lens header gains a **Check against ▾** picker defaulting to OneDrive (the strictest). This is a
-  better feature than what exists today — *"would this folder survive being put on OneDrive?"* is
-  the real question — and it is roughly fifteen lines.
-- **Shallow roots are already handled.** `claimRoots` refuses to let a root shallower than four path
-  components claim anything, so a folder source at `~` (`/Users/<me>`, three components) claims
-  nothing and `~/Documents` still resolves to iCloud for name rules. The guard was written for the
-  "user points a provider at their home folder" case and covers this exactly. Worth a pinning test,
-  not new code.
-- **Reset All Settings wipes them.** `resetAllSettings()` calls `removePersistentDomain`.
-  Defensible, but the confirmation copy currently promises only that "files on disk are untouched",
-  which reads as reassurance while the folder list the user curated disappears.
-- **Nested and overlapping sources are legitimate.** `~` and `~/Projects` as separate sources, or a
-  folder inside a cloud root, all work — `inferredType`'s longest-root-wins rule resolves the
-  overlap. Adding a path that already exists should *select* that source, not create a second.
-
-**Delivers the third ask on its own**, before any of the rest exists.
-
-**Effort:** Low–Medium. **Risk:** Low — one enum case, no new data path.
-
-> **The app is not sandboxed.** `codesign -d --entitlements` on the installed build shows only
-> `get-task-allow`, so a chosen path is just a path: no security-scoped bookmarks, no stale-bookmark
-> resolution, no entitlement work. That is most of what would normally make this expensive.
 
 ### 1b. The Backup lens — the report
 
@@ -312,7 +265,7 @@ absorbs what used to be listed separately as "selective sync": naming a scoped c
 between several *is* presets, and there is no second feature there.
 
 **Impact:** Faster recurring work ("Documents: iCloud ↔ OneDrive", "Work: Drive ↔ Backup SSD"), and
-it composes with folder sources (item 1a) to give a preset per project.
+it composes with the shipped folder sources to give a preset per project.
 
 **Effort:** Low. **Risk:** Low.
 
@@ -867,7 +820,7 @@ the question hundreds of keeper picks actually raise.
 
 | # | Item | Effort | Impact |
 |---|------|--------|--------|
-| 1 | **Backup** — folder sources, the lens, jobs | Low→High, staged | **Highest** |
+| 1 | **Backup** — the lens and jobs (folder sources shipped) | Medium→High, staged | **Highest** |
 | 2 | Sync presets | Low | High |
 | 3 | Strict content match + persisted index | Medium–High | Medium–High |
 | 4 | `bothModified` detection | Medium | High |
@@ -903,8 +856,8 @@ Cited by name; this list has no stable numbering.
 | One-line pane headers | Medium | Medium — ~44 pt on every window |
 | A review sheet before a bulk duplicate trash | Medium | Medium |
 
-**Where the value is.** Item 1 is the largest single addition on this list, and its first stage
-(**folder sources**) is cheap, self-contained and unblocks the rest — start there. Items **2** and
+**Where the value is.** Item 1 is the largest single addition on this list. Its first stage,
+**folder sources**, has shipped and unblocks the rest — the lens is what to build next. Items **2** and
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
 

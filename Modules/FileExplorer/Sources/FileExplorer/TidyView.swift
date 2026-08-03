@@ -229,6 +229,8 @@ public struct TidyView: View {
     private let currentProviderId: String
     private let onSelectProvider: (String) -> Void
     private let onManageProviders: () -> Void
+    /// Picks a folder and points Tidy at it as a source. nil hides "Choose Folder…".
+    private let onChooseFolder: (() -> Void)?
     /// Raises the destination picker. Owned by the window rather than by this view: the Tidy rail
     /// asks for the same sheet, and two states bound to two sheets would be two pickers to keep in
     /// step. Defaults to a no-op so previews and tests can build a lens without a host.
@@ -253,6 +255,7 @@ public struct TidyView: View {
         currentProviderId: String = "",
         onSelectProvider: @escaping (String) -> Void = { _ in },
         onManageProviders: @escaping () -> Void = {},
+        onChooseFolder: (() -> Void)? = nil,
         onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in },
         onRequestDestination: @escaping (PendingDestination) -> Void = { _ in }
     ) {
@@ -272,6 +275,7 @@ public struct TidyView: View {
         self.currentProviderId = currentProviderId
         self.onSelectProvider = onSelectProvider
         self.onManageProviders = onManageProviders
+        self.onChooseFolder = onChooseFolder
         self.onCompareCopies = onCompareCopies
         self.onRequestDestination = onRequestDestination
     }
@@ -546,7 +550,8 @@ public struct TidyView: View {
                     ProviderLogo(provider.imageName, size: 16)
                 }
                 ProviderMenu(providers: providers, currentId: currentProviderId,
-                             onSelect: onSelectProvider, onManage: onManageProviders) {
+                             onSelect: onSelectProvider, onManage: onManageProviders,
+                             onChooseFolder: onChooseFolder) {
                     Text(provider?.displayName ?? "Provider")
                         // `Text.scaledFont(_:scale:)`, not the View modifier: a `Menu` label is
                         // drawn by AppKit, which reads a Text's own font but ignores the

@@ -29,6 +29,8 @@ public struct PaneHeader: View {
     public let onSelectProvider: (String) -> Void
     /// Opens Settings ▸ Providers (the "Manage providers…" menu item).
     public let onManageProviders: () -> Void
+    /// Picks a folder and points this pane at it as a source. nil hides "Choose Folder…".
+    public let onChooseFolder: (() -> Void)?
     /// The (global) sort order, surfaced per-pane now that the titlebar's file actions have moved
     /// onto the panes.
     @Binding public var sortOption: SortOption
@@ -94,6 +96,7 @@ public struct PaneHeader: View {
         providers: [CloudProvider] = [],
         onSelectProvider: @escaping (String) -> Void = { _ in },
         onManageProviders: @escaping () -> Void = {},
+        onChooseFolder: (() -> Void)? = nil,
         sortOption: Binding<SortOption>,
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
@@ -115,6 +118,7 @@ public struct PaneHeader: View {
         self.providers = providers
         self.onSelectProvider = onSelectProvider
         self.onManageProviders = onManageProviders
+        self.onChooseFolder = onChooseFolder
         self._sortOption = sortOption
         self.onCollapse = onCollapse
         self.onRefresh = onRefresh
@@ -199,6 +203,7 @@ public struct PaneHeader: View {
             PaneBreadcrumb(
                 rootPath: rootPath,
                 providerName: provider?.displayName,
+                providerIsLocalFolder: provider?.isLocalFolder ?? false,
                 relativePath: relativePath,
                 showHidden: showHiddenFiles,
                 onNavigate: onNavigate,
@@ -266,7 +271,7 @@ public struct PaneHeader: View {
     /// have to give up characters, the logo yields first and the logo-less variant truncates the
     /// name as far as an ellipsis — the name is the identity anchor, the logo is decoration.
     private func providerCapsule(_ provider: CloudProvider, showsLogo: Bool) -> some View {
-        let hue = ProviderHue.classify(provider.displayName)
+        let hue = ProviderHue.classify(provider.displayName, isLocalFolder: provider.isLocalFolder)
         return HStack(spacing: 10) {
             if showsLogo {
                 ProviderLogo(provider.imageName, size: 28)
@@ -275,7 +280,8 @@ public struct PaneHeader: View {
                 providers: providers,
                 currentId: provider.id,
                 onSelect: onSelectProvider,
-                onManage: onManageProviders
+                onManage: onManageProviders,
+                onChooseFolder: onChooseFolder
             ) {
                 Text(provider.displayName)
                     // `Text.scaledFont(_:scale:)`, not the View modifier: this is a `Menu`

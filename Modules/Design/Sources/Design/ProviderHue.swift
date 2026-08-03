@@ -22,6 +22,9 @@ public enum ProviderHue: String, CaseIterable, Sendable {
     case googleDrive
     case oneDrive
     case box
+    /// A plain folder the user added as a source. Not classifiable from a name — a folder is
+    /// called whatever its owner calls it — so callers pass `isLocalFolder:` instead.
+    case folder
     /// Unrecognized/custom providers: follow the app accent instead of inventing a hue.
     case neutral
 
@@ -29,7 +32,14 @@ public enum ProviderHue: String, CaseIterable, Sendable {
     /// - "iCloud Drive" contains "drive", so iCloud must win before the Drive check.
     /// - "OneDrive" contains "drive", so OneDrive must also precede the Drive check.
     /// - "Dropbox" contains "box", so Dropbox must precede the Box check.
-    public static func classify(_ displayName: String) -> ProviderHue {
+    ///
+    /// - Parameter isLocalFolder: True for a folder source, which short-circuits the name match
+    ///   entirely. It has to: a folder named "Drive" or "Dropbox" is an ordinary thing to have, and
+    ///   name-matching it would paint it in a brand's colours and claim an account it isn't. The
+    ///   flag is a `Bool` rather than the `CloudProvider.ProviderType` it comes from because Design
+    ///   deliberately has no Sync dependency. Defaulted, so every existing call site is unchanged.
+    public static func classify(_ displayName: String, isLocalFolder: Bool = false) -> ProviderHue {
+        if isLocalFolder { return .folder }
         let name = displayName.lowercased()
         if name.contains("icloud") { return .iCloud }
         if name.contains("dropbox") { return .dropbox }
@@ -64,6 +74,15 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         case .googleDrive: return (RGB(0.118, 0.639, 0.384), RGB(0.235, 0.796, 0.525)) // #1EA362 → #3CCB86
         case .oneDrive:    return (RGB(0.012, 0.392, 0.722), RGB(0.243, 0.608, 0.878)) // #0364B8 → #3E9BE0
         case .box:         return (RGB(0.141, 0.525, 0.988), RGB(0.353, 0.627, 1.0))   // #2486FC → #5AA0FF
+        // Graphite, the app's own colourless accent (`LiquidGlassStyle.graphite`, #878A8F), pulled
+        // apart per appearance the way the brand blues are. A folder source has no brand to wear,
+        // and it must not wear the app accent either: `.neutral` already means "follows the accent"
+        // and is what an unrecognized CLOUD provider gets, so a folder painted the same would be
+        // indistinguishable from a NAS someone named "Archive". Colourless says "not a cloud".
+        // Both ends clear WCAG AA as static text on the appearance they belong to (4.8:1 on white,
+        // 7.6:1 on the dark surface) — the light brand hexes do not, which is why this pair is
+        // darker in light mode than #878A8F itself.
+        case .folder:      return (RGB(0.431, 0.447, 0.471), RGB(0.659, 0.678, 0.710)) // #6E7278 → #A8ADB5
         case .neutral:     return nil
         }
     }
