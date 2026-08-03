@@ -144,9 +144,28 @@ the 5s timeout with the labeled expectation instead of passing — the wait is r
 *present* first, so the wait watches a real transition rather than an absence. A wait for a state
 that was already true when the wait began proves nothing at all.
 
+**"Drain, then sleep a bit more" — check whether the drain was already the gate.** The sweep after
+the above found two more, both a `waitUntil` on `activeFileOperationsCount == 0` followed by a flat
+200ms / 300ms in front of an absence assertion:
+`CopyUndoDriftAndTransientTests.copyUndoRefusesWhenDestinationSizeDrifted` and
+`DeleteRedoOccupantTests.deleteUndoRefusedThenRedoLeavesOccupantAlone`. Neither needed the sleep,
+and the reason generalises to every undo/redo test here: the handlers registered by
+`registerCopyRedo` / `registerTrashItems` (and their undo twins) run **synchronously** inside
+`undo()`/`redo()` and call `preCountFileOperation()` **before** spawning the Task that enqueues the
+work — unconditionally, even when there are no params to act on. So the count is already above zero
+when the wait begins, and `enqueueFileOperation` decrements only after its body returns. That is
+what makes the drain a real gate here rather than the quiescence this section warns about: it
+genuinely cannot read "not started" as "finished". Both were mutation-tested by putting the refused
+item back into the redo params, and both fail without the sleep — in ~0.03s, where the sleeps had
+been charging half a second for the same verdict.
+
+A trailing sleep after a wait is worth reading as a signal, not noise: either the wait is not a gate
+and needs replacing, or it is and the sleep is dead weight. Establish which before deleting it.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
-`33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*.
+`33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;
+`9543b941` — *Let the drain be the gate the two redo tests already had*.
 
 ### 3. Process-wide state, and suites running in parallel
 
