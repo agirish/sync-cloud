@@ -49,17 +49,22 @@ public final class ReviewSessionStore: ObservableObject {
     /// Runs a decision that returns from an unbounded await and lands its outcome in the session
     /// it was STARTED against.
     ///
-    /// The token is read HERE, synchronously, before `perform` is even started — that ordering
-    /// IS the fix. Reading `session?.sessionToken` after the await instead would read whatever
-    /// session exists when the copy returns, and since exiting review and restarting over the
-    /// same un-rescanned set yields a session with the SAME difference ids, `apply`'s token check
-    /// would compare the replacement against itself and pass. Every guard downstream stays
-    /// correct while the bug walks straight through, which is why the sequence lives here rather
-    /// than being open-coded in the view.
+    /// `token` is the caller's — captured from the session the user actually decided against, in
+    /// the same synchronous slot that raised `isActing`, never re-read here. Reading
+    /// `session?.sessionToken` inside this function instead would read whatever session exists
+    /// when `decide` first runs, which is already one main-actor hop after the click:
+    /// `reviewPrimary` raises `isActing` and then enters a `Task`, so a teardown plus a fresh
+    /// `startReview` landing in that hop would have the NEW token copied onto the OLD session's
+    /// item. Since exiting review and restarting over the same un-rescanned set yields a session
+    /// with the SAME difference ids, `apply`'s token check would then compare the replacement
+    /// against itself and pass, advancing a queue past an item the user never decided. Every
+    /// guard downstream stays correct while the bug walks straight through.
     ///
-    /// `isActing` is cleared before the outcome is applied, matching the order the decision
-    /// buttons expect (the card re-enables, then the queue advances) — and on EVERY exit from
-    /// here, including the one below where there is no session left to decide against.
+    /// `isActing` is cleared by `defer`, so it comes down on EVERY exit — including the early
+    /// return below where there is no session left to decide against, and any exit a later edit
+    /// adds. Order relative to `apply` is immaterial: `isActing` and `session` are both
+    /// `@Published` on this object and both land in one synchronous main-actor run, so no view,
+    /// test or caller can observe the intermediate state.
     ///
     /// That early return is not a formality. `reviewPrimary` sets `isActing` synchronously and
     /// then hops through a `Task` to get here, so a session torn down inside that hop —
@@ -73,10 +78,10 @@ public final class ReviewSessionStore: ObservableObject {
     /// - Returns: Whether the outcome was applied — false once the session was replaced or torn
     ///   down, so the caller knows not to treat this as a completed step.
     @discardableResult
-    func decide(for id: UUID, perform: () async -> ReviewSession.Outcome) async -> Bool {
-        guard let token = session?.sessionToken else { isActing = false; return false }
+    func decide(for id: UUID, token: UUID, perform: () async -> ReviewSession.Outcome) async -> Bool {
+        defer { isActing = false }
+        guard session != nil else { return false }
         let outcome = await perform()
-        isActing = false
         return apply(outcome, for: id, token: token)
     }
 

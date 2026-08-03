@@ -18,6 +18,24 @@ final class Flag: @unchecked Sendable {
     }
 }
 
+/// Parks an injected classifier closure until the test sets `released`, bounded so a mis-wired
+/// test fails on its assertions instead of spinning this suite until the CI job times out.
+///
+/// The bound's expiry is RECORDED in `timedOut` rather than discarded — that is the whole point.
+/// A park that quietly gives up lets the round-trip complete BEFORE the test has staged the state
+/// it was supposed to complete against (the clearFiling + rescan, the begin/endScan pair), so
+/// every assertion afterwards describes an ungated run: the guard under test is never evaluated
+/// and the positive control asserts nothing, which looks exactly like a real pass. That is the
+/// same failure `awaitSignal` and ``FirstStatGate/releasedByTimeout`` already refuse to hide.
+/// Callers must `#expect(!timedOut.value, …)` once the awaited work is done.
+func parkUntilReleased(_ released: Flag, timedOut: Flag, timeout: Duration = .seconds(10)) async {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while !released.value {
+        if ContinuousClock.now >= deadline { timedOut.value = true; return }
+        await Task.yield()
+    }
+}
+
 /// A tiny thread-safe call counter for injected closures, lock-backed for the same reason as
 /// ``Flag``: it is written from a classifier closure in another isolation domain and read from
 /// the test's spins.
@@ -908,16 +926,14 @@ final class CallCounter: @unchecked Sendable {
 
         let calls = Counter()
         let released = Flag()
+        let parkTimedOut = Flag()
         manager.filingClassifier = { _, files in
             // Only the FIRST round-trip parks: a second one (the bug this test pins) returns
             // immediately, so a regressed build fails the call-count check below instead of
             // deadlocking the suite waiting for a release that can never come.
             if calls.value == 0 {
                 calls.increment()
-                // Park until the test releases it — with a deadline, so a mis-wired test fails
-                // on its assertions instead of spinning this suite until the CI job times out.
-                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-                while !released.value, ContinuousClock.now < deadline { await Task.yield() }
+                await parkUntilReleased(released, timedOut: parkTimedOut)
             } else {
                 calls.increment()
             }
@@ -942,6 +958,8 @@ final class CallCounter: @unchecked Sendable {
 
         released.value = true
         await first.value
+        #expect(!parkTimedOut.value,
+                "the park timed out: the first round-trip returned on its own, so the re-entrant click was never made against an in-flight re-ask")
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh")
         #expect(manager.filingTryAnotherInFlight.isEmpty, "the completed re-ask must release its id")
 
@@ -987,17 +1005,15 @@ final class CallCounter: @unchecked Sendable {
         let calls = CallCounter()
         let releaseA = Flag()
         let releaseB = Flag()
+        let parkATimedOut = Flag()
+        let parkBTimedOut = Flag()
         manager.filingClassifier = { _, files in
             // Round-trip A parks on its own gate, B on its own; anything later (the bug this
             // test pins) returns immediately so a regressed build fails the call-count check
             // below instead of deadlocking the suite. Bounded parks, same reason.
             switch calls.next() {
-            case 1:
-                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
-            case 2:
-                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-                while !releaseB.value, ContinuousClock.now < deadline { await Task.yield() }
+            case 1: await parkUntilReleased(releaseA, timedOut: parkATimedOut)
+            case 2: await parkUntilReleased(releaseB, timedOut: parkBTimedOut)
             default: break
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
@@ -1033,6 +1049,8 @@ final class CallCounter: @unchecked Sendable {
         // A finally returns. Its defer is stale — it must NOT release B's guard.
         releaseA.value = true
         await a.value
+        #expect(!parkATimedOut.value,
+                "A's park timed out: A returned before clearFiling ran, so its defer was never stale and the check below describes B's own release")
         #expect(manager.filingTryAnotherInFlight[s.id] != nil,
                 "A's stale defer released B's still-out guard — the ownership check is gone")
 
@@ -1045,6 +1063,7 @@ final class CallCounter: @unchecked Sendable {
         // B returns: its own defer releases its own entry, and its verdict lands as usual.
         releaseB.value = true
         await b.value
+        #expect(!parkBTimedOut.value, "B's park timed out — B was not still out for the refused click above")
         #expect(manager.filingTryAnotherInFlight[s.id] == nil, "B's completed re-ask must release its own entry")
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
                 "the CURRENT round-trip's verdict still lands")
@@ -1065,10 +1084,10 @@ final class CallCounter: @unchecked Sendable {
 
         let calls = CallCounter()
         let releaseA = Flag()
+        let parkTimedOut = Flag()
         manager.filingClassifier = { _, files in
             if calls.next() == 1 {
-                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+                await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
                 FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
@@ -1094,6 +1113,8 @@ final class CallCounter: @unchecked Sendable {
 
         releaseA.value = true
         await a.value
+        #expect(!parkTimedOut.value,
+                "the park timed out: A's verdict landed before clearFiling + the rescan recreated the card, so the ownership guard was never exercised")
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
                 "a verdict computed against the pre-clear session must not land in the recreated card")
     }
@@ -1113,10 +1134,10 @@ final class CallCounter: @unchecked Sendable {
 
         let calls = CallCounter()
         let releaseA = Flag()
+        let parkTimedOut = Flag()
         manager.filingClassifier = { _, files in
             if calls.next() == 1 {
-                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+                await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
                 FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
@@ -1142,6 +1163,8 @@ final class CallCounter: @unchecked Sendable {
 
         releaseA.value = true
         await a.value
+        #expect(!parkTimedOut.value,
+                "the park timed out: A's verdict landed before the rescan republished, so the generation guard never saw a moved generation")
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
                 "a verdict from before the rescan must not land in the rescanned card")
         #expect(manager.filingTryAnotherInFlight.isEmpty,
@@ -1166,10 +1189,10 @@ final class CallCounter: @unchecked Sendable {
 
         let calls = CallCounter()
         let releaseA = Flag()
+        let parkTimedOut = Flag()
         manager.filingClassifier = { _, files in
             if calls.next() == 1 {
-                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+                await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
                 FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
@@ -1195,6 +1218,12 @@ final class CallCounter: @unchecked Sendable {
 
         releaseA.value = true
         await a.value
+        // This is a POSITIVE control — it asserts a verdict DOES land — so a park that gave up on
+        // its own is invisible without this check: A would complete before begin/endScan ever
+        // moved the epoch, and the assertion below would pass having never put the guard in front
+        // of a bumped epoch at all.
+        #expect(!parkTimedOut.value,
+                "the park timed out: A's verdict landed before the cancelled rescan bumped the epoch, so this control ran ungated and proves nothing")
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
                 "the cancelled rescan left the cards alone, so A's verdict is still about them")
         #expect(manager.filingTryAnotherInFlight.isEmpty, "A's defer must release its own entry")

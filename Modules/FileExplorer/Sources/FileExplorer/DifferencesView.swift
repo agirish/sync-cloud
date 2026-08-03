@@ -1417,16 +1417,17 @@ public struct DifferencesView: View {
     /// rescan regenerates row UUIDs mid-session, which would make any list-based check lie.
     private func reviewPrimary(_ item: FileDifference) {
         guard let session = reviewStore.session, !reviewStore.isActing else { return }
-        reviewStore.isActing = true
+        reviewStore.isActing = true; let token = session.sessionToken
         let isMove = session.isMove
         Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
         Task { @MainActor in
-            // `decide` captures the session token BEFORE starting the sync and applies the
-            // outcome under it — exiting review and starting a new session over the same
-            // un-rescanned set keeps the difference ids, so only the token can tell the store
-            // this outcome belongs to the torn-down session, not the new one. It also clears
-            // `isActing`.
-            let applied = await reviewStore.decide(for: item.id) {
+            // The token is captured above, synchronously with the click — NOT inside this Task.
+            // Exiting review and starting a new session over the same un-rescanned set keeps the
+            // difference ids, so only the token can tell the store this outcome belongs to the
+            // torn-down session; re-reading it after this hop would read the replacement's token
+            // and stamp the old session's item into the new queue. `decide` also clears
+            // `isActing` on every exit.
+            let applied = await reviewStore.decide(for: item.id, token: token) {
                 // confirmed: the review card IS the per-item confirmation UI — re-running the
                 // transferConfirmer here doubled every accept, and an Escape on that redundant
                 // prompt was recorded as a deliberate Skip in the session tally.
