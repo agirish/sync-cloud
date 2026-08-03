@@ -39,4 +39,28 @@ import Foundation
     @Test func missingPathIsNotCloudOnly() {
         #expect(MaterializationStatus.isCloudOnly(atPath: "/no/such/file-\(UUID().uuidString)") == false)
     }
+
+    /// A path that cannot be statted has no answer, and that is different from "not a placeholder".
+    ///
+    /// The two used to be the same `false`, which made a file deleted mid-download read as
+    /// materialized to `CloudDownloadPoll`. Every other caller is deciding whether to READ a file
+    /// and wants the two-way form, so `isCloudOnly` keeps its contract and folds nil to false.
+    @Test func anUnstattablePathHasNoAnswer() {
+        let gone = "/never-existed-\(UUID().uuidString)/file.bin"
+        #expect(MaterializationStatus.isCloudOnlyIfKnown(atPath: gone) == nil)
+        #expect(MaterializationStatus.isCloudOnly(atPath: gone) == false)
+    }
+
+    /// And a file that IS there answers definitely — false, since nothing a test can create carries
+    /// `SF_DATALESS` (an `SF_` flag `chflags` refuses to anyone but root).
+    @Test func aLocalFileAnswersDefinitely() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("MaterializationStatus-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("local.bin")
+        try Data("x".utf8).write(to: file)
+
+        #expect(MaterializationStatus.isCloudOnlyIfKnown(atPath: file.path) == false)
+    }
 }
