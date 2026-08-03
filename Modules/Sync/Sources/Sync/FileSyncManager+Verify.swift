@@ -154,14 +154,32 @@ extension FileSyncManager {
         // would clear the offer only does so when it COMPLETES — seconds later on a large tree.
         // A confirm inside that window would bulk-overwrite the bytes the operation just wrote.
         // Refuse it: the operation's rescan is already on its way to re-derive fresh rows.
-        // The wording says only what the guard OBSERVED. It compares epochs, so all it knows is
-        // that some file operation ran — it cannot tell whether that operation touched a single
-        // verified file. A filing move on the other pane, an undo of a folder rename, an
-        // unrelated delete: every one of them lands here, and "Files changed since verification"
-        // would state as fact something the guard never established.
-        guard fileOperationsEpoch == verifiedIdenticalForCopyEpoch else {
+        //
+        // BOTH terms are load-bearing, because they answer different questions. The epoch says
+        // an operation already RAN. The count says one is already claimed and about to run:
+        // every undo/redo path calls `preCountFileOperation()` synchronously and only reaches
+        // `enqueueFileOperation` — where the epoch is bumped — from inside a `Task`, and since
+        // this type is `@MainActor` that hop is a real suspension point. On the epoch alone a
+        // confirm placed in that gap passes, the undo's task then claims the serial queue
+        // first, and the bulk copy queues behind it and overwrites the bytes the undo just
+        // restored. `bulkCopyDifferencesLeftToRight` deliberately does not refuse on the count,
+        // so nothing downstream would catch it. Same pairing as this file's entry guard and
+        // `sweepOrphanedTempArtifactsNow`.
+        //
+        // Not in tension with the scan-checksum pass, which is epoch-ONLY at commit time on
+        // purpose (see `autoVerifySameSizePairs`): there, a pre-counted operation the user then
+        // DECLINES ran no I/O, so voiding a whole hashed batch for it cost real coverage and
+        // bought nothing. Here the cost of refusing a pre-counted operation is one re-verify,
+        // and the cost of allowing it is a bulk disk write over bytes nobody verified. Do not
+        // simplify one guard into the other.
+        //
+        // The wording says only what the guard OBSERVED — "an operation ran, or one is pending".
+        // It cannot tell whether any VERIFIED file was touched: a filing move on the other pane,
+        // an undo of a folder rename, an unrelated delete all land here too.
+        guard fileOperationsEpoch == verifiedIdenticalForCopyEpoch,
+              activeFileOperationsCount == 0 else {
             verifiedIdenticalForCopy = nil
-            banner = .warning("A file operation ran since verification — run Verify All again")
+            banner = .warning("A file operation ran or is pending — run Verify All again")
             return nil
         }
         verifiedIdenticalForCopy = nil

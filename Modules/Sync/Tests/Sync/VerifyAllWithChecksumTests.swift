@@ -204,4 +204,44 @@ import Foundation
         #expect(try Data(contentsOf: rightURL) == restored,
                 "the stale copy must not overwrite the bytes the operation just wrote")
     }
+
+    /// The window the epoch comparison alone cannot see: an operation that has been PRE-COUNTED
+    /// but has not yet reached `enqueueFileOperation`, where the epoch is bumped.
+    ///
+    /// Every undo/redo path runs `preCountFileOperation()` synchronously and enqueues from
+    /// inside a `Task`; `FileSyncManager` is `@MainActor`, so `enqueueFileOperation`'s
+    /// `await MainActor.run` is a real suspension point and the epoch moves strictly later.
+    /// So "epoch unmoved" does NOT mean "nothing is about to be written" — and if the confirm
+    /// passes here, the undo's task claims the serial queue first and the bulk copy runs
+    /// straight over the bytes the undo just restored. `bulkCopyDifferencesLeftToRight`
+    /// deliberately does not refuse on the count, so nothing downstream catches it.
+    @MainActor
+    @Test func testConfirmRefusesWhileAPreCountedOperationHasNotYetEnqueued() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.map(\.id) == [fixture.identical.id])
+        let stampedEpoch = manager.fileOperationsEpoch
+
+        // ⌘Z: the undo handler's pre-count lands, its Task has not hopped to the main actor yet.
+        manager.preCountFileOperation()
+        try #require(manager.activeFileOperationsCount == 1)
+        try #require(manager.fileOperationsEpoch == stampedEpoch,
+                     "the epoch must still be unmoved — that gap is the whole window under test")
+
+        let copyTask = manager.confirmVerifiedCopy()
+        await copyTask?.value
+
+        #expect(copyTask == nil, "a confirm with a write already pending must not start the bulk copy")
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.banner?.message == "A file operation ran or is pending — run Verify All again")
+        #expect(manager.banner?.severity == .warning)
+        // A refusal resolves nothing and hides nothing: the rows stay exactly as they were.
+        #expect(manager.verifiedSameDifferenceIds.isEmpty)
+        #expect(manager.differences.count == 2)
+
+        manager.cancelPreCountedFileOperation()
+    }
 }

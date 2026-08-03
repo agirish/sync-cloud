@@ -102,7 +102,15 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// flag resets so a retry succeeds — for pinning retry flows.
     public var shouldFailCopy: Bool = false
 
+    /// Invoked with the source path immediately BEFORE each `copyItem`, and deliberately
+    /// OUTSIDE the virtual disk's lock so a test may block in it: that is what lets a bulk run
+    /// be held genuinely mid-flight, by its own I/O, instead of by a foreign operation parked
+    /// on the queue ahead of it (which moves `fileOperationsEpoch` and so cannot coexist with a
+    /// live copy offer).
+    public var beforeCopyItem: ((String) -> Void)?
+
     public func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        beforeCopyItem?(srcURL.path)
         try sync {
             calledCopyItem = true
             if shouldFailCopy {
