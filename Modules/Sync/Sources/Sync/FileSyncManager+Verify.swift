@@ -35,6 +35,16 @@ extension FileSyncManager {
         // superseded set. Capture the generation now and re-check before publishing (same guard
         // autoVerifySameSizePairs uses).
         let startGeneration = scanRequestGeneration
+        // A rescan is not the only way the hashed bytes go stale. A file operation can overwrite
+        // a candidate mid-hash and FINISH before its refresh-triggered rescan bumps the
+        // generation, so the generation guard alone still publishes verdicts that predate the
+        // write — and this offer feeds a bulk disk write on confirm. Undo is the live route:
+        // every write path is gated on `isVerifyAllRunning` EXCEPT ⌘Z, deliberately (see the
+        // commit body — blocking undo during a long verify would be its own regression), and it
+        // reaches the disk through `enqueueFileOperation` like everything else. Capture the
+        // operations epoch (bumped there before any I/O runs) and re-check it before publishing,
+        // mirroring `autoVerifySameSizePairs`.
+        let startOperationsEpoch = fileOperationsEpoch
 
         let progress = Progress(totalUnitCount: Int64(toVerify.count))
         progress.localizedDescription = "Verifying \(toVerify.count) files"
@@ -81,8 +91,15 @@ extension FileSyncManager {
         }
 
         let (verifiedIdentical, differed, skipped) = await collector.get()
-        // Only publish the copy offer if no rescan superseded these differences while we hashed.
-        if !verifiedIdentical.isEmpty, scanRequestGeneration == startGeneration {
+        // Only publish the copy offer if no rescan superseded these differences while we hashed
+        // AND no file operation started since the hash began (see `startOperationsEpoch` above —
+        // an operation that ran start-to-finish mid-hash may have rewritten the very bytes these
+        // verdicts describe, before its rescan could move the generation).
+        if !verifiedIdentical.isEmpty, scanRequestGeneration == startGeneration,
+           fileOperationsEpoch == startOperationsEpoch {
+            // The assignment stamps `verifiedIdenticalForCopyEpoch` itself (see its didSet); the
+            // guard above has just established that the live epoch is still the one these
+            // verdicts were hashed under, so the stamp is exactly `startOperationsEpoch`.
             verifiedIdenticalForCopy = verifiedIdentical
         }
         var parts: [String] = []
@@ -132,6 +149,16 @@ extension FileSyncManager {
     @discardableResult
     public func confirmVerifiedCopy() -> Task<Void, Never>? {
         guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return nil }
+        // The offer can outlive its verdicts: a file operation (an unguarded ⌘Z undo, most
+        // directly) landing while the dialog is up rewrites verified bytes, and the rescan that
+        // would clear the offer only does so when it COMPLETES — seconds later on a large tree.
+        // A confirm inside that window would bulk-overwrite the bytes the operation just wrote.
+        // Refuse it: the operation's rescan is already on its way to re-derive fresh rows.
+        guard fileOperationsEpoch == verifiedIdenticalForCopyEpoch else {
+            verifiedIdenticalForCopy = nil
+            banner = .warning("Files changed since verification — run Verify All again")
+            return nil
+        }
         verifiedIdenticalForCopy = nil
         return Task { await self.bulkCopyDifferencesLeftToRight(list) }
     }
