@@ -72,14 +72,25 @@ final class LockedBox<Value>: @unchecked Sendable {
 /// test failure on timeout. The single shared replacement for the per-suite polling helpers
 /// and the fixed post-operation sleeps that flaked under parallel-suite main-actor
 /// congestion: always wait for the observable effect, never a guessed duration.
+///
+/// The timeout is reported at the CALL SITE, like `awaitSignal` above. Without the forwarded
+/// `sourceLocation` every one of this helper's ~150 callers anchors its failure to the `#expect`
+/// below, so a full-suite run with several timeouts names this one line several times and no test
+/// file at all. That is expensive precisely when it is least affordable — a run whose failures you
+/// cannot place is the problem mechanism 8 exists for.
 @MainActor
-func waitUntil(_ what: Comment, timeout: TimeInterval = 5, _ condition: () -> Bool) async {
+func waitUntil(
+    _ what: Comment,
+    timeout: TimeInterval = 5,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ condition: () -> Bool
+) async {
     let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
     while ContinuousClock.now < deadline {
         if condition() { return }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    #expect(condition(), what)
+    #expect(condition(), what, sourceLocation: sourceLocation)
 }
 
 /// Creates a fresh, uniquely named temp directory for real-filesystem tests and returns it

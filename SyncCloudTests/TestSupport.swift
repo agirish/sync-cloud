@@ -7,14 +7,22 @@ import Foundation
 /// be slow, and one short enough to be quick flakes the moment a parallel suite congests the main
 /// actor. 13cfb93 removed the last of those from the Sync suites after proving they lose the race
 /// on a loaded CI runner; always wait for the observable effect, never a guessed duration.
+///
+/// Reports its timeout at the CALL SITE; keep the forwarded `sourceLocation` in step with the Sync
+/// copy. Without it every caller's failure anchors here instead of naming a test file.
 @MainActor
-func waitUntil(_ what: Comment, timeout: TimeInterval = 5, _ condition: () -> Bool) async {
+func waitUntil(
+    _ what: Comment,
+    timeout: TimeInterval = 5,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ condition: () -> Bool
+) async {
     let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
     while ContinuousClock.now < deadline {
         if condition() { return }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    #expect(condition(), what)
+    #expect(condition(), what, sourceLocation: sourceLocation)
 }
 
 /// A throwaway `UserDefaults` suite, so a test can pin a defaults-driven decision without writing

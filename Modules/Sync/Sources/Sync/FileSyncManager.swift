@@ -740,11 +740,12 @@ public class FileSyncManager: ObservableObject {
     ///
     /// Readable (not writable) outside this file as a test seam: it moves at the exact moment a
     /// pass commits, which is the only observable a pass that publishes NOTHING leaves behind.
-    /// Every assignment below it is guarded by "assign only what changed", so a pass over already
-    /// cleared state — `invalidateDifferencesForPaneRetarget`'s insurance pass — touches no
-    /// published property at all. A test waiting for that pass has nothing else to wait on, and
-    /// waiting a guessed number of milliseconds instead is how it silently stops waiting for
-    /// anything (docs/flaky-tests.md, mechanism 2).
+    /// Every *published-property* assignment that follows it in `applyFilters` is guarded by
+    /// "assign only what changed", so a pass over already cleared state —
+    /// `invalidateDifferencesForPaneRetarget`'s insurance pass — touches none of them. A test
+    /// waiting for that pass has nothing else to wait on, and waiting a guessed number of
+    /// milliseconds instead is how it silently stops waiting for anything (docs/flaky-tests.md,
+    /// mechanism 2).
     private(set) var lastPublishedFilterGeneration = 0
     /// Bumped by `didSet` on EVERY write to its pane's published tree — no writer can forget
     /// it, including `swap(&leftTree, &rightTree)` and tests assigning the public property
