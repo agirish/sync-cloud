@@ -203,6 +203,15 @@ import Foundation
         #expect(manager.verifiedIdenticalForCopy == nil)
         #expect(try Data(contentsOf: rightURL) == restored,
                 "the stale copy must not overwrite the bytes the operation just wrote")
+        // The banner is the entire user-facing contract of this path: the click did nothing,
+        // and without it the user is left staring at a dialog that closed for no stated reason.
+        // (Field comparison — banner equality includes a per-publish id.)
+        #expect(manager.banner?.message == "A file operation ran or is pending — run Verify All again")
+        #expect(manager.banner?.severity == .warning)
+        // A refusal is not a resolution: nothing may be hidden as verified-same, and no row may
+        // disappear from the list on the way out.
+        #expect(manager.verifiedSameDifferenceIds.isEmpty)
+        #expect(manager.differences.count == 2)
     }
 
     /// The window the epoch comparison alone cannot see: an operation that has been PRE-COUNTED
