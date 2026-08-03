@@ -338,4 +338,51 @@ import Foundation
         #expect(answer)
         #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
+
+    /// The capacity wipe is a bulk invalidation and must bump the generation like every other one.
+    ///
+    /// This is the door the per-entry check could not see. `isCloudOnly`'s guard is "the generation
+    /// has not moved AND this entry is still nil", and its soundness argument is that anything
+    /// written while we were out is newer than us. The wipe breaks it from the other side: an
+    /// answer written while we were out — a download's watch recording `false` the moment content
+    /// arrives — can be REMOVED while we are still out, leaving the entry nil again and the counter
+    /// untouched, so the resuming stat wrote its pre-download `true` straight back in. That is
+    /// verbatim the defect the per-entry check exists to close.
+    ///
+    /// Driven on a `Table` of its own because reaching the wipe means filling the table, and
+    /// filling the process-wide memo would drop the entries every suite running in PARALLEL is
+    /// asserting on — mechanism 9 in `docs/flaky-tests.md`. That is the whole reason the seam
+    /// exists; `.serialized` orders this suite against itself only.
+    @MainActor
+    @Test func aStatSpanningTheCapacityWipeIsNotMemoized() async {
+        let table = CloudOnlyBadgeCache.Table(capacity: 2)
+        let path = "/capacity/spanning.bin"
+        table.record("/capacity/a.bin", isCloudOnly: true)      // 1 of 2
+
+        let answer = await table.isCloudOnly(atPath: path, stat: { _ in
+            table.record("/capacity/b.bin", isCloudOnly: true)  // 2 of 2 — now at capacity
+            table.record("/capacity/c.bin", isCloudOnly: false) // trips the wipe, then writes c
+            return true
+        })
+
+        // The caller still gets its answer — it is their best available truth.
+        #expect(answer)
+        // But the wipe threw away everything the memo knew, including whatever was written while
+        // this stat was out, so this answer must not be adopted.
+        #expect(table.cached(path) == nil)
+    }
+
+    /// Mutation guard for the test above: with no wipe in the window, the very same `Table` DOES
+    /// memoize. Without this, that assertion would pass just as well if the seam never memoized at
+    /// all — which is exactly how a test over a fresh instance goes quietly vacuous.
+    @MainActor
+    @Test func aStatOnItsOwnTableWithNoWipeIsMemoized() async {
+        let table = CloudOnlyBadgeCache.Table(capacity: 2)
+        let path = "/capacity/quiet.bin"
+
+        let answer = await table.isCloudOnly(atPath: path, stat: { _ in true })
+
+        #expect(answer)
+        #expect(table.cached(path) == true)
+    }
 }

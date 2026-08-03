@@ -23,12 +23,61 @@ import Sync
 /// and precisely, by `forget(_:)`, because that one the app started and is watching.
 @MainActor
 enum CloudOnlyBadgeCache {
-    private static var known: [String: Bool] = [:]
+    /// The one table every pane shares.
+    ///
+    /// The state lives in a `Table` rather than in statics so a test can exercise the rules on a
+    /// table of its OWN — the same reason `isCloudOnly`'s `stat` is injectable. The capacity wipe
+    /// in particular cannot be tested any other way: proving it invalidates means actually
+    /// tripping it, and tripping it on the shared table drops the entries every suite running in
+    /// PARALLEL is asserting on. Every static below forwards here unchanged, so nothing in the app
+    /// sees a table at all.
+    private static let table = Table()
 
-    /// Bumped by every invalidation (`clear` and `forget`). A stat that was already in flight when
-    /// one happened returns its answer to the caller but does NOT write it to the memo. (A plain
-    /// `record` does not bump — see `isCloudOnly(atPath:stat:)` for why, and for the second, finer
-    /// check that covers what the counter deliberately cannot.)
+    /// The remembered answer for `path`, or nil if it has not been statted since the last republish.
+    static func cached(_ path: String) -> Bool? { table.cached(path) }
+
+    static func record(_ path: String, isCloudOnly: Bool) {
+        table.record(path, isCloudOnly: isCloudOnly)
+    }
+
+    /// Drops one path's answer — used when a download the app requested has landed, so the next
+    /// realization of that row asks the filesystem again instead of serving the pre-download answer.
+    static func forget(_ path: String) { table.forget(path) }
+
+    /// Drops every entry at or under `root` — see `Table.clear(underRoot:)`.
+    static func clear(underRoot root: String) { table.clear(underRoot: root) }
+
+    /// The stat itself, memoized — see `Table.isCloudOnly(atPath:stat:)`.
+    static func isCloudOnly(
+        atPath path: String,
+        stat: @MainActor (String) async -> Bool = { p in
+            await Task.detached { MaterializationStatus.isCloudOnly(atPath: p) }.value
+        }
+    ) async -> Bool {
+        await table.isCloudOnly(atPath: path, stat: stat)
+    }
+}
+
+@MainActor
+extension CloudOnlyBadgeCache {
+
+/// The memo's storage and every rule that operates on it.
+///
+/// A class with an injectable `capacity`, and not private, purely so the rules can be pinned
+/// without writing the process-wide table — see `CloudOnlyBadgeCache.table`. The app makes exactly
+/// one, at the default capacity.
+///
+/// `@MainActor` on the enclosing extension does NOT reach a nested type, so it is stated here: the
+/// table is the memo's mutable state and every caller of it is already on the main actor.
+@MainActor
+final class Table {
+    private var known: [String: Bool] = [:]
+
+    /// Bumped by every invalidation: `clear`, `forget`, and the wholesale wipe `record` performs
+    /// when the table is full. A stat that was already in flight when one happened returns its
+    /// answer to the caller but does NOT write it to the memo. (An ordinary `record` — one that
+    /// does not trip the wipe — does not bump; see `isCloudOnly(atPath:stat:)` for why, and for the
+    /// second, finer check that covers what the counter deliberately cannot.)
     ///
     /// Without this the memo re-adopted answers the invalidation had just thrown away: the stat
     /// runs off the main actor, so a pane republish landing mid-stat cleared the table and the
@@ -39,58 +88,45 @@ enum CloudOnlyBadgeCache {
     ///
     /// This is the same guard `DetailsMetadataCache` carries for the same reason ("last REQUESTED
     /// wins, not last to come back"); this cache simply never grew one.
-    private static var generation = 0
+    private var generation = 0
 
     /// Bound on the memo. Cleared wholesale at the cap rather than evicted one entry at a time:
     /// that is O(1) and costs at most one repeated `lstat` per path afterwards, which is the same
     /// trade `DetailsMetadataCache.warnedPaths` makes. Sized well above any plausible number of
     /// rows scrolled through between two republishes.
-    private static let capacity = 8192
+    private let capacity: Int
+
+    init(capacity: Int = 8192) {
+        self.capacity = capacity
+    }
 
     /// The remembered answer for `path`, or nil if it has not been statted since the last republish.
-    static func cached(_ path: String) -> Bool? { known[path] }
+    func cached(_ path: String) -> Bool? { known[path] }
 
-    static func record(_ path: String, isCloudOnly: Bool) {
-        if known.count >= capacity { known.removeAll(keepingCapacity: true) }
+    /// Writes one answer, dropping the whole table first if it is full.
+    ///
+    /// **The wipe bumps the generation, because it is a bulk invalidation.** It reads as an eviction
+    /// policy, but what it does is throw away every answer the memo holds — including one written a
+    /// moment ago by a download's watch, which is the freshest fact in the table. Without the bump,
+    /// a stat that was out across the whole sequence passed both halves of `isCloudOnly`'s guard —
+    /// the generation had not moved, and the entry the wipe had just taken was nil again — and wrote
+    /// its pre-download answer in. That is verbatim the defect the per-entry check exists to close,
+    /// arriving through a door the counter could not see. An ordinary `record` still does not bump:
+    /// it only ADDS an answer, and see `isCloudOnly` for why bumping there would stop the memo
+    /// memoizing at all.
+    func record(_ path: String, isCloudOnly: Bool) {
+        if known.count >= capacity {
+            known.removeAll(keepingCapacity: true)
+            generation &+= 1
+        }
         known[path] = isCloudOnly
     }
 
     /// Drops one path's answer — used when a download the app requested has landed, so the next
     /// realization of that row asks the filesystem again instead of serving the pre-download answer.
-    static func forget(_ path: String) {
+    func forget(_ path: String) {
         known[path] = nil
         generation &+= 1
-    }
-
-    /// The normalized scope of a `clear(underRoot:)` — which keys it covers, decided once for the
-    /// whole table rather than re-derived per entry.
-    ///
-    /// A value, and not private, so the rule can be pinned without touching the process-wide table:
-    /// the one case that cannot be tested through the table is `/`, because a test that cleared it
-    /// to prove it covers everything would wipe the memo out from under whatever suite is running
-    /// in parallel. Failable IS the guard — see `clear(underRoot:)` for why an unresolvable root
-    /// must scope nothing at all.
-    struct ClearScope: Equatable {
-        /// The root itself, with every trailing separator removed. `/` normalizes to `""`, whose
-        /// separator-suffixed form is `/` — the prefix every absolute key matches.
-        let exact: String
-        /// `exact` plus the separator: the prefix a DESCENDANT must carry. Matching on this rather
-        /// than on `exact` is what keeps `/a/bc` out of a clear under `/a/b`.
-        let descendantPrefix: String
-
-        init?(root: String) {
-            guard root.hasPrefix("/") else { return nil }
-            var exact = root
-            while exact.hasSuffix("/") { exact.removeLast() }
-            self.exact = exact
-            self.descendantPrefix = exact + "/"
-        }
-
-        /// Whether `key` names an entry at or under this root. Case-SENSITIVE — see
-        /// `clear(underRoot:)`.
-        func contains(_ key: String) -> Bool {
-            key == exact || key.hasPrefix(descendantPrefix)
-        }
     }
 
     /// Drops every entry at or under `root`. Called when a pane republishes its tree: the memo is
@@ -132,7 +168,7 @@ enum CloudOnlyBadgeCache {
     /// also stops an in-flight stat under the OTHER root from memoizing is deliberate
     /// over-invalidation — one counter, one rare repeated `lstat`, no per-root bookkeeping to get
     /// wrong (the same trade `forget(_:)` already makes for other paths).
-    static func clear(underRoot root: String) {
+    func clear(underRoot root: String) {
         guard let scope = ClearScope(root: root) else { return }
         known = known.filter { !scope.contains($0.key) }
         generation &+= 1
@@ -143,7 +179,7 @@ enum CloudOnlyBadgeCache {
     ///
     /// `stat` is injectable so the invalidation race has a seam to be tested through — the real one
     /// is a detached `lstat`, and a test cannot otherwise land a `clear()` inside that window.
-    static func isCloudOnly(
+    func isCloudOnly(
         atPath path: String,
         stat: @MainActor (String) async -> Bool = { p in
             await Task.detached { MaterializationStatus.isCloudOnly(atPath: p) }.value
@@ -168,4 +204,39 @@ enum CloudOnlyBadgeCache {
         record(path, isCloudOnly: answer)
         return answer
     }
+}
+
+/// The normalized scope of a `clear(underRoot:)` — which keys it covers, decided once for the
+/// whole table rather than re-derived per entry.
+///
+/// A value, and not private, so the rule can be pinned without touching the process-wide table:
+/// the one case that cannot be tested through the table is `/`, because a test that cleared it to
+/// prove it covers everything would wipe the memo out from under whatever suite is running in
+/// PARALLEL. Failable IS the guard — see `Table.clear(underRoot:)` for why an unresolvable root
+/// must scope nothing at all.
+///
+/// Nested directly on `CloudOnlyBadgeCache` rather than inside `Table`, so it keeps the name it is
+/// already addressed by.
+struct ClearScope: Equatable {
+    /// The root itself, with every trailing separator removed. `/` normalizes to `""`, whose
+    /// separator-suffixed form is `/` — the prefix every absolute key matches.
+    let exact: String
+    /// `exact` plus the separator: the prefix a DESCENDANT must carry. Matching on this rather
+    /// than on `exact` is what keeps `/a/bc` out of a clear under `/a/b`.
+    let descendantPrefix: String
+
+    init?(root: String) {
+        guard root.hasPrefix("/") else { return nil }
+        var exact = root
+        while exact.hasSuffix("/") { exact.removeLast() }
+        self.exact = exact
+        self.descendantPrefix = exact + "/"
+    }
+
+    /// Whether `key` names an entry at or under this root. Case-SENSITIVE — see
+    /// `Table.clear(underRoot:)`.
+    func contains(_ key: String) -> Bool {
+        key == exact || key.hasPrefix(descendantPrefix)
+    }
+}
 }
