@@ -471,7 +471,7 @@ struct GeneralSettingsTab: View {
             SettingsSection {
                 Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
-                        guard loginItemEcho.shouldStartRoundTrip(for: enabled, at: Date()) else {
+                        guard loginItemEcho.shouldStartRoundTrip(for: enabled, at: .now) else {
                             // Echo of a programmatic set, or a gesture the in-flight call will
                             // carry in its `settle`. Logged because the second case is the one
                             // shape of this guard the user can FEEL — the switch moves and
@@ -577,7 +577,7 @@ struct GeneralSettingsTab: View {
         Task {
             let epoch = loginItemEcho.epoch
             let status = await Self.readStatusOffMain()
-            guard loginItemEcho.mayPublishStatus(readAt: epoch, at: Date()) else { return }
+            guard loginItemEcho.mayPublishStatus(readAt: epoch, at: .now) else { return }
             applyLoginItemState(status)
         }
     }
@@ -592,10 +592,13 @@ struct GeneralSettingsTab: View {
     /// Publishes a freshly read service status to the view state. Marking the value applied in
     /// the same main-actor turn as the toggle keeps `onChange` from treating the programmatic
     /// set as a user gesture (initial read, failure revert).
+    ///
+    /// `adoptedStatus` rather than `markApplied`: this write TAKES the toggle, so any round-trip
+    /// whose claim had already expired must stop speaking for it — see `adoptedStatus`.
     private func applyLoginItemState(_ status: SMAppService.Status) {
         launchAtLogin = (status == .enabled || status == .requiresApproval)
         loginItemNeedsApproval = (status == .requiresApproval)
-        loginItemEcho.markApplied(launchAtLogin)
+        loginItemEcho.adoptedStatus(launchAtLogin)
     }
 
     /// Registers/unregisters the login item, reverting the toggle to the real service state on
@@ -603,22 +606,27 @@ struct GeneralSettingsTab: View {
     private func updateLoginItem(_ enabled: Bool) {
         // Synchronously, before the `Task` is even scheduled: two `onChange` turns must not
         // both pass `shouldStartRoundTrip` and start a call apiece.
-        let token = loginItemEcho.beginRoundTrip(at: Date())
+        let token = loginItemEcho.beginRoundTrip(at: .now)
         Task {
             do {
                 let needsApproval = try await Self.applyLoginItemOffMain(enabled)
-                let followUp = loginItemEcho.settle(
-                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: true)
+                // A superseded settle (nil) owns nothing, so it publishes nothing: this hint was
+                // sampled off-main and lands an actor hop later, and whatever superseded the call
+                // — a fresher status read, a later gesture — knows better than it does.
+                guard let followUp = loginItemEcho.settle(
+                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: true) else { return }
                 loginItemNeedsApproval = needsApproval
                 if needsApproval {
                     Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
                 }
                 perform(followUp, status: nil)
             } catch {
+                // Logged before the ownership test: the call really did fail, and that is worth
+                // a line whether or not this round-trip still speaks for the toggle.
                 Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
                 let status = await Self.readStatusOffMain()
-                let followUp = loginItemEcho.settle(
-                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: false)
+                guard let followUp = loginItemEcho.settle(
+                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: false) else { return }
                 perform(followUp, status: status)
             }
         }

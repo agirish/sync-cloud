@@ -20,8 +20,12 @@ import Foundation
 /// version tried and could not do.
 ///
 /// "Live claim" rather than "in flight", because the claim EXPIRES: a round-trip that has not
-/// returned within `roundTripGoesStaleAfter` stops blocking, and its late settle is ignored by
-/// token. Stating it as "at most one in flight" would be a promise this type cannot keep — the
+/// returned within `roundTripGoesStaleAfter` stops blocking, and once anything has SUPERSEDED it
+/// — a later gesture's round-trip, or a status read that published (`adoptedStatus`) — its late
+/// settle is ignored by token. Expiry alone is not supersession, and treating it as though it
+/// were is what `adoptedStatus` exists to close: the two must agree about who owns the toggle, or
+/// the same call owns nothing on the way in and everything on the way out.
+/// Stating it as "at most one in flight" would be a promise this type cannot keep — the
 /// call it is guarding is an XPC round-trip it can neither cancel nor time out, only stop waiting
 /// on. See `roundTripGoesStaleAfter` for what that unbounded version cost.
 ///
@@ -59,7 +63,7 @@ struct LoginItemEchoGuard {
     /// A started round-trip: which one it is, and when it started.
     private struct RoundTrip {
         let token: RoundTripToken
-        let startedAt: Date
+        let startedAt: ContinuousClock.Instant
     }
 
     /// Names one round-trip, so a settle can be matched against the call that is actually in
@@ -89,7 +93,17 @@ struct LoginItemEchoGuard {
     /// await deliberately: the call cannot be cancelled (a blocked synchronous XPC call ignores
     /// cancellation), so there is nothing to abandon — what has to recover is this guard's claim,
     /// which is a pure decision and can therefore be tested without any concurrency plumbing.
-    static let roundTripGoesStaleAfter: TimeInterval = 15
+    ///
+    /// Measured on a **`ContinuousClock`**, not on `Date`. A wall clock is not monotonic: an NTP
+    /// correction, a manual clock change or a VM restore steps it, and either direction reinstates
+    /// a defect this bound was written to remove. A BACKWARDS step makes the elapsed difference
+    /// negative, so the claim reads as live for the length of the step — the guard latched shut
+    /// for minutes or hours, the switch moving and nothing happening. A FORWARD step over the
+    /// window expires a perfectly healthy in-flight call on the spot, opening both the double-fire
+    /// window and the settle-after-a-published-read window (see `adoptedStatus`). Continuous
+    /// rather than suspending is deliberate: time asleep is time the wedged `smd` call has not
+    /// answered, and "stop waiting on it" is exactly what should keep counting.
+    static let roundTripGoesStaleAfter: Duration = .seconds(15)
 
     /// Dates a background status read against the guard's round-trip state. Captured when the
     /// read starts, handed back to `mayPublishStatus(readAt:)` before it publishes.
@@ -106,7 +120,7 @@ struct LoginItemEchoGuard {
     /// flight — in that second case the move is a real gesture, but the in-flight call's `settle`
     /// is what carries it, so starting one here would double up. A call that has gone stale
     /// (see `roundTripGoesStaleAfter`) has lost its claim and no longer blocks.
-    func shouldStartRoundTrip(for value: Bool, at now: Date) -> Bool {
+    func shouldStartRoundTrip(for value: Bool, at now: ContinuousClock.Instant) -> Bool {
         value != lastApplied && !hasLiveRoundTrip(at: now)
     }
 
@@ -117,19 +131,40 @@ struct LoginItemEchoGuard {
     /// and publishing it would walk the toggle backwards. Once the in-flight call has gone stale
     /// it owns nothing, so a read is allowed through: with the call wedged, an activation read is
     /// the only thing left that can put the toggle back in step with the service.
-    func mayPublishStatus(readAt epoch: StatusReadEpoch, at now: Date) -> Bool {
+    func mayPublishStatus(readAt epoch: StatusReadEpoch, at now: ContinuousClock.Instant) -> Bool {
         epoch == self.epoch && !hasLiveRoundTrip(at: now)
     }
 
     /// Whether a round-trip is in flight AND still within its claim window.
-    private func hasLiveRoundTrip(at now: Date) -> Bool {
+    private func hasLiveRoundTrip(at now: ContinuousClock.Instant) -> Bool {
         guard let inFlight else { return false }
-        return now.timeIntervalSince(inFlight.startedAt) < Self.roundTripGoesStaleAfter
+        return inFlight.startedAt.duration(to: now) < Self.roundTripGoesStaleAfter
     }
 
-    /// A programmatic write put the toggle at `value` — mark it so its `onChange` is swallowed.
-    mutating func markApplied(_ value: Bool) {
+    /// A freshly read service status was just PUBLISHED into the toggle — mark it applied so its
+    /// `onChange` is swallowed as the echo it is, and supersede whatever round-trip is on the
+    /// books.
+    ///
+    /// This is the ONLY way to mark a value applied from outside a settle. It replaces a plain
+    /// `markApplied` that moved the marker and nothing else; the two must not both exist, because
+    /// the weaker one is precisely the defect below written as an API.
+    ///
+    /// **Expiry has to be symmetric.** `mayPublishStatus` lets a read through once the claim has
+    /// expired, on the grounds that an expired round-trip owns nothing; `settle` tests ownership
+    /// by token alone, which an expired-but-unsuperseded round-trip still passes. So the same
+    /// call owned nothing on the way in and everything on the way out: after the read moved the
+    /// toggle, its settle compared that toggle against what it had pushed, read the difference as
+    /// a mid-flight flip, and drove the service back — unregistering a registration that had
+    /// SUCCEEDED. Publishing a status is the act that takes the toggle away from it, so that is
+    /// where it must lose the token too, exactly as a later gesture's round-trip supersedes it.
+    ///
+    /// Bumping the counter dates every status read still in the air for the same reason a
+    /// round-trip does: a read that began before this one published carries a status no fresher
+    /// than the one now on the toggle, and publishing it would walk the switch backwards.
+    mutating func adoptedStatus(_ value: Bool) {
         lastApplied = value
+        inFlight = nil
+        roundTripEvents += 1
     }
 
     /// A round-trip is starting. Must be called synchronously with the decision to start one —
@@ -138,7 +173,7 @@ struct LoginItemEchoGuard {
     ///
     /// Returns the token that names it; hand it back to `settle` so a superseded call cannot
     /// clear its successor's claim.
-    mutating func beginRoundTrip(at now: Date) -> RoundTripToken {
+    mutating func beginRoundTrip(at now: ContinuousClock.Instant) -> RoundTripToken {
         roundTripEvents += 1
         let token = RoundTripToken(value: roundTripEvents)
         inFlight = RoundTrip(token: token, startedAt: now)
@@ -151,18 +186,25 @@ struct LoginItemEchoGuard {
     /// **The marker moves to `enabled` first, on BOTH paths.** With it left stale — which is
     /// what the failure path did before this type existed — the next echo reads as a gesture.
     ///
-    /// **A superseded call settles into nothing.** Once a round-trip has gone stale a later
-    /// gesture can start its own, and the wedged one may still return afterwards. Letting that
-    /// late settle run would clear the live call's claim, move the marker to a value nobody is
-    /// pushing any more, and drive the service from a decision made against a toggle position two
-    /// gestures old. It owns nothing, so it does nothing.
+    /// **A superseded call settles into nothing — signalled by `nil`.** Once a round-trip has gone
+    /// stale a later gesture can start its own (or a published status read can take the toggle),
+    /// and the wedged one may still return afterwards. Letting that late settle run would clear
+    /// the live call's claim, move the marker to a value nobody is pushing any more, and drive the
+    /// service from a decision made against a toggle position two gestures old. It owns nothing,
+    /// so it does nothing.
+    ///
+    /// `nil` rather than `.settled`: the two are opposite instructions to the caller that a single
+    /// case cannot tell apart. `.settled` means "your call landed and the UI already shows it", so
+    /// the call site publishes the approval hint the round-trip returned and logs it. A superseded
+    /// call has no standing to publish anything — its hint was sampled off-main before a fresher
+    /// read landed, so writing it clobbers the newer one — and there is no follow-up to name.
     mutating func settle(
         token: RoundTripToken,
         applied enabled: Bool,
         toggle: Bool,
         succeeded: Bool
-    ) -> LoginItemFollowUp {
-        guard inFlight?.token == token else { return .settled }
+    ) -> LoginItemFollowUp? {
+        guard inFlight?.token == token else { return nil }
         inFlight = nil
         roundTripEvents += 1
         lastApplied = enabled
