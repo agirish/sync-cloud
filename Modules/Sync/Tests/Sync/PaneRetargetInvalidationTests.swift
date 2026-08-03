@@ -56,6 +56,7 @@ import Foundation
         manager.duplicateScanRoot = "/root"
         manager.hasFoundDuplicates = true
 
+        let publishedFilterGenerationBefore = manager.lastPublishedFilterGeneration
         manager.invalidateDifferencesForPaneRetarget()
 
         // Synchronously gone: no observer may see the old rows as actionable.
@@ -72,8 +73,21 @@ import Foundation
         #expect(manager.duplicateScanRoot == "/root")
         #expect(manager.hasFoundDuplicates == true)
 
-        // The insurance filter pass over the cleared raws must not resurrect anything.
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // The insurance filter pass over the cleared raws must not resurrect anything. Waiting
+        // for it to PUBLISH is the point: this assertion is an absence, and a fixed sleep in
+        // front of one cannot tell "the pass ran and resurrected nothing" from "the pass has not
+        // run yet" — it would pass either way, and the 100ms it used to sleep was a guess at the
+        // main actor's load, not a bound on the pass (mechanism 2 in docs/flaky-tests.md).
+        //
+        // `lastPublishedFilterGeneration` moves at the moment a pass commits, and nothing else
+        // does here: the pass finds every published property already at the value it computes,
+        // and each assignment is guarded by "assign only what changed", so it writes none of
+        // them. A queue marker cannot substitute either — `applyFilters` suspends on a detached
+        // compute, so a Task enqueued behind it runs during that suspension, well before it
+        // publishes. Started is not landed.
+        await waitUntil("the insurance filter pass publishes") {
+            manager.lastPublishedFilterGeneration > publishedFilterGenerationBefore
+        }
         #expect(manager.differences.isEmpty)
         #expect(manager.duplicateGroups == [group])
     }
