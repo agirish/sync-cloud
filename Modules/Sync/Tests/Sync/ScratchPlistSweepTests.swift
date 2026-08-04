@@ -78,6 +78,27 @@ import Foundation
                 "a suite minutes old may belong to a concurrently running session")
     }
 
+    /// Another project of the owner's leaks test suites into this same directory, and they are
+    /// tracked THERE. A SyncCloud run must not delete them: on 2026-08-03 a manual cleanup did,
+    /// 11 of them, and the sweep as first landed would have kept doing it on every run. Ownership
+    /// is not inferable from the shape — these match the scratch pattern exactly — so this is the
+    /// only thing keeping the sweep inside its own house. Aged past the floor, so age is not what
+    /// is saving them.
+    @Test func anotherProjectsScratchSuitesAreNeverSwept() throws {
+        let foreign = try plant("pdfutils.tests.27F8084A-D4C7-4067-BB25-2B648F8C4153.plist",
+                                ageSeconds: 7200)
+        let alsoForeign = try plant("PDFExportCoordinatorTests-0250379B-9B3A-4D69-97DD-B891BAC60285.plist",
+                                    ageSeconds: 7200)
+        defer { try? FileManager.default.removeItem(atPath: foreign)
+                try? FileManager.default.removeItem(atPath: alsoForeign) }
+
+        scratchDefaultsLedger.sweepStaleScratchPlists()
+
+        #expect(FileManager.default.fileExists(atPath: foreign),
+                "pdfutils' suites belong to a different project and are tracked there")
+        #expect(FileManager.default.fileExists(atPath: alsoForeign))
+    }
+
     /// Shape cases that never reach the filesystem. Prefixes carry test-function names, so they
     /// contain both separators themselves — the UUID must be matched at the END, not anywhere.
     @Test func thePredicateAcceptsOnlyTheScratchShape() {

@@ -156,8 +156,18 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
     /// The uppercase requirement is the safety margin, not a detail: real preference domains that
     /// carry a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), so they
     /// cannot match. Loosen this to case-insensitive and the sweep starts eating real domains.
+    /// Scratch suites belonging to OTHER projects that share this machine's preferences
+    /// directory. `pdfutils` is a separate project of the owner's; its test suites leak into the
+    /// same place and are tracked separately THERE. A SyncCloud test run quietly deleting them
+    /// would be destructive to someone else's investigation of their own leak, and invisible from
+    /// this repo. Ownership is not inferable from the shape — only from the prefix — so this list
+    /// is the only thing keeping the sweep inside its own house, and it must grow whenever another
+    /// project starts sharing the directory.
+    private static let foreignSuitePrefixes = ["pdfutils.", "PDFExportCoordinatorTests"]
+
     static func isScratchSuitePlist(_ name: String) -> Bool {
         guard name.hasSuffix(".plist") else { return false }
+        guard !foreignSuitePrefixes.contains(where: name.hasPrefix) else { return false }
         let stem = name.dropLast(".plist".count)
         // A prefix character, a separator, then the 36-character UUID.
         guard stem.count > 37 else { return false }
