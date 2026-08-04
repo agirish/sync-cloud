@@ -741,23 +741,6 @@ first time that layout is seen.
 
 ---
 
-### Shortcut hints in tooltips
-
-**Now:** there is a real shortcut vocabulary — ⌘Z undo, ⇧ for move, Space for Quick Look, a
-reference in Help — and nothing in the interface teaches it. The transfer buttons already retitle
-live when ⇧ is held (`ModifierTracker.isMoveModifierPressed`), which is the hard half and it ships;
-the rest stays undiscovered.
-
-**Change:** put the shortcut in the tooltip of every control that has one, right-aligned in the
-standard form. Where a control responds to a held modifier, its tooltip says so.
-
-**Impact:** ⇧-for-move silently changes what the largest button on the bar does, and today the only
-way to learn that is to read the Help book.
-
-**Effort:** Small. **Risk:** Low.
-
----
-
 ### One-line pane headers
 
 **Now:** `PaneHeader` (`DashboardViews.swift`) is a `VStack(spacing: 8)` of two rows — provider
@@ -835,7 +818,6 @@ Cited by name; this list has no stable numbering.
 | One sequential ramp for the treemap | Small | Medium |
 | Name the compared pair in the title bar | Small | Medium |
 | Organize's setup card, price on the button | Small | Medium |
-| Shortcut hints in tooltips | Small | Medium |
 | One-line pane headers | Medium | Medium — ~44 pt on every window |
 | A review sheet before a bulk duplicate trash | Medium | Medium |
 
