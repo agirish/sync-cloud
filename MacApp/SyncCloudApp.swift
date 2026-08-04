@@ -489,6 +489,16 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; "
                 + "the Columns layout loop still churns update-constraints passes, it just is not fatal")
         }
+
+        // …and how MANY passes it churns, when someone asks. The line above can only say whether
+        // the crash is armed; it cannot say what the suppressed loop costs, which
+        // `docs/columns-layout-loop.md` records as the open question the mitigation shipped with.
+        //
+        // Off unless armed by hand, so an ordinary session installs no hook at all — see
+        // `DisplayCycleTrace`. Here rather than in `App.init` for the same reason the breadcrumb is:
+        // this fires exactly once, and the trace's own "ARMED" line is worth less each time it
+        // repeats.
+        DisplayCycleTrace.arm()
     }
 
     /// The pure branch outcome of the quit guard, split out from the NSAlert plumbing so the

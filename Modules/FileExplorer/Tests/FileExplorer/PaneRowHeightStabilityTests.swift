@@ -127,6 +127,13 @@ import Sync
         return heights
     }
 
+    /// **This driver cannot see the AppKit display-cycle guard, and that is measured.**
+    /// `layoutIfNeeded()` runs constraint updates with the runaway guards disarmed: a deliberate
+    /// never-settling sibling ping-pong survives 400 rounds of it (469,000 `updateConstraints`
+    /// calls) without raising, while one second of the RUNLOOP raises on the first cycle. So a low
+    /// round count here says the tree stops dirtying itself under a manual pump — worth having, and
+    /// not the same claim as "this window will not blow AppKit's pass budget". The runloop-driven
+    /// counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
     private func roundsToSettle(_ window: NSWindow, cap: Int = 500) -> Int {
         var rounds = 0
         while rounds < cap, dirtyCount(window.contentView!) > 0 {

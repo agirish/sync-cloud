@@ -91,7 +91,90 @@ reasons not yet understood, so a survival/death outcome has almost no power:
 Any future evaluation needs interleaved arms, cold starts, and ideally a **continuous** metric —
 update-constraints passes per display cycle — rather than a binary one.
 
+## The instrument, and why every fixture before it was blind
+
+**`window.layoutIfNeeded()` cannot reach AppKit's runaway guards.** That is the single most useful
+thing measured so far, it explains all three failed investigations at once, and it was never
+checked because it looked like plumbing. Driven against a deliberate never-settling loop — two
+sibling views each re-dirtying the other, with a constraint constant that really moves — one arm per
+process, assert armed:
+
+| driver | on screen | outcome |
+|---|---|---|
+| `layoutIfNeeded()` ×400 | no | **survives** — 469,000 `updateConstraints` calls, no raise |
+| `layoutIfNeeded()` ×400 | yes | **survives** — 471,100 calls, no raise |
+| one second of the runloop | no | **raises** |
+| one second of the runloop | yes | **raises** |
+| one second of the runloop, assert suppressed | either | survives, 853–874 passes |
+
+On-screen-ness makes no difference; the **driver** decides. `layoutIfNeeded` runs the constraint
+pass through `_withAutomaticEngineOptimizationDisabled:` with the guards disarmed, so it churns
+without limit and reports nothing.
+
+Every headless fixture written against this bug drives with `layoutIfNeeded` — the `roundsToSettle`
+helper in `PaneTreeSwapLayoutBudgetTests`, `PaneRowHeightStabilityTests` and
+`ColumnsRepublishLayoutLoopTests`, and the `pump` in `PaneColumnsLayoutLoopTests`, which re-lays out
+by hand on every runloop turn. **Their "settles in 2 rounds" verdicts are therefore not evidence
+about this crash**: they were measuring a path that structurally cannot fail. Each now carries a
+note saying so. What they do still prove — that the tree stops dirtying itself under a manual pump —
+is worth keeping, and is a weaker claim than the one they were being read as making.
+
+**The continuous metric.** `-[NSWindow updateConstraintsIfNeeded]` is called once per
+update-constraints pass, on both drivers, and it is **public API** — no private selector, nothing a
+future macOS renames silently. Counting it per runloop turn is exactly "update-constraints passes
+per display cycle", which is the continuous metric this file has been asking for.
+
+- In tests: `ColumnsDisplayCycleTests.PassCountingWindow`, an `NSWindow` subclass. The fixture
+  pumps the runloop and *only* the runloop.
+- In the app: `DisplayCycleTrace`, which exchanges the same public method and flushes on a
+  `CFRunLoopObserver`. **Off unless armed** — an ordinary session installs no hook at all:
+
+  ```sh
+  defaults write com.abhishekgirish.SyncCloud displayCycleTraceEnabled -bool YES
+  ```
+
+  Armed, it writes `[cycle] "<title>" (<n> views) spent N update-constraints passes in one display
+  cycle` to `~/sync-cloud.log`, and keeps a per-window high-water mark so a session can be read
+  after the fact rather than watched live.
+
+  **A cycle is reported only if it clears two gates**, both calibrated on the measurements below
+  rather than guessed. It must reach **12** passes — a healthy two-pane provider switch spends 7 —
+  *and* an eighth of AppKit's own budget, which is the window's view count. The second gate is
+  there because the first is not sufficient: mounting the same pane costs **14** passes against 136
+  views, which is over any useful absolute floor and entirely healthy. Only a fraction of the real
+  budget separates "a lot of layout" from "heading for the cliff", and it scales with the window
+  instead of needing a new constant per surface.
+
+  This is also what finally answers the open cost question below — the churn is now countable
+  whether or not it ever reaches the crash.
+
+## What the new fixture measures, and what it does not
+
+`ColumnsDisplayCycleTests` mounts the pane on the runloop driver in two shapes. Both are
+**deterministic** — identical numbers across repeated runs and across on-screen/offscreen arms,
+which is itself worth noting given how much variance the crash rate has:
+
+| fixture | views | worst cycle |
+|---|---|---|
+| one pane, Columns, the `resetNavigation()` republish | 136 | **3 passes** |
+| two panes in Columns, both drilled, preview up, real `PaneBarPlacement` and the host's `onBarEdgeFlip`, right pane's provider switched | 348 | **7 passes** |
+
+The second is `ContentView.treeView`'s actual composition — `FileTreeView` in columns mode,
+`.equatable()`, the row-bottoms preference feeding a live placement, the edge-flip callback writing
+host state inside `withAnimation` — and not one of those brought it near the budget.
+
+**So the fixture still does not reproduce it, and now that is a sharper statement than before**:
+it is not that the harness could not have seen a runaway (this one can), it is that this
+composition does not produce one. Whatever the real app does differently is still outside the
+fixture. The next thing to try is the armed trace against the manual repro, which is the only
+trigger anyone trusts.
+
 ## Ruled out, by measurement
+
+**Read this list against the driver finding above.** These were all taken with the
+`layoutIfNeeded` fixtures, so the ones phrased as "the window settles" are weaker than they read;
+the ones that measured a geometry directly (row heights across a width sweep, integral rounding)
+are unaffected, because they never depended on the guard.
 
 Headless probes (`PaneTreeSwapLayoutBudgetTests`, `PaneRowHeightStabilityTests`,
 `ColumnsRepublishLayoutLoopTests`) all settle in 2 rounds against a 130–250-view budget:
@@ -218,6 +301,10 @@ a guess:
   line — what fraction of each second the main thread was busy — is precisely the "brief hitch vs.
   pegged core" discriminator, and it is deliberately not a spike threshold. But it is gated behind
   `PaneScrollTrace.isEnabled`, so a normal session records nothing.
+- **And now a second one, which measures the churn itself rather than its cost.**
+  `DisplayCycleTrace` (above) counts the passes. Arm both for the same session and the two lines
+  answer different halves of the question: how many passes the switch spent, and what that did to
+  the main thread.
 
 To get the number, the manual repro is still the only reliable trigger, so it needs a real session:
 launch with the trace flag on, put both panes in Columns, switch a pane's provider, and read the
@@ -256,6 +343,25 @@ elapsed walk time, not overlapping loads, and not pool starvation.
 
 ## The next lead
 
-The open "first column moves up and down" report (see `PaneColumnJitterProbe`) is plausibly this same
-loop at sub-fatal amplitude. Chasing it would give a signal that is observable without a crash, which
-is exactly what the measurement problem above calls for.
+**Arm `displayCycleTraceEnabled` and do the manual repro.** That is now the shortest path to a real
+number, and it needs no crash: the trace reports the pass count whether the session dies or
+survives, which is precisely what the crash-rate variance made impossible before. A switch that
+spends 300 passes against 400 views names the loop as still live even on a session that happens not
+to die; one that spends 7, like the fixture, says the runaway needs something neither the fixture
+nor that session had.
+
+Two things to record while doing it, because both are cheap and neither is known:
+
+- **Which window.** The trace counts per window, and the suppression is app-global — the Settings
+  sheet and the Activity Log run unguarded too. Nobody has checked whether they churn.
+- **What it costs.** Arm `paneScrollTraceEnabled` in the same session for
+  `MainThreadHitchMonitor`'s duty-cycle line, and the "unmeasured cost" section above closes.
+
+After that, the open "first column moves up and down" report (see `PaneColumnJitterProbe`) is
+plausibly this same loop at sub-fatal amplitude, and the trace is the way to tell: if the jitter
+coincides with cycles above the floor, it is one bug, not two.
+
+**What is now known not to be the difference**, from the fixture table above: it is not the number
+of panes, not the drilled column stack, not the preview column, not the fractional stored preview
+width, not the action bar's placement plumbing, and not the `withAnimation` edge flip. Nor is it
+whether the window is on screen.

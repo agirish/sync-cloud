@@ -139,6 +139,13 @@ import Sync
         return (window, placement)
     }
 
+    /// Pumps the runloop, re-laying out by hand each turn.
+    ///
+    /// **The manual `layoutIfNeeded` here disarms AppKit's runaway guards**, measured: a
+    /// never-settling sibling ping-pong survives 400 rounds of it without raising, while one second
+    /// of the runloop alone raises on the first cycle. These tests pin the action-bar anchor rule,
+    /// which this driver measures fine; they do NOT bound the window's update-constraints budget.
+    /// `ColumnsDisplayCycleTests` does that — see `docs/columns-layout-loop.md`.
     private func pump(_ window: NSWindow, seconds: Double) {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
