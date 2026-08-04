@@ -509,7 +509,58 @@ stuck in layout. Together with `WalkStall` (slow walks armed, zero churn) the di
 **the runaway makes the publish slow; the slow walk never made the runaway.** Cold providers
 correlated because those sessions involved more clicking.
 
-### The tracking-loop asymmetry — the sharpest candidate yet
+### The tracking-loop asymmetry — tried, and FALSIFIED
+
+**Read this before the section below, which is the hypothesis it kills.** The candidate was built,
+installed and clicked. It made the runaway roughly four times worse and reintroduced the dead click
+as a side effect. It is parked on branch `candidate-tap-deferral` (`dba29645`) so the result is
+reproducible rather than folklore; nothing was landed on `main`.
+
+The change was minimal and exactly what the asymmetry argued for: the tap gesture kept committing
+its selection inline (so the `dba5cd3`/`aa9d407` dead-click fix stayed intact) and only
+`onNavigate` — the column-stack restructure — moved to the next runloop turn, behind the same
+`DeferredColumnNavigation.isStillValid` guard the List binding already uses.
+
+| one drill, one click | shipped | with the deferral |
+|---|---|---|
+| worst cycle | 3,615 passes / 560 views | **13,882 passes / 566 views** |
+| that click's own stamp | `press→settled 4676.7 ms` | **`press→settled 20811.7 ms`** |
+| navigations discarded | — | **6** |
+
+**The six discarded navigations are the dead clicks, and the mechanism is not subtle.** They are
+`[columns] dropped a stale deferred tap navigation to …`, a line that exists only in the candidate.
+The deferred block was queued behind a main thread already churning for twenty seconds; by the time
+it ran, `browsePath` had moved on, `isStillValid` answered false, and the drill was thrown away.
+Clicks on `Purchases/US/ATT`, on `Immigration` five times, on `Purchases/US` four times — every one
+discarded, from one burst.
+
+**So the tap gesture drilling synchronously is load-bearing, not the inconsistency it looks like.**
+The two paths differ because their situations differ: when the List binding defers, `NSTableView`
+has *already* committed the selection, so the click has visibly landed and the deferred part is
+only the stack. The tap gesture's navigation IS the click's only effect, so deferring it puts the
+whole click behind whatever the main thread is doing — and the one situation guaranteed to be
+pathological is the very one this bug creates. **Deferring work behind a hang cannot fix the hang;
+it can only feed the hang the work that was supposed to survive it.**
+
+Two honest limits on the numbers. Each arm is a **single** run, and this file already documents how
+far the rate swings, so 13,882-versus-3,615 should be read as "no improvement, plausibly worse"
+rather than as a measured 4× regression. The six dropped navigations are not subject to that
+caveat: they are new code doing a new thing, and they match the reported symptom exactly.
+
+One thing the failed run bought outright: **13,882 passes and a 20.8-second click put the ceiling
+far above the 5,840 recorded above.** Whatever bound anyone assumed this loop had, it is higher.
+
+A possible reason it got *worse*, offered as a hypothesis rather than a finding: with both paths
+deferred, the two navigations — which previously ran separately, one synchronously at mouse-up and
+one on a later turn — now land back-to-back inside the same runloop turn, so the stack is
+restructured twice with no display cycle between. That was not measured and would need its own arm.
+
+**What this does not touch.** The click is still required to reproduce (see above); what is
+falsified is that the *timing* of the restructure relative to the tracking loop is the mechanism.
+Whatever the loop is, issuing the same restructure a turn later does not calm it — so the next
+candidate should be about what the restructure *does*, not when it is issued.
+
+### The tracking-loop asymmetry — the hypothesis, now falsified above
 
 A click reaches the drill through **two** paths in `PaneColumnsView`, and they treat the same call
 differently:
@@ -531,30 +582,35 @@ loop, which is why the fixture drills to 7 passes and `defaults write` switches 
 a real click does, which is why clicking reproduces every time. It also explains the offscreen
 fixture's immunity — a window that is never key gets no mouse tracking at all.
 
-**The candidate fix follows directly**: defer the tap gesture's `onNavigate` by a runloop turn as
-the List path already does, reusing `DeferredColumnNavigation` so a stale drill is still dropped.
-Unverified — it needs a click to evaluate, which is now cheap: drill a column with the trace armed
-and watch whether 3615 falls.
+**The candidate fix followed directly** — defer the tap gesture's `onNavigate` by a runloop turn as
+the List path already does — **and it was wrong.** It was built, installed and clicked; the section
+above this one records what happened (worse churn, and the dead click back). Kept here because the
+reasoning still reads as sound and the next person will otherwise re-derive it: the flaw is not in
+the observation, it is in assuming that deferring work off a loop calms the loop.
 
 ## The next lead
 
-**Arm `displayCycleTraceEnabled` and do the manual repro.** That is now the shortest path to a real
-number, and it needs no crash: the trace reports the pass count whether the session dies or
-survives, which is precisely what the crash-rate variance made impossible before. A switch that
-spends 300 passes against 400 views names the loop as still live even on a session that happens not
-to die; one that spends 7, like the fixture, says the runaway needs something neither the fixture
-nor that session had.
+**That step has been taken** — the trace is armed, the repro is traced, and the sections above
+carry the numbers. What is left is the next *candidate*, and the falsification above narrows it
+usefully: **the loop is not about when the column-stack restructure is issued, so look at what the
+restructure does.** A drill adds a column, which is a whole new `List` / `NSTableView` /
+`NSHostingView` subtree, while the rows of the existing columns are still measuring themselves —
+and the crash's own frame is a row reporting a new ideal height from inside the pass. Whatever a
+newly-inserted column does to its siblings' height measurement is the part nobody has looked at
+yet.
 
-Two things to record while doing it, because both are cheap and neither is known:
+Two cheap things still unrecorded, worth taking on the next armed session:
 
-- **Which window.** The trace counts per window, and the suppression is app-global — the Settings
-  sheet and the Activity Log run unguarded too. Nobody has checked whether they churn.
-- **What it costs.** Arm `paneScrollTraceEnabled` in the same session for
-  `MainThreadHitchMonitor`'s duty-cycle line, and the "unmeasured cost" section above closes.
+- **Which window.** The trace counts per window and the suppression is app-global. The pane and the
+  picker popover are both now known to churn (the popover at 21–31 passes against 53–57 views); the
+  Settings sheet and the Activity Log have never been checked.
+- **The duty cycle.** Arm `paneScrollTraceEnabled` alongside for `MainThreadHitchMonitor`'s line.
+  The cost is no longer unknown — a 4.7 s and a 20.8 s click are on the record — but the duty-cycle
+  trace would say what the main thread was doing across the whole switch rather than at one click.
 
-After that, the open "first column moves up and down" report (see `PaneColumnJitterProbe`) is
-plausibly this same loop at sub-fatal amplitude, and the trace is the way to tell: if the jitter
-coincides with cycles above the floor, it is one bug, not two.
+The open "first column moves up and down" report (see `PaneColumnJitterProbe`) is now very likely
+this same loop at sub-fatal amplitude: same window, same clicks, and a click that takes seconds to
+settle is exactly what a column parking and snapping back looks like from the outside.
 
 **What is now known not to be the difference**, from the fixture table above: it is not the number
 of panes, not the drilled column stack, not the preview column, not the fractional stored preview
