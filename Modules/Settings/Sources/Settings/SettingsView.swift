@@ -1798,6 +1798,7 @@ struct FilingSettingsTab: View {
                         .labelsHidden()
                         .fixedSize()
                     }
+                    .help("Saved suggestions are per model — switching means the next scan asks, and pays for, every file again.")
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
                 Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)

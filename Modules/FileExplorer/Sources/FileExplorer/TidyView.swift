@@ -204,6 +204,8 @@ public struct TidyView: View {
     private let scanTargetFolder: String?
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
+    /// The same scan, but ignoring saved suggestions — see `rescanFilingButton`.
+    private let onFindFilingSuggestionsFresh: () -> Void
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
@@ -245,6 +247,7 @@ public struct TidyView: View {
         scanTargetFolder: String? = nil,
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {},
+        onFindFilingSuggestionsFresh: @escaping () -> Void = {},
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         automationDestinationRoot: String? = nil,
@@ -265,6 +268,7 @@ public struct TidyView: View {
         self.scanTargetFolder = scanTargetFolder
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
+        self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
         self.onNormalizeNames = onNormalizeNames
         self.onPreviewAutomations = onPreviewAutomations
         self.automationDestinationRoot = automationDestinationRoot
@@ -831,11 +835,42 @@ public struct TidyView: View {
         }
     }
 
+    /// Organize's rescan, with the ignore-saved-suggestions variant hung off it.
+    ///
+    /// A split control rather than a second button: rescanning is the common act and asking afresh
+    /// is the exception, so the exception belongs one click deeper — and, on the cloud backend,
+    /// it is the one that spends money, which is not something to put under an identical-looking
+    /// button beside the free one. When the user has navigated away the control becomes the
+    /// prominent "Scan '<folder>'" call to action instead, where a menu would only be in the way:
+    /// there are no saved suggestions for a folder that has not been scanned yet.
+    @ViewBuilder
     private var rescanFilingButton: some View {
-        rescanButton(moved: targetMoved(from: syncManager.filingScanFolder),
-                     movedIcon: FilingGlyph.lens, disabled: syncManager.isSuggestingFiles,
-                     action: onFindFilingSuggestions,
-                     movedHelp: "Suggest homes for “\(scanTargetName)” — the folder now focused above")
+        if targetMoved(from: syncManager.filingScanFolder) {
+            rescanButton(moved: true, movedIcon: FilingGlyph.lens,
+                         disabled: syncManager.isSuggestingFiles,
+                         action: onFindFilingSuggestions,
+                         movedHelp: "Suggest homes for “\(scanTargetName)” — the folder now focused above")
+        } else {
+            Menu {
+                Button {
+                    onFindFilingSuggestionsFresh()
+                } label: {
+                    Label("Ignore saved suggestions", systemImage: "arrow.clockwise.circle")
+                }
+                .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
+            } label: {
+                Label("Rescan", systemImage: "arrow.clockwise")
+            } primaryAction: {
+                onFindFilingSuggestions()
+            }
+            .menuStyle(.button)
+            .chromeButtonStyle(glassLevel)
+            .controlSize(.small)
+            .chromeHover()
+            .fixedSize()
+            .disabled(syncManager.isSuggestingFiles)
+            .help("Scan this folder again, reusing suggestions for files that haven’t changed")
+        }
     }
 
     private var rescanDuplicatesButton: some View {
@@ -876,7 +911,29 @@ public struct TidyView: View {
             if unsure > 0 {
                 StatPill(count: unsure, label: "unsure", color: SemanticColor.caution, systemImage: "questionmark.circle")
             }
+            // A scan-level fact, like Duplicates' `need review` / `skipped` — deliberately NOT
+            // recounted over the filtered rows. It describes what the scan cost, and narrowing the
+            // search does not retroactively change how many files the model was asked about.
+            if let reuse = syncManager.filingLastCacheReuse, reuse.reused > 0 {
+                StatPill(count: reuse.reused, label: "reused", color: .secondary,
+                         systemImage: "clock.arrow.circlepath")
+                    .help(reuseHelp(reuse))
+            }
         }
+    }
+
+    /// Spells out what "reused" bought, in the terms the user cares about — the model wasn't asked,
+    /// so with Claude selected it wasn't billed. Kept out of the pill itself because the number is
+    /// the glanceable part and this is the explanation you go looking for.
+    private func reuseHelp(_ reuse: FileSyncManager.FilingCacheReuse) -> String {
+        let reused = reuse.reused == 1 ? "1 file hadn’t" : "\(reuse.reused) files hadn’t"
+        let classified = reuse.classified == 0
+            ? "Nothing needed a fresh answer."
+            : (reuse.classified == 1 ? "1 file was newly classified."
+                                     : "\(reuse.classified) files were newly classified.")
+        return "\(reused) changed since the last scan, so the suggestion was reused instead of asking the "
+            + "model again — with Claude selected, that part of the scan cost nothing. \(classified) "
+            + "Use Rescan ▸ Ignore saved suggestions to ask afresh."
     }
 
     /// Duplicates' pills. `groups` / `redundant` / `reclaimable` recount over the FILTERED rows, so

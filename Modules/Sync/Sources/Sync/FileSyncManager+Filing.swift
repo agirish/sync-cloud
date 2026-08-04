@@ -204,6 +204,11 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
 
+        // What the classification phase reused, published with the results below rather than as it
+        // happens — same discipline as `filingScanFolder`: a cancelled scan must not relabel the
+        // previous results with its own numbers.
+        var cacheReuse: FilingCacheReuse?
+
         // Phase 3 — intelligent classification. Reasons about the folder taxonomy + document text
         // to pick a home, overriding the keyword guess for the files it's confident about. An
         // explicit remembered rule (F3) still wins, and a backend that declines/errors never makes
@@ -299,6 +304,7 @@ extension FileSyncManager {
                                          existingRelative: existingRelative)
                 }
                 if !cachedVerdicts.isEmpty {
+                    cacheReuse = FilingCacheReuse(reused: cachedVerdicts.count, classified: files.count)
                     Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
                         + "from cache, \(files.count) sent to the backend")
                 }
@@ -312,6 +318,7 @@ extension FileSyncManager {
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
+        filingLastCacheReuse = cacheReuse
         hasSuggestedFiling = true
         let homed = suggestions.filter { $0.hasConfidentHome }.count
         let steered = suggestions.filter { $0.best?.remembered == true }.count
@@ -437,6 +444,18 @@ extension FileSyncManager {
     }
 
     // MARK: Verdict cache
+
+    /// What the last Filing scan's classification phase got for free. `classified` is what was
+    /// actually sent to the backend, so `reused + classified` is the number of files that needed
+    /// an answer — not the number of loose files, which also includes those a rule already steered.
+    public struct FilingCacheReuse: Sendable, Equatable {
+        public let reused: Int
+        public let classified: Int
+        public init(reused: Int, classified: Int) {
+            self.reused = reused
+            self.classified = classified
+        }
+    }
 
     /// Whether Filing may reuse a cached classifier verdict for an unchanged file. Default ON —
     /// the key already carries everything the answer depended on, so reuse is not a tradeoff
@@ -840,6 +859,7 @@ extension FileSyncManager {
         filingScanTask?.cancel()
         publishFilingSuggestions([])
         filingScanFolder = nil
+        filingLastCacheReuse = nil
         hasSuggestedFiling = false
         filingLastProviderRoot = nil
         filingLastTaxonomyFolders = []

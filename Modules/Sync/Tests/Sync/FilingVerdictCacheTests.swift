@@ -221,6 +221,29 @@ private final class CallLog: @unchecked Sendable {
     }
 
     @MainActor
+    @Test func reuseIsPublishedWithTheResultsAndClearedWithThem() async throws {
+        // The figure the "reused" pill reads. It has to be published WITH the suggestions, not as
+        // the scan runs, or a cancelled scan would relabel the previous results with its numbers.
+        let root = try fixture("reuse-published")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("reuse-published")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        let first = manager(cacheAt: url, log: log)
+        await first.findFilingSuggestions(folder: downloads, providerRoot: root)
+        #expect(first.filingLastCacheReuse == nil)      // nothing to reuse on a cold cache
+
+        let second = manager(cacheAt: url, log: log)
+        await second.findFilingSuggestions(folder: downloads, providerRoot: root)
+        #expect(second.filingLastCacheReuse == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
+
+        second.clearFiling()
+        #expect(second.filingLastCacheReuse == nil)     // never outlives the results it describes
+    }
+
+    @MainActor
     @Test func aChangedFileIsReclassified() async throws {
         let root = try fixture("changed")
         defer { try? FileManager.default.removeItem(at: root) }

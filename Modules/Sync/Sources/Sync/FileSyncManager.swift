@@ -374,6 +374,11 @@ public class FileSyncManager: ObservableObject {
     @Published public internal(set) var filingScanLifecycle = ScanLifecycle()
     /// Filing suggestions from the most recent scan of a picked folder.
     @Published public internal(set) var filingSuggestions: [FilingSuggestion] = []
+
+    /// What the last Filing scan reused from the verdict cache, or nil when nothing was reused
+    /// (including when there was no classification phase at all). Published with the results and
+    /// cleared by ``clearFiling()``, so it always describes the suggestions currently on screen.
+    @Published public internal(set) var filingLastCacheReuse: FilingCacheReuse?
     /// Counts WHOLESALE replacements of `filingSuggestions` — the scan's single publish and
     /// `clearFiling()`, and nothing else. It is the currency check a "Try another" round-trip
     /// needs across its await: "is the list my verdict was computed against still the list on

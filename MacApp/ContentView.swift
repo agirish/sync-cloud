@@ -1386,7 +1386,7 @@ struct ContentView: View {
     /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy. Defaults to
     /// the loose-files inbox (Settings ▸ Organize, default "TODO"); if the rail has been navigated into a
     /// subfolder, that focused folder is scanned instead.
-    func findFilingSuggestionsAction() {
+    func findFilingSuggestionsAction(ignoringCache: Bool = false) {
         let focused = tidyScanRootExpanded
         let root = tidyProviderRootExpanded
         guard !focused.isEmpty, !root.isEmpty else { return }
@@ -1402,7 +1402,8 @@ struct ContentView: View {
         let inboxExists = !inbox.isEmpty
             && FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
         let folder = (atRoot && inboxExists) ? inboxPath : focused
-        Logger.shared.info("User requested Filing suggestions for \(folder)")
+        Logger.shared.info("User requested Filing suggestions for \(folder)"
+            + (ignoringCache ? " (ignoring saved suggestions)" : ""))
         selectedWorkspace = .filing
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root),
@@ -1410,7 +1411,8 @@ struct ContentView: View {
                                                // Names come back on this pass — see
                                                // `detectRiskyNames`. The ruleset is the scanned
                                                // provider's, not whichever pane is focused later.
-                                               nameProvider: tidyProviderType)
+                                               nameProvider: tidyProviderType,
+                                               ignoringCache: ignoringCache)
     }
 
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so
@@ -1943,7 +1945,8 @@ struct ContentView: View {
                 providerName: tidyProviderName,
                 scanTargetFolder: tidyScanRootExpanded,
                 onFindDuplicates: findDuplicatesAction,
-                onFindFilingSuggestions: findFilingSuggestionsAction,
+                onFindFilingSuggestions: { findFilingSuggestionsAction() },
+                onFindFilingSuggestionsFresh: { findFilingSuggestionsAction(ignoringCache: true) },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 automationDestinationRoot: tidyProviderRootExpanded,
