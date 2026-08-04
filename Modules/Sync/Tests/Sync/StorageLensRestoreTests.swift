@@ -239,3 +239,58 @@ import Testing
         #expect(!manager.storageLensLifecycle.isRestored)
     }
 }
+
+/// Regressions found in the audit of the caching work.
+@Suite struct StorageLensAuditTests {
+
+    @MainActor
+    @Test func forgettingEverythingClearsAllRootsNotJustOne() async throws {
+        // `forgetStoredStorageLens()` with no argument is the forget-all path, and it is the one
+        // an "erase saved data" affordance would call — so it must not quietly clear a single root.
+        let url = try makeCanonicalTempRoot(prefix: "StorageAuditForgetAll")
+            .appendingPathComponent("storage-lens.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        for r in ["/one", "/two", "/three"] {
+            StorageLensStore.saveInBackground(
+                StorageLensSnapshot(root: r,
+                                    report: StorageLensReport(treemap: [], largest: [], stale: [],
+                                                              reclaimCandidates: [], totalBytes: 1),
+                                    completedAt: at), to: url)
+        }
+        StorageLensStore.waitForPendingWrites()
+        #expect(StorageLensStore.load(from: url).count == 3)
+
+        let manager = FileSyncManager()
+        manager.storageLensStoreURL = url
+        manager.forgetStoredStorageLens()
+        StorageLensStore.waitForPendingWrites()
+
+        #expect(StorageLensStore.load(from: url).isEmpty)
+    }
+
+    @MainActor
+    @Test func aProviderSwitchClearsTheStorageReport() async throws {
+        // `clearLensResultsForProviderSwitch` documents itself as every lens result belonging to
+        // the provider being switched away from — and Storage, the fifth lens, was never added.
+        // The previous account's report stayed on screen with its folder chip naming a root the
+        // window no longer showed, and restoring now hands it a freshness marker vouching for it.
+        let root = try makeCanonicalTempRoot(prefix: "StorageAuditSwitch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("a"),
+                                                withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 40_000).write(to: root.appendingPathComponent("a/big.bin"))
+
+        let manager = FileSyncManager()
+        await manager.buildStorageLens(root: root)
+        #expect(manager.storageLensReport != nil)
+
+        manager.clearLensResultsForProviderSwitch()
+
+        #expect(manager.storageLensReport == nil)
+        #expect(manager.storageLensRoot == nil)
+        #expect(!manager.hasBuiltStorageLens)
+        #expect(manager.storageLensLifecycle.completedAt == nil)
+        #expect(!manager.storageLensLifecycle.isRestored)
+    }
+}

@@ -652,19 +652,18 @@ struct ContentView: View {
         // above don't cover the no-selection case.
         .onChange(of: leftProviderId) { _, _ in infoPath = nil }
         .onChange(of: rightProviderId) { _, _ in infoPath = nil }
-        .onChange(of: selectedWorkspace) { _, workspace in
+        .onChange(of: selectedWorkspace) { _, _ in
             infoPath = nil
-            // Opening Storage with nothing on screen shows the last saved report for this root
-            // rather than an empty panel. `restoreStorageLens` declines if a build is running or
-            // results already exist, so this is safe to fire on every visit to the workspace —
-            // it can only ever replace nothing.
-            if workspace == .storage {
-                let root = tidyScanRootExpanded
-                if !root.isEmpty {
-                    syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
-                }
-            }
+            restoreStorageLensIfShowing()
         }
+        // The workspace is @AppStorage, so quitting on Storage means the next launch STARTS there
+        // and `onChange` never fires — the restore has to be attempted on appearance too, or the
+        // feature silently fails in exactly the case it exists for. The root is also empty until
+        // provider discovery finishes, which is why its own change is a trigger as well.
+        // `restoreStorageLens` declines when a build is running or results already exist, so the
+        // three triggers cannot fight: whichever arrives first wins and the rest are no-ops.
+        .onAppear { restoreStorageLensIfShowing() }
+        .onChange(of: tidyScanRootExpanded) { _, _ in restoreStorageLensIfShowing() }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -1328,6 +1327,15 @@ struct ContentView: View {
 
     /// Switches to the Tidy tab's Storage lens and builds a read-only storage picture of the focused
     /// folder (same target-root helper as Find Duplicates). Walk + analyze only — nothing moves.
+    /// Shows the saved Storage report for the current root, if Storage is what's on screen and
+    /// nothing has been analyzed yet. Safe to call from any trigger — see the call sites.
+    func restoreStorageLensIfShowing() {
+        guard selectedWorkspace == .storage else { return }
+        let root = tidyScanRootExpanded
+        guard !root.isEmpty else { return }
+        syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
+    }
+
     func buildStorageLensAction() {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }

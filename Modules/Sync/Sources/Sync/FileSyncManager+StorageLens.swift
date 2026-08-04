@@ -18,8 +18,10 @@ extension FileSyncManager {
         storageLensTask?.cancel()
     }
 
-    /// Clears the current report (called when switching providers, so a stale report from one
-    /// provider can never be shown under another).
+    /// Clears the current report, so a stale report from one provider is never shown under
+    /// another. Reached from ``clearLensResultsForProviderSwitch()`` — which, until the audit that
+    /// added this line, did not call it: the claim in this comment was simply untrue for as long
+    /// as it had been written.
     ///
     /// Deliberately does NOT delete the stored snapshot: this runs on an ordinary provider switch,
     /// and forgetting the other provider's saved report every time the user looked away would make

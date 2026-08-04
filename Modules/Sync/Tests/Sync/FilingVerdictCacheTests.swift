@@ -405,6 +405,33 @@ private final class CallLog: @unchecked Sendable {
     }
 
     @MainActor
+    @Test func clearingForgetsEverySavedVerdict() async throws {
+        // Settings' Clear button. It throws away work that, on the cloud backend, was paid for —
+        // so it has to actually reach the file, not just the in-memory copy: a clear that a
+        // relaunch undoes is worse than no clear at all.
+        let root = try fixture("clear")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("clear")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        let first = manager(cacheAt: url, log: log)
+        await scan(first, downloads, root: root)
+        #expect(first.filingVerdictCacheCount == 1)
+
+        first.clearFilingVerdictCache()
+        FilingVerdictStore.waitForPendingWrites()
+        #expect(first.filingVerdictCacheCount == 0)
+
+        // A fresh manager reading the file agrees — the clear was persisted, not just forgotten.
+        let second = manager(cacheAt: url, log: log)
+        #expect(second.filingVerdictCacheCount == 0)
+        await scan(second, downloads, root: root)
+        #expect(log.count == 2)                       // and the backend is consulted again
+    }
+
+    @MainActor
     @Test func theSpendPreflightPricesOnlyTheMisses() async throws {
         // The reason the split happens before `cloudSpendAllows` and not after. The preflight is
         // what the user is shown and approves; quoting it for files that are already answered

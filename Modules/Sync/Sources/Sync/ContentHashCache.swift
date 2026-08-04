@@ -178,9 +178,23 @@ public actor ContentHashCache {
     /// observed this session and the file is by definition older. Returns how many entries were
     /// adopted, for the launch breadcrumb.
     @discardableResult
-    public func enablePersistence(at url: URL, now: Date = Date()) -> Int {
-        persistenceURL = url
+    /// `nonisolated` so the DECODE happens off the actor, and only the adoption below runs on it.
+    ///
+    /// This is the same argument ``ContentHashIndexStore/saveInBackground(_:to:)`` makes for the
+    /// write, and it applies harder here: reading is the more expensive direction, because at the
+    /// entry cap it is a JSON decode of a hundred thousand records. Run on the actor it would
+    /// serialize every concurrent `hash(for:)` behind it — and the load is kicked off at launch,
+    /// exactly when a scan is most likely to already be hashing. The adoption itself is a run of
+    /// dictionary inserts and belongs on the actor, which is where it stays.
+    public nonisolated func enablePersistence(at url: URL, now: Date = Date()) async -> Int {
         let records = ContentHashIndexStore.load(from: url)
+        return await adopt(records, from: url, now: now)
+    }
+
+    /// Points the cache at `url` and merges `records` into it. Split out of `enablePersistence`
+    /// only so the decode can happen off the actor; nothing else should call this.
+    private func adopt(_ records: [ContentHashRecord], from url: URL, now: Date) -> Int {
+        persistenceURL = url
         var adoptedKeys: [ContentHashKey] = []
         // Oldest first, so the adopted run is itself a FIFO queue.
         for record in records.sorted(by: { $0.storedAt < $1.storedAt }) {

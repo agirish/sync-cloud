@@ -248,7 +248,7 @@ extension FileSyncManager {
                 var cachedVerdicts: [String: FilingVerdict] = [:]
                 var misses = toClassify
                 if let identity {
-                    let cache = ignoringCache ? nil : loadedFilingVerdictCache()
+                    let cache = ignoringCache ? nil : await loadedFilingVerdictCache()
                     misses = []
                     for f in toClassify {
                         let key = FilingVerdictKey(
@@ -493,7 +493,31 @@ extension FileSyncManager {
 
     /// The cache, read from disk at most once per launch and then held in memory. An unset
     /// ``filingVerdictCacheURL`` yields a permanently empty cache — every lookup misses.
-    func loadedFilingVerdictCache() -> FilingVerdictCache {
+    /// The scan's accessor: decodes OFF the main actor on first use, then serves the memoized copy.
+    ///
+    /// `findFilingSuggestions` runs on the main actor, so decoding here directly would put the file
+    /// on the main thread in the middle of a scan — a hitch the user sees, and at the entry cap a
+    /// large one. The synchronous accessor below still exists for the two rare, small callers.
+    func loadedFilingVerdictCache() async -> FilingVerdictCache {
+        if let cached = filingVerdictCache { return cached }
+        guard let url = filingVerdictCacheURL else {
+            let empty = FilingVerdictCache()
+            filingVerdictCache = empty
+            return empty
+        }
+        let loaded = await Task.detached(priority: .userInitiated) {
+            FilingVerdictStore.load(from: url)
+        }.value
+        filingVerdictCache = loaded
+        return loaded
+    }
+
+    /// The in-memory copy, loading synchronously only if a scan has not already warmed it.
+    ///
+    /// Used by `Clear` and by the Settings count — both rare, both user-initiated, and neither on a
+    /// path where a few milliseconds is observable. The scan uses the async accessor above; if it
+    /// has run this returns the memoized copy and touches no disk at all.
+    func filingVerdictCacheNow() -> FilingVerdictCache {
         if let cached = filingVerdictCache { return cached }
         let loaded = filingVerdictCacheURL.map { FilingVerdictStore.load(from: $0) } ?? FilingVerdictCache()
         filingVerdictCache = loaded
@@ -505,7 +529,7 @@ extension FileSyncManager {
     func recordFilingVerdicts(_ verdicts: [String: FilingVerdict], keys: [String: FilingVerdictKey],
                               providerRoot: String, existingRelative: Set<String>, now: Date = Date()) {
         guard !verdicts.isEmpty, !keys.isEmpty, let url = filingVerdictCacheURL else { return }
-        var cache = loadedFilingVerdictCache()
+        var cache = filingVerdictCacheNow()
         var recorded = 0
         for (path, verdict) in verdicts {
             guard let key = keys[path] else { continue }
@@ -524,7 +548,7 @@ extension FileSyncManager {
     /// this should say so.
     public func clearFilingVerdictCache(under providerRoot: String? = nil) {
         guard let url = filingVerdictCacheURL else { return }
-        var cache = loadedFilingVerdictCache()
+        var cache = filingVerdictCacheNow()
         let before = cache.count
         if let providerRoot {
             cache.removeAll(under: providerRoot)
@@ -537,7 +561,7 @@ extension FileSyncManager {
     }
 
     /// How many verdicts are cached — for the Settings readout.
-    public var filingVerdictCacheCount: Int { loadedFilingVerdictCache().count }
+    public var filingVerdictCacheCount: Int { filingVerdictCacheNow().count }
 
     /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
     public static let readContentsDefaultsKey = "tidyFilingReadContents"

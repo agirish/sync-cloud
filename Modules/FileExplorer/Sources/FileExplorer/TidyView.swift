@@ -1054,12 +1054,12 @@ public struct TidyView: View {
             // the closure it wraps, so wrapping any more of the header than the run whose text
             // actually changes would re-render the whole row every 30 seconds for nothing.
             TimelineView(.periodic(from: completedAt, by: 30)) { context in
-                storageFreshnessPill(ScanFreshness.describe(scanDate: completedAt, now: context.date))
+                freshnessPill(ScanFreshness.describe(scanDate: completedAt, now: context.date))
             }
         }
     }
 
-    private func storageFreshnessPill(_ freshness: ScanFreshness.Result) -> some View {
+    private func freshnessPill(_ freshness: ScanFreshness.Result) -> some View {
         Pill(.standard,
              tint: freshness.isStale ? SemanticColor.warning : .secondary,
              systemImage: "clock.arrow.circlepath",

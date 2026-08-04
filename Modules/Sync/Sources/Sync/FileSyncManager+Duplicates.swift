@@ -234,6 +234,14 @@ extension FileSyncManager {
         clearFiling()
         clearAutomationDryRun()
         clearNameScan()
+        // Storage was the fifth lens and the omission this doc warns about, repeated: until now
+        // `clearStorageLens()` was called from tests and from nowhere else, so switching provider
+        // left the previous account's report on screen — its folder chip naming a root the window
+        // no longer showed. Read-only, so nothing could be misapplied from it, but it is still a
+        // reading attributed to the wrong place, and restoring reports makes it more confident:
+        // the report now also carries a "Scanned 2h ago" marker vouching for numbers from
+        // somewhere else entirely.
+        clearStorageLens()
     }
 
     public func clearDuplicates() {

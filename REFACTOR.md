@@ -367,6 +367,36 @@ site rather than buried in a doc comment.
 
 ---
 
+## 13. Three on-disk caches, three copies of the same store
+
+**Where:** `Modules/Sync/Sources/Sync/FilingVerdictCache.swift` (`FilingVerdictStore`),
+`ContentHashIndexStore.swift`, `StorageLensStore.swift`.
+
+**What interacts:** each is an `enum` with the same five parts — a `currentSchema` constant, a
+`defaultURL(fileManager:)` under `Application Support/SyncCloud`, a `load` that returns empty on
+every failure, a serial `DispatchQueue` with `saveInBackground`, and a `waitForPendingWrites()`
+barrier that exists only so tests are not racing the write. They were written in that order over
+one session, each copying the last.
+
+**Why it is not simply duplication to delete:** the differences are real and deliberate. The
+payloads differ (a keyed dictionary, a flat record array, a per-root array with replace-and-cap
+semantics), the read-modify-write in `StorageLensStore` has to happen *on* its queue while the
+other two hand over a finished value, and the separate queues are a feature rather than an
+oversight — funnelling a small verdict write behind a multi-megabyte index write would make the
+cheap one wait on the expensive one.
+
+**Risk if left:** low, and it is currently three parallel readable files rather than one clever
+one. The cost shows up the next time the shared parts move: the "empty on every failure" rule, the
+schema-mismatch decision, and the barrier are each written out three times, and an audit that
+corrects one has to remember the other two — which is exactly how the actor/main-actor decode bug
+came to exist in two of them at once.
+
+**Shape of a fix:** extract the mechanism, not the policy — a small `BackgroundJSONStore<Payload>`
+owning the queue, the atomic write, the barrier and the failure rule, with each store keeping its
+own schema constant, URL, and merge semantics. Do NOT unify the queues.
+
+---
+
 ## Skipped — long, but not entangled
 
 Recorded so they are not re-flagged by a future review:
