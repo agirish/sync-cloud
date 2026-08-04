@@ -107,9 +107,18 @@ process, assert armed:
 | one second of the runloop | yes | **raises** |
 | one second of the runloop, assert suppressed | either | survives, 853–874 passes |
 
-On-screen-ness makes no difference; the **driver** decides. `layoutIfNeeded` runs the constraint
-pass through `_withAutomaticEngineOptimizationDisabled:` with the guards disarmed, so it churns
-without limit and reports nothing.
+On-screen-ness makes no difference; the **driver** decides. Why AppKit behaves this way is not
+established — the mechanism was never disassembled, only the behaviour measured — so take the table
+as the claim and nothing more.
+
+**One caveat, stated because this file's job is to stop the next person over-reading it.** The
+ping-pong raises from `_NSViewUpdateConstraints` — AppKit's "something dirtied during the pass"
+guard — not from `_postWindowNeedsUpdateConstraints`, the window pass-budget guard the real crash
+hits. Both are runaway guards, both went off only on the display cycle, and both funnel through
+`+[NSApplication _crashOnException:]`; but this experiment shows the manual driver disarms *a*
+guard, not specifically *that* one. What it does establish is enough to disqualify the null results
+below: a fixture driven by `layoutIfNeeded` can churn half a million constraint updates and still
+report success.
 
 Every headless fixture written against this bug drives with `layoutIfNeeded` — the `roundsToSettle`
 helper in `PaneTreeSwapLayoutBudgetTests`, `PaneRowHeightStabilityTests` and
