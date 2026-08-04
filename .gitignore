@@ -40,7 +40,6 @@ playground.xcworkspace
 .build/
 .swiftpm/
 Packages/
-Package.resolved
 
 # XcodeGen Generated IDE Elements
 SyncCloud.xcodeproj/
