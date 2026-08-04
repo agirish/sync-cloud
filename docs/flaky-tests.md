@@ -461,6 +461,29 @@ gates) was a wrong turn — the shared thing was the deadline.
 
 **Fix.** Inject the instant (`at:` / `now:`) so the window is a value, not a race.
 
+#### Seen: `ScanSupersedenceTests.testScanQueuedFromCancelledPredecessorStillPublishes`
+
+Red on CI at `e10bdbf6` (2026-08-04), on `await waitUntil("scan starts") { manager.isScanning }`,
+followed by the two assertions that depend on it. **A rerun of the very same SHA passed**, and the
+commit under it touched only `Modules/FileExplorer` tests and a doc — while CI runs packages
+**sequentially with `Modules/Sync` first**, so that suite had finished before anything of the
+commit's ran. It is the flake, not the change.
+
+The window is `mockFM.enumeratorDelay = 0.15`: scan A must still be walking when the test observes
+`isScanning`. Miss the 150ms and A has already finished, `isScanning` is false, nothing queues, and
+all three assertions fall together — which is what makes it read like a real supersedence
+regression rather than a timing miss.
+
+**Not reproduced locally in 28 runs**: 12 `--filter` idle, 8 `--filter` under eight spinners, 8
+full-package idle, 6 full-package under load (loadavg 10.7). So the CI runner's own
+osx-x64-under-Rosetta environment is part of it, and a local green says little here.
+
+Left alone deliberately rather than half-fixed by widening the delay, which only moves the
+boundary. The real fix is mechanism 5's: make the walk's progress a value the test controls — a
+seam that lets it hold A inside the walk until the assertions have run — instead of racing 150ms of
+wall clock. Worth doing when someone is next in this file; worth knowing about before blaming a
+commit for it.
+
 ### 6. Load-scaled benchmarks
 
 **Symptom.** A timing assertion fails on a busy machine and passes on an idle one.
