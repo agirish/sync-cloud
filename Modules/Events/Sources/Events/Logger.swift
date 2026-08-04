@@ -300,35 +300,47 @@ public class Logger: ObservableObject {
         return URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud.log")
     }
 
+    // The message is an `@autoclosure` on all four, so a line the `minimumLevel` gate is going to
+    // drop costs nothing to not write.
+    //
+    // It used to be a plain `String`, which meant every call site built its message eagerly and
+    // `log` threw it away after the guard. That was tolerable while messages were interpolations of
+    // values already in hand. It stopped being tolerable when the per-load scan instrumentation
+    // started interpolating `countItems(in:)` — a recursive main-actor traversal of the whole tree,
+    // ~5 ms per 40k nodes, twice per load — into two `debug` lines. A user who sets Settings ▸
+    // Advanced ▸ Log level to Info, Warnings or Errors was paying both traversals per pane load for
+    // output that was discarded on the next line.
+    //
+    // Source-compatible: `@autoclosure` is transparent at the call site, so no caller changed. The
+    // one thing it forbids is passing `Logger.shared.debug` as a function value, which nothing does.
+
     /// Records an informational trace event to memory and disk.
     /// - Parameter message: The string description to log.
     @discardableResult
-    public nonisolated func info(_ message: String) -> Task<Void, Never> {
-        return log(level: .info, message: message)
+    public nonisolated func info(_ message: @autoclosure () -> String) -> Task<Void, Never> {
+        return log(level: .info, message: message())
     }
-    
+
     /// Records a diagnostic debug event.
     /// - Parameter message: The string description to log.
     @discardableResult
-    public nonisolated func debug(_ message: String) -> Task<Void, Never> {
-        return log(level: .debug, message: message)
+    public nonisolated func debug(_ message: @autoclosure () -> String) -> Task<Void, Never> {
+        return log(level: .debug, message: message())
     }
-    
+
     /// Records a warning trace event to memory and disk.
     /// - Parameters:
     ///   - message: The string description of the warning.
     @discardableResult
-    public nonisolated func warning(_ message: String, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
-        let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
-        return log(level: .warning, message: locationMsg)
+    public nonisolated func warning(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
+        return log(level: .warning, message: "\(message()) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)")
     }
-    
+
     /// Records an error trace event.
     /// - Parameter message: The string description of the failure.
     @discardableResult
-    public nonisolated func error(_ message: String, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
-        let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
-        return log(level: .error, message: locationMsg)
+    public nonisolated func error(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
+        return log(level: .error, message: "\(message()) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)")
     }
 
     /// FIFO handoff buffer between nonisolated log callers and the MainActor `entries` array.
@@ -341,9 +353,9 @@ public class Logger: ObservableObject {
     /// preserve enqueue order, so lines land in call order. The per-call unstructured task this
     /// replaces carried the entry itself, which let concurrent bursts reorder lines.
     @discardableResult
-    private nonisolated func log(level: LogLevel, message: String) -> Task<Void, Never> {
+    private nonisolated func log(level: LogLevel, message: @autoclosure () -> String) -> Task<Void, Never> {
         guard level.severity >= minimumLevel.severity else { return Task {} }
-        let entry = LogEntry(level: level, message: message)
+        let entry = LogEntry(level: level, message: message())
         // Awaiting the returned task guarantees the entry is visible in `entries`: the queue
         // hands back the one MainActor flush task covering the current burst (see
         // PendingLogEntryQueue — a task per line meant thousands of no-op drains during sync

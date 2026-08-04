@@ -335,7 +335,12 @@ public class FileSyncManager: ObservableObject {
     @Published public internal(set) var nameScanLifecycle = ScanLifecycle()
     /// The risky names (files AND folders) found by the most recent scan, each with its safe
     /// replacement. Empty until a scan runs; rows drop as they're fixed or skipped.
-    @Published public var riskyNames: [RiskyName] = []
+    ///
+    /// `internal(set)` because `reportable(_:)` is not advice: a kept name reaching this list is a
+    /// rename offered for something the user has already said they meant. A publicly settable
+    /// property left that invariant resting on every future caller remembering a comment, which is
+    /// the arrangement `filingSuggestions` was moved off for the same reason.
+    @Published public internal(set) var riskyNames: [RiskyName] = []
     /// True while a Name Normalizer scan (walk + detect) is running.
     public var isScanningNames: Bool {
         get { nameScanLifecycle.isRunning }
