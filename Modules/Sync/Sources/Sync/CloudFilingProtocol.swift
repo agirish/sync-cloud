@@ -71,8 +71,21 @@ public enum CloudFilingProtocol {
         • If you genuinely cannot tell, use the folder "none".
         Always answer with paths relative to the folder list — never absolute paths.
         """
-        // The folder taxonomy is stable per provider — put it in a cached system block so repeated
-        // scans reuse it at cache-read rates instead of re-billing the full list each time.
+        // The folder taxonomy is stable per provider, so it rides in a system block marked for
+        // prompt caching below. The breakpoint goes on the LAST system block deliberately: the
+        // cache prefix renders tools → system → messages, so one marker there covers the tool
+        // schema too. A second breakpoint on `tools` would buy nothing.
+        //
+        // Whether it actually caches depends on the model, and NOT monotonically by generation:
+        // the minimum cacheable prefix is 512 tokens on Opus 5, 1024 on Opus 4.8 / Sonnet 5, and
+        // 4096 on Haiku 4.5 — our `defaultModel`. Measured against a real 250-folder taxonomy
+        // (the `relativeFolderPaths` cap): 808 chars of instructions + 7,363 of folders + 700 of
+        // tool schema ≈ 2,200 tokens. That clears Opus 5 and Sonnet 5 four- and two-fold, and
+        // falls well short of Haiku's floor — so on the DEFAULT model the marker is inert and
+        // `usage` reports zero cache-creation and zero cache-read tokens. That is the API
+        // silently declining to cache a too-short prefix, not a bug here, and it self-corrects
+        // on the larger models. Also worth knowing before optimizing for it: the ephemeral TTL
+        // is 5 minutes, so hand-driven scans minutes apart mostly find a cold cache regardless.
         let folderBlock = "The user's existing folders (relative paths):\n"
             + taxonomyFolders.joined(separator: "\n")
 
