@@ -26,13 +26,13 @@ targets:
         # the next marker — see "Cutting a release" in CLAUDE.md, which is where this is kept
         # honest. Until 2026-08-02 this read "1.0" and had not moved since v0.10, so more than
         # twenty tagged releases all shipped claiming to be 1.0.
-        CFBundleShortVersionString: "3.0"
+        CFBundleShortVersionString: "3.1-dev"
         # Build number: MAJOR * 100 + MINOR of the version above. A single integer, so it orders
         # correctly under both numeric and string comparison (2.10 → 210 sorts after 2.9 → 209,
         # which "2.10" vs "2.9" would not), it increases across both release lines at once, and
         # it is derivable from the marketing version rather than being a second thing to
         # remember. Requires MINOR < 100 to stay monotonic.
-        CFBundleVersion: "300"
+        CFBundleVersion: "301"
         NSHumanReadableCopyright: "Copyright © 2024. All rights reserved."
   SyncCloudTests:
     type: bundle.unit-test
