@@ -7,16 +7,9 @@ User-facing changes, newest first. For the full commit history see the
 
 ## v2.9
 
-A hardening release. A crash that cost real sessions is gone, four ways a write
-could act on a stale answer are closed, and the Appearance tab finally shows you
-what an accent does.
-
-### Stability
-- **Switching a pane's source no longer takes the app down.** With both panes in
-  Columns, changing a pane's provider could hit AppKit's runaway-layout guard and
-  crash outright — losing the session. It no longer does. The layout underneath
-  still churns more passes than it should, which is a separate open problem; what
-  is fixed is that it is no longer fatal.
+A hardening release. Four data-safety holes around Verify All, review, and Tidy
+are closed, cloud-file downloads stop losing track of themselves, and the
+Appearance tab finally shows you what an accent does.
 
 ### Data safety
 - **Verify All's "copy the identical files" offer can no longer act on a stale

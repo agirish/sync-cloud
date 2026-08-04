@@ -5,6 +5,26 @@ user on 2026-07-27 and 2026-08-02, plus five more driven deliberately while inve
 symptom is suppressed; the underlying layout loop is not fixed.** This file is the standing record so
 the next attempt does not re-run the three investigations that came before it.
 
+## Which line has actually crashed
+
+**Every crash report that names a version names the v3 line.** Checked 2026-08-03 against
+`~/Library/Logs/DiagnosticReports` rather than against recollection, because the mitigation commit
+claimed "a 2.8 user with both panes in Columns has the same crash surface" — which was an inference
+from code shape, never a measurement.
+
+Fifteen `SyncCloud-*.ips` reports exist. Thirteen are from 2026-08-02 and **all thirteen report
+`3.0-dev` / build `300`** — main, post-split — and all carry the
+`_postWindowNeedsUpdateConstraints` frame. Of the two older ones, 2026-07-28 is a *different* crash
+(`EXC_BAD_ACCESS`, no display-cycle frame anywhere in it) and 2026-07-27 is this crash but on a
+`1.0` / build `1` binary, i.e. before the version fix and before the v2.x split on 2026-08-01 — so
+it was the then-single line, four days before v2.8 was tagged.
+
+**No display-cycle crash has ever been recorded on a 2.x build.** That does not prove v2.x is
+immune — the same file already explains why survival counts have almost no power, and the split is
+recent — but it does mean the crash surface on v2.x is unmeasured rather than demonstrated. The
+mitigation stays on both lines because it is free and overridable; what it must not do is appear in
+v2.9's release notes as a fix, because nothing a 2.8 user was hitting is being repaired.
+
 ## What AppKit is complaining about
 
 `-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]` raises `NSGenericException` when a
