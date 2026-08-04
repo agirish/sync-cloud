@@ -545,4 +545,93 @@ import Testing
                     "\(tab.rawValue) has no SF Symbol named \(tab.symbolName)")
         }
     }
+
+    // MARK: The widest segmented row
+
+    /// "Text size" is the widest of Appearance's segmented rows — four options where the others
+    /// have two or three — and it has to fit the narrowest column the sheet can offer, or its
+    /// labels truncate to "Sm…/De…/La…/La…" and the two Large sizes stop being tellable apart.
+    ///
+    /// The floored column is the worst case at EVERY text size, which is what makes one
+    /// measurement enough: the sheet only ever grows with the text scale, and it stops shrinking
+    /// at `floorSize` regardless.
+    ///
+    /// Measured from the LAID-OUT picker (`fittingSize`), unconstrained, so the number is what the
+    /// control WANTS rather than what a frame told it to be.
+    @MainActor
+    @Test func theTextSizeRowFitsTheNarrowestColumnTheSheetCanOffer() {
+        // `floorSize` is where the sheet stops shrinking, so this window produces the narrowest
+        // column that can ever exist.
+        let tinyWindow = CGSize(width: SettingsSheetMetrics.floorSize.width
+                                    + SettingsSheetMetrics.hostMargin,
+                                height: SettingsSheetMetrics.floorSize.height
+                                    + SettingsSheetMetrics.hostMargin)
+        let column = SettingsSheetMetrics.contentWidth(textScale: 1, available: tinyWindow)
+        // The premise: this really is the floored column, not the roomy unclamped one.
+        #expect(column < SettingsSheetMetrics.contentWidth(textScale: 1),
+                "the fixture window did not clamp the sheet — this would measure the easy case")
+        let available = column - 2 * SettingsSheetMetrics.pagePaddingH
+
+        let wanted = laidOutTextSizePickerWidth(at: .medium)
+        #expect(wanted > 0, "the picker laid out to nothing — the fixture measured no control")
+        #expect(wanted <= available,
+                """
+                The Text size picker wants \(wanted)pt but the floored content column offers only \
+                \(available)pt — its labels will truncate. Margin: \(available - wanted)pt.
+                """)
+    }
+
+    /// A segmented picker's width does not follow the app's text size — and the fit test above
+    /// leans on that, so it is pinned rather than assumed.
+    ///
+    /// Measured, because the obvious expectation is the opposite one: `NSSegmentedControl` ignores
+    /// the SwiftUI font outright. The row is 260pt at Small and at Larger, and stays 260pt under an
+    /// explicit `.font(.system(size: 24))`. The only lever that moves it is `controlSize`
+    /// (`.large` → 276pt, `.small` → 228pt), which Appearance does not set.
+    ///
+    /// So this is the test that fires if that ever changes — if a future macOS, or a `controlSize`
+    /// added upstream of these rows, starts scaling them, the fit above has to be re-measured at
+    /// Larger rather than at one size.
+    @MainActor
+    @Test func theSegmentedRowsWidthDoesNotFollowTheAppTextSize() {
+        let sizes = Set(FontSize.allCases.map { laidOutTextSizePickerWidth(at: $0) })
+        #expect(sizes.count == 1,
+                """
+                The Text size picker now measures \(sizes.sorted()) across the four text sizes. It \
+                used to be font-invariant, which is why `theTextSizeRowFitsTheNarrowestColumn…` \
+                measures one size — re-measure it at Larger.
+                """)
+        // The fixture CAN see a font change, so the agreement above is a property of the control
+        // rather than of the harness: a plain Text through the same path grows by ~40pt.
+        let plain = { (size: FontSize) -> CGFloat in
+            let host = NSHostingView(rootView: Text("Small Default Large Larger").appFontSize(size))
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.width
+        }
+        #expect(plain(.extraLarge) > plain(.medium) + 5,
+                "the fixture does not scale anything at all — the invariance above proves nothing")
+    }
+
+    /// Appearance's Text size row exactly as it ships — four options, labels hidden, the app
+    /// accent on the selection — laid out at `size` with no width constraint.
+    @MainActor
+    private func laidOutTextSizePickerWidth(at size: FontSize) -> CGFloat {
+        struct TextSizeRow: View {
+            @State private var raw = FontSize.medium.rawValue
+            var body: some View {
+                Picker("Text size", selection: $raw) {
+                    ForEach(FontSize.allCases) { size in
+                        Text(size.displayName).tag(size.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accentedSegments(.blue)
+            }
+        }
+        // `appFontSize(_:)` rather than a bare `\.appFontScale`: see the guard test above.
+        let host = NSHostingView(rootView: TextSizeRow().appFontSize(size))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.width
+    }
 }

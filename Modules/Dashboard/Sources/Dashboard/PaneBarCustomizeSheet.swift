@@ -551,6 +551,7 @@ struct PaneBarCustomizeSheet: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accentedSegments(glassHue)
             .fixedSize()
             .help("A ceiling, not a fixed size — a pane too narrow for it still steps down rather than overflowing")
 
