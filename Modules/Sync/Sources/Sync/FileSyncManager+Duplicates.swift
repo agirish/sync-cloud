@@ -161,6 +161,12 @@ extension FileSyncManager {
         // minFileSize (unknown-hash members ride along in a group real hashes justify), so a
         // unique-size link skipped by a candidates-only stat rode straight into a versions
         // group and was recommended for removal. Stat-only metadata reads, off the main actor.
+        // Persist what this scan hashed before the next cancellation check. Reading and hashing
+        // those bytes was the expensive part of the scan and it has already happened; discarding
+        // the digests because the user cancelled a moment later would mean re-reading the same
+        // gigabytes next time. Cancelling abandons the GROUPING, not the measurements.
+        await cache?.save()
+
         let linkCheckPaths = allFiles.map { $0.id }
         let multiLinkPaths = await Task.detached(priority: .userInitiated) {
             Self.multiLinkPaths(among: linkCheckPaths)

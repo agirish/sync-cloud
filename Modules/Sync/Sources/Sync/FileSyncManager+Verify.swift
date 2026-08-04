@@ -143,6 +143,12 @@ extension FileSyncManager {
             }
         }
 
+        // Keep the digests regardless of what this pass decides to publish below — including on
+        // cancellation, where the partial verdicts are deliberately discarded. The verdicts are
+        // what nobody asked for; the bytes were read either way, and re-reading them is the
+        // expensive thing this cache exists to avoid.
+        await ContentHashCache.shared.save()
+
         let (verifiedIdentical, differed, skipped) = await collector.get()
         if progress.isCancelled || verifiedIdentical.isEmpty {
             // Nothing this pass stands behind, so retract any offer a previous pass left standing.
@@ -338,6 +344,10 @@ extension FileSyncManager {
                 await collector.addIdentical(diff)
             }
         }
+
+        // Same reasoning as the duplicate scan: the reads have happened and are the expensive
+        // part, so keep them whatever this run goes on to publish.
+        await ContentHashCache.shared.save()
 
         let identical = await collector.get().verifiedIdentical
         // Publish only against the scan the candidates came from; a newer scan owns the rows

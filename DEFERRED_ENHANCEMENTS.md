@@ -178,21 +178,34 @@ guardrail (`REFACTOR.md` item 10), which is the piece to settle first. **Effort:
 
 ---
 
-## 9. The content-hash cache is session-scoped
+## 9. ~~The content-hash cache is session-scoped~~ — **DONE**
 
-**Today:** `ContentHashCache` is an in-memory actor keyed by (path, mtime, size), capped at 20k
-entries with FIFO eviction. It makes a *repeat* Verify All within one session near-instant; a
-relaunch re-hashes everything from scratch.
+**Was:** `ContentHashCache` was an in-memory actor keyed by (path, mtime, size). It made a *repeat*
+Verify All within one session near-instant; a relaunch re-hashed everything from scratch.
 
-**Enhancement:** Persist it (a small on-disk index) so Verify and Tidy stay fast across launches —
-the same index `ROADMAP.md`'s "Content-based diff: a strict-match mode and a persisted index" would
-need anyway. (Cited by name: that file's numbering is positional and shifts as items ship.)
+**Landed:** `ContentHashIndexStore` persists the index to
+`~/Library/Application Support/SyncCloud/content-hash-index.json`, and Verify and the duplicate scan
+save into it after hashing. `ROADMAP.md`'s "Content-based diff: a strict-match mode and a persisted
+index" now needs only its strict-match half. (Cited by name: that file's numbering is positional.)
 
-**Why deferred:** The key already handles the invalidation correctly (an edit bumps mtime, so a
-stale entry is bypassed rather than served), so persistence is purely a speed win, and its one
-pathological case — a deliberate mtime reset that preserves size — becomes durable rather than
-session-lived. Worth doing **with** the content-diff feature, not before it. **Effort:** medium.
-**Risk:** low.
+Three things this item asked for, and how each was settled:
+
+- **Schema version** — a file from another schema is discarded, not migrated. Every entry is
+  reconstructible by re-hashing, so a migration would be permanent code to avoid one re-scan.
+- **The mtime-reset pathology** — a deliberate mtime reset that also preserves the byte count is
+  still undetectable, exactly as it was in memory. What persistence changes is how long it can be
+  believed, so entries older than `ContentHashCache.maxEntryAge` (30 days) are dropped on load. That
+  is a blast-radius bound, not a correctness argument.
+- **Enablement** — the location is injected by the app, never defaulted inside `Sync`. `.shared` is
+  the DEFAULT argument of both `findDuplicates` and Verify, so an ambient path would have had every
+  test that touches either one reading and writing the user's real index.
+
+One thing worth knowing if this is revisited: the persisted `mtime` stays a `TimeInterval` rather
+than being quantized, because the reloaded key has to reproduce one built at hashing time from
+`attributesOfItem[.modificationDate]` — rounding would make every entry miss the lookup it exists to
+serve. That is only safe because `Double` round-trips JSON exactly, which was measured (200 000
+realistic sub-millisecond mtimes through `JSONEncoder` and `JSONSerialization`, zero mismatches)
+rather than assumed.
 
 ---
 

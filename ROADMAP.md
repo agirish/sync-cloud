@@ -275,17 +275,18 @@ it composes with the shipped folder sources to give a preset per project.
 
 **Why:** Hashing exists and is wired in three places — `FileContentVerifier`, "Verify All" over
 same-size/different-date pairs, and the `autoVerifySameSizeDuringScan` setting. But it is a
-*confirmation pass over rows the date/size engine already produced*, not a comparison mode, and
-there is no persisted index (`ContentHashCache` is session-scoped — see `DEFERRED_ENHANCEMENTS.md`
-#9).
+*confirmation pass over rows the date/size engine already produced*, not a comparison mode.
 
-**What:** A "strict content match" mode that compares by hash where dates and sizes disagree, plus
-an on-disk index keyed by path + mtime + size so unchanged files are never re-read. Files over 100
-MB and cloud-only placeholders stay skipped (`DEFERRED_ENHANCEMENTS.md` #6).
+**The persisted index half has landed** — `ContentHashIndexStore` keys digests by path + mtime +
+size on disk, so unchanged files are not re-read across launches (the deferred item that asked for
+it is now closed). What remains here is the comparison mode itself.
 
-**Impact:** Fewer false positives, and the index is the prerequisite for item 4.
+**What:** A "strict content match" mode that compares by hash where dates and sizes disagree. Files
+over 100 MB and cloud-only placeholders stay skipped (`DEFERRED_ENHANCEMENTS.md` #6).
 
-**Effort:** Medium–High. **Risk:** Medium.
+**Impact:** Fewer false positives. The index item 4 depends on now exists.
+
+**Effort:** Medium. **Risk:** Medium.
 
 ---
 
@@ -896,4 +897,5 @@ specification in both files. It lives here now (item 10), because it is planned 
 than an accepted limit, and a spec kept in two places drifts in one of them.
 `DEFERRED_ENHANCEMENTS.md` #1 keeps only the record of why it sat there first, and points here. The
 remaining cross-links are one-directional and correct: item 7 → Deferred #6 (hashing's three blind
-spots), item 3 → Deferred #9 (the session-scoped hash cache).
+spots), item 3 → Deferred #9 (the hash cache, now persisted and closed — item 3 links to it for the
+record of how the index was built, not for outstanding work).

@@ -65,7 +65,15 @@ public actor ContentHashCache {
     /// essentially nothing.
     private let maxEntries: Int
 
-    private var entries: [ContentHashKey: String] = [:]
+    /// A digest plus when it was recorded. The timestamp exists only for persistence — it is what
+    /// lets a reloaded entry age out (see ``maxEntryAge``) instead of living forever, and it is
+    /// preserved across a save/load round trip so reloading does not reset an entry's age.
+    struct Entry: Sendable {
+        let hex: String
+        let storedAt: Date
+    }
+
+    private var entries: [ContentHashKey: Entry] = [:]
     /// Insertion order for FIFO eviction. `insertionOrder[evictedPrefix...]` are the live keys,
     /// oldest first; everything before `evictedPrefix` is already gone from `entries` and is
     /// waiting to be compacted away.
@@ -90,8 +98,20 @@ public actor ContentHashCache {
     /// The cached hex digest for `key`, or `nil` if this file (at this mtime and size) has not been
     /// hashed this session.
     public func hash(for key: ContentHashKey) -> String? {
-        entries[key]
+        guard let entry = entries[key] else { lookupMisses += 1; return nil }
+        lookupHits += 1
+        return entry.hex
     }
+
+    /// Lookups served and lookups missed, since this instance was created.
+    ///
+    /// Test instrumentation, in the spirit of ``orderSlotsInUse``: a persisted index is supposed to
+    /// stop a rescan re-reading bytes, and *entry count did not change* cannot show that — an
+    /// entry re-hashed and re-stored under a key it already has leaves the count identical. Only
+    /// counting the lookups distinguishes "every digest came from the file" from "the cache was
+    /// consulted and quietly rebuilt". Nothing outside tests should read these.
+    private(set) var lookupHits = 0
+    private(set) var lookupMisses = 0
 
     /// How many slots `insertionOrder` currently occupies, live plus not-yet-compacted.
     ///
@@ -102,11 +122,12 @@ public actor ContentHashCache {
     var orderSlotsInUse: Int { insertionOrder.count }
 
     /// Records `hex` as the SHA-256 of `key`, evicting the oldest entry if the cap is exceeded.
-    public func store(_ hex: String, for key: ContentHashKey) {
+    public func store(_ hex: String, for key: ContentHashKey, at now: Date = Date()) {
         if entries[key] == nil {
             insertionOrder.append(key)
         }
-        entries[key] = hex
+        entries[key] = Entry(hex: hex, storedAt: now)
+        unsavedInsertions += 1
 
         // A key is appended only when it is ABSENT from `entries`, and it can only become absent by
         // being evicted — which advances `evictedPrefix` past its slot. So a key never appears twice
@@ -125,4 +146,75 @@ public actor ContentHashCache {
             evictedPrefix = 0
         }
     }
+
+    // MARK: - Persistence
+
+    /// How stale a reloaded entry may be before it is dropped on load.
+    ///
+    /// The key — (path, mtime, size) — handles invalidation correctly for every ordinary edit,
+    /// because writing a file moves its mtime. The one case it cannot see is a *deliberate* mtime
+    /// reset that also preserves the byte count, and persistence is what turns that from a
+    /// session-lived confusion into a durable one. Thirty days bounds how long a resurrected entry
+    /// can be believed. It is not a correctness argument — nothing here can distinguish that case —
+    /// it is a blast-radius one, and it is the reason `DEFERRED_ENHANCEMENTS.md` #9 asked for an
+    /// age cap alongside the schema version.
+    public static let maxEntryAge: TimeInterval = 30 * 24 * 60 * 60
+
+    /// Where this cache persists, or nil for a purely in-memory session cache.
+    ///
+    /// **nil is the default and stays the default for `shared`.** `findDuplicates` and Verify both
+    /// take `cache: ContentHashCache? = .shared`, so a great many tests exercise the shared
+    /// instance without asking for it by name; an ambient on-disk location would have every one of
+    /// them reading and writing the user's real index. The app opts in at startup.
+    private var persistenceURL: URL?
+
+    /// Insertions since the last successful save. `save()` is a no-op at zero, so a lens that runs
+    /// entirely off cache hits does not rewrite an unchanged multi-megabyte file.
+    private var unsavedInsertions = 0
+
+    /// Points this cache at `url` and loads whatever is already there.
+    ///
+    /// Loading is additive: entries already in memory win over the file, because they were
+    /// observed this session and the file is by definition older. Returns how many entries were
+    /// adopted, for the launch breadcrumb.
+    @discardableResult
+    public func enablePersistence(at url: URL, now: Date = Date()) -> Int {
+        persistenceURL = url
+        let records = ContentHashIndexStore.load(from: url)
+        var adopted = 0
+        // Oldest first, so `insertionOrder` stays a genuine FIFO queue and eviction keeps dropping
+        // the least recently recorded — the same discipline `store` maintains for live insertions.
+        for record in records.sorted(by: { $0.storedAt < $1.storedAt }) {
+            guard now.timeIntervalSince(record.storedAt) <= Self.maxEntryAge else { continue }
+            let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size)
+            guard entries[key] == nil else { continue }
+            insertionOrder.append(key)
+            entries[key] = Entry(hex: record.hex, storedAt: record.storedAt)
+            adopted += 1
+        }
+        // A file larger than the cap is possible if the cap shrank between launches; trim to it
+        // the same way `store` would have.
+        while entries.count > maxEntries, evictedPrefix < insertionOrder.count {
+            entries[insertionOrder[evictedPrefix]] = nil
+            evictedPrefix += 1
+        }
+        // Adopting from disk is not new information to write back.
+        unsavedInsertions = 0
+        return adopted
+    }
+
+    /// Writes the index if anything new has been hashed since the last save. Off the caller's
+    /// thread and serialized — see ``ContentHashIndexStore/saveInBackground(_:to:)``.
+    public func save() {
+        guard let persistenceURL, unsavedInsertions > 0 else { return }
+        let records = entries.map { key, entry in
+            ContentHashRecord(path: key.path, mtime: key.mtime, size: key.size,
+                              hex: entry.hex, storedAt: entry.storedAt)
+        }
+        unsavedInsertions = 0
+        ContentHashIndexStore.saveInBackground(records, to: persistenceURL)
+    }
+
+    /// Test seam: how many entries are held right now.
+    var count: Int { entries.count }
 }

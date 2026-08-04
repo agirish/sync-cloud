@@ -190,6 +190,21 @@ struct SyncCloudApp: App {
         manager.filingContentExtractor = { path in
             await ContentSignalExtractor.tokens(forFileAt: path)
         }
+        // The content-hash index survives launches, so Verify and Duplicates stop re-reading
+        // gigabytes they already hashed. Enabled here for the same reason as the verdict cache
+        // below: `ContentHashCache.shared` is the DEFAULT argument of `findDuplicates` and Verify,
+        // so a location baked into the library would have every test that touches either one
+        // reading and writing the real index. Loading is detached because decoding a full index is
+        // hundreds of milliseconds of work that nothing on screen is waiting for — a scan started
+        // before it lands simply misses and re-hashes, exactly as it does today.
+        if let indexURL = ContentHashIndexStore.defaultURL() {
+            Task.detached(priority: .utility) {
+                let adopted = await ContentHashCache.shared.enablePersistence(at: indexURL)
+                if adopted > 0 {
+                    Logger.shared.info("Content-hash index: \(adopted) digest(s) reloaded — unchanged files won't be re-hashed")
+                }
+            }
+        }
         // Verdicts are cached per (file identity × backend × prompt version), so a folder whose
         // files have not changed is not re-classified — and, on the paid cloud backend, not
         // re-paid for. The location is injected rather than defaulted inside `Sync`, so nothing
