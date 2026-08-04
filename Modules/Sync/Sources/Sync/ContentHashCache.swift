@@ -181,26 +181,39 @@ public actor ContentHashCache {
     public func enablePersistence(at url: URL, now: Date = Date()) -> Int {
         persistenceURL = url
         let records = ContentHashIndexStore.load(from: url)
-        var adopted = 0
-        // Oldest first, so `insertionOrder` stays a genuine FIFO queue and eviction keeps dropping
-        // the least recently recorded — the same discipline `store` maintains for live insertions.
+        var adoptedKeys: [ContentHashKey] = []
+        // Oldest first, so the adopted run is itself a FIFO queue.
         for record in records.sorted(by: { $0.storedAt < $1.storedAt }) {
             guard now.timeIntervalSince(record.storedAt) <= Self.maxEntryAge else { continue }
             let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size)
             guard entries[key] == nil else { continue }
-            insertionOrder.append(key)
             entries[key] = Entry(hex: record.hex, storedAt: record.storedAt)
-            adopted += 1
+            adoptedKeys.append(key)
         }
-        // A file larger than the cap is possible if the cap shrank between launches; trim to it
-        // the same way `store` would have.
+
+        // Adopted keys go at the FRONT of the queue, not the back. Everything in the file was
+        // written by an earlier run, so it is older than anything hashed in this one — and
+        // eviction drops from the front. Appending instead would make a mid-scan load quietly
+        // reverse the priority, evicting the digests this session just measured in order to keep
+        // ones read off disk. Compact first, because prepending has to start from index 0.
+        if evictedPrefix > 0 {
+            insertionOrder.removeFirst(evictedPrefix)
+            evictedPrefix = 0
+        }
+        insertionOrder = adoptedKeys + insertionOrder
+
+        // The file can exceed the cap if the cap shrank between launches; trim as `store` would.
         while entries.count > maxEntries, evictedPrefix < insertionOrder.count {
             entries[insertionOrder[evictedPrefix]] = nil
             evictedPrefix += 1
         }
-        // Adopting from disk is not new information to write back.
-        unsavedInsertions = 0
-        return adopted
+        // `unsavedInsertions` is deliberately NOT reset here. Adoption never incremented it —
+        // these entries are assigned directly rather than through `store` — so zeroing it would
+        // not be "adopting isn't new information", it would be discarding the dirty flag for
+        // whatever was hashed BEFORE the load landed. The load is detached at launch and can land
+        // mid-scan, so that is a live path: the scan's own `save()` would then find nothing to do
+        // and every digest it had just paid to compute would be dropped.
+        return adoptedKeys.count
     }
 
     /// Writes the index if anything new has been hashed since the last save. Off the caller's

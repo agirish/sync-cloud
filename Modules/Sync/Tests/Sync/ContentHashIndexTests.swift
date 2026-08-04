@@ -194,6 +194,59 @@ import Testing
         #expect(await cache.count <= 2)
     }
 
+    // MARK: A load landing mid-scan
+
+    @Test func aLoadLandingMidScanDoesNotDiscardWhatWasAlreadyHashed() async throws {
+        // The index load is detached at launch, so it can land while a scan is already hashing.
+        // Anything measured before it arrives still has to reach the file — otherwise the scan's
+        // own save finds a clean dirty flag and silently drops work it had just paid for.
+        let url = try indexURL("midscan")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: "/root/from-disk.bin", mtime: 1000, size: 4096,
+                               hex: "disk", storedAt: now)],
+            to: url)
+        ContentHashIndexStore.waitForPendingWrites()
+
+        let cache = ContentHashCache()
+        await cache.store("measured", for: key("/root/mid-scan.bin", mtime: 1000), at: now)  // before the load
+        await cache.enablePersistence(at: url, now: now)                                     // load lands
+        await cache.save()                                                                   // scan ends
+        ContentHashIndexStore.waitForPendingWrites()
+
+        let reader = ContentHashCache()
+        await reader.enablePersistence(at: url, now: now)
+        #expect(await reader.hash(for: key("/root/mid-scan.bin", mtime: 1000)) == "measured")
+        #expect(await reader.hash(for: key("/root/from-disk.bin", mtime: 1000)) == "disk")
+    }
+
+    @Test func adoptedEntriesAreEvictedBeforeOnesHashedThisSession() async throws {
+        // Eviction drops from the front of the queue. Everything in the file was written by an
+        // earlier run, so it is older than anything this session measured — putting adopted keys
+        // at the back would evict fresh measurements to keep stale ones.
+        let url = try indexURL("evict-order")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        ContentHashIndexStore.saveInBackground([
+            ContentHashRecord(path: "/root/old-a.bin", mtime: 1000, size: 4096, hex: "a",
+                              storedAt: now.addingTimeInterval(-7200)),
+            ContentHashRecord(path: "/root/old-b.bin", mtime: 1000, size: 4096, hex: "b",
+                              storedAt: now.addingTimeInterval(-3600)),
+        ], to: url)
+        ContentHashIndexStore.waitForPendingWrites()
+
+        // Cap of 2, one entry already measured this session, two adopted → one must go.
+        let cache = ContentHashCache(maxEntries: 2)
+        await cache.store("session", for: key("/root/session.bin", mtime: 1000), at: now)
+        await cache.enablePersistence(at: url, now: now)
+
+        #expect(await cache.count == 2)
+        // The oldest adopted entry is the one dropped; this session's measurement survives.
+        #expect(await cache.hash(for: key("/root/session.bin", mtime: 1000)) == "session")
+        #expect(await cache.hash(for: key("/root/old-a.bin", mtime: 1000)) == nil)
+    }
+
     // MARK: End to end, through a real duplicate scan
 
     @MainActor

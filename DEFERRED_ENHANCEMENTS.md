@@ -249,3 +249,25 @@ its atomic rename is lost — one line, once, and only during a trim.
 append puts a cross-process syscall on the hot path of every log line to close a rare, single-line
 race in a diagnostic file. Listed here so the trade stays a decision rather than a discovery.
 **Effort:** low. **Value:** low.
+
+---
+
+## 12. A declined classification is re-asked on every scan
+
+**Today:** `FilingVerdictCache` records a verdict per file. When the backend returns *no* verdict
+for a file — it had no confident home — there is nothing to record, so it is sent again on the
+next scan and every scan after it. On the real 150-file scan this was measured against, the
+cloud model placed 131, so roughly 13 % of the batch is re-sent indefinitely.
+
+**Enhancement:** Store a tombstone ("this backend, this prompt version, declined this file") and
+treat it as a hit, so a declined file is skipped until its bytes, the model, or the prompt change.
+
+**Why deferred:** it is not a pure win, which is why it wants a deliberate decision rather than a
+quiet patch. The classifier is not deterministic, so re-asking genuinely gives a declined file
+another chance at a home; caching the decline trades that away for a modest saving. The saving is
+modest because a decline costs input tokens only — the file's name and possibly an excerpt — and
+emits no placement, and output is roughly three quarters of a scan's cost. Files with no confident
+home also still get the heuristic engine's suggestion, so nothing is lost to the user meanwhile.
+
+Worth revisiting if the declined share grows, or alongside any work that makes the classifier's
+answers more deterministic. **Effort:** low. **Value:** low–medium (cost, not correctness).
