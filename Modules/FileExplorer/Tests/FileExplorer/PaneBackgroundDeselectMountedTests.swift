@@ -81,17 +81,16 @@ import Sync
     /// to starve two unrelated mounted suites into failing under the parallel run — they passed
     /// alone and passed on `main`, which is what pointed at the harness rather than the change.
     /// Returns whether the condition was met, so a caller can assert on it instead of assuming.
+    ///
+    /// The loop itself is `LayoutPumpWait.pump`. This suite carried a byte-identical private copy
+    /// of it, which is the same duplication that let one fix leave two bugs — see `pumpFloor` there
+    /// for why a wall-clock deadline alone is not a bound on a congested main actor. The one caller
+    /// that passes no condition is pumping for an ABSENCE; the floor only ever pumps it longer,
+    /// which is the safe direction for that assertion.
     @discardableResult
     private func settle(_ window: NSWindow, timeout: Double = 5,
                         until condition: () -> Bool = { false }) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
-        return condition()
+        await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
     }
 
     private func scrollViews(_ view: NSView) -> [NSScrollView] {

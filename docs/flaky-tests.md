@@ -247,10 +247,51 @@ it keep a one-line `wait` of their own, so none of their ~25 call sites moved. *
 copied helper, grep for its twins before you call it done**; the shape is
 `while Date() < deadline { window.layoutIfNeeded() … }`.
 
-`DifferencesTableIdentityTests.wait(for:timeout:)` is the same *defect* in a different shape — a
-wall-clock budget over a condition driven by main-actor work, but polling no window, so it is not a
-caller of the above. It is untouched and has never been seen to fail; noted here so the next sweep
-does not have to rediscover it.
+**That grep was never actually run, and it was the point.** Corrected 2026-08-03: the claim above
+that the loop "now lives once" was false when it was written, and understated the residual by an
+order of magnitude. Running the recipe this section itself gives —
+
+```sh
+grep -rn -A2 'while Date() < deadline {' Modules --include='*.swift' \
+  | grep -E 'layoutIfNeeded|layoutSubtreeIfNeeded'
+```
+
+— finds **two more byte-identical copies** of the migrated helper, which have now been migrated to
+`LayoutPumpWait.pump`: `CloudDownloadWiringTests.settle` and
+`PaneBackgroundDeselectMountedTests.settle`. That is the same "fixing one left two" failure the
+shared seam exists to prevent, one radius out, and this doc asserting it could not happen is what
+stopped anyone looking. The signature stayed on both, so none of their call sites moved.
+
+**Sort the rest by whether there is a condition to starve — that is what `pumpFloor` fixes.** A
+loop with no condition is a fixed settle, a different (and separately recorded) problem; the floor
+does nothing for it.
+
+*Conditional, wall-clock-bounded, still unfixed.* These are the real residual:
+
+- `ExpandingSearchFieldTests.becomesEditingText` — in **Design**, not FileExplorer. A sweep that
+  greps only `Modules/FileExplorer` will not see it.
+- `HeaderLadderTests.settle(_:atRows:)`, `SectionRowHeightTests`, `FoldAllToggleBindingTests`
+  (inline) and `DifferencesTableIdentityTests.settle(_:atRows:)` poll `layoutSubtreeIfNeeded()` on
+  a host **view**, not a window, and return a *measurement* rather than a Bool. Adopting the floor
+  means a view-based entry point on `LayoutPumpWait`, not a substitution — which is why they are
+  recorded here rather than mechanically migrated.
+- `DifferencesTableIdentityTests.wait(for:timeout:)` — the one this section already named, polling
+  no view at all.
+- `ColumnDrillSourceTests.settle` — **the grep above misses it**, because it writes
+  `while !condition() && Date() < end`. It does fail on expiry via `#require`, so it cannot pass
+  vacuously, but it forwards no `#_sourceLocation`, so every caller's timeout is reported against
+  the helper's own line.
+
+*Unconditional fixed pumps — not this defect.* `pump(_ window:seconds:)` in
+`ColumnClickCostBenchmark`, `ColumnPreviewLayoutTests`, `ColumnPreviewRevealTests`,
+`ColumnTapSelectionTests`, `PaneColumnsLayoutLoopTests`, `PaneColumnsScrollTests`, and in the three
+layout-budget suites. They pump for a fixed interval and check nothing, so there is no condition to
+be starved of turns.
+
+None of the unfixed ones has been seen to fail. They are listed by name, and by category, so the
+next sweep starts from a true inventory instead of rediscovering one — **and note that the grep
+recipe above is necessary but not sufficient**: it is blind to the `while !condition() && …` form
+and to waits outside `Modules`.
 
 **The failure message should name the passes, not just the verdict.** A wait that gave up after 3 of
 them was starved; one that gave up after 1010 was disproved. That is the difference between this
