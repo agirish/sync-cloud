@@ -51,6 +51,24 @@ public struct PaneHeader: View {
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
+
+    // MARK: Search inside this pane's tree
+    //
+    // All four arrive together or not at all. `nil` is a header with no search — which is what every
+    // caller outside the app passes, and what keeps `availableItems` (and therefore the bar, the
+    // ladder and the snapshots) exactly as they were.
+
+    /// The live query for this pane. Host-owned: the results are computed against the pane's tree,
+    /// which only the host can see.
+    public var searchText: Binding<String>?
+    /// Whether the field is showing. Host-owned so ⌘F can open it from the menu bar, which is the
+    /// only entry point that survives focus sitting in a file table (see `SyncCloudApp`).
+    public var searchIsExpanded: Binding<Bool>?
+    /// The “2 of 7” the field carries, or nil while nothing is being searched. A string rather than
+    /// a count pair because the empty-result case is a sentence, not a number.
+    public var searchSummary: String?
+    /// Walks to the next (`false`) or previous (`true`) hit — ↩ and ⇧↩.
+    public var onSearchAdvance: ((Bool) -> Void)?
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint. It does read the level back, though — the nav
     // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
@@ -73,6 +91,9 @@ public struct PaneHeader: View {
     /// Whether this header is showing the customize sheet. Per-header on purpose: the sheet edits
     /// shared state, but only the pane you invoked it from should sprout a sheet.
     @State private var isCustomizing = false
+    /// The modifiers a search submission is read as carrying, or `nil` — the shipped default — to
+    /// ask the keyboard. See `paneSearchSubmitModifiers`.
+    @Environment(\.paneSearchSubmitModifiers) private var pinnedSubmitModifiers
     /// Only the dark appearance drops the provider name's brand tint — see `ChromeInk`.
     @Environment(\.colorScheme) private var colorScheme
     private var glassHue: LiquidGlassHue {
@@ -103,7 +124,11 @@ public struct PaneHeader: View {
         isRefreshing: Bool = false,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
-        onNewFolder: (() -> Void)? = nil
+        onNewFolder: (() -> Void)? = nil,
+        searchText: Binding<String>? = nil,
+        searchIsExpanded: Binding<Bool>? = nil,
+        searchSummary: String? = nil,
+        onSearchAdvance: ((Bool) -> Void)? = nil
     ) {
         self.title = title
         self.provider = provider
@@ -126,6 +151,10 @@ public struct PaneHeader: View {
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.onNewFolder = onNewFolder
+        self.searchText = searchText
+        self.searchIsExpanded = searchIsExpanded
+        self.searchSummary = searchSummary
+        self.onSearchAdvance = onSearchAdvance
     }
 
     public var body: some View {
@@ -187,9 +216,31 @@ public struct PaneHeader: View {
                 // used to manage a letter. The header's rule is that the name is the identity anchor
                 // and the logo yields first, so the row keeps the width it was tuned at — and the
                 // default arrangement stays pixel-identical to the bar it replaces.
-                navCluster
-                    .padding(.leading, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The field takes the bar's track while it is open, and the bar comes back when it
+                // closes.
+                //
+                // **This row, not a new one.** The header is pinned to `LiquidGlass.headerHeight` so
+                // its bottom edge lands on the same 83.5 as Tidy's card, and it holds two rows
+                // inside that: this one (a 34pt provider capsule) and the breadcrumb (~15pt). The
+                // field is ~33pt of text and padding — it fits this row with room and would burst
+                // the breadcrumb's, compressing the whole header off the rung `PaneHeaderHeightTests`
+                // pins. Taking the bar's own track also means the field gets the full width from the
+                // provider capsule to the pane's trailing edge, which is as much room as this
+                // header has to give.
+                //
+                // The breadcrumb below is deliberately left alone: while you are searching, where
+                // you ARE is still worth reading — it is the thing the hit is about to move you
+                // away from.
+                if let searchText, let searchIsExpanded, searchIsExpanded.wrappedValue {
+                    searchField(text: searchText, isExpanded: searchIsExpanded)
+                        .padding(.leading, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity)
+                } else {
+                    navCluster
+                        .padding(.leading, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             // Without this the row is only hit-testable where it has *content* — so right-clicking
             // the bar worked on a pill and nowhere else, and the empty stretch between the provider
@@ -510,6 +561,10 @@ public struct PaneHeader: View {
         if onRefresh != nil { available.append(.scan) }
         if onNewFolder != nil { available.append(.newFolder) }
         if showsPreviewToggle { available.append(.preview) }
+        // A header with no search bindings has no field to reveal, so it offers no magnifier — and
+        // so builds precisely the bar it built before search existed. That is what keeps every
+        // existing header test, snapshot and ladder measurement untouched by this feature.
+        if searchText != nil, searchIsExpanded != nil { available.append(.search) }
         return available
     }
 
@@ -691,6 +746,70 @@ public struct PaneHeader: View {
             if showsPreviewToggle {
                 previewTogglePill(controlSize: controlSize)
             }
+
+        case .search:
+            // A plain nav pill, not Design's `ExpandingSearchToggle`. The toggle is the right
+            // affordance on a lens header, where it is the last item of a row of bare glyphs; here
+            // its neighbours are `paneNavChrome` pills, and a differently-sized magnifier among
+            // them would be the one control that does not line up. The behaviour it carries is one
+            // Bool, restated below; the FIELD — where the real mechanism is (deferred focus on an
+            // animated reveal, Escape, clear) — is `ExpandingSearchField` verbatim.
+            if let searchText, let searchIsExpanded {
+                Button {
+                    withAnimation(ExpandingSearch.animation) {
+                        searchIsExpanded.wrappedValue.toggle()
+                        if !searchIsExpanded.wrappedValue { searchText.wrappedValue = "" }
+                    }
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                }
+                .buttonStyle(navButtonStyle)
+                // Tinted whenever a query is live, so a search narrowing what you are looking at
+                // can never be silently on behind a quiet glyph — the rule
+                // `ExpandingSearchToggle` applies everywhere else.
+                .foregroundStyle(searchText.wrappedValue.isEmpty
+                                 ? AnyShapeStyle(Color.primary.opacity(0.75))
+                                 : AnyShapeStyle(glassHue.accentColor))
+                .help("Find a file or folder in this pane (⌘F)")
+            }
+        }
+    }
+
+    /// The revealed field: Design's shared `ExpandingSearchField`, with Compare's own “N of M” in
+    /// its trailing slot.
+    ///
+    /// Nothing about focus is restated here, deliberately. The field claims focus itself, one Task
+    /// hop after it appears — inline that back into whatever reveals it and the field opens dead, so
+    /// you have to click it before typing. That mechanism is the reason this is the shared field and
+    /// not a `TextField`.
+    ///
+    /// **↩ and ⇧↩ both arrive as `onSubmit`.** A single-line `TextField` submits on Return with or
+    /// without Shift, and its own handling of the key comes first — an `.onKeyPress(.return)` on an
+    /// ancestor of the focused field does not see it. So the direction is read from the modifiers at
+    /// the moment of submission, through the same injectable seam the pane's click guards use and
+    /// for the same reason: `NSEvent.modifierFlags` is the state of the machine's keyboard, which is
+    /// right for a real keystroke and unwinnable for a test. See `paneSearchSubmitModifiers`.
+    @ViewBuilder
+    private func searchField(text: Binding<String>, isExpanded: Binding<Bool>) -> some View {
+        ExpandingSearchField(
+            text: text,
+            isExpanded: isExpanded,
+            placeholder: "Find in this pane — ↩ next, ⇧↩ previous",
+            trailing: {
+                if let searchSummary {
+                    Text(searchSummary)
+                        .scaledFont(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+        )
+        .onSubmit {
+            let modifiers = pinnedSubmitModifiers ?? NSEvent.modifierFlags
+            onSearchAdvance?(modifiers.contains(.shift))
         }
     }
 
@@ -803,6 +922,21 @@ public struct PaneHeader: View {
             if showsPreviewToggle {
                 Toggle(isOn: $previewEnabled) {
                     Label("Show Preview", systemImage: previewSymbol)
+                }
+            }
+        case .search:
+            // The one entry that matters most in here: a stored arrangement predates this case, so
+            // for anyone who has ever customized their bar this menu is where the magnifier lives
+            // until they drag it out. It also names the shortcut, which is the affordance's real
+            // front door — ⌘F works whether or not the pill is on the bar.
+            if let searchIsExpanded {
+                Button {
+                    // Opens it and nothing else: the field claims focus itself, one Task hop after
+                    // it appears, and a `FocusState` write made here would land in the transaction
+                    // that inserts the field and be dropped.
+                    withAnimation(ExpandingSearch.animation) { searchIsExpanded.wrappedValue = true }
+                } label: {
+                    Label("Find in This Pane…", systemImage: "magnifyingglass")
                 }
             }
         case .space, .flexibleSpace:
@@ -990,3 +1124,35 @@ extension View {
     }
 }
 
+
+// MARK: - Search submit modifiers
+
+private struct PaneSearchSubmitModifiersKey: EnvironmentKey {
+    /// `nil` is "ask the keyboard", which is what the search field's submit handler does
+    /// unconditionally in the app. Nothing that does not deliberately pin a value changes at all.
+    static let defaultValue: NSEvent.ModifierFlags? = nil
+}
+
+extension EnvironmentValues {
+    /// The modifiers `PaneHeader`'s search field reads when its query is submitted, or `nil` to read
+    /// the live keyboard.
+    ///
+    /// ↩ walks to the next hit and ⇧↩ to the previous, and BOTH arrive as `onSubmit`: a single-line
+    /// `TextField` submits on Return whether or not Shift is held, and it consumes the key before an
+    /// ancestor's `.onKeyPress(.return)` can see it. So the direction has to come from the modifier
+    /// state at the moment of submission.
+    ///
+    /// `NSEvent.modifierFlags` is the right answer for a real keystroke — the submit runs inside
+    /// AppKit's own key handling, so the flags are the ones the user is holding — and an unwinnable
+    /// one for a test, which submits with no event and then reads whatever key the person at the Mac
+    /// happens to be leaning on. That is not a hypothetical: `paneClickModifiers` exists because a
+    /// full-suite run held that window open for minutes and a stray ⇧ turned a passing test into the
+    /// exact signature of the defect it was written to catch.
+    ///
+    /// Pinning `[]` makes "this is a plain Return" part of the test rather than of the room; pinning
+    /// `.shift` is how the reverse walk is asserted at all.
+    public var paneSearchSubmitModifiers: NSEvent.ModifierFlags? {
+        get { self[PaneSearchSubmitModifiersKey.self] }
+        set { self[PaneSearchSubmitModifiersKey.self] = newValue }
+    }
+}

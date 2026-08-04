@@ -423,24 +423,7 @@ today swaps it wholesale, discarding destination-only children (recoverably, and
 
 ---
 
-## 11. Search inside the pane trees
-
-**Why:** Every *list* has search — the Differences table (`DifferenceSearch` with token chips),
-Duplicates (`DuplicateSearch`), the Activity Log (`LogSearch`), the Settings header — all through
-one `ExpandingSearchField`. The two pane **trees** still have none, and they are the hardest and
-most useful half.
-
-**What:** Search the trees by name, expanding the path to reveal each hit and showing which side(s)
-it is on. Harder than the lists because a hit must expand its ancestors and the panes are
-`NSTableView`-backed.
-
-**Impact:** Much faster navigation in large trees.
-
-**Effort:** Low–Medium. **Risk:** Low.
-
----
-
-## 12. In-app diff viewer for text files
+## 11. In-app diff viewer for text files
 
 **Why:** Files can be opened in external apps but their contents cannot be compared inside
 SyncCloud.
@@ -455,7 +438,7 @@ existing Quick Look where useful.
 
 ---
 
-## 13. Menu bar / status item
+## 12. Menu bar / status item
 
 **Why:** Everything requires opening the main window, and there is no at-a-glance status.
 
@@ -470,7 +453,7 @@ without opening anything.
 
 ---
 
-## 14. Path-anchored and include-only rules
+## 13. Path-anchored and include-only rules
 
 **Why:** `IgnoreRules` + the `ignorePatterns` setting give case-insensitive `*` / `?` globs that
 match **any path component**, so `node_modules` hides it at any depth; patterns are NFC-normalized
@@ -486,7 +469,7 @@ on both sides so accented names match. Per-item ignores are a separate durable l
 
 ---
 
-## 15. ⌘K command palette
+## 14. ⌘K command palette
 
 **Why:** The flat workspace bar made every workspace one click deep, and then folding Rename into a
 conditional chip took one destination *off* the bar entirely. That is the right trade for a rare
@@ -520,7 +503,7 @@ local monitor.
 
 ---
 
-## 16. A rules view inside Organize
+## 15. A rules view inside Organize
 
 **Why:** Filing rules act on filing, and the one that matters most is *learned* from a filing move
 just made. Clicking a file a rule placed and asking "which rule did that?" currently costs a
@@ -545,7 +528,7 @@ you were working.
 
 ---
 
-## 17. "Find duplicates of this" on the row
+## 16. "Find duplicates of this" on the row
 
 **Why:** The row-badge-plus-context-menu pattern shipped for risky names (`d569e487`) and works: the
 badge rides the file wherever it is listed, and *Fix name…* handles the single case without a
@@ -570,7 +553,7 @@ the thing needing most deliberation where it is hardest to see). Only the badge 
 
 ---
 
-## 18. A Home workspace — the one-screen answer
+## 17. A Home workspace — the one-screen answer
 
 **Why:** Every workspace is somewhere you go with a task already in mind. There is nowhere to land
 *without* one, and after item 1c there will be state worth checking that no existing surface owns:
@@ -831,14 +814,13 @@ the question hundreds of keeper picks actually raise.
 | 8 | Export / import configuration | Low | Medium |
 | 9 | Auto-running automations | Medium | Medium–High |
 | 10 | Folder Merge on collision | Medium | Medium |
-| 11 | Search inside the pane trees | Low–Medium | Medium |
-| 12 | In-app diff viewer | Medium | Medium |
-| 13 | Menu bar status item | Low–Medium | Medium |
-| 14 | Path-anchored / include-only rules | Low–Medium | Medium |
-| 15 | ⌘K command palette | Low–Medium | Medium–High |
-| 16 | Rules view inside Organize | Low–Medium | Medium |
-| 17 | "Find duplicates of this" on the row | Low | Medium |
-| 18 | Home workspace | Medium | Medium (after 1c) |
+| 11 | In-app diff viewer | Medium | Medium |
+| 12 | Menu bar status item | Low–Medium | Medium |
+| 13 | Path-anchored / include-only rules | Low–Medium | Medium |
+| 14 | ⌘K command palette | Low–Medium | Medium–High |
+| 15 | Rules view inside Organize | Low–Medium | Medium |
+| 16 | "Find duplicates of this" on the row | Low | Medium |
+| 17 | Home workspace | Medium | Medium (after 1c) |
 
 ### Interface
 
@@ -862,14 +844,16 @@ Cited by name; this list has no stable numbering.
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
 
-**The cheapest three, all independent of item 1:** **17** (one context-menu item on a pattern that
-already ships), **16** (moves an existing list into a slot that already exists), and **15**, which
-is the one that pays back the flat bar's only regression — folding Rename off the bar left a
-destination with nothing to aim at.
+**The cheapest three, all independent of item 1:** **16** ("Find duplicates of this", one
+context-menu item on a pattern that already ships), **15** (the rules view, which moves an existing
+list into a slot that already exists), and **14** (the ⌘K palette), which is the one that pays
+back the flat bar's only regression — folding Rename off the bar left a destination with nothing
+to aim at.
 
-**Watch the bar.** Items 1b and 18 each add a segment. Five labelled segments already overflow the
-600pt floor, and `WorkspaceBarMetrics` sheds all labels at once when they do; at seven the bar is
-icon-only at most real window sizes. If both ship, re-measure before assuming the labels survive.
+**Watch the bar.** Items 1b and 17 (Home) each add a segment. Five labelled segments already
+overflow the 600pt floor, and `WorkspaceBarMetrics` sheds all labels at once when they do; at
+seven the bar is icon-only at most real window sizes. If both ship, re-measure before assuming the
+labels survive.
 
 ---
 

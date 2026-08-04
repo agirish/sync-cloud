@@ -128,6 +128,18 @@ public struct FileTreeView: View, Equatable {
     /// the pane exactly as it behaves today.
     public let onBackgroundDeselect: ((Int?) -> Void)?
 
+    /// This pane's search results — what matched, what has matches beneath it, and which side each
+    /// hit is on. `.empty` (the default) is a pane with no query, which renders exactly as it did
+    /// before search existed.
+    ///
+    /// Stamped, not walked: a broad query fills three maps with thousands of entries and this is
+    /// compared by `==` on every render. See `PaneSearchResults`.
+    public let search: PaneSearchResults
+    /// Which hit ↩/⇧↩ have walked to. Revealing it is this view's job — expanding its ancestors and
+    /// scrolling to it in Tree, opening the columns down to it in Columns — and it happens on
+    /// ARRIVAL, per hit, never for every hit of the query at once.
+    public let searchHitIndex: Int
+
     /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
     /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
     /// draw for free: `PaneListSelectionStyler` turns the system highlight off (to get the accent
@@ -158,6 +170,15 @@ public struct FileTreeView: View, Equatable {
     /// row's badge task (see `FileRowView.BadgeID`), which re-reads the memo — one dictionary hit,
     /// no second syscall.
     @StateObject private var downloads = PaneDownloadWatch()
+
+    /// The folders whose children are showing, in the Tree presentation. Pane state, not model
+    /// state: it survives a republish (identity is the node path) and is reset by nothing, exactly
+    /// as `OutlineGroup`'s private equivalent behaved.
+    ///
+    /// It is here rather than inside `PaneOutlineRows` because the SEARCH writes it — revealing a
+    /// hit is `expanded.formUnion(hit.ancestorPaths)` and nothing else. That is the whole reason the
+    /// outline stopped being an `OutlineGroup`; see `PaneOutlineRows`.
+    @State private var expanded: Set<String> = []
 
     /// The channel `.cloudDownloadRequested` travels on for THIS pane — `.default` in the app, and
     /// a private `NotificationCenter` in a test that mounts a pane.
@@ -197,7 +218,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -221,6 +242,11 @@ public struct FileTreeView: View, Equatable {
         self.isSingleSource = isSingleSource
         self.placement = placement
         self.onBarEdgeFlip = onBarEdgeFlip
+        // Defaulted to this pane's own empty results rather than to a shared constant, so the side
+        // is right even for a caller that never searches — `PaneSearchResults.==` reads the side
+        // first, and a right pane holding a `.left` empty would compare unequal to itself forever.
+        self.search = search ?? .empty(side: tree.side)
+        self.searchHitIndex = searchHitIndex
         self.isActivePane = isActivePane
         self.viewMode = viewMode
         self.childrenIndex = childrenIndex
@@ -258,6 +284,8 @@ public struct FileTreeView: View, Equatable {
             && lhs.hasOnlyHiddenEntries == rhs.hasOnlyHiddenEntries
             && lhs.rootPath == rhs.rootPath
             && lhs.isSingleSource == rhs.isSingleSource
+            && lhs.search == rhs.search
+            && lhs.searchHitIndex == rhs.searchHitIndex
             && lhs.isActivePane == rhs.isActivePane
             && lhs.viewMode == rhs.viewMode
             && lhs.childrenIndex == rhs.childrenIndex
@@ -302,7 +330,80 @@ public struct FileTreeView: View, Equatable {
         guard placement.reresolveAtTop() != wasAtTop else { return }
         DispatchQueue.main.async { onBarEdgeFlip() }
     }
-    
+
+    // MARK: - Revealing a search hit
+
+    /// How long after a reveal the second scroll attempt is made.
+    ///
+    /// The same number, and the same reason, as `PaneColumnsView.revealRetryDelay`: a `scrollTo`
+    /// issued before the layout it is resolving against has settled is not merely early, it is
+    /// SILENTLY DROPPED and never retried. Here the unsettled thing is the expansion this reveal
+    /// just wrote — the hit's row does not exist in the list until its ancestors have opened, and a
+    /// scroll to a row that is not there yet scrolls nowhere. A second attempt costs nothing when
+    /// the first one worked, because a `scrollTo` onto a row already in view moves zero points.
+    ///
+    /// Which is also why NEITHER attempt may be treated as proof: a test must observe the row's
+    /// ARRIVAL, never the call returning. See `PaneSearchRevealTests`.
+    static let searchRevealRetryDelay: TimeInterval = 0.25
+
+    /// The animation the reveal scrolls with — see `paneColumnRevealAnimation`, which governs both
+    /// presentations' reveals for the same reason (an offscreen, never-key window on a machine that
+    /// throttles CoreAnimation never advances the ease, so the scroll never lands).
+    @Environment(\.paneColumnRevealAnimation) private var revealAnimation
+
+    /// Reveals the current hit in the Tree presentation: open its ancestors, select it, bring it
+    /// into view.
+    ///
+    /// **Per hit, on arrival.** Only this hit's ancestors are opened, and only when the walk reaches
+    /// it — expanding every ancestor of every hit as the query is typed would detonate a large tree
+    /// for a question that is still being asked. Folders opened by an earlier hit stay open, exactly
+    /// as they would had the user clicked their way down.
+    ///
+    /// The selection write goes through the pane's own binding, which is the host's
+    /// `applySelectionWrite` — so the one-pane-selected invariant is enforced by the same code a
+    /// click goes through, and the sibling pane's clear is deferred rather than written synchronously
+    /// from here.
+    private func revealInTree(_ proxy: ScrollViewProxy) {
+        guard let hit = search.hit(at: searchHitIndex) else { return }
+        expanded = PaneTreeSearch.expansion(expanded, revealing: hit)
+        if selection != [hit.path] { selection = [hit.path] }
+        let animation = revealAnimation
+        func attempt() {
+            withAnimation(animation) { proxy.scrollTo(hit.path, anchor: .center) }
+        }
+        // Both hops are deferred: this runs while SwiftUI is still applying the update that opened
+        // the ancestors, so the list the scroll resolves against is the one WITHOUT the hit's row
+        // in it.
+        DispatchQueue.main.async { attempt() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.searchRevealRetryDelay) { attempt() }
+    }
+
+    /// Reveals the current hit in the Columns presentation: open the column stack down to the hit's
+    /// parent, then select the hit in it.
+    ///
+    /// **Through `onColumnNavigate`, not the binding.** Drilling is a two-pane decision — the seam
+    /// link mirrors it into the other pane — and only the host can see the other side. Writing
+    /// `browsePath` straight would move this pane and silently break the link for every move search
+    /// makes. The fallback matches `presentation`'s: a caller with no sibling pane writes its own
+    /// binding.
+    ///
+    /// Drilling re-roots nothing and rescans nothing (see `PaneBrowsePath`), so every difference
+    /// badge stays valid across a search walk — the same property a click already relies on.
+    private func revealInColumns() {
+        guard let hit = search.hit(at: searchHitIndex) else { return }
+        let target = hit.browsePath
+        if browsePath != target { (onColumnNavigate ?? { browsePath = $0 })(target) }
+        if selection != [hit.path] { selection = [hit.path] }
+    }
+
+    /// One row's search decoration, in the Tree presentation. `isExpanded` is the outline's own
+    /// answer, so a folder's “N matches” disappears the moment the reveal opens it.
+    private func searchContext(for row: PaneRow) -> PaneSearchRowContext {
+        guard search.isActive else { return .none }
+        return PaneSearchRowContext(results: search, path: row.node.id,
+                                    isExpanded: expanded.contains(row.node.id))
+    }
+
     /// Whether a pane row should carry the ignored treatment (struck-through name, secondary
     /// foreground). The single choke point for that decision — both the tree presentation and
     /// `PaneColumnsView` route through it, so the two can't drift.
@@ -472,8 +573,13 @@ public struct FileTreeView: View, Equatable {
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
                 awaitingDownloads: downloads.requests,
                 fonts: rowFonts,
+                search: search,
                 downloadChannel: downloadChannel
             )
+            // The reveal, Columns side. Same token as the Tree branch, so the two presentations walk
+            // the same hits in the same order and switching mode mid-search keeps your place.
+            .onChange(of: revealToken) { _, _ in revealInColumns() }
+            .onAppear { revealInColumns() }
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
             .background(
@@ -499,11 +605,37 @@ public struct FileTreeView: View, Equatable {
     /// Quick Look presenter.
     @ViewBuilder
     private var paneList: some View {
+        ScrollViewReader { proxy in
+            paneListBody
+                // The reveal, Tree side. Keyed on the hit rather than on the query, so typing costs
+                // nothing and only arriving at a hit opens anything — see `revealInTree`.
+                .onChange(of: revealToken) { _, _ in revealInTree(proxy) }
+                // And once on arrival, so switching Tree↔Columns mid-search lands on the hit you
+                // were standing on rather than at the top of a tree you have to walk again. Costs
+                // an inactive pane one guarded return per appearance: `revealInTree` finds no hit
+                // and does nothing, which is every launch and every tab switch.
+                .onAppear { revealInTree(proxy) }
+        }
+    }
+
+    /// The token a reveal fires on: which result set, and which hit within it.
+    ///
+    /// Both halves are needed. The index alone misses ↩ landing on index 0 of a new result set after
+    /// index 0 of the old one — which is every query that is retyped — and the generation alone
+    /// misses the walk, which is the whole feature.
+    private var revealToken: PaneSearchRevealToken {
+        PaneSearchRevealToken(generation: search.generation, hitIndex: searchHitIndex)
+    }
+
+    /// The pane's List, with its list-level chrome.
+    @ViewBuilder
+    private var paneListBody: some View {
         List(selection: $selection) {
-            // `tree.rows`, NOT `tree.nodes`: OutlineGroup stores the collection it is given, so
+            // `tree.rows`, NOT `tree.nodes`: the outline STORES the collection it is given, so
             // handing it the raw `[FileNode]` puts the recursive `FileNode.==` straight back into
-            // the view graph — which is exactly what `PaneTree` alone failed to prevent.
-            OutlineGroup(tree.rows, children: \.children) { row in
+            // the view graph — which is exactly what `PaneTree` alone failed to prevent. That was
+            // true of `OutlineGroup` and is equally true of the `ForEach` inside `PaneOutlineRows`.
+            PaneOutlineRows(rows: tree.rows, expanded: $expanded) { row in
                 treeRow(for: row)
             }
         }
@@ -584,7 +716,11 @@ public struct FileTreeView: View, Equatable {
             // and the reason `RiskyNameBadgeCache` exists. Reads `row.info`, never `row.node`, so
             // a folder's subtree stays out of reach of a per-row call.
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
-            awaitingDownloadID: downloads.request(forPath: node.id)?.requestID
+            awaitingDownloadID: downloads.request(forPath: node.id)?.requestID,
+            searchContext: searchContext(for: row),
+            isLeftPane: isLeft,
+            otherPaneName: otherPaneName,
+            accent: glassHue.accentColor
         )
         .tag(node.id)
         .contextMenu {
@@ -999,6 +1135,18 @@ struct FileRowView: View {
     /// most one row per session could ever receive anything. The pane holds the single
     /// subscription now and hands the answer down.
     var awaitingDownloadID: UUID? = nil
+    /// What a running search says about this row — the matched run, whether it recedes, the count
+    /// of matches inside a closed folder, and which side it is on. `.none` is a pane with no query,
+    /// which renders exactly the row this view rendered before search existed.
+    var searchContext: PaneSearchRowContext = .none
+    /// Which pane this row is in, so a one-sided hit can name its side. Only read while a search is
+    /// annotating; defaulted so no existing caller has to answer it.
+    var isLeftPane: Bool = true
+    /// The opposite pane's display name, for the side annotation's tooltip.
+    var otherPaneName: String = ""
+    /// The pane's accent, for the “N matches” count. Passed rather than inherited — see
+    /// `PaneSearchAnnotation.accent`.
+    var accent: Color = .accentColor
 
     /// The badge task's `.task(id:)` key: this row's path, and the pane's watch for it.
     ///
@@ -1086,9 +1234,9 @@ struct FileRowView: View {
                 .resizable()
                 .frame(width: densityMetrics.treeIconSize, height: densityMetrics.treeIconSize)
             // Affix whitespace made visible ("Swimming " → "Swimming␣"): such a node can
-            // have a pixel-identical sibling that is actually a different item.
-            Text(NameDisplay.visibleName(node.name))
-                .font(fonts.name)
+            // have a pixel-identical sibling that is actually a different item. The matched run of
+            // a search hit is emboldened inside that same marked form — see `PaneSearchName`.
+            PaneSearchName(name: node.name, match: searchContext.match, font: fonts.name)
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
             // Beside the NAME, not out in the trailing accessory cluster with the cloud and
@@ -1106,6 +1254,10 @@ struct FileRowView: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
+            // Ahead of the badge cluster, because it is the only thing on the row the user asked
+            // for: they typed the query. The badges report standing facts and keep their places.
+            PaneSearchAnnotation(context: searchContext, isLeft: isLeftPane,
+                                 otherPaneName: otherPaneName, accent: accent, fonts: fonts)
             FileRowAccessories(
                 isCloudOnly: isCloudOnly,
                 reservesCloudSlot: !node.isDirectory,
@@ -1115,6 +1267,10 @@ struct FileRowView: View {
             )
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
+        // A find, not a filter: a row off every path to an answer recedes and stays readable, so
+        // the tree's shape — which is the answer to “where is this?” — never changes under the
+        // question being asked.
+        .opacity(searchContext.isDimmed ? PaneSearchDim.opacity : 1)
         .contentShape(Rectangle())
         // ONE keyed task for the badge, and it consults the memo first — so the syscall happens
         // once per path per republish rather than once per realization. `List` realizes and

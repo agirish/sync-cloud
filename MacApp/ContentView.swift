@@ -196,6 +196,25 @@ struct ContentView: View {
     @State private var leftDiffIndex: DiffStatusIndex = .empty
     @State private var rightDiffIndex: DiffStatusIndex = .empty
 
+    // MARK: Search inside the pane trees
+    //
+    // Per side, and there are only two sides to hold: the single-source rail IS the left pane on a
+    // different surface (see `paneContext`), so Organize, Duplicates and Storage all search through
+    // `leftPaneSearch` without a third copy of any of this. See `ContentView+PaneSearch.swift`.
+
+    /// What the user typed and where the walk has got to, per pane. The field's own state.
+    @State var leftPaneSearch = PaneSearchFieldState()
+    @State var rightPaneSearch = PaneSearchFieldState()
+    /// The results those queries produced, recomputed off the debounce rather than per render — a
+    /// query runs over the whole loaded tree, and `body` here is re-evaluated by any of the
+    /// manager's ~56 published properties.
+    @State var leftSearchResults: PaneSearchResults = .empty(side: .left)
+    @State var rightSearchResults: PaneSearchResults = .empty(side: .right)
+    /// The recomputation counter behind `PaneSearchResults.generation`. One per side, exactly like
+    /// the manager's own publish counters, so a stamp is only ever compared against its own pane's.
+    @State var leftSearchGeneration = 0
+    @State var rightSearchGeneration = 0
+
     /// Each pane's presentation, stored per side so one can be a deep tree while the other is
     /// flat. Defaults to Columns — which rests as a single full-pane column, so the pane opens
     /// exactly as it did before the setting existed.
@@ -1442,7 +1461,10 @@ struct ContentView: View {
         let childrenIndex: PaneChildrenIndex?
     }
 
-    private func paneContext(isLeft: Bool) -> PaneContext {
+    /// Internal rather than private so `ContentView+PaneSearch.swift` can resolve the pane it is
+    /// searching from the same one place `paneColumn` does — a second copy of "which tree is this
+    /// pane showing" is how a search would end up running against the other side's nodes.
+    func paneContext(isLeft: Bool) -> PaneContext {
         // The rail reads its OWN key, not the left pane's — it is the same underlying pane state
         // but a different surface, and a comparison choice must not restack it.
         let mode: PaneViewMode = layoutMode == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
@@ -1531,7 +1553,15 @@ struct ContentView: View {
                             .currentDirectory(treeRoot: pane.currentPath)
                         : pane.currentPath
                     actionHandler?.beginCreateFolder(in: target)
-                }
+                },
+                // Search inside THIS pane's tree. Every workspace with a pane browser gets it from
+                // here — Compare's two panes and the single-source rail — because they are all this
+                // one header over this one pane component.
+                searchText: paneSearchState(isLeft: isLeft).query,
+                searchIsExpanded: paneSearchState(isLeft: isLeft).isExpanded,
+                searchSummary: paneSearchResults(isLeft: isLeft)
+                    .summary(at: paneSearchState(isLeft: isLeft).wrappedValue.hitIndex),
+                onSearchAdvance: { reverse in advancePaneSearch(isLeft: isLeft, reverse: reverse) }
             )
             // Cards gives the provider header its own card, so the chrome reads as a separate
             // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace
@@ -1594,6 +1624,25 @@ struct ContentView: View {
             ) else { return .ignored }
             clearSelection(isLeft: isLeft)
             return .handled
+        }
+        // The debounce. `.task(id:)` cancels and restarts whenever the key moves, so the sleep below
+        // IS the debounce — no timer to own, and a keystroke landing mid-sleep simply replaces the
+        // pending recomputation rather than queueing a second one.
+        //
+        // The TREE VERSION is part of the key on purpose: a result set names paths in a tree that
+        // has since been rebuilt, and a scan, a delete or a hidden-files toggle leaves hits pointing
+        // at rows that no longer exist — the walk would then reveal nothing and select a ghost. It
+        // costs a republish one re-search of a query that is usually empty (which returns without
+        // walking anything).
+        .task(id: PaneSearchRecomputeKey(isLeft: isLeft,
+                                         query: paneSearchState(isLeft: isLeft).wrappedValue.query,
+                                         treeVersion: pane.tree.version)) {
+            try? await Task.sleep(for: ContentView.searchDebounce)
+            guard !Task.isCancelled else { return }
+            recomputeSearch(isLeft: isLeft)
+            // A new result set is a new list, so the walk restarts at its top — index 4 of the old
+            // hits names an unrelated file in the new ones. See `PaneSearchWalk.restart`.
+            paneSearchState(isLeft: isLeft).wrappedValue.hitIndex = PaneSearchWalk.restart
         }
     }
 
@@ -1743,6 +1792,10 @@ struct ContentView: View {
         .onChange(of: syncManager.showHiddenFiles) { _, newValue in
             Logger.shared.info("User toggled hidden files to: \(newValue)")
         }
+        // ⌘F. Published from here because the menu item lives in the App scope and can see none of
+        // this window's state; it cannot be `.onKeyPress` at all, since that is focus-scoped and a
+        // pane search is invoked precisely when focus is in a file table. See `FindInPaneCommand`.
+        .focusedSceneValue(\.beginPaneSearch, beginPaneSearch)
         // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
         // drilling in, a crumb, back/forward, or a scan — is recorded against its provider root.
         .onChange(of: syncManager.leftRelativePath) { _, rel in
@@ -1828,6 +1881,11 @@ struct ContentView: View {
             // Which pane the action bar is acting on — the same predicate that decides where the bar
             // renders, so the strong selection wash and the bar can never point at different panes.
             // The rail has no bar and no sibling, so it is always its own active pane.
+            // What matched, and where the walk has got to. The pane draws its emphasis, dimming and
+            // annotations from the first and reveals the hit named by the second — see
+            // `FileTreeView.revealInTree` / `revealInColumns`.
+            search: paneSearchResults(isLeft: pane.isLeft),
+            searchHitIndex: paneSearchState(isLeft: pane.isLeft).wrappedValue.hitIndex,
             isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft),
             viewMode: pane.viewMode,
             childrenIndex: pane.childrenIndex,

@@ -1,0 +1,159 @@
+import Testing
+import AppKit
+import Design
+import SwiftUI
+import Sync
+@testable import Dashboard
+
+/// The pane header's search field: where it appears, what it costs the header, and how ↩/⇧↩ reach
+/// the walk.
+@MainActor
+@Suite struct PaneHeaderSearchTests {
+
+    final class Box: ObservableObject {
+        @Published var query = ""
+        @Published var isExpanded = false
+        @Published var advances: [Bool] = []
+    }
+
+    private static func header(_ box: Box, summary: String? = nil,
+                               withSearch: Bool = true) -> some View {
+        PaneHeader(
+            title: "Left",
+            provider: CloudProvider(id: "icloud", displayName: "iCloud", imageName: "icloud-logo",
+                                    path: "/root", type: .iCloud),
+            rootPath: "/root",
+            relativePath: "Documents",
+            canGoBack: true, canGoForward: false,
+            onBack: {}, onForward: {}, onNavigate: { _ in }, onNavigateBoth: { _ in },
+            sortOption: .constant(.name),
+            onRefresh: {},
+            showHiddenFiles: .constant(false),
+            viewMode: .constant(.columns),
+            onNewFolder: {},
+            searchText: withSearch ? Binding(get: { box.query }, set: { box.query = $0 }) : nil,
+            searchIsExpanded: withSearch ? Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }) : nil,
+            searchSummary: summary,
+            onSearchAdvance: withSearch ? { box.advances.append($0) } : nil
+        )
+    }
+
+    private static func laidOutHeight(_ view: some View, width: CGFloat) -> CGFloat {
+        let host = NSHostingView(rootView: view.frame(width: width))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
+    }
+
+    // MARK: - The header's rung
+
+    /// **The constraint this feature had to live inside.** `PaneHeaderHeightTests` pins the header to
+    /// `LiquidGlass.headerHeight`, because that is what puts the pane's header↔list boundary on the
+    /// same 83.5 as Tidy's card. The field takes the BAR's row rather than adding one, so the number
+    /// cannot move — open or closed, and at the narrow width where the bar is already stepping down.
+    @Test("The header keeps its rung with the field closed")
+    func theClosedHeaderKeepsItsHeight() {
+        let box = Box()
+        #expect(Self.laidOutHeight(Self.header(box), width: 560) == LiquidGlass.headerHeight)
+        #expect(Self.laidOutHeight(Self.header(box), width: 250) == LiquidGlass.headerHeight)
+    }
+
+    @Test("…and with the field open, which is the row it took")
+    func theOpenHeaderKeepsItsHeight() {
+        let box = Box()
+        box.isExpanded = true
+        #expect(Self.laidOutHeight(Self.header(box, summary: "2 of 7"), width: 560) == LiquidGlass.headerHeight)
+        #expect(Self.laidOutHeight(Self.header(box, summary: "No matches"), width: 250) == LiquidGlass.headerHeight)
+    }
+
+    // MARK: - What the bar offers
+
+    /// A header with no search bindings offers no magnifier — which is why every existing header
+    /// test, snapshot and ladder measurement is untouched by this feature. If this ever answered
+    /// true, those would all be measuring a bar one pill wider than the one they were written for.
+    @Test("A header with no search bindings has no Search item to place")
+    func aHeaderWithoutSearchOffersNoMagnifier() {
+        let box = Box()
+        let plain = PaneHeader(
+            title: "Left", provider: nil, rootPath: "/root", relativePath: "",
+            canGoBack: false, canGoForward: false,
+            onBack: {}, onForward: {}, onNavigate: { _ in }, onNavigateBoth: { _ in },
+            sortOption: .constant(.name), showHiddenFiles: .constant(false))
+        #expect(!plain.availableItems.contains(.search))
+        // …and one WITH them does, or the pill could never be drawn at all.
+        #expect(Self.searchingHeader(box).availableItems.contains(.search))
+    }
+
+    /// Needed as a concrete `PaneHeader` (not `some View`) so `availableItems` is reachable.
+    private static func searchingHeader(_ box: Box) -> PaneHeader {
+        PaneHeader(
+            title: "Left", provider: nil, rootPath: "/root", relativePath: "",
+            canGoBack: false, canGoForward: false,
+            onBack: {}, onForward: {}, onNavigate: { _ in }, onNavigateBoth: { _ in },
+            sortOption: .constant(.name), showHiddenFiles: .constant(false),
+            searchText: Binding(get: { box.query }, set: { box.query = $0 }),
+            searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
+    }
+
+    /// The shipped bar carries it, at the trailing end — where the ladder gives it up first, which is
+    /// right for the one control here that has a keyboard equivalent.
+    @Test("The shipped arrangement carries Search last")
+    func theDefaultBarCarriesSearchLast() {
+        #expect(PaneBarArrangement.default.items.last == .search)
+    }
+
+    /// A bar someone arranged on an earlier build predates this case, so it does not carry the
+    /// magnifier — and the customize sheet's palette has to be able to give it back. Shipping
+    /// without this would make removing Search a one-way door for everyone who ever opened the
+    /// sheet.
+    @Test("A stored arrangement without Search offers it in the overflow, and the palette can add it")
+    func searchIsRecoverableFromAStoredBar() {
+        let box = Box()
+        let stored = PaneBarArrangement(encoded: "flexibleSpace,backForward,scan,sort")
+        #expect(!stored.items.contains(.search))
+        #expect(stored.absent(from: Self.searchingHeader(box).availableItems).contains(.search))
+        #expect(PaneBarCustomizeSheet.palette.contains(.search))
+    }
+
+    // MARK: - Walking from the field
+
+    /// ↩ and ⇧↩ both arrive as `onSubmit`; the direction is the modifier state at that moment. The
+    /// environment pin is what makes “this is a plain Return” part of the test rather than of the
+    /// room — see `paneSearchSubmitModifiers`.
+    @Test("A plain Return walks forward and Shift-Return walks back")
+    func submitDirectionComesFromTheModifiers() async {
+        for (modifiers, expected) in [(NSEvent.ModifierFlags(), false), (NSEvent.ModifierFlags.shift, true)] {
+            let box = Box()
+            box.isExpanded = true
+            box.query = "tax"
+            let host = NSHostingView(rootView:
+                Self.header(box, summary: "1 of 3")
+                    .environment(\.paneSearchSubmitModifiers, modifiers)
+                    .frame(width: 560))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = host
+            window.layoutIfNeeded()
+
+            // The field claims focus one Task hop after it appears, and only a focused field submits.
+            let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+            #expect(focused.held, "the revealed field should have claimed focus (\(focused.pumps) pumps)")
+            Self.fieldEditor(window)?.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+
+            let walked = await LayoutPumpWait.pump(window, upTo: 5) { !box.advances.isEmpty }
+            #expect(walked.held, "submitting should have walked the hits (\(walked.pumps) pumps)")
+            #expect(box.advances == [expected],
+                    "modifiers \(modifiers) should walk \(expected ? "backward" : "forward")")
+        }
+    }
+
+    /// The revealed field's own text view, which is what a submission has to come from.
+    private static func fieldEditor(_ window: NSWindow) -> NSTextView? {
+        var found: NSTextView?
+        func walk(_ v: NSView) {
+            if found == nil, let text = v as? NSTextView, text.isEditable { found = text }
+            for sub in v.subviews where found == nil { walk(sub) }
+        }
+        walk(window.contentView!)
+        return found
+    }
+}

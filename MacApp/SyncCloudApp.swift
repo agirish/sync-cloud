@@ -122,6 +122,15 @@ struct SyncCloudApp: App {
             // calls noted above are harmless.
             LiquidGlass.migrateLegacyAppearance()
 
+            // Put a newly shipped pane-bar control onto a bar someone arranged on an earlier
+            // build, before any @AppStorage property wrapper reads the arrangement. Without it a
+            // customized bar keeps the shape it had and the new control lives only in ⋯ — which,
+            // for Search, meant the pane trees' new find affordance was invisible on a bar with
+            // empty space in it. Idempotent and stamped: it runs once per added control, so a
+            // deliberate removal afterwards is never undone, and the repeat App.init calls noted
+            // above are harmless.
+            PaneBarMigration.apply(defaults: .standard)
+
             // Carry the two-level `Compare | Tidy` + lens selection onto the flat workspace bar,
             // before any @AppStorage reads it. Without this the retired raw values ("Tidy", and
             // the lens the session ended in) simply fail to resolve and @AppStorage falls back to
@@ -369,6 +378,12 @@ struct SyncCloudApp: App {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { showSettings = true }
                     .keyboardShortcut(",", modifiers: .command)
+            }
+            // Edit ▸ Find, where a Mac user looks for it — and the only form ⌘F can take: a
+            // focus-scoped `.onKeyPress` never sees the key, because a pane search is invoked
+            // exactly when focus is sitting in a file table. See `FindInPaneCommand`.
+            CommandGroup(after: .pasteboard) {
+                FindInPaneCommand()
             }
             // Replace the whole Help menu. AppKit's default `.help` group is just the
             // `showHelp:` item (and its search field), which — with no registered Help Book —

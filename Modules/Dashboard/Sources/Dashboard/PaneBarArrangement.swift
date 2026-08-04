@@ -21,6 +21,12 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     case preview
     case space
     case flexibleSpace
+    /// Appended LAST, per the rule above — the raw values are persisted, so an existing bar keeps
+    /// every item it had. A stored arrangement predates this case and therefore does not carry it,
+    /// which puts the magnifier in ⋯ rather than rearranging a bar someone chose (see
+    /// `absent(from:)`). ⌘F opens the field either way, so a bar without it is a bar missing a
+    /// button, not an ability.
+    case search
 
     public var id: String { rawValue }
 
@@ -50,6 +56,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .preview: return "Preview"
         case .space: return "Space"
         case .flexibleSpace: return "Flexible Space"
+        case .search: return "Search"
         }
     }
 
@@ -67,6 +74,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .preview: return "rectangle.righthalf.inset.filled"
         case .space: return "space"
         case .flexibleSpace: return "arrow.left.and.right"
+        case .search: return "magnifyingglass"
         }
     }
 
@@ -96,14 +104,25 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// which is a silent layout hole, so `PaneBarLadderTests` counts the view's children against it.
     public static let maxItems = 16
 
-    /// Today's bar, exactly: a flexible space (which is what pins the rest to the trailing edge),
-    /// then the nine controls in the order they have always been drawn.
+    /// A flexible space (which is what pins the rest to the trailing edge), then the controls in the
+    /// order they have always been drawn, with Search at the trailing end.
     ///
     /// This is load-bearing. An untouched install must render pixel-for-pixel what it rendered
     /// before the bar became arrangeable — `PaneHeaderHeightTests` and the 250pt snapshots assert
-    /// exactly that, and they are the regression net for this whole change.
+    /// exactly that, and they are the regression net for that change.
+    ///
+    /// Search joining the list does not disturb them, and the reason is worth stating: an item only
+    /// reaches the bar if the HOST offers it (`resolved(available:)`), and a header with no search
+    /// bindings does not. Every existing caller — the two header tests, the snapshots, the ladder
+    /// suite — therefore builds precisely the bar it built before. Only the app's own panes, which
+    /// do pass bindings, gain the pill.
+    ///
+    /// Trailing end, and deliberately: it is where `ExpandingSearchToggle` sits on every other
+    /// surface in the app, and the shedding order is right-to-left — so the narrowest pane gives up
+    /// the magnifier first, which is the one control here that has a keyboard equivalent.
     public static let `default` = PaneBarArrangement([
-        .flexibleSpace, .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview
+        .flexibleSpace, .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
+        .preview, .search
     ])
 
     /// Normalizes on the way in, so no other code has to defend against a malformed list:
@@ -328,7 +347,11 @@ public enum PaneBarLayout {
         // Styled as the view switch's selected segment, so it is a segment wide, not a pill wide.
         case .preview:
             return pill.width - PaneNavMetrics.segmentInset
-        case .collapse, .scan, .newFolder, .sort, .hiddenFiles:
+        // Search draws the same plain nav pill as its neighbours rather than Design's
+        // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph. A pill among pills is
+        // what the bar looks like, and it keeps this arithmetic one line instead of a second opinion
+        // about a glyph's intrinsic width.
+        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search:
             return pill.width
         }
     }
@@ -565,4 +588,56 @@ public enum PaneBarIconSize: String, CaseIterable, Sendable {
 public enum PaneBar {
     public static let arrangementKey = "paneBarArrangement"
     public static let iconSizeKey = "paneBarIconSize"
+    /// How far a stored arrangement has been brought forward — see `PaneBarMigration`.
+    public static let migrationKey = "paneBarArrangementMigration"
+}
+
+/// Brings a bar someone arranged on an earlier build forward when a NEW control ships.
+///
+/// **Why this exists, stated as the thing it fixes.** `absent(from:)` puts an unrecognized control
+/// in ⋯ and calls that the rule for future releases — "a stored arrangement predates them, so they
+/// are absent, so they arrive in ⋯ rather than rearranging a bar someone chose". That is right for a
+/// control someone can go and find. It is wrong for a headline one: Search shipped as the answer to
+/// "the trees have no search", and for everybody who had ever opened the customize sheet it landed
+/// permanently inside an overflow menu on a bar with visible empty space — the affordance was
+/// there, and invisible. Reported from a real window, which is the only reason it was caught: every
+/// test used a fresh default arrangement, where the item is present and the bug cannot occur.
+///
+/// **Why it is not just "always restore Search like `scan`".** `PaneBarArrangement.init` re-adds
+/// `scan` unconditionally, which is right for the one control that must never be missing. Doing that
+/// here would make Search unremovable — a bar item that grows back is worse than one that never
+/// appeared, because the user can see they are being overruled.
+///
+/// So it runs ONCE per added control, recorded by a stored version. Remove Search after the
+/// migration and it stays removed; that is the whole point of stamping rather than checking.
+public enum PaneBarMigration {
+    /// Bump this — and add a step below — whenever a control joins `PaneBarArrangement.default`.
+    public static let currentVersion = 1
+
+    /// Applies every migration a stored arrangement has not had yet, and records how far it got.
+    ///
+    /// A pane bar that was never customized has no stored arrangement at all and reads the default,
+    /// which already carries every control; it is stamped anyway, so this never runs again for it
+    /// and a later deliberate removal is not undone by the next launch.
+    ///
+    /// - Returns: whether anything was written, so a caller can log it. Idempotent: running twice
+    ///   changes nothing the second time.
+    @discardableResult
+    public static func apply(defaults: UserDefaults) -> Bool {
+        let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
+        guard from < currentVersion else { return false }
+        defaults.set(currentVersion, forKey: PaneBar.migrationKey)
+
+        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return true }
+        var arrangement = PaneBarArrangement(encoded: stored)
+        var changed = false
+        // v1 — Search. Appended at the trailing end, where the default carries it and where the
+        // ladder gives it up first.
+        if from < 1, !arrangement.items.contains(.search) {
+            arrangement.insert(.search, at: arrangement.items.count)
+            changed = true
+        }
+        if changed { defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey) }
+        return true
+    }
 }

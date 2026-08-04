@@ -61,6 +61,12 @@ struct PaneColumnsView: View {
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
 
+    /// This pane's search results, for the row decoration only. The REVEAL is the hosting
+    /// `FileTreeView`'s — it owns the hit index and routes the column move through the host's
+    /// `onColumnNavigate`, which is the same seam a click goes through. Defaulted to inactive, so a
+    /// caller that never searches renders exactly the columns it rendered before.
+    var search: PaneSearchResults = .empty(side: .left)
+
     /// The `NotificationCenter` this pane's downloads are announced on, handed straight to the
     /// preview column so its Download button posts where the pane that owns it is LISTENING.
     ///
@@ -718,7 +724,16 @@ struct PaneColumnsView: View {
             showsChevron: node.isDirectory,
             fonts: fonts,
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
-            awaitingDownloadID: awaitingDownloads[node.id]?.requestID
+            awaitingDownloadID: awaitingDownloads[node.id]?.requestID,
+            // A column's “expanded” is `isOnPath` — the folder you drilled THROUGH is the one whose
+            // contents are already on screen, so it is the one whose “N matches” would be telling
+            // you what the column to its right already shows.
+            searchContext: search.isActive
+                ? PaneSearchRowContext(results: search, path: node.id, isExpanded: isOnPath)
+                : .none,
+            isLeftPane: isLeft,
+            otherPaneName: otherPaneName,
+            accent: glassHue.accentColor
         )
         .tag(node.id)
         // Single click opens a folder's column, per the decision — the one real change to the
@@ -1006,16 +1021,27 @@ struct ColumnRowView: View {
     /// See `FileRowView.awaitingDownloadID`. Threaded through rather than observed here for the
     /// same reason: a per-row subscription for a per-session event.
     var awaitingDownloadID: UUID? = nil
+    /// See `FileRowView.searchContext` — the row's search decoration, resolved by the column
+    /// because only it knows whether this folder is the one currently drilled through.
+    var searchContext: PaneSearchRowContext = .none
+    var isLeftPane: Bool = true
+    var otherPaneName: String = ""
+    var accent: Color = .accentColor
 
     var body: some View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
-                        fonts: fonts, riskyReason: riskyReason, awaitingDownloadID: awaitingDownloadID)
+                        fonts: fonts, riskyReason: riskyReason, awaitingDownloadID: awaitingDownloadID,
+                        searchContext: searchContext, isLeftPane: isLeftPane,
+                        otherPaneName: otherPaneName, accent: accent)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(fonts.chevron)
                     .foregroundStyle(.tertiary)
+                    // The chevron belongs to the row, so it recedes with it. Left bright it would
+                    // read as the one live thing on a row the search has set aside.
+                    .opacity(searchContext.isDimmed ? PaneSearchDim.opacity : 1)
             }
         }
     }

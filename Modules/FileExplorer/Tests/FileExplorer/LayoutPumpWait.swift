@@ -8,6 +8,11 @@ import AppKit
 /// the fix landed in one copy on 2026-08-03 and the other two kept the bug, in the same target,
 /// against the same congested main actor. A shared seam is what makes the floor below a single
 /// decision rather than three.
+///
+/// **One copy does exist outside this target** — `Modules/Dashboard/Tests/Dashboard/LayoutPumpWait.swift`
+/// — because the two are separate SPM packages with no shared test-support module, the same reason
+/// `wipeDefaultsSuite` is duplicated. Keep the two in step; the paragraph above is what happens when
+/// they drift.
 enum LayoutPumpWait {
 
     /// The fewest layout passes a wait will make before it may give up, however little of its

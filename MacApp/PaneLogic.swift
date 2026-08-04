@@ -109,6 +109,22 @@ enum PaneLogic {
         activePane.map { paneNames.other(isLeft: $0 == .left) }
     }
 
+    /// Which pane ⌘F opens the search field on.
+    ///
+    /// **Selection-derived, with a floor.** `activePane` is the same rule that decides where the
+    /// action bar draws and which pane's selection wash is strong, so the Find shortcut lands where
+    /// every other pane-scoped affordance already points. But it is `nil` whenever nothing is
+    /// selected, which is most of the time and is not an answer — so the left pane is the floor,
+    /// matching the reading order of a left-to-right comparison.
+    ///
+    /// On the single-source rail the question does not arise at all: the rail IS the left pane (see
+    /// `ContentView.paneContext`) and is the only pane on screen, so a right answer there would open
+    /// a field on a pane nobody can see.
+    static func searchTargetIsLeft(isSingleSource: Bool, activePane: ActivePane?) -> Bool {
+        guard !isSingleSource else { return true }
+        return activePane != .right
+    }
+
     /// SF Symbols for the action bar's Copy/Move buttons, drawn from the shared `TransferGlyph`
     /// vocabulary so the toolbar, the Differences header, and the right-click menus can't drift.
     /// Copy is the universal duplicate glyph in every state — instantly recognizable, with its

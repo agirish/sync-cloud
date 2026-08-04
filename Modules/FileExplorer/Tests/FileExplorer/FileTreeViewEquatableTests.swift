@@ -73,6 +73,8 @@ import Design
         isSingleSource: Bool = false,
         placement: PaneBarPlacement? = nil,
         onBarEdgeFlip: (() -> Void)? = {},
+        search: PaneSearchResults? = nil,
+        searchHitIndex: Int = 0,
         isActivePane: Bool = true,
         viewMode: PaneViewMode = .tree,
         childrenIndex: PaneChildrenIndex? = nil,
@@ -88,7 +90,8 @@ import Design
             rootPathIsValid: rootPathIsValid, providerIsEnabled: providerIsEnabled,
             hasOnlyHiddenEntries: hasOnlyHiddenEntries, rootPath: rootPath,
             onOpenSettings: onOpenSettings, isSingleSource: isSingleSource,
-            placement: placement, onBarEdgeFlip: onBarEdgeFlip, isActivePane: isActivePane,
+            placement: placement, onBarEdgeFlip: onBarEdgeFlip,
+            search: search, searchHitIndex: searchHitIndex, isActivePane: isActivePane,
             viewMode: viewMode, childrenIndex: childrenIndex,
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
             onBackgroundDeselect: onBackgroundDeselect, downloadChannel: downloadChannel)
@@ -172,6 +175,23 @@ import Design
     @Test("Single-source is noticed — it empties the diff index and reshapes the row menu")
     func singleSourceIsCompared() {
         #expect(pane() != pane(isSingleSource: true))
+    }
+
+    /// A new result set changes what every row draws — the emphasis, the dimming, the annotations —
+    /// so a pane that kept the view it had would go on showing the previous query's answer.
+    @Test("A recomputed search is noticed — the rows render their emphasis from it")
+    func searchResultsAreCompared() {
+        let searched = PaneSearchResults(side: .left, generation: 1, query: "a",
+                                         tree: PaneTree(side: .left, version: 1, nodes: []),
+                                         otherPaths: nil)
+        #expect(pane() != pane(search: searched))
+    }
+
+    /// The walk itself. `==` answering true here would mean ↩ moved the hit and the pane never
+    /// re-rendered, so the reveal's `.onChange` never fired — the whole feature, silently dead.
+    @Test("Walking to another hit is noticed — it is what fires the reveal")
+    func searchHitIndexIsCompared() {
+        #expect(pane() != pane(searchHitIndex: 1))
     }
 
     @Test("Which pane is active is noticed — it sets the selection wash's strength")

@@ -50,8 +50,8 @@ struct PaneBarCustomizeSheet: View {
     /// ability — and `scan` is present but inert, so its absence from the removable set is explained
     /// rather than merely felt.
     static let palette: [PaneBarItem] = [
-        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .collapse, .scan,
-        .space, .flexibleSpace
+        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .search, .collapse,
+        .scan, .space, .flexibleSpace
     ]
 
     // MARK: Metrics
