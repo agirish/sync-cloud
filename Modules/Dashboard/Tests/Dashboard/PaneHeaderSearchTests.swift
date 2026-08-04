@@ -65,6 +65,58 @@ import Sync
         #expect(Self.laidOutHeight(Self.header(box, summary: "No matches"), width: 250) == LiquidGlass.headerHeight)
     }
 
+    // MARK: - The way out
+
+    /// **The field must not take the whole bar.** It did, and the result was reported as "NO way to
+    /// exit": the pane bar is replaced while the field is open, the field's own clear button only
+    /// exists once there is text to clear, and once focus moves to the file list Escape goes with
+    /// it — so an empty search field on a wide pane offered no target of any kind.
+    ///
+    /// The cap is what leaves a stretch of bar to click. Measured against the LAID-OUT field, not
+    /// the constant: a `.frame(maxWidth:)` that failed to apply would still read 460 in the source.
+    @Test("The field is capped, so there is bar left to click away on")
+    func theFieldLeavesSomewhereToClick() async {
+        let box = Box()
+        box.isExpanded = true
+        let width: CGFloat = 1200
+        let window = Self.mount(Self.header(box, summary: "2 of 7"), width: width)
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        #expect(shown.held, "the revealed field should exist (\(shown.pumps) pumps)")
+        guard let field = Self.fieldEditor(window), let root = window.contentView else { return }
+
+        let fieldRight = field.convert(field.bounds, to: root).maxX
+        #expect(fieldRight < width - 200,
+                "a \(width)pt header should leave a wide dead zone after the field, got \(fieldRight)")
+        #expect(PaneHeader.searchFieldMaxWidth < width,
+                "the cap has to bind at a realistic pane width or it is not a cap")
+    }
+
+    /// …and the cap must not starve the field on a narrow pane, where it is the only thing on the
+    /// row. The 250pt pane is the split's own clamp — the narrowest the bar ever gets.
+    @Test("A narrow pane still gets a usable field")
+    func theFieldStillFitsANarrowPane() async {
+        let box = Box()
+        box.isExpanded = true
+        let window = Self.mount(Self.header(box), width: 250)
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        #expect(shown.held, "the field should render at 250pt (\(shown.pumps) pumps)")
+        guard let field = Self.fieldEditor(window) else { return }
+        #expect(field.bounds.width > 60, "the field collapsed to \(field.bounds.width)pt")
+    }
+
+    /// A header in a real window. The revealed field is an AppKit-backed text view and does not
+    /// materialize in a bare `NSHostingView` — without the window these tests find nothing and would
+    /// have to pass vacuously.
+    private static func mount(_ view: some View, width: CGFloat) -> NSWindow {
+        let host = NSHostingView(rootView: view.frame(width: width))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 120)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = host
+        window.layoutIfNeeded()
+        return window
+    }
+
     // MARK: - What the bar offers
 
     /// A header with no search bindings offers no magnifier — which is why every existing header

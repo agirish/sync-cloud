@@ -232,10 +232,35 @@ public struct PaneHeader: View {
                 // you ARE is still worth reading — it is the thing the hit is about to move you
                 // away from.
                 if let searchText, let searchIsExpanded, searchIsExpanded.wrappedValue {
-                    searchField(text: searchText, isExpanded: searchIsExpanded)
-                        .padding(.leading, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .transition(.opacity)
+                    HStack(spacing: 0) {
+                        searchField(text: searchText, isExpanded: searchIsExpanded)
+                            // The floor is load-bearing, not defensive. `Color.clear` below is
+                            // greedy in both axes, so the two are both flexible and the row splits
+                            // between them — with only the cap, that left the field **6.5pt wide**
+                            // in a 250pt pane, which is exactly where the split clamps a pane.
+                            // (A `.layoutPriority(1)` here was tried and removed: with the floor in
+                            // place it changed no measurement, and a line that changes nothing is a
+                            // claim nothing checks.)
+                            .frame(minWidth: Self.searchFieldMinWidth,
+                                   maxWidth: Self.searchFieldMaxWidth)
+                        // **The way out that is not a control.** The field is capped rather than
+                        // greedy precisely so this exists: a stretch of bar to click when you are
+                        // done. Reported as "NO way to exit" — the field had taken the whole track,
+                        // and with an EMPTY query it has no clear button either (that one is
+                        // conditional), so a pane whose focus had moved to the file list offered
+                        // nothing at all to click. The ✕ in the field is the affordance; this is the
+                        // dismissal people reach for first, the same way clicking outside a popover
+                        // closes it.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                ExpandingSearch.collapse(text: searchText, isExpanded: searchIsExpanded)
+                            }
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.leading, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
                 } else {
                     navCluster
                         .padding(.leading, 12)
@@ -805,6 +830,21 @@ public struct PaneHeader: View {
                         .lineLimit(1)
                         .fixedSize()
                 }
+                // **Unconditional, and that is the whole point.** The field's own clear button
+                // (`ExpandingSearchField`) appears only once there is text to clear, and this row
+                // replaces the pane bar while it is open — so an EMPTY search field offered no
+                // control of any kind, and once focus moved to the file list even Escape was gone.
+                // Reported as "NO way to exit". This closes the search rather than clearing the
+                // query, so it is a different verb from the ✕ beside it and never sits alone
+                // pretending to be one.
+                Button {
+                    ExpandingSearch.collapse(text: text, isExpanded: isExpanded)
+                } label: {
+                    Image(systemName: "xmark").hoverInk()
+                }
+                .buttonStyle(.hoverAffordance(.inline))
+                .help("Close search (Esc)")
+                .accessibilityLabel("Close search")
             }
         )
         .onSubmit {
@@ -812,6 +852,24 @@ public struct PaneHeader: View {
             onSearchAdvance?(modifiers.contains(.shift))
         }
     }
+
+    /// How wide the revealed search field is allowed to get.
+    ///
+    /// A cap, not a size, and it exists for two reasons that happen to agree. A search field wider
+    /// than this is harder to read a short query in, not easier — Finder and Mail cap theirs for the
+    /// same reason. And the points it gives back are the pane bar's dead space, which is what makes
+    /// "click somewhere else to stop searching" possible at all: greedy, the field WAS the bar, and
+    /// there was nowhere else to click.
+    ///
+    /// Wide enough for the placeholder, which is the longest string the field ever shows — the
+    /// counter only appears once a query has replaced it, so the two never compete for the room.
+    static let searchFieldMaxWidth: CGFloat = 460
+
+    /// The narrowest the field may be squeezed to. A floor, because the pane split clamps panes at
+    /// 250pt and a field is useless below roughly this — you cannot see the query you are typing.
+    /// At that width the dead zone disappears entirely, which is correct: there is no bar to spare,
+    /// and the ✕ inside the field is then the only way out it needs.
+    static let searchFieldMinWidth: CGFloat = 150
 
     /// Tree | Columns as a two-segment control, built from the same plain buttons as the window's
     /// tab picker: a `Picker(.segmented)` renders neutral inside macOS 26 glass chrome and ignores
