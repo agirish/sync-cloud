@@ -116,6 +116,40 @@ rather than being a second thing to remember. It changes in the same edit as the
 `-dev` build and the release it becomes share a number, which is fine because it identifies the
 version rather than the individual build. **Keep MINOR under 100** or it stops being monotonic.
 
+### Writing the notes, and auditing every claim in them
+
+**The notes are part of the release too.** v2.9 reached the point of being tagged with no notes at
+all, because nothing here said to write them; they exist in two places and both are needed:
+
+- `RELEASE_NOTES.md` — **identical on both lines.** Write it on the line that owns the release and
+  cherry-pick; verify with `cmp`, don't re-edit the second copy.
+- `docs/releases.html` — **`main` only.** GitHub Pages serves `docs/` from `main`, so a section
+  landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one, move the
+  `latest` badge onto it, and give the superseded release the theme tag every other one carries.
+
+**Then audit every claim against the previous tag before publishing.** On v2.9 this killed **six of
+eighteen** drafted entries, and it is one command per claim — did the thing this describes exist at
+the last tag?
+
+```sh
+git grep -l "<symbol>" v2.8 -- Modules SyncCloudCLI MacApp | grep "/Sources/"
+```
+
+- **Five were self-inflicted** — introduced *and* fixed inside the same range, so no user of the
+  previous release was ever exposed to them. Shipping those as "fixes" counts work that never
+  reached anyone.
+- **One was simply false.** It credited a behaviour the previous release already had; the commit
+  behind it had added a *test*. **A commit whose subject is about coverage is not a user-facing
+  fix** — that is the single easiest way to inflate a release.
+- **Two survived a challenge**, and that direction matters as much: a `git blame` proxy had flagged
+  them because the surrounding code was *refactored* in-range, but the behaviour predated it.
+  **A new file does not mean a new bug — check the behaviour, not the file's age.**
+
+Two tells worth knowing. The word **"again"** in a claim ("fits on a small display *again*") usually
+means the release broke it in the first place. And a **short list after a large range** is the
+honest outcome, not a failure of the notes: say what the work actually bought instead of padding —
+v2.9's headline became its test volume, which was the one superlative that survived checking.
+
 ### Cutting it
 
 Releases are cut as tags on the line that owns them — `v2.9` from `v2.x`, `v3.0` from `main`.
