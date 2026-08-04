@@ -88,8 +88,40 @@ struct SyncCloudApp: App {
             // `defaults write com.abhishekgirish.SyncCloud NSWindowAssertWhenDisplayCycleLimitReached -bool YES`.
             // Deliberately NOT registered under tests: CI should still fail loudly if a fixture
             // ever reproduces the runaway, which is the outcome still being hunted.
+            //
+            // **The registration domain really is visible to the read AppKit does** — measured
+            // 2026-08-03, because "it stopped crashing" could not tell a working mitigation from
+            // an inert one. AppKit reads this key through `_NSGetBoolAppConfig`, whose body calls
+            // `-[NSUserDefaults standardUserDefaults]` `objectForKey:`/`boolForKey:` and
+            // `volatileDomainForName:`; there is no `CFPreferences` call on that path, so the
+            // registration domain cannot be invisible to it. Driving AppKit's own
+            // `_NSGetBoolAppConfig` with AppKit's own default-value function for this key answered
+            // YES (raise) unregistered, NO (tolerate) after registering `false`, and YES again
+            // after registering `true` — it tracks the registration domain in both directions.
+            // `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in" has the
+            // method, so this does not get re-litigated from the crash rate again.
             UserDefaults.standard.register(
                 defaults: ["NSWindowAssertWhenDisplayCycleLimitReached": false])
+
+            // Say so in the log. The suppression is app-GLOBAL — every window this process opens,
+            // Settings and Activity Log included, runs without AppKit's runaway-layout guard for
+            // the whole session — and `~/sync-cloud.log` is the only channel that can tell a
+            // support session which build state it is looking at.
+            //
+            // Read back through `bool(forKey:)`, the same accessor AppKit's own read ends in, so
+            // this reports the EFFECTIVE value rather than restating the line above: an explicit
+            // `defaults write` (persistent domain) or a `-NSWindowAssert…` launch argument beats
+            // the registration domain, and then the guard is armed and the crash is live again.
+            let assertKey = "NSWindowAssertWhenDisplayCycleLimitReached"
+            if UserDefaults.standard.bool(forKey: assertKey) {
+                Logger.shared.info(
+                    "[layout-guard] AppKit display-cycle assert is ARMED by an explicit override — "
+                    + "a Columns provider switch can crash this session (docs/columns-layout-loop.md)")
+            } else {
+                Logger.shared.info(
+                    "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; "
+                    + "the Columns layout loop still churns update-constraints passes, it just is not fatal")
+            }
 
             // Say so when the diagnostic walk stall is armed. It makes every walk take seconds,
             // which is indistinguishable in the log from the cold-provider slowness it imitates —
