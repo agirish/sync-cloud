@@ -461,15 +461,26 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // worth a breadcrumb, because `~/sync-cloud.log` is the only channel that can tell a
         // support session which build state it is looking at.
         //
-        // Read back through `bool(forKey:)`, the same accessor AppKit's own read of this key ends
-        // in, so this reports the EFFECTIVE value rather than restating what init asked for: an
-        // explicit `defaults write` (persistent domain) or a launch argument beats the registration
-        // domain, and then the guard is armed and the crash is live again. Under tests nothing is
-        // registered at all, so this correctly reports ARMED — which is the deliberate design, so
-        // CI still fails loudly if a fixture ever reproduces the runaway.
+        // Read back rather than restating what init asked for, so this reports the EFFECTIVE value:
+        // an explicit `defaults write` (persistent domain) or a launch argument beats the
+        // registration domain, and then the guard is armed and the crash is live again.
+        //
+        // **`object(forKey:)` first, and that is not a stylistic choice.** `bool(forKey:)` alone
+        // cannot tell "registered false" from "absent" — it answers `false` to both — whereas
+        // AppKit, absent the key, falls back to its own default-value function, which returns YES
+        // for a modern-linked binary. So a `bool`-only check would report "suppressed" in exactly
+        // the case where AppKit would raise. That case is real: under tests nothing is registered
+        // at all, deliberately, so CI keeps failing loudly if a fixture ever reproduces the
+        // runaway — and this line has to say ARMED there, not the opposite.
+        //
+        // Mirroring AppKit's own order (`objectForKey:` then `boolForKey:`) is what makes the two
+        // agree. See `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in".
         //
         // Here rather than in `App.init` because this fires exactly once; init can be re-run.
-        if UserDefaults.standard.bool(forKey: "NSWindowAssertWhenDisplayCycleLimitReached") {
+        let assertKey = "NSWindowAssertWhenDisplayCycleLimitReached"
+        let assertArmed = UserDefaults.standard.object(forKey: assertKey) == nil
+            || UserDefaults.standard.bool(forKey: assertKey)
+        if assertArmed {
             Logger.shared.info(
                 "[layout-guard] AppKit display-cycle assert is ARMED — a Columns provider switch "
                 + "can crash this session (docs/columns-layout-loop.md)")

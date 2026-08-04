@@ -158,6 +158,22 @@ launch argument has put the crash back. The line sits in the delegate's
 exactly once, while `App.init` can be re-run by SwiftUI, and a diagnostic saying the crash guard is
 off is worth less each time it repeats.
 
+**It reads `object(forKey:)` before `bool(forKey:)`, and that is load-bearing.** `bool(forKey:)`
+answers `false` to both "registered false" and "absent", while AppKit absent the key falls back to
+its default-value function, which returns YES — so a `bool`-only check reports *suppressed* in
+precisely the state where AppKit raises. That state is not hypothetical: nothing is registered
+under tests, deliberately. Checked against AppKit's own `_NSGetBoolAppConfig` across every state,
+which is how the `bool`-only version was caught:
+
+| State | AppKit | `object` then `bool` | `bool` alone |
+|---|---|---|---|
+| absent (as under tests) | ARMED | ARMED | **suppressed — wrong** |
+| `register(false)` — what ships | suppressed | suppressed | suppressed |
+| `register(true)` | ARMED | ARMED | ARMED |
+| `defaults write … -bool YES` | ARMED | ARMED | ARMED |
+
+Mirroring AppKit's own order (`objectForKey:`, then `boolForKey:`) is what makes the two agree.
+
 ## What the churn costs is still unmeasured
 
 The suppression is **app-global and permanent for the session**: every window the process opens —
