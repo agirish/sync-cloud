@@ -118,6 +118,11 @@ enum SettingsSheetMetrics {
     /// of which already read as boundaries — the inset is the cheapest air on the page.
     static let pagePaddingV: CGFloat = 12
 
+    /// A settings page's side inset. Named rather than inline because it is the difference between
+    /// the content COLUMN and the width a control actually gets, which is what
+    /// `theTextSizeRowFitsTheNarrowestColumnAtTheLargestTextSize` measures against.
+    static let pagePaddingH: CGFloat = 18
+
     /// The sheet's size: the base size scaled by the text setting, then clamped to what the host
     /// actually has room for (never below `floorSize`).
     ///
@@ -173,7 +178,7 @@ struct SettingsPage<Content: View>: View {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, SettingsSheetMetrics.pagePaddingH)
             .padding(.vertical, SettingsSheetMetrics.pagePaddingV)
         }
         .scrollBounceBehavior(.basedOnSize)

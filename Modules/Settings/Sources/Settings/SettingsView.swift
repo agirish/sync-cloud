@@ -765,6 +765,7 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(selectedHue)
             }
 
             AccentColorSection(selectedHue: selectedHue,
@@ -778,6 +779,7 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(selectedHue)
             }
 
             SettingsSection(
@@ -823,6 +825,7 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(selectedHue)
             }
 
             // Text size leads List density: the two are the pair that decides how much fits on
@@ -835,6 +838,7 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(selectedHue)
             }
 
             SettingsSection(
@@ -848,6 +852,7 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(selectedHue)
             }
         }
     }
