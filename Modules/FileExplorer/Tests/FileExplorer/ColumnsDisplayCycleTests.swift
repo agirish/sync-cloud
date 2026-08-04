@@ -38,6 +38,19 @@ import Sync
     }
 
     private struct StubDelegate: FileActionDelegate {
+        /// Whether every row carries a risky-name badge. Off by default, which is what the
+        /// PROTOCOL EXTENSION default already gave every fixture here — `riskyNameReason` returning
+        /// nil means no row ever badges, so the badge was untested by all of them.
+        var badgesEveryName = false
+        /// Counts the badges actually handed to rows. Without this the badged arm is vacuous: a
+        /// stub that silently answered nil would measure the pane WITHOUT the feature and report
+        /// "the badge changes nothing", which is the same sentence a real null result produces.
+        var badgesHandedOut: Counter? = nil
+        func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
+            guard badgesEveryName else { return nil }
+            badgesHandedOut?.count += 1
+            return "trailing space"
+        }
         func handleRefresh() {}
         func handleFocus(_ node: FileNode) {}
         func handleCopy(_ nodes: [FileNode]) {}
@@ -54,6 +67,10 @@ import Sync
         func handleIgnore(_ nodes: [FileNode]) {}
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
+
+    /// A reference box, because `FileActionDelegate` conformers here are structs and SwiftUI
+    /// copies them into the view tree.
+    final class Counter: @unchecked Sendable { var count = 0 }
 
     /// The user's stored values, verbatim, from `com.abhishekgirish.SyncCloud` — the configuration
     /// every crash was taken under.
@@ -258,6 +275,8 @@ import Sync
         @ObservedObject var left: PaneBox
         @ObservedObject var right: PaneBox
         let defaults: UserDefaults
+        var badges = false
+        var badgeCounter: Counter? = nil
         /// The host state `onBarEdgeFlip` toggles, exactly as `ContentView` does.
         @State private var leftBarAtTop = false
         @State private var rightBarAtTop = false
@@ -280,7 +299,7 @@ import Sync
                 selection: Binding(get: { box.selection }, set: { box.selection = $0 }),
                 otherSelection: [],
                 isLeft: box.isLeft,
-                delegate: StubDelegate(),
+                delegate: StubDelegate(badgesEveryName: badges, badgesHandedOut: badgeCounter),
                 isSingleSource: false,
                 placement: box.placement,
                 onBarEdgeFlip: { withAnimation(.easeInOut(duration: 0.22)) { barAtTop.wrappedValue.toggle() } },
@@ -295,12 +314,15 @@ import Sync
         }
     }
 
-    private func mountTwoPanes(_ left: PaneBox, _ right: PaneBox, width: CGFloat) -> PassCountingWindow {
+    private func mountTwoPanes(_ left: PaneBox, _ right: PaneBox, width: CGFloat,
+                               badges: Bool = false,
+                               badgeCounter: Counter? = nil) -> PassCountingWindow {
         let defaults = ScratchDefaults("ColumnsDisplayCycleTests-two")
         defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
         defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
-        let host = NSHostingView(rootView: TwoPaneHarness(left: left, right: right, defaults: defaults))
+        let host = NSHostingView(rootView: TwoPaneHarness(left: left, right: right, defaults: defaults, badges: badges,
+                                                          badgeCounter: badgeCounter))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 800)
         let window = PassCountingWindow(contentRect: host.frame, styleMask: [.titled],
                                         backing: .buffered, defer: false)
@@ -323,13 +345,42 @@ import Sync
     /// column is up — then the right pane's provider switch, which is `resetNavigation()`: drop the
     /// tree, clear the browse path, paint the new root.
     @Test func testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget() {
+        let (worst, views) = twoPaneProviderSwitch(badges: false)
+        let detail = "worst display cycle spent \(worst) update-constraints passes against "
+            + "\(views) views; AppKit raises once passes exceed views"
+        #expect(worst < views / 4, "\(detail)")
+    }
+
+    /// The same switch with the **risky-name badge on every row** — the one thing in this pane that
+    /// `main` has and `v2.x` does not (`RiskyNameBadge`, `RiskyNameBadgeCache`), and therefore the
+    /// standing record's strongest lead, since no display-cycle crash has ever been recorded on a
+    /// 2.x build.
+    ///
+    /// It also closes a hole in every fixture here: `FileActionDelegate.riskyNameReason` has a
+    /// protocol-extension default of nil, so a stub that does not override it renders NO badge at
+    /// all, and each arm above was measuring the pane without the feature under suspicion.
+    ///
+    /// The badge takes width beside a name whose `Text` carries no `lineLimit`, which is the shape
+    /// a height oscillation would need. Measured, it does not produce one.
+    @Test func testTheRiskyNameBadgeDoesNotMoveTheDisplayCycleBudget() {
+        let (worst, views) = twoPaneProviderSwitch(badges: true)
+        let detail = "with badges: worst cycle spent \(worst) passes against \(views) views"
+        #expect(worst < views / 4, "\(detail)")
+    }
+
+    /// Both arms' shared body, so the only difference between them is the badge.
+    private func twoPaneProviderSwitch(badges: Bool,
+                                       _ location: SourceLocation = #_sourceLocation)
+    -> (worst: Int, views: Int) {
+        let badgeCounter = Counter()
         let fx = DeepFixture(folders: 12, filesPerFolder: 30)
         let other = DeepFixture(folders: 9, filesPerFolder: 21)
         let left = PaneBox(tree: fx.tree(side: .left, folders: 12, filesPerFolder: 30, version: 1),
                            root: fx.root, isLeft: true)
         let right = PaneBox(tree: fx.tree(side: .right, folders: 12, filesPerFolder: 30, version: 1),
                             root: fx.root, isLeft: false)
-        let window = mountTwoPanes(left, right, width: 1600)
+        let window = mountTwoPanes(left, right, width: 1600, badges: badges,
+                                   badgeCounter: badgeCounter)
         pumpUntilQuiet(window)
 
         // Drill both panes one level and select a file, so each pane is a two-column stack with the
@@ -350,9 +401,16 @@ import Sync
         let views = viewCount(window.contentView!)
         let worst = perTurn.max() ?? 0
         let total = perTurn.reduce(0, +)
-        print("[cycle:two-pane] views=\(views) worst=\(worst) total=\(total) nonzero=\(perTurn.filter { $0 > 0 })")
-        let detail = "worst display cycle spent \(worst) update-constraints passes against "
-            + "\(views) views (total \(total)); AppKit raises once passes exceed views"
-        #expect(worst < views / 4, "\(detail)")
+        print("[cycle:two-pane badges=\(badges)] views=\(views) worst=\(worst) "
+              + "total=\(total) nonzero=\(perTurn.filter { $0 > 0 })")
+        // The arm measured what it claims to have measured.
+        if badges {
+            #expect(badgeCounter.count > 0,
+                    "no row was ever handed a badge — this arm measured the pane WITHOUT it",
+                    sourceLocation: location)
+        } else {
+            #expect(badgeCounter.count == 0, sourceLocation: location)
+        }
+        return (worst, views)
     }
 }

@@ -167,10 +167,24 @@ which is itself worth noting given how much variance the crash rate has:
 |---|---|---|
 | one pane, Columns, the `resetNavigation()` republish | 136 | **3 passes** |
 | two panes in Columns, both drilled, preview up, real `PaneBarPlacement` and the host's `onBarEdgeFlip`, right pane's provider switched | 348 | **7 passes** |
+| the same, with a **risky-name badge on every row** | 348 | **7 passes** — no change at all |
 
 The second is `ContentView.treeView`'s actual composition — `FileTreeView` in columns mode,
 `.equatable()`, the row-bottoms preference feeding a live placement, the edge-flip callback writing
 host state inside `withAnimation` — and not one of those brought it near the budget.
+
+**The third arm exists because of the v3-only evidence at the top of this file.** `RiskyNameBadge`
+and `RiskyNameBadgeCache` are the only files in this pane that `main` has and `v2.x` does not, which
+made the badge the strongest available lead — and the badge takes width beside a name whose `Text`
+carries no `lineLimit`, which is exactly the shape a height oscillation would need. It changes
+nothing: 7 passes either way.
+
+That arm also closed a hole every fixture in this file had. `FileActionDelegate.riskyNameReason`
+carries a **protocol-extension default of nil**, so a test double that does not override it renders
+no badge at all — every measurement here, and every one in the older fixtures, was taken on a pane
+*without* the feature under suspicion. The badged arm asserts a badge was actually handed to a row,
+because "the badge changes nothing" and "the badge was never drawn" otherwise produce the same
+sentence.
 
 **So the fixture still does not reproduce it, and now that is a sharper statement than before**:
 it is not that the harness could not have seen a runaway (this one can), it is that this
@@ -372,5 +386,13 @@ coincides with cycles above the floor, it is one bug, not two.
 
 **What is now known not to be the difference**, from the fixture table above: it is not the number
 of panes, not the drilled column stack, not the preview column, not the fractional stored preview
-width, not the action bar's placement plumbing, and not the `withAnimation` edge flip. Nor is it
-whether the window is on screen.
+width, not the action bar's placement plumbing, not the `withAnimation` edge flip, and not the
+risky-name badge — which was the best v3-only lead there was. Nor is it whether the window is on
+screen.
+
+So the remaining suspects are the things the fixture still does not have: the real
+`PaneActionDelegate` and `FileSyncManager` with its ~56 published properties, the surrounding
+chrome (header ladder, differences bar, action bar overlay, workspace rows), and a provider switch
+that is a real asynchronous load rather than two synchronous assignments. Any of those can be added
+to `ColumnsDisplayCycleTests` one at a time now, and the pass count says immediately whether it
+mattered — which is the point of having built the instrument.
