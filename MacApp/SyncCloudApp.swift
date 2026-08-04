@@ -199,6 +199,10 @@ struct SyncCloudApp: App {
         manager.filingContentExtractor = { path in
             await ContentSignalExtractor.tokens(forFileAt: path)
         }
+        // Storage Lens reports survive launches, so opening the workspace shows the last reading
+        // rather than an empty panel. Storage is the only lens whose RESULTS are restored — see
+        // `StorageLensSnapshot` for why its read-only nature is what makes that safe.
+        manager.storageLensStoreURL = StorageLensStore.defaultURL()
         // The content-hash index survives launches, so Verify and Duplicates stop re-reading
         // gigabytes they already hashed. Enabled here for the same reason as the verdict cache
         // below: `ContentHashCache.shared` is the DEFAULT argument of `findDuplicates` and Verify,

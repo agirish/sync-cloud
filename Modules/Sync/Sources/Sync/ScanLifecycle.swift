@@ -31,6 +31,18 @@ public struct ScanLifecycle: Sendable {
     /// results, and breadcrumbs stay correct if the user navigates elsewhere afterward.
     public internal(set) var root: URL?
 
+    /// When the results currently on screen were produced. Set with them, like ``root``, and the
+    /// clock the freshness readout counts from.
+    ///
+    /// For a restored lens this is the ORIGINAL scan's time, not the time it was reloaded — the
+    /// whole point of showing an age is to say how old the reading is, and stamping it at load
+    /// would make every relaunch claim the results were fresh.
+    public internal(set) var completedAt: Date?
+
+    /// True when the results came off disk rather than from a scan in this session. Drives the
+    /// "from your last scan" wording; a lens that has since been rescanned clears it.
+    public internal(set) var isRestored = false
+
     /// Bumped when a scan starts or ends, so main-actor status/progress hops scheduled by a
     /// finished or cancelled scan drop themselves (see `FileSyncManager.updateScan`) instead of
     /// republishing stale text or numbers.
@@ -88,8 +100,21 @@ extension FileSyncManager {
     /// has-completed flag. Called WITH the results (after the final `Task.isCancelled` check),
     /// never at scan start — the root labels what's on screen, not the in-flight scan.
     func completeScan(_ lens: ReferenceWritableKeyPath<FileSyncManager, ScanLifecycle>,
-                      root: URL?) {
+                      root: URL?, at completedAt: Date = Date()) {
         self[keyPath: lens].root = root
+        self[keyPath: lens].completedAt = completedAt
+        self[keyPath: lens].isRestored = false
+        self[keyPath: lens].hasCompleted = true
+    }
+
+    /// Publishes results that came off disk rather than from a scan. Identical to
+    /// ``completeScan(_:root:at:)`` except that `completedAt` is the ORIGINAL scan's time and the
+    /// restored flag is set, so the UI can say how old the reading is and where it came from.
+    func restoreScan(_ lens: ReferenceWritableKeyPath<FileSyncManager, ScanLifecycle>,
+                     root: URL?, completedAt: Date) {
+        self[keyPath: lens].root = root
+        self[keyPath: lens].completedAt = completedAt
+        self[keyPath: lens].isRestored = true
         self[keyPath: lens].hasCompleted = true
     }
 

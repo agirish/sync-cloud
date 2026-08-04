@@ -20,11 +20,54 @@ extension FileSyncManager {
 
     /// Clears the current report (called when switching providers, so a stale report from one
     /// provider can never be shown under another).
+    ///
+    /// Deliberately does NOT delete the stored snapshot: this runs on an ordinary provider switch,
+    /// and forgetting the other provider's saved report every time the user looked away would make
+    /// restoring nearly useless. ``forgetStoredStorageLens(root:)`` is the explicit erase.
     public func clearStorageLens() {
         storageLensTask?.cancel()
         storageLensReport = nil
         storageLensRoot = nil
+        storageLensLifecycle.completedAt = nil
+        storageLensLifecycle.isRestored = false
         hasBuiltStorageLens = false
+    }
+
+    // MARK: Restore
+
+    /// Where Storage Lens snapshots persist. nil (the default) disables restoring entirely — the
+    /// same injection rule the verdict cache and the hash index follow, so no test and no CLI run
+    /// can read or write the real file.
+    public var storageLensStoreURL: URL? {
+        get { _storageLensStoreURL }
+        set { _storageLensStoreURL = newValue }
+    }
+
+    /// Shows the last saved report for `root`, if there is one, without scanning.
+    ///
+    /// Returns whether anything was restored. Refuses while a build is running and refuses to
+    /// replace results already on screen: a restore is a way to start from something rather than
+    /// nothing, never a way to overwrite something newer.
+    @discardableResult
+    public func restoreStorageLens(root: URL) -> Bool {
+        guard let url = storageLensStoreURL,
+              !isBuildingStorageLens, storageLensReport == nil,
+              let snapshot = StorageLensStore.snapshot(for: root.path, from: url)
+        else { return false }
+        storageLensReport = snapshot.report
+        restoreScan(\.storageLensLifecycle, root: root, completedAt: snapshot.completedAt)
+        // Age in whole minutes rather than through `ScanFreshness`: that lives in Design, and Sync
+        // stays free of the UI modules. The view renders the same instant properly.
+        let ageMinutes = Int(Date().timeIntervalSince(snapshot.completedAt) / 60)
+        Logger.shared.info("Storage Lens: showing the saved report for \(root.lastPathComponent) "
+            + "(scanned \(ageMinutes) minute(s) ago) — re-analyze for current numbers")
+        return true
+    }
+
+    /// Erases the saved report for `root`, or every saved report when `root` is nil.
+    public func forgetStoredStorageLens(root: String? = nil) {
+        guard let url = storageLensStoreURL else { return }
+        StorageLensStore.clearInBackground(root: root, from: url)
     }
 
     /// Walks `root` in full, analyzes it (pure), and publishes the report on the main actor.
@@ -64,7 +107,13 @@ extension FileSyncManager {
         // Published with the results, not at build start: the root labels what's on screen, and a
         // cancelled rebuild of a different folder must not relabel the previous report.
         self.storageLensReport = report
-        completeScan(\.storageLensLifecycle, root: root)
+        let completedAt = Date()
+        completeScan(\.storageLensLifecycle, root: root, at: completedAt)
+        if let url = storageLensStoreURL {
+            StorageLensStore.saveInBackground(
+                StorageLensSnapshot(root: root.path, report: report, completedAt: completedAt),
+                to: url)
+        }
         Logger.shared.info("Storage Lens: analyzed \(root.lastPathComponent) — \(Self.formatBytes(report.totalBytes)) across \(report.treemap.count) area(s), \(report.reclaimCandidates.count) reclaim candidate(s)")
     }
 }

@@ -211,6 +211,18 @@ enum HelpBook {
                 ],
                 related: ["tidy-duplicates", "sync-preferences"]
             )),
+            Topic(id: "storage-lens", title: "See where space goes", systemImage: "chart.pie.fill", article: Article(
+                intro: "Storage maps a folder's biggest areas, ranks its largest and longest-untouched files, and flags large idle ones worth keeping online-only.",
+                blocks: [
+                    .bullets([
+                        "Analyze a folder to get a treemap of where its bytes actually are.",
+                        "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming.",
+                        "Reopening Storage shows your last analysis, with its age beside it — re-analyze for current numbers.",
+                    ]),
+                    .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature."),
+                ],
+                related: ["tidy-duplicates", "file-loose-items"]
+            )),
         ]),
         Section(title: "Settings and more", topics: [
             Topic(id: "providers", title: "Providers and connections", systemImage: "externaldrive", article: Article(

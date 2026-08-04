@@ -534,10 +534,31 @@ public struct TidyView: View {
         // `lens`, deliberately, NOT `effectiveLens`: Organize showing its risky names is still
         // Organize. A title that flipped to "Rename" would re-announce the place this change
         // removed, and would make a filter look like a navigation.
-        Text(lens.title)
-            .scaledFont(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.primary)
-            .accessibilityAddTraits(.isHeader)
+        HStack(spacing: 4) {
+            Text(lens.title)
+                .scaledFont(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .accessibilityAddTraits(.isHeader)
+            // The lens's explanation and safety contract, one click away in EVERY state — not just
+            // before the first scan, which is the only moment the empty state exists. On the
+            // LEADING side because row 1's trailing half is already spoken for by the lens actions
+            // and the search toggle.
+            if let intro = currentLensIntro {
+                LensIntroButton(intro: intro, tint: glassHue.accentColor)
+            }
+        }
+    }
+
+    /// The explanation for whichever lens is showing, or nil for the ones that do not have a
+    /// pre-scan intro of their own (Automations authors rules rather than scanning; Rename is a
+    /// facet of Organize's scan and shares its contract).
+    private var currentLensIntro: LensIntro? {
+        switch lens {
+        case .duplicates: return LensIntros.duplicates(providerName: providerName)
+        case .filing:     return LensIntros.organize(scanTargetName: scanTargetName)
+        case .storage:    return LensIntros.storage(providerName: providerName)
+        case .rename, .automations: return nil
+        }
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
@@ -1010,7 +1031,41 @@ public struct TidyView: View {
                 StatPill(count: report.reclaimCandidates.count, label: "to reclaim",
                          color: SemanticColor.success, systemImage: "internaldrive")
             }
+            storageFreshnessPill
         }
+    }
+
+    /// How old the numbers are, shown only for a report that came off disk.
+    ///
+    /// Restoring Storage means the first thing you see after a launch is a set of figures produced
+    /// at some earlier time, and every one of them — total size, largest files, reclaim candidates
+    /// — may have moved since. Saying so is the condition on which restoring is honest at all.
+    /// A report produced by a scan in this session needs no such marker: you watched it happen.
+    ///
+    /// `ScanFreshness` supplies the wording, the one-hour stale threshold, and — the part that
+    /// matters most — the SPOKEN form, which says "may be out of date" outright. Colour alone
+    /// carrying a staleness warning is exactly what the contrast work around this vocabulary
+    /// exists to avoid.
+    @ViewBuilder
+    private var storageFreshnessPill: some View {
+        if syncManager.storageLensLifecycle.isRestored,
+           let completedAt = syncManager.storageLensLifecycle.completedAt {
+            // Scoped tightly to the pill, following the differences bar: a `TimelineView` re-runs
+            // the closure it wraps, so wrapping any more of the header than the run whose text
+            // actually changes would re-render the whole row every 30 seconds for nothing.
+            TimelineView(.periodic(from: completedAt, by: 30)) { context in
+                storageFreshnessPill(ScanFreshness.describe(scanDate: completedAt, now: context.date))
+            }
+        }
+    }
+
+    private func storageFreshnessPill(_ freshness: ScanFreshness.Result) -> some View {
+        Pill(.standard,
+             tint: freshness.isStale ? SemanticColor.warning : .secondary,
+             systemImage: "clock.arrow.circlepath",
+             text: freshness.text)
+            .help("These are the numbers from your last analysis of this folder, not a live reading. Re-analyze for current ones.")
+            .accessibilityLabel("Saved report, \(freshness.spoken)")
     }
 
     /// Credits a completed resolve to the session tally and flashes the reclaim pill (H5). Called only
@@ -1223,13 +1278,16 @@ public struct TidyView: View {
 
     private var introState: some View {
         // The L4 gold-standard template (EmptyStateView): provider named in the title, the job
-        // in the message, the safety contract in the caption, one primary button.
-        EmptyStateView(
-            icon: "wand.and.stars",
+        // in the message, the safety contract in the caption, one primary button. The words come
+        // from `LensIntros` so the header's ⓘ shows the same explanation once results exist and
+        // this state is gone.
+        let intro = LensIntros.duplicates(providerName: providerName)
+        return EmptyStateView(
+            icon: intro.icon,
             tint: glassHue.accentColor,
-            title: "Find duplicates in \(providerName ?? "this provider")",
-            message: "Scan this provider for folders and files that repeat across the tree — then collapse them into one.",
-            caption: "Nothing is removed without your confirmation, and everything is undoable.",
+            title: intro.title,
+            message: intro.message,
+            caption: intro.safety,
             primary: .init("Find Duplicates", systemImage: "wand.and.stars", handler: onFindDuplicates)
         )
     }
@@ -1486,12 +1544,13 @@ public struct TidyView: View {
     private var filingIntroState: some View {
         // Brought up to the L4 template like the Duplicates intro: name the target, explain
         // the job, put the safety contract in the caption, one primary button.
-        EmptyStateView(
-            icon: FilingGlyph.lens,
+        let intro = LensIntros.organize(scanTargetName: scanTargetName)
+        return EmptyStateView(
+            icon: intro.icon,
             tint: glassHue.accentColor,
-            title: "File loose files in \(scanTargetName)",
-            message: "Suggest where the files sitting loose in this folder belong — reusing the folders you already keep, and proposing new ones only when it's sure.",
-            caption: "Nothing moves without your say-so, and every move is undoable.",
+            title: intro.title,
+            message: intro.message,
+            caption: intro.safety,
             primary: .init("Suggest homes", systemImage: FilingGlyph.lens, handler: onFindFilingSuggestions)
         )
     }

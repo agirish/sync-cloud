@@ -652,7 +652,19 @@ struct ContentView: View {
         // above don't cover the no-selection case.
         .onChange(of: leftProviderId) { _, _ in infoPath = nil }
         .onChange(of: rightProviderId) { _, _ in infoPath = nil }
-        .onChange(of: selectedWorkspace) { _, _ in infoPath = nil }
+        .onChange(of: selectedWorkspace) { _, workspace in
+            infoPath = nil
+            // Opening Storage with nothing on screen shows the last saved report for this root
+            // rather than an empty panel. `restoreStorageLens` declines if a build is running or
+            // results already exist, so this is safe to fire on every visit to the workspace —
+            // it can only ever replace nothing.
+            if workspace == .storage {
+                let root = tidyScanRootExpanded
+                if !root.isEmpty {
+                    syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
+                }
+            }
+        }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in

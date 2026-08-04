@@ -292,6 +292,9 @@ public class FileSyncManager: ObservableObject {
 
     /// The Storage Lens build lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
     @Published public internal(set) var storageLensLifecycle = ScanLifecycle()
+    /// Backing storage for ``storageLensStoreURL``, which lives on the extension and so cannot
+    /// declare a stored property of its own.
+    var _storageLensStoreURL: URL?
     /// The most recent Storage Lens report (treemap + ranked lists) for one provider subtree.
     @Published public var storageLensReport: StorageLensReport?
     /// True while a Storage Lens build (walk + analyze) is running.

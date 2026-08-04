@@ -87,12 +87,13 @@ struct StorageLensView: View {
     // MARK: Intro / building states
 
     private var introState: some View {
-        EmptyStateView(
-            icon: "chart.pie.fill",
+        let intro = LensIntros.storage(providerName: providerName)
+        return EmptyStateView(
+            icon: intro.icon,
             tint: glassHue.accentColor,
-            title: "See where your space goes in \(providerName ?? "this provider")",
-            message: "Analyze this folder to map its biggest areas, list the largest and longest-untouched files, and flag large files worth making online-only.",
-            caption: "Read-only: Storage Lens never moves, deletes, or evicts anything — the “Offload” button just reveals a file in Finder.",
+            title: intro.title,
+            message: intro.message,
+            caption: intro.safety,
             primary: .init("Analyze storage", systemImage: "chart.pie.fill", handler: onBuild)
         )
     }

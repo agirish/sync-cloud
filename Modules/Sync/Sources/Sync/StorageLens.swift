@@ -5,7 +5,7 @@ import Foundation
 /// One rounded area in the Storage Lens treemap — a top-level folder (or the synthetic "Files"
 /// bucket for loose top-level files, or the folded "Other" tail). `bytes` is the recursive
 /// rolled-up size of every leaf file beneath it.
-public struct TreemapNode: Sendable, Equatable, Hashable {
+public struct TreemapNode: Codable, Sendable, Equatable, Hashable {
     public let name: String
     /// Absolute path of the folder this area represents. Empty for the synthetic "Files"/"Other"
     /// buckets, which have no single on-disk home.
@@ -20,7 +20,7 @@ public struct TreemapNode: Sendable, Equatable, Hashable {
 }
 
 /// One file row in a Storage Lens ranked list (largest / stale / reclaim candidates).
-public struct StorageEntry: Identifiable, Sendable, Equatable, Hashable {
+public struct StorageEntry: Identifiable, Codable, Sendable, Equatable, Hashable {
     /// Absolute filesystem path — the row's identity.
     public let path: String
     public var id: String { path }
@@ -40,7 +40,7 @@ public struct StorageEntry: Identifiable, Sendable, Equatable, Hashable {
 
 /// The full "where does my space go?" picture for one scanned root: a treemap of top areas plus
 /// three ranked file lists. Purely descriptive — nothing here mutates the user's files.
-public struct StorageLensReport: Sendable, Equatable {
+public struct StorageLensReport: Codable, Sendable, Equatable {
     /// Top folders (and a synthetic "Files"/"Other" bucket) by rolled-up size, largest first.
     public let treemap: [TreemapNode]
     /// Biggest individual files, largest first.
