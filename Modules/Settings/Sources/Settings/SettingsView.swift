@@ -1087,6 +1087,12 @@ struct ProviderSettingsSection: View {
     @FocusState private var nameFieldFocused: Bool
     @FocusState private var pathFieldFocused: Bool
 
+    /// The display name of the source that already owns a folder this row's Location edit was
+    /// refused for, or nil when the last commit was accepted. Drives the line under the field —
+    /// the refusal has to say *which* source holds the folder, because "that didn't work" leaves
+    /// the user re-typing the same path.
+    @State private var refusedDuplicateOwner: String?
+
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
     }
@@ -1146,6 +1152,8 @@ struct ProviderSettingsSection: View {
             .onAppear {
                 pathDraft.adopt(provider.path)
                 draftName = provider.displayName
+                // A refusal is about one edit, not about the row. Re-mounting starts clean.
+                refusedDuplicateOwner = nil
             }
             .onChange(of: provider.path) { _, updated in
                 pathDraft.adoptExternalChange(to: updated, isEditing: pathFieldFocused)
@@ -1181,6 +1189,16 @@ struct ProviderSettingsSection: View {
                         // full width still hides its tail. The tooltip is the backstop — the same
                         // answer the ignored-items list already uses for long root-relative paths.
                         .help(pathDraft.value)
+
+                    // Only ever set for a folder source, and cleared by the next accepted commit.
+                    if let owner = refusedDuplicateOwner {
+                        Text("That folder is already \(owner). One folder gets one source.")
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel(
+                                "Location not changed. That folder is already \(owner).")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .disabled(!isEnabled)
@@ -1272,7 +1290,18 @@ struct ProviderSettingsSection: View {
         let normalized = ProviderFieldEdit.normalized(pathDraft.value)
         pathDraft.value = normalized
         guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.path) else { return }
-        settings.setPath(normalized, for: provider.id)
+        switch settings.setPath(normalized, for: provider.id) {
+        case .changed, .unchanged:
+            refusedDuplicateOwner = nil
+        case .refusedDuplicate(let existingId):
+            // Put the field back to what the source actually points at. Nothing was written, so no
+            // `onChange(of: provider.path)` is coming to do it — and leaving the refused text in
+            // place would show a Location this source does not have.
+            refusedDuplicateOwner = settings.availableProviders
+                .first { $0.id == existingId }
+                .map { "\($0.displayName)'s folder" } ?? "another source's folder"
+            pathDraft.adopt(provider.path)
+        }
     }
 
     private func commitName() {

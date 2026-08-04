@@ -231,6 +231,122 @@ import Sync
         #expect(manager(defaults).folderSources.first?.path == "/Users/u/Archive")
     }
 
+    // MARK: Moving one onto a folder that is already taken
+
+    /// The other door onto "one folder gets one row". `addFolderSource` refuses to mint a second
+    /// row for one folder by selecting the first; `setPath` shipped with no check at all, so
+    /// editing a Location was a way to make exactly the duplicate the add door prevents.
+    @MainActor
+    @Test func movingAFolderSourceOntoAnotherSourcesFolderIsRefused() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults)
+        let projects = settings.addFolderSource(path: "/Users/u/Projects")
+        let archive = settings.addFolderSource(path: "/Users/u/Archive")
+        await settings.discoverProviders()
+
+        let outcome = settings.setPath("/Users/u/Projects", for: archive)
+
+        #expect(outcome == .refusedDuplicate(existingId: projects))
+        #expect(settings.folderSources.count == 2, "still two sources, not two rows for one folder")
+        #expect(settings.path(for: archive) == "/Users/u/Archive", "and the refused one did not move")
+        // The refusal has to survive a relaunch too — i.e. nothing was written on the way out.
+        // No tildes here: these fixtures live under `/Users/u`, which is nobody's real home, so
+        // `FolderSource.abbreviated` has nothing to fold.
+        #expect(manager(defaults).folderSources.map(\.path)
+                == ["/Users/u/Projects", "/Users/u/Archive"])
+    }
+
+    /// Case-insensitivity holds on this door as well: the default macOS volume makes these one
+    /// folder, so spelling the collision differently must not slip past.
+    @MainActor
+    @Test func movingOntoAnotherSourcesFolderIsRefusedCaseInsensitively() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults)
+        let projects = settings.addFolderSource(path: "/Users/u/Projects")
+        let archive = settings.addFolderSource(path: "/Users/u/Archive")
+        await settings.discoverProviders()
+
+        #expect(settings.setPath("/users/u/projects/", for: archive)
+                == .refusedDuplicate(existingId: projects))
+        #expect(settings.path(for: archive) == "/Users/u/Archive")
+    }
+
+    /// A cloud account knows things about its folder that a plain folder source would throw away —
+    /// its name rules, its date behaviour. `addFolderSource` refuses to shadow one; so must this.
+    /// Left unchecked, a Location edit was a way to get a `.localFolder` row over a real account,
+    /// silently swapping that account's ruleset for the folder default.
+    @MainActor
+    @Test func movingAFolderSourceOntoACloudAccountsRootIsRefused() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults, cloudStorage: [dropboxAccount])
+        let archive = settings.addFolderSource(path: "/Users/u/Archive")
+        await settings.discoverProviders()
+        let dropboxPath = settings.path(for: "Dropbox")
+
+        let outcome = settings.setPath(dropboxPath, for: archive)
+
+        #expect(outcome == .refusedDuplicate(existingId: "Dropbox"))
+        #expect(settings.path(for: archive) == "/Users/u/Archive")
+        #expect(settings.nameRuleType(for: "Dropbox") == .dropBox,
+                "the account keeps its own ruleset — the shadowing row is what would have taken it")
+    }
+
+    /// The skip that makes the check usable: a source necessarily names its own folder, so without
+    /// `ignoring:` every edit would refuse itself. Re-spelling a path in place still lands.
+    @MainActor
+    @Test func respellingASourcesOwnPathIsNotRefusedAsADuplicateOfItself() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults)
+        let id = settings.addFolderSource(path: "/Users/u/Projects")
+        await settings.discoverProviders()
+
+        #expect(settings.setPath("/users/u/projects", for: id) == .changed)
+        #expect(settings.folderSources.first?.path == "/users/u/projects")
+    }
+
+    /// Nesting stays legitimate on this door too — only an exact repeat is refused, exactly as on
+    /// the add door. `~` and `~/Projects` are both reasonable things to point a source at.
+    @MainActor
+    @Test func movingAFolderSourceUnderAnotherSourceIsStillAllowed() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults)
+        let parent = settings.addFolderSource(path: "/Users/u")
+        let other = settings.addFolderSource(path: "/Users/u/Archive")
+        await settings.discoverProviders()
+
+        #expect(settings.setPath("/Users/u/Projects", for: other) == .changed)
+        #expect(settings.path(for: parent) == "/Users/u", "the parent is untouched")
+        #expect(settings.folderSources.count == 2)
+    }
+
+    /// Re-pointing a discovered ACCOUNT is deliberately left unrestricted. The invariant is about
+    /// folder sources; refusing to let someone aim Dropbox at a folder they had also added would be
+    /// a new rule rather than this fix, and `setPath` says so.
+    @MainActor
+    @Test func repointingACloudAccountOntoAFolderSourceIsStillAllowed() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults, cloudStorage: [dropboxAccount])
+        settings.addFolderSource(path: "/Users/u/Projects")
+        await settings.discoverProviders()
+
+        #expect(settings.setPath("/Users/u/Projects", for: "Dropbox") == .changed)
+    }
+
+    /// A no-op edit reports itself as one rather than as an acceptance, so the field's refusal
+    /// message is cleared by a blur that committed nothing.
+    @MainActor
+    @Test func recommittingTheSamePathIsUnchanged() async {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let settings = manager(defaults)
+        let id = settings.addFolderSource(path: "/Users/u/Projects")
+        await settings.discoverProviders()
+
+        // The same folder spelled with a trailing slash: `abbreviated` standardizes it back to the
+        // stored value, so there is nothing to write.
+        #expect(settings.setPath("/Users/u/Projects/", for: id) == .unchanged)
+        #expect(settings.setPath("", for: id) == .unchanged)
+    }
+
     // MARK: The name ruleset a folder borrows
 
     @MainActor

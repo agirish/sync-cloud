@@ -3,6 +3,22 @@ import Foundation
 import SwiftUI
 import Sync
 
+/// What `SettingsManager.setPath` did with a Location edit.
+///
+/// Exists so a refusal is something the caller can *see*. The Location field commits on Return and
+/// on focus-loss, so a `setPath` that quietly declined would leave the rejected text sitting in the
+/// field looking accepted — the user's next read of that row would be wrong, and nothing on screen
+/// would say why.
+public enum PathChangeOutcome: Equatable, Sendable {
+    /// The new path was stored.
+    case changed
+    /// Nothing to do: that is already this provider's path, or the edit was empty.
+    case unchanged
+    /// Refused, because `existingId` already names that folder and one folder gets one row.
+    /// Only a folder source is ever refused — see `setPath` for why an account is not.
+    case refusedDuplicate(existingId: String)
+}
+
 /// Manages the discovery and customization of Cloud Providers available to the application.
 /// Interfaces with `UserDefaults` to persist custom path overwrites per provider.
 @MainActor
@@ -179,19 +195,13 @@ public class SettingsManager: ObservableObject {
     @discardableResult
     public func addFolderSource(path: String) -> String {
         let normalized = FolderSource.abbreviated(path)
-        // `folderSources` FIRST, and not `availableProviders` alone: discovery is async and stats
-        // network-backed CloudStorage mounts, so the published list lags this one by however long
-        // that takes. Consulting only what has been published would mint a second row for one
-        // folder in exactly that window — two adds in a row, no wait between them, which is what
-        // a double-click on Add Folder… is.
-        if let existing = folderSources.first(where: { FolderSource.sameFolder($0.path, normalized) }) {
-            Logger.shared.info("Folder source already exists for \(normalized): selecting \(existing.id)")
-            return existing.id
-        }
-        // Then the discovered accounts, which is the other thing a chosen path can already be.
-        if let existing = availableProviders.first(where: { FolderSource.sameFolder($0.path, normalized) }) {
-            Logger.shared.info("\(normalized) is already \(existing.id)'s root: selecting it")
-            return existing.id
+        if let existing = existingSource(naming: normalized) {
+            if FolderSource.isFolderSourceId(existing) {
+                Logger.shared.info("Folder source already exists for \(normalized): selecting \(existing)")
+            } else {
+                Logger.shared.info("\(normalized) is already \(existing)'s root: selecting it")
+            }
+            return existing
         }
         let source = FolderSource.new(path: normalized)
         Logger.shared.info("User added folder source \(source.path) (\(source.id))")
@@ -200,6 +210,42 @@ public class SettingsManager: ObservableObject {
             await discoverProviders()
         }
         return source.id
+    }
+
+    /// The id of the source that already names `path`, or nil when nothing does — the one place
+    /// the "one folder gets one row" invariant is decided.
+    ///
+    /// **Both doors onto a folder source's path go through this**, which is the point of it
+    /// existing: `addFolderSource` answers what it finds by *selecting* it, and `setPath` answers
+    /// by *refusing the move*. They disagreed once — `setPath` shipped with no check at all, so
+    /// editing a Location could mint the second row for one folder that `addFolderSource` is
+    /// careful never to mint, or point a plain folder at a cloud account's own root and throw away
+    /// the name rules and date behaviour that account carries. Prose in two places did not keep
+    /// them in step; one function does.
+    ///
+    /// Order is load-bearing. `folderSources` is consulted FIRST, and not `availableProviders`
+    /// alone: discovery is async and stats network-backed CloudStorage mounts, so the published
+    /// list lags this one by however long that takes. Consulting only what has been published
+    /// would mint a second row for one folder in exactly that window — two adds in a row with no
+    /// wait between them, which is what a double-click on Add Folder… is.
+    ///
+    /// - Parameter ignoring: A source id to skip. `setPath` passes the source being moved, which
+    ///   necessarily names its own current folder and would otherwise refuse every edit. It has to
+    ///   be skipped in **both** lists, not just the first: `mapProviders` appends the folder
+    ///   sources to `availableProviders`, so a source appears in both.
+    private func existingSource(naming path: String, ignoring ignoredId: String? = nil) -> String? {
+        if let existing = folderSources.first(where: {
+            $0.id != ignoredId && FolderSource.sameFolder($0.path, path)
+        }) {
+            return existing.id
+        }
+        // Then the discovered accounts, which is the other thing a chosen path can already be.
+        if let existing = availableProviders.first(where: {
+            $0.id != ignoredId && FolderSource.sameFolder($0.path, path)
+        }) {
+            return existing.id
+        }
+        return nil
     }
 
     /// Removes a folder source and everything keyed to it — its name override, its enabled state.
@@ -590,23 +636,44 @@ public class SettingsManager: ObservableObject {
     }
 
     /// Persists a custom absolute path mapping for a specific provider ID, dropping the system default.
+    ///
+    /// Moving a **folder source** onto a folder some other source already names is refused rather
+    /// than written, because one folder gets one row — see `existingSource(naming:ignoring:)`,
+    /// which is where that is decided for this and for `addFolderSource` alike. The caller is told
+    /// so it can put the field back; a silent no-op would read as the edit having been lost.
+    ///
+    /// Re-pointing a **discovered account** is deliberately unrestricted, exactly as before. The
+    /// invariant is about folder sources, which exist only because the user said so; an account's
+    /// Location is a mapping onto machinery that already owns that folder's identity, and refusing
+    /// to let someone aim Dropbox at a folder they had also added as a source would be a new rule,
+    /// not this fix.
+    ///
     /// - Parameters:
     ///   - path: The new folder target path.
     ///   - providerId: The targeted provider ID.
-    public func setPath(_ path: String, for providerId: String) {
+    /// - Returns: What happened, so a caller holding an editable field can reflect it.
+    @discardableResult
+    public func setPath(_ path: String, for providerId: String) -> PathChangeOutcome {
         // A folder source has no discovered default, so there is nothing for an override to sit on
         // top of: its stored path IS its path. Writing an override here instead would leave the
         // list holding the old path and the provider the new one — two truths, and Remove would
         // clear only one of them.
         if let index = folderSources.firstIndex(where: { $0.id == providerId }) {
             let normalized = FolderSource.abbreviated(path)
-            guard !path.isEmpty, normalized != folderSources[index].path else { return }
+            guard !path.isEmpty, normalized != folderSources[index].path else { return .unchanged }
+            // `ignoring:` is this source itself — it names its own folder, and without the skip
+            // every edit would refuse itself.
+            if let existing = existingSource(naming: normalized, ignoring: providerId) {
+                Logger.shared.info(
+                    "Refused to move folder source \(providerId) to \(normalized): already \(existing)'s folder")
+                return .refusedDuplicate(existingId: existing)
+            }
             Logger.shared.info("User moved folder source \(providerId) to \(normalized)")
             folderSources[index].path = normalized
             Task {
                 await discoverProviders()
             }
-            return
+            return .changed
         }
         if path.isEmpty {
             Logger.shared.info("User cleared custom path mapping for provider: \(providerId)")
@@ -618,6 +685,7 @@ public class SettingsManager: ObservableObject {
         Task {
             await discoverProviders()
         }
+        return .changed
     }
 
     /// Persists a custom display name for a provider (e.g. renaming "Google Drive
