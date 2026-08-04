@@ -463,7 +463,9 @@ now says so directly.
 ### How to take the next step
 
 Arm the trace, then **click into a column in the right pane before switching the provider** — the
-drill is the part that matters, not the switch:
+drill is the part that matters, not the switch. Expect to need several attempts: the same drill has
+since been measured settling in 64.5 ms with no cycle at all, so a quiet one does not mean the
+configuration is wrong (see "The click is NECESSARY, not sufficient").
 
 ```sh
 defaults write com.abhishekgirish.SyncCloud displayCycleTraceEnabled -bool YES
@@ -479,7 +481,9 @@ than by counting survivals.
 The click the scripted route cannot make was made by hand, with the trace armed. It reproduced
 twice in twenty seconds, and this time both occurrences are *attributable*.
 
-**A column drill alone reproduces it. No provider switch is involved.**
+**A column drill alone reproduces it. No provider switch is involved.** (Not every time — see
+"The click is NECESSARY, not sufficient" below, where the same drill into the same folder settled in
+64.5 ms with no cycle at all. The click is required; something else varies.)
 
 ```
 07:13:33.069  [columns] right pane depth 1 → 2 at Finance/US        ← a drill, i.e. a CLICK
@@ -508,6 +512,54 @@ the walk at 40 ms. A 174-node publish cannot take three seconds for any reason e
 stuck in layout. Together with `WalkStall` (slow walks armed, zero churn) the direction is settled:
 **the runaway makes the publish slow; the slow walk never made the runaway.** Cold providers
 correlated because those sessions involved more clicking.
+
+### The click is NECESSARY, not sufficient — the same drill, quiet (2026-08-04, 11:41)
+
+**"A column drill alone reproduces it" is too strong, and the counter-example is the same drill into
+the same folder on the same day.** Read this before concluding a candidate fix worked, because a
+quiet drill is now a thing that happens on unmodified code.
+
+Installed `3.0` / build 300, trace armed, both panes in Columns, preview column up at the stored
+fractional width (502.36) — the full configuration. Provider switched with the **picker** (a real
+click), then drilled by hand: right pane 0→1→2→3→4 through `Finance/US/Bank Accounts/Charles
+Schwab`, left pane 0→1→2 through `Fitness/Swimming`. Eight clicks in eleven seconds.
+
+| | 07:13 (ran away) | 11:41 (quiet) |
+|---|---|---|
+| the drill | `right pane depth 1 → 2 at Finance/US` | **the same** |
+| `press→settled` | **4676.7 ms** | **64.5 ms** |
+| cycle in that second | 3615 passes / 560 views | **none logged** |
+| session worst, main window | 3615 | 90 / 497 views (18% of budget) |
+| clicks that session | — | n=8, median 115 ms, max 191.7 ms |
+
+**Warmth is not the discriminator, and this was checked rather than assumed** — it is the obvious
+hypothesis and it is wrong. The 07:13 session that ran away was *also* warm: `walked 38461 nodes
+(walk 433.2 ms)` at 07:11, and 36–74 ms for the 174-node tree throughout. Today's drill ran on
+`walk 837.7 ms` / 38,461 nodes and `walk 845.9 ms` / 37,640. Both sessions warm; one ran away and
+one did not. Do not re-run the cold-start experiment expecting this to be the answer.
+
+**The no-click baseline, for comparison.** Immediately before the manual run, 13 provider switches
+were driven through `defaults write` alone — six settled 12 s apart, six rapid 2 s apart, no
+interaction of any kind — in the same configuration. Three cycles cleared the reporting floor
+(45/327, 54/327, 90/497 views); none came close to budget. So the scripted route still produces
+*elevated* churn and not a runaway, exactly as recorded above, and the click remains necessary.
+
+**What this changes.** The click is a precondition, not a trigger: something else has to be true as
+well, and it varies between sessions minutes apart on identical code. Two differences are visible in
+the log and neither has been controlled:
+
+- **Window size.** The runaway was measured at **560 views**; every cycle in the quiet session was at
+  175–497, and during the drill itself nothing cleared the floor at all (which at 176 views means
+  fewer than 22 passes). The reporting rule is a *fraction* of view count, so a smaller window both
+  raises the bar and may genuinely have less to churn. Record the window size next time.
+- **Which pane holds the big provider.** At 07:11 the large tree was on the **right** (38,461) and
+  the small one on the left (174). At 11:41 both panes were large (38,461 left / 37,640 right).
+
+**Methodological note, and the reason this entry exists at all.** A quiet run used to be an
+unrecorded non-event — nothing to write down but "it didn't crash", which this file already explains
+has almost no power. With the trace armed it is a *number*: worst 90 passes against a 497-view
+budget. That is what makes this a data point rather than folklore, and it is why a candidate fix
+must be judged on the pass count falling, never on a session that happened not to churn.
 
 ### The tracking-loop asymmetry — tried, and FALSIFIED
 
