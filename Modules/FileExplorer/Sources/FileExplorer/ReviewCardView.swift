@@ -258,7 +258,10 @@ struct ReviewCardView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.hoverAffordance(.segment, tint: accent))
-                .help("Quick Look the copy being \(session.isMove ? "moved" : "copied") (space) — right-click the row for the other side")
+                .shortcutKeycap("␣")
+                .help(ShortcutHint.tooltip(
+                    "Quick Look the copy being \(session.isMove ? "moved" : "copied") — right-click the row for the other side",
+                    "␣"))
             }
             if model.canVerify {
                 Button {
@@ -279,54 +282,9 @@ struct ReviewCardView: View {
                     .controlSize(.small)
             }
             Spacer()
-            keyHints(model: model)
+            ReviewKeyHints(primaryVerb: model.primaryVerb)
         }
         .buttonBorderShape(.capsule)
-    }
-
-    /// The mockup's key-cap hint row: bordered key chips with plain-text verbs between.
-    private func keyHints(model: ReviewCardModel) -> some View {
-        HStack(spacing: 5) {
-            keyCap("return")
-            hintVerb(model.primaryVerb.lowercased())
-            hintDot()
-            keyCap("⌫")
-            hintVerb("skip")
-            hintDot()
-            keyCap("space")
-            hintVerb("quick look")
-            hintDot()
-            keyCap("esc")
-            hintVerb("exit")
-        }
-    }
-
-    private func keyCap(_ symbol: String) -> some View {
-        Text(symbol)
-            .scaledFont(.caption2.monospaced())
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(.quaternary.opacity(0.4))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            )
-    }
-
-    private func hintVerb(_ text: String) -> some View {
-        Text(text)
-            .scaledFont(.caption2)
-            .foregroundStyle(.tertiary)
-    }
-
-    private func hintDot() -> some View {
-        Text("·")
-            .scaledFont(.caption2)
-            .foregroundStyle(.quaternary)
     }
 
     // MARK: Actions
@@ -444,5 +402,84 @@ struct ReviewCardView: View {
             }
             return facts
         }.value
+    }
+}
+
+/// The review card's key-cap hint row: bordered key chips with plain-text verbs between.
+///
+/// Permanent until now, which made it teaching clutter after the first session — the review card
+/// was the one surface in the app that shouted its shortcuts at everyone, forever. It joins the
+/// ⌥-hold reveal instead: **empty by default, keycaps only while ⌥ is held.**
+///
+/// Hidden with `.opacity`, deliberately, and not by branching the row out of the layout. The card
+/// must not resize when ⌥ goes down — a card that grew a row under a settled pointer would move
+/// the Copy button out from under it, mid-review, which is the one thing this feature promises
+/// never to do. Opacity reserves the row's full footprint in both states, so there is no height to
+/// gain and no width for the enclosing `Spacer` to redistribute.
+///
+/// Zero opacity does not remove a view from the accessibility tree, and that is the behaviour we
+/// want rather than one to work around: the visual gating declutters the screen, and a VoiceOver
+/// user — who has no ⌥ hold to discover — still hears the keys.
+///
+/// **Its own type rather than a method on the card, so the reservation can be measured.** Inside
+/// the card this row sits in an `HStack` with the action buttons, which are taller than it is —
+/// so removing it entirely changes the card's height by nothing at all, and a card-level test of
+/// the invariant passes whatever this code does. `ReviewCardShortcutRevealTests` hosts this view
+/// directly for that reason; the first version of that file measured the card and proved nothing.
+struct ReviewKeyHints: View {
+    /// "Copy" or "Move" — whichever verb ⏎ currently performs.
+    let primaryVerb: String
+
+    @Environment(\.shortcutRevealActive) private var isShortcutRevealActive
+
+    var body: some View {
+        row
+            .opacity(isShortcutRevealActive ? 1 : 0)
+            .animation(.easeOut(duration: 0.12), value: isShortcutRevealActive)
+    }
+
+    /// The row at full strength, which is also what the reserved footprint is measured against.
+    var row: some View {
+        HStack(spacing: 5) {
+            keyCap("return")
+            hintVerb(primaryVerb.lowercased())
+            hintDot()
+            keyCap("⌫")
+            hintVerb("skip")
+            hintDot()
+            keyCap("space")
+            hintVerb("quick look")
+            hintDot()
+            keyCap("esc")
+            hintVerb("exit")
+        }
+    }
+
+    private func keyCap(_ symbol: String) -> some View {
+        Text(symbol)
+            .scaledFont(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(.quaternary.opacity(0.4))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+    }
+
+    private func hintVerb(_ text: String) -> some View {
+        Text(text)
+            .scaledFont(.caption2)
+            .foregroundStyle(.tertiary)
+    }
+
+    private func hintDot() -> some View {
+        Text("·")
+            .scaledFont(.caption2)
+            .foregroundStyle(.quaternary)
     }
 }

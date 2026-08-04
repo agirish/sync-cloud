@@ -194,7 +194,8 @@ public struct SettingsView: View {
                 CloseButton(action: onClose)
                     // Escape closes the overlay even when focus is elsewhere in the card.
                     .keyboardShortcut(.cancelAction)
-                    .help("Close settings")
+                    .shortcutKeycap("esc", alignment: .center)
+                    .help(ShortcutHint.tooltip("Close settings", "esc"))
             }
             .padding(.horizontal, 16)
             // Fixed rather than padding-derived: the content opening below is computed as
@@ -2010,7 +2011,7 @@ struct FilingSpendHistorySheet: View {
             HStack {
                 Text("Cloud Filing Spend").scaledFont(.headline)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎")
             }
             .padding()
             Divider()

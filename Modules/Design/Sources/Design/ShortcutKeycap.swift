@@ -153,6 +153,21 @@ private struct ShortcutKeycapModifier: ViewModifier {
     }
 }
 
+// MARK: - Tooltips
+
+/// The tooltip half of the story, which is **not** gated on the reveal.
+///
+/// A tooltip is already an on-demand surface — you asked for it by resting the pointer — so there
+/// is nothing to declutter, and it is the discovery path for everyone who never finds the ⌥ hold.
+/// Every badged control's `.help(_:)` runs through here so the form stays uniform.
+public enum ShortcutHint {
+    /// `"Rescan   ⌘R"`. Three spaces rather than a separator: macOS tooltips are plain strings
+    /// with no columns to align to, and the gap is what reads as one.
+    public static func tooltip(_ description: String, _ symbol: String) -> String {
+        "\(description)   \(symbol)"
+    }
+}
+
 // MARK: - Speech
 
 /// Turns a displayed shortcut into something VoiceOver reads as words.

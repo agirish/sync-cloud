@@ -45,6 +45,10 @@ struct SyncCloudApp: App {
     /// mid-decision: an in-flight copy's outcome lands in this store) doesn't drop the session
     /// while the underlying comparison lives on in the shared FileSyncManager.
     @StateObject private var reviewStore = ReviewSessionStore()
+
+    /// Watches for ⌥ held alone, and publishes it to every `.shortcutKeycap(_:)` in the window.
+    /// One per app: it installs local `NSEvent` monitors, and a second would double them.
+    @StateObject private var shortcutReveal = ShortcutRevealTracker()
     /// The first-run welcome gate, shared with ContentView by key. Held here too so the Help ▸
     /// Welcome to SyncCloud command can flip it back to `false` and re-summon the tour: ContentView's
     /// `@AppStorage` on the same key observes the write and re-renders the overlay.
@@ -363,6 +367,10 @@ struct SyncCloudApp: App {
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
                     .appFontSizeFromSettings()
+                    // Outermost, so every badged control in the window sees the same reveal state
+                    // in the same render pass — the badges have to arrive together or the effect
+                    // reads as a glitch rather than an answer.
+                    .shortcutRevealSource(shortcutReveal)
             }
         }
         .windowStyle(.hiddenTitleBar)

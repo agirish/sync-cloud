@@ -262,9 +262,11 @@ enum HelpBook {
                 related: ["providers"]
             )),
             Topic(id: "keyboard-shortcuts", title: "Keyboard shortcuts", systemImage: "keyboard", article: Article(
-                intro: "SyncCloud is fully keyboard-drivable. The complete list lives in its own window.",
+                intro: "SyncCloud is fully keyboard-drivable, and it will show you its own shortcuts — hold ⌥ and they appear on the buttons.",
                 blocks: [
                     .bullets([
+                        "Hold ⌥ on its own for a moment and every control with a shortcut grows a key badge; let go and they vanish. Press any key, click, or add a second modifier and the badges stay away — so ⌥-click and ⌥-typed characters work exactly as before.",
+                        "Because ⌥ is held, the shortcut itself won't fire while the badges are up: look, release, then press.",
                         "Open the full reference from Help ▸ Keyboard Shortcuts, or press ⌘/.",
                         "⌘→ / ⌘← copy the selected differences; add ⇧ to move.",
                         "Space opens Quick Look; ⌥-click a breadcrumb navigates both panes at once.",
@@ -492,7 +494,8 @@ struct HelpView: View {
             Spacer()
             CloseButton(action: onClose)
                 .keyboardShortcut(.cancelAction)
-                .help("Close Help")
+                .shortcutKeycap("esc", alignment: .center)
+                .help(ShortcutHint.tooltip("Close Help", "esc"))
                 .accessibilityLabel("Close Help")
         }
         .padding(.horizontal, 16)

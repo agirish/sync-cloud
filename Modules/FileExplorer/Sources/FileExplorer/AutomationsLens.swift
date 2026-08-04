@@ -431,6 +431,7 @@ public struct AutomationsLens: View {
                 }
                 .controlSize(.large)
                 .keyboardShortcut(.rightArrow, modifiers: [])
+                .shortcutKeycap("→")
                 Button(action: { advanceFiling(approved: true) }) {
                     Label("File", systemImage: "tray.and.arrow.down.fill").frame(minWidth: 66)
                 }
@@ -438,9 +439,11 @@ public struct AutomationsLens: View {
                 .chromeHover()
                 .controlSize(.large)
                 .keyboardShortcut(.return, modifiers: [])
+                .shortcutKeycap("⏎", surface: .accentFill)
             }
             Button("Cancel") { filing.cancel() }
                 .keyboardShortcut(.cancelAction)
+                .shortcutKeycap("esc")
                 .controlSize(.small)
                 .padding(.top, 2)
             Text("Filing moves real files into \(provider). The whole run undoes with ⌘Z.")

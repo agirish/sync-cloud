@@ -269,7 +269,8 @@ public struct DestinationPicker: View {
             Spacer(minLength: 8)
             CloseButton(action: onCancel)
                 .keyboardShortcut(.cancelAction)
-                .help("Cancel")
+                .shortcutKeycap("esc", alignment: .center)
+                .help(ShortcutHint.tooltip("Cancel", "esc"))
         }
         .padding(.horizontal, 20)
         .frame(height: Self.headerHeight)
@@ -512,6 +513,7 @@ public struct DestinationPicker: View {
                 .disabled(!canCommit)
                 .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
                 .keyboardShortcut("n", modifiers: [.shift, .command])
+                .shortcutKeycap("⇧⌘N")
 
                 Button("Other…") { onChooseOther() }
                     .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
@@ -525,6 +527,7 @@ public struct DestinationPicker: View {
                                             onTint: glassHue.onAccentLabelColor))
                     .disabled(!canCommit)
                     .keyboardShortcut(.defaultAction)
+                    .shortcutKeycap("⏎", surface: .accentFill)
             }
         }
         .padding(.horizontal, 20)

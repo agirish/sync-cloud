@@ -796,7 +796,12 @@ public struct PaneHeader: View {
                 .foregroundStyle(searchText.wrappedValue.isEmpty
                                  ? AnyShapeStyle(Color.primary.opacity(0.75))
                                  : AnyShapeStyle(glassHue.accentColor))
-                .help("Find a file or folder in this pane (⌘F)")
+                // Centred, not trailing: a ⌘F keycap is nearly as wide as this button, and
+                // anything overhanging would foul the nav glyphs either side of it. Covering the
+                // magnifier for the length of an ⌥ hold is fine — the badge IS the answer to the
+                // question the hold asked.
+                .shortcutKeycap("⌘F", alignment: .center)
+                .help(ShortcutHint.tooltip("Find a file or folder in this pane", "⌘F"))
             }
         }
     }

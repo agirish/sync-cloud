@@ -236,8 +236,13 @@ extension ContentView {
 
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")
+                    // On the LABEL, not the Button: a toolbar item's own bounds are AppKit's, and
+                    // an overlay hung outside the SwiftUI content is the one that gets clipped.
+                    // Centred for the same reason as the pane magnifier — the keycap is wider
+                    // than the gear.
+                    .shortcutKeycap("⌘,", alignment: .center)
             }
-            .help("Settings")
+            .help(ShortcutHint.tooltip("Settings", "⌘,"))
         }
     }
 }

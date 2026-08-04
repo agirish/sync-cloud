@@ -1067,6 +1067,10 @@ public struct DifferencesView: View {
                                 isMove: Bool,
                                 targets: DifferenceActionTargets) -> some View {
         let toRight = direction == .copyToRight
+        // The chord `KeyboardCopyIntent` maps to this button, written once and used by the badge,
+        // the tooltip and nothing else. The ⇧ is part of it because the button has already
+        // retitled to Move — badge and label describe the same action or neither is trustworthy.
+        let chord = (isMove ? "⇧⌘" : "⌘") + (toRight ? "→" : "←")
         return Button {
             copy(direction: direction, targets: targets)
         } label: {
@@ -1082,8 +1086,13 @@ public struct DifferencesView: View {
         .buttonStyle(.actionBar(weight, tint: glassHue.accentColor,
                                 onTint: glassHue.onAccentLabelColor))
         .disabled(isSyncActionBlocked)
-        // The label may shed the destination; the tooltip never does, and it always names the verb.
-        .help(BulkActionLabel.help(count: count, destination: destination, isMove: isMove))
+        // `.accentFill` on the filled weight only: that is the one surface whose keycap has to
+        // scrim down instead of washing out.
+        .shortcutKeycap(chord, surface: weight == .primary ? .accentFill : .standard)
+        // The label may shed the destination; the tooltip never does, and it always names the verb
+        // — and now the chord, ungated, for anyone who never finds the ⌥ hold.
+        .help(ShortcutHint.tooltip(
+            BulkActionLabel.help(count: count, destination: destination, isMove: isMove), chord))
         // …and neither does the accessible name. The visible label names both verbs while it has
         // room, but Copy sheds its verb along with the destination as the row tightens, so at the
         // narrow rungs it reads just "12" — which would leave a VoiceOver user unable to tell Copy

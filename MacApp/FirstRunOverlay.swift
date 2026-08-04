@@ -229,11 +229,13 @@ struct FirstRunOverlay: View {
                             .buttonStyle(.borderedProminent)
                             .chromeHover()
                             .keyboardShortcut(.defaultAction)
+                            .shortcutKeycap("⏎", surface: .accentFill)
                     case .chooseProviders:
                         Button("Choose providers…") { onChooseProviders(dontShowAgain) }
                             .buttonStyle(.borderedProminent)
                             .chromeHover()
                             .keyboardShortcut(.defaultAction)
+                            .shortcutKeycap("⏎", surface: .accentFill)
                     }
                 } else {
                     Button("Skip") { onDismiss(dontShowAgain) }
@@ -243,6 +245,7 @@ struct FirstRunOverlay: View {
                     .buttonStyle(.borderedProminent)
                     .chromeHover()
                     .keyboardShortcut(.defaultAction)
+                    .shortcutKeycap("⏎", surface: .accentFill)
                 }
             }
             .controlSize(.large)
@@ -253,8 +256,9 @@ struct FirstRunOverlay: View {
     private var closeButton: some View {
         CloseButton { onDismiss(dontShowAgain) }
             .keyboardShortcut(.cancelAction)
+            .shortcutKeycap("esc", alignment: .center)
             .padding(4)
-            .help("Skip")
+            .help(ShortcutHint.tooltip("Skip", "esc"))
             .accessibilityLabel("Skip")
     }
 }

@@ -16,12 +16,19 @@ enum ShortcutsReference {
 
     static let groups: [Group] = [
         Group(title: "General", items: [
+            // First, because it is the one entry that teaches all the others: hold it and the
+            // shortcuts below appear on the controls themselves. A reference nobody opens can't
+            // do that, which is the whole reason the reveal exists.
+            Item(keys: "Hold ⌥", action: "Show every on-screen shortcut as a key badge"),
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation"),
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),
         Group(title: "Panes", items: [
+            // Undocumented until the ⌥-reveal work went looking for every real shortcut in the
+            // app and found this one had a control, a tooltip and no entry here.
+            Item(keys: "⌘ F", action: "Find a file or folder in this pane"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),

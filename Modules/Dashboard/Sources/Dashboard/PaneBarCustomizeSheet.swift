@@ -558,6 +558,7 @@ struct PaneBarCustomizeSheet: View {
 
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
+                .shortcutKeycap("⏎")
         }
         .padding(.top, 16)
     }

@@ -14,7 +14,7 @@ struct FilingSpendHistoryView: View {
             HStack {
                 Text("Cloud Filing Spend").scaledFont(.headline)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎")
             }
             .padding()
 

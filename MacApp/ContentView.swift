@@ -1260,6 +1260,7 @@ struct ContentView: View {
             // mash because every destructive operation in this app confirms separately. Escape
             // stays on Dismiss via its .cancel role.
             .keyboardShortcut(.defaultAction)
+            .shortcutKeycap("⏎")
         case .dismiss:
             Button("Dismiss", role: .cancel) {
                 syncManager.currentError = nil
