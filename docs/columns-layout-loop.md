@@ -151,9 +151,12 @@ blown its pass budget, and `SyncCloudApp.init` runs before any window exists.
 **So `register(defaults:)` stays.** Switching to `set(_:forKey:)` would buy nothing and would cost
 the "writes nothing into anyone's preferences" property.
 
-`SyncCloudApp.init` now logs which state the session is in, so `~/sync-cloud.log` answers this
-without anyone re-deriving it — `[layout-guard] … suppressed app-wide`, or `… ARMED by an explicit
-override` when a `defaults write` or launch argument has put the crash back.
+The app now logs which state the session is in, so `~/sync-cloud.log` answers this without anyone
+re-deriving it — `[layout-guard] … suppressed app-wide`, or `… ARMED` when a `defaults write` or
+launch argument has put the crash back. The line sits in the delegate's
+`applicationDidFinishLaunching`, next to the launch breadcrumb and for the same reason: that fires
+exactly once, while `App.init` can be re-run by SwiftUI, and a diagnostic saying the crash guard is
+off is worth less each time it repeats.
 
 ## What the churn costs is still unmeasured
 
