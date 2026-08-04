@@ -136,9 +136,17 @@ public enum DisplayCycleTrace {
 
     /// Both gates: above the absolute floor, and at least `1/budgetFraction` of AppKit's own budget.
     /// A `nil` view count means the denominator could not be read, which reports on the floor alone.
-    static func worthReporting(passes: Int, views: Int?) -> Bool {
+    ///
+    /// **`views` is an autoclosure, and that is load-bearing rather than tidy.** Reading it means
+    /// walking a window's whole view tree; this runs on every window, on every runloop turn, for as
+    /// long as the trace is armed. Evaluated eagerly it was a recursive walk of the entire UI at
+    /// runloop frequency on the main thread — which is a lot of main-thread work to add to a
+    /// diagnostic whose entire subject is main-thread layout timing, i.e. an instrument perturbing
+    /// what it measures. Behind the floor it is read only for the rare cycle that might be worth a
+    /// line, and a quiet app never pays for it at all.
+    static func worthReporting(passes: Int, views: @autoclosure () -> Int?) -> Bool {
         guard passes >= floor else { return false }
-        guard let views else { return true }
+        guard let views = views() else { return true }
         return passes * budgetFraction >= views
     }
 

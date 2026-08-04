@@ -102,6 +102,24 @@ import AppKit
         #expect(DisplayCycleTrace.worthReporting(passes: DisplayCycleTrace.floor - 1, views: nil) == false)
     }
 
+    /// **A quiet cycle must not cost a view-tree walk.**
+    ///
+    /// Reading the denominator means walking a window's whole view tree, and this decision runs for
+    /// every window on every runloop turn while the trace is armed. Evaluated eagerly that is a
+    /// recursive walk of the entire UI at runloop frequency, on the main thread — inside a
+    /// diagnostic whose subject IS main-thread layout timing. An instrument that perturbs what it
+    /// measures is worse than none, so the floor has to short-circuit before the walk.
+    @Test func testAQuietCycleNeverReadsTheViewCount() {
+        var reads = 0
+        _ = DisplayCycleTrace.worthReporting(passes: 1, views: { reads += 1; return 300 }())
+        #expect(reads == 0, "a quiet cycle walked the view tree \(reads) time(s)")
+
+        // …and a candidate cycle does read it, or the second gate would not be applied at all.
+        _ = DisplayCycleTrace.worthReporting(passes: DisplayCycleTrace.floor,
+                                             views: { reads += 1; return 300 }())
+        #expect(reads == 1)
+    }
+
     /// **The swizzle really counts a real window's real passes.**
     ///
     /// Everything above pins the bookkeeping, which would go on passing if
