@@ -132,9 +132,56 @@
 
 <div class="timeline">
 
+  <!-- v3.0 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v3.0</span><span class="tag latest">Latest</span></div>
+    <p class="lede">The first release on the v3 line, and the first one that <b>requires macOS 26</b>. Three things here are new rather than repaired: any folder on this Mac can be a source, a name the cloud will reject is reported and marked where you already are instead of behind a tab you had to remember to visit, and the scan is roughly twice as fast on a real provider root. The navigation above all of it went from two levels to one. Changes that shipped in v2.9 are not repeated here — if you are coming from v2.8, read that entry too.</p>
+    <div class="grp">
+      <h3>Requires macOS 26</h3>
+      <ul class="flist">
+        <li><span class="ic">⚠</span><span><b>The app now declares the floor it is actually built against.</b> <code>project.yml</code> and all seven packages said macOS 15 while the code had been written against 26 for some time, so thirteen <code>#available(macOS 26.0, *)</code> guards and their fallback branches were still being compiled for an OS this app was never going to run on. <b>If you are on macOS 15, stay on the 2.x line</b> — v2.9 is the current maintenance release and continues to get fixes.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>One row of workspaces</h3>
+      <ul class="flist">
+        <li><span class="ic">▤</span><span><b>Compare, Organize, Duplicates, Automations and Storage are five segments in one bar.</b> They used to be two levels: a <code>Compare | Tidy</code> container picker with the lenses nested underneath, which left Duplicates two clicks deep behind a word that named no task. The five were peers all along; only the nesting said otherwise. The layout rule underneath is now fixed rather than implied — the left side is always a file browser, and the right side is either the other cloud (Compare) or a lens.</span></li>
+        <li><span class="ic">↺</span><span><b>Your selection survives the change.</b> The stored workspace is migrated once at launch and every old value maps forward explicitly, so you open where you left off instead of being dropped on Compare mid-task.</span></li>
+        <li><span class="ic">⚙︎</span><span><b>Settings follows the same names.</b> The Tidy tab — the last place in the product still using that word — is now <b>Organize</b> and <b>Duplicates</b>, each wearing the same glyph its workspace wears in the bar. Settings go where the work is, so Compare, Automations and Storage get no tab of their own rather than an empty one apiece.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Risky names</h3>
+      <ul class="flist">
+        <li><span class="ic">⚠</span><span><b>Names the cloud will reject are reported instead of waiting to be looked for.</b> Rename was a tab you had to remember to visit for a problem you hit a few times a year. Organize's scan already walks the whole provider, and the name rules are pure, so the names come back on that pass — no second walk, no second button. When the scan finds some, a chip appears in Organize's summary row with its count; when it doesn't, nothing appears at all. Selecting the chip swaps in the same rename list as before — name, reason, proposed fix, <b>Fix all</b> — without the trip.</span></li>
+        <li><span class="ic">◈</span><span><b>Both panes, Columns and the Differences table now mark the offender on sight</b>, with the reason on the tooltip. Previously a name that would break a sync looked exactly like every other name until you ran Organize.</span></li>
+        <li><span class="ic">✓</span><span><b>"Fix name…" works.</b> The row context-menu item had never once appeared: it was declared in a protocol <i>extension</i>, and since an extension member has no witness-table entry, every call through the delegate bound statically to the extension's <code>nil</code> default. The item was unreachable from the day it was written, and nothing caught it — the app built, and a menu item that is merely absent looks the same as one correctly withheld.</span></li>
+        <li><span class="ic">☰</span><span><b>Settings ▸ Organize lists the names you have kept.</b> Keeping a name has always been reversible, but there was no inventory — a kept name draws no badge, so nothing on screen led anywhere and "what have I kept?" could only be answered by walking your files and reading a context menu per file. There is now one row per name with a remove button, plus Clear All.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Any folder is a source</h3>
+      <ul class="flist">
+        <li><span class="ic">📁</span><span><b>A pane, a scan or a lens can be pointed at any folder on this Mac</b>, not just a cloud account. The source list was built by enumerating <code>~/Library/CloudStorage</code> plus a hardcoded iCloud entry, so <code>~</code> or <code>~/Projects</code> could never be a source. Two doors, one mechanism: <b>Settings ▸ Sources ▸ Add Folder…</b> for deliberate setup, and <b>Choose Folder…</b> at the foot of every pane's source menu, which creates the source and selects it in that pane in one gesture. Choosing a folder that is already a source selects it rather than making a second row for it.</span></li>
+        <li><span class="ic">⚖</span><span><b>A new "Check folder names against" setting decides whose rules a folder is judged by.</b> A folder has no naming rules of its own, so judging names against it would report an empty all-clear over a folder full of names OneDrive would reject. The useful question is "would this survive being put somewhere?", and only you know where — the default is OneDrive, the strictest.</span></li>
+        <li><span class="ic">⊘</span><span><b>Reset All Settings says that it removes your folder sources.</b> It always did; the confirmation previously reassured you that files on disk are untouched and stopped there.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Scanning is faster</h3>
+      <ul class="flist">
+        <li><span class="ic">⚡</span><span><b>94% of path components need no normalizing at all</b>, and the scan now checks that before doing the work rather than normalizing everything: 673,925 of 719,361 components on two real provider roots of about 40,000 nodes each. Name comparison went from about <b>500 ms to about 130 ms</b>, and the whole pass roughly doubled in speed (1.0–1.6 s before, 0.53–0.82 s after, across four interleaved runs).</span></li>
+        <li><span class="ic">⚡</span><span><b>Flattening a cached tree for the scan costs less than half what it did</b> — <b>809 ms → 377 ms</b> and <b>1,194 ms → 466 ms</b> on those two roots. In the live app the scan's flatten phase went from 1.18 s to 0.51 s.</span></li>
+        <li><span class="ic">⚡</span><span><b>File paths are stored as native Swift strings</b>, so the scan stops paying to bridge them back from Foundation on every comparison: about <b>135 ms and 181 ms</b> off a full load-and-scan on the two roots.</span></li>
+        <li><span class="ic">⚡</span><span><b>A debug log line no longer costs a tree walk when logging is off.</b> It built its message — about 5 ms per 40,000 nodes — before the level gate had a chance to drop it.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.8...v3.0">v2.8...v3.0</a></p>
+  </article>
+
   <!-- v2.9 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v2.9</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v2.9</span><span class="tag">Consolidation</span></div>
     <p class="lede">A consolidation release. The surfaces v2.8 introduced settle down, one real data-loss path closes, and the app finally reports the version it actually is. It is also <b>the most heavily tested and reviewed release in the 2.x series</b> — about 10,700 lines of new tests, close to double any release before it, taking the suite from 2,628 checks to 2,867 across four adversarial review passes. That is where most of the work went, and it is why this list is shorter than the size of the change suggests.</p>
     <div class="grp">
       <h3>Data safety</h3>

@@ -5,6 +5,110 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v3.0
+
+The first release on the v3 line, and the first one that **requires macOS 26**.
+
+Three things here are new rather than repaired: any folder on this Mac can be a
+source, a name the cloud will reject is now reported and marked where you already
+are instead of behind a tab you had to remember to visit, and the scan is roughly
+twice as fast on a real provider root. The navigation above all of it went from
+two levels to one.
+
+Changes that shipped in v2.9 are not repeated here — if you are coming from v2.8,
+read that section too.
+
+### Requires macOS 26
+
+- **The app now declares the floor it is actually built against.** `project.yml`
+  and all seven packages said macOS 15 while the code had been written against 26
+  for some time, so thirteen `#available(macOS 26.0, *)` guards and their fallback
+  branches were still being compiled for an OS this app was never going to run on.
+  **If you are on macOS 15, stay on the 2.x line** — v2.9 is the current
+  maintenance release and continues to get fixes.
+
+### One row of workspaces
+
+- **Compare, Organize, Duplicates, Automations and Storage are five segments in
+  one bar.** They used to be two levels: a `Compare | Tidy` container picker with
+  the lenses nested underneath, which left Duplicates two clicks deep behind a
+  word that named no task. The five were peers all along; only the nesting said
+  otherwise. The layout rule underneath is now fixed rather than implied — the
+  left side is always a file browser, and the right side is either the other
+  cloud (Compare) or a lens.
+- **Your selection survives the change.** The stored workspace is migrated once
+  at launch and every old value maps forward explicitly, so you open where you
+  left off instead of being dropped on Compare mid-task.
+- **Settings follows the same names.** The Tidy tab — the last place in the
+  product still using that word — is now **Organize** and **Duplicates**, each
+  wearing the same glyph its workspace wears in the bar. Settings go where the
+  work is, so Compare, Automations and Storage get no tab of their own rather
+  than an empty one apiece.
+
+### Risky names
+
+- **Names the cloud will reject are reported instead of waiting to be looked
+  for.** Rename was a tab you had to remember to visit for a problem you hit a
+  few times a year. Organize's scan already walks the whole provider, and the
+  name rules are pure, so the names come back on that pass — no second walk, no
+  second button. When the scan finds some, a chip appears in Organize's summary
+  row with its count; when it doesn't, nothing appears at all. Selecting the chip
+  swaps in the same rename list as before — name, reason, proposed fix, **Fix
+  all** — without the trip.
+- **Both panes, Columns and the Differences table now mark the offender on
+  sight**, with the reason on the tooltip. Previously a name that would break a
+  sync looked exactly like every other name until you ran Organize.
+- **"Fix name…" works.** The row context-menu item had never once appeared: it
+  was declared in a protocol *extension*, and since an extension member has no
+  witness-table entry, every call through the delegate bound statically to the
+  extension's `nil` default. The item was unreachable from the day it was
+  written, and nothing caught it — the app built, and a menu item that is merely
+  absent looks the same as one correctly withheld.
+- **Settings ▸ Organize lists the names you have kept.** Keeping a name has
+  always been reversible, but there was no inventory — a kept name draws no
+  badge, so nothing on screen led anywhere and "what have I kept?" could only be
+  answered by walking your files and reading a context menu per file. There is
+  now one row per name with a remove button, plus Clear All.
+
+### Any folder is a source
+
+- **A pane, a scan or a lens can be pointed at any folder on this Mac**, not just
+  a cloud account. The source list was built by enumerating `~/Library/CloudStorage`
+  plus a hardcoded iCloud entry, so `~` or `~/Projects` could never be a source.
+  Two doors, one mechanism: **Settings ▸ Sources ▸ Add Folder…** for deliberate
+  setup, and **Choose Folder…** at the foot of every pane's source menu, which
+  creates the source and selects it in that pane in one gesture. Choosing a folder
+  that is already a source selects it rather than making a second row for it.
+- **A new "Check folder names against" setting decides whose rules a folder is
+  judged by.** A folder has no naming rules of its own, so judging names against
+  it would report an empty all-clear over a folder full of names OneDrive would
+  reject. The useful question is "would this survive being put somewhere?", and
+  only you know where — the default is OneDrive, the strictest.
+- **Reset All Settings says that it removes your folder sources.** It always did;
+  the confirmation previously reassured you that files on disk are untouched and
+  stopped there.
+
+### Scanning is faster
+
+Measured on two real provider roots of about 40,000 nodes each.
+
+- **94% of path components need no normalizing at all**, and the scan now checks
+  that before doing the work rather than normalizing everything: 673,925 of
+  719,361 components on those two roots. Name comparison went from about 500 ms
+  to about 130 ms, and the whole pass roughly doubled in speed (1.0–1.6 s before,
+  0.53–0.82 s after, across four interleaved runs).
+- **Flattening a cached tree for the scan costs less than half what it did** —
+  809 ms → 377 ms and 1,194 ms → 466 ms on the two roots. In the live app the
+  scan's flatten phase went from 1.18 s to 0.51 s.
+- **File paths are stored as native Swift strings**, so the scan stops paying to
+  bridge them back from Foundation on every comparison: about 135 ms and 181 ms
+  off a full load-and-scan on the two roots.
+- **A debug log line no longer costs a tree walk when logging is off.** It built
+  its message — about 5 ms per 40,000 nodes — before the level gate had a chance
+  to drop it.
+
+---
+
 ## v2.9
 
 A consolidation release. The surfaces v2.8 introduced settle down, one real
