@@ -7,9 +7,8 @@ User-facing changes, newest first. For the full commit history see the
 
 ## v2.9
 
-A hardening release. Four data-safety holes around Verify All, review, and Tidy
-are closed, cloud-file downloads stop losing track of themselves, and the
-Appearance tab finally shows you what an accent does.
+A consolidation release. The surfaces v2.8 introduced settle down, one real
+data-loss path closes, and the app finally reports the version it actually is.
 
 ### Data safety
 - **Verify All's "copy the identical files" offer can no longer act on a stale
@@ -19,13 +18,9 @@ Appearance tab finally shows you what an accent does.
   taken under and is re-checked at the moment the write is ordered, not at the
   click.
 - **A cancelled Verify All no longer offers a partial batch.** Cancelling at 40% of
-  500 files used to open the confirmation dialog anyway, over the top of the
-  "cancelled" banner, offering a bulk write of whatever it had got through.
-- **Review stops locking itself out.** If a review session ended in the moment
-  between clicking an action and the action starting, every later session opened
-  with all its actions disabled and no way back short of relaunching.
-- **Tidy's "Try another folder" can no longer write a suggestion onto the wrong
-  card**, or leave the button dead after a rescan.
+  500 files still published the verdicts it had reached, so the confirmation dialog
+  opened over the top of the "cancelled" banner, offering a bulk write of whatever
+  it had got through.
 
 ### Cloud files
 - **A pane watches every download it starts**, not just the most recent one, so a
@@ -33,31 +28,18 @@ Appearance tab finally shows you what an accent does.
 - **The ☁ badge stops answering from a stale memo** — a file that has landed reads
   as local, and a path the app could not stat is no longer remembered as though it
   had answered.
-- The preview column says what it is doing while a file downloads, instead of
-  sitting blank.
 
 ### Columns
 - **Opening the preview no longer hides the column it is describing.** The preview
   takes its width off the stack, which covered the deepest column — the one holding
   the file you selected — so you had to scroll right by hand to read what the
   preview was about.
-- **A scroll in one pane stops fighting another pane's reveal.** The wheel
-  gesture's axis lock was app-wide, so flicking in one pane could revert a
-  programmatic scroll in a different one; it is now scoped to the pane the gesture
-  is in.
-- Ending a preview-divider drag in one pane no longer force-scrolls every other
-  pane, and a fast drill no longer jerks the stack backwards a column before
-  catching up.
 
 ### Appearance
 - **The accent picker shows what it does.** Under the twelve swatches there is now
   a live preview — a filled transfer button beside a differences pill — and a
   caption naming what the colour is actually used for. It was the only section on
   the tab that explained itself neither in words nor by example.
-- **None says what it really does.** Its caption claimed the panes get no wash;
-  they do — selection follows the macOS accent. What None removes is the glass
-  tint, and that is what it now says.
-- **The Appearance tab fits on a 1280×800 display again** instead of scrolling.
 
 ### Settings
 - **The app reports its real version.** Every release from v0.10 to v2.8 installed
@@ -67,10 +49,9 @@ Appearance tab finally shows you what an accent does.
   "TODO" in Settings found nothing, in every 2.x release the control has shipped in.
 
 ### Launch at login
-- **A wedged system service can no longer kill the toggle.** Two fast flips could
-  overlap and leave the switch showing the opposite of what was registered; a
-  service call that never returned could latch the toggle dead for the life of the
-  window, swallowing every flip silently.
+- **A login-item update that fails no longer discards the toggle you set while it
+  was in flight.** The failure path re-read the service's real state and overwrote
+  your switch with it, silently throwing the change away.
 
 ### Automations
 - **A rule imported, bulk-toggled, or undone no longer re-writes itself.** An
