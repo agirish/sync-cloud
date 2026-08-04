@@ -223,8 +223,36 @@ public enum FilingVerdictStore {
         return cache
     }
 
+    /// Serializes writes. Two scans in quick succession each hand their whole cache to
+    /// ``saveInBackground(_:to:)``; without ordering, the earlier (smaller) snapshot could land
+    /// last and drop the later scan's entries. Later snapshots always contain earlier ones — the
+    /// in-memory copy only grows — so writing them in order is enough to make the file converge.
+    private static let writeQueue = DispatchQueue(label: "com.synccloud.filing-verdict-store")
+
+    /// Writes `cache` off the calling thread, in order.
+    ///
+    /// The caller is `FileSyncManager`, which is `@MainActor`: at the entry cap this file is on the
+    /// order of ten megabytes, and encoding plus an atomic write of that on the main actor is a
+    /// visible hitch at the end of every scan — in an app whose main-thread stalls are already a
+    /// known sore point. Nothing waits on the result, so there is nothing to block for: the
+    /// in-memory copy is authoritative for this launch, and a write lost to a quit costs a re-ask.
+    public static func saveInBackground(_ cache: FilingVerdictCache, to url: URL) {
+        writeQueue.async { _ = save(cache, to: url) }
+    }
+
+    /// Blocks until every queued write has finished.
+    ///
+    /// For tests, and only tests: production never waits, because the in-memory copy is what the
+    /// current launch reads. A test that scans, builds a SECOND manager, and expects it to load the
+    /// first one's entries is racing the background write — the exact shape of flake this codebase
+    /// has paid for before. A barrier on the serial queue makes that wait exact rather than timed.
+    public static func waitForPendingWrites() {
+        writeQueue.sync {}
+    }
+
     /// Writes `cache` to `url`, creating the enclosing directory. Best-effort: a failed write costs
     /// a re-ask on the next scan and nothing else, so it is logged rather than surfaced.
+    /// Synchronous — prefer ``saveInBackground(_:to:)`` from the main actor.
     @discardableResult
     public static func save(_ cache: FilingVerdictCache, to url: URL,
                             fileManager: FileManager = .default) -> Bool {

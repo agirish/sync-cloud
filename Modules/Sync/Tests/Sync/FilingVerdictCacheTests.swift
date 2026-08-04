@@ -192,6 +192,16 @@ private final class CallLog: @unchecked Sendable {
         return m
     }
 
+    /// Runs a scan and waits for the cache write to land. The wait is the point: these tests
+    /// build a SECOND manager to prove the entry survived to disk, and the write is asynchronous —
+    /// without the barrier they would be racing it.
+    @MainActor
+    private func scan(_ m: FileSyncManager, _ folder: URL, root: URL,
+                      ignoringCache: Bool = false) async {
+        await m.findFilingSuggestions(folder: folder, providerRoot: root, ignoringCache: ignoringCache)
+        FilingVerdictStore.waitForPendingWrites()
+    }
+
     @MainActor
     @Test func anUnchangedFolderIsNotReclassified() async throws {
         // THE equivalence proof: a second scan of an untouched folder must produce byte-identical
@@ -206,7 +216,7 @@ private final class CallLog: @unchecked Sendable {
 
         let log = CallLog()
         let first = manager(cacheAt: url, log: log)
-        await first.findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(first, downloads, root: root)
         let firstResults = first.filingSuggestions
         #expect(log.count == 1)
         #expect(!firstResults.isEmpty)
@@ -214,7 +224,7 @@ private final class CallLog: @unchecked Sendable {
 
         // A FRESH manager, so the hit has to come off disk rather than out of memory.
         let second = manager(cacheAt: url, log: log)
-        await second.findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(second, downloads, root: root)
 
         #expect(log.count == 1)                              // the backend was never consulted again
         #expect(second.filingSuggestions == firstResults)    // and the answer is the same one
@@ -232,11 +242,11 @@ private final class CallLog: @unchecked Sendable {
 
         let log = CallLog()
         let first = manager(cacheAt: url, log: log)
-        await first.findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(first, downloads, root: root)
         #expect(first.filingLastCacheReuse == nil)      // nothing to reuse on a cold cache
 
         let second = manager(cacheAt: url, log: log)
-        await second.findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(second, downloads, root: root)
         #expect(second.filingLastCacheReuse == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
 
         second.clearFiling()
@@ -252,12 +262,12 @@ private final class CallLog: @unchecked Sendable {
         let downloads = root.appendingPathComponent("Downloads")
 
         let log = CallLog()
-        await manager(cacheAt: url, log: log).findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
         #expect(log.count == 1)
 
         // Rewrite the file at a different size — the key's identity of "this file" changes.
         try write(downloads.appendingPathComponent("mystery-scan-0042.pdf"), bytes: 9000)
-        await manager(cacheAt: url, log: log).findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
 
         #expect(log.count == 2)
         #expect(log.lastBatch == ["mystery-scan-0042.pdf"])
@@ -274,10 +284,8 @@ private final class CallLog: @unchecked Sendable {
         let downloads = root.appendingPathComponent("Downloads")
 
         let log = CallLog()
-        await manager(cacheAt: url, log: log, identity: "on-device")
-            .findFilingSuggestions(folder: downloads, providerRoot: root)
-        await manager(cacheAt: url, log: log, identity: "cloud:claude-opus-5")
-            .findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(manager(cacheAt: url, log: log, identity: "on-device"), downloads, root: root)
+        await scan(manager(cacheAt: url, log: log, identity: "cloud:claude-opus-5"), downloads, root: root)
 
         #expect(log.count == 2)
     }
@@ -291,16 +299,15 @@ private final class CallLog: @unchecked Sendable {
         let downloads = root.appendingPathComponent("Downloads")
 
         let log = CallLog()
-        await manager(cacheAt: url, log: log).findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
         #expect(log.count == 1)
 
         // "Rescan (ignore cache)" — asks again despite a warm entry…
-        await manager(cacheAt: url, log: log)
-            .findFilingSuggestions(folder: downloads, providerRoot: root, ignoringCache: true)
+        await scan(manager(cacheAt: url, log: log), downloads, root: root, ignoringCache: true)
         #expect(log.count == 2)
 
         // …and the fresh answer is still written, so the NEXT ordinary scan is free again.
-        await manager(cacheAt: url, log: log).findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
         #expect(log.count == 2)
     }
 
@@ -320,6 +327,81 @@ private final class CallLog: @unchecked Sendable {
             await m.findFilingSuggestions(folder: downloads, providerRoot: root)
         }
         #expect(log.count == 2)
+    }
+
+    @MainActor
+    @Test func aCancelledScanStillKeepsTheAnswersItPaidFor() async throws {
+        // Recording deliberately happens BEFORE this scan's cancellation check. By the time the
+        // classifier returns the cloud call has already been billed; throwing the answers away
+        // because the user cancelled a moment later would mean paying for them twice.
+        let root = try fixture("cancelled")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("cancelled")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        let cancelling = FileSyncManager()
+        cancelling.filingVerdictCacheURL = url
+        cancelling.filingBackendIdentity = { "test-model" }
+        cancelling.filingClassifier = { _, files in
+            log.record(files.map(\.fileName))
+            // Cancel the scan from inside the call — the answer exists and has been paid for,
+            // and the scan is abandoned immediately afterwards.
+            withUnsafeCurrentTask { $0?.cancel() }
+            var out: [String: FilingVerdict] = [:]
+            for f in files {
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
+                                                confidence: .high, reason: "Divit’s record")
+            }
+            return out
+        }
+        // Run it in a task of its own: `withUnsafeCurrentTask` cancels whatever task is running the
+        // scan, and awaiting the scan directly would make that the TEST's task — poisoning every
+        // later await in this function with a cancellation that has nothing to do with the subject.
+        await Task { await cancelling.findFilingSuggestions(folder: downloads, providerRoot: root) }.value
+        FilingVerdictStore.waitForPendingWrites()
+
+        #expect(log.count == 1)
+        #expect(cancelling.filingSuggestions.isEmpty)      // the scan really did abandon its results
+        #expect(!cancelling.hasSuggestedFiling)
+
+        // …but the paid-for answer survived, so the next scan does not buy it again.
+        let next = manager(cacheAt: url, log: log)
+        await scan(next, downloads, root: root)
+        #expect(log.count == 1)
+        #expect(next.filingSuggestions.first?.best?.fromAI == true)
+    }
+
+    @MainActor
+    @Test func aDeclinedSpendIsNotCountedAsClassified() async throws {
+        // The "reused" pill reads off this, and the pill is the user's evidence about cost. If the
+        // spend guardrail declines, NOTHING was sent — reporting the batch size would claim work
+        // (and money) that never happened.
+        let root = try makeCanonicalTempRoot(prefix: "VerdictDeclined")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("declined")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/first.pdf"))
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
+        #expect(log.count == 1)
+
+        // A second file arrives, and the guardrail refuses the spend for it.
+        try write(downloads.appendingPathComponent("second.pdf"))
+        let declining = manager(cacheAt: url, log: log)
+        let scratch = ScratchDefaults("verdictDeclined")
+        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        declining.filingContentDefaults = scratch
+        declining.filingCloudSpendConfirmer = { _ in false }
+        await scan(declining, downloads, root: root)
+
+        #expect(log.count == 1)   // the declined call never happened
+        #expect(declining.filingLastCacheReuse
+                == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
     }
 
     @MainActor
@@ -353,12 +435,12 @@ private final class CallLog: @unchecked Sendable {
             return m
         }
 
-        await cloudManager().findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(cloudManager(), downloads, root: root)
         #expect(quotes.all == [4])          // first scan: all four priced and sent
 
         // Add a fifth file; the other four are unchanged and already answered.
         try write(downloads.appendingPathComponent("scan-4.pdf"))
-        await cloudManager().findFilingSuggestions(folder: downloads, providerRoot: root)
+        await scan(cloudManager(), downloads, root: root)
 
         #expect(quotes.all == [4, 1])       // the quote covers ONE file, not five
         #expect(log.lastBatch == ["scan-4.pdf"])

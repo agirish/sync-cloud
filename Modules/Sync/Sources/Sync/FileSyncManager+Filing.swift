@@ -291,22 +291,33 @@ extension FileSyncManager {
                 // publishes below. No-op when cloud is off (the common case), and with the default
                 // confirmer that returns true.
                 var verdicts = cachedVerdicts
+                var classifiedCount = 0
                 if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
                     let fresh = await classifier(taxonomyFolders, files)
+                    // Recorded BEFORE the cancellation check, unlike everything else in this scan.
+                    // The call has already happened and, on the cloud backend, has already been
+                    // billed; dropping its answers because the user cancelled a moment later would
+                    // mean paying for them a second time. The verdicts are true regardless of what
+                    // this scan goes on to do with them — cancelling abandons the SUGGESTIONS, and
+                    // there is nothing to abandon about a question that was already answered.
+                    // `keysByFile` is empty exactly when the cache is off, so this is a no-op then.
+                    recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: providerRoot.path,
+                                         existingRelative: existingRelative)
                     if Task.isCancelled { return }
+                    classifiedCount = files.count
                     // Fresh wins on the (impossible today) overlap: a file is in exactly one of
                     // the two sets by construction, but stating the precedence keeps that a
                     // property of this line rather than of the partition above.
                     verdicts.merge(fresh) { _, new in new }
-                    // `keysByFile` is empty exactly when the cache is off, so this is a no-op then
-                    // — no second check of `identity` needed to say the same thing twice.
-                    recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: providerRoot.path,
-                                         existingRelative: existingRelative)
                 }
                 if !cachedVerdicts.isEmpty {
-                    cacheReuse = FilingCacheReuse(reused: cachedVerdicts.count, classified: files.count)
+                    // `classifiedCount`, not `files.count`: the spend guardrail can decline, in
+                    // which case nothing was sent and reporting the batch size would overstate
+                    // what the scan did — and the pill reading off this is the user's evidence
+                    // about cost.
+                    cacheReuse = FilingCacheReuse(reused: cachedVerdicts.count, classified: classifiedCount)
                     Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
-                        + "from cache, \(files.count) sent to the backend")
+                        + "from cache, \(classifiedCount) sent to the backend")
                 }
                 suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
                                                          providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
@@ -505,7 +516,7 @@ extension FileSyncManager {
         guard recorded > 0 else { return }
         cache.trim()
         filingVerdictCache = cache
-        FilingVerdictStore.save(cache, to: url)
+        FilingVerdictStore.saveInBackground(cache, to: url)
     }
 
     /// Forgets cached verdicts — all of them, or just those under `providerRoot`. The next scan
