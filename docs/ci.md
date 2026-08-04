@@ -35,15 +35,43 @@ mechanisms this repo has actually hit and how to tell one from a regression.
   skips prefs writes. DerivedData lives in `.dd/` inside the workspace.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
-- **External dependency versions are not pinned, and a green run does not say
-  which ones it tested.** `Package.resolved` is gitignored, so every checkout —
-  CI's and yours — resolves afresh from the `from:` floors in the manifests:
-  `swift-snapshot-testing` (1.18.0) in Design, Dashboard, FileExplorer and
-  Settings, and `swift-argument-parser` (1.3.0) in `SyncCloudCLI`. The first is
-  test-only; the second the CLI **links and ships**. So a run's verdict covers
-  whatever resolved that day, and a build cut from a release tag can pick up a
-  version no run ever exercised. Recorded here rather than closed: committing
-  `Package.resolved` (and un-ignoring it) is what would close it.
+- **External dependency versions are pinned — `Package.resolved` is committed.**
+  Five of them: `SyncCloudCLI` and `Modules/{Design,Dashboard,FileExplorer,Settings}`.
+  Sync and Events declare no external dependency and so have none. A run's verdict
+  now names the versions it covered, and a build cut from a release tag links what
+  CI tested.
+
+  This was open until 2026-08-03 and closed with evidence rather than on principle.
+  The manifests declare only `from:` floors — `swift-snapshot-testing` from 1.18.0
+  and `swift-argument-parser` from 1.3.0 — and unpinned resolution had drifted a
+  long way above both:
+
+  | | declared floor | actually resolving |
+  |---|---|---|
+  | `swift-argument-parser` (the CLI **links and ships** this) | 1.3.0 | **1.7.0**, and **1.8.2** in a checkout made minutes later |
+  | `swift-snapshot-testing` (test-only) | 1.18.0 | **1.19.4** in Settings, **1.19.3** in the other three |
+
+  Two things there are worth keeping. The shipping dependency was **five minor
+  versions above its floor and moved again between two checkouts on the same
+  machine within the hour** — that is the tag-reproducibility hole, demonstrated
+  rather than hypothesised. And the same tree was testing against **two different
+  versions of the same library** depending on which package you ran, which no
+  green run would ever have told you.
+
+  The pinned set was verified before it was committed, not after: the CLI's 72
+  tests against `swift-argument-parser` 1.8.2, and all four snapshot-consuming
+  packages against `swift-snapshot-testing` 1.19.4 — including a Design run with
+  the reference-image suites **not** excluded (0 suites skipped, all 251 tests
+  executed), since re-pinning the snapshot library is exactly the change that
+  could move image comparison.
+
+  **Residual, deliberately left open.** The app target resolves through the
+  generated `SyncCloud.xcodeproj`, which is gitignored, so its
+  `xcshareddata/swiftpm/Package.resolved` cannot be tracked and the app-target
+  step still resolves fresh. That is tolerable because the app links no external
+  dependency — only the test-only snapshot library reaches it — whereas the CLI,
+  which does ship one, is pinned. Bumping a dependency is now a deliberate
+  `swift package update` plus a commit, which is the point.
 
 ### Machine-pinned tests
 
