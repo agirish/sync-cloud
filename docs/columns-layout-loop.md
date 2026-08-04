@@ -386,13 +386,46 @@ coincides with cycles above the floor, it is one bug, not two.
 
 **What is now known not to be the difference**, from the fixture table above: it is not the number
 of panes, not the drilled column stack, not the preview column, not the fractional stored preview
-width, not the action bar's placement plumbing, not the `withAnimation` edge flip, and not the
-risky-name badge — which was the best v3-only lead there was. Nor is it whether the window is on
-screen.
+width, not the action bar's placement plumbing, and not the risky-name badge — which was the best
+v3-only lead there was. Nor is it whether the window is on screen.
 
-So the remaining suspects are the things the fixture still does not have: the real
-`PaneActionDelegate` and `FileSyncManager` with its ~56 published properties, the surrounding
-chrome (header ladder, differences bar, action bar overlay, workspace rows), and a provider switch
-that is a real asynchronous load rather than two synchronous assignments. Any of those can be added
-to `ColumnsDisplayCycleTests` one at a time now, and the pass count says immediately whether it
-mattered — which is the point of having built the instrument.
+### The `withAnimation` edge flip is NOT among them — it never fired
+
+Corrected 2026-08-04, by counting rather than by reading. `TwoPaneHarness` wires
+`onBarEdgeFlip` exactly as `ContentView` does, which is what made it look covered. Instrumenting
+that closure and running `testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget` reports
+**`onBarEdgeFlip` fired 0 times**. The 7-passes result is real; it is just silent about this path.
+
+Two independent reasons, and the second is the one that matters:
+
+1. *In that fixture specifically* — the harness never calls `placement.resolveAtTop(selection:)`
+   from the host and mounts no bar overlay, so `barSelection` stays empty, `reresolveAtTop()`
+   always answers `false`, and `flipEdgeIfScrolledAcross` returns at its `!=` guard every time.
+2. *In any fixture* — `flipEdgeIfScrolledAcross` calls back only when `reresolveAtTop()` disagrees
+   with the committed `atTop`, and the host commits **synchronously from its own `body`**
+   (`ContentView`: `let barAtTop = placement.resolveAtTop(…)`). So **a selection change can never
+   produce a flip**; only geometry moving under an unchanged selection can, which in the app is a
+   scroll. And a scroll does not re-render the host, because `PaneBarPlacement` is a plain class —
+   that asymmetry is the design, and it is what makes the callback the only observer that notices.
+
+   In a fixture the asymmetry inverts. Every available lever for moving geometry — mutating an
+   `@Published`, resizing the window, `contentView.scroll(to:)` — either re-renders the SwiftUI
+   root, so the host's `resolveAtTop` commits *first* and the callback finds nothing changed, or
+   moves AppKit's clip view without re-driving SwiftUI's geometry preferences at all. Measured on a
+   harness built specifically to arm it — two panes, a live `resolveAtTop` from the host, a bar
+   overlay on the resolved edge, the selection on the lowest row the bar actually covers, then six
+   rounds of scroll + resize: **zero flips**.
+
+`PaneBarPlacementCommitTests` pins the half of this that is assertable, so the reason stays
+executable rather than being rediscovered: the edge really moves on a selection change, and no
+callback is made while it does.
+
+**So the edge flip is un-ruled-out, and it cannot be ruled out from a fixture.** It needs a real
+scroll gesture inside the List, i.e. the live session — which is where the trace already points.
+
+So the remaining suspects are the things the fixture still does not have: **the edge flip under a
+real scroll**, the real `PaneActionDelegate` and `FileSyncManager` with its ~56 published
+properties, the surrounding chrome (header ladder, differences bar, action bar overlay, workspace
+rows), and a provider switch that is a real asynchronous load rather than two synchronous
+assignments. All but the first can be added to `ColumnsDisplayCycleTests` one at a time now, and the
+pass count says immediately whether it mattered — which is the point of having built the instrument.
