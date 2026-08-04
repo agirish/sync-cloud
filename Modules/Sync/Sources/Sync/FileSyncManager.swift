@@ -431,6 +431,48 @@ public class FileSyncManager: ObservableObject {
     /// Warms up the classifier backend (e.g. loads the on-device model), injected by the app. Called
     /// when a Filing scan starts so the ~cold-start latency overlaps the keyword + content phases.
     public var filingClassifierPrewarm: (@Sendable () -> Void)?
+
+    /// Names the backend that will answer this scan's classifications — the `model` component of
+    /// ``FilingVerdictKey``. Called once per scan, before any classifying.
+    ///
+    /// It exists because **only the app can answer this correctly.** The manager knows what is
+    /// *configured* (the cloud toggle and the model picker, both plain defaults), but the app's
+    /// router also weighs whether a key can actually be read, and downgrades to the on-device
+    /// model when it cannot. Caching an on-device verdict under a cloud model's name would make
+    /// that downgrade *durable*: the next scan of an unchanged file would serve the on-device
+    /// answer while the user believed Claude had filed it — the same silent-substitution problem
+    /// `FilingBackendRouter.missingKeyDowngradeMessage` exists to surface, made permanent.
+    /// Deciding the identity here also keeps the Keychain query on the app's side, where it stays
+    /// gated behind the cloud toggle rather than running on every scan.
+    ///
+    /// Returning nil disables the cache for this scan — read *and* write. That is the honest
+    /// answer whenever the app cannot vouch for which backend will run.
+    ///
+    /// nil (unset) falls back to the configured identity, which is right for the CLI and tests:
+    /// neither has a Keychain downgrade to model.
+    ///
+    /// **Known gap, deliberately not plumbed:** a cloud call that fails at the *network* falls back
+    /// to on-device inside the app's classifier, after this has already been asked. Such a verdict
+    /// is cached under the cloud identity. It self-corrects when the file changes or via "Rescan
+    /// (ignore cache)", and closing it properly would mean widening the `FilingClassifier` seam to
+    /// carry provenance back — a change to a public contract with a dozen call sites, for a window
+    /// the app already logs a warning about.
+    public var filingBackendIdentity: (@Sendable () -> String?)?
+
+    /// Where the Filing verdict cache is persisted. **nil disables the cache entirely** — no read,
+    /// no write, every file classified as before.
+    ///
+    /// There is deliberately no ambient default here. Falling back to
+    /// ``FilingVerdictStore/defaultURL(fileManager:)`` would mean library code reaching into the
+    /// real home directory whenever nobody said otherwise, and the first thing that happens under
+    /// `swift test` is a few dozen Filing tests constructing a bare `FileSyncManager()` — each of
+    /// which would then read and write the user's actual cache file. The app opts in by setting
+    /// this at startup; the CLI and tests get no cache and behave exactly as they did.
+    public var filingVerdictCacheURL: URL?
+
+    /// The verdict cache, loaded from disk on first use and written back after a scan records into
+    /// it. Held here rather than re-read per scan so a scan pays at most one read.
+    var filingVerdictCache: FilingVerdictCache?
     /// The most recent Filing scan's provider root + relative folder list, kept so a "Try another"
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?

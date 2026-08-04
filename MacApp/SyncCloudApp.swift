@@ -190,6 +190,35 @@ struct SyncCloudApp: App {
         manager.filingContentExtractor = { path in
             await ContentSignalExtractor.tokens(forFileAt: path)
         }
+        // Verdicts are cached per (file identity × backend × prompt version), so a folder whose
+        // files have not changed is not re-classified — and, on the paid cloud backend, not
+        // re-paid for. The location is injected rather than defaulted inside `Sync`, so nothing
+        // but the real app ever reads or writes the real file (see `filingVerdictCacheURL`).
+        manager.filingVerdictCacheURL = FilingVerdictStore.defaultURL()
+        // Which backend a cached verdict came from — asked one scan ahead of the classifier below,
+        // and resolved through the SAME router, so a cloud-enabled-but-no-key downgrade is cached
+        // as on-device rather than under a Claude model's name. Getting that wrong would make the
+        // downgrade durable: later scans would serve the on-device answer while the user believed
+        // Claude had filed the document.
+        //
+        // `logDowngrade` is silenced here on purpose — the classifier reports it when the scan
+        // actually runs, and warning twice for one scan would read as two downgrades. This does
+        // mean the Keychain is queried twice per cloud-enabled scan; that is a live key being read
+        // twice, not a prompt, and the gating that matters (never asking when cloud is off) is
+        // preserved because the toggle is still checked first.
+        manager.filingBackendIdentity = {
+            switch FilingBackendRouter.route(
+                cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
+                hasCloudKey: AnthropicKeychain.hasKey,
+                logDowngrade: { _ in }
+            ) {
+            case .cloud:
+                let stored = UserDefaults.standard.string(forKey: FileSyncManager.cloudModelDefaultsKey)
+                return "cloud:" + CloudFilingProtocol.currentModel(for: stored ?? CloudFilingProtocol.defaultModel)
+            case .onDevice, .onDeviceCloudKeyUnavailable:
+                return FileSyncManager.onDeviceBackendIdentity
+            }
+        }
         // Filing (AI): reason about the folder taxonomy + document text to pick a home, overriding
         // keyword guesses. Hybrid backend — opt-in cloud (Claude) as primary when enabled with a
         // key, else the on-device Apple Foundation Models model. Always injected so the cloud toggle

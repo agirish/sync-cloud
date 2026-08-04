@@ -24,6 +24,16 @@ public enum CloudFilingProtocol {
 
     /// Just the ids, in the same order — the family-resolution and validation paths want these.
     public static let selectableModels = selectableModelOptions.map(\.id)
+    /// The version of the QUESTION this file asks — the instruction block plus the tool schema.
+    ///
+    /// It is part of ``FilingVerdictKey``, so bumping it invalidates every cached verdict and the
+    /// next scan re-asks. **Bump it whenever `requestBody`'s instructions or `input_schema`
+    /// change**: a cached answer to the old prompt is not an answer to the new one, and serving it
+    /// would silently keep the prompt edit from ever taking effect. Wording that cannot change a
+    /// verdict (a typo fix in a comment, reflowing a line) does not need a bump; when unsure, bump
+    /// — the cost is one scan's worth of re-asking, against an edit that never lands.
+    public static let promptVersion = 1
+
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"

@@ -66,13 +66,18 @@ extension FileSyncManager {
     /// `nameProvider` is the ruleset the same pass checks names against (see
     /// ``detectRiskyNames(in:root:provider:)``). Optional so callers that only want suggestions —
     /// the CLI, tests — opt out rather than being forced to name a provider they don't have.
+    /// `ignoringCache` is the "Rescan (ignore cache)" path: it skips READING cached verdicts, so
+    /// every file is put back to the backend, while still WRITING the fresh answers so the next
+    /// ordinary scan benefits. That asymmetry is the point — the user asked for a fresh opinion,
+    /// not for the cache to be turned off.
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
+                                           ignoringCache: Bool = false,
                                            options: FilingOptions = .init()) {
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                               providerName: providerName, nameProvider: nameProvider,
-                                              options: options)
+                                              ignoringCache: ignoringCache, options: options)
         }
     }
 
@@ -83,7 +88,7 @@ extension FileSyncManager {
     /// suggested homes.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
-        nameProvider: CloudProvider.ProviderType? = nil,
+        nameProvider: CloudProvider.ProviderType? = nil, ignoringCache: Bool = false,
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
         guard !isSuggestingFiles else { return }
@@ -218,21 +223,58 @@ extension FileSyncManager {
             if !toClassify.isEmpty {
                 updateScan(\.filingScanLifecycle, epoch: epoch,
                            status: FilingScanPhase.findingHomes.status)
+
+                // Split against the verdict cache BEFORE anything else in this phase. The ordering
+                // is the whole value of the cache, not an optimization detail: a hit must not have
+                // its contents read (that is OCR/PDF work), must not occupy a slot against the
+                // classifier's per-scan file cap, and above all must not be PRICED — the spend
+                // preflight below quotes a figure the user approves, and quoting for files that
+                // are not going to be sent would make that figure a lie.
+                let existingRelative = filingLastExistingFolders
+                let excludedByFile = Dictionary(uniqueKeysWithValues: toClassify.map { f in
+                    (f.id, (rejectedByFile[f.id] ?? []).compactMap { Self.relativePath($0, under: providerRoot.path) })
+                })
+                // nil ⇒ the cache is off for this scan, read and write both. `ignoringCache` is
+                // deliberately NOT part of this: it suppresses the read below while leaving the
+                // write intact.
+                let identity: String? = filingReusesVerdicts
+                    ? (filingBackendIdentity?() ?? configuredFilingBackendIdentity) : nil
+                var keysByFile: [String: FilingVerdictKey] = [:]
+                var cachedVerdicts: [String: FilingVerdict] = [:]
+                var misses = toClassify
+                if let identity {
+                    let cache = ignoringCache ? nil : loadedFilingVerdictCache()
+                    misses = []
+                    for f in toClassify {
+                        let key = FilingVerdictKey(
+                            filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize ?? 0,
+                            model: identity, promptVersion: CloudFilingProtocol.promptVersion,
+                            excludedRelativePaths: excludedByFile[f.id] ?? [])
+                        keysByFile[f.id] = key
+                        if let hit = cache?.verdict(for: key, providerRoot: providerRoot.path,
+                                                    existingRelative: existingRelative) {
+                            cachedVerdicts[f.id] = hit
+                        } else {
+                            misses.append(f)
+                        }
+                    }
+                }
+
                 var snippets: [String: String] = [:]
-                if filingReadsContents, let extractor = filingSnippetExtractor {
+                if filingReadsContents, let extractor = filingSnippetExtractor, !misses.isEmpty {
                     // Only read contents for files whose NAME says nothing — a meaningful name plus
                     // the folder tree is enough for the model, and this skips OCR/PDF work (and the
                     // token cost) for the common named-file case.
-                    let namelessPaths = toClassify.filter { !FilingEngine.canRemember(fileName: $0.name) }.map { $0.id }
+                    let namelessPaths = misses.filter { !FilingEngine.canRemember(fileName: $0.name) }.map { $0.id }
                     snippets = await Self.extractSnippets(for: namelessPaths, using: extractor)
                     if Task.isCancelled { return }
                 }
-                let files = toClassify.map { f -> FilingCandidateFile in
-                    let excluded = (rejectedByFile[f.id] ?? []).compactMap { Self.relativePath($0, under: providerRoot.path) }
-                    return FilingCandidateFile(filePath: f.id, fileName: f.name,
-                                               ext: (f.name as NSString).pathExtension.lowercased(),
-                                               year: Self.modificationYear(f.modificationDate),
-                                               contentSnippet: snippets[f.id], excludedRelativePaths: excluded)
+                let files = misses.map { f -> FilingCandidateFile in
+                    FilingCandidateFile(filePath: f.id, fileName: f.name,
+                                        ext: (f.name as NSString).pathExtension.lowercased(),
+                                        year: Self.modificationYear(f.modificationDate),
+                                        contentSnippet: snippets[f.id],
+                                        excludedRelativePaths: excludedByFile[f.id] ?? [])
                 }
 
                 // Cloud spend guardrail (X6): the true cost of a cloud (Claude) call is only known
@@ -243,12 +285,25 @@ extension FileSyncManager {
                 // scan's on-device suggestions untouched — a graceful, non-empty fallback that still
                 // publishes below. No-op when cloud is off (the common case), and with the default
                 // confirmer that returns true.
-                if cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
-                    let verdicts = await classifier(taxonomyFolders, files)
+                var verdicts = cachedVerdicts
+                if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
+                    let fresh = await classifier(taxonomyFolders, files)
                     if Task.isCancelled { return }
-                    suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
-                                                             providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
+                    // Fresh wins on the (impossible today) overlap: a file is in exactly one of
+                    // the two sets by construction, but stating the precedence keeps that a
+                    // property of this line rather than of the partition above.
+                    verdicts.merge(fresh) { _, new in new }
+                    // `keysByFile` is empty exactly when the cache is off, so this is a no-op then
+                    // — no second check of `identity` needed to say the same thing twice.
+                    recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: providerRoot.path,
+                                         existingRelative: existingRelative)
                 }
+                if !cachedVerdicts.isEmpty {
+                    Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
+                        + "from cache, \(files.count) sent to the backend")
+                }
+                suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
+                                                         providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
             }
         }
 
@@ -380,6 +435,79 @@ extension FileSyncManager {
         }
         return result
     }
+
+    // MARK: Verdict cache
+
+    /// Whether Filing may reuse a cached classifier verdict for an unchanged file. Default ON —
+    /// the key already carries everything the answer depended on, so reuse is not a tradeoff
+    /// between speed and correctness, and leaving it off would mean re-paying for answers that
+    /// cannot have changed. The switch exists for the user who wants every scan asked afresh.
+    public static let reuseVerdictsDefaultsKey = "tidyFilingReuseVerdicts"
+    var filingReusesVerdicts: Bool {
+        (filingContentDefaults.object(forKey: Self.reuseVerdictsDefaultsKey) as? Bool) ?? true
+    }
+
+    /// The identity recorded for a verdict the on-device model produced.
+    public static let onDeviceBackendIdentity = "on-device"
+
+    /// The backend identity derivable from settings alone — what ``filingBackendIdentity`` falls
+    /// back to when the app has not supplied one (the CLI and tests, neither of which has a
+    /// Keychain downgrade to account for). Resolved through `currentModel` so a stored id from
+    /// before a model refresh keys the same as the model that will actually run.
+    var configuredFilingBackendIdentity: String {
+        guard filingUsesCloud else { return Self.onDeviceBackendIdentity }
+        let model = CloudFilingProtocol.currentModel(
+            for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
+        return "cloud:" + model
+    }
+
+    /// The cache, read from disk at most once per launch and then held in memory. An unset
+    /// ``filingVerdictCacheURL`` yields a permanently empty cache — every lookup misses.
+    func loadedFilingVerdictCache() -> FilingVerdictCache {
+        if let cached = filingVerdictCache { return cached }
+        let loaded = filingVerdictCacheURL.map { FilingVerdictStore.load(from: $0) } ?? FilingVerdictCache()
+        filingVerdictCache = loaded
+        return loaded
+    }
+
+    /// Records this scan's fresh verdicts and writes the cache back. Only files present in `keys`
+    /// are recorded, which is what keeps a cache-disabled scan from writing.
+    func recordFilingVerdicts(_ verdicts: [String: FilingVerdict], keys: [String: FilingVerdictKey],
+                              providerRoot: String, existingRelative: Set<String>, now: Date = Date()) {
+        guard !verdicts.isEmpty, !keys.isEmpty, let url = filingVerdictCacheURL else { return }
+        var cache = loadedFilingVerdictCache()
+        var recorded = 0
+        for (path, verdict) in verdicts {
+            guard let key = keys[path] else { continue }
+            cache.record(verdict, for: key, providerRoot: providerRoot,
+                         existingRelative: existingRelative, now: now)
+            recorded += 1
+        }
+        guard recorded > 0 else { return }
+        cache.trim()
+        filingVerdictCache = cache
+        FilingVerdictStore.save(cache, to: url)
+    }
+
+    /// Forgets cached verdicts — all of them, or just those under `providerRoot`. The next scan
+    /// re-asks the backend, which for the cloud backend means paying again; the UI that offers
+    /// this should say so.
+    public func clearFilingVerdictCache(under providerRoot: String? = nil) {
+        guard let url = filingVerdictCacheURL else { return }
+        var cache = loadedFilingVerdictCache()
+        let before = cache.count
+        if let providerRoot {
+            cache.removeAll(under: providerRoot)
+        } else {
+            cache = FilingVerdictCache()
+        }
+        filingVerdictCache = cache
+        FilingVerdictStore.save(cache, to: url)
+        Logger.shared.info("Filing: cleared \(before - cache.count) cached classification(s)")
+    }
+
+    /// How many verdicts are cached — for the Settings readout.
+    public var filingVerdictCacheCount: Int { loadedFilingVerdictCache().count }
 
     /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
     public static let readContentsDefaultsKey = "tidyFilingReadContents"

@@ -3,7 +3,11 @@ import Foundation
 // MARK: - Result model
 
 /// How sure Filing is about a suggested home.
-public enum FilingConfidence: String, Sendable, Equatable, Comparable {
+///
+/// `Codable` so a verdict survives in ``FilingVerdictCache`` across launches. The raw values are
+/// therefore persisted — append new cases rather than renaming existing ones, exactly as
+/// `LiquidGlassHue` does for the same reason.
+public enum FilingConfidence: String, Codable, Sendable, Equatable, Comparable {
     case low, medium, high
     var rank: Int { self == .high ? 2 : (self == .medium ? 1 : 0) }
     public static func < (a: FilingConfidence, b: FilingConfidence) -> Bool { a.rank < b.rank }

@@ -378,6 +378,12 @@ enum SettingsSearchIndex {
               keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
         .init(tab: .filing, title: "Read file contents on-device for better signals",
               keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
+        // "cache" is the word an engineer reaches for and the UI deliberately never says, so it
+        // has to live here or the row is unfindable by the people most likely to look for it.
+        .init(tab: .filing, title: "Reuse suggestions for files that haven’t changed",
+              keywords: ["reuse", "cache", "cached suggestions", "rescan", "re-ask", "cost", "save money"]),
+        .init(tab: .filing, title: "Saved suggestions",
+              keywords: ["saved suggestions", "clear cache", "cache", "forget suggestions", "reset suggestions"]),
         // "loose files" and "todo" are the two a user actually types: the title spells the first
         // hyphenated ("Loose-files"), so the spaced form matches nothing without the keyword, and
         // the second is the default value rather than anything in the label.
@@ -1738,6 +1744,7 @@ struct FilingSettingsTab: View {
     /// same reason every other tab's is: tests and previews build the tab without an engine.
     let syncManager: FileSyncManager?
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
+    @AppStorage(FileSyncManager.reuseVerdictsDefaultsKey) private var filingReuseVerdicts: Bool = true
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
@@ -1747,6 +1754,11 @@ struct FilingSettingsTab: View {
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
     @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
+
+    /// How many saved suggestions there are. Read on appear and after a clear rather than computed
+    /// in `body`: answering it touches the cache file, and `body` runs far more often than the
+    /// number changes.
+    @State private var savedSuggestionCount = 0
 
     // Cloud spend, refreshed on appear and when the history sheet closes.
     @State private var spendTotals = FilingSpendTotals()
@@ -1788,6 +1800,22 @@ struct FilingSettingsTab: View {
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+                Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
+                    .disabled(!filingUseAI)
+                    .help("A file that hasn’t been edited, renamed, or moved gets the same suggestion it got last time, so scanning the same folder again doesn’t ask the model — or, with Claude, pay — a second time. Turning this off asks afresh every scan.")
+                SettingsRow("Saved suggestions") {
+                    HStack(spacing: 8) {
+                        Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Button("Clear") {
+                            syncManager?.clearFilingVerdictCache()
+                            savedSuggestionCount = syncManager?.filingVerdictCacheCount ?? 0
+                        }
+                        .disabled(savedSuggestionCount == 0)
+                    }
+                }
+                .help("Forget every saved suggestion. The next scan asks the model about each file again — with Claude, that means paying for them again.")
                 SettingsRow("Loose-files inbox") {
                     TextField("TODO", text: $filingInbox)
                         .frame(maxWidth: 180)
@@ -1872,6 +1900,7 @@ struct FilingSettingsTab: View {
     private func refreshSpend() {
         spendTotals = FilingSpendStore.totals()
         spendLast = FilingSpendStore.last()
+        savedSuggestionCount = syncManager?.filingVerdictCacheCount ?? 0
     }
 
 }
