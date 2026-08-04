@@ -470,6 +470,29 @@ gates) was a wrong turn — the shared thing was the deadline.
 **Fix.** Retune from the test's own printed measurement rather than guessing, and validate that the
 assertion can fail using CPU spin — never `sleep`.
 
+**A ratio is not immune, 2026-08-03.** `HeaderLadderCostBenchmark.computingTheRungBeatsSearchingForIt`
+failed the full package with `speedup → 1.7575 > 1.8`, a 2.4% miss. Its comment argues a ratio
+needs no nominal constant and "a faster machine cannot break it" — true of a faster machine, false
+of a *contended* one, because the two arms are sampled **sequentially**. Load that drifts between
+the searched arm and the computed arm lands entirely in the ratio, so the quantity that was
+supposed to cancel does not.
+
+It was environmental. Interleaved full-package runs, alternating the pre-change commit and the
+change under test on the same loaded machine (CI was running concurrently — the runner is this
+Mac):
+
+| Round | pre-change | with the change |
+|---|---|---|
+| 1 | 2.71x | 2.58x |
+| 2 | 2.24x | 2.84x |
+| 3 | 2.89x | 2.57x |
+
+3/3 green on both arms, means 2.61x and 2.66x against a 1.8 bar — the failing 1.76 sits outside
+both. **Interleave the arms; do not run all of one then all of the other**, or the load drift
+becomes the result. The suspicion was worth checking rather than waving away: the change under test
+lengthened a main-actor pump in a suite that runs in parallel with this benchmark, which is a real
+causal path, just not the one that fired.
+
 ### 7. The machine decides the verdict — the keyboard
 
 **Symptom.** A mounted-view test spends its whole deadline and reports the end state it started
