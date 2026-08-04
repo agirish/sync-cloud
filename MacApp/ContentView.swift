@@ -1661,10 +1661,10 @@ struct ContentView: View {
                                          otherTreeVersion: pane.otherTree.version)) {
             try? await Task.sleep(for: ContentView.searchDebounce)
             guard !Task.isCancelled else { return }
+            // Where the walk lands afterwards is decided INSIDE, past the staleness guard — see
+            // `recomputeSearch`. It used to be set here, unconditionally, which moved the user's
+            // position even when the results that prompted it were dropped for being stale.
             await recomputeSearch(isLeft: isLeft)
-            // A new result set is a new list, so the walk restarts at its top — index 4 of the old
-            // hits names an unrelated file in the new ones. See `PaneSearchWalk.restart`.
-            paneSearchState(isLeft: isLeft).wrappedValue.hitIndex = PaneSearchWalk.restart
         }
     }
 

@@ -319,6 +319,29 @@ public struct PaneSearchResults: Equatable, Sendable {
         hits.indices.contains(index) ? hits[index] : nil
     }
 
+    /// Where the walk should stand once these results replace `previous`, which was standing at
+    /// `index`.
+    ///
+    /// **Two different events both land here and they want opposite things.** Typing rebuilds the
+    /// hits into a different list, where index 4 names an unrelated file — that walk has to restart.
+    /// A REPUBLISH does not: the query is the same, the hits are usually the same files, and the
+    /// user is somewhere in the middle of walking them. Restarting there yanks them back to the
+    /// first hit and — because the reveal fires on the index — scrolls them away from the row they
+    /// were reading, for a background rescan they did not ask for. The pane republishes on every
+    /// scan, copy and hidden-files toggle, and the OTHER pane's republish counts too (its tree is
+    /// where the side annotation comes from), so this is not rare.
+    ///
+    /// So: same query, follow the PATH. The index is meaningless across two result sets; the path
+    /// is the file the user was looking at. Falls back to the top when the query changed, or when
+    /// the file they were on is no longer a hit — which is the honest answer for a file that has
+    /// been deleted or renamed out of the query.
+    public func walkIndex(after previous: PaneSearchResults, standingAt index: Int) -> Int {
+        guard previous.query == query, let path = previous.hit(at: index)?.path,
+              let moved = hits.firstIndex(where: { $0.path == path })
+        else { return PaneSearchWalk.restart }
+        return moved
+    }
+
     /// The “N of M” a field shows, or `nil` when there is nothing to count. `nil` for an inactive
     /// search; “No matches” when the query found none, which is a real answer and must not be
     /// silence.

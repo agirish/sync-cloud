@@ -353,6 +353,82 @@ import Foundation
         #expect(annotated.side(forPath: "/root/Movies") == nil)
     }
 
+    // MARK: - Where the walk lands after a recomputation
+
+    /// A republish must not move the user. The pane republishes on every scan, copy and
+    /// hidden-files toggle — and the OTHER pane's republish counts too — so restarting the walk
+    /// there yanks them to the first hit and, because the reveal fires on the index, scrolls them
+    /// away from the row they were reading.
+    @Test("A republish keeps the walk on the file it was standing on")
+    func aRepublishFollowsThePath() {
+        let before = results("tax", generation: 1)
+        let after = results("tax", generation: 2)
+        #expect(after.walkIndex(after: before, standingAt: 2) == 2)
+    }
+
+    /// …and it follows the FILE, not the number.
+    ///
+    /// **The fixture has to make the two rules disagree, or it proves nothing.** The first version
+    /// of this test used a shrunken tree where the old index was simply out of range, so
+    /// "follow the index" fell back to the top — which was also the expected answer, and the test
+    /// passed against a mutation that ignored the path entirely. Here the reordered tree still has
+    /// three hits, so index 2 is perfectly valid and names a DIFFERENT file: following the number
+    /// answers 2, following the path answers 0.
+    @Test("It follows the path, not the index")
+    func theWalkFollowsTheFileNotTheNumber() throws {
+        let before = results("tax", generation: 1)
+        let standing = try #require(before.hit(at: 2))
+        #expect(standing.name == "taxes.csv")
+
+        // The same three files, with IRS listed before Finance — so `taxes.csv` is now hit 0 while
+        // hit 2 is `tax-notes.md`.
+        let reordered = PaneSearchResults(
+            side: .left, generation: 3, query: "tax",
+            tree: PaneTree(side: .left, version: 2, nodes: [
+                PaneTreeSearchTests.folder("Documents", [
+                    PaneTreeSearchTests.folder("Documents/IRS", [
+                        PaneTreeSearchTests.file("Documents/IRS/taxes.csv"),
+                    ]),
+                    PaneTreeSearchTests.folder("Documents/Finance", [
+                        PaneTreeSearchTests.file("Documents/Finance/Tax Return 2025.pdf"),
+                        PaneTreeSearchTests.file("Documents/Finance/tax-notes.md"),
+                    ]),
+                ]),
+            ]), otherPaths: nil)
+        #expect(reordered.hits.count == 3, "index 2 must still be valid, or the rules cannot disagree")
+        #expect(reordered.hit(at: 0)?.path == standing.path)
+        #expect(reordered.hit(at: 2)?.path != standing.path)
+        #expect(reordered.walkIndex(after: before, standingAt: 2) == 0)
+    }
+
+    /// Typing is the opposite case: a different query is a different list, where the old index names
+    /// an unrelated file.
+    @Test("A changed query restarts the walk")
+    func aChangedQueryRestartsTheWalk() {
+        let before = results("tax", generation: 1)
+        let after = results("notes", generation: 2)
+        #expect(after.walkIndex(after: before, standingAt: 2) == PaneSearchWalk.restart)
+    }
+
+    /// The file they were standing on stopped matching — deleted, renamed, filtered out. The top is
+    /// the only honest answer.
+    @Test("A hit that is gone restarts the walk")
+    func aVanishedHitRestartsTheWalk() {
+        let before = results("tax", generation: 1)
+        let empty = PaneSearchResults(side: .left, generation: 2, query: "tax",
+                                      tree: PaneTree(side: .left, version: 2, nodes: []),
+                                      otherPaths: nil)
+        #expect(empty.walkIndex(after: before, standingAt: 2) == PaneSearchWalk.restart)
+    }
+
+    /// A stale index into the previous results resolves to no path at all, which must not trap.
+    @Test("A stale standing index is survivable")
+    func aStaleStandingIndexRestartsTheWalk() {
+        let before = results("tax", generation: 1)
+        let after = results("tax", generation: 2)
+        #expect(after.walkIndex(after: before, standingAt: 99) == PaneSearchWalk.restart)
+    }
+
     // MARK: - The stamp
 
     /// The whole point of the type: the payload is three maps and an array a broad query can fill

@@ -107,6 +107,15 @@ extension ContentView {
         // cleared or closed while this was out.
         guard !Task.isCancelled,
               (isLeft ? leftPaneSearch : rightPaneSearch).query == query else { return }
+
+        // The walk moves with the results, and only with them. Setting it at the CALL SITE — which
+        // is what this used to do — moved the user's position even when the results that prompted
+        // it were dropped just above for being stale. `walkIndex(after:standingAt:)` also keeps them
+        // on the file they were reading across a republish, rather than restarting the walk every
+        // time a background scan lands.
+        let state = paneSearchState(isLeft: isLeft)
+        let landed = results.walkIndex(after: isLeft ? leftSearchResults : rightSearchResults,
+                                       standingAt: state.wrappedValue.hitIndex)
         if isLeft {
             leftSearchGeneration = generation
             leftSearchResults = results
@@ -114,6 +123,7 @@ extension ContentView {
             rightSearchGeneration = generation
             rightSearchResults = results
         }
+        state.wrappedValue.hitIndex = landed
     }
 
     /// Walks to the next (`reverse: false`) or previous hit — ↩ and ⇧↩.
