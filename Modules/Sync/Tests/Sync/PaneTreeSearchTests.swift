@@ -299,6 +299,24 @@ import Foundation
         #expect(idle.summary(at: 0) == nil)
     }
 
+    /// …and neither is whitespace. Matching trims, so a lone space found nothing — but the results
+    /// judged themselves ACTIVE from the raw text, which dimmed every row off a path to an answer
+    /// and put "No matches" in the field for a keystroke that asked nothing.
+    @Test("A whitespace-only query is not a search either")
+    func aWhitespaceQueryIsInactive() {
+        let spaces = results("   ")
+        #expect(!spaces.isActive)
+        #expect(!spaces.isDimmed(path: "/root/Movies"))
+        #expect(spaces.summary(at: 0) == nil)
+    }
+
+    /// The same effective query typed with stray spaces is the same search, so the pane must not
+    /// re-render for it — `==` reads the stored (normalized) query.
+    @Test("Padding a query does not make it a different one")
+    func paddingDoesNotChangeTheQuery() {
+        #expect(results("tax") == results(" tax "))
+    }
+
     /// The dim rule, stated as the pane draws it: matches stay bright, so do the folders on the way
     /// to them, and everything else recedes.
     @Test("Only rows off every path to an answer dim")

@@ -1648,10 +1648,11 @@ struct ContentView: View {
         // walking anything).
         .task(id: PaneSearchRecomputeKey(isLeft: isLeft,
                                          query: paneSearchState(isLeft: isLeft).wrappedValue.query,
-                                         treeVersion: pane.tree.version)) {
+                                         treeVersion: pane.tree.version,
+                                         otherTreeVersion: pane.otherTree.version)) {
             try? await Task.sleep(for: ContentView.searchDebounce)
             guard !Task.isCancelled else { return }
-            recomputeSearch(isLeft: isLeft)
+            await recomputeSearch(isLeft: isLeft)
             // A new result set is a new list, so the walk restarts at its top — index 4 of the old
             // hits names an unrelated file in the new ones. See `PaneSearchWalk.restart`.
             paneSearchState(isLeft: isLeft).wrappedValue.hitIndex = PaneSearchWalk.restart

@@ -574,6 +574,7 @@ public struct FileTreeView: View, Equatable {
                 awaitingDownloads: downloads.requests,
                 fonts: rowFonts,
                 search: search,
+                searchRevealTarget: search.hit(at: searchHitIndex)?.path,
                 downloadChannel: downloadChannel
             )
             // The reveal, Columns side. Same token as the Tree branch, so the two presentations walk

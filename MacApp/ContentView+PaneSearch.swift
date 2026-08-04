@@ -30,6 +30,11 @@ struct PaneSearchRecomputeKey: Equatable {
     let isLeft: Bool
     let query: String
     let treeVersion: Int
+    /// The OPPOSITE pane's publish counter. The side annotation ("both sides" / "left only") is read
+    /// out of that tree, so a rescan or a copy over there makes every annotation on screen a claim
+    /// about a tree that no longer exists — "left only" on a file that was just copied across is
+    /// precisely the answer the user searched to get, reported wrong.
+    let otherTreeVersion: Int
 }
 
 /// Searching inside a pane's tree: the host's half — owning the field's state, recomputing the
@@ -42,11 +47,15 @@ extension ContentView {
 
     /// How long the query rests before the tree is searched.
     ///
-    /// The search itself is cheap — in-memory string matching over nodes already in RAM, a few
-    /// milliseconds for a large tree — and the debounce is not there to protect it. It protects what
-    /// happens AFTERWARDS: a new result set re-renders both panes and, through the walk's reset,
-    /// reveals a hit. Doing that per keystroke means opening a folder for every prefix of the word
-    /// being typed, which is the tree detonating slowly instead of all at once.
+    /// It protects two things. The obvious one is what happens AFTER a result set lands: both panes
+    /// re-render and the walk's reset reveals a hit, so searching per keystroke would open a folder
+    /// for every prefix of the word being typed — the tree detonating slowly instead of all at once.
+    ///
+    /// The other is the search itself, which is **not** the "few milliseconds" this comment used to
+    /// claim. Measured in Release on a 40,000-node tree, the size `PaneTree` documents for a real
+    /// pane: 262 ms with the original matcher, 77–142 ms after `PaneTreeSearch.match` was rewritten.
+    /// That is why `recomputeSearch` runs off the main actor — a debounce shortens how often you pay
+    /// a cost, and never makes paying it on the main thread acceptable.
     static let searchDebounce: Duration = .milliseconds(150)
 
     /// This pane's field state, as a binding the header can write.
@@ -68,23 +77,42 @@ extension ContentView {
     /// The side annotation is the opposite pane's already-walked tree and nothing else: one pass over
     /// nodes in RAM, no disk access, no new scan. On the single-source rail there is no opposite pane
     /// — `nil`, so no annotation is produced rather than a wrong one.
-    func recomputeSearch(isLeft: Bool) {
+    func recomputeSearch(isLeft: Bool) async {
         let pane = paneContext(isLeft: isLeft)
         let query = (isLeft ? leftPaneSearch : rightPaneSearch).query
-        let otherPaths: Set<String>? = {
-            guard !query.isEmpty, layoutMode != .singleSource else { return nil }
-            return PaneTreeSearch.relativePaths(in: pane.otherTree)
-        }()
+        let plan = PaneLogic.searchPlan(isLeft: isLeft, isSingleSource: layoutMode == .singleSource,
+                                        query: query)
+        let generation = (isLeft ? leftSearchGeneration : rightSearchGeneration) + 1
+        // Everything below the hop reads only `Sendable` values captured here — the two trees are
+        // `PaneTree`, which is a stamped snapshot, so the background pass cannot observe a
+        // republish half-applied.
+        let tree = pane.tree
+        let otherTree = pane.otherTree
+        let annotatesSides = plan.annotatesSides
+
+        let results = await Task.detached(priority: .userInitiated) {
+            PaneSearchResults(
+                side: plan.side, generation: generation, query: query, tree: tree,
+                otherPaths: annotatesSides ? PaneTreeSearch.relativePaths(in: otherTree) : nil)
+        }.value
+
+        // **`Task.detached` does not inherit cancellation, and awaiting its `.value` does not
+        // throw.** So when `.task(id:)` cancels this — which every keystroke does — the detached
+        // pass runs to completion anyway and resumes here carrying a result for a query nobody is
+        // asking about any more. Assigning it would publish a stale answer over a newer one, which
+        // is exactly the race `FileRowView.resolveBadge` documents one layer down.
+        //
+        // Both guards, because they catch different things: cancellation covers a superseded key
+        // (a keystroke, a republish), and the live query re-read covers the field having been
+        // cleared or closed while this was out.
+        guard !Task.isCancelled,
+              (isLeft ? leftPaneSearch : rightPaneSearch).query == query else { return }
         if isLeft {
-            leftSearchGeneration += 1
-            leftSearchResults = PaneSearchResults(
-                side: .left, generation: leftSearchGeneration, query: query,
-                tree: pane.tree, otherPaths: otherPaths)
+            leftSearchGeneration = generation
+            leftSearchResults = results
         } else {
-            rightSearchGeneration += 1
-            rightSearchResults = PaneSearchResults(
-                side: .right, generation: rightSearchGeneration, query: query,
-                tree: pane.tree, otherPaths: otherPaths)
+            rightSearchGeneration = generation
+            rightSearchResults = results
         }
     }
 

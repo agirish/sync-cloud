@@ -89,15 +89,24 @@ struct PaneSearchName: View {
     let font: Font
 
     var body: some View {
+        // **The unmatched path must not pay for the matched one.** This view replaced a bare
+        // `Text(NameDisplay.visibleName(name))` on EVERY row of the pane — the app's tightest render
+        // budget — and building the `[Character]` array unconditionally taxed every row of every
+        // render with an allocation, including every pane that is not searching at all. The split
+        // costs the highlighted rows nothing: there are at most a screenful of them.
+        guard let match else { return Text(NameDisplay.visibleName(name)).font(font) }
         let display = Array(NameDisplay.visibleName(name))
-        if let match, match.lowerBound >= 0, match.upperBound <= display.count, !match.isEmpty {
-            (Text(String(display[..<match.lowerBound]))
-                + Text(String(display[match])).bold()
-                + Text(String(display[match.upperBound...])))
-                .font(font)
-        } else {
-            Text(String(display)).font(font)
+        // Clamped: the range and the string reach this view from different places — results computed
+        // against the tree published when the query ran, rows rendered from the tree published since
+        // — so one republish between them hands it a range past the end. Without this
+        // `display[..<match.lowerBound]` traps and takes the process with it.
+        guard match.lowerBound >= 0, match.upperBound <= display.count, !match.isEmpty else {
+            return Text(String(display)).font(font)
         }
+        return (Text(String(display[..<match.lowerBound]))
+            + Text(String(display[match])).bold()
+            + Text(String(display[match.upperBound...])))
+            .font(font)
     }
 }
 

@@ -61,11 +61,15 @@ struct PaneColumnsView: View {
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
 
-    /// This pane's search results, for the row decoration only. The REVEAL is the hosting
-    /// `FileTreeView`'s — it owns the hit index and routes the column move through the host's
-    /// `onColumnNavigate`, which is the same seam a click goes through. Defaulted to inactive, so a
-    /// caller that never searches renders exactly the columns it rendered before.
+    /// This pane's search results, for the row decoration. The column MOVE is the hosting
+    /// `FileTreeView`'s — it owns the hit index and routes it through the host's `onColumnNavigate`,
+    /// the same seam a click goes through. Defaulted to inactive, so a caller that never searches
+    /// renders exactly the columns it rendered before.
     var search: PaneSearchResults = .empty(side: .left)
+    /// The path of the hit the walk is standing on, or `nil`. Only the column that lists it scrolls
+    /// to it — see `revealRow`. Separate from `search` because the hit INDEX lives in `FileTreeView`
+    /// and a column has no business resolving it.
+    var searchRevealTarget: String?
 
     /// The `NotificationCenter` this pane's downloads are announced on, handed straight to the
     /// preview column so its Download button posts where the pane that owns it is LISTENING.
@@ -656,11 +660,21 @@ struct PaneColumnsView: View {
     @ViewBuilder
     private func column(directory: String, depth: Int, previewSupported: Bool) -> some View {
         let rows = childrenIndex.children(atPath: directory) ?? []
+        // The reader wraps the column's own `List`, not the stack — `revealDeepestColumn`'s proxy
+        // scrolls the stack HORIZONTALLY to bring a column into view, and cannot scroll a row
+        // VERTICALLY inside one. Both are needed to actually reveal a hit; see `revealRow`.
+        ScrollViewReader { proxy in
         List(selection: columnSelection(for: rows, depth: depth)) {
             ForEach(rows) { row in
                 columnRow(row, depth: depth)
             }
         }
+        // Bring the walked-to hit into view when it lands in THIS column. `.onAppear` as well as
+        // `.onChange`, because a reveal that also drills opens this column for the first time — the
+        // column is created carrying the target rather than being told about it afterwards, so
+        // `.onChange` alone never fires for the case that matters most.
+        .onChange(of: searchRevealTarget) { _, target in revealRow(target, in: rows, proxy: proxy) }
+        .onAppear { revealRow(searchRevealTarget, in: rows, proxy: proxy) }
         .listStyle(.sidebar)
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
@@ -706,6 +720,35 @@ struct PaneColumnsView: View {
                 }
             }
         }
+        }
+    }
+
+    /// Scrolls this column to the hit the search walked to, when the hit is one of its rows.
+    ///
+    /// **Selecting a row is not revealing it.** Measured before this existed: walking to a hit 70
+    /// rows down a column selected it at y = 2330 while the column's viewport showed 0…500 — the
+    /// answer was found, highlighted, and entirely off screen. The columns tests did not catch it
+    /// because they asserted the COLUMN count and the selection, which is exactly the vacuity of
+    /// checking that the container arrived rather than the thing inside it.
+    ///
+    /// Issued twice, for the reason `revealDeepestColumn` documents at length: a `scrollTo` made
+    /// before the layout it resolves against has settled is silently dropped, never retried, and a
+    /// reveal that also drilled is scrolling a `List` created in the same update. The retry costs a
+    /// landed reveal nothing — a `scrollTo` onto a row already in view moves zero points.
+    ///
+    /// The membership check is an economy, not a guard, and is labelled as one because a mutation
+    /// proved it: removing it left every test green. `scrollTo` for an id that is not in this
+    /// reader's scope is a documented no-op, so the columns that do not hold the hit would simply
+    /// queue two blocks each and do nothing with them. Every open column runs this on every walk,
+    /// so the check is worth keeping — but it is not what makes the reveal correct.
+    private func revealRow(_ target: String?, in rows: [PaneRow], proxy: ScrollViewProxy) {
+        guard let target, rows.contains(where: { $0.id == target }) else { return }
+        let animation = revealAnimation
+        func attempt() {
+            withAnimation(animation) { proxy.scrollTo(target, anchor: .center) }
+        }
+        DispatchQueue.main.async { attempt() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay) { attempt() }
     }
 
     @ViewBuilder

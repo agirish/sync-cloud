@@ -87,9 +87,10 @@ import Sync
     struct Harness: View {
         @ObservedObject var box: Box
         let viewMode: PaneViewMode
+        var treeOverride: PaneTree?
 
         var body: some View {
-            let tree = PaneSearchTreeRevealTests.tree(version: box.treeVersion)
+            let tree = treeOverride ?? PaneSearchTreeRevealTests.tree(version: box.treeVersion)
             FileTreeView(
                 tree: tree,
                 otherTree: PaneTree(side: .right, version: 1, nodes: []),
@@ -120,8 +121,31 @@ import Sync
         }
     }
 
-    static func mount(_ box: Box, viewMode: PaneViewMode) -> NSWindow {
-        let host = NSHostingView(rootView: Harness(box: box, viewMode: viewMode))
+    /// One column deep enough that a hit near its end starts below the fold — the shape that showed
+    /// "selected" and "revealed" are different claims.
+    static func tallTree() -> PaneTree {
+        let kids = (0..<80).map { i in
+            let name = i == 70 ? "needle.txt" : "filler \(i).txt"
+            return FileNode(id: "\(root)/\(name)", name: name, isDirectory: false)
+        }
+        return PaneTree(side: .left, version: 1, nodes: kids)
+    }
+
+    /// Whether the row for `path` is inside its column's visible rectangle. Resolved through
+    /// `NSTableView`'s own geometry rather than anything SwiftUI reports — the question is what
+    /// AppKit laid out and where it scrolled to.
+    static func rowIsVisible(_ window: NSWindow, path: String, in tree: PaneTree) -> Bool {
+        guard let index = tree.rows.firstIndex(where: { $0.id == path }) else { return false }
+        for table in tables(window.contentView!) {
+            guard table.numberOfRows > index, let scroll = table.enclosingScrollView else { continue }
+            let rowRect = table.rect(ofRow: index)
+            if scroll.documentVisibleRect.intersects(rowRect) { return true }
+        }
+        return false
+    }
+
+    static func mount(_ box: Box, viewMode: PaneViewMode, tree: PaneTree? = nil) -> NSWindow {
+        let host = NSHostingView(rootView: Harness(box: box, viewMode: viewMode, treeOverride: tree))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -360,6 +384,34 @@ import Sync
         let settled = await LayoutPumpWait.pump(window, upTo: 10) { !box.navigated.isEmpty }
         #expect(settled.held, "the host should have been asked to navigate (\(settled.pumps) pumps)")
         #expect(box.navigated.last?.components == ["Documents", "Finance"])
+    }
+
+    /// **Selecting a row is not revealing it**, and this suite could not tell the difference until
+    /// this test existed: it asserted the column COUNT and the selection, both of which pass while
+    /// the hit sits far below the fold. Measured on the shipped build — a hit 70 rows down was
+    /// selected at y = 2330 with the viewport showing 0…500.
+    @Test("A hit below the fold is scrolled into view, not just selected")
+    func aHitBelowTheFoldIsBroughtIntoView() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .columns, tree: Fixture.tallTree())
+        _ = await LayoutPumpWait.pump(window, upTo: 5) {
+            Fixture.tables(window.contentView!).count == 1
+        }
+        let needle = "\(Fixture.root)/needle.txt"
+        // The control: it starts off screen, or this test proves nothing.
+        #expect(!Fixture.rowIsVisible(window, path: needle, in: Fixture.tallTree()),
+                "the fixture must start with the hit below the fold")
+
+        box.search = PaneSearchResults(side: .left, generation: 1, query: "needle",
+                                       tree: Fixture.tallTree(), otherPaths: nil)
+        box.hitIndex = 0
+
+        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
+            Fixture.rowIsVisible(window, path: needle, in: Fixture.tallTree())
+        }
+        #expect(revealed.held,
+                "the hit's row should be scrolled into its column (\(revealed.pumps) pumps)")
+        #expect(box.selection == [needle], "…and selected")
     }
 
     @Test("The revealed hit becomes the pane's selection in Columns too")

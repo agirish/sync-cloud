@@ -109,6 +109,31 @@ enum PaneLogic {
         activePane.map { paneNames.other(isLeft: $0 == .left) }
     }
 
+    /// What a pane's search run is FOR: which side's results it produces, and whether it annotates
+    /// hits with the other pane's contents.
+    ///
+    /// Extracted because it is the one part of the search host that can be wrong invisibly. A
+    /// left/right mix-up here searches the correct tree and stamps the answer with the other side —
+    /// `PaneSearchResults.==` reads the side first, so the pane would then compare its own results
+    /// unequal forever and re-render on every pass, or (worse, the other way round) never notice a
+    /// change at all. `PaneOutlineRepublishTests.testPaneRendersItsOwnTreeNotTheOtherPanes` exists
+    /// for the same class of bug one layer down.
+    struct SearchPlan: Equatable {
+        let side: PaneTree.Side
+        /// Whether to walk the opposite pane's tree for "both sides" / "left only".
+        let annotatesSides: Bool
+    }
+
+    /// - Parameters:
+    ///   - isSingleSource: the Tidy rail, which has no opposite pane at all.
+    ///   - query: empty means no search is running, so there is nothing to annotate and the other
+    ///     tree must not be walked — that walk is the only part of a search that touches a tree the
+    ///     user is not looking at.
+    static func searchPlan(isLeft: Bool, isSingleSource: Bool, query: String) -> SearchPlan {
+        SearchPlan(side: isLeft ? .left : .right,
+                   annotatesSides: !query.isEmpty && !isSingleSource)
+    }
+
     /// Which pane ⌘F opens the search field on.
     ///
     /// **Selection-derived, with a floor.** `activePane` is the same rule that decides where the
