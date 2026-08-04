@@ -78,7 +78,7 @@ wrong for two years. The steps below exist so that cannot recur.
 `project.yml` is the only source of truth:
 
 ```yaml
-# main's values; v2.x carries "2.9-dev" / "209"
+# main's values; v2.x carries "2.10-dev" / "210"
 CFBundleShortVersionString: "3.0-dev"   # the marketing version — what people see
 CFBundleVersion: "300"                  # the build number — what Launch Services orders by
 ```
@@ -97,7 +97,7 @@ anywhere, which is what makes changing it safe:
 
 **Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
 version it is heading toward, suffixed `-dev`: `main` (the v3 line) sits at `3.0-dev`, `v2.x`
-sits at `2.9-dev`. The suffix says "this build is no release" without implying a distributed beta
+sits at `2.10-dev`. The suffix says "this build is no release" without implying a distributed beta
 programme. A release drops the suffix, and the tip is re-bumped straight afterwards, so a plain
 number like `2.9` is only ever what the tagged commit itself carries.
 
@@ -129,7 +129,38 @@ Work in a worktree as always.
    is what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
 3. **Commit, land on the line, and let CI go green for that SHA.**
 4. **Tag that exact commit and push the tag** — `git tag v2.9 <sha> && git push origin v2.9`.
-   Tags mark history and are never branched from.
+   Tags mark history and are never branched from. Push the tag **before** creating the GitHub
+   release, so the release binds to a tag that already exists rather than to a commitish GitHub
+   resolves for itself.
+
+   Then cut the release, and **pass `--target` explicitly — it is the line that owns the release,
+   not the default branch**:
+
+   ```sh
+   gh release create v2.9 --target v2.x \
+     --title "v2.9 — <the lede, shortened>" --notes-file <body> --latest
+   ```
+
+   Without `--target`, `gh release create` stores the repo's **default branch** (`main`) as the
+   release's `target_commitish` — even when the tag is on `v2.x`. v2.9 shipped that way before it
+   was noticed. Nothing public renders it (the release page, the releases index and the tags page
+   all show a *commit* chip), but it is wrong in the release's edit view and in every API read, and
+   it invites exactly the question "was this cut from main?" about a maintenance release.
+
+   It is fixable after publishing — the API's "unused if the Git tag already exists" caveat governs
+   tag *creation*, not the stored value:
+
+   ```sh
+   RID=$(gh release view v2.9 --json databaseId --jq .databaseId)
+   gh api --method PATCH repos/agirish/sync-cloud/releases/$RID -f target_commitish=v2.x
+   ```
+
+   **Re-verify the tag did not move afterwards** — that is the real risk in editing a published
+   release. `gh api repos/agirish/sync-cloud/git/refs/tags/v2.9 --jq .object.sha` must be unchanged
+   and `git branch -r --contains <sha>` must still name `origin/v2.x` alone.
+
+   Do not "correct" **v2.8**, whose release says `main` and is right: it was tagged 2026-07-31,
+   before the `v2.x` split at `0f016480`, so `main` genuinely was its line.
 5. **Re-bump the tip to the next marker, immediately.** After `v2.9`, `v2.x` becomes `2.10-dev` /
    `210`; after `v3.0`, `main` becomes `3.1-dev` / `301`. Same edit shape as step 1 plus
    `xcodegen`, its own commit. Do this now, not next time — a tip left sitting on a plain release
