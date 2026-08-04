@@ -135,7 +135,7 @@
   <!-- v2.9 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v2.9</span><span class="tag latest">Latest</span></div>
-    <p class="lede">A consolidation release. The surfaces v2.8 introduced settle down, one real data-loss path closes, and the app finally reports the version it actually is.</p>
+    <p class="lede">A consolidation release. The surfaces v2.8 introduced settle down, one real data-loss path closes, and the app finally reports the version it actually is. It is also <b>the most heavily tested and reviewed release in the 2.x series</b> — about 10,700 lines of new tests, close to double any release before it, taking the suite from 2,628 checks to 2,867 across four adversarial review passes. That is where most of the work went, and it is why this list is shorter than the size of the change suggests.</p>
     <div class="grp">
       <h3>Data safety</h3>
       <ul class="flist">
@@ -184,7 +184,7 @@
     <div class="grp">
       <h3>Performance</h3>
       <ul class="flist">
-        <li><span class="ic">⚡</span><span>The differences header computes the layout it needs instead of building six and measuring them — a cost paid on every render, which during a bulk sync is once per copied file.</span></li>
+        <li><span class="ic">⚡</span><span><b>The comparison bar lays out nearly three times faster, and you feel it wherever the comparison redraws.</b> It used to work out which layout fit by building six whole toolbars and measuring them — each one materialising both menus, the per-filter counts and every transfer label. It now computes the width arithmetically and offers the layout engine two. Measured at 900pt: <b>68.4ms → 23.9ms per layout pass</b>, about 44ms of main-thread work removed. The bar's body re-evaluates on every render, so that saving lands every time the comparison is redrawn — when you point a pane somewhere new, when the selection changes, and once per copied file during a bulk sync.</span></li>
       </ul>
     </div>
     <div class="grp">
