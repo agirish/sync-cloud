@@ -121,16 +121,13 @@ import Sync
 
     /// Turns the run loop until `condition` holds, or the timeout expires. Returns whether it held,
     /// so a caller asserts on the answer rather than assuming it.
+    ///
+    /// The loop itself is `LayoutPumpWait.pump`. This suite carried a byte-identical private copy
+    /// of it, which is the same duplication that let one fix leave two bugs — see `pumpFloor` there
+    /// for why a wall-clock deadline alone is not a bound on a congested main actor.
     @discardableResult
     private func settle(_ window: NSWindow, timeout: Double = 3, until condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
-        return condition()
+        await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
     }
 
     /// The real poster both Download buttons use — so these tests exercise the payload the app
