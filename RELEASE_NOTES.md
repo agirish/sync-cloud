@@ -5,6 +5,99 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v2.9
+
+A hardening release. A crash that cost real sessions is gone, four ways a write
+could act on a stale answer are closed, and the Appearance tab finally shows you
+what an accent does.
+
+### Stability
+- **Switching a pane's source no longer takes the app down.** With both panes in
+  Columns, changing a pane's provider could hit AppKit's runaway-layout guard and
+  crash outright — losing the session. It no longer does. The layout underneath
+  still churns more passes than it should, which is a separate open problem; what
+  is fixed is that it is no longer fatal.
+
+### Data safety
+- **Verify All's "copy the identical files" offer can no longer act on a stale
+  verdict.** Undoing a file operation while a verify pass was running left the
+  offer describing files that had since moved — and confirming it could overwrite
+  the bytes the undo had just restored. The offer now carries the state it was
+  taken under and is re-checked at the moment the write is ordered, not at the
+  click.
+- **A cancelled Verify All no longer offers a partial batch.** Cancelling at 40% of
+  500 files used to open the confirmation dialog anyway, over the top of the
+  "cancelled" banner, offering a bulk write of whatever it had got through.
+- **Review stops locking itself out.** If a review session ended in the moment
+  between clicking an action and the action starting, every later session opened
+  with all its actions disabled and no way back short of relaunching.
+- **Tidy's "Try another folder" can no longer write a suggestion onto the wrong
+  card**, or leave the button dead after a rescan.
+
+### Cloud files
+- **A pane watches every download it starts**, not just the most recent one, so a
+  second download no longer leaves the first one's row badged cloud-only forever.
+- **The ☁ badge stops answering from a stale memo** — a file that has landed reads
+  as local, and a path the app could not stat is no longer remembered as though it
+  had answered.
+- The preview column says what it is doing while a file downloads, instead of
+  sitting blank.
+
+### Columns
+- **Opening the preview no longer hides the column it is describing.** The preview
+  takes its width off the stack, which covered the deepest column — the one holding
+  the file you selected — so you had to scroll right by hand to read what the
+  preview was about.
+- **A scroll in one pane stops fighting another pane's reveal.** The wheel
+  gesture's axis lock was app-wide, so flicking in one pane could revert a
+  programmatic scroll in a different one; it is now scoped to the pane the gesture
+  is in.
+- Ending a preview-divider drag in one pane no longer force-scrolls every other
+  pane, and a fast drill no longer jerks the stack backwards a column before
+  catching up.
+
+### Appearance
+- **The accent picker shows what it does.** Under the twelve swatches there is now
+  a live preview — a filled transfer button beside a differences pill — and a
+  caption naming what the colour is actually used for. It was the only section on
+  the tab that explained itself neither in words nor by example.
+- **None says what it really does.** Its caption claimed the panes get no wash;
+  they do — selection follows the macOS accent. What None removes is the glass
+  tint, and that is what it now says.
+- **The Appearance tab fits on a 1280×800 display again** instead of scrolling.
+
+### Settings
+- **The app reports its real version.** Every release from v0.10 to v2.8 installed
+  an app that called itself 1.0 (build 1) — in Settings, in `~/sync-cloud.log`, and
+  in Finder's Version column. This one says 2.9.
+- **Tidy's loose-files inbox is searchable.** Searching "inbox", "loose files", or
+  "TODO" in Settings found nothing, in every 2.x release the control has shipped in.
+
+### Launch at login
+- **A wedged system service can no longer kill the toggle.** Two fast flips could
+  overlap and leave the switch showing the opposite of what was registered; a
+  service call that never returned could latch the toggle dead for the life of the
+  window, swallowing every flip silently.
+
+### Automations
+- **A rule imported, bulk-toggled, or undone no longer re-writes itself.** An
+  external change to a rule's enabled state was echoed back as though you had
+  flipped the switch — at worst re-entering the very undo that caused it.
+
+### Performance
+- The differences header computes the layout it needs instead of building six and
+  measuring them — a cost paid on every render, which during a bulk sync is once
+  per copied file.
+
+### Fixes
+- The destination picker's search says when it is showing a partial answer instead
+  of presenting the first N matches as all of them, and its cards stop
+  double-bordering.
+
+**Full changelog:** [`v2.8...v2.9`](https://github.com/agirish/sync-cloud/compare/v2.8...v2.9)
+
+---
+
 ## v2.8
 
 A destination picker of our own, a preview beside the columns, and a pane bar you
