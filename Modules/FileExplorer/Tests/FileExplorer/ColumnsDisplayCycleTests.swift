@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Quartz
 import SwiftUI
 import UniformTypeIdentifiers
 import Design
@@ -176,8 +177,51 @@ import Sync
         return perTurn
     }
 
+    /// Spins the runloop until `condition` holds. Same discipline as `pumpUntilQuiet` — bounded by
+    /// TURNS, failure on expiry, call site named — and needed for the same reason the preview column
+    /// exposed: quiescence is not arrival. The preview resolves behind an async probe, so a wait for
+    /// "layout stopped moving" returns before it appears, and the arm then measures a pane that has
+    /// no preview column in it while claiming it does.
+    /// **Each turn sleeps for real, and that is the point.** `CFRunLoopRunInMode` returns the
+    /// instant the loop has nothing to do, so a turn-counted spin can burn its whole budget in
+    /// microseconds — which is exactly how the preview column went missing here: what it waits on is
+    /// a TIMED settle, and no number of instant turns advances a clock. `LayoutPumpWait` sleeps 8ms
+    /// a pass for the same reason. Turns still bound it, so a congested machine gets more wall clock
+    /// rather than less (see `LayoutPumpWait.pumpFloor`), and expiry is still a failure.
+    /// One runloop turn. A separate non-async function because `CFRunLoopRunInMode` is unavailable
+    /// from async contexts — briefly blocking the cooperative thread is what the attribute guards
+    /// against, and 5ms of it is exactly what driving a display cycle requires.
+    private func spinRunloopOnce() {
+        _ = CFRunLoopRunInMode(.defaultMode, 0.005, false)
+    }
+
+    private func pumpUntil(_ window: PassCountingWindow,
+                           maxTurns: Int = 400,
+                           _ what: String,
+                           _ location: SourceLocation = #_sourceLocation,
+                           until condition: () -> Bool) async {
+        for _ in 0..<maxTurns {
+            if condition() { return }
+            spinRunloopOnce()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        Issue.record("\(what) never happened within \(maxTurns) turns", sourceLocation: location)
+    }
+
     private func viewCount(_ v: NSView) -> Int {
         1 + v.subviews.reduce(0) { $0 + viewCount($1) }
+    }
+
+    /// The preview columns AppKit actually laid out. `QLPreviewView` is what `ColumnPreviewColumn`
+    /// puts on screen, and is how `ColumnPreviewLayoutTests` detects the same thing.
+    private func previewColumns(_ view: NSView) -> Int {
+        var found = 0
+        func walk(_ v: NSView) {
+            if v is QLPreviewView { found += 1 }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(view)
+        return found
     }
 
     private func tableRowCounts(_ view: NSView) -> [Int] {
@@ -344,8 +388,8 @@ import Sync
     /// The real thing: both panes in Columns, drilled one level, a file selected so the preview
     /// column is up — then the right pane's provider switch, which is `resetNavigation()`: drop the
     /// tree, clear the browse path, paint the new root.
-    @Test func testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget() {
-        let (worst, views) = twoPaneProviderSwitch(badges: false)
+    @Test func testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget() async {
+        let (worst, views) = await twoPaneProviderSwitch(badges: false)
         let detail = "worst display cycle spent \(worst) update-constraints passes against "
             + "\(views) views; AppKit raises once passes exceed views"
         #expect(worst < views / 4, "\(detail)")
@@ -362,8 +406,8 @@ import Sync
     ///
     /// The badge takes width beside a name whose `Text` carries no `lineLimit`, which is the shape
     /// a height oscillation would need. Measured, it does not produce one.
-    @Test func testTheRiskyNameBadgeDoesNotMoveTheDisplayCycleBudget() {
-        let (worst, views) = twoPaneProviderSwitch(badges: true)
+    @Test func testTheRiskyNameBadgeDoesNotMoveTheDisplayCycleBudget() async {
+        let (worst, views) = await twoPaneProviderSwitch(badges: true)
         let detail = "with badges: worst cycle spent \(worst) passes against \(views) views"
         #expect(worst < views / 4, "\(detail)")
     }
@@ -371,7 +415,7 @@ import Sync
     /// Both arms' shared body, so the only difference between them is the badge.
     private func twoPaneProviderSwitch(badges: Bool,
                                        _ location: SourceLocation = #_sourceLocation)
-    -> (worst: Int, views: Int) {
+    async -> (worst: Int, views: Int) {
         let badgeCounter = Counter()
         let fx = DeepFixture(folders: 12, filesPerFolder: 30)
         let other = DeepFixture(folders: 9, filesPerFolder: 21)
@@ -389,7 +433,23 @@ import Sync
             box.browsePath = PaneBrowsePath(components: [DeepFixture.folder(0)])
             box.selection = ["\(box.root)/\(DeepFixture.folder(0))/\(Fixture.name(0))"]
         }
+        await pumpUntil(window, "both panes' preview columns appeared") {
+            self.previewColumns(window.contentView!) == 2
+        }
         pumpUntilQuiet(window)
+
+        // **The arm is in the configuration it claims to be in.** Passing `placement`, a selection
+        // and a browse path is not the same as a pane that drilled and put a preview up, and a
+        // fixture that quietly rendered neither would report the same 7 passes while measuring a
+        // plainer pane. This is the lesson `b4550396` had to land separately: `onBarEdgeFlip` is
+        // wired here exactly as `ContentView` wires it and fires ZERO times, so "the edge flip is
+        // ruled out" was silence written down as a negative. Everything else this arm claims to
+        // exercise is therefore checked against what AppKit actually laid out.
+        let tables = tableRowCounts(window.contentView!)
+        #expect(tables.count >= 4,
+                "both panes were meant to be drilled to a two-column stack; tables: \(tables)")
+        #expect(previewColumns(window.contentView!) == 2,
+                "the preview column never appeared, so this arm measured a pane without one")
 
         // The provider switch: `resetNavigation()` on the right pane.
         right.tree = PaneTree(side: .right, version: 2, nodes: [])

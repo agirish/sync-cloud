@@ -166,12 +166,33 @@ which is itself worth noting given how much variance the crash rate has:
 | fixture | views | worst cycle |
 |---|---|---|
 | one pane, Columns, the `resetNavigation()` republish | 136 | **3 passes** |
-| two panes in Columns, both drilled, preview up, real `PaneBarPlacement` and the host's `onBarEdgeFlip`, right pane's provider switched | 348 | **7 passes** |
-| the same, with a **risky-name badge on every row** | 348 | **7 passes** — no change at all |
+| two panes in Columns, both drilled, preview up, real `PaneBarPlacement` and the host's `onBarEdgeFlip`, right pane's provider switched | 351 | **7 passes** |
+| the same, with a **risky-name badge on every row** | 351 | **7 passes** — no change at all |
 
 The second is `ContentView.treeView`'s actual composition — `FileTreeView` in columns mode,
-`.equatable()`, the row-bottoms preference feeding a live placement, the edge-flip callback writing
-host state inside `withAnimation` — and not one of those brought it near the budget.
+`.equatable()`, the row-bottoms preference feeding a live placement — and neither brought it near
+the budget. (It also *passes* the edge-flip callback exactly as `ContentView` does, but that
+callback never fires; see below. The list of what this arm establishes stops where the callback
+does.)
+
+**Every claim in that row is now checked against what AppKit laid out, because two of them were
+not.** The arm asserts both panes drilled to a two-column stack and both preview columns rendered,
+and the badged arm counts the badges it handed out. That is not belt-and-braces — it is the second
+correction this fixture has needed:
+
+- `onBarEdgeFlip` is wired here exactly as the app wires it and fires **zero** times (`b4550396`).
+- The preview column was **absent** from every measurement taken before this check existed. The
+  earlier "348 views / 7 passes" numbers were a pane with no preview in it, while the row claimed
+  "preview up". Fixed rather than retracted — the wait now waits for the preview to actually
+  arrive, and the answer is unchanged at 7 passes, so the claim is now real instead of vacuous.
+
+**Why it was missing is worth keeping.** The wait was bounded by runloop turns, and
+`CFRunLoopRunInMode` returns the instant the loop has nothing to do — so several hundred "turns"
+cost microseconds, while what the preview waits on is a **timed** settle. Turn-counting is the
+right bound for quiescence (`docs/flaky-tests.md` mechanism 2) and the wrong one on its own for
+anything waiting on a clock; `pumpUntil` now sleeps 8ms a turn as `LayoutPumpWait` does. **Quiescence
+is not arrival** — a wait for "layout stopped moving" returns happily before the thing you are
+waiting for exists.
 
 **The third arm exists because of the v3-only evidence at the top of this file.** `RiskyNameBadge`
 and `RiskyNameBadgeCache` are the only files in this pane that `main` has and `v2.x` does not, which
