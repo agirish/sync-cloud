@@ -359,6 +359,11 @@ the crash-rate variance above to apply to the churn as well — take several swi
 a deliberate trade and it is the right one at this point: the alternative is shipping the crash
 itself, which is unambiguously worse than an unquantified hitch.
 
+**Half of that is now answered — the churn is measured, its wall-clock cost is not.** See "The
+runaway, finally measured" below: up to 5,840 update-constraints passes against a 227-view budget,
+on 9 of 10 switches. The duty-cycle half still needs `paneScrollTraceEnabled` armed in the same
+session; arm both together and one repro answers both questions.
+
 ## The slow-walk precondition, and why it is NOT the cause
 
 Every crash and every 9-13 s `publish` happened while a provider was cold and the deep walk was
@@ -384,6 +389,88 @@ defaults write com.abhishekgirish.SyncCloud debugWalkStallBlocks -bool YES   # o
 
 So a slow walk is a **correlate** of the crash, not a cause. Whatever the runaway needs, it is not
 elapsed walk time, not overlapping loads, and not pool starvation.
+
+## The runaway, finally measured — 2026-08-04
+
+**It is real, it is enormous, and it is now a number.** The trace was armed against the installed
+app (`3.0-dev` / build 300) and driven with the scripted repro. During one four-minute window every
+provider switch but one blew AppKit's budget:
+
+| | passes | window's view budget | over budget by |
+|---|---|---|---|
+| worst seen | **5,840** | 227 | **25×** |
+| typical | 600–4,800 | 146–233 | 3–20× |
+| rate | **9 of 10 switches** | | |
+
+AppKit raises once passes exceed the view count, so essentially every one of these would have been
+the crash — which is exactly why the manual repro "reproduces by hand, every time". The session
+survived only because the assert is suppressed.
+
+**Two cycles per switch, and the budget moves the wrong way.** Each switch produced a cycle at
+~146–157 views and a second at ~230–233. The tree being dropped is what shrinks the view count, so
+the window's budget is at its *smallest* in the very cycle the churn is at its largest. Anything
+that reduces view count during a republish makes the cliff nearer.
+
+**A second, independent finding: the provider-picker popover churns too.** `"untitled"` at 57 views
+spent 21–23 passes, 37–40% of its own budget, on three separate occasions — and every one of those
+was *before* any main-window churn. This is a different window from the pane, so the app-global
+suppression is load-bearing for more than Columns.
+
+### What the metric ruled out that survival counts never could
+
+All measured against the same trace, on the running app:
+
+- **A slow walk is not it, confirmed with a continuous metric.** `WalkStall` armed at 15 ms/dir,
+  9 switches landing mid-walk (`superseded` 9/9 — the overlap precondition genuinely present):
+  **zero** churning cycles. This corroborates `WalkStall`'s own note from a binary outcome to a
+  measured one.
+- **A cold process is not it.** Quit, relaunch, measure immediately: 12 switches, zero.
+- **Load overlap is not it** — see the 9/9 superseded run above.
+- **Window activation is not it.** Interleaved, 8 switches per arm, frontmost-and-key versus
+  background: 0/8 either way.
+
+### The correlation that is left, and it is a sharp one
+
+**The churning window began immediately after a real click into the pane, and ended when the
+clicking stopped.** From the log, in order:
+
+```
+06:56:28.712  [columns] right pane depth 0 → 1 at Immigration   ← a drill, i.e. a CLICK
+06:56:28.880  [click]   right pane selected 1 item(s)
+06:56:30.679  [deselect] right col1 empty area
+06:56:30.819  [cycle]   "SyncCloud" (463 views) spent 1216 passes   ← 0.14 s later
+```
+
+Before that click, in the same session, the main window produced no cycle line at all — only the
+popover's. After it, 9 of 10 switches ran away. The next session, driven identically but with
+**zero** interaction lines in the whole log (no `[click]`, `[columns]`, `[crumb]`, `[deselect]`),
+produced zero churning cycles across more than thirty switches, cold start and stall included.
+
+So the missing precondition is something a **click** leaves behind that `resetNavigation()` does not
+clear and a `defaults write` never creates. First responder inside the column's `NSTableView` is the
+obvious candidate — it survives a provider switch, it is precisely the "the picker click also moves
+first responder; that difference has not been closed" note above, and it would explain the whole
+pattern at once: why clicking reproduces every time, why the scripted route is unreliable, why no
+headless fixture has ever reproduced it (an offscreen window that is never key has no first
+responder), and why the rate appears to "decay over an evening" — investigators stop clicking.
+
+**This also reframes the slow-walk story.** Cold providers correlated with crashes because early
+sessions involved more clicking, not because elapsed walk time matters; the stall measurement above
+now says so directly.
+
+### How to take the next step
+
+Arm the trace, then **click into a column in the right pane before switching the provider** — the
+drill is the part that matters, not the switch:
+
+```sh
+defaults write com.abhishekgirish.SyncCloud displayCycleTraceEnabled -bool YES
+```
+
+`grep '\[cycle\]' ~/sync-cloud.log`. A line naming `"SyncCloud"` with passes above the view count is
+the runaway; no line means the window stayed under an eighth of its budget. The number is reported
+whether or not the session dies, so a candidate fix is now evaluated by watching 5,840 fall rather
+than by counting survivals.
 
 ## The next lead
 
