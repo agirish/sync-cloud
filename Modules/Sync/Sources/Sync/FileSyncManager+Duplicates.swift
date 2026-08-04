@@ -210,6 +210,26 @@ extension FileSyncManager {
 
     /// Clears the current results (called when switching providers, so stale groups from one
     /// provider can never be shown — or acted on — under another).
+    /// Every lens result that belongs to the provider being switched away from.
+    ///
+    /// **A list, in one place, because a list spread across call sites is what broke.** The two
+    /// provider-switch handlers in `ContentView` each cleared duplicates, filing and the automation
+    /// dry-run inline, under the comment "stale Tidy results must not outlive their provider" — and
+    /// the risky-name finding, which became a Tidy result when Rename folded into Organize, was
+    /// never added to either. It outlived its provider: Organize kept showing the previous
+    /// account's finding, and "Fix all" would have renamed those files — under the OLD provider's
+    /// ruleset, at absolute paths under the OLD provider's root — while the window said you were
+    /// somewhere else. `clearFiling()` does not cover it; the name scan has its own lifecycle.
+    ///
+    /// Adding a lens now means adding it here, where the omission is one line from the others and
+    /// `everyLensResultIsClearedByAProviderSwitch` fails until it is.
+    public func clearLensResultsForProviderSwitch() {
+        clearDuplicates()
+        clearFiling()
+        clearAutomationDryRun()
+        clearNameScan()
+    }
+
     public func clearDuplicates() {
         // Cancel any in-flight scan so it can't republish the old provider's results after the
         // switch (findDuplicates checks Task.isCancelled before it assigns duplicateGroups).

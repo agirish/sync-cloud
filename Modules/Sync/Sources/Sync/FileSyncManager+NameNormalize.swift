@@ -11,25 +11,18 @@ extension FileSyncManager {
 
     // MARK: Scan
 
-    /// Starts a cancellable Name Normalizer scan of `root` for `provider`, replacing any in-flight
-    /// one.
-    ///
-    /// The ruleset travels on each result rather than on the manager: `RiskyName.sanitizedName` is
-    /// computed during the scan, so a later "Fix all" renames to the name the row showed rather
-    /// than re-deriving one against whatever provider the panes happen to be on by then.
-    public func startNameScan(root: URL, provider: CloudProvider.ProviderType) {
-        nameScanTask = restartedScanTask(replacing: nameScanTask) { [weak self] in
-            await self?.scanNames(root: root, provider: provider)
-        }
-    }
-
-    /// Cancels a running Name Normalizer scan; results are left as they were.
-    public func cancelNameScan() {
-        nameScanTask?.cancel()
-    }
-
     /// Walks `root`, detects every risky name via the pure ``NameNormalizer``, and publishes them.
     /// `fileManager` is injectable for tests; production uses the manager's own.
+    ///
+    /// **No longer the shipped producer.** When Rename folded into Organize the finding moved onto
+    /// the Filing pass — ``detectRiskyNames(in:root:provider:isCancelled:)`` reuses the tree that
+    /// scan already has in memory, which is the whole reason the fold was worth doing. The public
+    /// `startNameScan`/`cancelNameScan` wrappers that used to drive this had no caller left in the
+    /// app, the CLI or the tests, and have been removed rather than left as API nothing calls.
+    ///
+    /// This function stays because `NameNormalizerTests` and `PermissionDeniedScanTests` drive it
+    /// directly: it is the standalone-walk reference the Filing path mirrors, and the
+    /// permission-denied behaviour they pin here is the behaviour that path inherits.
     func scanNames(root: URL, provider: CloudProvider.ProviderType, fileManager fm: FileManaging? = nil) async {
         guard !isScanningNames else { return }
         let fileManager = fm ?? self.fileManager
@@ -126,8 +119,9 @@ extension FileSyncManager {
         Logger.shared.info("Filing scan flagged \(risky.count) risky name(s) under \(root.lastPathComponent) for \(provider.rawValue), \(riskyNames.count) reported")
     }
 
-    /// Clears the current results (e.g. when switching providers), cancelling any in-flight scan so
-    /// it can't republish stale results after the switch.
+    /// Clears the current results, cancelling any in-flight scan so it can't republish stale
+    /// results afterwards. Called by ``clearLensResultsForProviderSwitch()``, which is the one
+    /// place a provider switch drops a lens's findings.
     public func clearNameScan() {
         nameScanTask?.cancel()
         riskyNames = []

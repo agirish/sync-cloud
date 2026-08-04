@@ -597,9 +597,10 @@ struct ContentView: View {
             // comparison (the user chose this switch) — but releases the review's pin from the
             // RIGHT pane if the review was no longer active, since that pin is not their choice.
             reviewCoordinator.dispatchReview(.providerSwitched(isLeft: true))
-            syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
-            syncManager.clearFiling()
-            syncManager.clearAutomationDryRun()   // and the stale dry-run preview
+            // Stale Tidy results must not outlive their provider — every lens, from the one list
+            // that owns that rule. Spelling them out here is what let the risky-name finding be
+            // forgotten when Rename folded into Organize.
+            syncManager.clearLensResultsForProviderSwitch()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
@@ -614,9 +615,7 @@ struct ContentView: View {
             Logger.shared.info("User switched right provider to \(newId)")
             // Mirror of the left handler above, releasing the pin from the LEFT pane instead.
             reviewCoordinator.dispatchReview(.providerSwitched(isLeft: false))
-            syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
-            syncManager.clearFiling()
-            syncManager.clearAutomationDryRun()   // and the stale dry-run preview
+            syncManager.clearLensResultsForProviderSwitch()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             syncManager.resetNavigation()
