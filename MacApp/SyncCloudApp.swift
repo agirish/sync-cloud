@@ -103,25 +103,10 @@ struct SyncCloudApp: App {
             UserDefaults.standard.register(
                 defaults: ["NSWindowAssertWhenDisplayCycleLimitReached": false])
 
-            // Say so in the log. The suppression is app-GLOBAL — every window this process opens,
-            // Settings and Activity Log included, runs without AppKit's runaway-layout guard for
-            // the whole session — and `~/sync-cloud.log` is the only channel that can tell a
-            // support session which build state it is looking at.
-            //
-            // Read back through `bool(forKey:)`, the same accessor AppKit's own read ends in, so
-            // this reports the EFFECTIVE value rather than restating the line above: an explicit
-            // `defaults write` (persistent domain) or a `-NSWindowAssert…` launch argument beats
-            // the registration domain, and then the guard is armed and the crash is live again.
-            let assertKey = "NSWindowAssertWhenDisplayCycleLimitReached"
-            if UserDefaults.standard.bool(forKey: assertKey) {
-                Logger.shared.info(
-                    "[layout-guard] AppKit display-cycle assert is ARMED by an explicit override — "
-                    + "a Columns provider switch can crash this session (docs/columns-layout-loop.md)")
-            } else {
-                Logger.shared.info(
-                    "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; "
-                    + "the Columns layout loop still churns update-constraints passes, it just is not fatal")
-            }
+            // The log line that reports which state this session is in is deliberately NOT here —
+            // it is in the delegate's `applicationDidFinishLaunching`, for exactly the reason the
+            // "launched" breadcrumb is: App.init can be re-run by SwiftUI, and a diagnostic that
+            // says the crash guard is off is worth less every time it repeats itself.
 
             // Move a pre-GlassLevel install onto the two-control Appearance model before any
             // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init
@@ -443,6 +428,32 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
+
+        // Which state the AppKit display-cycle guard is in, recorded once per launch.
+        //
+        // The suppression `SyncCloudApp.init` registers is app-GLOBAL and lasts the whole session:
+        // every window the process opens — Settings, Activity Log, anything added later — runs
+        // without AppKit's runaway-layout guard, not just the Columns pane that needs it. That is
+        // worth a breadcrumb, because `~/sync-cloud.log` is the only channel that can tell a
+        // support session which build state it is looking at.
+        //
+        // Read back through `bool(forKey:)`, the same accessor AppKit's own read of this key ends
+        // in, so this reports the EFFECTIVE value rather than restating what init asked for: an
+        // explicit `defaults write` (persistent domain) or a launch argument beats the registration
+        // domain, and then the guard is armed and the crash is live again. Under tests nothing is
+        // registered at all, so this correctly reports ARMED — which is the deliberate design, so
+        // CI still fails loudly if a fixture ever reproduces the runaway.
+        //
+        // Here rather than in `App.init` because this fires exactly once; init can be re-run.
+        if UserDefaults.standard.bool(forKey: "NSWindowAssertWhenDisplayCycleLimitReached") {
+            Logger.shared.info(
+                "[layout-guard] AppKit display-cycle assert is ARMED — a Columns provider switch "
+                + "can crash this session (docs/columns-layout-loop.md)")
+        } else {
+            Logger.shared.info(
+                "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; "
+                + "the Columns layout loop still churns update-constraints passes, it just is not fatal")
+        }
     }
 
     /// The pure branch outcome of the quit guard, split out from the NSAlert plumbing so the
