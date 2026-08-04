@@ -182,7 +182,7 @@ does not render on its own and every rail test was blind to it. `SettingsRail.ve
 seam that fixes that: the tests inject `versionMarker` and really lay the line out. **Keep that
 literal in step with `project.yml`** — that is the whole reason step 2 exists.
 
-Measured room is 142pt against 119pt for `SyncCloud 2.9-dev` at the largest text size — about
+Measured room is 142pt against 119pt for `SyncCloud 2.10-dev` at the largest text size — about
 three characters spare, comfortable out to roughly a 21-character line (`10.10-dev` still fits).
 If a version ever does get long enough to matter, `theVersionLineFitsTheRailOnOneLine` fails and
 names the number; do not widen the rail without re-measuring the tabs that share its opening.
