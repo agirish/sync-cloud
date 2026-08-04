@@ -1016,6 +1016,9 @@ extension FileSyncManager {
                 /// thread-safe), depth-capped shallow passes (nothing to spread), and levels
                 /// below the horizon — recurses sequentially within the current task.
                 func walkChildren(_ urls: [URL], depth: Int, fanLevel: Int, visited: Set<DirectoryIdentity>) async -> [FileNode] {
+                    // Diagnostic only, and off unless someone asks for it — see `WalkStall`.
+                    await WalkStall.perDirectory()
+
                     // A single-entry level doesn't advance the fan level: parallelism should
                     // engage at the first level that actually HAS siblings to spread.
                     let childFanLevel = urls.count > 1 ? fanLevel + 1 : fanLevel

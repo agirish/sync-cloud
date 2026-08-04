@@ -98,6 +98,32 @@ To get the crash — and its backtrace — back for a diagnostic session:
 defaults write com.abhishekgirish.SyncCloud NSWindowAssertWhenDisplayCycleLimitReached -bool YES
 ```
 
+## The slow-walk precondition, and why it is NOT the cause
+
+Every crash and every 9-13 s `publish` happened while a provider was cold and the deep walk was
+taking **25-46 s**, so the next switch landed while the previous load was still in flight. Warm, the
+walk takes 0.4-0.8 s, loads never overlap, and 38 consecutive switches across three configurations
+published in 12-22 ms with no crash. That is why the crash rate collapsed from 5/5 to about 1-in-8
+over a single evening: the investigation itself kept everything warm.
+
+`WalkStall` (`Modules/Sync/Sources/Sync/WalkStall.swift`) turns that precondition into a knob:
+
+```sh
+defaults write com.abhishekgirish.SyncCloud debugWalkStallMillisecondsPerDirectory -int 15
+defaults write com.abhishekgirish.SyncCloud debugWalkStallBlocks -bool YES   # optional: block, don't suspend
+```
+
+**It did not reproduce the runaway, and that is the finding.** With the stall armed:
+
+- switches land mid-walk **8 times out of 8** (`superseded during the deep walk`) — the overlap is
+  real and now on demand;
+- walks stretched to 10-15 s and allowed to COMPLETE still publish a 38,461-node tree in 22-58 ms;
+- blocking the walk's threads outright — starving the cooperative pool the way a real
+  `getattrlistbulk` stall does — changes nothing either.
+
+So a slow walk is a **correlate** of the crash, not a cause. Whatever the runaway needs, it is not
+elapsed walk time, not overlapping loads, and not pool starvation.
+
 ## The next lead
 
 The open "first column moves up and down" report (see `PaneColumnJitterProbe`) is plausibly this same

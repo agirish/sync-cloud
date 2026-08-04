@@ -91,6 +91,15 @@ struct SyncCloudApp: App {
             UserDefaults.standard.register(
                 defaults: ["NSWindowAssertWhenDisplayCycleLimitReached": false])
 
+            // Say so when the diagnostic walk stall is armed. It makes every walk take seconds,
+            // which is indistinguishable in the log from the cold-provider slowness it imitates —
+            // so one left on by accident would be read as the bug it exists to reproduce.
+            if WalkStall.isArmed {
+                Logger.shared.info(
+                    "[walk] DIAGNOSTIC STALL ARMED — \(WalkStall.millisecondsPerDirectory)ms per directory."
+                    + " Clear it with: defaults delete com.abhishekgirish.SyncCloud \(WalkStall.defaultsKey)")
+            }
+
             // Move a pre-GlassLevel install onto the two-control Appearance model before any
             // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init
             // calls noted above are harmless.
