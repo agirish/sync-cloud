@@ -359,10 +359,12 @@ the crash-rate variance above to apply to the churn as well — take several swi
 a deliberate trade and it is the right one at this point: the alternative is shipping the crash
 itself, which is unambiguously worse than an unquantified hitch.
 
-**Half of that is now answered — the churn is measured, its wall-clock cost is not.** See "The
-runaway, finally measured" below: up to 5,840 update-constraints passes against a 227-view budget,
-on 9 of 10 switches. The duty-cycle half still needs `paneScrollTraceEnabled` armed in the same
-session; arm both together and one repro answers both questions.
+**This is now answered, and the answer is the bad one.** See "The runaway, finally measured" and
+"The manual repro, traced" below: up to 5,840 update-constraints passes against a 227-view budget,
+and the cost is **seconds of frozen main thread** — a click stamped `press→settled 4676.7 ms`
+alongside a 3,615-pass cycle, and a 174-node publish that takes 2.96 s instead of its usual 0.3 ms.
+Not a hitch too short to see. It is a pegged core, and it is almost certainly what the open
+dead-click and column-jitter reports are.
 
 ## The slow-walk precondition, and why it is NOT the cause
 
@@ -471,6 +473,68 @@ defaults write com.abhishekgirish.SyncCloud displayCycleTraceEnabled -bool YES
 the runaway; no line means the window stayed under an eighth of its budget. The number is reported
 whether or not the session dies, so a candidate fix is now evaluated by watching 5,840 fall rather
 than by counting survivals.
+
+## The manual repro, traced — and the causal story here was backwards
+
+The click the scripted route cannot make was made by hand, with the trace armed. It reproduced
+twice in twenty seconds, and this time both occurrences are *attributable*.
+
+**A column drill alone reproduces it. No provider switch is involved.**
+
+```
+07:13:33.069  [columns] right pane depth 1 → 2 at Finance/US        ← a drill, i.e. a CLICK
+07:13:37.745  [cycle]   "SyncCloud" (560 views) spent 3615 passes
+07:13:37.745  [click]   right pane selected 1 item(s), press→settled 4676.7 ms
+```
+
+The runaway and the click's own settle stamp land in the same millisecond. **That is the cost, and
+it is not a hitch: 4.7 seconds of frozen main thread for one click.** It is also, almost certainly,
+the open "dead click" and "first column moves up and down" reports — same window, same cause.
+
+**The slow publish is an EFFECT of the runaway, not evidence of a slow provider.** This file has
+until now read the 9–13 s publishes as a symptom of a cold walk. The same tree, published five times
+in one session, says otherwise — 174 nodes, the same folder, the same code path:
+
+| when | walk | publish | churning cycle in the same second? |
+|---|---|---|---|
+| 07:11:07 | 74.3 ms | **0.3 ms** | no |
+| 07:13:39 | 55.9 ms | **0.7 ms** | no |
+| 07:13:39 | 55.9 ms | **0.8 ms** | no |
+| 07:13:43 | 36.8 ms | **51.6 ms** | no |
+| 07:13:51 | 40.2 ms | **2.96 s** | **yes — 1794 passes / 233 views** |
+
+Four thousand times slower, on the one occasion the layout ran away, with the tree held constant and
+the walk at 40 ms. A 174-node publish cannot take three seconds for any reason except a main thread
+stuck in layout. Together with `WalkStall` (slow walks armed, zero churn) the direction is settled:
+**the runaway makes the publish slow; the slow walk never made the runaway.** Cold providers
+correlated because those sessions involved more clicking.
+
+### The tracking-loop asymmetry — the sharpest candidate yet
+
+A click reaches the drill through **two** paths in `PaneColumnsView`, and they treat the same call
+differently:
+
+- The **List's selection binding** computes the target and then defers: `DispatchQueue.main.async`,
+  guarded by `DeferredColumnNavigation.isStillValid`. Its comment says why — *"writing it from
+  inside the List's own selection commit is the mid-commit sibling write that drops clicks
+  outright (`aa9d407`)"*.
+- The **tap gesture** calls `onNavigate(navigation(for:depth:))` **synchronously**, and the comment
+  immediately below it states the context in the code's own words: *"This closure runs INSIDE the
+  same tracking loop."*
+
+So one path defers restructuring the column stack out of `NSTableView`'s mouse-down tracking loop,
+and the other restructures it — adding or removing whole columns, each its own `List`, `NSTableView`
+and hosting view — from inside that nested loop, while display cycles are running in it.
+
+That predicts everything measured here. A programmatic `browsePath` write never enters the tracking
+loop, which is why the fixture drills to 7 passes and `defaults write` switches were mostly quiet;
+a real click does, which is why clicking reproduces every time. It also explains the offscreen
+fixture's immunity — a window that is never key gets no mouse tracking at all.
+
+**The candidate fix follows directly**: defer the tap gesture's `onNavigate` by a runloop turn as
+the List path already does, reusing `DeferredColumnNavigation` so a stale drill is still dropped.
+Unverified — it needs a click to evaluate, which is now cheap: drill a column with the trace armed
+and watch whether 3615 falls.
 
 ## The next lead
 
