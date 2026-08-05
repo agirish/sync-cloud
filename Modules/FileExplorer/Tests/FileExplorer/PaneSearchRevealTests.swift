@@ -331,6 +331,60 @@ import Sync
     }
 }
 
+/// The outline stopped being an `OutlineGroup` so search could open a hit's ancestors — and the two
+/// things a user does with a tree every day went untested through that swap. Neither is about
+/// search; both are what a reader of `PaneOutlineRows` would want proven before trusting it.
+@MainActor
+@Suite struct PaneOutlineInteractionTests {
+
+    typealias Fixture = PaneSearchTreeRevealTests
+
+    /// The disclosure triangle still exists and still opens the folder. `DisclosureGroup` is what
+    /// `OutlineGroup` built internally, so this should hold — "should" being exactly the word that
+    /// makes it worth an assertion.
+    @Test("Clicking a row's disclosure triangle opens it")
+    func theDisclosureTriangleStillWorks() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .tree)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) {
+            Fixture.rowCount(window) == Fixture.collapsedRowCount
+        }
+        let table = Fixture.tables(window.contentView!).first
+        let rowView = table?.rowView(atRow: 0, makeIfNecessary: true)
+        var triangles: [NSButton] = []
+        func walk(_ v: NSView) { if let b = v as? NSButton { triangles.append(b) }; v.subviews.forEach(walk) }
+        if let rowView { walk(rowView) }
+        #expect(triangles.count == 1, "a folder row should carry exactly one disclosure control")
+
+        if let button = triangles.first, let action = button.action {
+            _ = button.target?.perform(action, with: button)
+        }
+        let opened = await LayoutPumpWait.pump(window, upTo: 5) {
+            Fixture.rowCount(window) > Fixture.collapsedRowCount
+        }
+        #expect(opened.held,
+                "the triangle should expand the row (\(opened.pumps) pumps, \(Fixture.rowCount(window)) rows)")
+    }
+
+    /// Multi-select drives Copy / Move / Delete, and the tags that carry it moved from
+    /// `OutlineGroup`'s content closure onto a `DisclosureGroup` label.
+    @Test("Selecting more than one row still reaches the pane")
+    func multiSelectStillReachesTheBinding() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .tree)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) {
+            Fixture.rowCount(window) == Fixture.collapsedRowCount
+        }
+        let table = Fixture.tables(window.contentView!).first
+        #expect(table?.allowsMultipleSelection == true, "the pane's List must still be multi-select")
+        table?.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+
+        let landed = await LayoutPumpWait.pump(window, upTo: 5) { box.selection.count == 2 }
+        #expect(landed.held,
+                "both rows should reach the selection binding (\(landed.pumps) pumps, got \(box.selection))")
+    }
+}
+
 /// The Columns half: the reveal writes the hit's parent chain through the host's navigation seam and
 /// selects the hit, and the columns really do open down to it.
 @MainActor

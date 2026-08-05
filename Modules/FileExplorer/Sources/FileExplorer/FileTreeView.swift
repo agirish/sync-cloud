@@ -1259,6 +1259,7 @@ struct FileRowView: View {
             // for: they typed the query. The badges report standing facts and keep their places.
             PaneSearchAnnotation(context: searchContext, isLeft: isLeftPane,
                                  otherPaneName: otherPaneName, accent: accent, fonts: fonts)
+                .layoutPriority(-1)
             FileRowAccessories(
                 isCloudOnly: isCloudOnly,
                 reservesCloudSlot: !node.isDirectory,

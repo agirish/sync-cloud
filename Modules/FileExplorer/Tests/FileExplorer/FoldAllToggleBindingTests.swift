@@ -130,21 +130,19 @@ import Testing
         let (host, window) = mount(grouped: grouped, width: width)
         defer { window.contentView = nil }
 
-        // Deadline-based, not iteration-counted, and generous: under deliberate CPU load the
-        // rows can take seconds to land, and waiting for the EXACT count is what keeps a
-        // half-built table from being measured.
+        // Waiting for the EXACT row count is what keeps a half-built table from being measured.
+        //
+        // **The wait is floored on PASSES, not bounded by seconds.** This was a bare
+        // `while Date() < deadline` with fifteen generous-looking seconds, and on 2026-08-04 it gave
+        // up in a full-package run with the table showing 0 rows — then passed three times out of
+        // three in isolation. Seconds were never the unit: what the rows need is main-actor turns,
+        // and a congested run has fewer of them per second, not more. See `LayoutPumpWait.pumpFloor`
+        // and `docs/flaky-tests.md` mechanism 2.
         let expected = grouped ? Self.groupedRowCount : Self.flatRowCount
-        let deadline = Date().addingTimeInterval(15)
-        var rows: Int?
-        while Date() < deadline {
-            host.layoutSubtreeIfNeeded()
-            rows = tableRowCount(host)
-            if rows == expected { break }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        let drew = rows.map(String.init) ?? "no"
-        #expect(rows == expected,
-                "harness: the table drew \(drew) row(s), expected \(expected) — the measurement below would be of a half-built header",
+        let settled = await LayoutPumpWait.pump(host, upTo: 15) { tableRowCount(host) == expected }
+        let drew = tableRowCount(host).map(String.init) ?? "no"
+        #expect(settled.held,
+                "harness: the table drew \(drew) row(s), expected \(expected) after \(settled.pumps) passes — the measurement below would be of a half-built header",
                 sourceLocation: sourceLocation)
         host.layoutSubtreeIfNeeded()
 

@@ -135,6 +135,20 @@ struct PaneSearchAnnotation: View {
     static func onlyHereLabel(isLeft: Bool) -> String { isLeft ? "left only" : "right only" }
 
     var body: some View {
+        // **Show it whole or not at all.** The annotation yields width to the name (the row's
+        // identity anchor, the same rule the pane header applies to the provider capsule), and a
+        // `Text` that yields does not vanish — it truncates. Measured at the 250pt pane clamp with a
+        // 60-character filename, that left a bare "…" in the trailing slot: a glyph with no meaning,
+        // whose tooltip nobody will find. The degradation ladder the header uses is the right shape
+        // here too — the full label, or nothing.
+        ViewThatFits(in: .horizontal) {
+            label
+            Color.clear.frame(width: 0, height: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
         if context.showsContainedCount {
             Text(context.containedMatchCount == 1 ? "1 match" : "\(context.containedMatchCount) matches")
                 .font(fonts.countPill)

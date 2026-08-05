@@ -270,11 +270,15 @@ does nothing for it.
 
 - `ExpandingSearchFieldTests.becomesEditingText` — in **Design**, not FileExplorer. A sweep that
   greps only `Modules/FileExplorer` will not see it.
-- `HeaderLadderTests.settle(_:atRows:)`, `SectionRowHeightTests`, `FoldAllToggleBindingTests`
-  (inline) and `DifferencesTableIdentityTests.settle(_:atRows:)` poll `layoutSubtreeIfNeeded()` on
-  a host **view**, not a window, and return a *measurement* rather than a Bool. Adopting the floor
-  means a view-based entry point on `LayoutPumpWait`, not a substitution — which is why they are
-  recorded here rather than mechanically migrated.
+- `HeaderLadderTests.settle(_:atRows:)`, `SectionRowHeightTests` and
+  `DifferencesTableIdentityTests.settle(_:atRows:)` poll `layoutSubtreeIfNeeded()` on a host
+  **view**, not a window, and return a *measurement* rather than a Bool. Adopting the floor means a
+  view-based entry point on `LayoutPumpWait`, not a substitution — which is why they were recorded
+  here rather than mechanically migrated.
+
+  **That entry point now exists** (`LayoutPumpWait.pump(_ view:upTo:until:)`), so these three are a
+  one-line migration each rather than a design question. `FoldAllToggleBindingTests` has taken it —
+  see below.
 - `DifferencesTableIdentityTests.wait(for:timeout:)` — the one this section already named, polling
   no view at all.
 - `ColumnDrillSourceTests.settle` — **the grep above misses it**, because it writes
@@ -288,10 +292,20 @@ does nothing for it.
 layout-budget suites. They pump for a fixed interval and check nothing, so there is no condition to
 be starved of turns.
 
-None of the unfixed ones has been seen to fail. They are listed by name, and by category, so the
-next sweep starts from a true inventory instead of rediscovering one — **and note that the grep
-recipe above is necessary but not sufficient**: it is blind to the `while !condition() && …` form
-and to waits outside `Modules`.
+**One of them has now been seen to fail — 2026-08-04, `FoldAllToggleBindingTests`.** It gave up in a
+full-package FileExplorer run with the table showing **0 rows** against an expected 15, and then
+passed three times out of three under `--filter`. That is this mechanism with nothing else in it:
+its wait was a bare `while Date() < deadline` with fifteen seconds, no pass floor, and a 50 ms sleep
+per turn. Fifteen seconds *looks* generous, which is exactly why the shape survives review — the
+rows need main-actor turns and a congested run has fewer of them per second, not more.
+
+It has been migrated to `LayoutPumpWait.pump(_ view:upTo:until:)` and now reports its pass count on
+failure. The run that surfaced it was made congested by new mounted-view suites landing alongside
+(the pane search); nothing about the defect was new, only the load.
+
+The rest are listed by name, and by category, so the next sweep starts from a true inventory instead
+of rediscovering one — **and note that the grep recipe above is necessary but not sufficient**: it is
+blind to the `while !condition() && …` form and to waits outside `Modules`.
 
 **The failure message should name the passes, not just the verdict.** A wait that gave up after 3 of
 them was starved; one that gave up after 1010 was disproved. That is the difference between this
