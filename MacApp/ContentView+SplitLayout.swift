@@ -300,27 +300,47 @@ struct SeamPaneControls: View {
     /// Shared with the two glyph views, which size themselves to one half.
     fileprivate static let half: CGFloat = 26
 
-    /// Ink for a seam half that is **not** carrying the linked fill — neutral at rest, accent once
-    /// the pointer is on it. These are `PaneNavChrome.glyph`'s two colours verbatim: the pane-header
-    /// nav pills sit a few points away in the same row, and the seam reading blue while they read
-    /// grey made it the loudest thing on screen for a control that is doing nothing.
+    /// How much of the hue the resting capsule carries over its material — frosted, not solid, so
+    /// the material still reads through it.
     ///
-    /// Spending the accent only on hover and on *linked* is what leaves it meaning something.
-    fileprivate static func glyphInk(accent: Color, phase: HoverAffordancePhase) -> Color {
-        phase.isEngaged ? accent : .primary.opacity(0.75)
+    /// 0.14 rather than something bolder because the button style's own wash stacks on top of it,
+    /// and stacking puts the seam on the nav pills' ladder instead of beside it: 0.14 rest →
+    /// 0.14 + 0.14·0.86 = **0.26** hovered → 0.14 + 0.24·0.86 = **0.35** pressed, against
+    /// `PaneNavChrome`'s 0.22 and 0.34. A heavier rest would put an idle seam at the weight the
+    /// pills next to it use for *hovered*.
+    fileprivate static let restWash: Double = 0.14
+
+    /// Ink for a seam half that is **not** carrying the linked fill: neutral at rest, the DEEPENED
+    /// accent once the pointer is on it.
+    ///
+    /// Deepened, not `accentColor`, because the pill it sits on is now the accent too. Measured on
+    /// the composite above, a raw-accent glyph runs 1.58:1 (Cyan) to 3.53:1 (Indigo) — nine of the
+    /// eleven hues under the 3:1 floor for a glyph, i.e. hovering would make it *harder* to read.
+    /// `accentFillColor` is bounded below by construction and clears 3:1 on every hue (3.21:1 worst,
+    /// on Purple) while still reading as the accent lighting up. Rest measures 8.4–8.9:1 throughout.
+    fileprivate static func glyphInk(deepened: Color, phase: HoverAffordancePhase) -> Color {
+        phase.isEngaged ? deepened : .primary.opacity(0.75)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Button(action: onSwap) {
-                SwapPanesGlyph(accent: hue.accentColor)
+                SwapPanesGlyph(deepened: hue.accentFillColor)
             }
             // `.glyph`, not `.circular`: the capsule is what floats now, and a half that lifted
             // on hover would peel out of chrome that stayed put. Same wash and ring numbers,
             // minus the lift — and the shape override keeps the wash round inside the pill.
-            .buttonStyle(.hoverAffordance(.glyph, tint: hue.accentColor, shape: .circle))
+            //
+            // Washes in the DEEPENED accent, for the same reason the engaged glyph does: the pill
+            // underneath is already the raw hue, so a raw-accent wash on the light hues barely
+            // moves it. Measured, deepening evens the hover step out to 1.15–1.17× across all
+            // eleven hues (raw: 1.07× on Cyan, 1.08× on Amber) and the press step to ~1.30×.
+            .buttonStyle(.hoverAffordance(.glyph, tint: hue.accentFillColor, shape: .circle))
             .help("Swap the left and right panes")
 
+            // Stays NEUTRAL while everything around it goes to the hue: this hairline has to read
+            // against the frosted wash above it *and* against the solid `accentFillColor` below it
+            // when linked, and an accent line on an accent fill is not a line at all.
             Rectangle()
                 .fill(Color.primary.opacity(0.15))
                 .frame(width: Self.half, height: 0.5)
@@ -328,16 +348,16 @@ struct SeamPaneControls: View {
             Button {
                 linkBothPanes.toggle()
             } label: {
-                LinkPanesGlyph(accent: hue.accentColor,
+                LinkPanesGlyph(deepened: hue.accentFillColor,
                                onAccent: hue.onAccentLabelColor,
                                isLinked: linkBothPanes)
             }
             // The hover wash has to show against whatever is under it, and that changes with the
-            // state: the accent over material when unlinked, white over the deepened accent fill
-            // when linked — an accent wash on an accent fill carries no colour at all.
+            // state: the deepened accent over the frosted pill when unlinked, white over the solid
+            // accent fill when linked — an accent wash on an accent fill carries no colour at all.
             .buttonStyle(.hoverAffordance(
                 .glyph,
-                tint: linkBothPanes ? hue.onAccentLabelColor : hue.accentColor,
+                tint: linkBothPanes ? hue.onAccentLabelColor : hue.accentFillColor,
                 shape: .circle
             ))
             .help(linkBothPanes
@@ -358,16 +378,17 @@ struct SeamPaneControls: View {
                     .frame(height: Self.half)
             }
         }
-        // Material base plus a NEUTRAL wash — 0.075 is `PaneNavChrome`'s resting pill exactly, so
-        // the seam sits at the same weight as the nav pills either side of it. This used to be an
-        // accent wash under an accent border, which made an idle pill the one saturated object in
-        // the seam; the accent now belongs to hover and to the linked fill below, which are the two
-        // things worth looking at. Behind the linked fill, which is the later layer.
+        // Material base plus a frosted ACCENT wash. The neutral 0.075 this replaces put the pill at
+        // `PaneNavChrome`'s resting weight, which was the right call for a control sitting *in* the
+        // nav row — but this one floats over pane content, on a window whose background is already
+        // the hue, and a grey chip on a hue-washed pane reads as an unstyled blob rather than as a
+        // quiet one. Behind the linked fill, which is the later layer.
         .background(Capsule().fill(.regularMaterial)
-            .overlay(Capsule().fill(Color.primary.opacity(0.075))))
+            .overlay(Capsule().fill(hue.accentColor.opacity(Self.restWash))))
         // The capsule floats over pane content rather than over chrome, so unlike the nav pills it
-        // still needs an edge to sit against a light file list — just a hairline, not a hue.
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.75))
+        // needs an edge of its own to sit against a light file list — now in the hue as well, so
+        // the pill reads as one accent object instead of a tinted fill in a grey ring.
+        .overlay(Capsule().strokeBorder(hue.accentColor.opacity(0.35), lineWidth: 0.75))
     }
 }
 
@@ -376,7 +397,8 @@ struct SeamPaneControls: View {
 /// Its own `View` type because it reads the enclosing hover-affordance button's phase, which
 /// needs an `@Environment`. The chrome it used to draw for itself now belongs to the capsule.
 struct SwapPanesGlyph: View {
-    let accent: Color
+    /// `LiquidGlassHue.accentFillColor`, not `accentColor` — see `SeamPaneControls.glyphInk`.
+    let deepened: Color
 
     @Environment(\.hoverAffordancePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -389,7 +411,7 @@ struct SwapPanesGlyph: View {
     var body: some View {
         Image(systemName: "arrow.left.arrow.right")
             .scaledFont(.system(size: 11, weight: .bold))
-            .foregroundStyle(SeamPaneControls.glyphInk(accent: accent, phase: phase))
+            .foregroundStyle(SeamPaneControls.glyphInk(deepened: deepened, phase: phase))
             .rotationEffect(.degrees(flipped ? 180 : 0))
             .animation(.easeInOut(duration: 0.16), value: flipped)
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
@@ -405,7 +427,8 @@ struct SwapPanesGlyph: View {
 /// enclosing button's hover phase, and that only resolves inside the style's body. Written inline in
 /// the parent it would read the *parent's* environment and never leave `.rest`.
 struct LinkPanesGlyph: View {
-    let accent: Color
+    /// `LiquidGlassHue.accentFillColor`, not `accentColor` — see `SeamPaneControls.glyphInk`.
+    let deepened: Color
     let onAccent: Color
     let isLinked: Bool
 
@@ -414,10 +437,12 @@ struct LinkPanesGlyph: View {
     var body: some View {
         Image(systemName: PaneGlyph.linkBothPanes)
             .scaledFont(.system(size: 11, weight: .bold))
-            // Linked keeps both of its colours — white on the deepened accent fill underneath. That
-            // pairing is the whole "on" signal now that nothing else in the pill is accented.
+            // Linked keeps both of its colours — white on the deepened accent fill underneath. It
+            // still reads as the "on" state now that the pill itself carries the hue, because what
+            // separates them is opacity, not colour: a SOLID half against a 0.14 frost, with the
+            // only white glyph in the control on it.
             .foregroundStyle(isLinked ? onAccent
-                                      : SeamPaneControls.glyphInk(accent: accent, phase: phase))
+                                      : SeamPaneControls.glyphInk(deepened: deepened, phase: phase))
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
     }
 }
