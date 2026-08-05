@@ -50,6 +50,25 @@ public class SettingsManager: ObservableObject {
         availableProviders.filter { !disabledProviderIds.contains($0.id) }
     }
 
+    /// The cloud ground the discovered sources cover, for the *Where it lives* inspector row and
+    /// the `⌂ on this Mac only` row badge — see `FileLocation`.
+    ///
+    /// **Built from `availableProviders`, deliberately, and never from `enabledProviders`.** A
+    /// provider the user switched off still has its folder on disk, so a file inside it still has
+    /// a second copy; asking coverage of the *enabled* list would report a file as having only one
+    /// copy because of a checkbox, which is the "manufactures risk that is not there" failure
+    /// ROADMAP names. The disabled set is handed to `FileLocation.coverage` all the same, so the
+    /// rule is stated where it can be tested rather than resting on which property is read here.
+    ///
+    /// Recomputed on each access rather than cached: it is a compactMap over a handful of
+    /// providers — an order of magnitude below the per-render answers that earned their own memos
+    /// (`RiskyNameBadgeCache`'s live check is 0.5–3 ms per pane pass) — and it is read once per
+    /// pane render, not once per row. The per-ROW answer is the one that is memoized, in
+    /// `HomeOnlyBadgeCache`, keyed on this value.
+    public var cloudCoverage: FileLocation.Coverage {
+        FileLocation.coverage(of: availableProviders, disabledProviderIds: disabledProviderIds)
+    }
+
     private let userDefaults: UserDefaults
     /// Name of the persistent defaults domain that owns the override keys, when known.
     /// See `overridesByProviderId` — reading the named domain alone keeps global-domain keys

@@ -16,7 +16,11 @@ import Sync
             handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
-            ignoreStateToken: [], keptNamesToken: keptNames)
+            ignoreStateToken: [], keptNamesToken: keptNames,
+            // Required rather than defaulted, deliberately: a pane that forgot to pass its
+            // coverage would silently lose every ⌂ badge, and a default here would let it.
+            // `PaneHomeBadgeDelegateTests` owns what these two do.
+            homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in })
     }
 
     /// **The staleness hazard, and the reason `keptNamesToken` is a stored property at all.**

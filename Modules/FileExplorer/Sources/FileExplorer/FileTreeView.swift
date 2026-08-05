@@ -757,6 +757,9 @@ public struct FileTreeView: View, Equatable {
             // and the reason `RiskyNameBadgeCache` exists. Reads `row.info`, never `row.node`, so
             // a folder's subtree stays out of reach of a per-row call.
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
+            // The second eagerly-rendered delegate answer, resolved the same way and memoized
+            // by `HomeOnlyBadgeCache`. Also `row.info`, never `row.node`.
+            isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
             awaitingDownloadID: downloads.request(forPath: node.id)?.requestID,
             searchContext: searchContext(for: row),
             isLeftPane: isLeft,
@@ -1012,7 +1015,27 @@ struct FileContextMenu: View {
                               + "The file is not changed.")
                     }
                 }
-                
+
+                // Beside "Fix name…" — the same door for the other lens. A standing item rather
+                // than a finding: unlike a risky name, "does this file have copies?" cannot be
+                // answered without a scan, so the offer is to go and look.
+                //
+                // **Files only.** A folder overlap group is a different unit — an N-way keep/merge
+                // across trees rather than one file's copies — and Duplicates draws it differently.
+                // Offering this on a folder would open a workspace that answers a question the user
+                // did not ask.
+                //
+                // No `.keyboardShortcut`, for the reason spelled out at the destination verbs
+                // below: this menu is built PER ROW, so a window-level key equivalent declared here
+                // binds to whichever row's menu instance the framework happened to register — and
+                // this one opens a workspace and starts a scan.
+                if !singleNode.isDirectory, delegate.canFindDuplicates {
+                    Button(action: { delegate.handleFindDuplicates(singleNode) }) {
+                        Label("Find duplicates of this", systemImage: "doc.on.doc")
+                    }
+                    .help("Open Duplicates and reveal the group holding “\(singleNode.name)”.")
+                }
+
                 if singleNode.isDirectory {
                     SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)
                     Divider()
@@ -1155,6 +1178,16 @@ struct FileRowView: View {
     /// `RiskyNameBadgeCache`. Defaulted so every caller that has no provider context, and every
     /// test double, renders exactly the row it rendered before the badge existed.
     var riskyReason: String? = nil
+    /// Whether this row's file sits inside no cloud provider's folder — the `⌂ on this Mac only`
+    /// badge. Resolved by the pane from the delegate and memoized by path (see
+    /// `HomeOnlyBadgeCache`), exactly like `riskyReason`, and for the same reason: it is answered
+    /// eagerly per visible row, so it cannot be a `FileNode` walk or a syscall.
+    ///
+    /// Known synchronously, unlike `isCloudOnly` — it is pure path math — so it lands with the row
+    /// rather than a beat after it, and needs nothing reserved on its own account. Defaulted so
+    /// every caller with no provider context, and every test double, renders exactly the row it
+    /// rendered before the badge existed.
+    var isOnThisMacOnly: Bool = false
     /// The identity of the download request the pane is watching for THIS row; nil when it is not
     /// this row's file (or nothing is being watched). Part of the badge task's `.task(id:)` key, so
     /// the badge re-resolves when the pane arms a watch for this file and again when that watch
@@ -1302,6 +1335,7 @@ struct FileRowView: View {
                 .layoutPriority(-1)
             FileRowAccessories(
                 isCloudOnly: isCloudOnly,
+                isOnThisMacOnly: isOnThisMacOnly,
                 reservesCloudSlot: !node.isDirectory,
                 diffStatus: diffStatus,
                 containedDiffCount: containedDiffCount,
@@ -1361,8 +1395,24 @@ struct FileRowView: View {
 ///
 /// Only FILE rows reserve it. `FileRowView` forces `isCloudOnly` false for directories, so a
 /// reserved slot there would be permanently empty space that can never be filled.
+///
+/// **⌂ shares that slot with ☁, and this is where the two are made mutually exclusive.** They are
+/// opposite findings about the same axis — ☁ is *in a cloud folder, content not here*, ⌂ is *in no
+/// cloud folder, content here* — so a row can only ever want one, and a single `else` is a cheaper
+/// guarantee than two independent conditions that happen to agree. It also means ⌂ costs no width
+/// of its own: on a file row the cloud slot is already reserved and ⌂ draws inside it, and on a
+/// folder row (where nothing is reserved, because the cloud answer can never arrive) ⌂ is known
+/// synchronously, so there is nothing to ripple.
+///
+/// The tie goes to ☁ deliberately. In the one case both inputs could be true at once — a dataless
+/// file outside every DISCOVERED provider root, i.e. one held by a File Provider this app does not
+/// know about — "not on this Mac" is the fact that has been measured, and "in no cloud folder" is
+/// the inference that is wrong.
 struct FileRowAccessories: View {
     let isCloudOnly: Bool
+    /// Whether this file sits inside no cloud provider's folder — see the note above on why it
+    /// shares the cloud badge's slot. Defaulted so every existing caller renders unchanged.
+    var isOnThisMacOnly: Bool = false
     /// Whether to hold the cloud badge's width even when it isn't showing.
     let reservesCloudSlot: Bool
     let diffStatus: FileDifference.DifferenceType?
@@ -1385,19 +1435,57 @@ struct FileRowAccessories: View {
             .accessibilityLabel("Cloud-only, not downloaded")
     }
 
+    /// The ⌂ badge: this file is in no cloud folder.
+    ///
+    /// **`.secondary`, exactly like ☁ — not a risk tint.** The mockup drew it in the Backup plan's
+    /// risk colour, and in a Home-folder pane most rows carry it: a dense field of alarm-coloured
+    /// marks says "unprotected" in colour, which is the one word this feature's copy is forbidden
+    /// (a file can be safe in ways SyncCloud cannot see — Time Machine, an external clone, the same
+    /// bytes elsewhere). It is the mirror of ☁ and wears ☁'s clothes; the two are told apart by
+    /// glyph, the same way the difference badges encode kind in shape rather than colour.
+    ///
+    /// The wording is literal for the same reason: it says where the file is not, and claims
+    /// nothing about whether a copy of its content exists somewhere this app cannot see.
+    private var homeBadge: some View {
+        Image(systemName: "house")
+            .font(fonts.cloudBadge)
+            .foregroundStyle(.secondary)
+            .help("On this Mac only — this file isn't inside any cloud folder")
+            .accessibilityLabel("On this Mac only, not in a cloud folder")
+    }
+
+    /// Which of the two mutually exclusive badges this row wants, if either. ☁ wins — see the
+    /// type doc.
+    ///
+    /// A named computed property rather than an inline chain so the exclusivity is one expression
+    /// that a test can hold to, instead of a rule spread across the two arms of `body` (where the
+    /// reserved-slot branch and the unreserved branch would each have to get it right separately —
+    /// which is exactly how the unreserved branch once lost the cloud badge entirely).
+    @ViewBuilder private var locationBadge: some View {
+        if isCloudOnly {
+            cloudBadge
+        } else if isOnThisMacOnly {
+            homeBadge
+        }
+    }
+
+    /// Whether either badge draws. Drives the unreserved branch, so it cannot drift from
+    /// `locationBadge`'s own conditions.
+    private var hasLocationBadge: Bool { isCloudOnly || isOnThisMacOnly }
+
     var body: some View {
         if reservesCloudSlot {
             // `.hidden()` keeps the space and drops the twin from hit-testing and the
             // accessibility tree, so the reservation is invisible to VoiceOver and to the cursor.
             cloudGlyph
                 .hidden()
-                .overlay { if isCloudOnly { cloudBadge } }
-        } else if isCloudOnly {
+                .overlay { locationBadge }
+        } else if hasLocationBadge {
             // No slot held, but the badge still shows when it applies. Folding this into the branch
             // above (reserve-or-nothing) silently dropped the badge for any caller that opted out of
             // the reservation — caught only because the stability suite asserts that an unreserved
             // zone genuinely DOES resize, which it cannot do if it never renders anything.
-            cloudBadge
+            locationBadge
         }
         if let diffStatus {
             // Shape encodes direction/kind so status is readable without color

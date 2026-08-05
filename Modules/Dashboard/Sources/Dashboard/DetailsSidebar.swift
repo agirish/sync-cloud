@@ -28,6 +28,14 @@ public struct DetailsSidebar: View {
     /// right pane is hidden there, so its (possibly stale) selection from a prior Compare session must
     /// not drive the inspector — otherwise the panel would describe a file in the wrong provider.
     public let singleSource: Bool
+    /// The cloud ground the *Where it lives* rows are resolved against — see `FileLocation`.
+    ///
+    /// **nil means "the coverage is not known here", and draws no verdict at all.** That is the
+    /// safe default rather than `.none`: an empty coverage is a positive claim that no cloud
+    /// folder contains anything, so a caller who forgot to pass this would have every file in
+    /// iCloud reported as *This Mac only* — the exact false statement this feature exists not to
+    /// make. Absent is absent.
+    public let cloudCoverage: FileLocation.Coverage?
 
     @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
@@ -41,6 +49,9 @@ public struct DetailsSidebar: View {
     @State private var cache = DetailsMetadataCache()
     /// The stat result the card renders, filled by the loader task. See `LoadedDetails`.
     @State private var loaded: LoadedDetails?
+    /// The materialization answer behind the *Where it lives* rows, filled by its own task — see
+    /// `LoadedLocation`.
+    @State private var loadedLocation: LoadedLocation?
 
     /// Item previewed via the metadata card's "Quick Look" action. Presented by this view's own
     /// `.quickLookPreview`, mirroring `FileTreeView` — the sidebar has no host presenter to
@@ -61,10 +72,10 @@ public struct DetailsSidebar: View {
         return formatter
     }()
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil) {
         self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,
                   compact: compact, overridePath: overridePath, singleSource: singleSource,
-                  cache: DetailsMetadataCache())
+                  cloudCoverage: cloudCoverage, cache: DetailsMetadataCache())
     }
 
     /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
@@ -72,13 +83,15 @@ public struct DetailsSidebar: View {
     /// paints. `DetailsMetadataCache` is internal, which is why this initializer cannot be the
     /// public one.
     init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool,
-         overridePath: String?, singleSource: Bool, cache: DetailsMetadataCache) {
+         overridePath: String?, singleSource: Bool, cloudCoverage: FileLocation.Coverage? = nil,
+         cache: DetailsMetadataCache) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
         self.compact = compact
         self.overridePath = overridePath
         self.singleSource = singleSource
+        self.cloudCoverage = cloudCoverage
         _cache = State(initialValue: cache)
     }
     
@@ -208,6 +221,30 @@ public struct DetailsSidebar: View {
         let icon: NSImage?
 
         static func == (lhs: LoadedDetails, rhs: LoadedDetails) -> Bool { lhs.key == rhs.key }
+    }
+
+    /// Whether this file's content is on this Mac, for the item the card is describing.
+    ///
+    /// **Its own task, and its own state, deliberately.** The obvious alternative was to fold the
+    /// `lstat` into `DetailsMetadataCache.load(for:)` alongside the other four syscalls. That
+    /// couples one more answer to a memo whose invalidation rules are tuned for metadata, and —
+    /// more to the point — the metadata card is what the user is waiting for on every click. A
+    /// separate task lets the name, size and dates paint the moment they land while this row is
+    /// still resolving, instead of holding all of them behind the slowest stat against a cloud
+    /// path.
+    ///
+    /// **The `lstat` runs off the main actor.** `MaterializationStatus.isCloudOnlyIfKnown` is a
+    /// single `lstat`, which is cheap right up until it is not: this sidebar is the surface that
+    /// froze the app at launch on a wedged `getxattr` (2026-07-30, with zero windows and an empty
+    /// log), and a `View`'s `.task` inherits the view's `@MainActor` isolation. `Task.detached` is
+    /// what actually gets it off the main thread — the same shape `CloudOnlyBadgeCache` uses for
+    /// the row badge's copy of this stat.
+    ///
+    /// `isCloudOnly` keeps its Optional: nil is "the stat could not answer", which is a different
+    /// fact from "the content is here" and draws nothing at all rather than a guess.
+    private struct LoadedLocation: Equatable {
+        let key: DirectorySizeTaskID
+        let isCloudOnly: Bool?
     }
 
     /// `.task(id:)` key for the folder-size walk: the base key plus the resolved directory the
@@ -462,6 +499,14 @@ public struct DetailsSidebar: View {
                             metadataRow(label: "Size:", value: displaySize(for: data, key: shown?.key ?? sizeKey))
                             metadataRow(label: "Where:", value: data.path)
 
+                            // The supporting facts, then the verdict — in that order, and directly
+                            // under the path they are drawn from. "Where it lives" names a
+                            // provider because the path above is inside that provider's folder,
+                            // and says the content is here because the row above says so. Put the
+                            // verdict first and it reads as an oracle; put the facts first and the
+                            // row explains itself.
+                            whereItLivesRows(for: data, key: shown?.key ?? sizeKey)
+
                             Divider()
 
                             metadataRow(label: "Created:", value: data.creationDate)
@@ -531,6 +576,23 @@ public struct DetailsSidebar: View {
             let entry = await cache.load(for: sizeKey.path)
             guard !Task.isCancelled else { return }
             loaded = LoadedDetails(key: sizeKey, metadata: entry.metadata, icon: entry.icon)
+        }
+        // The materialization half of *Where it lives*, off the main actor and off the metadata
+        // card's critical path — see `LoadedLocation`.
+        .task(id: sizeKey) {
+            guard !sizeKey.isMultiSelection, !sizeKey.path.isEmpty else {
+                loadedLocation = LoadedLocation(key: sizeKey, isCloudOnly: nil)
+                return
+            }
+            let path = sizeKey.path
+            let answer = await Task.detached {
+                MaterializationStatus.isCloudOnlyIfKnown(atPath: path)
+            }.value
+            // `Task.detached` does not inherit cancellation and `.value` on `Task<Bool?, Never>`
+            // does not throw, so this resumes carrying a stale answer after the selection has
+            // moved on — the same window `FileRowView.resolveBadge` closes for the row badge.
+            guard !Task.isCancelled else { return }
+            loadedLocation = LoadedLocation(key: sizeKey, isCloudOnly: answer)
         }
         // Keyed on the walk id, not the base key: the metadata this depends on now arrives
         // asynchronously, so a task keyed on the base alone would run once — before the stat
@@ -630,6 +692,50 @@ public struct DetailsSidebar: View {
         // individually — a plain bordered fill has nothing to read against on see-through glass.
         .chromeButtonStyle(glassLevel)
         .controlSize(.small)
+    }
+
+    // MARK: Where it lives
+
+    /// What the *On this Mac* row says for one materialization answer, or nil when there is
+    /// nothing honest to put there.
+    ///
+    /// A static pure function so the wording is pinned without mounting anything — the three
+    /// states and the one non-state are the whole of what this row can say.
+    ///
+    /// nil for a DIRECTORY: a folder has no content of its own to be downloaded or not, and its
+    /// children can each answer differently. Claiming a folder is "downloaded" because its
+    /// directory entry is on disk would be the one kind of over-claim this feature must not make.
+    /// (The ⌂ row badge still marks folders, because that is a containment claim — where the
+    /// folder *is* — which is sound for one.)
+    static func onThisMacText(isDirectory: Bool, isCloudOnly: Bool?, hasAnswer: Bool) -> String? {
+        guard !isDirectory else { return nil }
+        guard hasAnswer else { return "Checking…" }
+        guard let isCloudOnly else { return nil }
+        return isCloudOnly ? "No — placeholder only" : "Yes — downloaded"
+    }
+
+    /// The supporting *On this Mac* row and the *Where it lives* verdict beneath it.
+    ///
+    /// Both are withheld entirely when there is nothing provable to say — an unresolvable stat, an
+    /// unknown coverage, or a dataless file outside every discovered provider root. A row that
+    /// said "Unknown" would be worse than no row: it invites the reading that SyncCloud looked and
+    /// found nothing, when it did not look.
+    @ViewBuilder
+    private func whereItLivesRows(for data: FileMetadata, key: DirectorySizeTaskID) -> some View {
+        // Keyed on the stat this card came from, exactly like Size: a location answer belongs to
+        // the item it was measured for, so a card that is a beat behind the selection says
+        // "Checking…" rather than crediting the previous file's answer to the current one.
+        let settled = loadedLocation.flatMap { $0.key == key ? $0 : nil }
+        if let text = Self.onThisMacText(isDirectory: data.isDirectory,
+                                         isCloudOnly: settled?.isCloudOnly,
+                                         hasAnswer: settled != nil) {
+            metadataRow(label: "On this Mac:", value: text)
+        }
+        if !data.isDirectory, let settled, let coverage = cloudCoverage,
+           let verdict = FileLocation.verdict(forPath: data.path, in: coverage,
+                                             isCloudOnly: settled.isCloudOnly) {
+            metadataRow(label: "Where it lives:", value: verdict.label)
+        }
     }
 
     private func metadataRow(label: String, value: String) -> some View {

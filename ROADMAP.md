@@ -22,10 +22,12 @@ Numbers here are positional and change as the list does — **cite items by name
 - *"Let me point Tidy and Compare at any folder, not just cloud providers."*
 
 The first two are opposite ends of one axis — **how many places does this file actually exist?** —
-and SyncCloud can already answer it per file without new machinery. Path containment is
-`PathBoundary.contains` plus `CloudProvider.claimRoots` (what types a path-addressed CLI root
-today). Materialization is one `lstat` for `SF_DATALESS` via `MaterializationStatus` (what already
-draws the ☁ badge on pane rows). The two signals have simply never been crossed and reported.
+and SyncCloud already answers it per file: `FileLocation` crosses path containment (pure string
+math over the provider list) with materialization (one `lstat` for `SF_DATALESS` via
+`MaterializationStatus`, the same one that draws the ☁ badge). That classifier ships, and with it
+the per-file surfaces — the *Where it lives* inspector row and the `⌂` row badge. What is left is
+the part that needs a **walk** rather than a lookup: the same question asked of a whole tree at
+once, ranked and actionable, which is the lens below.
 
 The third ask was not a sibling — it was the **prerequisite**, and it has landed. "What would I
 lose" is rooted at *the Mac*, and the Mac was not a provider; a plain folder is now a source of its
@@ -115,6 +117,14 @@ manual form against real folders for a week before the trigger ships.
 **Triggers:** every hour · daily at HH:MM · weekly · **when files change** (needs the watcher, item
 5) · manually.
 
+**And it brings the last of the ambient surfaces with it.** *"Back up this folder…"* belongs in the
+pane row's context menu beside *Fix name…* and *Find duplicates of this*, on FOLDER rows — the two
+per-file doors ship, and this is the third. It was deliberately left out of the ambient work
+because the item has nowhere to go without the editor this section describes: it opens the rule
+sheet pre-filled with the row's folder as the source, which is the same sheet the lens's *Back up ▾
+▸ Back up automatically…* raises. Ship it in the same change as the editor rather than as a
+disabled stub — a menu item that opens nothing is worse than an absent one.
+
 **Effort:** Medium (the job) + Medium (the triggers). **Risk:** Medium, then **High** — this is the
 only thing in the app that writes files with nobody watching.
 
@@ -200,21 +210,6 @@ complete (`Backed up Projects — 3,241 files, 14.6 GB`, Undo), partial (`3,238 
 red, *Show them*). The bulk-sync path already aggregates per-file failures rather than aborting the
 batch; that shape just has to survive into an unattended run's summary instead of being swallowed
 because nobody was watching.
-
-### Where else the answer belongs
-
-The lens answers in bulk, but one wonders about a single file far more often than one audits the
-whole Mac. Two small additions, both reusing what is already on screen:
-
-- **Info inspector** (`DetailsSidebar`) gains a *Where it lives* row: `This Mac · iCloud` / `This
-  Mac only` / `OneDrive only`.
-- **Pane rows** gain the mirror of the existing ☁ badge: a `⌂` *on this Mac only* mark, the same
-  lazy per-row pattern `FileRowView` already uses — and costing no syscall at all, since it is pure
-  path math. It stays quiet where it would be noise: inside a cloud provider's own pane every row is
-  covered by definition, so it never appears. It shows exactly when the source is a folder, which is
-  the only time the question is live.
-
-**Effort:** Low. **Risk:** Low.
 
 ### Explicitly out of scope
 
@@ -528,32 +523,7 @@ you were working.
 
 ---
 
-## 16. "Find duplicates of this" on the row
-
-**Why:** The row-badge-plus-context-menu pattern shipped for risky names (`d569e487`) and works: the
-badge rides the file wherever it is listed, and *Fix name…* handles the single case without a
-workspace change. The same door is missing for duplicates.
-
-**What:** A context-menu item beside *Fix name…* that opens the Duplicates workspace with that
-file's group expanded.
-
-**Note the asymmetry deliberately** — it is why Duplicates keeps its own workspace instead of
-folding into a chip the way Rename did. A duplicate is **relational** (a group spans unrelated
-folders, so an inbox-scoped scan would only ever find copies already sitting next to each other —
-the case nobody needs help with); **expensive** (hashing, with the cache, the size cap and the
-cloud-only guard, so bolting it onto every Organize scan makes the cheap frequent operation pay for
-the rare one); a **different unit** (an N-way keep/delete across a set that can hand off to
-Compare's review flow, not one card and one decision); and **higher stakes** (Organize moves files,
-Duplicates deletes them — burying the destructive flow inside the constructive one's filter row puts
-the thing needing most deliberation where it is hardest to see). Only the badge half transfers.
-
-**Surfaces to mock:** the extended row context menu.
-
-**Effort:** Low. **Risk:** Low.
-
----
-
-## 17. A Home workspace — the one-screen answer
+## 16. A Home workspace — the one-screen answer
 
 **Why:** Every workspace is somewhere you go with a task already in mind. There is nowhere to land
 *without* one, and after item 1c there will be state worth checking that no existing surface owns:
@@ -784,8 +754,7 @@ the question hundreds of keeper picks actually raise.
 | 13 | Path-anchored / include-only rules | Low–Medium | Medium |
 | 14 | ⌘K command palette | Low–Medium | Medium–High |
 | 15 | Rules view inside Organize | Low–Medium | Medium |
-| 16 | "Find duplicates of this" on the row | Low | Medium |
-| 17 | Home workspace | Medium | Medium (after 1c) |
+| 16 | Home workspace | Medium | Medium (after 1c) |
 
 ### Interface
 
@@ -807,13 +776,12 @@ Cited by name; this list has no stable numbering.
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
 
-**The cheapest three, all independent of item 1:** **16** ("Find duplicates of this", one
-context-menu item on a pattern that already ships), **15** (the rules view, which moves an existing
-list into a slot that already exists), and **14** (the ⌘K palette), which is the one that pays
+**The cheapest two, both independent of item 1:** **15** (the rules view, which moves an existing
+list into a slot that already exists) and **14** (the ⌘K palette), which is the one that pays
 back the flat bar's only regression — folding Rename off the bar left a destination with nothing
-to aim at.
+to aim at. The third — "Find duplicates of this" — has shipped.
 
-**Watch the bar.** Items 1b and 17 (Home) each add a segment. Five labelled segments already
+**Watch the bar.** Items 1b and 16 (Home) each add a segment. Five labelled segments already
 overflow the 600pt floor, and `WorkspaceBarMetrics` sheds all labels at once when they do; at
 seven the bar is icon-only at most real window sizes. If both ship, re-measure before assuming the
 labels survive.

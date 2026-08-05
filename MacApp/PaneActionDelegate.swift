@@ -55,6 +55,31 @@ struct PaneActionDelegate: FileActionDelegate {
     /// count where it was.
     let keptNamesToken: Set<String>
 
+    /// The cloud ground the `⌂ on this Mac only` badge is resolved against — or **nil when this
+    /// pane's source is not a folder source**, which is the badge's whole gating rule folded into
+    /// the value it would otherwise need alongside.
+    ///
+    /// Inside a cloud source's own pane every row is covered by definition, so a badge there would
+    /// be a mark on everything and say nothing. It shows exactly when the source is a plain folder
+    /// — the only time the question is live — and that includes a Compare pane aimed at a folder
+    /// source and the single-source rail, because both reach this same delegate.
+    ///
+    /// **A compared value, not something read live off `settings`.** It is the app's third
+    /// eagerly-rendered delegate answer, and the pane's row badges are rendered from it. Adding a
+    /// folder source, removing a provider, or re-pointing one's Location changes what every visible
+    /// row should draw and changes nothing else this delegate compares — same tree, same paths,
+    /// same selection — so without it here the pane would answer "equivalent", skip the re-render,
+    /// and go on marking rows against a source list that no longer exists. That is `4cae0471`'s
+    /// finding-outliving-the-provider, arriving through a third door; `ignoreStateToken` and
+    /// `keptNamesToken` are here for exactly the first two.
+    let homeBadgeCoverage: FileLocation.Coverage?
+
+    /// Opens Duplicates on this pane's source and reveals the group holding the file. Ignored by
+    /// `isEquivalent` for the reason the other closures are: it reads its state back through the
+    /// view's property wrappers, so one captured three renders ago sees what one built this
+    /// instant would.
+    let onFindDuplicatesOf: (FileNode) -> Void
+
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
     /// thing that moved was some unrelated corner of the manager.
@@ -81,6 +106,7 @@ struct PaneActionDelegate: FileActionDelegate {
             && isSingleSource == other.isSingleSource
             && ignoreStateToken == other.ignoreStateToken
             && keptNamesToken == other.keptNamesToken
+            && homeBadgeCoverage == other.homeBadgeCoverage
     }
 
     func handleRefresh() {
@@ -137,6 +163,27 @@ struct PaneActionDelegate: FileActionDelegate {
 
     func handleStopKeepingName(_ node: FileNode) {
         syncManager.keptNamesStore?.stopKeeping(node.name)
+    }
+
+    /// The ⌂ badge's answer. Nil coverage means the badge never applies in this pane — see
+    /// `homeBadgeCoverage`.
+    ///
+    /// Memoized per path by `HomeOnlyBadgeCache`, for the reason `riskyNameReason` is memoized by
+    /// `RiskyNameBadgeCache`: this is asked eagerly, per visible row, per render pass. The memo
+    /// invalidates on the coverage it is handed, so there is no counter here to forget to bump.
+    func isOnThisMacOnly(forPath path: String) -> Bool {
+        guard let coverage = homeBadgeCoverage else { return false }
+        return HomeOnlyBadgeCache.isOutsideEveryCloudFolder(path: path, coverage: coverage)
+    }
+
+    /// A real window is behind this delegate, so the row menu may offer the door.
+    var canFindDuplicates: Bool { true }
+
+    func handleFindDuplicates(_ node: FileNode) {
+        // Files only. The menu gates on this too; asserting it here as well keeps the guarantee
+        // with the handler rather than only with the one caller that happens to respect it.
+        guard !node.isDirectory else { return }
+        onFindDuplicatesOf(node)
     }
 
     func handleFixName(_ node: FileNode) {

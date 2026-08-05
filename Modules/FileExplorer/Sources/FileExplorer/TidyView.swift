@@ -174,6 +174,17 @@ public struct TidyView: View {
     /// Which lenses currently have the field revealed — per-lens for the same reason.
     @State private var searchExpandedLenses: Set<TidyLens> = []
     @State private var expanded: Set<UUID> = []
+    /// The group a "Find duplicates of this" handoff sent the user to, marked until they look
+    /// somewhere else. A landing, not a scroll: without a mark, a reveal into a list of similar
+    /// cards leaves the user to work out which one they were sent to.
+    @State private var revealedGroupID: UUID?
+    /// The file a handoff found no group for. Drives the named empty state — never a silently
+    /// filtered-to-nothing list. Retired when the request is superseded, when a new scan starts,
+    /// and when the user takes the search field over themselves (see `searchText`).
+    @State private var unmatchedRevealName: String?
+    /// The reveal request this view has already acted on, so re-resolving on a groups change (or
+    /// on any other re-render) does not re-clear a search the user has since typed.
+    @State private var appliedRevealID: UUID?
     @State private var showSpendHistory = false
     /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
     /// Drives the "… freed this session" count-up caption on the reclaim pill.
@@ -251,6 +262,10 @@ public struct TidyView: View {
     private let onRequestDestination: (PendingDestination) -> Void
     /// Opens two copies of a duplicate folder group in the Compare tab (keeper left, redundant right).
     private let onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void
+    /// A "Find duplicates of this" handoff from a pane row: the file whose group to reveal. nil is
+    /// the ordinary case — nobody has asked. See `DuplicateReveal`, which owns every decision this
+    /// view makes about it.
+    private let revealRequest: DuplicateRevealRequest?
 
     public init(
         syncManager: FileSyncManager,
@@ -272,7 +287,8 @@ public struct TidyView: View {
         onManageProviders: @escaping () -> Void = {},
         onChooseFolder: (() -> Void)? = nil,
         onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in },
-        onRequestDestination: @escaping (PendingDestination) -> Void = { _ in }
+        onRequestDestination: @escaping (PendingDestination) -> Void = { _ in },
+        revealRequest: DuplicateRevealRequest? = nil
     ) {
         self.syncManager = syncManager
         self.lens = lens
@@ -294,6 +310,7 @@ public struct TidyView: View {
         self.onChooseFolder = onChooseFolder
         self.onCompareCopies = onCompareCopies
         self.onRequestDestination = onRequestDestination
+        self.revealRequest = revealRequest
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -328,8 +345,18 @@ public struct TidyView: View {
 
     /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
     /// rather than carrying it into a grammar that would read it differently.
+    ///
+    /// **Writing through here also ends a handoff's landing**, because this binding is the user's
+    /// hand on the field and nothing else: `applyRevealPlan` and the empty states write
+    /// `searchQueries` directly. Without it, someone who lands on *No duplicates of “a.txt”* and
+    /// then types a different query still gets an answer about `a.txt` — the empty state would go
+    /// on naming the handoff's file while describing the results of a search they typed
+    /// themselves.
     private var searchText: Binding<String> {
-        Binding(get: { searchQueries[effectiveLens] ?? "" }, set: { searchQueries[effectiveLens] = $0 })
+        Binding(get: { searchQueries[effectiveLens] ?? "" }, set: { query in
+            searchQueries[effectiveLens] = query
+            if effectiveLens == .duplicates { unmatchedRevealName = nil }
+        })
     }
 
     private var isSearchExpanded: Binding<Bool> {
@@ -503,8 +530,27 @@ public struct TidyView: View {
                 TidyScanReset.duplicatesScanStarted(filter: &filter,
                                                     searchQuery: &searchQueries[.duplicates, default: ""],
                                                     reclaim: &reclaim)
+                // A landing belongs to the results it landed in. Both of these name a group or a
+                // file from the PREVIOUS scan, so they retire with it rather than marking a card
+                // in the new results that nobody was sent to, or claiming "no duplicates of X"
+                // about an answer that is being recomputed.
+                revealedGroupID = nil
+                unmatchedRevealName = nil
             }
         }
+        // The handoff from a pane row's "Find duplicates of this".
+        //
+        // `.task(id:)` and not `.onChange`: this view is MOUNTED by the switch into the Duplicates
+        // workspace, so for the request that caused the switch there is no change to observe — an
+        // `.onChange` here would fire for every later reveal and never for the first one.
+        //
+        // The key carries the scan state as well as the request, which is what lets a request made
+        // while a scan is running resolve when the results land (`DuplicateReveal.outcome` answers
+        // `.waiting` until then). `groupCount` and `scanRoot` stand in for the results themselves:
+        // mapping every group's id on each render to build a key is work per render for a signal
+        // that only ever moves when a scan completes or a group resolves — and re-resolving on
+        // either is harmless, because `appliedRevealID` makes applying a plan idempotent.
+        .task(id: revealKey) { applyRevealRequest() }
         // Storage keeps its own reset for the same reason. Names do NOT have one here: they are
         // produced by the Filing scan now, so `isScanningNames` never flips on this path and the
         // reset rides `isSuggestingFiles` above, alongside the rest of that scan's session state.
@@ -1236,6 +1282,13 @@ public struct TidyView: View {
             scanningState
         } else if !syncManager.hasFoundDuplicates {
             introState
+        // Ahead of `cleanState`, deliberately. A scan that turned up no groups AT ALL is still an
+        // answer about the folder, and the user asked about a file — landing them on the folder's
+        // all-clear leaves them to infer that it covered the thing they clicked. This branch is
+        // reached only when the visible list is empty, so a name query that DOES surface other
+        // groups still shows them.
+        } else if dupGroups.isEmpty, let name = unmatchedRevealName {
+            noDuplicatesOfState(name: name)
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
         } else if dupGroups.isEmpty {
@@ -1243,6 +1296,33 @@ public struct TidyView: View {
         } else {
             groupList(dupGroups: dupGroups)
         }
+    }
+
+    /// The honest end of a "Find duplicates of this" that found none.
+    ///
+    /// **The generic "Nothing matches" is not good enough here, which is the whole reason this
+    /// exists.** A handoff pre-fills the search with the file's name, so without this the user
+    /// arrives at a filtered-to-empty list captioned with a count — an answer about the *filter*
+    /// where they asked about a *file*, and indistinguishable from having mistyped something.
+    ///
+    /// The wording claims exactly what the scan can support: no other copy **in the folder that
+    /// was scanned**. Not "this file is unique", which would be a claim about the whole Mac that
+    /// no in-provider scan can make.
+    private func noDuplicatesOfState(name: String) -> some View {
+        EmptyStateView(
+            icon: "doc.on.doc",
+            title: "No duplicates of “\(name)”",
+            message: syncManager.duplicateScanRoot.map { root in
+                "Nothing else in “\((root as NSString).lastPathComponent)” has the same content as this file."
+            } ?? "Nothing else in the scanned folder has the same content as this file.",
+            caption: "Copies outside the folder that was scanned aren't detected.",
+            primary: .init("Clear Search", systemImage: "xmark.circle") {
+                searchQueries[.duplicates] = ""
+                searchExpandedLenses.remove(.duplicates)
+                unmatchedRevealName = nil
+                filter = .all
+            }
+        )
     }
 
     /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): rows exist,
@@ -1262,6 +1342,7 @@ public struct TidyView: View {
     }
 
     private func groupList(dupGroups: [DuplicateGroup]) -> some View {
+        ScrollViewReader { proxy in
         ScrollView {
             LazyVStack(spacing: densityMetrics.cardListSpacing) {
                 ForEach(dupGroups) { group in
@@ -1280,6 +1361,16 @@ public struct TidyView: View {
                         onCompareCopies: { keep, delete in onCompareCopies(keep, delete) },
                         isMerging: syncManager.mergingGroupIDs.contains(group.id)
                     )
+                    // The landing mark, drawn from OUTSIDE the card rather than threaded through
+                    // it: the card renders a duplicate group, and "you were sent here" is a fact
+                    // about this session's navigation, not about the group.
+                    .overlay {
+                        if revealedGroupID == group.id {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(glassHue.accentColor, lineWidth: 2)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .transition(cardRemoval)
                 }
             }
@@ -1290,6 +1381,22 @@ public struct TidyView: View {
             .animation(listSettle, value: RowIdentities(rows: dupGroups))
         }
         .scrollContentBackground(.hidden)
+        // Scrolling is the LAST step of a landing, and the only one that can fail silently: the
+        // card is already expanded and marked by the time this runs, so a scroll that does not
+        // happen leaves a correct-but-offscreen answer. Keyed on the marked group and not on the
+        // request, because a group only becomes scrollable once it is in `dupGroups` — which is
+        // after the filter and query the plan cleared have actually taken effect.
+        .onChange(of: revealedGroupID) { _, id in
+            guard let id else { return }
+            withAnimation { proxy.scrollTo(id, anchor: .top) }
+        }
+        // The reveal that MOUNTS this list (the workspace switch) sets `revealedGroupID` before
+        // there is a proxy to scroll with, so `onChange` never sees it move. This is that case.
+        .onAppear {
+            guard let id = revealedGroupID else { return }
+            proxy.scrollTo(id, anchor: .top)
+        }
+        }
     }
 
     // MARK: Empty / scanning states
@@ -1723,7 +1830,89 @@ public struct TidyView: View {
 
     // MARK: Actions
 
+    // MARK: The "Find duplicates of this" landing
+
+    /// The reveal task's key — see the `.task(id:)` it drives for why each field is in it.
+    private struct RevealKey: Equatable {
+        let requestID: UUID?
+        let isScanning: Bool
+        let groupCount: Int
+        let scanRoot: String?
+    }
+
+    private var revealKey: RevealKey {
+        RevealKey(requestID: revealRequest?.id,
+                  isScanning: syncManager.isFindingDuplicates,
+                  groupCount: syncManager.duplicateGroups.count,
+                  scanRoot: syncManager.duplicateScanRoot)
+    }
+
+    /// Applies whatever `DuplicateReveal` decides about the current request.
+    ///
+    /// Every decision is over there, and deliberately: this function only writes state, so the
+    /// handoff's behaviour — including the "no duplicates of X" answer, which must never degrade
+    /// into a silently empty filtered list — is pinned by `DuplicateRevealTests` without mounting
+    /// anything. `applyRevealPlan` is the seam a view test drives.
+    ///
+    /// **`appliedRevealID` is set only once a plan is actually applied.** A `.waiting` outcome
+    /// leaves it alone, which is what lets the same request resolve again when the scan it is
+    /// waiting for publishes its results. Once applied, re-resolving is suppressed — otherwise a
+    /// group resolving (which moves `groupCount`, and so the key) would re-clear a search the user
+    /// had typed since landing.
+    func applyRevealRequest() {
+        guard let request = revealRequest,
+              request.id != appliedRevealID,
+              let outcome = DuplicateReveal.outcome(for: request,
+                                                    groups: syncManager.duplicateGroups,
+                                                    isScanning: syncManager.isFindingDuplicates),
+              outcome != .waiting
+        else { return }
+        appliedRevealID = request.id
+        applyRevealPlan(DuplicateReveal.plan(for: outcome))
+    }
+
+    /// Writes one plan into this lens's state. Split from the resolve so a test can hand it a plan
+    /// directly and read back what the lens does with it — the resolve is already pure, and what
+    /// is left to get wrong is here.
+    func applyRevealPlan(_ plan: DuplicateReveal.Plan) {
+        if plan.clearsFilterAndQuery { filter = .all }
+        if let query = plan.searchQuery {
+            searchQueries[.duplicates] = query
+            // The field is revealed only when there is something in it to see. A landing that
+            // clears the query must also put the field away, or the user is left looking at an
+            // empty search box they did not open.
+            if query.isEmpty {
+                searchExpandedLenses.remove(.duplicates)
+            } else {
+                searchExpandedLenses.insert(.duplicates)
+            }
+        }
+        unmatchedRevealName = plan.unmatchedName
+        if let id = plan.expandsGroupID { expanded.insert(id) }
+        revealedGroupID = plan.revealedGroupID
+    }
+
+    /// Test seam: what the lens is currently showing as a result of a handoff. A value rather than
+    /// four separate internal reads, so a test asserts the LANDING (which group is open, which is
+    /// marked, what the field says) rather than the container it happened in.
+    struct RevealState: Equatable {
+        var expandedGroupIDs: Set<UUID>
+        var revealedGroupID: UUID?
+        var unmatchedName: String?
+        var query: String
+        var filter: TidyFilter
+    }
+
+    var revealState: RevealState {
+        RevealState(expandedGroupIDs: expanded, revealedGroupID: revealedGroupID,
+                    unmatchedName: unmatchedRevealName, query: searchQueries[.duplicates] ?? "",
+                    filter: filter)
+    }
+
     private func toggle(_ id: UUID) {
+        // Touching any card by hand ends the landing: the mark says "this is the one you were
+        // sent to", and once the user is working the list themselves it is describing history.
+        if revealedGroupID == id { revealedGroupID = nil }
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 

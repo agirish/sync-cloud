@@ -35,6 +35,29 @@ enum LayoutPumpWait {
     /// caller should report on failure**: a wait that gave up after a handful of passes was starved
     /// and says nothing about the code, while one that gave up after a thousand was genuinely
     /// disproved.
+    /// The same wait against a host VIEW rather than a window.
+    ///
+    /// `docs/flaky-tests.md` records four suites that poll `layoutSubtreeIfNeeded()` on a view and
+    /// so could not adopt the floor by substitution — they needed this entry point, and the doc says
+    /// so. It stopped being theoretical on 2026-08-04: `FoldAllToggleBindingTests` gave up with the
+    /// table showing **0 rows** in a full-package run and passed three times out of three in
+    /// isolation, which is this mechanism exactly. Its own 15-second deadline bought too few
+    /// main-actor turns, and seconds were never the unit that mattered.
+    @MainActor
+    static func pump(_ view: NSView, upTo seconds: Double,
+                     until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
+        var pumps = 0
+        let deadline = Date().addingTimeInterval(seconds)
+        while pumps < pumpFloor || Date() < deadline {
+            view.layoutSubtreeIfNeeded()
+            pumps += 1
+            if condition() { return (true, pumps) }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        view.layoutSubtreeIfNeeded()
+        return (condition(), pumps + 1)
+    }
+
     @MainActor
     static func pump(_ window: NSWindow, upTo seconds: Double,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {

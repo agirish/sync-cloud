@@ -767,6 +767,10 @@ struct PaneColumnsView: View {
             showsChevron: node.isDirectory,
             fonts: fonts,
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
+            // Columns is the default view mode — a badge that shipped only into the tree would
+            // miss most of the app's usage. Resolved by the column for the same reason
+            // `riskyReason` is.
+            isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
             awaitingDownloadID: awaitingDownloads[node.id]?.requestID,
             // A column's “expanded” is `isOnPath` — the folder you drilled THROUGH is the one whose
             // contents are already on screen, so it is the one whose “N matches” would be telling
@@ -1061,6 +1065,8 @@ struct ColumnRowView: View {
     /// See `FileRowView.riskyReason`. Resolved by the column, for the same reason the tree row
     /// resolves it: only the pane can reach the delegate.
     var riskyReason: String? = nil
+    /// See `FileRowView.isOnThisMacOnly`. Resolved by the column, like `riskyReason`.
+    var isOnThisMacOnly: Bool = false
     /// See `FileRowView.awaitingDownloadID`. Threaded through rather than observed here for the
     /// same reason: a per-row subscription for a per-session event.
     var awaitingDownloadID: UUID? = nil
@@ -1075,7 +1081,8 @@ struct ColumnRowView: View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
-                        fonts: fonts, riskyReason: riskyReason, awaitingDownloadID: awaitingDownloadID,
+                        fonts: fonts, riskyReason: riskyReason, isOnThisMacOnly: isOnThisMacOnly,
+                        awaitingDownloadID: awaitingDownloadID,
                         searchContext: searchContext, isLeftPane: isLeftPane,
                         otherPaneName: otherPaneName, accent: accent)
             if showsChevron {

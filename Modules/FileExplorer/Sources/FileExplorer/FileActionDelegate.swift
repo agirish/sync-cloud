@@ -89,6 +89,36 @@ public protocol FileActionDelegate: Sendable {
     func handleKeepName(_ node: FileNode)
     /// Withdraws a keep — the badge returns immediately.
     func handleStopKeepingName(_ node: FileNode)
+
+    // MARK: - Where the file lives
+    //
+    // Requirements, not extension members, for the reason spelled out above the risky-name block:
+    // an extension-only member is dispatched statically through the existential, so the
+    // conformer's answer would never be reached and a badge that is merely absent looks exactly
+    // like a badge that is correctly withheld.
+
+    /// Whether this row's file sits inside no cloud provider's folder — the `⌂ on this Mac only`
+    /// badge's whole question.
+    ///
+    /// Takes the path and answers a `Bool` for the reason `riskyNameReason` takes a name: unlike
+    /// almost everything else here it is called **eagerly, per visible row, per render pass**, so
+    /// it must not put a `FileNode`'s whole subtree back within reach of a per-row call, and its
+    /// answer must be a function of exactly what a memo can key on (see `HomeOnlyBadgeCache`).
+    ///
+    /// **False is also the answer for "the question is not live here", and that is deliberate.**
+    /// Inside a cloud source's own pane every row is covered by definition, so the badge would be
+    /// a mark on everything — the conformer answers false there rather than the pane learning a
+    /// second rule about when to ask. See `PaneActionDelegate.isOnThisMacOnly(forPath:)`.
+    func isOnThisMacOnly(forPath path: String) -> Bool
+
+    /// Whether this host can open the Duplicates workspace on a file. Gates the row menu item, so
+    /// a conformer with no workspace behind it (every test stub, any pane that isn't a real
+    /// provider view) draws nothing rather than a door that opens onto a no-op.
+    var canFindDuplicates: Bool { get }
+
+    /// Opens Duplicates on this file's source and reveals the group holding it — starting a scan
+    /// first when there is no current one. Files only: a folder overlap group is a different unit.
+    func handleFindDuplicates(_ node: FileNode)
 }
 
 extension FileActionDelegate {
@@ -132,4 +162,12 @@ extension FileActionDelegate {
     public func isKeptName(_ name: String) -> Bool { false }
     public func handleKeepName(_ node: FileNode) {}
     public func handleStopKeepingName(_ node: FileNode) {}
+
+    /// No provider context, no badge — the same conservative default the risky-name answers take,
+    /// and the one that renders exactly the row every existing caller rendered before ⌂ existed.
+    public func isOnThisMacOnly(forPath path: String) -> Bool { false }
+
+    /// No workspace behind it, so no door. See `canFindDuplicates`.
+    public var canFindDuplicates: Bool { false }
+    public func handleFindDuplicates(_ node: FileNode) {}
 }

@@ -139,6 +139,13 @@ struct ContentView: View {
     /// one selection now, and a second copy of it would be a second thing to keep in step.
     var selectedLens: TidyLens? { selectedWorkspace.lens }
 
+    /// The file a pane row's "Find duplicates of this" asked the Duplicates lens to reveal.
+    ///
+    /// Held HERE and not inside `TidyView`, because the workspace switch that carries the user
+    /// there mounts that view: state set on the way in has to outlive the mount. Not persisted —
+    /// it names a scan that only exists in this session.
+    @State var duplicateRevealRequest: DuplicateRevealRequest?
+
     /// Whether the workspace bar can spell its segments out at the window's current width.
     ///
     /// The *style*, not the width. `.onGeometryChange` only calls its action when the transformed
@@ -1316,6 +1323,42 @@ struct ContentView: View {
         ((tidyTargetIsRight ? currentRightPath : currentLeftPath) as NSString).expandingTildeInPath
     }
 
+    /// The coverage the ⌂ badge is resolved against for one pane — nil where the badge never
+    /// applies. See `PaneActionDelegate.homeBadgeCoverage`: inside a cloud source's own pane every
+    /// row is covered by definition, so the question is only live for a folder source.
+    ///
+    /// Resolved against `availableProviders` and not `enabledProviders`, through
+    /// `SettingsManager.cloudCoverage` — a disabled provider's folder is still on disk.
+    func homeBadgeCoverage(forProviderId providerId: String) -> FileLocation.Coverage? {
+        guard settings.availableProviders.first(where: { $0.id == providerId })?.isLocalFolder == true
+        else { return nil }
+        return settings.cloudCoverage
+    }
+
+    /// The "Find duplicates of this" handoff — see `DuplicateRevealCoordinator` for the decision
+    /// it makes and why it lives outside this view.
+    var revealCoordinator: DuplicateRevealCoordinator {
+        DuplicateRevealCoordinator(
+            syncManager: syncManager,
+            selectedWorkspace: $selectedWorkspace,
+            revealRequest: $duplicateRevealRequest,
+            paneRoot: { isLeft in
+                ((isLeft ? currentLeftPath : currentRightPath) as NSString).expandingTildeInPath
+            },
+            startScan: { root in
+                syncManager.startFindDuplicates(root: root,
+                                                options: DuplicateFinderOptions.fromDefaults())
+            }
+        )
+    }
+
+    /// Opens Duplicates on one row's file. Aimed at the row's OWN side rather than at
+    /// `tidyTargetIsRight`'s focused pane: a right-click does not necessarily move focus, and a
+    /// scan aimed at the other pane would answer about a different provider entirely.
+    func findDuplicatesOfAction(_ node: FileNode, isLeft: Bool) {
+        revealCoordinator.findDuplicates(of: node, isLeft: isLeft)
+    }
+
     /// Switches to the Tidy tab and kicks off a duplicate scan of the focused provider.
     func findDuplicatesAction() {
         let root = tidyScanRootExpanded
@@ -1686,7 +1729,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
-            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource)
+            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage)
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
         // A card like every other surface, not a docked `.bar` panel: the opaque bar fill was a
@@ -1878,7 +1921,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths, keptNamesToken: syncManager.keptNamesStore?.names ?? []),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths, keptNamesToken: syncManager.keptNamesStore?.names ?? [], homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId), onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) }),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
@@ -2041,7 +2084,8 @@ struct ContentView: View {
                 onManageProviders: openProviderSettings,
                 onChooseFolder: { chooseFolderSource { leftProviderId = $0 } },
                 onCompareCopies: reviewCoordinator.compareCopies,
-                onRequestDestination: { presentDestination($0) }
+                onRequestDestination: { presentDestination($0) },
+                revealRequest: duplicateRevealRequest
             )
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in
