@@ -138,6 +138,10 @@ public struct TidyView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+    // Both toggles, because cloud rides on top of on-device AI: a scan only reaches the paid
+    // backend when each is on, so the setup card only quotes a price when each is on.
+    @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUsesAI: Bool = true
+    @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUsesCloud: Bool = false
 
     /// Honors Settings ▸ Accessibility ▸ Reduce motion: when true, the row-exit slides (H4) and the
     /// reclaim glow (H5) are dropped for today's instant swap. The numeric count-up is kept — it's an
@@ -1541,17 +1545,20 @@ public struct TidyView: View {
         )
     }
 
+    /// The pre-scan state. Not `EmptyStateView` like the other four: this is the one lens whose
+    /// trigger can spend money, and the template centres two sentences in a large panel while
+    /// leaving the model and the cost nowhere near the button. See ``FilingSetupCard``.
+    ///
+    /// Read live rather than cached in `@State`: the spend store is written by the classifier at
+    /// the end of a scan, and this view is rebuilt when the scan publishes, so the figure is
+    /// current the next time the card appears without anything having to invalidate it.
     private var filingIntroState: some View {
-        // Brought up to the L4 template like the Duplicates intro: name the target, explain
-        // the job, put the safety contract in the caption, one primary button.
-        let intro = LensIntros.organize(scanTargetName: scanTargetName)
-        return EmptyStateView(
-            icon: intro.icon,
-            tint: glassHue.accentColor,
-            title: intro.title,
-            message: intro.message,
-            caption: intro.safety,
-            primary: .init("Suggest homes", systemImage: FilingGlyph.lens, handler: onFindFilingSuggestions)
+        FilingSetupCard(
+            intro: LensIntros.organize(scanTargetName: scanTargetName),
+            price: FilingRunPrice.readout(cloudEnabled: filingUsesAI && filingUsesCloud,
+                                          last: FilingSpendStore.last()),
+            accent: glassHue.accentColor,
+            onStart: onFindFilingSuggestions
         )
     }
 

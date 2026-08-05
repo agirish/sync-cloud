@@ -723,24 +723,6 @@ answer at all.
 
 ---
 
-### Organize's setup card, with the price on the button
-
-**Now:** before its first run, Organize is a large panel holding a centred icon, two sentences and a
-*Suggest homes* button. The one fact that changes the decision — the model, the file count and the
-estimated cost — is pinned to the top edge, far from the button it describes.
-
-**Change:** top-anchor a setup card showing what will happen: three greyed sample rows in the real
-suggestion format, the model and estimated cost written onto the trigger itself
-(*Suggest homes · ≈ $0.04*), and the spend history beside it. If an action costs money, the price
-belongs on the button.
-
-**Impact:** the sample rows also teach the result format, so the first real run is not also the
-first time that layout is seen.
-
-**Effort:** Small. **Risk:** Low.
-
----
-
 ### One-line pane headers
 
 **Now:** `PaneHeader` (`DashboardViews.swift`) is a `VStack(spacing: 8)` of two rows — provider
@@ -817,7 +799,6 @@ Cited by name; this list has no stable numbering.
 | Magnitude bars behind the largest-files list | Small | Medium–High — best value per unit of work |
 | One sequential ramp for the treemap | Small | Medium |
 | Name the compared pair in the title bar | Small | Medium |
-| Organize's setup card, price on the button | Small | Medium |
 | One-line pane headers | Medium | Medium — ~44 pt on every window |
 | A review sheet before a bulk duplicate trash | Medium | Medium |
 
