@@ -352,7 +352,9 @@ storing the same 4 GB twice is iCloud *and* OneDrive.
 **What:** A Tidy mode that hashes two provider trees and groups across them, with a keeper heuristic
 that understands "keep the copy on the provider you chose" rather than "keep the shallowest path".
 The Compare duplicate-review handoff pins both panes to one provider today, so a cross-provider
-group needs that pin logic generalized.
+group needs that pin logic generalized. The v3.1 persisted hash index takes most of the recurring
+cost out of this: the first two-tree pass pays for its reads once, and every later run re-reads
+only what changed.
 
 **Impact:** The largest reclaimable-space win the app can offer, and one nothing else on the Mac
 does well. It also upgrades item 1b's claim from *"no copy in the cloud folder tree"* to *"no copy
@@ -566,8 +568,9 @@ width note in 1b.
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
 with the same claim on time as the list above — and several entries are cheaper than anything in
-it. Re-checked against the code on **2026-08-02**; each names its evidence so a mock-up can be
-drawn from the real thing rather than from memory.
+it. Re-checked against the code on **2026-08-05**, after the v3.1 cut; each names its evidence so
+a mock-up can be drawn from the real thing rather than from memory. The two entries whose
+surfaces v3.1 changed — the stat pills and the pane headers — carry their updates inline.
 
 Six proposals from the same pass have already landed and are deliberately absent: scan freshness on
 the differences count pill, folder sections in that table, "Copy" spelled out on the transfer
@@ -630,6 +633,12 @@ state, the rest dim. Two want different handling: the reclaimable figure is not 
 sheds its capsule and becomes plain trailing text; and *skipped* is the one nobody can act on —
 give it a tooltip saying **why** those were skipped, since "skipped" with no reason is an
 unanswered question sitting in the header.
+
+**v3.1 added two more pills to these rows, and neither is a subset either**: Organize's *reused*
+(what the verdict cache saved — a scan-level fact like *skipped*, already carrying its own
+explanatory tooltip) and Storage's freshness marker on a restored report (not a count at all).
+Whatever selected/dimmed treatment the filtering pills get, these two must stay visibly inert or
+the header teaches that clicking pills sometimes does nothing.
 
 **Impact:** removes a duplicate control, and makes the obvious click the working one.
 
@@ -696,12 +705,17 @@ answer at all.
 ### One-line pane headers
 
 **Now:** `PaneHeader` (`DashboardViews.swift`) is a `VStack(spacing: 8)` of two rows — provider
-capsule plus a five-button nav cluster above, breadcrumb below — repeated in both panes. Roughly
-120 pt before a single file appears. Scan freshness has already left for the differences count
-pill, which removed one duplicated pill but not the duplicated band.
+capsule plus the pane bar above, breadcrumb below — repeated in both panes. Roughly 120 pt before
+a single file appears. Scan freshness has already left for the differences count pill, which
+removed one duplicated pill but not the duplicated band. Since this was first written the bar has
+become **user-arrangeable** (`PaneBarArrangement`, up to 16 items) and v3.1 added the **search
+pill**, so "the nav cluster" is no longer a fixed five buttons but whatever the user kept.
 
-**Change:** fold each pane to one line — provider chip, breadcrumb, link glyph — and reveal the nav
-cluster on hover or keyboard focus, the way the Storage lens's row glyphs already behave.
+**Change:** fold each pane to one line — provider chip, breadcrumb, link glyph — and reveal the
+bar on hover or keyboard focus, the way the Storage lens's row glyphs already behave. Two
+constraints that did not exist when this was proposed: the fold must respect the user's own
+arrangement rather than a hardcoded cluster, and an **expanded ⌘F search field cannot hide on
+hover-out** — a field the user is typing into is not chrome.
 
 **Mock-up note:** draw both panes, left hovered and right at rest. The `.mini` control rung at the
 250 pt pane clamp is the constraint that decides whether this works at all.
@@ -741,7 +755,7 @@ the question hundreds of keeper picks actually raise.
 |---|------|--------|--------|
 | 1 | **Backup** — the lens and jobs (folder sources shipped) | Medium→High, staged | **Highest** |
 | 2 | Sync presets | Low | High |
-| 3 | Strict content match + persisted index | Medium–High | Medium–High |
+| 3 | Strict content match (its persisted index shipped in v3.1) | Medium | Medium–High |
 | 4 | `bothModified` detection | Medium | High |
 | 5 | Folder watching → auto-rescan | Medium | High |
 | 6 | CLI parity for the lenses | Low–Medium | High |
