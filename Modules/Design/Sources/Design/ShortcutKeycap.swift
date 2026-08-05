@@ -19,9 +19,9 @@ import SwiftUI
 
 /// Every number the keycap paints, in one place so they can be asserted without rendering.
 public enum ShortcutKeycapMetrics {
-    public static let cornerRadius: CGFloat = 5
-    public static let horizontalPadding: CGFloat = 6
-    public static let verticalPadding: CGFloat = 2.5
+    public static let cornerRadius: CGFloat = 6
+    public static let horizontalPadding: CGFloat = 8
+    public static let verticalPadding: CGFloat = 4
     public static let borderWidth: CGFloat = 0.75
 
     /// How far the control itself fades back while its keycap is showing.
@@ -39,7 +39,7 @@ public enum ShortcutKeycapMetrics {
     public static let contentOpacity: Double = 0.13
 
     /// Alpha of the drop shadow that lifts the key off the control — see `ShortcutKeycap.body`.
-    public static let shadowOpacity: Double = 0.22
+    public static let shadowOpacity: Double = 0.28
 }
 
 /// The badge itself. Rendered only while the reveal is active; see `.shortcutKeycap(_:)`.
@@ -59,7 +59,7 @@ public struct ShortcutKeycap: View {
 
     public var body: some View {
         Text(symbol)
-            .scaledFont(.caption.monospaced().weight(.semibold))
+            .scaledFont(.subheadline.monospaced().weight(.semibold))
             // Pinned colours, not `.secondary`/`.quaternary`. Hierarchical styles resolve against
             // the *enclosing* foreground style, which inside a filled button is white — so the
             // hierarchical version rendered a white glyph on a light key the moment it was dropped
