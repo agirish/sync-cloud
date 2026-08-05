@@ -62,6 +62,24 @@ public enum SegmentedAccent {
     /// is Apple's ratio on Apple's control, and matching the system exactly is the point of the
     /// setting; `theTintCarriesTheWhiteLabelAppKitImposes` therefore holds the eleven named hues to
     /// the floor and excludes this one on purpose rather than by oversight.
+    ///
+    /// The second cost is on screen at `.none`, and it is the one most likely to be mistaken for a
+    /// bug: the SELF-DRAWN accent surfaces on the same Appearance page — the rail's selected row
+    /// (`SettingsLayout`) and the accent preview strip (`AccentPreview`) — keep the DEEPENED fill,
+    /// so they no longer sit at the same blue as the pickers beside them. Measured off screen, the
+    /// rail row paints (0.2369, 0.5308, 0.9225) against the picker's (0.2509, 0.5502, 0.9542).
+    ///
+    /// **Do not "fix" that by matching them up.** The asymmetry is the principle, not a slip: a
+    /// system-drawn control is the thing `.none` is promising to look like, and Apple owns its
+    /// contrast, whereas a surface this app draws itself owns its own and has to clear 4.5:1 — there
+    /// is no "stock macOS" version of a rail row to defer to. Un-deepening the rail would drop an
+    /// app-authored white label to 4.02:1; deepening the picker again is exactly what this commit
+    /// undid.
+    ///
+    /// Worth knowing before comparing anything by eye here: the two were never identical anyway.
+    /// AppKit paints the segmented lift about 1–2% darker than a flat fill of the SAME colour — the
+    /// deepened accent measures (0.2324, 0.5190, 0.9033) in a picker against (0.2369, 0.5308,
+    /// 0.9225) in a rounded rectangle. This change roughly doubled that gap; it did not create it.
     public static func tint(for hue: LiquidGlassHue) -> Color {
         hue == .none ? hue.accentColor : hue.accentFillColor
     }
