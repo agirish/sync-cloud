@@ -297,6 +297,10 @@ struct SeamPaneControls: View {
     /// The one link preference in the app; `PaneLinkPreference` names its other readers.
     @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
 
+    /// Read because the pill is hue-washed now, which makes every engaged colour in it depend on
+    /// which side of the surface it has to shift against. See `engagedWash` and `glyphInk`.
+    @Environment(\.colorScheme) private var colorScheme
+
     /// Shared with the two glyph views, which size themselves to one half.
     fileprivate static let half: CGFloat = 26
 
@@ -310,16 +314,37 @@ struct SeamPaneControls: View {
     /// pills next to it use for *hovered*.
     fileprivate static let restWash: Double = 0.14
 
-    /// Ink for a seam half that is **not** carrying the linked fill: neutral at rest, the DEEPENED
-    /// accent once the pointer is on it.
+    /// Ink for a seam half that is **not** carrying the linked fill: neutral at rest, and on a LIGHT
+    /// appearance the deepened accent once the pointer is on it.
     ///
-    /// Deepened, not `accentColor`, because the pill it sits on is now the accent too. Measured on
-    /// the composite above, a raw-accent glyph runs 1.58:1 (Cyan) to 3.53:1 (Indigo) — nine of the
-    /// eleven hues under the 3:1 floor for a glyph, i.e. hovering would make it *harder* to read.
+    /// Deepened rather than `accentColor` because the pill it sits on is now the accent too. On the
+    /// light composite a raw-accent glyph runs 1.58:1 (Cyan) to 3.53:1 (Indigo) — nine of the eleven
+    /// hues under the 3:1 floor, i.e. hovering would make the glyph *harder* to read than at rest.
     /// `accentFillColor` is bounded below by construction and clears 3:1 on every hue (3.21:1 worst,
-    /// on Purple) while still reading as the accent lighting up. Rest measures 8.4–8.9:1 throughout.
-    fileprivate static func glyphInk(deepened: Color, phase: HoverAffordancePhase) -> Color {
-        phase.isEngaged ? deepened : .primary.opacity(0.75)
+    /// on Purple). Rest measures 8.4–8.9:1.
+    ///
+    /// **Dark drops the tint entirely, and that is not symmetry for its own sake.** Deepening means
+    /// darkening, so on a dark pill it moves the ink *toward* the surface: rendered and sampled over
+    /// three plausible dark grounds, a deepened Cyan glyph measures 1.58–2.60:1 where the raw accent
+    /// gets 3.08–5.07:1 and plain `.primary` more still. Applying the light-appearance answer to both
+    /// was the defect this call originally shipped with. `ChromeInk` already owns exactly this rule —
+    /// on a washed surface the fill is the only honest carrier of hover — so route through it rather
+    /// than restating it, and let `engagedWash` carry the hover in dark.
+    fileprivate static func glyphInk(_ scheme: ColorScheme,
+                                     deepened: Color,
+                                     phase: HoverAffordancePhase) -> Color {
+        ChromeInk.label(scheme, light: phase.isEngaged ? deepened : .primary.opacity(0.75))
+    }
+
+    /// The accent depth that actually registers *against the pill*, which flips with the appearance
+    /// for the same reason `glyphInk` does: `accentFillColor` is darker than the light pill (good)
+    /// and barely distinguishable from the dark one (bad). Sampled hover step on the dark grounds:
+    /// 1.30–1.35× raw against 1.13–1.16× deepened; on light, 1.15–1.17× deepened against 1.07× raw.
+    ///
+    /// Not `linked`'s wash — that one stays `onAccentLabelColor` in both appearances, because it
+    /// lands on the solid fill rather than on this frost.
+    private var engagedWash: Color {
+        colorScheme == .dark ? hue.accentColor : hue.accentFillColor
     }
 
     var body: some View {
@@ -331,11 +356,9 @@ struct SeamPaneControls: View {
             // on hover would peel out of chrome that stayed put. Same wash and ring numbers,
             // minus the lift — and the shape override keeps the wash round inside the pill.
             //
-            // Washes in the DEEPENED accent, for the same reason the engaged glyph does: the pill
-            // underneath is already the raw hue, so a raw-accent wash on the light hues barely
-            // moves it. Measured, deepening evens the hover step out to 1.15–1.17× across all
-            // eleven hues (raw: 1.07× on Cyan, 1.08× on Amber) and the press step to ~1.30×.
-            .buttonStyle(.hoverAffordance(.glyph, tint: hue.accentFillColor, shape: .circle))
+            // Washes in `engagedWash`, not the raw hue: the pill underneath is already the raw
+            // accent, so on light there is nothing for a raw wash to shift against.
+            .buttonStyle(.hoverAffordance(.glyph, tint: engagedWash, shape: .circle))
             .help("Swap the left and right panes")
 
             // Stays NEUTRAL while everything around it goes to the hue: this hairline has to read
@@ -353,11 +376,11 @@ struct SeamPaneControls: View {
                                isLinked: linkBothPanes)
             }
             // The hover wash has to show against whatever is under it, and that changes with the
-            // state: the deepened accent over the frosted pill when unlinked, white over the solid
-            // accent fill when linked — an accent wash on an accent fill carries no colour at all.
+            // state: `engagedWash` over the frosted pill when unlinked, white over the solid accent
+            // fill when linked — an accent wash on an accent fill carries no colour at all.
             .buttonStyle(.hoverAffordance(
                 .glyph,
-                tint: linkBothPanes ? hue.onAccentLabelColor : hue.accentFillColor,
+                tint: linkBothPanes ? hue.onAccentLabelColor : engagedWash,
                 shape: .circle
             ))
             .help(linkBothPanes
@@ -402,6 +425,7 @@ struct SwapPanesGlyph: View {
 
     @Environment(\.hoverAffordancePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     /// Pressing turns the glyph over — the same thing the click is about to do to the panes, so
     /// the feedback names the outcome instead of just acknowledging the click. Dropped under
@@ -411,7 +435,7 @@ struct SwapPanesGlyph: View {
     var body: some View {
         Image(systemName: "arrow.left.arrow.right")
             .scaledFont(.system(size: 11, weight: .bold))
-            .foregroundStyle(SeamPaneControls.glyphInk(deepened: deepened, phase: phase))
+            .foregroundStyle(SeamPaneControls.glyphInk(colorScheme, deepened: deepened, phase: phase))
             .rotationEffect(.degrees(flipped ? 180 : 0))
             .animation(.easeInOut(duration: 0.16), value: flipped)
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
@@ -433,6 +457,7 @@ struct LinkPanesGlyph: View {
     let isLinked: Bool
 
     @Environment(\.hoverAffordancePhase) private var phase
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Image(systemName: PaneGlyph.linkBothPanes)
@@ -441,8 +466,9 @@ struct LinkPanesGlyph: View {
             // still reads as the "on" state now that the pill itself carries the hue, because what
             // separates them is opacity, not colour: a SOLID half against a 0.14 frost, with the
             // only white glyph in the control on it.
-            .foregroundStyle(isLinked ? onAccent
-                                      : SeamPaneControls.glyphInk(deepened: deepened, phase: phase))
+            .foregroundStyle(isLinked
+                ? onAccent
+                : SeamPaneControls.glyphInk(colorScheme, deepened: deepened, phase: phase))
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
     }
 }
