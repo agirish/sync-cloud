@@ -210,3 +210,19 @@ struct ReviewCardModel: Equatable {
         return formatter
     }()
 }
+
+extension ReviewCardModel {
+    /// What the review card tells VoiceOver its keys do.
+    ///
+    /// Phrased with infinitives — "Return to copy" — rather than a conjugated verb, and that is the
+    /// whole point of it being a function with a test. The first version interpolated
+    /// `primaryVerb.lowercased()` followed by an `"s"` and announced **"Return copys"** on every
+    /// Copy review, which is most of them, in the one channel the hint exists to serve.
+    ///
+    /// There is no correct `+ "s"` here: "copy" and "move" conjugate differently, and carrying a
+    /// second spelling on the model would be a second thing to keep in step with the first. An
+    /// infinitive needs neither.
+    static func keyHintSpeech(primaryVerb: String) -> String {
+        "Return to \(primaryVerb.lowercased()), Delete to skip, Space to preview, Escape to end the review"
+    }
+}

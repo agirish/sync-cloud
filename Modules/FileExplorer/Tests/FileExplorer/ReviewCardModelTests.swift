@@ -182,3 +182,31 @@ import Sync
             facts: folderFacts, paneNames: paneNames, isMove: false).canVerify)
     }
 }
+
+/// The card's spoken key hint.
+///
+/// Exists because the first version of that hint shipped as **"Return copys"** — `primaryVerb`
+/// lowercased with an `"s"` stuck on it, announced on every Copy review, in the one channel the
+/// hint was added to serve. It was invisible to every test in the suite: the accessibility tree is
+/// not observable under `swift test`, so nothing could have caught it downstream of the string.
+/// Testing the string itself is the only place the grammar is checkable at all.
+@Suite struct ReviewCardKeyHintSpeechTests {
+
+    /// Both verbs, both grammatical. Parameterised rather than asserting one, because the bug was
+    /// exactly that one of the two read correctly ("moves") and the other did not.
+    @Test(arguments: [("Copy", "copy"), ("Move", "move")])
+    func theHintReadsGrammaticallyForBothVerbs(verb: String, spoken: String) {
+        let hint = ReviewCardModel.keyHintSpeech(primaryVerb: verb)
+        #expect(hint.contains("Return to \(spoken),"), "got: \(hint)")
+        // The specific failure, named: no conjugated form may reappear.
+        #expect(!hint.contains("\(spoken)s"), "the verb was conjugated again: \(hint)")
+    }
+
+    /// All four keys are named. A hint that silently lost one would still read grammatically.
+    @Test func everyReviewKeyIsNamed() {
+        let hint = ReviewCardModel.keyHintSpeech(primaryVerb: "Copy")
+        for key in ["Return", "Delete", "Space", "Escape"] {
+            #expect(hint.contains(key), "\(key) is missing from: \(hint)")
+        }
+    }
+}

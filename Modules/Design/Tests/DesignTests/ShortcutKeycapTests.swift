@@ -194,6 +194,124 @@ import Testing
                 "the ordering rule is no longer load-bearing: if the modifier now sees through `.disabled` from outside, drop the ordering note from the doc comment")
     }
 
+    // MARK: Placement
+
+    /// The bounding box of every pixel that changed between two renders, in POINTS.
+    private func changedBox(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> CGRect? {
+        let scale = CGFloat(lhs.pixelsWide) / Self.canvas.width
+        var minX = Int.max, maxX = -1, minY = Int.max, maxY = -1
+        for y in 0..<min(lhs.pixelsHigh, rhs.pixelsHigh) {
+            for x in 0..<min(lhs.pixelsWide, rhs.pixelsWide) {
+                guard let a = lhs.colorAt(x: x, y: y), let b = rhs.colorAt(x: x, y: y) else { continue }
+                let delta = max(abs(a.redComponent - b.redComponent),
+                                max(abs(a.greenComponent - b.greenComponent),
+                                    abs(a.blueComponent - b.blueComponent)))
+                if delta > 0.02 {
+                    minX = min(minX, x); maxX = max(maxX, x)
+                    minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        // `maxX`/`maxY` are INCLUSIVE pixel indices, so the box's far edge is one pixel past them.
+        // Without the +1 every measurement here reads half a point short at 2x backing, which is
+        // most of the 4pt quantity the inset tests are trying to see.
+        return CGRect(x: CGFloat(minX) / scale, y: CGFloat(minY) / scale,
+                      width: CGFloat(maxX + 1 - minX) / scale,
+                      height: CGFloat(maxY + 1 - minY) / scale)
+    }
+
+    /// A centred badge must actually land centred on its control.
+    ///
+    /// The trailing inset exists to hold a *trailing* badge off the control's edge. Applied
+    /// unconditionally — which is how it shipped — it also pushes a CENTRED badge half the inset
+    /// off-centre, and on a 28pt glyph button, which is what every icon-only adopter is, that is
+    /// visible. Nothing caught it: the size tests are blind to placement and the paint tests only
+    /// count pixels, so the fix went in with no coverage at all until this.
+    @Test func aCentredBadgeIsCentredOnItsControl() {
+        let glyph = Button { } label: { Image(systemName: "magnifyingglass") }
+            .buttonStyle(.hoverAffordance(.glyph, tint: Self.tint))
+        // Centred in the canvas, NOT at its leading edge — and that is load-bearing. A glyph button
+        // measures 15pt and a `⌘F` keycap 17.5pt, so a centred badge is WIDER than the control it
+        // sits on and overhangs it. Rendered against the leading edge it is clipped at x = 0, and
+        // clipping swallows exactly the shift this test exists to detect: the first version of it
+        // measured a clipped box and passed against the unconditional-inset mutation.
+        let badged = glyph
+            .shortcutKeycap("⌘F", alignment: .center)
+            .frame(width: Self.canvas.width, height: Self.canvas.height)
+
+        guard let off = render(badged, revealed: false),
+              let on = render(badged, revealed: true),
+              let box = changedBox(off, on) else {
+            Issue.record("no bitmap rep, or the keycap painted nothing")
+            return
+        }
+        let controlCentre = Self.canvas.width / 2
+        #expect(box.minX > 0 && box.maxX < Self.canvas.width - 1,
+                "the badge is clipped by the canvas (\(box)) — this test cannot see a shift")
+        #expect(abs(box.midX - controlCentre) < 1.5,
+                "the centred keycap sits at \(box.midX)pt on a control centred at \(controlCentre)pt")
+    }
+
+    /// ...and the other half of the same rule: a TRAILING badge really is held off the control's
+    /// edge by the inset, rather than sitting flush against it.
+    ///
+    /// Added because a mutation that dropped the inset entirely survived the centring test above —
+    /// that one can only see a badge move, not a badge failing to be offset in the first place.
+    @Test func aTrailingBadgeIsInsetFromTheControlsEdge() {
+        let button = Button("Copy 560 to Dropbox") {}
+            .buttonStyle(.actionBar(.primary, tint: Self.tint, onTint: .white))
+        let badged = button.shortcutKeycap("⌘→", surface: .accentFill)
+
+        let controlWidth = hosted(button, revealed: false).fittingSize.width
+        guard let off = render(badged, revealed: false),
+              let on = render(badged, revealed: true),
+              let box = changedBox(off, on) else {
+            Issue.record("no bitmap rep, or the keycap painted nothing")
+            return
+        }
+        // The control is laid out against the canvas's leading edge, so its trailing edge is at
+        // `controlWidth`. One point of tolerance and no more — the quantity under test is 4pt, so
+        // this still fails a dropped or doubled inset. The slack is for the keycap's 0.75pt border,
+        // which is stroked INSIDE its shape and whose outermost column falls under the 0.02 colour
+        // threshold this box is measured with.
+        let expected = controlWidth - ShortcutKeycapMetrics.trailingInset
+        #expect(abs(box.maxX - expected) < 1,
+                "the trailing keycap ends at \(box.maxX)pt, but \(ShortcutKeycapMetrics.trailingInset)pt inside a control ending at \(controlWidth)pt would be \(expected)pt")
+    }
+
+    // MARK: Modifier ordering
+
+    /// Moving `.disabled(…)` outside the badge — which three call sites needed so the modifier could
+    /// read `isEnabled` — must not change what the control looks like.
+    ///
+    /// It is not obviously free: `ActionBarButtonStyle` reads `isEnabled` itself and dims the whole
+    /// control by `ActionBarMetrics.disabledOpacity`, so the reorder moves the environment write
+    /// from inside that style's scope to outside it. This is the behaviour-preservation check for
+    /// that reorder, on the laid-out, rendered result rather than on reasoning about SwiftUI's
+    /// environment propagation.
+    @Test(arguments: ActionBarWeight.allCases)
+    func disablingOutsideTheStyleLooksTheSameAsDisablingInside(weight: ActionBarWeight) {
+        let style = ActionBarButtonStyle(weight: weight, tint: Self.tint, onTint: .white, isIconOnly: false)
+        let inside = Button("New folder") {}.disabled(true).buttonStyle(style)
+        let outside = Button("New folder") {}.buttonStyle(style).disabled(true)
+
+        #expect(hosted(inside, revealed: false).fittingSize == hosted(outside, revealed: false).fittingSize,
+                "\(weight): the reorder changed the control's size")
+        guard let a = render(inside, revealed: false),
+              let b = render(outside, revealed: false),
+              let blank = render(Color.clear, revealed: false) else {
+            Issue.record("\(weight): no bitmap rep"); return
+        }
+        // Vacuity guard: two identically BLANK canvases would satisfy the comparison below just as
+        // well as two identically drawn controls. `.actionBar` dims a disabled control rather than
+        // hiding it, so there has to be something there to compare.
+        #expect(pixelsDiffering(a, blank) > 200,
+                "\(weight): the disabled control painted nothing — the comparison below is vacuous")
+        #expect(pixelsDiffering(a, b) == 0,
+                "\(weight): the reorder changed \(pixelsDiffering(a, b)) pixels of the disabled control")
+    }
+
     // MARK: On-accent contrast
 
     /// Re-tags into sRGB before reading components, rather than trusting the caller to.

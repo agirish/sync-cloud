@@ -144,7 +144,7 @@ struct ReviewCardView: View {
         // verify — there is no assistive client under `swift test`, so any test of it would pass
         // vacuously either way. So the guarantee is made here, where it does not depend on the
         // answer: this hint is unconditional and order-independent.
-        .accessibilityHint("Return \(model.primaryVerb.lowercased())s, Delete skips, Space previews, Escape ends the review")
+        .accessibilityHint(ReviewCardModel.keyHintSpeech(primaryVerb: model.primaryVerb))
     }
 
     // MARK: Rows
