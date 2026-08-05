@@ -20,6 +20,9 @@ enum ShortcutsReference {
             // shortcuts below appear on the controls themselves. A reference nobody opens can't
             // do that, which is the whole reason the reveal exists.
             Item(keys: "Hold ⌥", action: "Show every on-screen shortcut as a key badge"),
+            Item(keys: "⌘ 1 – ⌘ 5", action: "Switch workspace, in the bar's order"),
+            Item(keys: "⌘ I", action: "Show or hide the Info inspector"),
+            Item(keys: "⌘ L", action: "Open the Activity Log"),
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation"),
@@ -29,6 +32,12 @@ enum ShortcutsReference {
             // Undocumented until the ⌥-reveal work went looking for every real shortcut in the
             // app and found this one had a control, a tooltip and no entry here.
             Item(keys: "⌘ F", action: "Find a file or folder in this pane"),
+            Item(keys: "⌘ [ / ⌘ ]", action: "Back / forward in the focused pane"),
+            Item(keys: "⌘ R", action: "Scan both panes for changes"),
+            Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
+            Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
+            Item(keys: "⇧⌘ P", action: "Show or hide the Columns preview"),
+            Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),
@@ -36,6 +45,10 @@ enum ShortcutsReference {
         Group(title: "Differences", items: [
             Item(keys: "⌘ → / ⌘ ←", action: "Copy the selected differences to the right / left pane"),
             Item(keys: "⇧⌘ → / ⇧⌘ ←", action: "Move the selected differences to the right / left pane"),
+            Item(keys: "⇧⌘ R", action: "Step through each difference (Review)"),
+            Item(keys: "⇧⌘ V", action: "Verify date-only differences by checksum"),
+            Item(keys: "⌘ D", action: "Show or hide the differences list"),
+            Item(keys: "⌥⌘ F", action: "Collapse or expand all folders"),
             Item(keys: "Space", action: "Quick Look the selected difference"),
         ]),
         Group(title: "Guided review", items: [
@@ -59,7 +72,7 @@ struct ShortcutsWindowCommand: View {
     }
 }
 
-/// The Help-menu shortcuts window: three titled groups of key/action rows. Static content,
+/// The Help-menu shortcuts window: titled groups of key/action rows. Static content,
 /// sized to fit — no state beyond what `ShortcutsReference` provides.
 struct ShortcutsReferenceView: View {
     var body: some View {

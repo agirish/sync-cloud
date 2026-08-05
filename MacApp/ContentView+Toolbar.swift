@@ -127,7 +127,7 @@ extension ContentView {
                 if index == 1 {
                     Divider().frame(height: 14).padding(.horizontal, 4)
                 }
-                workspaceSegment(workspace, selection: selection, style: style,
+                workspaceSegment(workspace, ordinal: index + 1, selection: selection, style: style,
                                  accentFill: accentFill, onAccent: onAccent)
             }
         }
@@ -143,12 +143,17 @@ extension ContentView {
     @ViewBuilder
     private func workspaceSegment(
         _ workspace: Workspace,
+        ordinal: Int,
         selection: Binding<Workspace>,
         style: WorkspaceBarStyle,
         accentFill: Color,
         onAccent: Color
     ) -> some View {
         let isSelected = selection.wrappedValue == workspace
+        // The chord is the segment's 1-based POSITION, the same enumeration `WorkspaceCommands`
+        // binds ⌘1–⌘5 from — both count `Workspace.allCases`, so the badge and the key
+        // equivalent cannot disagree.
+        let chord = "⌘\(ordinal)"
         Button {
             selection.wrappedValue = workspace
         } label: {
@@ -172,9 +177,10 @@ extension ContentView {
         // The selected segment already carries the accent fill, so it takes the ring; the
         // unselected ones wash the capsule they would fill if you clicked them.
         .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accentFill))
+        .shortcutKeycap(chord)
         // Once the label is shed the glyph is the only thing naming this workspace, so the name
         // has to survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
-        .help(workspace.title)
+        .help(ShortcutHint.tooltip(workspace.title, chord))
         .accessibilityLabel(workspace.title)
         // These Buttons stand in for a `Picker(.segmented)` (which renders neutral in a macOS 26
         // glass toolbar group), so they restate the selected-state semantics the Picker gave
@@ -225,14 +231,19 @@ extension ContentView {
                     // Accent-tinted when the inspector is open, so the toggle reads as a state and
                     // not just an action. Closed, it renders as a normal enabled toolbar button.
                     .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
+                    // On the LABEL, like Settings below — a toolbar item's own bounds are AppKit's.
+                    .shortcutKeycap("⌘I")
             }
-            .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")
+            .help(ShortcutHint.tooltip(
+                showInspector ? "Hide the Info inspector" : "Show details for the selected item",
+                "⌘I"))
             .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
 
             Button(action: { openWindow(id: "activity-log") }) {
                 Label("Logs", systemImage: "list.bullet.rectangle")
+                    .shortcutKeycap("⌘L")
             }
-            .help("Activity log")
+            .help(ShortcutHint.tooltip("Activity log", "⌘L"))
 
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")

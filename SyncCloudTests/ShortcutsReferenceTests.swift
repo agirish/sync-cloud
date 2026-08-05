@@ -27,6 +27,28 @@ import Testing
         }
     }
 
+    /// Every chord the menu bar registers is listed in the reference.
+    ///
+    /// The shape tests above cannot notice a dropped row (see `testNoRowAdvertisesDragAndDrop`'s
+    /// history for how that goes wrong in the other direction), so the chords themselves are
+    /// pinned: each key string here must appear in some row. Hand-maintained alongside
+    /// `ShortcutCommands.swift` — a chord added there without a row here fails this, which is
+    /// the point.
+    @Test func testEveryMenuChordHasAReferenceRow() {
+        let allKeys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
+        let chords = ["⌘ 1 – ⌘ 5", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫",
+                      "⇧⌘ R", "⇧⌘ V", "⌘ D", "⌥⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /"]
+        for chord in chords {
+            #expect(allKeys.contains(chord), "no reference row lists “\(chord)”")
+        }
+    }
+
+    /// ⌘1–⌘5 assumes every workspace fits behind a single digit. A sixth workspace still fits
+    /// (⌘6); a tenth does not — this fails first, before someone ships a ⌘10 that cannot exist.
+    @Test func testEveryWorkspaceIsReachableByASingleDigitChord() {
+        #expect(Workspace.allCases.count <= 9)
+    }
+
     /// No row may advertise dragging or dropping.
     ///
     /// Cross-pane drag & drop was removed in `4d55246`, but this reference kept listing

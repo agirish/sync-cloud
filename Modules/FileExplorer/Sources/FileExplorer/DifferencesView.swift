@@ -255,6 +255,19 @@ public struct DifferencesView: View {
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }
         }
+        // The menu bar's three differences items (⇧⌘R Review, ⇧⌘V Verify, ⌥⌘F fold). Published
+        // from body because their availability is this render's facts — the same
+        // targets/sections the header's own buttons were built from — so a menu item can never
+        // enable an action the header would not offer. `focusedSceneValue`, not `focusedValue`:
+        // the differences table rarely holds key focus, and these must fire from wherever focus
+        // sits in the window. `nil` renders the item disabled.
+        .focusedSceneValue(\.startDifferencesReview,
+                           reviewStore.session == nil && !targets.targets.isEmpty && !isSyncActionBlocked
+                               ? { startReview(targets: targets, sorted: sorted) } : nil)
+        .focusedSceneValue(\.verifyDifferences,
+                           reviewStore.session == nil && targets.verifiableCount > 0 && !isSyncActionBlocked
+                               ? { verify(targets: targets) } : nil)
+        .focusedSceneValue(\.foldAllDifferences, foldAllShortcut(sections: sections))
         // Review-cursor plumbing, both directions: a row click jumps the session (pending rows
         // only — decided rows snap the highlight back), and a session advance re-highlights.
         .onChange(of: reviewSelection) { oldSelection, newSelection in
@@ -532,7 +545,10 @@ public struct DifferencesView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.hoverAffordance(.glyph, tint: glassHue.accentColor))
-            .help(isCollapsed.wrappedValue ? "Show the differences list" : "Hide the differences list")
+            .shortcutKeycap("⌘D")
+            .help(ShortcutHint.tooltip(
+                isCollapsed.wrappedValue ? "Show the differences list" : "Hide the differences list",
+                "⌘D"))
             .accessibilityLabel(isCollapsed.wrappedValue ? "Show differences" : "Hide differences")
         }
     }
@@ -839,10 +855,29 @@ public struct DifferencesView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.hoverAffordance(.glyph, tint: glassHue.accentColor))
+            .shortcutKeycap("⌥⌘F")
             // Both from `action`, so the tooltip and the announced name can never describe
             // different clicks.
-            .help(action.title)
+            .help(ShortcutHint.tooltip(action.title, "⌥⌘F"))
             .accessibilityLabel(action.title)
+        }
+    }
+
+    /// The ⌥⌘F menu item's payload, or `nil` when folding is unavailable: mid-review the table
+    /// is not on screen, collapsed to the header strip a fold would be invisible, and with no
+    /// sections there is nothing to fold — the same absences that withhold the header's toggle.
+    ///
+    /// The action is resolved HERE and carried with the closure, so the item's title and its
+    /// effect come from one `FoldAllAction.next` call — the header toggle's own rule.
+    private func foldAllShortcut(sections: [DifferenceGrouping.Section]) -> FoldAllShortcut? {
+        guard reviewStore.session == nil, !collapsed, !sections.isEmpty else { return nil }
+        let action = FoldAllAction.next(collapsedOnScreen: collapsedOnScreen(sections),
+                                        sectionCount: sections.count)
+        return FoldAllShortcut(action: action) {
+            switch action {
+            case .collapse: collapseAll(sections)
+            case .expand: collapsedSections.removeAll()
+            }
         }
     }
 
@@ -1001,8 +1036,11 @@ public struct DifferencesView: View {
             }
             .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                     onTint: glassHue.onAccentLabelColor))
+            .shortcutKeycap("⇧⌘R")
             .disabled(isSyncActionBlocked)
-            .help("Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy")
+            .help(ShortcutHint.tooltip(
+                "Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy",
+                "⇧⌘R"))
         }
     }
 
@@ -1016,10 +1054,13 @@ public struct DifferencesView: View {
             }
             .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                     onTint: glassHue.onAccentLabelColor))
+            .shortcutKeycap("⇧⌘V")
             .disabled(isSyncActionBlocked)
             // Same explanation as the review card's Verify, scoped to what the bulk run
             // actually covers: only date-only differences whose sizes match are checksummed.
-            .help("Checksum both sides of each same-size, date-only difference to confirm whether the contents actually differ")
+            .help(ShortcutHint.tooltip(
+                "Checksum both sides of each same-size, date-only difference to confirm whether the contents actually differ",
+                "⇧⌘V"))
         }
     }
 

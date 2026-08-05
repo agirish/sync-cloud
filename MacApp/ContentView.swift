@@ -169,6 +169,10 @@ struct ContentView: View {
     /// Persisted so it stays open/closed across launches. Internal, not private: its toggle sits in
     /// the window toolbar now (ContentView+Toolbar.swift).
     @AppStorage("showCompareInspector") var showInspector: Bool = false
+    /// The Columns preview column — the pane header's pill owns this preference; it is declared
+    /// here as well only so ⇧⌘P (`shortcutPreviewColumn`) has a stored property to flip. Same key,
+    /// same default, one value.
+    @AppStorage(PaneViewMode.previewColumnDefaultsKey) var previewColumnEnabled: Bool = PaneViewMode.previewColumnDefault
     /// The Info inspector's persisted width, resizable by dragging its leading edge. Defaults to the
     /// former fixed 270pt. Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
     @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 270
@@ -1616,13 +1620,8 @@ struct ContentView: View {
                 // The rail gets the switch too, bound to its own key.
                 viewMode: layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft),
                 // Targets the pane's current folder, which in Columns is the deepest open column.
-                onNewFolder: {
-                    let target = pane.viewMode == .columns
-                        ? (isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
-                            .currentDirectory(treeRoot: pane.currentPath)
-                        : pane.currentPath
-                    actionHandler?.beginCreateFolder(in: target)
-                },
+                // One resolution shared with ⇧⌘N — see `beginNewFolder(isLeft:)`.
+                onNewFolder: { beginNewFolder(isLeft: isLeft) },
                 // Search inside THIS pane's tree. Every workspace with a pane browser gets it from
                 // here — Compare's two panes and the single-source rail — because they are all this
                 // one header over this one pane component.
@@ -1866,6 +1865,11 @@ struct ContentView: View {
         // this window's state; it cannot be `.onKeyPress` at all, since that is focus-scoped and a
         // pane search is invoked precisely when focus is in a file table. See `FindInPaneCommand`.
         .focusedSceneValue(\.beginPaneSearch, beginPaneSearch)
+        // The rest of the menu-bar chords, on the same contract, bundled into one modifier
+        // (`ShortcutValuePublisher` — inlining the ten chained publications here broke the
+        // type-checker's time budget): each value recomputes with this body, so a menu item's
+        // enabled-ness tracks the same facts the control it mirrors renders from.
+        .modifier(shortcutValuePublisher)
         // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
         // drilling in, a crumb, back/forward, or a scan — is recorded against its provider root.
         .onChange(of: syncManager.leftRelativePath) { _, rel in

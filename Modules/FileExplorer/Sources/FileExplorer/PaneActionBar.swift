@@ -122,7 +122,9 @@ public struct PaneActionBar: View {
             // pane's nav cluster and its right-click menu.
             Spacer(minLength: 6)
 
-            actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive, action: onDelete)
+            actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive,
+                            help: ShortcutHint.tooltip("Delete the selected items", "⌘⌫"),
+                            keycap: "⌘⌫", action: onDelete)
 
             // ✕ dismisses the selection (the file lists offer no deselect gesture; Escape does the
             // same). At the trailing edge, separated from the actions, so it reads as "close this
@@ -134,7 +136,8 @@ public struct PaneActionBar: View {
                     .padding(.leading, 4)
             }
             .buttonStyle(.hoverAffordance(.inline))
-            .help("Clear selection (Esc)")
+            .shortcutKeycap("esc")
+            .help(ShortcutHint.tooltip("Clear selection", "esc"))
             .accessibilityLabel("Clear selection")
         }
     }
@@ -164,6 +167,7 @@ public struct PaneActionBar: View {
     /// same call so there is one rule here instead of a special case.
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
                                  role: ButtonRole? = nil, help: String? = nil,
+                                 keycap: String? = nil,
                                  action: @escaping () -> Void) -> some View {
         let isDestructive = role == .destructive
         return Button(role: role, action: action) {
@@ -172,9 +176,28 @@ public struct PaneActionBar: View {
         .buttonStyle(.actionBar(.primary,
                                 tint: AccentFill.deepened(isDestructive ? .red : accent),
                                 onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor))
+        // Between the style and `.help`: the keycap's ordering rules are the adopters' to hold —
+        // above any `.disabled` (none here), and with `.help` OUTSIDE it so the tooltip keeps
+        // the control's description on the accessibility element.
+        .modifier(OptionalKeycap(symbol: keycap))
         // `.help` takes a non-optional, and `.help("")` renders an empty tooltip box rather than
         // none, so the presence check has to happen somewhere.
         .modifier(OptionalHelp(text: help))
+    }
+}
+
+/// Applies `.shortcutKeycap` only when a symbol is present — `OptionalHelp`'s shape, and safe
+/// under the same reasoning: the buttons hold no state, and the keycap changes only when the
+/// bar is rebuilt anyway.
+private struct OptionalKeycap: ViewModifier {
+    let symbol: String?
+
+    func body(content: Content) -> some View {
+        if let symbol {
+            content.shortcutKeycap(symbol)
+        } else {
+            content
+        }
     }
 }
 

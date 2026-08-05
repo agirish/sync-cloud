@@ -405,6 +405,40 @@ struct SyncCloudApp: App {
             CommandGroup(after: .pasteboard) {
                 FindInPaneCommand()
             }
+            // File ▸ the pane chrome's actions. Replacing `.newItem` is free real estate: this
+            // is a one-window app, so there is no "New Window" to displace and ⌘N had nothing
+            // to do. All four route to the focused pane (or its selection) via the focused
+            // values ContentView publishes — see `ShortcutCommands.swift`.
+            CommandGroup(replacing: .newItem) {
+                NewFolderCommand()          // ⇧⌘N
+                RescanCommand()             // ⌘R
+                Divider()
+                DeleteSelectionCommand()    // ⌘⌫
+            }
+            // View ▸ the workspaces (⌘1–⌘5, checkmarked) and the four show/hide switches. The
+            // workspace items sit in the View menu because that is what they change — which
+            // surface the window shows — not what the app does to any file.
+            CommandGroup(after: .sidebar) {
+                WorkspaceCommands()
+                Divider()
+                ToggleHiddenFilesCommand()      // ⇧⌘.
+                TogglePreviewColumnCommand()    // ⇧⌘P
+                ToggleInspectorCommand()        // ⌘I
+                ToggleDifferencesListCommand()  // ⌘D
+                FoldAllDifferencesCommand()     // ⌥⌘F
+            }
+            // Go ▸ per-pane history, Finder's own menu for Finder's own chords.
+            CommandMenu("Go") {
+                GoBackCommand()             // ⌘[
+                GoForwardCommand()          // ⌘]
+            }
+            // Compare ▸ the differences header's two bulk actions. Their availability is the
+            // header's own facts, published by `DifferencesView` from the render that drew (or
+            // withheld) the matching buttons.
+            CommandMenu("Compare") {
+                ReviewDifferencesCommand()  // ⇧⌘R
+                VerifyDifferencesCommand()  // ⇧⌘V
+            }
             // Replace the whole Help menu. AppKit's default `.help` group is just the
             // `showHelp:` item (and its search field), which — with no registered Help Book —
             // answers "Help isn't available for SyncCloud." Swapping the group lets our own

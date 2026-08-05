@@ -372,6 +372,13 @@ import Testing
         #expect(ShortcutKeycapSpeech.spoken("⇧⌘→") == "Shift Command Right Arrow")
         #expect(ShortcutKeycapSpeech.spoken("esc") == "Escape")
         #expect(ShortcutKeycapSpeech.spoken("␣") == "Space")
-        #expect(ShortcutKeycapSpeech.spoken("⌘,") == "Command ,")
+        // Punctuation keys are NAMED: a bare "." or "," reads as sentence punctuation, so
+        // "Command ." announces as just "Command" — a chord that doesn't exist.
+        #expect(ShortcutKeycapSpeech.spoken("⌘,") == "Command Comma")
+        #expect(ShortcutKeycapSpeech.spoken("⇧⌘.") == "Shift Command Period")
+        #expect(ShortcutKeycapSpeech.spoken("⌘[") == "Command Left Bracket")
+        #expect(ShortcutKeycapSpeech.spoken("⌘]") == "Command Right Bracket")
+        #expect(ShortcutKeycapSpeech.spoken("⌘⌫") == "Command Delete")
+        #expect(ShortcutKeycapSpeech.spoken("⌥⌘F") == "Option Command F")
     }
 }

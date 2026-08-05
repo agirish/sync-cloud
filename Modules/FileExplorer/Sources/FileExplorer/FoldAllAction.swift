@@ -10,7 +10,11 @@ import Foundation
 ///
 /// Being ONE button rather than a pair means it has to answer a question the two menu items never
 /// face: what does a click do when SOME folders are collapsed?
-enum FoldAllAction: Equatable {
+///
+/// Public because `FoldAllShortcut` carries the resolved case across to the app target, where
+/// the ⌥⌘F menu item titles itself from it. The resolution rules stay internal — the app is
+/// handed an answer, never the machinery to compute a second one.
+public enum FoldAllAction: Equatable {
     case collapse
     case expand
 

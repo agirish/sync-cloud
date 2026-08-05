@@ -681,15 +681,17 @@ public struct PaneHeader: View {
                     Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .shortcutKeycap("⌘[")
                 .disabled(!canGoBack)
-                .help("Go back to this pane's previous folder")
+                .help(ShortcutHint.tooltip("Go back to this pane's previous folder", "⌘["))
 
                 Button(action: onForward) {
                     Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .shortcutKeycap("⌘]")
                 .disabled(!canGoForward)
-                .help("Go forward to this pane's next folder")
+                .help(ShortcutHint.tooltip("Go forward to this pane's next folder", "⌘]"))
             }
 
         case .scan:
@@ -708,8 +710,9 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .shortcutKeycap("⌘R")
                 .disabled(isRefreshing)
-                .help("Scan for changes")
+                .help(ShortcutHint.tooltip("Scan for changes", "⌘R"))
             }
 
         case .newFolder:
@@ -721,7 +724,8 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .help("New folder in this pane's current folder")
+                .shortcutKeycap("⇧⌘N")
+                .help(ShortcutHint.tooltip("New folder in this pane's current folder", "⇧⌘N"))
             }
 
         case .sort:
@@ -761,9 +765,11 @@ public struct PaneHeader: View {
                 Image(systemName: showHiddenFiles ? "eye" : "eye.slash").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
             .buttonStyle(navButtonStyle)
-            .help(showHiddenFiles
-                  ? "Hidden files are visible — click to hide them"
-                  : "Hidden files are hidden — click to show them")
+            .shortcutKeycap("⇧⌘.")
+            .help(ShortcutHint.tooltip(showHiddenFiles
+                                       ? "Hidden files are visible — click to hide them"
+                                       : "Hidden files are hidden — click to show them",
+                                       "⇧⌘."))
 
         case .preview:
             if showsPreviewToggle {
@@ -1057,11 +1063,13 @@ public struct PaneHeader: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.hoverAffordance(previewEnabled ? .filled : .segment, tint: glassHue.accentFillColor))
+        .shortcutKeycap("⇧⌘P")
         .accessibilityAddTraits(previewEnabled ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel("Preview pane")
-        .help(previewEnabled
-              ? "The preview pane is showing — click to hide it"
-              : "Show a preview of the selected file")
+        .help(ShortcutHint.tooltip(previewEnabled
+                                   ? "The preview pane is showing — click to hide it"
+                                   : "Show a preview of the selected file",
+                                   "⇧⌘P"))
     }
 
     /// Right-clicking the bar itself, which is where anyone who has customized Finder's toolbar will
