@@ -178,10 +178,13 @@ public struct TidyView: View {
     /// somewhere else. A landing, not a scroll: without a mark, a reveal into a list of similar
     /// cards leaves the user to work out which one they were sent to.
     @State private var revealedGroupID: UUID?
-    /// The file a handoff found no group for. Drives the named empty state — never a silently
-    /// filtered-to-nothing list. Retired when the request is superseded, when a new scan starts,
-    /// and when the user takes the search field over themselves (see `searchText`).
-    @State private var unmatchedRevealName: String?
+    /// The named answer a handoff put on screen, with the query it describes — never a silently
+    /// filtered-to-nothing list.
+    ///
+    /// It is not *cleared* by the paths that could invalidate it; it is *gated* on still applying,
+    /// by `DuplicateReveal.namedAnswer`. Clearing rules need one at every write path (typing, the
+    /// ✕, chip removal, a scan reset, the next handoff) and the chip-removal path was missed.
+    @State private var revealLanding: DuplicateReveal.Landing?
     /// The reveal request this view has already acted on, so re-resolving on a groups change (or
     /// on any other re-render) does not re-clear a search the user has since typed.
     @State private var appliedRevealID: UUID?
@@ -345,18 +348,8 @@ public struct TidyView: View {
 
     /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
     /// rather than carrying it into a grammar that would read it differently.
-    ///
-    /// **Writing through here also ends a handoff's landing**, because this binding is the user's
-    /// hand on the field and nothing else: `applyRevealPlan` and the empty states write
-    /// `searchQueries` directly. Without it, someone who lands on *No duplicates of “a.txt”* and
-    /// then types a different query still gets an answer about `a.txt` — the empty state would go
-    /// on naming the handoff's file while describing the results of a search they typed
-    /// themselves.
     private var searchText: Binding<String> {
-        Binding(get: { searchQueries[effectiveLens] ?? "" }, set: { query in
-            searchQueries[effectiveLens] = query
-            if effectiveLens == .duplicates { unmatchedRevealName = nil }
-        })
+        Binding(get: { searchQueries[effectiveLens] ?? "" }, set: { searchQueries[effectiveLens] = $0 })
     }
 
     private var isSearchExpanded: Binding<Bool> {
@@ -535,7 +528,7 @@ public struct TidyView: View {
                 // in the new results that nobody was sent to, or claiming "no duplicates of X"
                 // about an answer that is being recomputed.
                 revealedGroupID = nil
-                unmatchedRevealName = nil
+                revealLanding = nil
             }
         }
         // The handoff from a pane row's "Find duplicates of this".
@@ -1287,8 +1280,10 @@ public struct TidyView: View {
         // all-clear leaves them to infer that it covered the thing they clicked. This branch is
         // reached only when the visible list is empty, so a name query that DOES surface other
         // groups still shows them.
-        } else if dupGroups.isEmpty, let name = unmatchedRevealName {
-            noDuplicatesOfState(name: name)
+        } else if let answer = DuplicateReveal.namedAnswer(for: revealLanding,
+                                                           currentQuery: query,
+                                                           listIsEmpty: dupGroups.isEmpty) {
+            namedRevealState(answer)
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
         } else if dupGroups.isEmpty {
@@ -1298,31 +1293,64 @@ public struct TidyView: View {
         }
     }
 
-    /// The honest end of a "Find duplicates of this" that found none.
+    /// The honest end of a "Find duplicates of this" — which of the two answers depends on
+    /// whether the scan looked at the file at all.
     ///
-    /// **The generic "Nothing matches" is not good enough here, which is the whole reason this
-    /// exists.** A handoff pre-fills the search with the file's name, so without this the user
-    /// arrives at a filtered-to-empty list captioned with a count — an answer about the *filter*
-    /// where they asked about a *file*, and indistinguishable from having mistyped something.
+    /// **The generic "Nothing matches" is not good enough here, which is the whole reason these
+    /// exist.** A handoff writes the query itself, so without them the user arrives at a
+    /// filtered-to-empty list captioned with a count — an answer about the *filter* where they
+    /// asked about a *file*, and indistinguishable from having mistyped something.
     ///
-    /// The wording claims exactly what the scan can support: no other copy **in the folder that
-    /// was scanned**. Not "this file is unique", which would be a claim about the whole Mac that
-    /// no in-provider scan can make.
-    private func noDuplicatesOfState(name: String) -> some View {
-        EmptyStateView(
-            icon: "doc.on.doc",
-            title: "No duplicates of “\(name)”",
-            message: syncManager.duplicateScanRoot.map { root in
-                "Nothing else in “\((root as NSString).lastPathComponent)” has the same content as this file."
-            } ?? "Nothing else in the scanned folder has the same content as this file.",
-            caption: "Copies outside the folder that was scanned aren't detected.",
-            primary: .init("Clear Search", systemImage: "xmark.circle") {
-                searchQueries[.duplicates] = ""
-                searchExpandedLenses.remove(.duplicates)
-                unmatchedRevealName = nil
-                filter = .all
-            }
-        )
+    /// And the two answers are kept apart because they are different claims. "No other copy of
+    /// this file" is a finding; "this file was not in the folder that was scanned" is the absence
+    /// of one. Collapsing the second into the first is the false-confidence failure the whole
+    /// feature is built to avoid — see `DuplicateReveal.outcome`.
+    @ViewBuilder
+    private func namedRevealState(_ answer: DuplicateReveal.NamedEmptyState) -> some View {
+        switch answer {
+        case .noDuplicates(let name):
+            EmptyStateView(
+                icon: "doc.on.doc",
+                title: "No duplicates of “\(name)”",
+                message: syncManager.duplicateScanRoot.map { root in
+                    "Nothing else in “\((root as NSString).lastPathComponent)” has the same content as this file."
+                } ?? "Nothing else in the scanned folder has the same content as this file.",
+                caption: "Copies outside the folder that was scanned aren't detected.",
+                primary: .init("Clear Search", systemImage: "xmark.circle") { clearRevealAnswer() }
+            )
+        case .notScanned(let name):
+            // Deliberately claims nothing about the file. The last scan covered somewhere else (or
+            // was cancelled), so the only true statement available is that it did not look here.
+            EmptyStateView(
+                icon: "questionmark.folder",
+                title: "“\(name)” wasn't in the last scan",
+                message: syncManager.duplicateScanRoot.map { root in
+                    "These results were scanned from “\((root as NSString).lastPathComponent)”, which doesn't contain this file — so they say nothing about it either way."
+                } ?? "No completed scan covers this file, so there is nothing to say about it yet.",
+                caption: "Scan the folder this file is in to get an answer about it.",
+                primary: .init("Find Duplicates", systemImage: "wand.and.stars") {
+                    // Re-arm the standing request before scanning. Without this the button is a
+                    // dead end: the scan runs, and `appliedRevealID` still names this request, so
+                    // the results land with no answer about the file the user asked about —
+                    // having just pressed the one control offered to get them one.
+                    //
+                    // Only from THIS state, deliberately. Re-arming on every rescan would let an
+                    // ordinary Rescan, long after a successful landing, reach in and clear the
+                    // filter and search the user had set up since.
+                    appliedRevealID = nil
+                    onFindDuplicates()
+                }
+            )
+        }
+    }
+
+    /// Puts the lens back to showing everything, and retires the named answer with the query it
+    /// described.
+    private func clearRevealAnswer() {
+        searchQueries[.duplicates] = ""
+        searchExpandedLenses.remove(.duplicates)
+        revealLanding = nil
+        filter = .all
     }
 
     /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): rows exist,
@@ -1340,7 +1368,6 @@ public struct TidyView: View {
             }
         )
     }
-
     private func groupList(dupGroups: [DuplicateGroup]) -> some View {
         ScrollViewReader { proxy in
         ScrollView {
@@ -1860,13 +1887,21 @@ public struct TidyView: View {
     /// group resolving (which moves `groupCount`, and so the key) would re-clear a search the user
     /// had typed since landing.
     func applyRevealRequest() {
-        guard let request = revealRequest,
-              request.id != appliedRevealID,
+        guard let request = revealRequest, request.id != appliedRevealID,
               let outcome = DuplicateReveal.outcome(for: request,
                                                     groups: syncManager.duplicateGroups,
-                                                    isScanning: syncManager.isFindingDuplicates),
-              outcome != .waiting
+                                                    isScanning: syncManager.isFindingDuplicates,
+                                                    scannedRoot: syncManager.duplicateScanRoot)
         else { return }
+        guard outcome != .waiting else {
+            // A NEW request we cannot answer yet. Whatever landing is on screen names a different
+            // file, so it retires now rather than describing this one until the scan lands. (A
+            // request already answered never reaches here — the id guard above returns first — so
+            // waiting on one's OWN scan does not flicker the answer away.)
+            revealedGroupID = nil
+            revealLanding = nil
+            return
+        }
         appliedRevealID = request.id
         applyRevealPlan(DuplicateReveal.plan(for: outcome))
     }
@@ -1887,7 +1922,7 @@ public struct TidyView: View {
                 searchExpandedLenses.insert(.duplicates)
             }
         }
-        unmatchedRevealName = plan.unmatchedName
+        revealLanding = plan.landing
         if let id = plan.expandsGroupID { expanded.insert(id) }
         revealedGroupID = plan.revealedGroupID
     }
@@ -1898,14 +1933,14 @@ public struct TidyView: View {
     struct RevealState: Equatable {
         var expandedGroupIDs: Set<UUID>
         var revealedGroupID: UUID?
-        var unmatchedName: String?
+        var landing: DuplicateReveal.Landing?
         var query: String
         var filter: TidyFilter
     }
 
     var revealState: RevealState {
         RevealState(expandedGroupIDs: expanded, revealedGroupID: revealedGroupID,
-                    unmatchedName: unmatchedRevealName, query: searchQueries[.duplicates] ?? "",
+                    landing: revealLanding, query: searchQueries[.duplicates] ?? "",
                     filter: filter)
     }
 

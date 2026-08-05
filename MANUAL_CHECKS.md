@@ -114,29 +114,29 @@ launch confirmed. Live overlay rendering is the human-only part.
 - [ ] Pointing `-L`/`-R` at a nonexistent path errors clearly (exit 64) instead of
   scanning as "everything missing".
 
-## Ambient surfaces (2026-08-04) — the two landing exits
+## Ambient surfaces (2026-08-04) — what no fixture can judge
 
-The classifier, the badge, the inspector rows and the handoff itself are all covered by
-green tests (`FileLocationTests`, `HomeOnlyBadge*Tests`, `DetailsWhereItLivesTests`,
-`DuplicateReveal*Tests`, `DuplicateRevealCoordinatorTests`, `PaneHomeBadgeDelegateTests`).
-What is left here is the pair of rules that **retire** a landing, which are two lines of
-view state with no seam a test can reach: `@State` written on an uninstalled `TidyView`
-does not persist (probed and confirmed), and neither the search field's typing nor a card
-click can be driven headlessly.
+The classifier, the badge, the inspector rows and the handoff are all covered by green tests
+(`FileLocationTests`, `HomeOnlyBadge*Tests`, `DetailsWhereItLivesTests`, `DuplicateReveal*Tests`,
+`DuplicateRevealCoordinatorTests`, `PaneHomeBadgeDelegateTests`).
 
-- [ ] **Typing your own query retires the named answer.** Right-click a file with no
-  duplicates → *Find duplicates of this* → land on **No duplicates of “<file>”** with the
-  field pre-filled. Now type something else that matches nothing → the empty state must
-  change to the generic *Nothing matches*, NOT keep naming the original file.
-- [ ] **Touching a card ends the landing mark.** Right-click a file that does have copies →
-  land with its group expanded and ringed in the accent. Click any card's header (that one
-  or another) → the ring goes, and does not come back until the next handoff.
+The "typing your own query retires the named answer" check that used to sit here is **gone
+because it became testable**: the rule was rewritten from clearing-on-every-write-path to a
+declarative gate (`DuplicateReveal.namedAnswer`), which is pure and now pinned by
+`aQueryTheHandoffDidNotWriteRetiresTheAnswer`. That is the better outcome than a checkbox — if a
+manual check can be turned into a gate, turn it into a gate.
 
-While you are there, two things worth an eye that no fixture can judge:
+- [ ] **Touching a card ends the landing mark.** Right-click a file that has copies → *Find
+  duplicates of this* → land with its group expanded and ringed in the accent. Click any card's
+  header → the ring goes, and does not come back until the next handoff. (Still manual: `@State`
+  written on an uninstalled `TidyView` does not persist — probed and confirmed — and a card click
+  cannot be driven headlessly.)
 
-- [ ] **⌂ density in a Home-folder pane reads as information, not alarm.** Most rows will
-  carry it. It is drawn in the same grey as ☁ deliberately — if it reads as a wall of
-  warnings, that is the call to revisit.
-- [ ] **The inspector's three rows read top-down as evidence → conclusion.** Path, then
-  *On this Mac*, then *Where it lives*. The pill should feel like it follows from the two
-  rows above it rather than arriving from nowhere.
+Two things worth an eye that no fixture can judge:
+
+- [ ] **⌂ density in a Home-folder pane reads as information, not alarm.** Most rows will carry
+  it. It is drawn in the same grey as ☁ deliberately — if it reads as a wall of warnings, that is
+  the call to revisit.
+- [ ] **The inspector's three rows read top-down as evidence → conclusion.** Path, then *On this
+  Mac*, then *Where it lives*. The pill should feel like it follows from the two rows above it
+  rather than arriving from nowhere.

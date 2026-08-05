@@ -162,6 +162,46 @@ struct FileLocationTests {
         #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/anything.txt", in: c))
     }
 
+    // MARK: The badge's gate — which panes ask at all
+
+    /// A folder source's pane resolves the badge against the cloud list.
+    @Test func aFolderSourcePaneGetsCoverage() {
+        let providers = [Self.iCloud(), Self.folderSource(id: "f", path: "/Users/u/Projects")]
+        let c = FileLocation.badgeCoverage(forProviderId: "f", among: providers,
+                                           disabledProviderIds: [])
+        #expect(c?.roots.map(\.providerId) == ["iCloud"])
+    }
+
+    /// **A cloud source's own pane gets nothing** — inside it every row is covered by definition,
+    /// so a badge would be a mark on everything.
+    @Test func aCloudSourcePaneGetsNoCoverageAtAll() {
+        let providers = [Self.iCloud(), Self.folderSource(id: "f")]
+        #expect(FileLocation.badgeCoverage(forProviderId: "iCloud", among: providers,
+                                           disabledProviderIds: []) == nil)
+    }
+
+    /// An id that resolves to nothing — a provider dropped from settings while its pane is still
+    /// on screen — is not a folder source, and must not mark every row it is showing.
+    @Test func anUnresolvableProviderIdGetsNoCoverage() {
+        #expect(FileLocation.badgeCoverage(forProviderId: "gone", among: [Self.iCloud()],
+                                           disabledProviderIds: []) == nil)
+    }
+
+    /// **The call site inherits the disabled rule.** Asserted here and not only on `coverage`,
+    /// because it is the call site that decides which list is passed — and a helper proved correct
+    /// against a list nobody hands it proves nothing.
+    @Test func theGateStillCountsDisabledProviders() {
+        let drive = Self.oneDrive()
+        let providers = [drive, Self.folderSource(id: "f")]
+        let c = FileLocation.badgeCoverage(forProviderId: "f", among: providers,
+                                           disabledProviderIds: [drive.id])
+        #expect(c?.roots.map(\.providerId) == [drive.id],
+                "a disabled provider dropped out of the badge's coverage")
+        #expect(FileLocation.outsideEveryCloudFolder(
+            path: "/Users/u/Library/CloudStorage/OneDrive-Acme/Documents/a.txt",
+            in: c ?? .empty) == false)
+    }
+
     // MARK: Case folding
 
     /// The two sides have different lineage — a row's path descends from the pane's own root, a

@@ -111,6 +111,29 @@ public enum FileLocation {
         })
     }
 
+    /// The coverage a pane rooted at `providerId` resolves the `⌂` badge against, or **nil where
+    /// the badge never applies** — which is every pane whose source is not a plain folder.
+    ///
+    /// Inside a cloud source's own pane every row is covered by definition, so a badge there would
+    /// be a mark on everything and say nothing. Folding the gate into the value the pane needs
+    /// anyway means the pane carries one thing, not a flag and a table that can disagree.
+    ///
+    /// **This lives here, in the tested layer, rather than in `ContentView`.** The gate is one
+    /// `if` and it is tempting to leave it at the call site — but `MacApp` has no unit tests that
+    /// can reach a `View`'s methods, so a gate written there is a rule nothing checks. It is the
+    /// call site, not the helper, that decides whether the badge appears at all.
+    ///
+    /// A provider id that resolves to nothing answers nil: an unresolved source is not a folder
+    /// source, and marking every row of a pane whose provider vanished is the last thing it needs.
+    public static func badgeCoverage(
+        forProviderId providerId: String,
+        among providers: [CloudProvider],
+        disabledProviderIds: Set<String>
+    ) -> Coverage? {
+        guard providers.first(where: { $0.id == providerId })?.isLocalFolder == true else { return nil }
+        return coverage(of: providers, disabledProviderIds: disabledProviderIds)
+    }
+
     /// The roots one provider's configured path covers: the path itself, plus the CloudStorage
     /// account folder it sits under when it has one.
     ///

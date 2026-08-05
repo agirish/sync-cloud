@@ -105,28 +105,37 @@ import Sync
         return differing
     }
 
-    /// The lens's painted state once it has settled — i.e. once the reveal task has run, the state
-    /// has been written and SwiftUI has re-rendered.
+    /// This mount's painted screen once IT has stopped changing.
     ///
-    /// **Bounded by `LayoutPumpWait`, which floors on PASSES rather than seconds**, and it reports
-    /// the pass count on failure. What these waits wait for arrives on main-actor turns, and under
-    /// full-suite congestion a wall-clock deadline buys fewer of those exactly when more are
-    /// needed — see `docs/flaky-tests.md`, mechanism 2. The count is the diagnosis: a wait that
-    /// gave up after a handful of passes was starved and says nothing about the code, while one
-    /// that gave up after a thousand was genuinely disproved.
-    private func settled(_ mounted: Mounted,
-                         differingFrom baseline: NSBitmapImageRep? = nil,
-                         within timeout: TimeInterval = 5,
+    /// **Every comparison in this suite settles each mount on its own and then compares — never
+    /// "poll one host until it differs from another host's screen".** That second form is
+    /// unsound, and measurably so: two hosts mounted from identical state and snapshotted
+    /// immediately differ by ~27,000 pixels, because a fresh `NSHostingView` has not finished
+    /// drawing. A poll whose first check runs at that moment returns `true` on the drawing noise,
+    /// and the test then passes however the feature behaves. It cost a real regression here — the
+    /// not-scanned case passed with its rule mutated away.
+    ///
+    /// Bounded by `LayoutPumpWait`, which floors on layout PASSES rather than seconds and returns
+    /// the count: what these waits wait for arrives on main-actor turns, and under full-suite
+    /// congestion a wall-clock deadline buys fewer of those exactly when more are needed (see
+    /// `docs/flaky-tests.md`, mechanism 2). Quiet means `stableFrames` consecutive identical
+    /// frames, not one matching pair, so a gap between two render stages cannot be mistaken for
+    /// the end.
+    private func settled(_ mounted: Mounted, stableFrames: Int = 4,
+                         within timeout: TimeInterval = 10,
                          _ what: String,
                          sourceLocation: SourceLocation = #_sourceLocation) async -> NSBitmapImageRep? {
-        guard let baseline else { return snapshot(mounted) }
+        var previous: NSBitmapImageRep?
         var latest: NSBitmapImageRep?
+        var quiet = 0
         let (held, pumps) = await LayoutPumpWait.pump(mounted.host, upTo: timeout) {
-            latest = snapshot(mounted)
-            guard let latest else { return false }
-            return pixelsDiffering(baseline, latest) > 0
+            guard let current = snapshot(mounted) else { return false }
+            if let previous, pixelsDiffering(previous, current) == 0 { quiet += 1 } else { quiet = 0 }
+            previous = current
+            latest = current
+            return quiet >= stableFrames
         }
-        #expect(held, "\(what) — gave up after \(pumps) layout passes",
+        #expect(held, "\(what) — still moving after \(pumps) layout passes",
                 sourceLocation: sourceLocation)
         return latest ?? snapshot(mounted)
     }
@@ -135,7 +144,7 @@ import Sync
     /// landing is not "a repaint happened", it is "the screen is now the one it should be".
     private func settled(_ mounted: Mounted,
                          matching reference: NSBitmapImageRep,
-                         within timeout: TimeInterval = 5,
+                         within timeout: TimeInterval = 10,
                          _ what: String,
                          sourceLocation: SourceLocation = #_sourceLocation) async -> Bool {
         var differing = Int.max
@@ -160,9 +169,9 @@ import Sync
                                               "no request"))
         let landed = try #require(await settled(
             mount(Self.manager(groups: [target]),
-                  request: DuplicateRevealRequest(path: "/root/b/x.txt")),
-            differingFrom: quiet, "the reveal painted nothing new — the card never opened"))
-        #expect(pixelsDiffering(quiet, landed) > 0)
+                  request: DuplicateRevealRequest(path: "/root/b/x.txt")), "the reveal"))
+        #expect(pixelsDiffering(quiet, landed) > 0,
+                "the reveal painted nothing new — the card never opened")
     }
 
     // MARK: Landing on the right group
@@ -182,10 +191,9 @@ import Sync
                   request: DuplicateRevealRequest(path: "/root/b/aaa.txt")), "first"))
         let openSecond = try #require(await settled(
             mount(Self.manager(groups: [first, second]),
-                  request: DuplicateRevealRequest(path: "/root/b/zzz.txt")),
-            differingFrom: openFirst,
-            "revealing two different files opened the same group — the request's path is not "))
-        #expect(pixelsDiffering(openFirst, openSecond) > 0)
+                  request: DuplicateRevealRequest(path: "/root/b/zzz.txt")), "second"))
+        #expect(pixelsDiffering(openFirst, openSecond) > 0,
+                "revealing two different files opened the same group — the requested path is not what decides")
     }
 
     /// **A request made mid-scan resolves when the results land, not before.** The common
@@ -207,10 +215,9 @@ import Sync
         manager.duplicateScanRoot = "/root"
         manager.isFindingDuplicates = false
 
-        let landed = try #require(await settled(
-            mounted, differingFrom: scanning,
-            "the pending request never resolved once the scan published its results"))
-        #expect(pixelsDiffering(scanning, landed) > 0)
+        let landed = try #require(await settled(mounted, "after the results landed"))
+        #expect(pixelsDiffering(scanning, landed) > 0,
+                "the pending request never resolved once the scan published its results")
 
         // **"Something repainted" is not the claim.** The results arriving repaints the lens on
         // its own — a request that had already given up and answered `notFound` from the empty
@@ -238,10 +245,32 @@ import Sync
                   request: DuplicateRevealRequest(path: "/root/b/x.txt")), "grouped"))
         let lonely = try #require(await settled(
             mount(Self.manager(groups: groups),
-                  request: DuplicateRevealRequest(path: "/root/c/lonely.txt")),
-            differingFrom: grouped,
-            "a file in no group landed on the same screen as one that has a group"))
-        #expect(pixelsDiffering(grouped, lonely) > 0)
+                  request: DuplicateRevealRequest(path: "/root/c/lonely.txt")), "ungrouped"))
+        #expect(pixelsDiffering(grouped, lonely) > 0,
+                "a file in no group landed on the same screen as one that has a group")
+    }
+
+    /// **A file the scan never looked at gets a DIFFERENT screen from one it cleared.**
+    ///
+    /// Both land with an empty list; the claims are opposite. Driven through the mount so the
+    /// pure rule in `DuplicateReveal.outcome` is shown to actually reach the user — the shipped
+    /// version answered "no duplicates of x" for both, which is the false confidence this whole
+    /// feature is built to avoid.
+    ///
+    /// **The two files share a NAME and differ only in folder**, which is what makes this bite.
+    /// An earlier form used `lonely.txt` against `x.txt` and passed with the rule mutated away:
+    /// both screens then read *No duplicates of “<name>”*, and the pixels differed because the
+    /// NAMES did. Holding the name fixed leaves the state as the only thing that can move.
+    @Test func aFileTheScanNeverLookedAtLandsSomewhereElseThanOneItCleared() async throws {
+        // The manager records a completed scan of /root, so /elsewhere was never examined.
+        let cleared = try #require(await settled(
+            mount(Self.manager(groups: []),
+                  request: DuplicateRevealRequest(path: "/root/x.txt")), "cleared"))
+        let unscanned = try #require(await settled(
+            mount(Self.manager(groups: []),
+                  request: DuplicateRevealRequest(path: "/elsewhere/x.txt")), "unscanned"))
+        #expect(pixelsDiffering(cleared, unscanned) > 0,
+                "a file the scan never covered was given the same answer as one it cleared")
     }
 
     /// A scan that found NO groups at all still answers about the file rather than showing the
@@ -257,8 +286,8 @@ import Sync
         let clean = try #require(await settled(mount(emptyManager(), request: nil), "clean state"))
         let named = try #require(await settled(
             mount(emptyManager(), request: DuplicateRevealRequest(path: "/root/c/lonely.txt")),
-            differingFrom: clean,
-            "the folder's all-clear was shown for a question about one file"))
-        #expect(pixelsDiffering(clean, named) > 0)
+            "named answer"))
+        #expect(pixelsDiffering(clean, named) > 0,
+                "the folder's all-clear was shown for a question about one file")
     }
 }

@@ -1330,9 +1330,9 @@ struct ContentView: View {
     /// Resolved against `availableProviders` and not `enabledProviders`, through
     /// `SettingsManager.cloudCoverage` — a disabled provider's folder is still on disk.
     func homeBadgeCoverage(forProviderId providerId: String) -> FileLocation.Coverage? {
-        guard settings.availableProviders.first(where: { $0.id == providerId })?.isLocalFolder == true
-        else { return nil }
-        return settings.cloudCoverage
+        FileLocation.badgeCoverage(forProviderId: providerId,
+                                   among: settings.availableProviders,
+                                   disabledProviderIds: settings.disabledProviderIds)
     }
 
     /// The "Find duplicates of this" handoff — see `DuplicateRevealCoordinator` for the decision

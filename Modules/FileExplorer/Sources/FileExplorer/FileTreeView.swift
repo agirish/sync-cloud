@@ -1444,13 +1444,20 @@ struct FileRowAccessories: View {
     /// bytes elsewhere). It is the mirror of ☁ and wears ☁'s clothes; the two are told apart by
     /// glyph, the same way the difference badges encode kind in shape rather than colour.
     ///
-    /// The wording is literal for the same reason: it says where the file is not, and claims
+    /// The wording is literal for the same reason: it says where the item is not, and claims
     /// nothing about whether a copy of its content exists somewhere this app cannot see.
+    ///
+    /// **It says "it", not "this file", because it marks FOLDER rows too.** Containment is a
+    /// statement about where a path sits, which is exactly as true of a directory as of a file —
+    /// and a Home-folder pane is mostly directories, so a tooltip reading "this file isn't inside
+    /// any cloud folder" over `~/Movies` would be wrong on the majority of the rows carrying it.
+    /// (The Info inspector's verdict is files-only for the opposite reason: it *also* reports
+    /// materialization, and a folder has no content of its own to be downloaded or not.)
     private var homeBadge: some View {
         Image(systemName: "house")
             .font(fonts.cloudBadge)
             .foregroundStyle(.secondary)
-            .help("On this Mac only — this file isn't inside any cloud folder")
+            .help("On this Mac only — it isn't inside any cloud folder")
             .accessibilityLabel("On this Mac only, not in a cloud folder")
     }
 
