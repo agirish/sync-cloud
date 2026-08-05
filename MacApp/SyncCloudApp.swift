@@ -133,7 +133,15 @@ struct SyncCloudApp: App {
             // empty space in it. Idempotent and stamped: it runs once per added control, so a
             // deliberate removal afterwards is never undone, and the repeat App.init calls noted
             // above are harmless.
-            PaneBarMigration.apply(defaults: .standard)
+            // Logged when it actually moves a bar. Whether this call still HAPPENS is the one thing
+            // no test can reach — it is inside `if !isRunningTests`, so the test host skips it by
+            // design, and SwiftUI's own controls are not `NSControl`s a suite could drive. A line in
+            // `~/sync-cloud.log` is what makes its absence noticeable instead of silent: the symptom
+            // otherwise is the magnifier quietly back in the ⋯ menu, which is exactly how this was
+            // reported the first time.
+            if PaneBarMigration.apply(defaults: .standard) {
+                Logger.shared.info("[panebar] added Search to a stored pane-bar arrangement")
+            }
 
             // Carry the two-level `Compare | Tidy` + lens selection onto the flat workspace bar,
             // before any @AppStorage reads it. Without this the retired raw values ("Tidy", and

@@ -620,24 +620,35 @@ public enum PaneBarMigration {
     /// which already carries every control; it is stamped anyway, so this never runs again for it
     /// and a later deliberate removal is not undone by the next launch.
     ///
-    /// - Returns: whether anything was written, so a caller can log it. Idempotent: running twice
-    ///   changes nothing the second time.
+    /// The version stamp is written in a `defer`, so it lands on **every** path out — including the
+    /// early return for a bar that needed nothing. Written before the work (as it first was) it
+    /// would record a migration that a crash could still prevent; written only on the success path
+    /// it would re-run forever for the bars it correctly left alone.
+    ///
+    /// - Returns: whether a stored arrangement was actually REWRITTEN — not merely whether the
+    ///   migration ran. That is what a caller should log: "moved someone's bar" is worth a line,
+    ///   "had nothing to do" is not.
     @discardableResult
     public static func apply(defaults: UserDefaults) -> Bool {
         let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
         guard from < currentVersion else { return false }
-        defaults.set(currentVersion, forKey: PaneBar.migrationKey)
+        defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
 
         guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return true }
         var arrangement = PaneBarArrangement(encoded: stored)
-        var changed = false
+        let before = arrangement.items
         // v1 — Search. Appended at the trailing end, where the default carries it and where the
         // ladder gives it up first.
         if from < 1, !arrangement.items.contains(.search) {
             arrangement.insert(.search, at: arrangement.items.count)
-            changed = true
         }
-        if changed { defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey) }
+        // **Compared, not assumed.** This used to set a `changed` flag beside the `insert` call, and
+        // `PaneBarArrangement.insert` is allowed to refuse: a bar already at `maxItems` — reachable,
+        // because spacers are repeatable — gets nothing, silently. The flag then reported a
+        // migration that had not happened and wrote the arrangement back unchanged. Reading the
+        // items is the only thing that knows.
+        guard arrangement.items != before else { return false }
+        defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
         return true
     }
 }

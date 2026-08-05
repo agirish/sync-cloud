@@ -63,6 +63,27 @@ import Foundation
         #expect(defaults.integer(forKey: PaneBar.migrationKey) == PaneBarMigration.currentVersion)
     }
 
+    /// **A bar that is already full cannot take Search, and the migration must say so.**
+    /// `PaneBarArrangement.insert` refuses at `maxItems` and refuses SILENTLY, and spacers are
+    /// repeatable, so a 16-item bar is something a user can actually build. The first version set a
+    /// `changed` flag beside the `insert` call and so reported a migration that had not happened,
+    /// rewriting the arrangement with identical contents. The result is compared now, not assumed.
+    @Test func testAFullBarIsLeftAloneAndSaysSo() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-full")
+        // Sixteen items, none of them Search — spacers make the length reachable.
+        let full = PaneBarArrangement([.scan, .backForward, .sort, .hiddenFiles, .viewMode, .newFolder,
+                                       .preview, .collapse, .flexibleSpace] + Array(repeating: .space, count: 7))
+        #expect(full.items.count == PaneBarArrangement.maxItems, "the fixture must actually be full")
+        #expect(!full.items.contains(.search))
+        defaults.set(full.encoded, forKey: PaneBar.arrangementKey)
+
+        #expect(!PaneBarMigration.apply(defaults: defaults),
+                "nothing was rewritten, so the migration must not claim it was")
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == full.encoded, "the bar must be untouched")
+        // …and it is still STAMPED, so it does not retry every launch for a bar it cannot help.
+        #expect(defaults.integer(forKey: PaneBar.migrationKey) == PaneBarMigration.currentVersion)
+    }
+
     /// An already-current install is left entirely alone.
     @Test func testACurrentInstallIsNotTouched() {
         let defaults = ScratchDefaults("PaneBarMigrationTests-current")

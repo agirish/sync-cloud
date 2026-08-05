@@ -253,9 +253,7 @@ public struct PaneHeader: View {
                         // closes it.
                         Color.clear
                             .contentShape(Rectangle())
-                            .onTapGesture {
-                                ExpandingSearch.collapse(text: searchText, isExpanded: searchIsExpanded)
-                            }
+                            .onTapGesture { dismissSearch() }
                             .accessibilityHidden(true)
                     }
                     .padding(.leading, 12)
@@ -843,7 +841,7 @@ public struct PaneHeader: View {
                 // query, so it is a different verb from the ✕ beside it and never sits alone
                 // pretending to be one.
                 Button {
-                    ExpandingSearch.collapse(text: text, isExpanded: isExpanded)
+                    dismissSearch()
                 } label: {
                     Image(systemName: "xmark").hoverInk()
                 }
@@ -856,6 +854,25 @@ public struct PaneHeader: View {
             let modifiers = pinnedSubmitModifiers ?? NSEvent.modifierFlags
             onSearchAdvance?(modifiers.contains(.shift))
         }
+    }
+
+    /// Closes the search: the field goes away and the query goes with it.
+    ///
+    /// One definition, reached from both places that offer a way out — the ✕ inside the field and
+    /// the stretch of bar beside it. They had a copy each, which is how two controls that mean the
+    /// same thing start meaning slightly different things.
+    ///
+    /// Clearing the query as it closes is `ExpandingSearch.collapse`'s rule, not a choice made here:
+    /// a query left live behind a hidden field is a filter you cannot see or undo.
+    ///
+    /// Internal rather than private so `PaneHeaderSearchTests` can pin what dismissal DOES. What it
+    /// cannot pin is that the two controls call it — measured: SwiftUI's `Button` is not an
+    /// `NSControl` and `.onTapGesture` installs no `NSGestureRecognizer`, so neither is reachable
+    /// from a test. That the ✕ is DRAWN at all is asserted in painted pixels instead, which is the
+    /// half that actually regressed.
+    func dismissSearch() {
+        guard let searchText, let searchIsExpanded else { return }
+        ExpandingSearch.collapse(text: searchText, isExpanded: searchIsExpanded)
     }
 
     /// How wide the revealed search field is allowed to get.

@@ -117,6 +117,86 @@ import Sync
         return window
     }
 
+    // MARK: - There is always something to click
+
+    /// **The reported defect, stated as an assertion: an EMPTY search field drew no control at
+    /// all.** `ExpandingSearchField`'s clear button is conditional on there being text, this row
+    /// replaces the pane bar while it is open, and Escape only reaches the field while the caret is
+    /// in it — so a field with nothing typed, on a pane whose focus had moved to the file list, had
+    /// no exit by any means. That is what "NO way to exit" was.
+    ///
+    /// Counted in painted pixels, and it has to be: SwiftUI's `Button` is not an `NSControl` and
+    /// leaves nothing in the AppKit tree to find, so a structural search cannot see it. Measured in
+    /// the band just past the text, inside the field's own surface, where the ✕ sits.
+    @Test("The revealed field always offers a control, even with nothing typed")
+    func anEmptyFieldStillHasAWayOut() async {
+        let box = Box()
+        box.isExpanded = true
+        box.query = ""
+        let window = Self.mount(Self.header(box), width: 900)
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        #expect(shown.held, "the field should be revealed (\(shown.pumps) pumps)")
+        guard let editor = Self.fieldEditor(window), let host = window.contentView else { return }
+
+        // The band just past the text, still inside the field's surface — where the ✕ sits. Located
+        // from the LAID-OUT field rather than guessed: the field is capped at 460pt and left-aligned,
+        // so most of a 900pt header is dead zone, and the first version of this test measured
+        // exactly that and read zero for entirely the wrong reason.
+        let text = editor.convert(editor.bounds, to: host)
+        let controls = NSRect(x: text.maxX, y: 0, width: 44, height: host.bounds.height / 2)
+        #expect(Self.ink(in: controls, of: host) > 0,
+                "an empty field must still draw a dismiss control — this is the reported bug")
+
+        // The discriminator: an equally sized band out in the dead zone must read zero, or the
+        // threshold is counting the field's own fill and would pass with no ✕ at all.
+        let deadZone = NSRect(x: host.bounds.width - 60, y: 0, width: 44, height: host.bounds.height / 2)
+        #expect(Self.ink(in: deadZone, of: host) == 0,
+                "the dead zone should be blank — otherwise this measurement cannot see a control")
+    }
+
+    /// Dismissing closes the field AND drops the query — a query left live behind a hidden field is
+    /// a filter you cannot see or undo. Both ways out call this one function; that they call it is
+    /// not reachable from a test (see `PaneHeader.dismissSearch`).
+    @Test("Dismissing closes the field and clears the query")
+    func dismissingClearsAndCloses() {
+        let box = Box()
+        box.isExpanded = true
+        box.query = "tax"
+        Self.searchingHeader(box).dismissSearch()
+        #expect(!box.isExpanded)
+        #expect(box.query.isEmpty)
+    }
+
+    /// A header with no search bindings must not act on a dismissal it has no state for.
+    @Test("Dismissing a header that has no search is inert")
+    func dismissingWithoutSearchIsInert() {
+        let plain = PaneHeader(
+            title: "Left", provider: nil, rootPath: "/root", relativePath: "",
+            canGoBack: false, canGoForward: false,
+            onBack: {}, onForward: {}, onNavigate: { _ in }, onNavigateBoth: { _ in },
+            sortOption: .constant(.name), showHiddenFiles: .constant(false))
+        plain.dismissSearch()   // must not trap
+    }
+
+    /// Pixels appreciably darker than the field's own surface, inside `rect` (view coordinates).
+    private static func ink(in rect: NSRect, of host: NSView) -> Int {
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let scaleX = CGFloat(rep.pixelsWide) / host.bounds.width
+        let scaleY = CGFloat(rep.pixelsHigh) / host.bounds.height
+        var ink = 0
+        for px in Int(rect.minX * scaleX)..<Int(rect.maxX * scaleX) {
+            for py in Int(rect.minY * scaleY)..<Int(rect.maxY * scaleY) {
+                guard px >= 0, py >= 0, px < rep.pixelsWide, py < rep.pixelsHigh,
+                      let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                c.getRed(&r, green: &g, blue: &b, alpha: &a)
+                if a > 0.5, (r + g + b) / 3 < 0.72 { ink += 1 }
+            }
+        }
+        return ink
+    }
+
     // MARK: - What the bar offers
 
     /// A header with no search bindings offers no magnifier — which is why every existing header
