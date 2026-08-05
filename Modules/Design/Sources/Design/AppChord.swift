@@ -1,0 +1,77 @@
+import SwiftUI
+
+/// One chord, one truth. Every menu-registered shortcut that also appears on a control — as an
+/// ⌥-reveal keycap, in a tooltip, or both — is declared here once, and the two consumers read
+/// the same value: the menu item registers `key` + `modifiers`, the keycap shows `display`.
+///
+/// `display` is DERIVED from the registration, not stored beside it, which is the point: before
+/// this type the chord lived in four hand-copied places (the `.keyboardShortcut` call, the
+/// `.shortcutKeycap` string, the tooltip, and the ⌘/ reference row), and changing the menu's
+/// key left every badge advertising the old one with every test green. Now a badge cannot
+/// disagree with the key equivalent that fires; `AppChordTests` pins each rendered display so
+/// an accidental key change fails by name.
+///
+/// Keys that are semantics rather than chords — `esc` on a cancel button, `⏎` on a default
+/// button, `␣` for Quick Look — stay literal at their call sites: they are not menu-registered
+/// and their keycap names a ROLE, not a registration.
+public struct AppChord: Sendable {
+    public let key: KeyEquivalent
+    public let modifiers: EventModifiers
+
+    public init(_ key: KeyEquivalent, _ modifiers: EventModifiers) {
+        self.key = key
+        self.modifiers = modifiers
+    }
+
+    /// What the keycap (and tooltip) shows — glyphs in the platform's canonical ⌃⌥⇧⌘ order,
+    /// then the key, uppercased where it is a letter.
+    public var display: String {
+        var glyphs = ""
+        if modifiers.contains(.control) { glyphs += "⌃" }
+        if modifiers.contains(.option) { glyphs += "⌥" }
+        if modifiers.contains(.shift) { glyphs += "⇧" }
+        if modifiers.contains(.command) { glyphs += "⌘" }
+        return glyphs + Self.keyGlyph(key)
+    }
+
+    private static func keyGlyph(_ key: KeyEquivalent) -> String {
+        // The one key whose `character` is a control code rather than something drawable.
+        if key == .delete { return "⌫" }
+        return String(key.character).uppercased()
+    }
+}
+
+public extension AppChord {
+    // General
+    static let settings = AppChord(",", .command)
+    static let infoInspector = AppChord("i", .command)
+    static let activityLog = AppChord("l", .command)
+    static let shortcutsReference = AppChord("/", .command)
+
+    /// ⌘1…⌘n by the workspace bar's own enumeration order — the caller passes the 1-based
+    /// ordinal, so the badge and the registration count the same list.
+    static func workspace(_ ordinal: Int) -> AppChord {
+        AppChord(KeyEquivalent(Character("\(ordinal)")), .command)
+    }
+
+    // Panes
+    static let findInPane = AppChord("f", .command)
+    static let paneBack = AppChord("[", .command)
+    static let paneForward = AppChord("]", .command)
+    static let rescan = AppChord("r", .command)
+    static let newFolder = AppChord("n", [.shift, .command])
+    static let hiddenFiles = AppChord(".", [.shift, .command])
+    static let previewColumn = AppChord("p", [.shift, .command])
+    static let deleteSelection = AppChord(.delete, .command)
+
+    // Differences
+    static let reviewDifferences = AppChord("r", [.shift, .command])
+    static let verifyDifferences = AppChord("v", [.shift, .command])
+    static let differencesList = AppChord("d", .command)
+    /// ⇧⌘F, deliberately NOT ⌥⌘F: an ⌥-chord is the one kind that can fire from inside the
+    /// ⌥-hold reveal, and the first cut shipped exactly that bug — a user reading the magnifier's
+    /// "⌘F" badge who pressed ⌘F while still holding ⌥ sent ⌥⌘F and folded every folder instead
+    /// of finding anything. With no ⌥-chords registered, nothing fires through the reveal at
+    /// all — the documented look-release-press contract, restored.
+    static let foldAllDifferences = AppChord("f", [.shift, .command])
+}

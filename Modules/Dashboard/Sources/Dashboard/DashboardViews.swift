@@ -676,22 +676,29 @@ public struct PaneHeader: View {
         case .backForward:
             // One arrangement item, two pills — they move and fold together, as they do in Finder.
             // The stack restates the 6pt the bar's outer spacing no longer supplies.
+            //
+            // Known trade, inherited from the ⌘F badge below: BOTH panes' rungs wear the chord
+            // during the ⌥ reveal, but the menu equivalent acts on the FOCUSED pane — so the
+            // unfocused pane's badge names a chord that navigates the other pane. Focus-gating
+            // the badges would need pane identity threaded into this shared header and would
+            // make keycaps appear and vanish as selection moves mid-reveal; the button itself
+            // always acts on its own pane, so the click the badge decorates is never wrong.
             HStack(spacing: PaneNavMetrics.pairSpacing) {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .shortcutKeycap("⌘[")
+                .shortcutKeycap(AppChord.paneBack.display)
                 .disabled(!canGoBack)
-                .help(ShortcutHint.tooltip("Go back to this pane's previous folder", "⌘["))
+                .help(ShortcutHint.tooltip("Go back to this pane's previous folder", AppChord.paneBack.display))
 
                 Button(action: onForward) {
                     Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .shortcutKeycap("⌘]")
+                .shortcutKeycap(AppChord.paneForward.display)
                 .disabled(!canGoForward)
-                .help(ShortcutHint.tooltip("Go forward to this pane's next folder", "⌘]"))
+                .help(ShortcutHint.tooltip("Go forward to this pane's next folder", AppChord.paneForward.display))
             }
 
         case .scan:
@@ -710,9 +717,9 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .shortcutKeycap("⌘R")
+                .shortcutKeycap(AppChord.rescan.display)
                 .disabled(isRefreshing)
-                .help(ShortcutHint.tooltip("Scan for changes", "⌘R"))
+                .help(ShortcutHint.tooltip("Scan for changes", AppChord.rescan.display))
             }
 
         case .newFolder:
@@ -724,8 +731,8 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .shortcutKeycap("⇧⌘N")
-                .help(ShortcutHint.tooltip("New folder in this pane's current folder", "⇧⌘N"))
+                .shortcutKeycap(AppChord.newFolder.display)
+                .help(ShortcutHint.tooltip("New folder in this pane's current folder", AppChord.newFolder.display))
             }
 
         case .sort:
@@ -765,11 +772,11 @@ public struct PaneHeader: View {
                 Image(systemName: showHiddenFiles ? "eye" : "eye.slash").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
             .buttonStyle(navButtonStyle)
-            .shortcutKeycap("⇧⌘.")
+            .shortcutKeycap(AppChord.hiddenFiles.display)
             .help(ShortcutHint.tooltip(showHiddenFiles
                                        ? "Hidden files are visible — click to hide them"
                                        : "Hidden files are hidden — click to show them",
-                                       "⇧⌘."))
+                                       AppChord.hiddenFiles.display))
 
         case .preview:
             if showsPreviewToggle {
@@ -804,8 +811,8 @@ public struct PaneHeader: View {
                 // anything overhanging would foul the nav glyphs either side of it. Covering the
                 // magnifier for the length of an ⌥ hold is fine — the badge IS the answer to the
                 // question the hold asked.
-                .shortcutKeycap("⌘F")
-                .help(ShortcutHint.tooltip("Find a file or folder in this pane", "⌘F"))
+                .shortcutKeycap(AppChord.findInPane.display)
+                .help(ShortcutHint.tooltip("Find a file or folder in this pane", AppChord.findInPane.display))
             }
         }
     }
@@ -1063,13 +1070,13 @@ public struct PaneHeader: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.hoverAffordance(previewEnabled ? .filled : .segment, tint: glassHue.accentFillColor))
-        .shortcutKeycap("⇧⌘P")
+        .shortcutKeycap(AppChord.previewColumn.display)
         .accessibilityAddTraits(previewEnabled ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel("Preview pane")
         .help(ShortcutHint.tooltip(previewEnabled
                                    ? "The preview pane is showing — click to hide it"
                                    : "Show a preview of the selected file",
-                                   "⇧⌘P"))
+                                   AppChord.previewColumn.display))
     }
 
     /// Right-clicking the bar itself, which is where anyone who has customized Finder's toolbar will

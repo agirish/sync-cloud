@@ -511,9 +511,9 @@ public struct DestinationPicker: View {
                 // then aim at it: the operation layer refuses that move, but only after leaving a
                 // stray empty folder behind on disk.
                 .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
-                .keyboardShortcut("n", modifiers: [.shift, .command])
+                .keyboardShortcut(AppChord.newFolder.key, modifiers: AppChord.newFolder.modifiers)
                 // ABOVE `.disabled`, so no badge on a button whose shortcut is refused.
-                .shortcutKeycap("⇧⌘N")
+                .shortcutKeycap(AppChord.newFolder.display)
                 .disabled(!canCommit)
 
                 Button("Other…") { onChooseOther() }

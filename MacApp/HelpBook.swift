@@ -397,7 +397,7 @@ struct ActivityLogWindowCommand: View {
 
     var body: some View {
         Button("Open Activity Log") { openWindow(id: "activity-log") }
-            .keyboardShortcut("l", modifiers: .command)
+            .keyboardShortcut(AppChord.activityLog.key, modifiers: AppChord.activityLog.modifiers)
     }
 }
 

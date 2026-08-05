@@ -37,7 +37,7 @@ import Testing
     @Test func testEveryMenuChordHasAReferenceRow() {
         let allKeys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
         let chords = ["⌘ 1 – ⌘ 5", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫",
-                      "⇧⌘ R", "⇧⌘ V", "⌘ D", "⌥⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /"]
+                      "⇧⌘ R", "⇧⌘ V", "⌘ D", "⇧⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /"]
         for chord in chords {
             #expect(allKeys.contains(chord), "no reference row lists “\(chord)”")
         }
@@ -47,6 +47,14 @@ import Testing
     /// (⌘6); a tenth does not — this fails first, before someone ships a ⌘10 that cannot exist.
     @Test func testEveryWorkspaceIsReachableByASingleDigitChord() {
         #expect(Workspace.allCases.count <= 9)
+    }
+
+    /// ...and the reference's workspace row must count the same list: a sixth workspace would
+    /// otherwise ship with a row still reading "⌘ 1 – ⌘ 5" and every shape test green.
+    @Test func testTheWorkspaceRowCountsEveryWorkspace() {
+        let expected = "⌘ 1 – ⌘ \(Workspace.allCases.count)"
+        let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
+        #expect(keys.contains(expected), "no row lists “\(expected)”")
     }
 
     /// No row may advertise dragging or dropping.

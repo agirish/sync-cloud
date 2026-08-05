@@ -205,7 +205,7 @@ struct FindInPaneCommand: View {
 
     var body: some View {
         Button("Find in Pane…") { begin?() }
-            .keyboardShortcut("f", modifiers: .command)
+            .keyboardShortcut(AppChord.findInPane.key, modifiers: AppChord.findInPane.modifiers)
             .disabled(begin == nil)
     }
 }

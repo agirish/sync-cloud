@@ -15,8 +15,10 @@ import Sync
 // one key equivalent PER ROW.
 //
 // Deliberate, and documented at `ShortcutRevealMachine`: none of these chords can fire *through*
-// the ⌥-hold reveal (⌘R arrives as ⌥⌘R and matches nothing) — look, release, press. The one
-// exception is ⌥⌘F, whose chord contains ⌥ and therefore matches while the reveal is up.
+// the ⌥-hold reveal (⌘R arrives as ⌥⌘R and matches nothing) — look, release, press. That holds
+// only while no registered chord contains ⌥, which is why fold-all is ⇧⌘F and not ⌥⌘F: the
+// first cut used ⌥⌘F, and a user reading the magnifier's ⌘F badge who pressed ⌘F while still
+// holding ⌥ folded every folder. `AppChordTests` guards the no-⌥ invariant itself.
 
 // MARK: Focused values published by ContentView
 
@@ -144,19 +146,42 @@ struct ShortcutValuePublisher: ViewModifier {
     let inspector: Binding<Bool>
     let differencesList: Binding<Bool>?
     let delete: (() -> Void)?
+    /// True while the destination picker is up. The picker is a full-window overlay that
+    /// deliberately blocks the mouse from every control these chords mirror — an in-flight
+    /// file operation is waiting on an answer — but focused values are published by the still-
+    /// mounted content underneath, so without this the keyboard tunnels straight past it:
+    /// ⌘R republishes both trees mid-pick, ⇧⌘. flips the filters the pick is browsing, ⌘⌫
+    /// pops a second modal over the decision. Suspended, every item disables at once.
+    ///
+    /// Settings/Help/first-run are NOT suspended, on the app's existing convention: they are
+    /// ambient panels, and ⌘F, ⌘Z and ⌘, have always stayed live underneath them.
+    let suspended: Bool
+
+    /// The suspension applied — what actually gets published. Split from the stored values so
+    /// a test can hold the rule without a scene: `suspended` must silence every one of these.
+    var effectiveWorkspace: Binding<Workspace>? { suspended ? nil : workspace }
+    var effectiveGoBack: (() -> Void)? { suspended ? nil : goBack }
+    var effectiveGoForward: (() -> Void)? { suspended ? nil : goForward }
+    var effectiveRescan: (() -> Void)? { suspended ? nil : rescan }
+    var effectiveNewFolder: (() -> Void)? { suspended ? nil : newFolder }
+    var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
+    var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
+    var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
+    var effectiveDifferencesList: Binding<Bool>? { suspended ? nil : differencesList }
+    var effectiveDelete: (() -> Void)? { suspended ? nil : delete }
 
     func body(content: Content) -> some View {
         content
-            .focusedSceneValue(\.workspaceSelection, workspace)     // ⌘1–⌘5
-            .focusedSceneValue(\.paneGoBack, goBack)                // ⌘[
-            .focusedSceneValue(\.paneGoForward, goForward)          // ⌘]
-            .focusedSceneValue(\.rescanPanes, rescan)               // ⌘R
-            .focusedSceneValue(\.newFolderInFocusedPane, newFolder) // ⇧⌘N
-            .focusedSceneValue(\.showHiddenFiles, hiddenFiles)      // ⇧⌘.
-            .focusedSceneValue(\.previewColumn, previewColumn)      // ⇧⌘P
-            .focusedSceneValue(\.infoInspector, inspector)          // ⌘I
-            .focusedSceneValue(\.differencesListVisible, differencesList)  // ⌘D
-            .focusedSceneValue(\.deleteSelection, delete)           // ⌘⌫
+            .focusedSceneValue(\.workspaceSelection, effectiveWorkspace)     // ⌘1–⌘5
+            .focusedSceneValue(\.paneGoBack, effectiveGoBack)                // ⌘[
+            .focusedSceneValue(\.paneGoForward, effectiveGoForward)          // ⌘]
+            .focusedSceneValue(\.rescanPanes, effectiveRescan)               // ⌘R
+            .focusedSceneValue(\.newFolderInFocusedPane, effectiveNewFolder) // ⇧⌘N
+            .focusedSceneValue(\.showHiddenFiles, effectiveHiddenFiles)      // ⇧⌘.
+            .focusedSceneValue(\.previewColumn, effectivePreviewColumn)      // ⇧⌘P
+            .focusedSceneValue(\.infoInspector, effectiveInspector)          // ⌘I
+            .focusedSceneValue(\.differencesListVisible, effectiveDifferencesList)  // ⌘D
+            .focusedSceneValue(\.deleteSelection, effectiveDelete)           // ⌘⌫
     }
 }
 
@@ -172,7 +197,8 @@ extension ContentView {
             previewColumn: shortcutPreviewColumn,
             inspector: shortcutInfoInspector,
             differencesList: shortcutDifferencesList,
-            delete: shortcutDeleteSelection
+            delete: shortcutDeleteSelection,
+            suspended: pendingDestination != nil
         )
     }
 
@@ -239,10 +265,16 @@ extension ContentView {
     }
 
     var shortcutDeleteSelection: (() -> Void)? {
-        guard layoutMode == .compare, actionHandler != nil else { return nil }
-        let nodes = activeSelectionNodes
-        guard !nodes.isEmpty else { return nil }
-        return { actionHandler?.confirmDelete(nodes) }
+        // The review card's plain ⌫ means "skip this item" — one modifier away from ⌘⌫ meaning
+        // "delete files", on the same keyboard the card owns. The card's surface takes the
+        // keys during a session; the pane bar's Delete button stays clickable, as before.
+        guard layoutMode == .compare, actionHandler != nil, !reviewStore.isReviewing else { return nil }
+        guard !activeSelectionNodes.isEmpty else { return nil }
+        // Fire-time resolution, deliberately not a captured array: a menu held open in
+        // menu-tracking mode is not re-armed by a republish, so a snapshot could name rows a
+        // background bulk sync has since replaced. Reading at fire keeps the destructive path
+        // on live state; an emptied selection resolves to `[]`, which `confirmDelete` refuses.
+        return { actionHandler?.confirmDelete(activeSelectionNodes) }
     }
 }
 
@@ -261,7 +293,7 @@ struct WorkspaceCommands: View {
                 // meaning here — one of them is always current — so `false` is dropped.
                 set: { isOn in if isOn { selection?.wrappedValue = workspace } }
             ))
-            .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            .keyboardShortcut(AppChord.workspace(index + 1).key, modifiers: AppChord.workspace(index + 1).modifiers)
             .disabled(selection == nil)
         }
     }
@@ -272,7 +304,7 @@ struct GoBackCommand: View {
 
     var body: some View {
         Button("Back") { go?() }
-            .keyboardShortcut("[", modifiers: .command)
+            .keyboardShortcut(AppChord.paneBack.key, modifiers: AppChord.paneBack.modifiers)
             .disabled(go == nil)
     }
 }
@@ -282,7 +314,7 @@ struct GoForwardCommand: View {
 
     var body: some View {
         Button("Forward") { go?() }
-            .keyboardShortcut("]", modifiers: .command)
+            .keyboardShortcut(AppChord.paneForward.key, modifiers: AppChord.paneForward.modifiers)
             .disabled(go == nil)
     }
 }
@@ -292,7 +324,7 @@ struct RescanCommand: View {
 
     var body: some View {
         Button("Rescan") { rescan?() }
-            .keyboardShortcut("r", modifiers: .command)
+            .keyboardShortcut(AppChord.rescan.key, modifiers: AppChord.rescan.modifiers)
             .disabled(rescan == nil)
     }
 }
@@ -303,7 +335,7 @@ struct NewFolderCommand: View {
     var body: some View {
         // Ellipsis: it opens the name field, it doesn't create anything yet.
         Button("New Folder…") { newFolder?() }
-            .keyboardShortcut("n", modifiers: [.shift, .command])
+            .keyboardShortcut(AppChord.newFolder.key, modifiers: AppChord.newFolder.modifiers)
             .disabled(newFolder == nil)
     }
 }
@@ -311,11 +343,34 @@ struct NewFolderCommand: View {
 struct DeleteSelectionCommand: View {
     @FocusedValue(\.deleteSelection) private var delete
 
+    /// Whether the ⌘⌫ keystroke belongs to the text being edited rather than to this item.
+    ///
+    /// ⌘⌫ is also NSText's delete-to-beginning-of-line, and a menu key equivalent outranks the
+    /// field editor — so with files selected (the normal state) and the caret in the pane
+    /// search, a rename field, or the differences search, ⌘⌫-to-clear-the-line would confirm-
+    /// delete the selection instead. Worse than surprising: with "Confirm before deleting" off,
+    /// `confirmDelete` deletes immediately, silently, from a text-editing keystroke. Finder
+    /// ships exactly this wart; it is not worth importing.
+    ///
+    /// Static and injected so the routing rule is testable — the live check reads the key
+    /// window's first responder, which is the field editor (an `NSTextView`) whenever any text
+    /// field has the caret.
+    static func chordBelongsToTextEditor(_ responder: NSResponder?) -> Bool {
+        responder is NSTextView
+    }
+
     var body: some View {
         // Ellipsis: the action confirms before touching anything (`NativeAlerts.confirmDelete`).
-        Button("Delete Selection…") { delete?() }
-            .keyboardShortcut(.delete, modifiers: .command)
-            .disabled(delete == nil)
+        Button("Delete Selection…") {
+            if Self.chordBelongsToTextEditor(NSApp.keyWindow?.firstResponder) {
+                // Hand the editing action back to the editor the equivalent took it from.
+                (NSApp.keyWindow?.firstResponder as? NSTextView)?.deleteToBeginningOfLine(nil)
+            } else {
+                delete?()
+            }
+        }
+        .keyboardShortcut(AppChord.deleteSelection.key, modifiers: AppChord.deleteSelection.modifiers)
+        .disabled(delete == nil)
     }
 }
 
@@ -324,7 +379,7 @@ struct ToggleHiddenFilesCommand: View {
 
     var body: some View {
         Toggle("Hidden Files", isOn: showHiddenFiles ?? .constant(false))
-            .keyboardShortcut(".", modifiers: [.shift, .command])
+            .keyboardShortcut(AppChord.hiddenFiles.key, modifiers: AppChord.hiddenFiles.modifiers)
             .disabled(showHiddenFiles == nil)
     }
 }
@@ -334,7 +389,7 @@ struct TogglePreviewColumnCommand: View {
 
     var body: some View {
         Toggle("Preview Column", isOn: previewColumn ?? .constant(false))
-            .keyboardShortcut("p", modifiers: [.shift, .command])
+            .keyboardShortcut(AppChord.previewColumn.key, modifiers: AppChord.previewColumn.modifiers)
             .disabled(previewColumn == nil)
     }
 }
@@ -344,7 +399,7 @@ struct ToggleInspectorCommand: View {
 
     var body: some View {
         Toggle("Info Inspector", isOn: infoInspector ?? .constant(false))
-            .keyboardShortcut("i", modifiers: .command)
+            .keyboardShortcut(AppChord.infoInspector.key, modifiers: AppChord.infoInspector.modifiers)
             .disabled(infoInspector == nil)
     }
 }
@@ -354,7 +409,7 @@ struct ToggleDifferencesListCommand: View {
 
     var body: some View {
         Toggle("Differences List", isOn: differencesList ?? .constant(false))
-            .keyboardShortcut("d", modifiers: .command)
+            .keyboardShortcut(AppChord.differencesList.key, modifiers: AppChord.differencesList.modifiers)
             .disabled(differencesList == nil)
     }
 }
@@ -368,7 +423,7 @@ struct FoldAllDifferencesCommand: View {
         Button(fold?.action == .expand ? "Expand All Folders" : "Collapse All Folders") {
             fold?.run()
         }
-        .keyboardShortcut("f", modifiers: [.option, .command])
+        .keyboardShortcut(AppChord.foldAllDifferences.key, modifiers: AppChord.foldAllDifferences.modifiers)
         .disabled(fold == nil)
     }
 }
@@ -378,7 +433,7 @@ struct ReviewDifferencesCommand: View {
 
     var body: some View {
         Button("Review Differences") { start?() }
-            .keyboardShortcut("r", modifiers: [.shift, .command])
+            .keyboardShortcut(AppChord.reviewDifferences.key, modifiers: AppChord.reviewDifferences.modifiers)
             .disabled(start == nil)
     }
 }
@@ -388,7 +443,7 @@ struct VerifyDifferencesCommand: View {
 
     var body: some View {
         Button("Verify Differences") { verify?() }
-            .keyboardShortcut("v", modifiers: [.shift, .command])
+            .keyboardShortcut(AppChord.verifyDifferences.key, modifiers: AppChord.verifyDifferences.modifiers)
             .disabled(verify == nil)
     }
 }

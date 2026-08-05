@@ -123,8 +123,8 @@ public struct PaneActionBar: View {
             Spacer(minLength: 6)
 
             actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive,
-                            help: ShortcutHint.tooltip("Delete the selected items", "⌘⌫"),
-                            keycap: "⌘⌫", action: onDelete)
+                            help: ShortcutHint.tooltip("Delete the selected items", AppChord.deleteSelection.display),
+                            keycap: AppChord.deleteSelection.display, action: onDelete)
 
             // ✕ dismisses the selection (the file lists offer no deselect gesture; Escape does the
             // same). At the trailing edge, separated from the actions, so it reads as "close this

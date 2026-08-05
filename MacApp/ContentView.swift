@@ -2113,7 +2113,7 @@ struct ContentView: View {
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in
             // the window toolbar.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed)
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil)
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

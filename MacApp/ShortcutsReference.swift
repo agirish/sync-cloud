@@ -1,3 +1,4 @@
+import Design
 import SwiftUI
 
 /// The static keyboard/mouse shortcut listing behind Help → Keyboard Shortcuts (⌘/).
@@ -48,7 +49,7 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ R", action: "Step through each difference (Review)"),
             Item(keys: "⇧⌘ V", action: "Verify date-only differences by checksum"),
             Item(keys: "⌘ D", action: "Show or hide the differences list"),
-            Item(keys: "⌥⌘ F", action: "Collapse or expand all folders"),
+            Item(keys: "⇧⌘ F", action: "Collapse or expand all folders"),
             Item(keys: "Space", action: "Quick Look the selected difference"),
         ]),
         Group(title: "Guided review", items: [
@@ -68,37 +69,69 @@ struct ShortcutsWindowCommand: View {
 
     var body: some View {
         Button("Keyboard Shortcuts") { openWindow(id: "keyboard-shortcuts") }
-            .keyboardShortcut("/", modifiers: .command)
+            .keyboardShortcut(AppChord.shortcutsReference.key, modifiers: AppChord.shortcutsReference.modifiers)
     }
 }
 
 /// The Help-menu shortcuts window: titled groups of key/action rows. Static content,
 /// sized to fit — no state beyond what `ShortcutsReference` provides.
 struct ShortcutsReferenceView: View {
+    /// The window is `.contentSize`-resizable — the user cannot enlarge it — so this frame has
+    /// to show the whole reference. The single 480pt column fit the sixteen rows it opened
+    /// with; the twelve menu-bar chords took it to twenty-nine, which is 865pt of column —
+    /// taller than a MacBook Air's screen — so the content went to two columns instead.
+    /// `theReferenceFitsItsWindowWithoutScrolling` measures the laid-out content against this
+    /// number, so a future row can move it but never silently overflow it; the ScrollView stays
+    /// for the larger Settings ▸ Text sizes, which is all it is for.
+    static let windowSize = CGSize(width: 880, height: 560)
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                ForEach(ShortcutsReference.groups, id: \.title) { group in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(group.title)
-                            .scaledFont(.headline)
-                        ForEach(group.items, id: \.action) { item in
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(item.keys)
-                                    .scaledFont(.system(.callout, design: .monospaced).weight(.medium))
-                                    .frame(width: 190, alignment: .leading)
-                                Text(item.action)
-                                    .scaledFont(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
+            ShortcutsReferenceContent()
+        }
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .navigationTitle("Keyboard Shortcuts")
+    }
+}
+
+/// The rows themselves, split from the ScrollView so the fits-the-window test can measure their
+/// laid-out height — a ScrollView reports whatever frame it is given, never its content's size.
+///
+/// Two columns of groups, split at the midpoint, because one column of the full reference is
+/// taller than a small display. The split is positional, not by name: the pin test already
+/// holds the group list, and a fifth group would flow to the left column and simply move the
+/// measured height the fits test checks.
+struct ShortcutsReferenceContent: View {
+    var body: some View {
+        let groups = ShortcutsReference.groups
+        let mid = (groups.count + 1) / 2
+        HStack(alignment: .top, spacing: 32) {
+            column(Array(groups[..<mid]))
+            column(Array(groups[mid...]))
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func column(_ groups: [ShortcutsReference.Group]) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ForEach(groups, id: \.title) { group in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(group.title)
+                        .scaledFont(.headline)
+                    ForEach(group.items, id: \.action) { item in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(item.keys)
+                                .scaledFont(.system(.callout, design: .monospaced).weight(.medium))
+                                .frame(width: 165, alignment: .leading)
+                            Text(item.action)
+                                .scaledFont(.callout)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 480, height: 420)
-        .navigationTitle("Keyboard Shortcuts")
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

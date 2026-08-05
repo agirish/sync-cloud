@@ -397,7 +397,7 @@ struct SyncCloudApp: App {
             // that the native Settings scene used to provide.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { showSettings = true }
-                    .keyboardShortcut(",", modifiers: .command)
+                    .keyboardShortcut(AppChord.settings.key, modifiers: AppChord.settings.modifiers)
             }
             // Edit ▸ Find, where a Mac user looks for it — and the only form ⌘F can take: a
             // focus-scoped `.onKeyPress` never sees the key, because a pane search is invoked
@@ -425,7 +425,7 @@ struct SyncCloudApp: App {
                 TogglePreviewColumnCommand()    // ⇧⌘P
                 ToggleInspectorCommand()        // ⌘I
                 ToggleDifferencesListCommand()  // ⌘D
-                FoldAllDifferencesCommand()     // ⌥⌘F
+                FoldAllDifferencesCommand()     // ⇧⌘F
             }
             // Go ▸ per-pane history, Finder's own menu for Finder's own chords.
             CommandMenu("Go") {

@@ -153,7 +153,7 @@ extension ContentView {
         // The chord is the segment's 1-based POSITION, the same enumeration `WorkspaceCommands`
         // binds ⌘1–⌘5 from — both count `Workspace.allCases`, so the badge and the key
         // equivalent cannot disagree.
-        let chord = "⌘\(ordinal)"
+        let chord = AppChord.workspace(ordinal).display
         Button {
             selection.wrappedValue = workspace
         } label: {
@@ -232,18 +232,18 @@ extension ContentView {
                     // not just an action. Closed, it renders as a normal enabled toolbar button.
                     .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
                     // On the LABEL, like Settings below — a toolbar item's own bounds are AppKit's.
-                    .shortcutKeycap("⌘I")
+                    .shortcutKeycap(AppChord.infoInspector.display)
             }
             .help(ShortcutHint.tooltip(
                 showInspector ? "Hide the Info inspector" : "Show details for the selected item",
-                "⌘I"))
+                AppChord.infoInspector.display))
             .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
 
             Button(action: { openWindow(id: "activity-log") }) {
                 Label("Logs", systemImage: "list.bullet.rectangle")
-                    .shortcutKeycap("⌘L")
+                    .shortcutKeycap(AppChord.activityLog.display)
             }
-            .help(ShortcutHint.tooltip("Activity log", "⌘L"))
+            .help(ShortcutHint.tooltip("Activity log", AppChord.activityLog.display))
 
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")
@@ -251,9 +251,9 @@ extension ContentView {
                     // an overlay hung outside the SwiftUI content is the one that gets clipped.
                     // Centred for the same reason as the pane magnifier — the keycap is wider
                     // than the gear.
-                    .shortcutKeycap("⌘,")
+                    .shortcutKeycap(AppChord.settings.display)
             }
-            .help(ShortcutHint.tooltip("Settings", "⌘,"))
+            .help(ShortcutHint.tooltip("Settings", AppChord.settings.display))
         }
     }
 }
