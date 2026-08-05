@@ -56,6 +56,40 @@ import Sync
         #expect(!PaneLogic.searchPlan(isLeft: true, isSingleSource: true, query: "tax").annotatesSides)
     }
 
+    // MARK: - When a recomputation is allowed to reveal
+
+    private func results(_ query: String, generation: Int) -> PaneSearchResults {
+        PaneSearchResults(side: .left, generation: generation, query: query,
+                          tree: PaneTree(side: .left, version: 1, nodes: []), otherPaths: nil)
+    }
+
+    /// The republish clobber's host-side gate. A recomputation with the SAME query is a republish
+    /// — a scan or a copy moved a tree, not the user — and it must not bump the reveal nonce: the
+    /// pane-side consequence of getting this wrong is `PaneSearchRevealNonceTests`' stolen
+    /// selection, re-fired on every background republish for as long as a query sat in the field.
+    @Test func testARepublishIsNotANewQuestion() {
+        #expect(!PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
+                                                 results: results("tax", generation: 2)))
+    }
+
+    @Test func testATypedQueryIsANewQuestion() {
+        #expect(PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
+                                                results: results("taxi", generation: 2)))
+        // Including the first activation and the field being cleared, in both directions.
+        #expect(PaneLogic.searchAsksNewQuestion(previous: results("", generation: 0),
+                                                results: results("tax", generation: 1)))
+        #expect(PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
+                                                results: results("", generation: 2)))
+    }
+
+    /// `PaneSearchResults` stores the NORMALIZED query, so a whitespace-only edit reaches this
+    /// rule as the same string — asserted here so the normalization staying upstream of the rule
+    /// is a fact a test names rather than an accident of call order.
+    @Test func testAWhitespaceOnlyEditIsNotANewQuestion() {
+        #expect(!PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
+                                                 results: results("  tax ", generation: 2)))
+    }
+
     // MARK: - When the search re-runs
 
     /// `.task(id:)` restarts exactly when this compares unequal, so this `==` is the definition of

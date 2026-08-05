@@ -139,6 +139,11 @@ public struct FileTreeView: View, Equatable {
     /// scrolling to it in Tree, opening the columns down to it in Columns — and it happens on
     /// ARRIVAL, per hit, never for every hit of the query at once.
     public let searchHitIndex: Int
+    /// The host's reveal signal: bumped for a new query and for ↩/⇧↩, and for nothing else. The
+    /// reveal fires when THIS moves — never on `search.generation`, which also moves on every
+    /// background republish and used to re-fire the reveal over whatever the user had selected,
+    /// scrolled to, or navigated into since the walk. See `PaneSearchFieldState.revealNonce`.
+    public let searchRevealNonce: Int
 
     /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
     /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
@@ -218,7 +223,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -247,6 +252,7 @@ public struct FileTreeView: View, Equatable {
         // first, and a right pane holding a `.left` empty would compare unequal to itself forever.
         self.search = search ?? .empty(side: tree.side)
         self.searchHitIndex = searchHitIndex
+        self.searchRevealNonce = searchRevealNonce
         self.isActivePane = isActivePane
         self.viewMode = viewMode
         self.childrenIndex = childrenIndex
@@ -286,6 +292,9 @@ public struct FileTreeView: View, Equatable {
             && lhs.isSingleSource == rhs.isSingleSource
             && lhs.search == rhs.search
             && lhs.searchHitIndex == rhs.searchHitIndex
+            // In the gate because the reveal listens to it: `.onChange` only observes values that
+            // survive a re-render, and a nonce filtered out here would never fire one.
+            && lhs.searchRevealNonce == rhs.searchRevealNonce
             && lhs.isActivePane == rhs.isActivePane
             && lhs.viewMode == rhs.viewMode
             && lhs.childrenIndex == rhs.childrenIndex
@@ -608,9 +617,9 @@ public struct FileTreeView: View, Equatable {
                 searchRevealTarget: search.hit(at: searchHitIndex)?.path,
                 downloadChannel: downloadChannel
             )
-            // The reveal, Columns side. Same token as the Tree branch, so the two presentations walk
-            // the same hits in the same order and switching mode mid-search keeps your place.
-            .onChange(of: revealToken) { _, _ in revealInColumns(selecting: true) }
+            // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
+            // walk the same hits in the same order and switching mode mid-search keeps your place.
+            .onChange(of: searchRevealNonce) { _, _ in revealInColumns(selecting: true) }
             // See the Tree branch: an appearance re-opens the columns down to the hit but must not
             // move a selection the user has made since.
             .onAppear { revealInColumns(selecting: false) }
@@ -641,9 +650,10 @@ public struct FileTreeView: View, Equatable {
     private var paneList: some View {
         ScrollViewReader { proxy in
             paneListBody
-                // The reveal, Tree side. Keyed on the hit rather than on the query, so typing costs
-                // nothing and only arriving at a hit opens anything — see `revealInTree`.
-                .onChange(of: revealToken) { _, _ in revealInTree(proxy, selecting: true) }
+                // The reveal, Tree side. Fires on the host's nonce — a new query or ↩ — and on
+                // nothing else, so a background republish recomputes results without walking the
+                // user anywhere; see `searchRevealNonce`.
+                .onChange(of: searchRevealNonce) { _, _ in revealInTree(proxy, selecting: true) }
                 // And once on arrival, so switching Tree↔Columns mid-search lands on the hit you
                 // were standing on rather than at the top of a tree you have to walk again. Costs
                 // an inactive pane one guarded return per appearance: `revealInTree` finds no hit
@@ -657,15 +667,6 @@ public struct FileTreeView: View, Equatable {
                 // harmless (the row is already where the walk left it); selecting is not.
                 .onAppear { revealInTree(proxy, selecting: false) }
         }
-    }
-
-    /// The token a reveal fires on: which result set, and which hit within it.
-    ///
-    /// Both halves are needed. The index alone misses ↩ landing on index 0 of a new result set after
-    /// index 0 of the old one — which is every query that is retyped — and the generation alone
-    /// misses the walk, which is the whole feature.
-    private var revealToken: PaneSearchRevealToken {
-        PaneSearchRevealToken(generation: search.generation, hitIndex: searchHitIndex)
     }
 
     /// The pane's List, with its list-level chrome.

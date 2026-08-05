@@ -48,19 +48,11 @@ struct PaneSearchRowContext: Equatable {
     private init() {}
 }
 
-/// What a pane's reveal fires on: which result set, and which hit within it.
-///
-/// Both halves are load-bearing, and each alone is wrong in a way the other covers. The index alone
-/// misses ↩ landing on index 0 of a NEW result set after index 0 of the old one — which is what
-/// every retyped query does, so the first hit of the new query would never be revealed. The
-/// generation alone misses the walk itself, which is the feature.
-///
-/// A named type rather than a tuple so `PaneSearchRevealTests` can pin that pair; `.onChange` fires
-/// exactly when this compares unequal, so pinning `==` pins when a reveal happens.
-struct PaneSearchRevealToken: Equatable {
-    let generation: Int
-    let hitIndex: Int
-}
+// A `PaneSearchRevealToken` of (results generation, hit index) used to live here as the reveal's
+// trigger. It is gone, and deliberately not resurrected: the generation moves on every republish
+// of either tree, so the token re-fired the reveal — selection, scroll, Columns navigation — over
+// whatever the user had done since the walk. The reveal now fires on the host's `revealNonce`
+// (see `PaneSearchFieldState`), which moves only for a new query or ↩/⇧↩.
 
 /// How far a non-matching row recedes while a search is running.
 ///

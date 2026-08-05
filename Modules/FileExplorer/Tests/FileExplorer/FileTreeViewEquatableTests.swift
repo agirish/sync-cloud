@@ -75,6 +75,7 @@ import Design
         onBarEdgeFlip: (() -> Void)? = {},
         search: PaneSearchResults? = nil,
         searchHitIndex: Int = 0,
+        searchRevealNonce: Int = 0,
         isActivePane: Bool = true,
         viewMode: PaneViewMode = .tree,
         childrenIndex: PaneChildrenIndex? = nil,
@@ -91,7 +92,7 @@ import Design
             hasOnlyHiddenEntries: hasOnlyHiddenEntries, rootPath: rootPath,
             onOpenSettings: onOpenSettings, isSingleSource: isSingleSource,
             placement: placement, onBarEdgeFlip: onBarEdgeFlip,
-            search: search, searchHitIndex: searchHitIndex, isActivePane: isActivePane,
+            search: search, searchHitIndex: searchHitIndex, searchRevealNonce: searchRevealNonce, isActivePane: isActivePane,
             viewMode: viewMode, childrenIndex: childrenIndex,
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
             onBackgroundDeselect: onBackgroundDeselect, downloadChannel: downloadChannel)
@@ -192,6 +193,14 @@ import Design
     @Test("Walking to another hit is noticed — it is what fires the reveal")
     func searchHitIndexIsCompared() {
         #expect(pane() != pane(searchHitIndex: 1))
+    }
+
+    /// The reveal's own trigger. `.onChange` only observes values that survive a re-render, so a
+    /// nonce this gate filtered out would never fire one — ↩ over a single hit moves nothing but
+    /// the nonce, and the reveal would be silently dead exactly there.
+    @Test("The reveal nonce is noticed — it is the only signal a reveal fires on")
+    func searchRevealNonceIsCompared() {
+        #expect(pane() != pane(searchRevealNonce: 1))
     }
 
     @Test("Which pane is active is noticed — it sets the selection wash's strength")

@@ -11,13 +11,39 @@ public struct DuplicateRevealRequest: Equatable, Identifiable, Sendable {
     public let id: UUID
     /// The absolute path of the file whose group to reveal.
     public let path: String
+    /// Set when the ask STARTED a scan (`Decision.scanThenReveal`): the completed scan root as it
+    /// stood at that moment, so `outcome` can tell "my scan has not landed yet" apart from "no
+    /// scan is running".
+    ///
+    /// Why `isScanning` alone cannot: the coordinator sets this request and *starts* the scan in
+    /// the same turn, but the scan flag flips inside the scan task's own first hop — and
+    /// `restartedScanTask` awaits the previous task before that, a real suspension whenever any
+    /// earlier scan ran this session. The lens's resolve task can run in that window, see
+    /// `isScanning == false` over the PREVIOUS results, answer `.outsideScan`, and consume the
+    /// request — so the scan the user's click paid for lands with nobody left to reveal for.
+    /// Comparing roots closes it without touching the scan lifecycle: until a NEW completion
+    /// publishes, `scannedRoot` still equals this snapshot and the request keeps waiting. The two
+    /// can never legitimately be equal afterwards — `scanThenReveal` is chosen exactly when the
+    /// old root does not contain the file, and the started scan's root does.
+    ///
+    /// nil-and-not-applicable for the other two decisions, whose behaviour is unchanged.
+    public let awaitsScanReplacing: ScannedRootSnapshot?
+
+    /// A `String?` that must itself be optional on the request, wrapped so the two layers of
+    /// optionality cannot collapse: "not waiting on a scan" and "waiting, and no scan had ever
+    /// completed" are different facts, and `String??` flattens at every touch point.
+    public struct ScannedRootSnapshot: Equatable, Sendable {
+        public let root: String?
+        public init(root: String?) { self.root = root }
+    }
 
     /// What the empty state calls it when the file turns out to be in no group.
     public var name: String { (path as NSString).lastPathComponent }
 
-    public init(id: UUID = UUID(), path: String) {
+    public init(id: UUID = UUID(), path: String, awaitsScanReplacing: ScannedRootSnapshot? = nil) {
         self.id = id
         self.path = path
+        self.awaitsScanReplacing = awaitsScanReplacing
     }
 }
 
@@ -89,6 +115,12 @@ public enum DuplicateReveal {
     ) -> Outcome? {
         guard let request else { return nil }
         if isScanning { return .waiting }
+        // A request that started its own scan keeps waiting until a NEW completion has published —
+        // `isScanning` alone misses the turn between the coordinator starting the scan and the
+        // scan task's first hop flipping the flag. See `awaitsScanReplacing`.
+        if let snapshot = request.awaitsScanReplacing, scannedRoot == snapshot.root {
+            return .waiting
+        }
         if let group = groups.first(where: { $0.copies.contains { $0.path == request.path } }) {
             return .reveal(groupID: group.id)
         }
@@ -107,11 +139,34 @@ public enum DuplicateReveal {
     public struct Landing: Equatable, Sendable {
         public let state: NamedEmptyState
         public let query: String
+        /// The absolute path of the file the answer is about. The `notScanned` empty state's
+        /// recovery button scans this file's own folder, and by the time it is pressed the request
+        /// that carried the path has been consumed — the landing is what is still on screen, so
+        /// the landing carries the path.
+        public let path: String
 
-        public init(state: NamedEmptyState, query: String) {
+        public init(state: NamedEmptyState, query: String, path: String) {
             self.state = state
             self.query = query
+            self.path = path
         }
+    }
+
+    /// Whether a freshly planned landing is worth keeping, given whether the visible list is
+    /// empty at the moment it is applied.
+    ///
+    /// A landing with a NAMED query shows the moment the plan's query takes effect (or the user
+    /// re-types it), and its claim — "the scan covered this file and found no other copy" — is a
+    /// scan-level fact that stays true however the list changes. An EMPTY-query landing is
+    /// different: it can only ever show when the whole list is empty, so if the list has rows at
+    /// apply time it shows *now or never* — kept, it sits latent until resolving the last group
+    /// empties the list, and then surfaces "«X» wasn't in the last scan" over the all-clear state,
+    /// about a question asked an hour earlier. True, but unasked-for; the all-clear the user just
+    /// earned is the answer they are owed at that point.
+    public static func landingToStore(_ landing: Landing?, listIsEmpty: Bool) -> Landing? {
+        guard let landing else { return nil }
+        guard landing.query.isEmpty else { return landing }
+        return listIsEmpty ? landing : nil
     }
 
     /// The named answer to show now, or nil to show the ordinary states.
@@ -175,7 +230,9 @@ public enum DuplicateReveal {
     /// return, which made this branch unreachable and left this doc describing behaviour that never
     /// ran. Every outcome now goes through the same apply; only whether the request is RECORDED as
     /// applied differs, which is the caller's bookkeeping rather than a decision about the lens.
-    public static func plan(for outcome: Outcome) -> Plan {
+    /// `path` is the request's file — the landings carry it so the `notScanned` recovery button
+    /// can still name a folder to scan after the request itself has been consumed.
+    public static func plan(for outcome: Outcome, path: String) -> Plan {
         switch outcome {
         case .waiting:
             return Plan()
@@ -189,7 +246,7 @@ public enum DuplicateReveal {
             // state below — or the groups that genuinely share that name, under a query the user
             // can see and clear.
             return Plan(clearsFilterAndQuery: true, searchQuery: name,
-                        landing: Landing(state: .noDuplicates(name: name), query: name))
+                        landing: Landing(state: .noDuplicates(name: name), query: name, path: path))
         case .outsideScan(let name):
             // The query is CLEARED here, not filled with the name. Filtering results that never
             // covered this file by its name would surface whatever else happens to share it, under
@@ -197,7 +254,7 @@ public enum DuplicateReveal {
             // real results are shown instead, and the named state below explains why they do not
             // answer the question when the list turns out to be empty.
             return Plan(clearsFilterAndQuery: true, searchQuery: "",
-                        landing: Landing(state: .notScanned(name: name), query: ""))
+                        landing: Landing(state: .notScanned(name: name), query: "", path: path))
         }
     }
 }

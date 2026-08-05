@@ -155,3 +155,17 @@ wiring, which no `swift test` process can drive (a `Button` is not an `NSControl
   Duplicates/Verify run and a Storage analysis respectively; **Clear** takes each to *None* and
   disables its button. Then run a duplicate scan and re-open the tab — *File digests* has a size
   again, which is the cache doing its job rather than the Clear having failed.
+
+## Round-2 review fixes (2026-08-05) — the one that stayed view-level
+
+Everything else from the second review pass is pinned by tests (the reveal nonce, the request
+retirement callback, the recovery button's coordinator entry, the landing gates, the spend-change
+signal, the write-queue ordering). One host wiring cannot be:
+
+- [ ] **An answered "Find duplicates of this" does not replay after a trip through Compare.**
+  Right-click a file with copies → *Find duplicates of this* → land on the ringed group. Set a
+  match-type filter and type a query. Switch to Compare, then back to Duplicates. The filter and
+  query you set must still be there — no re-scroll to the old group, no re-cleared search. (The
+  TidyView-side callback is tested; what a unit test cannot reach is `ContentView` actually
+  clearing `duplicateRevealRequest` in response — two lines behind `if !isRunningTests`-free but
+  view-mounted wiring.)

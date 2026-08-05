@@ -63,10 +63,12 @@ import Sync
     /// The window background is not decoration: without one the content composites against the
     /// borderless window's own buffer and every comparison below reads as zero difference —
     /// "nothing painted", whatever the code did.
-    private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?) -> Mounted {
+    private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?,
+                       onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
         let subject = TidyView(syncManager: manager, lens: .duplicates,
                                providerName: "Projects", scanTargetFolder: "/root",
-                               onFindDuplicates: {}, revealRequest: request)
+                               onFindDuplicates: {}, revealRequest: request,
+                               onRevealHandled: onRevealHandled)
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
@@ -174,6 +176,43 @@ import Sync
                 "the reveal painted nothing new — the card never opened")
     }
 
+    /// **An answered request is reported back, exactly once, with its id — and a waiting one is
+    /// not.** The callback is the cross-mount half of the applied-id guard: `appliedRevealID` is
+    /// `@State` and dies with the lens, so without the host retiring the request, every return to
+    /// a lens workspace after a trip through Compare replayed the whole plan over the user's
+    /// filter and query. Driven through the real mount so the `.task` and the state writes have
+    /// to actually happen.
+    @Test func anAnsweredRequestIsHandedBackAndAWaitingOneIsNot() async throws {
+        let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
+        final class Handled: @unchecked Sendable {
+            private let lock = NSLock()
+            private var ids: [UUID] = []
+            func record(_ id: UUID) { lock.lock(); ids.append(id); lock.unlock() }
+            var value: [UUID] { lock.lock(); defer { lock.unlock() }; return ids }
+        }
+
+        // Answered: the file is in a group, the reveal applies, the id comes back.
+        let answered = Handled()
+        let request = DuplicateRevealRequest(path: "/root/b/x.txt")
+        let mounted = mount(Self.manager(groups: [target]), request: request,
+                            onRevealHandled: { answered.record($0) })
+        _ = try #require(await settled(mounted, "the reveal"))
+        #expect(answered.value == [request.id],
+                "an applied plan must hand its request back for retirement — once, with the right id")
+
+        // Waiting: a scan is running, nothing is answered, nothing is handed back — retiring a
+        // waiting request would drop the answer its scan is about to earn.
+        let waitingLog = Handled()
+        let scanning = FileSyncManager()
+        scanning.isFindingDuplicates = true
+        let waitingMount = mount(scanning,
+                                 request: DuplicateRevealRequest(path: "/root/b/x.txt"),
+                                 onRevealHandled: { waitingLog.record($0) })
+        _ = try #require(await settled(waitingMount, "the waiting lens"))
+        #expect(waitingLog.value.isEmpty,
+                "a request the scan has not answered yet must stay standing")
+    }
+
     // MARK: Landing on the right group
 
     /// **The group holding the FILE is the one opened — not simply the first one.**
@@ -271,6 +310,36 @@ import Sync
                   request: DuplicateRevealRequest(path: "/elsewhere/x.txt")), "unscanned"))
         #expect(pixelsDiffering(cleared, unscanned) > 0,
                 "a file the scan never covered was given the same answer as one it cleared")
+    }
+
+    /// **A `notScanned` landing applied over a POPULATED list must not sit latent and surface
+    /// later.** The sequence is real: ask about a file the last scan never covered while that
+    /// scan's groups are on screen (the landing is invisible — the list has rows), then resolve
+    /// every group. The list empties with an empty query, and the stored landing used to surface
+    /// "wasn't in the last scan" over the all-clear the user had just earned — a claim about a
+    /// file they asked about an hour before. This pins `applyRevealPlan`'s CALL of
+    /// `landingToStore`, which the pure tests beside that function cannot: they pass however the
+    /// view wires it.
+    @Test func aLatentNotScannedLandingDoesNotSurfaceOverALaterAllClear() async throws {
+        let group = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
+
+        // The reference: the same end state with no request ever made — everything resolved.
+        let refManager = Self.manager(groups: [group])
+        let reference = mount(refManager, request: nil)
+        _ = try #require(await settled(reference, "reference with groups"))
+        refManager.duplicateGroups = []
+        let allClear = try #require(await settled(reference, "reference all-clear"))
+
+        // The subject: an outsideScan request answered while the list had rows, then the same
+        // resolve-everything.
+        let manager = Self.manager(groups: [group])
+        let mounted = mount(manager, request: DuplicateRevealRequest(path: "/elsewhere/x.txt"))
+        _ = try #require(await settled(mounted, "landing applied over a populated list"))
+        manager.duplicateGroups = []
+        let after = try #require(await settled(mounted, "subject after resolving everything"))
+
+        #expect(pixelsDiffering(allClear, after) == 0,
+                "resolving the last group surfaced a latent 'wasn't in the last scan' claim instead of the all-clear")
     }
 
     /// A scan that found NO groups at all still answers about the file rather than showing the

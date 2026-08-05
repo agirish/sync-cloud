@@ -126,7 +126,8 @@ public enum StorageLensStore {
         }
     }
 
-    /// Blocks until queued writes finish. Tests only — see ``FilingVerdictStore/waitForPendingWrites()``.
+    /// Blocks until queued writes finish — see ``FilingVerdictStore/waitForPendingWrites()``.
+    /// **Never on the main actor**; the one production caller (Settings' Clear) detaches first.
     public static func waitForPendingWrites() {
         writeQueue.sync {}
     }

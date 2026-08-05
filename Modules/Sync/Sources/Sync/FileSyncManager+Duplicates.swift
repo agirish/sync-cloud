@@ -709,6 +709,11 @@ extension FileSyncManager {
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)
         let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm, cache: cache)
+        // The third hashing site, and the one the "keep the digests" pass missed: both trees were
+        // just read in full, and quitting after a merge threw that work away where the scan and
+        // Verify already keep theirs. Same contract as those two — the reads have happened
+        // whatever the plan below decides.
+        await cache?.save()
 
         var steps: [(src: URL, dst: URL)] = []
         var blockedLinkedDirs = Set<String>()

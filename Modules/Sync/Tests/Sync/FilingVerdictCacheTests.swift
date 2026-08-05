@@ -431,6 +431,38 @@ private final class CallLog: @unchecked Sendable {
     }
 
     @MainActor
+    @Test func clearingCannotBeOvertakenByAQueuedScanWrite() async throws {
+        // Clear used to write SYNCHRONOUSLY, bypassing the store's write queue, while a scan's own
+        // write sits ON that queue (`recordFilingVerdicts` fires it mid-scan, and at the entry cap
+        // it is a multi-megabyte encode). The queued PRE-clear snapshot could then land after the
+        // clear's write, and the next launch reloaded every verdict the user had just cleared.
+        //
+        // The fixture stages exactly that: a large snapshot queued first — standing in for the
+        // in-flight scan write, and large so its encode outlasts the clear's — then the clear.
+        // Ordering on one queue is the fix, so after the barrier the file must be empty. Against
+        // the synchronous clear this fails: the clear's empty write lands first and the big
+        // snapshot overwrites it.
+        let url = try cacheURL("clear-race")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        var big = FilingVerdictCache()
+        for i in 0..<20_000 {
+            big.record(verdict, for: key("/root/folder-\(i % 40)/file-\(i).pdf"), providerRoot: "/root",
+                       existingRelative: ["Documents", "Documents/Vehicles"],
+                       now: Date(timeIntervalSince1970: 1000 + Double(i)))
+        }
+
+        let m = FileSyncManager()
+        m.filingVerdictCacheURL = url
+        FilingVerdictStore.saveInBackground(big, to: url)   // the scan's in-flight write
+        m.clearFilingVerdictCache()                          // the user's Clear, a beat later
+        FilingVerdictStore.waitForPendingWrites()
+
+        #expect(FilingVerdictStore.load(from: url).count == 0,
+                "the Clear must be the last write to land — a queued pre-clear snapshot must not resurrect the file")
+    }
+
+    @MainActor
     @Test func withNoCacheURLNothingIsReused() async throws {
         // The default for the CLI and every existing test: no location configured, no cache, and
         // in particular no reaching into the real Application Support directory.

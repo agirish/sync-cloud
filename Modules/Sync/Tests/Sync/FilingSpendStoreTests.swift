@@ -35,6 +35,34 @@ import Testing
         #expect(FilingSpendStore.entries(defaults: defaults).count == iterations)
     }
 
+    @Test func everyWritePostsTheChangeSignal() {
+        // The signal exists because per-surface refresh lists do not compose across windows: the
+        // Organize lens enumerated its own three refresh moments and was still left quoting an
+        // erased record when the SAME history view cleared spend from the Settings window. Both
+        // writers must post, or a cached reader is exactly one unlisted writer away from stale.
+        let (defaults, name) = suite()
+        defer { wipeDefaultsSuite(name) }
+
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var n = 0
+            func bump() { lock.lock(); n += 1; lock.unlock() }
+            var value: Int { lock.lock(); defer { lock.unlock() }; return n }
+        }
+        let posts = Counter()
+        // Scoped to THIS test's defaults instance: the suite runs in parallel and the center is
+        // process-wide, so an unscoped observer counts the other tests' posts too — measured, it
+        // read 6 where this test wrote 2.
+        let observer = NotificationCenter.default.addObserver(
+            forName: FilingSpendStore.didChange, object: defaults, queue: nil) { _ in posts.bump() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        FilingSpendStore.record(entry(cost: 0.01, tokens: 10), defaults: defaults)
+        #expect(posts.value == 1, "record must announce itself")
+        FilingSpendStore.clear(defaults: defaults)
+        #expect(posts.value == 2, "clear must announce itself — it is the writer that got missed")
+    }
+
     @Test func recordAccumulatesTotalsAndTracksLast() {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }

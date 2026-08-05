@@ -79,15 +79,40 @@ struct DuplicateRevealCoordinator {
     /// the common first-use case — no scan yet — reveal nothing at all.
     func findDuplicates(of node: FileNode, isLeft: Bool) {
         guard !node.isDirectory else { return }
-        let decision = Self.decide(filePath: node.id,
-                                   paneRoot: paneRoot(isLeft),
-                                   scannedRoot: syncManager.duplicateScanRoot,
-                                   isScanning: syncManager.isFindingDuplicates)
-        Logger.shared.info("User requested duplicates of \(node.id) — \(decision)")
+        apply(decision: Self.decide(filePath: node.id,
+                                    paneRoot: paneRoot(isLeft),
+                                    scannedRoot: syncManager.duplicateScanRoot,
+                                    isScanning: syncManager.isFindingDuplicates),
+              path: node.id)
+    }
+
+    /// The same ask, from a surface that has only a path — the `notScanned` empty state's recovery
+    /// button, whose original request has been consumed by the time it is pressed. The pane root
+    /// is the file's own folder: that is what the button's caption promises to scan, and it is a
+    /// root that provably contains the file, so this ask can always be answered.
+    func findDuplicates(ofPath path: String) {
+        apply(decision: Self.decide(filePath: path,
+                                    paneRoot: (path as NSString).deletingLastPathComponent,
+                                    scannedRoot: syncManager.duplicateScanRoot,
+                                    isScanning: syncManager.isFindingDuplicates),
+              path: path)
+    }
+
+    private func apply(decision: Decision, path: String) {
+        Logger.shared.info("User requested duplicates of \(path) — \(decision)")
         selectedWorkspace = .duplicates
-        revealRequest = DuplicateRevealRequest(path: node.id)
         if case .scanThenReveal(let root) = decision, !root.isEmpty {
+            // The request remembers the completed-scan root as it stands NOW, so the lens keeps
+            // waiting until the scan started below has actually published — `isScanning` alone
+            // has a hole: it flips inside the scan task's first hop, behind an await of the
+            // previous task, and the lens's resolve can run in that window, answer from the OLD
+            // results, and consume the request before the paid-for scan lands.
+            revealRequest = DuplicateRevealRequest(
+                path: path,
+                awaitsScanReplacing: .init(root: syncManager.duplicateScanRoot))
             startScan(URL(fileURLWithPath: root))
+        } else {
+            revealRequest = DuplicateRevealRequest(path: path)
         }
     }
 }

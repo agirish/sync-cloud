@@ -277,6 +277,21 @@ public struct TidyView: View {
     /// the ordinary case — nobody has asked. See `DuplicateReveal`, which owns every decision this
     /// view makes about it.
     private let revealRequest: DuplicateRevealRequest?
+    /// Called once a request has been ANSWERED (any non-waiting outcome), with its id, so the host
+    /// can retire it.
+    ///
+    /// This is the cross-mount half of the applied-id guard, and without it the guard has a hole:
+    /// `appliedRevealID` is `@State` and dies with this view, but the request lives at the app
+    /// level so it survives the workspace switch that mounts the lens — the whole point — and
+    /// therefore also survives every switch AFTER being answered. A round trip through Compare
+    /// (which the revealed card's own "Compare copies" button takes you on) then remounts this
+    /// view with the old request standing and no memory of having applied it, and the stale plan
+    /// re-fires: filter reset, the user's parked query overwritten, the old group re-marked — on
+    /// every return, for the rest of the session.
+    private let onRevealHandled: ((UUID) -> Void)?
+    /// "Find duplicates of `path`" — the same entry the pane row's context menu uses, for the
+    /// `notScanned` empty state's recovery button. See `namedRevealState`.
+    private let onFindDuplicatesOf: ((String) -> Void)?
 
     public init(
         syncManager: FileSyncManager,
@@ -299,7 +314,9 @@ public struct TidyView: View {
         onChooseFolder: (() -> Void)? = nil,
         onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in },
         onRequestDestination: @escaping (PendingDestination) -> Void = { _ in },
-        revealRequest: DuplicateRevealRequest? = nil
+        revealRequest: DuplicateRevealRequest? = nil,
+        onRevealHandled: ((UUID) -> Void)? = nil,
+        onFindDuplicatesOf: ((String) -> Void)? = nil
     ) {
         self.syncManager = syncManager
         self.lens = lens
@@ -322,6 +339,8 @@ public struct TidyView: View {
         self.onCompareCopies = onCompareCopies
         self.onRequestDestination = onRequestDestination
         self.revealRequest = revealRequest
+        self.onRevealHandled = onRevealHandled
+        self.onFindDuplicatesOf = onFindDuplicatesOf
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -506,6 +525,12 @@ public struct TidyView: View {
         // behaviour was right, but an editor changing "the" Organize scan-start handler would find
         // only one of them.
         .onAppear(perform: refreshFilingSpend)
+        // The store's own change signal, which covers writers this view cannot enumerate — the
+        // same history view presented from the SETTINGS window can Clear History, and this lens's
+        // own three refresh moments (appear, scan finish, its own sheet closing) could not see it.
+        // `receive(on:)` because `record` posts from off the main actor.
+        .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
+            .receive(on: DispatchQueue.main)) { _ in refreshFilingSpend() }
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
             if isScanning {
                 filedThisSession = false
@@ -1019,12 +1044,16 @@ public struct TidyView: View {
     /// so with Claude selected it wasn't billed. Kept out of the pill itself because the number is
     /// the glanceable part and this is the explanation you go looking for.
     private func reuseHelp(_ reuse: FileSyncManager.FilingCacheReuse) -> String {
-        let reused = reuse.reused == 1 ? "1 file hadn’t" : "\(reuse.reused) files hadn’t"
+        // Both halves of the first sentence agree in number — "1 file … its suggestion was",
+        // "N files … their suggestions were". The verb used to stay singular for any N.
+        let reused = reuse.reused == 1
+            ? "1 file hadn’t changed since the last scan, so its suggestion was reused"
+            : "\(reuse.reused) files hadn’t changed since the last scan, so their suggestions were reused"
         let classified = reuse.classified == 0
             ? "Nothing needed a fresh answer."
             : (reuse.classified == 1 ? "1 file was newly classified."
                                      : "\(reuse.classified) files were newly classified.")
-        return "\(reused) changed since the last scan, so the suggestion was reused instead of asking the "
+        return "\(reused) instead of asking the "
             + "model again — with Claude selected, that part of the scan cost nothing. \(classified) "
             + "Use Rescan ▸ Ignore saved suggestions to ask afresh."
     }
@@ -1136,7 +1165,9 @@ public struct TidyView: View {
              tint: freshness.isStale ? SemanticColor.warning : .secondary,
              systemImage: "clock.arrow.circlepath",
              text: freshness.text)
-            .help("These are the numbers from your last analysis of this folder, not a live reading. Re-analyze for current ones.")
+            // "Rescan", because that is what the control beside this pill is labelled — this used
+            // to say "Re-analyze", a verb no on-screen control carries.
+            .help("These are the numbers from your last analysis of this folder, not a live reading. Rescan for current ones.")
             .accessibilityLabel("Saved report, \(freshness.spoken)")
     }
 
@@ -1295,10 +1326,11 @@ public struct TidyView: View {
         // all-clear leaves them to infer that it covered the thing they clicked. This branch is
         // reached only when the visible list is empty, so a name query that DOES surface other
         // groups still shows them.
-        } else if let answer = DuplicateReveal.namedAnswer(for: revealLanding,
+        } else if let landing = revealLanding,
+                  let answer = DuplicateReveal.namedAnswer(for: landing,
                                                            currentQuery: query,
                                                            listIsEmpty: dupGroups.isEmpty) {
-            namedRevealState(answer)
+            namedRevealState(answer, path: landing.path)
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
         } else if dupGroups.isEmpty {
@@ -1320,8 +1352,10 @@ public struct TidyView: View {
     /// this file" is a finding; "this file was not in the folder that was scanned" is the absence
     /// of one. Collapsing the second into the first is the false-confidence failure the whole
     /// feature is built to avoid — see `DuplicateReveal.outcome`.
+    /// `path` rides in from the landing: the request that carried it has been consumed by the
+    /// time these are on screen, and the `notScanned` recovery button needs a folder to scan.
     @ViewBuilder
-    private func namedRevealState(_ answer: DuplicateReveal.NamedEmptyState) -> some View {
+    private func namedRevealState(_ answer: DuplicateReveal.NamedEmptyState, path: String) -> some View {
         switch answer {
         case .noDuplicates(let name):
             EmptyStateView(
@@ -1344,16 +1378,21 @@ public struct TidyView: View {
                 } ?? "No completed scan covers this file, so there is nothing to say about it yet.",
                 caption: "Scan the folder this file is in to get an answer about it.",
                 primary: .init("Find Duplicates", systemImage: "wand.and.stars") {
-                    // Re-arm the standing request before scanning. Without this the button is a
-                    // dead end: the scan runs, and `appliedRevealID` still names this request, so
-                    // the results land with no answer about the file the user asked about —
-                    // having just pressed the one control offered to get them one.
-                    //
-                    // Only from THIS state, deliberately. Re-arming on every rescan would let an
-                    // ordinary Rescan, long after a successful landing, reach in and clear the
-                    // filter and search the user had set up since.
-                    appliedRevealID = nil
-                    onFindDuplicates()
+                    // Through the same door as the context menu, with the FILE's path — so the
+                    // host scans a folder that actually contains it and hands back a fresh
+                    // request, which re-fires the reveal naturally. `onFindDuplicates` here
+                    // scanned the LENS's focused root, which for a handoff from the other pane is
+                    // a root that still cannot contain the file: the scan ran, resolved
+                    // `.outsideScan` again, and offered the same button — a loop dressed as a
+                    // recovery, under a caption promising "the folder this file is in".
+                    if let onFindDuplicatesOf {
+                        onFindDuplicatesOf(path)
+                    } else {
+                        // No host wiring (previews, tests): the old behaviour, re-armed so the
+                        // standing request resolves against whatever the scan finds.
+                        appliedRevealID = nil
+                        onFindDuplicates()
+                    }
                 }
             )
         }
@@ -1411,8 +1450,16 @@ public struct TidyView: View {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .strokeBorder(glassHue.accentColor, lineWidth: 2)
                                 .allowsHitTesting(false)
+                                // The card announces the mark (below); the ring is its paint.
+                                .accessibilityHidden(true)
                         }
                     }
+                    // The spoken form of the ring. The mark exists because a reveal into a list of
+                    // similar cards leaves the user to work out which one they were sent to — and a
+                    // VoiceOver user has no ring, so without this the one card that answers their
+                    // question sounds identical to its neighbours. `.isSelected` rather than words
+                    // of our own: "selected" is how assistive tech already says "this one".
+                    .accessibilityAddTraits(revealedGroupID == group.id ? .isSelected : [])
                     .transition(cardRemoval)
                 }
             }
@@ -1915,8 +1962,14 @@ public struct TidyView: View {
                                                     isScanning: syncManager.isFindingDuplicates,
                                                     scannedRoot: syncManager.duplicateScanRoot)
         else { return }
-        if outcome != .waiting { appliedRevealID = request.id }
-        applyRevealPlan(DuplicateReveal.plan(for: outcome))
+        if outcome != .waiting {
+            appliedRevealID = request.id
+            // Retire the request at the HOST too. The applied-id above is @State and dies with
+            // this view, and a request that outlives its answer replays it on the next remount —
+            // see `onRevealHandled`.
+            onRevealHandled?(request.id)
+        }
+        applyRevealPlan(DuplicateReveal.plan(for: outcome, path: request.path))
     }
 
     /// Writes one plan into this lens's state. Split from the resolve so a test can hand it a plan
@@ -1935,7 +1988,10 @@ public struct TidyView: View {
                 searchExpandedLenses.insert(.duplicates)
             }
         }
-        revealLanding = plan.landing
+        // An empty-query landing shows now or never — dropped rather than stored when the list has
+        // rows, so it cannot sit latent and surface over a later all-clear. See `landingToStore`.
+        revealLanding = DuplicateReveal.landingToStore(plan.landing,
+                                                       listIsEmpty: syncManager.duplicateGroups.isEmpty)
         if let id = plan.expandsGroupID { expanded.insert(id) }
         revealedGroupID = plan.revealedGroupID
     }
@@ -1958,9 +2014,12 @@ public struct TidyView: View {
     }
 
     private func toggle(_ id: UUID) {
-        // Touching any card by hand ends the landing: the mark says "this is the one you were
+        // Touching ANY card by hand ends the landing: the mark says "this is the one you were
         // sent to", and once the user is working the list themselves it is describing history.
-        if revealedGroupID == id { revealedGroupID = nil }
+        // This used to clear only when the touched card WAS the marked one, so opening the
+        // neighbours left the ring standing through a whole review session — the code quietly
+        // narrower than this comment, which always said "any".
+        revealedGroupID = nil
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 

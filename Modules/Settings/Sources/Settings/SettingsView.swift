@@ -1907,6 +1907,12 @@ struct FilingSettingsTab: View {
             }
         }
         .onAppear(perform: refreshSpend)
+        // The store's change signal — the Organize lens's history sheet (main window) can Clear
+        // History while this tab is open in the Settings window, and a scan can record spend
+        // mid-view. Mirrors TidyView's observer; `receive(on:)` because `record` posts from off
+        // the main actor.
+        .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
+            .receive(on: DispatchQueue.main)) { _ in refreshSpend() }
         // The saved-suggestion count is asked SEPARATELY from the spend figures, and awaited.
         // Folding it into `refreshSpend` — which is what this did — put a decode of a file that
         // reaches ~12 MB at the entry cap on the main actor the moment this tab appeared. The two
@@ -2163,7 +2169,13 @@ struct AdvancedSettingsTab: View {
                         Button("Clear") {
                             Task {
                                 await ContentHashCache.shared.forgetPersistedIndex()
-                                ContentHashIndexStore.waitForPendingWrites()
+                                // The barrier is a blocking `writeQueue.sync`, and this Task runs
+                                // on the main actor — parked behind a queued multi-megabyte index
+                                // write (a Verify save that just fired, say) it is a beachball.
+                                // Detached, the wait happens where blocking is free.
+                                await Task.detached(priority: .utility) {
+                                    ContentHashIndexStore.waitForPendingWrites()
+                                }.value
                                 await refreshSavedScanData()
                             }
                         }
@@ -2180,7 +2192,11 @@ struct AdvancedSettingsTab: View {
                         Button("Clear") {
                             syncManager?.forgetStoredStorageLens()
                             Task {
-                                StorageLensStore.waitForPendingWrites()
+                                // Off the main actor for the same reason as the digests' Clear
+                                // above — the barrier blocks on the store's write queue.
+                                await Task.detached(priority: .utility) {
+                                    StorageLensStore.waitForPendingWrites()
+                                }.value
                                 await refreshSavedScanData()
                             }
                         }

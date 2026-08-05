@@ -134,6 +134,19 @@ enum PaneLogic {
                    annotatesSides: !query.isEmpty && !isSingleSource)
     }
 
+    /// Whether landing `results` over `previous` is a NEW QUESTION — the one recomputation event
+    /// that fires a reveal (the other trigger, ↩/⇧↩, bumps the nonce at its own call site).
+    ///
+    /// A republish answers false: same query, recomputed against a moved tree. Firing there is the
+    /// selection-stealing bug the nonce exists to end — every background scan re-revealed the
+    /// current hit over whatever the user had selected or navigated to since. Both sides compare
+    /// the NORMALIZED query `PaneSearchResults` stores, so a whitespace-only edit is not a new
+    /// question either.
+    static func searchAsksNewQuestion(previous: PaneSearchResults,
+                                      results: PaneSearchResults) -> Bool {
+        results.query != previous.query
+    }
+
     /// Which pane ⌘F opens the search field on.
     ///
     /// **Selection-derived, with a floor.** `activePane` is the same rule that decides where the

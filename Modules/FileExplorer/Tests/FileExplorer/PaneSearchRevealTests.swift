@@ -76,6 +76,31 @@ import Sync
     final class Box: ObservableObject {
         @Published var search: PaneSearchResults = .empty(side: .left)
         @Published var hitIndex = 0
+        /// The host's reveal signal — bumped for a new query and for a walk, exactly as
+        /// `PaneSearchFieldState.revealNonce` is. The helpers below are the only writers, so a
+        /// test that hands the pane new RESULTS without one of them is a republish: results move,
+        /// nonce does not, and the pane must not reveal.
+        @Published var revealNonce = 0
+
+        /// A (debounced) typed query landing: new results, walk restarted, reveal fired.
+        func ask(_ results: PaneSearchResults, at index: Int = 0) {
+            search = results
+            hitIndex = index
+            revealNonce &+= 1
+        }
+
+        /// ↩/⇧↩: the walk moves and the reveal fires.
+        func walk(to index: Int) {
+            hitIndex = index
+            revealNonce &+= 1
+        }
+
+        /// A background republish: the same question recomputed. Results (and the walk's standing
+        /// index) update; the nonce — and so the reveal — must not.
+        func republish(_ results: PaneSearchResults, standingAt index: Int? = nil) {
+            search = results
+            if let index { hitIndex = index }
+        }
         @Published var selection: Set<String> = []
         @Published var browsePath = PaneBrowsePath()
         @Published var navigated: [PaneBrowsePath] = []
@@ -108,6 +133,7 @@ import Sync
                 delegate: StubDelegate(),
                 search: box.search,
                 searchHitIndex: box.hitIndex,
+                searchRevealNonce: box.revealNonce,
                 viewMode: viewMode,
                 childrenIndex: PaneChildrenIndex(tree: tree,
                                                  treeRoot: PaneSearchTreeRevealTests.root),
@@ -208,8 +234,7 @@ import Sync
         let window = Self.mount(box, viewMode: .tree)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
 
-        box.search = Self.results("notes")
-        box.hitIndex = 0
+        box.ask(Self.results("notes"), at: 0)
 
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.rowCount(window) == Self.financeOpenRowCount
@@ -227,8 +252,7 @@ import Sync
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
 
         // "tax" matches in BOTH Finance and IRS; hit 0 is in Finance.
-        box.search = Self.results("tax")
-        box.hitIndex = 0
+        box.ask(Self.results("tax"), at: 0)
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.rowCount(window) == Self.financeOpenRowCount
         }
@@ -246,14 +270,13 @@ import Sync
         let window = Self.mount(box, viewMode: .tree)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
 
-        box.search = Self.results("tax")
-        box.hitIndex = 0
+        box.ask(Self.results("tax"), at: 0)
         _ = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.rowCount(window) == Self.financeOpenRowCount
         }
 
-        // Hit 2 is Documents/IRS/taxes.csv.
-        box.hitIndex = 2
+        // Hit 2 is Documents/IRS/taxes.csv. A walk, so the nonce moves with the index.
+        box.walk(to: 2)
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.rowCount(window) == Self.bothOpenRowCount
         }
@@ -270,8 +293,7 @@ import Sync
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
         #expect(box.selection.isEmpty, "nothing should be selected before the walk")
 
-        box.search = Self.results("notes")
-        box.hitIndex = 0
+        box.ask(Self.results("notes"), at: 0)
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             box.selection == ["\(Self.root)/Documents/Finance/tax-notes.md"]
         }
@@ -286,8 +308,7 @@ import Sync
         let window = Self.mount(box, viewMode: .tree)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
 
-        box.search = Self.results("zzzz")
-        box.hitIndex = 0
+        box.ask(Self.results("zzzz"), at: 0)
         let stayed = await LayoutPumpWait.pump(window, upTo: 2) { false }
         #expect(!stayed.held)   // the wait is a settle, not a condition
         #expect(Self.rowCount(window) == Self.collapsedRowCount, "nothing should have opened")
@@ -320,8 +341,7 @@ import Sync
             Fixture.rowCount(window) == Fixture.collapsedRowCount
         }
 
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
         let opened = await LayoutPumpWait.pump(window, upTo: 10) {
             Fixture.rowCount(window) == Fixture.financeOpenRowCount
         }
@@ -410,8 +430,7 @@ import Sync
         let box = Fixture.Box()
         // The state a mode switch hands the new pane: results and a walk position already set, and a
         // selection the user made on something else.
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
         box.selection = ["\(Fixture.root)/Movies"]
 
         let window = Fixture.mount(box, viewMode: .tree)
@@ -428,8 +447,7 @@ import Sync
     @Test("Appearing in Columns opens the stack without taking the selection")
     func appearingInColumnsDoesNotSelect() async {
         let box = Fixture.Box()
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
         box.selection = ["\(Fixture.root)/Movies"]
 
         let window = Fixture.mount(box, viewMode: .columns)
@@ -450,8 +468,7 @@ import Sync
         _ = await LayoutPumpWait.pump(window, upTo: 5) {
             Fixture.rowCount(window) == Fixture.collapsedRowCount
         }
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
         let selected = await LayoutPumpWait.pump(window, upTo: 10) {
             box.selection == ["\(Fixture.root)/Documents/Finance/tax-notes.md"]
         }
@@ -523,8 +540,7 @@ import Sync
         _ = await LayoutPumpWait.pump(window, upTo: 5) {
             Fixture.rowCount(window) == Fixture.collapsedRowCount
         }
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
         let opened = await LayoutPumpWait.pump(window, upTo: 10) {
             Fixture.rowCount(window) == Fixture.financeOpenRowCount
         }
@@ -567,8 +583,7 @@ import Sync
         let window = Fixture.mount(box, viewMode: .columns)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.tables(window.contentView!).count == 1 }
 
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
 
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             Fixture.tables(window.contentView!).count == 3
@@ -586,8 +601,7 @@ import Sync
         let window = Fixture.mount(box, viewMode: .columns)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.tables(window.contentView!).count == 1 }
 
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
 
         let settled = await LayoutPumpWait.pump(window, upTo: 10) { !box.navigated.isEmpty }
         #expect(settled.held, "the host should have been asked to navigate (\(settled.pumps) pumps)")
@@ -610,9 +624,8 @@ import Sync
         #expect(!Fixture.rowIsVisible(window, path: needle, in: Fixture.tallTree()),
                 "the fixture must start with the hit below the fold")
 
-        box.search = PaneSearchResults(side: .left, generation: 1, query: "needle",
-                                       tree: Fixture.tallTree(), otherPaths: nil)
-        box.hitIndex = 0
+        box.ask(PaneSearchResults(side: .left, generation: 1, query: "needle",
+                                  tree: Fixture.tallTree(), otherPaths: nil), at: 0)
 
         let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
             Fixture.rowIsVisible(window, path: needle, in: Fixture.tallTree())
@@ -628,8 +641,7 @@ import Sync
         let window = Fixture.mount(box, viewMode: .columns)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.tables(window.contentView!).count == 1 }
 
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        box.ask(Fixture.results("notes"), at: 0)
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             box.selection == ["\(Fixture.root)/Documents/Finance/tax-notes.md"]
         }
@@ -644,13 +656,12 @@ import Sync
         let window = Fixture.mount(box, viewMode: .columns)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.tables(window.contentView!).count == 1 }
 
-        // "s" matches Documents (0), Finance (1), … and Movies. Walk into Finance first.
-        box.search = Fixture.results("notes")
-        box.hitIndex = 0
+        // Walk into a nested hit first ("notes" lives under Documents/Finance), so there is an
+        // open stack for the top-level "Movies" hit to close.
+        box.ask(Fixture.results("notes"), at: 0)
         _ = await LayoutPumpWait.pump(window, upTo: 10) { Fixture.tables(window.contentView!).count == 3 }
 
-        box.search = Fixture.results("Movies", generation: 2)
-        box.hitIndex = 0
+        box.ask(Fixture.results("Movies", generation: 2), at: 0)
         let settled = await LayoutPumpWait.pump(window, upTo: 10) {
             box.browsePath.components.isEmpty && Fixture.tables(window.contentView!).count == 1
         }
@@ -659,28 +670,65 @@ import Sync
     }
 }
 
-/// The reveal's trigger, pinned where a test can reach it: `.onChange` fires exactly when this
-/// compares unequal.
-@Suite struct PaneSearchRevealTokenTests {
+/// The reveal's trigger. It used to be a token of (results generation, hit index), and the
+/// generation half was the defect this suite now exists to hold shut: the generation moves on
+/// EVERY recomputation, and a recomputation runs on every republish of either tree — so with a
+/// query parked in the field, every background scan re-fired the reveal and took back whatever
+/// the user had selected or navigated to since the walk. Two earlier commits each closed one
+/// trigger of that clobber (the walk-index reset; the pane's reappearance) and both left this one
+/// open. The reveal now fires on the host's nonce alone.
+@MainActor
+@Suite struct PaneSearchRevealNonceTests {
 
-    @Test("Walking to another hit fires a reveal")
-    func theHitIndexIsCompared() {
-        #expect(PaneSearchRevealToken(generation: 1, hitIndex: 0)
-                != PaneSearchRevealToken(generation: 1, hitIndex: 1))
+    typealias Fixture = PaneSearchTreeRevealTests
+
+    /// **The republish clobber, held shut where it actually happened.** Walk to a hit, click a
+    /// different file, and let a background republish land (same query, new generation — exactly
+    /// what `recomputeSearch` produces when either tree republishes): the click must survive.
+    /// Before the nonce, this test's final assertion fails — the reveal re-fires and puts the
+    /// selection back on the hit.
+    @Test("A same-query republish does not take back a selection made after the walk")
+    func aRepublishDoesNotStealTheSelection() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .tree)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.rowCount(window) == Fixture.collapsedRowCount }
+
+        box.ask(Fixture.results("notes"), at: 0)
+        let hit = "\(Fixture.root)/Documents/Finance/tax-notes.md"
+        let landed = await LayoutPumpWait.pump(window, upTo: 10) { box.selection == [hit] }
+        #expect(landed.held, "the walk itself must still select (\(landed.pumps) pumps)")
+
+        // The user moves on: a different row, selected by hand.
+        let elsewhere = "\(Fixture.root)/Movies"
+        box.selection = [elsewhere]
+
+        // A background republish: same query, recomputed results under a new generation.
+        box.republish(Fixture.results("notes", generation: 2), standingAt: 0)
+        let after = await LayoutPumpWait.pump(window, upTo: 6) { box.selection != [elsewhere] }
+        #expect(!after.held,
+                "a republish must not re-fire the reveal — the selection moved off the user's row after \(after.pumps) pumps")
+        #expect(box.selection == [elsewhere])
     }
 
-    /// The half an index-only token misses: retyping a query rebuilds the results and puts the walk
-    /// back at hit 0, so the index does not move — and the first hit of the new query would never
-    /// be revealed.
-    @Test("A new result set at the same index still fires a reveal")
-    func theGenerationIsCompared() {
-        #expect(PaneSearchRevealToken(generation: 1, hitIndex: 0)
-                != PaneSearchRevealToken(generation: 2, hitIndex: 0))
-    }
+    /// The control for the test above, and the feature itself: the SAME state change plus a nonce
+    /// bump (↩) must reveal — so the assertion above cannot be passing because reveals stopped
+    /// working altogether.
+    @Test("A walk after the republish still reveals")
+    func aWalkStillReveals() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .tree)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.rowCount(window) == Fixture.collapsedRowCount }
 
-    @Test("An unchanged token does not fire — a render is not a reveal")
-    func anUnchangedTokenIsEqual() {
-        #expect(PaneSearchRevealToken(generation: 3, hitIndex: 2)
-                == PaneSearchRevealToken(generation: 3, hitIndex: 2))
+        box.ask(Fixture.results("notes"), at: 0)
+        let hit = "\(Fixture.root)/Documents/Finance/tax-notes.md"
+        _ = await LayoutPumpWait.pump(window, upTo: 10) { box.selection == [hit] }
+
+        box.selection = ["\(Fixture.root)/Movies"]
+        box.republish(Fixture.results("notes", generation: 2), standingAt: 0)
+
+        // ↩ — the user asks to be taken back. Same index, so the nonce is the only thing moving.
+        box.walk(to: 0)
+        let back = await LayoutPumpWait.pump(window, upTo: 10) { box.selection == [hit] }
+        #expect(back.held, "↩ must still reveal the hit (\(back.pumps) pumps)")
     }
 }

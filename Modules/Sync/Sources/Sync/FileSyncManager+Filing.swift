@@ -584,7 +584,13 @@ extension FileSyncManager {
             cache = FilingVerdictCache()
         }
         filingVerdictCache = cache
-        FilingVerdictStore.save(cache, to: url)
+        // Through the QUEUE, never the synchronous `save`. A scan's own write is queued there
+        // (`recordFilingVerdicts` fires it mid-scan, and at the entry cap it is a multi-megabyte
+        // encode), and a synchronous write here races it: the queued PRE-clear snapshot could land
+        // last, and the next launch would reload every verdict the user just cleared — a Clear
+        // that silently undoes itself is worse than none. Queued, ordering does the work: this
+        // snapshot is the newest, so it lands last.
+        FilingVerdictStore.saveInBackground(cache, to: url)
         Logger.shared.info("Filing: cleared \(before - cache.count) cached classification(s)")
     }
 

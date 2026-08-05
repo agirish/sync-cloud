@@ -223,10 +223,16 @@ public enum FilingVerdictStore {
         return cache
     }
 
-    /// Serializes writes. Two scans in quick succession each hand their whole cache to
-    /// ``saveInBackground(_:to:)``; without ordering, the earlier (smaller) snapshot could land
-    /// last and drop the later scan's entries. Later snapshots always contain earlier ones — the
-    /// in-memory copy only grows — so writing them in order is enough to make the file converge.
+    /// Serializes writes. Every writer hands its whole snapshot of the memoized cache here, so the
+    /// LAST queued snapshot is always the current state — scans that grow it and Clears that empty
+    /// it alike — and writing them in order makes the file converge on the memo.
+    ///
+    /// That only holds if every writer goes through this queue. This doc used to justify ordering
+    /// with "the in-memory copy only grows", which `clearFilingVerdictCache` falsified the day it
+    /// was written — and clear then bypassed the queue with a synchronous `save`, racing any
+    /// queued scan write, whose PRE-clear snapshot could land last and resurrect everything on the
+    /// next launch. **New writers use ``saveInBackground(_:to:)``; the synchronous `save` is for
+    /// paths with no possible concurrent writer.**
     private static let writeQueue = DispatchQueue(label: "com.synccloud.filing-verdict-store")
 
     /// Writes `cache` off the calling thread, in order.

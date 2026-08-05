@@ -152,10 +152,10 @@ import Sync
     /// name: filtering results that never covered it by its name surfaces whatever else shares
     /// that name, dressing a non-answer up as one.
     @Test func outsideScanClearsTheFieldRatherThanFilteringByName() {
-        let plan = DuplicateReveal.plan(for: .outsideScan(name: "x.txt"))
+        let plan = DuplicateReveal.plan(for: .outsideScan(name: "x.txt"), path: "/pane/x.txt")
         #expect(plan.searchQuery == "")
         #expect(plan.landing == DuplicateReveal.Landing(state: .notScanned(name: "x.txt"),
-                                                        query: ""))
+                                                        query: "", path: "/pane/x.txt"))
         #expect(plan.expandsGroupID == nil)
     }
 
@@ -169,7 +169,7 @@ import Sync
     // MARK: The named answer only applies while its query does
 
     private static let landing = DuplicateReveal.Landing(
-        state: .noDuplicates(name: "lonely.txt"), query: "lonely.txt")
+        state: .noDuplicates(name: "lonely.txt"), query: "lonely.txt", path: "/pane/lonely.txt")
 
     @Test func theNamedAnswerShowsForItsOwnQueryOnAnEmptyList() {
         #expect(DuplicateReveal.namedAnswer(for: Self.landing, currentQuery: "lonely.txt",
@@ -201,7 +201,7 @@ import Sync
     /// `outsideScan` writes an EMPTY query, so its answer has to survive one — a gate written as
     /// "a blank field retires the answer" would delete this one the instant it appeared.
     @Test func theNotScannedAnswerSurvivesItsOwnEmptyQuery() {
-        let landing = DuplicateReveal.Landing(state: .notScanned(name: "x.txt"), query: "")
+        let landing = DuplicateReveal.Landing(state: .notScanned(name: "x.txt"), query: "", path: "/pane/x.txt")
         #expect(DuplicateReveal.namedAnswer(for: landing, currentQuery: "", listIsEmpty: true)
                 == .notScanned(name: "x.txt"))
         #expect(DuplicateReveal.namedAnswer(for: landing, currentQuery: "typed",
@@ -214,7 +214,7 @@ import Sync
     /// behind a parked filter has not landed.
     @Test func aRevealOpensMarksAndUnhides() {
         let id = UUID()
-        let plan = DuplicateReveal.plan(for: .reveal(groupID: id))
+        let plan = DuplicateReveal.plan(for: .reveal(groupID: id), path: "/pane/x.txt")
         #expect(plan.expandsGroupID == id)
         #expect(plan.revealedGroupID == id)
         #expect(plan.clearsFilterAndQuery)
@@ -226,10 +226,10 @@ import Sync
     /// The name in BOTH places is what makes the landing self-explaining: the query says what was
     /// asked, the empty state says what came back.
     @Test func notFoundNamesTheFileInTheFieldAndInTheAnswer() {
-        let plan = DuplicateReveal.plan(for: .notFound(name: "lonely.txt"))
+        let plan = DuplicateReveal.plan(for: .notFound(name: "lonely.txt"), path: "/pane/lonely.txt")
         #expect(plan.searchQuery == "lonely.txt")
         #expect(plan.landing == DuplicateReveal.Landing(state: .noDuplicates(name: "lonely.txt"),
-                                                        query: "lonely.txt"))
+                                                        query: "lonely.txt", path: "/pane/lonely.txt"))
         #expect(plan.expandsGroupID == nil)
         #expect(plan.revealedGroupID == nil)
     }
@@ -245,7 +245,7 @@ import Sync
     /// out the four fields is what makes applying this plan and the old hand-written pair visibly
     /// the same two writes.
     @Test func waitingRetiresTheAnswerAndNavigatesNowhere() {
-        let plan = DuplicateReveal.plan(for: .waiting)
+        let plan = DuplicateReveal.plan(for: .waiting, path: "/pane/x.txt")
         // Retires the previous answer: `TidyView.applyRevealPlan` assigns both unconditionally.
         #expect(plan.landing == nil)
         #expect(plan.revealedGroupID == nil)
@@ -253,6 +253,67 @@ import Sync
         #expect(plan.clearsFilterAndQuery == false)
         #expect(plan.searchQuery == nil)
         #expect(plan.expandsGroupID == nil)
+    }
+
+    // MARK: A request that started its own scan
+
+    /// `isScanning` alone has a hole the size of one main-actor turn: the coordinator sets the
+    /// request and starts the scan together, but the flag flips inside the scan task's first hop —
+    /// behind an await of the previous scan task, a real suspension whenever any earlier scan ran.
+    /// A resolve in that window used to answer `.outsideScan` from the PREVIOUS results and
+    /// consume the request, so the scan the click started landed with nobody left to reveal for.
+    @Test func aRequestThatStartedAScanWaitsUntilANewCompletionPublishes() {
+        let request = DuplicateRevealRequest(path: "/pane/x.txt",
+                                             awaitsScanReplacing: .init(root: "/old"))
+        // The window: flag not yet flipped, old results still published.
+        #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
+                                        scannedRoot: "/old") == .waiting)
+        // A new completion publishes (the started scan, or any later one) — the request resolves.
+        #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
+                                        scannedRoot: "/pane") == .notFound(name: "x.txt"))
+    }
+
+    /// The never-scanned variant of the same window: no completed root on either side of the
+    /// comparison, which `nil == nil` must read as "my scan has not landed", not as a match on
+    /// nothing.
+    @Test func aFirstEverScanIsAlsoWaitedFor() {
+        let request = DuplicateRevealRequest(path: "/pane/x.txt",
+                                             awaitsScanReplacing: .init(root: nil))
+        #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
+                                        scannedRoot: nil) == .waiting)
+        #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
+                                        scannedRoot: "/pane") == .notFound(name: "x.txt"))
+    }
+
+    /// A request that did NOT start a scan keeps today's semantics: whatever results are on
+    /// screen are what it resolves against.
+    @Test func aRequestWithoutItsOwnScanResolvesImmediately() {
+        let request = DuplicateRevealRequest(path: "/pane/x.txt")
+        #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
+                                        scannedRoot: "/pane") == .notFound(name: "x.txt"))
+    }
+
+    // MARK: Which landings are worth keeping
+
+    /// An empty-query landing can only show while the WHOLE list is empty, so one applied over a
+    /// populated list shows now or never — kept, it sat latent until resolving the last group
+    /// emptied the list, then surfaced "wasn't in the last scan" over the all-clear, about a file
+    /// asked about an hour earlier.
+    @Test func anEmptyQueryLandingIsDroppedWhenTheListHasRows() {
+        let latent = DuplicateReveal.Landing(state: .notScanned(name: "x.txt"), query: "",
+                                             path: "/pane/x.txt")
+        #expect(DuplicateReveal.landingToStore(latent, listIsEmpty: false) == nil)
+        #expect(DuplicateReveal.landingToStore(latent, listIsEmpty: true) == latent)
+    }
+
+    /// A NAMED-query landing is kept either way: it shows the moment its query takes effect, and
+    /// its claim is a scan-level fact that stays true however the list changes.
+    @Test func aNamedQueryLandingIsKeptRegardlessOfTheList() {
+        let named = DuplicateReveal.Landing(state: .noDuplicates(name: "x.txt"), query: "x.txt",
+                                            path: "/pane/x.txt")
+        #expect(DuplicateReveal.landingToStore(named, listIsEmpty: false) == named)
+        #expect(DuplicateReveal.landingToStore(named, listIsEmpty: true) == named)
+        #expect(DuplicateReveal.landingToStore(nil, listIsEmpty: true) == nil)
     }
 
     /// A repeat ask about the same file is a new request. A bare path would compare equal to

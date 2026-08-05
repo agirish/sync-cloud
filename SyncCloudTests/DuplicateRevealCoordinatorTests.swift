@@ -121,6 +121,52 @@ import Sync
         #expect(result.workspace == .duplicates)
         #expect(result.request?.path == "/Users/u/Projects/a.txt")
         #expect(result.scanned.map(\.path) == ["/Users/u/Projects"])
+        // …and it remembers the completed-scan root as it stood (none here), so the lens keeps
+        // waiting until the scan started above actually publishes — `isScanning` flips one hop
+        // too late to be the whole answer. See `DuplicateRevealRequest.awaitsScanReplacing`.
+        #expect(result.request?.awaitsScanReplacing == .init(root: nil))
+    }
+
+    /// The stale root travels on the request when one exists, so `outcome` can tell "my scan has
+    /// not landed" from "no scan is running" during the start window.
+    @Test func aScanStartingRequestSnapshotsTheStaleRoot() {
+        let manager = FileSyncManager()
+        manager.duplicateScanRoot = "/Users/u/Elsewhere"
+        let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
+        #expect(result.scanned.map(\.path) == ["/Users/u/Projects"])
+        #expect(result.request?.awaitsScanReplacing == .init(root: "/Users/u/Elsewhere"))
+    }
+
+    /// A request answered from the results already on screen starts no scan — and must NOT carry
+    /// a snapshot, or it would wait for a completion that is never coming.
+    @Test func aNoScanRequestCarriesNoSnapshot() {
+        let manager = FileSyncManager()
+        manager.duplicateScanRoot = "/Users/u/Projects"
+        let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
+        #expect(result.scanned.isEmpty)
+        #expect(result.request?.awaitsScanReplacing == nil)
+    }
+
+    /// The `notScanned` empty state's recovery button: only a path survives to it (its request
+    /// was consumed), and the promise on its caption is "scan the folder this file is in". The
+    /// path entry must scan exactly that folder — the lens's own rescan scanned the focused root,
+    /// which for a handoff from the other pane still could not contain the file, and the button
+    /// looped its own failure.
+    @Test func theRecoveryEntryScansTheFilesOwnFolder() {
+        var workspace = Workspace.compare
+        var request: DuplicateRevealRequest?
+        var scanned: [URL] = []
+        let coordinator = DuplicateRevealCoordinator(
+            syncManager: FileSyncManager(),
+            selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
+            revealRequest: Binding(get: { request }, set: { request = $0 }),
+            paneRoot: { _ in "/Users/u/UnrelatedPaneRoot" },
+            startScan: { scanned.append($0) })
+        coordinator.findDuplicates(ofPath: "/Users/u/Right/Photos/a.txt")
+        #expect(scanned.map(\.path) == ["/Users/u/Right/Photos"],
+                "the caption promises the file's own folder, and only that folder always contains the file")
+        #expect(request?.path == "/Users/u/Right/Photos/a.txt")
+        #expect(request?.awaitsScanReplacing != nil)
     }
 
     /// A folder never reaches the handoff — a folder overlap group is a different unit.

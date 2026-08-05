@@ -56,6 +56,20 @@ public enum FilingSpendStore {
     /// budget cap is enforced against.
     private static let lock = NSLock()
 
+    /// Posted after every `record` and `clear`, so a surface holding a cached copy of the figures
+    /// can refresh without knowing who wrote. The posting `UserDefaults` rides as the
+    /// notification's `object`: app observers pass no object and hear every write, while a test —
+    /// whose suites run in parallel against private defaults — can scope its observer to its own
+    /// instance instead of counting its neighbours' posts.
+    ///
+    /// This exists because per-surface refresh lists do not compose across windows: the Organize
+    /// lens refreshed on its own three moments (appear, scan finish, its own history sheet
+    /// closing) and was still left quoting an erased record when the SAME history view cleared
+    /// spend from the Settings window — a fourth moment its list could not have named. Every
+    /// cached reader now listens here instead of enumerating writers. Posted from whatever thread
+    /// wrote (record runs off the main actor); observers hop to main themselves.
+    public static let didChange = Notification.Name("com.synccloud.filing-spend-did-change")
+
     public static func entries(defaults: UserDefaults = .standard) -> [FilingSpendEntry] {
         guard let data = defaults.data(forKey: historyKey),
               let decoded = try? JSONDecoder().decode([FilingSpendEntry].self, from: data) else { return [] }
@@ -73,7 +87,9 @@ public enum FilingSpendStore {
         return decoded
     }
 
-    public static func record(_ entry: FilingSpendEntry, defaults: UserDefaults = .standard) {
+    /// The locked read-modify-write half of `record`; the public entry posts `didChange` after
+    /// the lock is released.
+    private static func recordLocked(_ entry: FilingSpendEntry, defaults: UserDefaults) {
         lock.lock()
         defer { lock.unlock() }
         var list = entries(defaults: defaults)
@@ -92,12 +108,20 @@ public enum FilingSpendStore {
         if let data = try? JSONEncoder().encode(t) { defaults.set(data, forKey: totalsKey) }
     }
 
+    public static func record(_ entry: FilingSpendEntry, defaults: UserDefaults = .standard) {
+        recordLocked(entry, defaults: defaults)
+        // Outside the lock — `post` delivers synchronously to same-thread observers, and an
+        // observer that read the store back through a locked entry point would deadlock.
+        NotificationCenter.default.post(name: didChange, object: defaults)
+    }
+
     public static func clear(defaults: UserDefaults = .standard) {
         lock.lock()
-        defer { lock.unlock() }
         defaults.removeObject(forKey: historyKey)
         defaults.removeObject(forKey: totalsKey)
         defaults.removeObject(forKey: lastKey)
+        lock.unlock()
+        NotificationCenter.default.post(name: didChange, object: defaults)
     }
 }
 

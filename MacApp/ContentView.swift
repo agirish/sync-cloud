@@ -1266,8 +1266,13 @@ struct ContentView: View {
             // Deliberately the Return-key default (it's also listed first): retrying is safe to
             // mash because every destructive operation in this app confirms separately. Escape
             // stays on Dismiss via its .cancel role.
+            //
+            // No `.shortcutKeycap` here, and not as an omission: `.alert` renders its buttons
+            // through the native alert machinery, which takes title/role/action/key equivalent
+            // and drops custom modifiers — a keycap attached here never reaches the screen or the
+            // accessibility tree. The Return affordance is the alert's own default-button
+            // highlight, which is the system's version of the same badge.
             .keyboardShortcut(.defaultAction)
-            .shortcutKeycap("⏎")
         case .dismiss:
             Button("Dismiss", role: .cancel) {
                 syncManager.currentError = nil
@@ -1951,6 +1956,7 @@ struct ContentView: View {
             // `FileTreeView.revealInTree` / `revealInColumns`.
             search: paneSearchResults(isLeft: pane.isLeft),
             searchHitIndex: paneSearchState(isLeft: pane.isLeft).wrappedValue.hitIndex,
+            searchRevealNonce: paneSearchState(isLeft: pane.isLeft).wrappedValue.revealNonce,
             isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft),
             viewMode: pane.viewMode,
             childrenIndex: pane.childrenIndex,
@@ -2085,7 +2091,20 @@ struct ContentView: View {
                 onChooseFolder: { chooseFolderSource { leftProviderId = $0 } },
                 onCompareCopies: reviewCoordinator.compareCopies,
                 onRequestDestination: { presentDestination($0) },
-                revealRequest: duplicateRevealRequest
+                revealRequest: duplicateRevealRequest,
+                // Retire an ANSWERED request. The lens's own applied-id is @State and dies with
+                // it, so a request left standing here replayed its whole plan — filter reset,
+                // parked query overwritten, the old group re-marked — on every return to a lens
+                // workspace after any trip through Compare. The id check keeps a retirement racing
+                // a newer ask from clearing the newer request.
+                onRevealHandled: { id in
+                    if duplicateRevealRequest?.id == id { duplicateRevealRequest = nil }
+                },
+                // The notScanned recovery button: the same door as the context menu, so it scans a
+                // folder that actually CONTAINS the file. `onFindDuplicates` scans the lens's
+                // focused root, which for a handoff from the other pane may still not contain it —
+                // pressing it re-ran the same unanswerable scan forever.
+                onFindDuplicatesOf: { path in revealCoordinator.findDuplicates(ofPath: path) }
             )
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in

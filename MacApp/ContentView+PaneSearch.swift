@@ -17,6 +17,20 @@ struct PaneSearchFieldState: Equatable {
     /// underneath it on every keystroke, so the clamping belongs where the count is known
     /// (`PaneSearchWalk.advance`, `PaneSearchResults.hit(at:)`), and both do it.
     var hitIndex: Int = 0
+    /// Bumped exactly when the user asks to be TAKEN somewhere — a (debounced) new query, or
+    /// ↩/⇧↩ — and the pane's reveal fires on this and nothing else.
+    ///
+    /// This replaces a token built from the results' generation, and the difference is the whole
+    /// point: the generation moves on every recomputation, and a recomputation runs on every
+    /// republish of EITHER tree (a scan, a copy, a hidden-files toggle — "constantly", per the
+    /// pane's own docs). With a query parked in the field, every one of those re-fired the reveal:
+    /// selection snapped back to the current hit, the viewport re-centred on it, Columns re-opened
+    /// the stack the user had navigated out of, and manually collapsed folders re-opened — undoing
+    /// whatever the user had done since the walk. Two earlier fixes each closed one trigger of
+    /// this clobber (the index reset, the pane's reappearance) and left the republish one open.
+    /// A republish now recomputes results, annotations and the walk's standing index — and moves
+    /// the user nowhere.
+    var revealNonce: Int = 0
 }
 
 /// What a pane's debounced recomputation is keyed on: which pane, what was typed, and which publish
@@ -114,8 +128,8 @@ extension ContentView {
         // on the file they were reading across a republish, rather than restarting the walk every
         // time a background scan lands.
         let state = paneSearchState(isLeft: isLeft)
-        let landed = results.walkIndex(after: isLeft ? leftSearchResults : rightSearchResults,
-                                       standingAt: state.wrappedValue.hitIndex)
+        let previous = isLeft ? leftSearchResults : rightSearchResults
+        let landed = results.walkIndex(after: previous, standingAt: state.wrappedValue.hitIndex)
         if isLeft {
             leftSearchGeneration = generation
             leftSearchResults = results
@@ -124,6 +138,12 @@ extension ContentView {
             rightSearchResults = results
         }
         state.wrappedValue.hitIndex = landed
+        // The reveal fires only for a NEW QUESTION — the query moved — never for a republish of
+        // the same one. The rule lives in `PaneLogic` where a test can hold it; see
+        // `PaneSearchFieldState.revealNonce` for what firing on every recomputation used to do.
+        if PaneLogic.searchAsksNewQuestion(previous: previous, results: results) {
+            state.wrappedValue.revealNonce &+= 1
+        }
     }
 
     /// Walks to the next (`reverse: false`) or previous hit — ↩ and ⇧↩.
@@ -132,6 +152,10 @@ extension ContentView {
         let state = paneSearchState(isLeft: isLeft)
         state.wrappedValue.hitIndex = PaneSearchWalk.advance(
             state.wrappedValue.hitIndex, count: results.hits.count, reverse: reverse)
+        // A walk is the other thing that reveals (a bump with no hits is a guarded no-op in the
+        // pane) — and with the same index re-landed by a wrap over one hit, the nonce is the only
+        // part of the signal that moves, so it bumps unconditionally.
+        state.wrappedValue.revealNonce &+= 1
     }
 
     /// What ⌘F opens. The rule itself is `PaneLogic.searchTargetIsLeft`, where it can be tested —

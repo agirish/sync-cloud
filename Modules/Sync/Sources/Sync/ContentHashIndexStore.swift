@@ -115,8 +115,11 @@ public enum ContentHashIndexStore {
         }
     }
 
-    /// Blocks until queued writes finish. Tests only — see ``FilingVerdictStore/waitForPendingWrites()``
-    /// for why a barrier rather than a wait-and-hope.
+    /// Blocks until queued writes finish — see ``FilingVerdictStore/waitForPendingWrites()`` for
+    /// why a barrier rather than a wait-and-hope. **Never call it on the main actor**: it parks
+    /// the calling thread behind whatever is queued, which here can be a multi-megabyte encode.
+    /// Tests call it from their own context; the one production caller (Settings' Clear) hops to
+    /// a detached task first.
     public static func waitForPendingWrites() {
         writeQueue.sync {}
     }

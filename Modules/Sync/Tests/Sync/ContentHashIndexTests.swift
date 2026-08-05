@@ -68,6 +68,35 @@ import Testing
         #expect(await reader.enablePersistence(at: url) == 0)
     }
 
+    @MainActor
+    @Test func planMergePersistsTheDigestsItComputes() async throws {
+        // The third hashing site. The "keep the digests" pass covered the duplicate scan and
+        // Verify; `planMerge` reads BOTH trees in full through the same cache and saved nothing —
+        // quit after a merge and those reads were re-paid. The fixture is two real trees on disk
+        // because planMerge walks them itself.
+        let root = try makeCanonicalTempRoot(prefix: "HashIndexMerge")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keeper = root.appendingPathComponent("keeper")
+        let redundant = root.appendingPathComponent("redundant")
+        for dir in [keeper, redundant] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data(repeating: 0x41, count: 4096).write(to: dir.appendingPathComponent("a.bin"))
+        }
+        let url = try indexURL("merge")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let cache = ContentHashCache()
+        await cache.enablePersistence(at: url)
+        _ = await FileSyncManager.planMerge(from: redundant, into: keeper,
+                                            fileManager: FileManager.default, cache: cache)
+        ContentHashIndexStore.waitForPendingWrites()
+
+        // A fresh instance, standing in for the next launch: the merge's digests must be there.
+        let reader = ContentHashCache()
+        #expect(await reader.enablePersistence(at: url) >= 2,
+                "both trees' digests must survive to disk without waiting for a later scan to save them")
+    }
+
     @Test func aSubMillisecondMtimeSurvivesTheRoundTrip() async throws {
         // The whole index rests on this: the reloaded key must reproduce one built at hashing time
         // from `attributesOfItem[.modificationDate]`, so any drift in the mtime makes every entry

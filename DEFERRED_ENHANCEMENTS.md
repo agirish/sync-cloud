@@ -271,3 +271,22 @@ home also still get the heuristic engine's suggestion, so nothing is lost to the
 
 Worth revisiting if the declined share grows, or alongside any work that makes the classifier's
 answers more deterministic. **Effort:** low. **Value:** low–medium (cost, not correctness).
+
+---
+
+## 13. A "Try another" verdict is paid for and never cached
+
+**Today:** `tryAnotherFolder`'s re-ask calls the classifier — a paid call on the cloud backend —
+and hands the verdict straight to the card without recording it in `FilingVerdictCache`.
+`FilingVerdictKey.excludedRelativePaths` exists precisely so this answer is cacheable: the next
+ordinary scan builds this file's key WITH its rejections, so an entry recorded here would be a hit
+and the file would not be re-billed.
+
+**Enhancement:** Record the re-ask's verdict under its exclusion-carrying key.
+
+**Why deferred:** the recording needs the scan's backend *identity*, which the re-ask path never
+resolves (`filingBackendIdentity` is asked once per scan, and a re-ask is not a scan), plus the
+pre-await snapshot discipline the function already documents for its taxonomy. Both are solvable;
+neither is a one-liner, and the cost today is one file re-billed per "Try another" per scan — small
+against the batch. Do it together with any wider verdict-cache work rather than as a patch.
+**Effort:** low–medium. **Value:** low (cost, not correctness).
