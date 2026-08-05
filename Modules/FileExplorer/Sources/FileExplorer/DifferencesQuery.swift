@@ -36,17 +36,19 @@ enum DifferencesQuery {
         return tally
     }
 
-    /// The direction most of the visible list goes — rows matching it quiet their "Copy to"
-    /// chip so the counter-direction rows pop. Strict majority over the whole filtered list
-    /// (never selection-scoped, unlike the header's targets); nil on a tie or an empty list,
-    /// which keeps every chip at full weight.
-    static func bulkCopyDirection(_ differences: [FileDifference]) -> FileDifference.SyncAction? {
-        var right = 0
-        for difference in differences where difference.action == .copyToRight { right += 1 }
-        let left = differences.count - right // SyncAction is binary: not-right is left.
-        if right > left { return .copyToRight }
-        if left > right { return .copyToLeft }
-        return nil
+    /// What the Path column prints for a row whose parent (relative to the compare roots) is
+    /// `parentPath`: the compared folder's own name ("Home") for a root-level row, and
+    /// "Home/Legal" for a nested one — so no row ever shows an empty location, which is exactly
+    /// the row that used to be unplaceable (a single root-level file draws no section header
+    /// and used to draw no prefix). `rootName` is nil or empty when the two compared folders
+    /// carry DIFFERENT names — anchoring at either would misname the other side — and the text
+    /// then falls back to the bare parent, with `DifferenceGrouping.rootLabel` standing in for
+    /// the root itself.
+    static func pathColumnText(parentPath: String, rootName: String?) -> String {
+        guard let rootName, !rootName.isEmpty else {
+            return parentPath.isEmpty ? DifferenceGrouping.rootLabel : parentPath
+        }
+        return parentPath.isEmpty ? rootName : rootName + "/" + parentPath
     }
 
     /// Inserts every difference's `relativePath` into the ignore set (the bulk "Ignore all"
@@ -213,11 +215,4 @@ extension FileDifference {
         }
     }
 
-    /// Rank for sorting the Copy-to column by direction.
-    var copyToSortRank: Int {
-        switch action {
-        case .copyToLeft: return 0
-        case .copyToRight: return 1
-        }
-    }
 }

@@ -156,15 +156,36 @@ import Sync
         #expect(asc.map(\.relativePath) == ["c", "b", "a", "d"])
     }
 
-    @Test func testCopyToSortOrdersByAction() {
+    @Test func testPathSortOrdersByParentAndKeepsRootRowsFirst() {
         let list = [
-            diff("r1", type: .missingOnRight, action: .copyToRight),
-            diff("l1", type: .missingOnLeft, action: .copyToLeft),
-            diff("r2", type: .missingOnRight, action: .copyToRight),
+            diff("Legal/lease.pdf"),
+            diff("visa.pdf"),
+            diff("HOA/2024/report.pdf"),
         ]
-        let asc = list.sorted(using: [KeyPathComparator(\.copyToSortRank, order: .forward)])
-        // copyToLeft (0) before copyToRight (1); stable within each action.
-        #expect(asc.map(\.relativePath) == ["l1", "r1", "r2"])
+        let asc = list.sorted(using: [KeyPathComparator(\.parentPath, comparator: .localizedStandard, order: .forward)])
+        // Root rows ("" parent) first, then folders in name order — siblings end up adjacent.
+        #expect(asc.map(\.relativePath) == ["visa.pdf", "HOA/2024/report.pdf", "Legal/lease.pdf"])
+    }
+
+    // MARK: Path column text (where a row's file lives, anchored at the compared folder)
+
+    @Test func testPathColumnAnchorsAtTheRootName() {
+        // The root-level row is the one this column exists for: it used to show NOTHING (empty
+        // prefix, no section header) — the exact row the user could not place.
+        #expect(DifferencesQuery.pathColumnText(parentPath: "", rootName: "Home") == "Home")
+        #expect(DifferencesQuery.pathColumnText(parentPath: "Legal", rootName: "Home") == "Home/Legal")
+        #expect(DifferencesQuery.pathColumnText(parentPath: "HOA/2024", rootName: "Home") == "Home/HOA/2024")
+    }
+
+    @Test func testPathColumnWithoutARootNameFallsBackToTheBareParent() {
+        // rootName is nil when the two compared folders carry different names — anchoring at
+        // either would misname the other side — and empty is the same answer by another spelling.
+        for root in [nil, ""] {
+            #expect(DifferencesQuery.pathColumnText(parentPath: "Legal", rootName: root) == "Legal")
+            // The root row still never reads as blank: the grouping's root label stands in.
+            #expect(DifferencesQuery.pathColumnText(parentPath: "", rootName: root)
+                    == DifferenceGrouping.rootLabel)
+        }
     }
 
     // MARK: Display helpers
@@ -213,32 +234,6 @@ import Sync
         #expect(diff("file", leftSize: 2048).enclosedItemsText == nil)
         #expect(diff("folder").enclosedItemsText == nil)
         #expect(diff("folder", enclosedItemCount: 0).enclosedItemsText == nil)
-    }
-
-    // MARK: Bulk chip direction (row chips quiet when they match the list majority)
-
-    @Test func testBulkCopyDirectionIsTheStrictMajority() {
-        let rightHeavy = [
-            diff("a", action: .copyToRight),
-            diff("b", action: .copyToRight),
-            diff("c", type: .missingOnLeft, action: .copyToLeft),
-        ]
-        #expect(DifferencesQuery.bulkCopyDirection(rightHeavy) == .copyToRight)
-        let leftHeavy = [
-            diff("a", type: .missingOnLeft, action: .copyToLeft),
-            diff("b", type: .missingOnLeft, action: .copyToLeft),
-            diff("c", action: .copyToRight),
-        ]
-        #expect(DifferencesQuery.bulkCopyDirection(leftHeavy) == .copyToLeft)
-        // A single-direction list is trivially its own bulk.
-        #expect(DifferencesQuery.bulkCopyDirection([diff("a", action: .copyToRight)]) == .copyToRight)
-    }
-
-    @Test func testBulkCopyDirectionIsNilOnTieOrEmpty() {
-        // No majority → nil, every chip renders at full weight.
-        let tie = [diff("a", action: .copyToRight), diff("b", type: .missingOnLeft, action: .copyToLeft)]
-        #expect(DifferencesQuery.bulkCopyDirection(tie) == nil)
-        #expect(DifferencesQuery.bulkCopyDirection([]) == nil)
     }
 
     // MARK: Selection-driven action targets

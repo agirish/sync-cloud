@@ -44,7 +44,7 @@ import Testing
     /// from other suites, nothing leaks to them, and no restore is owed on the way out.
     /// `@AppStorage`'s process-wide storage location for a standard-domain key can re-attach to
     /// a fresh view without re-reading the defaults, and a loaded run of this suite proved the
-    /// grouping key was not special: it drew Comfortable's 25pt data rows for Compact's entire
+    /// grouping key was not special: it drew Comfortable's 24pt data rows for Compact's entire
     /// 15s wait. A location born from this mount's own store cannot hold a foreign value. Full
     /// account: `DifferencesTableIdentityTests`.
     private func rowHeights(_ density: ListDensity,
@@ -79,7 +79,7 @@ import Testing
         // first lays row 0 out at the data-row height and only differentiates it when SwiftUI's
         // row-height invalidation runs. Under a full parallel test run that invalidation can be
         // starved well past any polite fixed window — measuring as soon as rows existed is how
-        // this test flaked, catching the header still at the data row's 25. So wait for the
+        // this test flaked, catching the header still at the data row's 24. So wait for the
         // settled pair the assertions expect, `waitForOrigin`-style (PaneColumnsScrollTests),
         // and on timeout return the last measurement so a real regression fails with the
         // numbers actually on screen rather than hanging the assertions on a nil.
@@ -99,13 +99,16 @@ import Testing
     }
 
     @Test func comfortableDrawsTheHeaderAtTheFloor() async throws {
-        let measured = await rowHeights(.comfortable, expectingData: 25)
+        let measured = await rowHeights(.comfortable, expectingData: 24)
         let heights = try #require(measured.heights,
                                    "table never produced rows after \(measured.pumps) passes")
         #expect(heights.header == Self.headerRowHeight)
         // Named so a failure says which number moved. The data row is the yardstick the header is
         // judged against — a header that grew because the whole table grew is a different bug.
-        #expect(heights.data == 25)
+        // 24, not a floor: comfortable sets no `tableMinRowHeight`, so the tallest cell decides —
+        // it was 25 while the "Copy to" pill chip lived in the row, and became the text cells' 24
+        // when the Path column replaced the chip.
+        #expect(heights.data == 24)
     }
 
     @Test func compactDrawsTheSameHeaderOverShorterRows() async throws {
@@ -119,7 +122,7 @@ import Testing
     /// The claim the padding constant's doc rests on, asserted rather than left as a comment: the
     /// densities differ in their data rows and agree on their header.
     @Test func theTwoDensitiesAgreeOnTheHeaderAndDisagreeOnTheRow() async throws {
-        let comfortableMeasured = await rowHeights(.comfortable, expectingData: 25)
+        let comfortableMeasured = await rowHeights(.comfortable, expectingData: 24)
         let compactMeasured = await rowHeights(.compact, expectingData: 20)
         let comfortable = try #require(comfortableMeasured.heights,
                                        "comfortable never produced rows after \(comfortableMeasured.pumps) passes")

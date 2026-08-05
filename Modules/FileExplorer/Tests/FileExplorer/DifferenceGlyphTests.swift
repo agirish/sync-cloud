@@ -28,7 +28,7 @@ import Sync
         #expect(DifferenceGlyph.color(for: .differentDates) == .orange)
         #expect(DifferenceGlyph.color(for: .nameConflict) == .yellow)
 
-        // The direction tint the table's "Copy to" chip uses must match the badge colors.
+        // The direction tints (fed into color(for:) above) must match the badge colors.
         #expect(DifferenceGlyph.color(toRight: true) == .blue)
         #expect(DifferenceGlyph.color(toRight: false) == .purple)
     }

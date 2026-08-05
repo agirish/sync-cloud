@@ -54,7 +54,7 @@ import Sync
         if grouped {
             Table(of: FileDifference.self, selection: selection,
                   sortOrder: .constant([KeyPathComparator(\FileDifference.fileName)])) {
-                TableColumn("Name", value: \.fileName) { DifferenceNameCell(difference: $0, grouped: true) }
+                TableColumn("Name", value: \.fileName) { DifferenceNameCell(difference: $0) }
             } rows: {
                 ForEach(DifferenceGrouping.sections(Self.rows)) { section in
                     SwiftUI.Section {

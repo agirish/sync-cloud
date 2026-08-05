@@ -383,6 +383,7 @@ extension FileSyncManager {
         verifiedIdenticalForCopy = nil
         lastRightProviderType = nil
         lastScanProviders = nil
+        lastScanRootNames = nil
         lastScanDate = nil
         if hasScanned { hasScanned = false }
 
@@ -472,8 +473,9 @@ extension FileSyncManager {
         // and the post-swap rescan re-learns the new right pane's type.
         lastRightProviderType = nil
         // The name-check provider pair stays valid across a swap — same two roots — but its
-        // side labels flip with everything else.
+        // side labels flip with everything else. Same for the Path column's root names.
         lastScanProviders = lastScanProviders.map { ($0.right, $0.left) }
+        lastScanRootNames = lastScanRootNames.map { ($0.right, $0.left) }
 
         // Same stale-filter-pass insurance as invalidateComparisonState: a pass holding a
         // pre-swap snapshot may publish after this method; a fresh pass over the swapped

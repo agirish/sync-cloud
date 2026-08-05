@@ -35,27 +35,38 @@ enum PaneListResolver {
     /// Single-column tables in `view`'s subtree. A multi-column table is a `Table` — the differences
     /// list — and never a pane list.
     static func singleColumnTables(in view: NSView) -> [NSTableView] {
+        tables(in: view, multiColumn: false)
+    }
+
+    /// Tables in `view`'s subtree, split by column count: the pane lists are the single-column
+    /// tables SwiftUI backs a `List` with, and the differences list is the one multi-column
+    /// `Table`. The split is the disambiguator — the pane stylers must never touch the
+    /// differences table and vice versa, and column count is the one property that separates
+    /// them regardless of where SwiftUI mounts either.
+    static func tables(in view: NSView, multiColumn: Bool) -> [NSTableView] {
         var result: [NSTableView] = []
         func walk(_ v: NSView) {
-            if let table = v as? NSTableView, table.tableColumns.count <= 1 { result.append(table) }
+            if let table = v as? NSTableView,
+               (table.tableColumns.count > 1) == multiColumn { result.append(table) }
             for sub in v.subviews { walk(sub) }
         }
         walk(view)
         return result
     }
 
-    /// The pane list occupying the same frame as `anchor`, or nil while nothing matches.
+    /// The list occupying the same frame as `anchor`, or nil while nothing matches. `multiColumn`
+    /// selects which kind of list the caller is anchored to (see `tables(in:multiColumn:)`).
     ///
     /// Returns nil for an unlaid-out anchor rather than guessing, so a caller can retry once
     /// SwiftUI has given it a size.
-    static func table(matching anchor: NSView) -> NSTableView? {
+    static func table(matching anchor: NSView, multiColumn: Bool = false) -> NSTableView? {
         let target = anchor.convert(anchor.bounds, to: nil)
         guard !target.isEmpty else { return nil }
         var root: NSView? = anchor.superview
         for _ in 0..<searchDepth {
             guard let candidate = root else { return nil }
-            let tables = singleColumnTables(in: candidate)
-            if !tables.isEmpty { return bestMatch(tables, target: target) }
+            let found = tables(in: candidate, multiColumn: multiColumn)
+            if !found.isEmpty { return bestMatch(found, target: target) }
             root = candidate.superview
         }
         return nil

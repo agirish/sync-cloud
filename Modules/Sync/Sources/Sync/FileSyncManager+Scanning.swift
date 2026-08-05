@@ -654,6 +654,9 @@ extension FileSyncManager {
             self.lastRightProviderType = request.right.type
             // The provider pair the destination name check attributes transfer targets to.
             self.lastScanProviders = (request.left, request.right)
+            // The compared folders' names, captured with the results they describe — the Path
+            // column must keep naming the scanned roots even if the panes navigate on.
+            self.lastScanRootNames = (leftURL.lastPathComponent, rightURL.lastPathComponent)
             self.lastScanDate = Date()
             self.verifiedSameDifferenceIds.removeAll()
             // A fresh scan regenerates every row's id, so a "copy verified-identical left→right"

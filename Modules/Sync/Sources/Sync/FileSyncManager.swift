@@ -66,6 +66,15 @@ public class FileSyncManager: ObservableObject {
     /// on provider changes and swapped in `swapPanes`.
     var lastScanProviders: (left: CloudProvider, right: CloudProvider)?
 
+    /// The last path component of each compared folder at the moment the most recent scan's
+    /// results were published — what the differences table's Path column anchors its paths to,
+    /// so a root-level row can say "Home" instead of nothing. Captured with the results rather
+    /// than read live from the panes: the panes can navigate away while the diff still describes
+    /// the folders that were scanned. nil until a scan lands; cleared with the rest of the
+    /// comparison state and swapped in `swapPanes`. Not `@Published` — it changes only inside
+    /// the same publish that replaces `differences`, which already re-renders every reader.
+    public internal(set) var lastScanRootNames: (left: String, right: String)?
+
     /// When the most recent comparison scan completed, for the pane header's freshness pill. nil
     /// until a scan lands and whenever the comparison state is invalidated (provider change), so a
     /// stale timestamp never outlives the diff it describes. A swap keeps it (same scan, sides

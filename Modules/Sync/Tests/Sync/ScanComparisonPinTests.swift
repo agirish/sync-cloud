@@ -76,6 +76,36 @@ import Foundation
         #expect(!manager.isScanning)
     }
 
+    /// The Path column's anchor: a completed scan captures the two compared folders' NAMES with
+    /// the results, a swap flips them with everything else, and a pane retarget clears them with
+    /// the rest of the comparison state. Deliberately distinct names ("Home" vs "Backup") — a
+    /// fixture where both sides matched could not tell a flip from a no-op.
+    @MainActor
+    @Test func testScanCapturesRootNamesAndSwapAndInvalidateFollow() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/vol/Home"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/vol/Backup"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/vol/Home/only.txt"] = fileStub()
+
+        let manager = FileSyncManager(fileManager: mockFM)
+        #expect(manager.lastScanRootNames == nil, "no scan has landed yet")
+
+        await manager.scanDirectories(left: Self.left, leftPath: "/vol/Home",
+                                      right: Self.right, rightPath: "/vol/Backup")
+        let captured = try #require(manager.lastScanRootNames)
+        #expect(captured.left == "Home")
+        #expect(captured.right == "Backup")
+
+        #expect(manager.swapPanes())
+        let swapped = try #require(manager.lastScanRootNames)
+        #expect(swapped.left == "Backup", "the root names did not trade sides with the panes")
+        #expect(swapped.right == "Home")
+
+        manager.invalidateDifferencesForPaneRetarget()
+        #expect(manager.lastScanRootNames == nil,
+                "a retarget must clear the captured roots — the diff they anchored is gone")
+    }
+
     @MainActor
     @Test func testHiddenFileDifferenceFollowsShowHiddenToggleWithoutRescan() async throws {
         let mockFM = MockFileManager()

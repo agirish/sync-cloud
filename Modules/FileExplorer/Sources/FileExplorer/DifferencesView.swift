@@ -135,6 +135,15 @@ public struct DifferencesView: View {
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
+    /// The compared folder's name the Path column anchors its paths to — "Home" when the last
+    /// scan compared two folders both called Home, which is the overwhelmingly common shape (the
+    /// panes mirror each other). Nil when the two roots carry different names — anchoring at
+    /// either would misname the other side — or before any scan lands; the cells then fall back
+    /// to the bare parent path (see `DifferencesQuery.pathColumnText`).
+    private var pathRootName: String? {
+        guard let roots = syncManager.lastScanRootNames, roots.left == roots.right else { return nil }
+        return roots.left
+    }
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
@@ -1193,6 +1202,8 @@ public struct DifferencesView: View {
         return Table(session.queue, selection: $reviewSelection) {
             TableColumn("Name") { DifferenceNameCell(difference: $0, compact: compact, paneRules: paneRules, keptNames: keptNames) }
             TableColumn("Change") { DifferenceChangeCell(difference: $0, compact: compact) }
+            TableColumn("Path") { DifferencePathCell(difference: $0, compact: compact, rootName: pathRootName) }
+                .width(min: 80, ideal: 150)
             TableColumn("Size") { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
             TableColumn("Status") { ReviewStatusCell(difference: $0, session: session) }
@@ -1223,13 +1234,9 @@ public struct DifferencesView: View {
         if let progress = syncManager.bulkSyncProgress {
             syncProgressRow(verb: "Syncing", completed: progress.completed, total: progress.total)
         }
-        // Rows going the same way as the bulk of the list quiet their direction chip; the
-        // majority is read over the whole visible list, not the selection.
-        let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
         let compact = listDensity == .compact
         // `sections` is empty when grouping is off OR when it would not be worth it — both gates
-        // live in `groupedSections`, so this asks one question. Read here, once, by both the Name
-        // column and the rows builder, so the column cannot disagree with the shape it is drawing.
+        // live in `groupedSections`, so the rows builder asks one question.
         let grouped = !sections.isEmpty
         // ONE Table, whichever shape the rows take.
         //
@@ -1248,16 +1255,17 @@ public struct DifferencesView: View {
         // and `sortOrder` is bound here only to drive the header chevrons.
         //
         // The columns being defined once is the point, not a bonus: they were duplicated verbatim
-        // across both branches with nothing pinning them identical, and they had ALREADY drifted —
-        // the Name column passed `grouped: true` in the sectioned branch and defaulted in the flat
-        // one. Sharing them makes that class of drift unrepresentable.
+        // across both branches with nothing pinning them identical, and they had ALREADY drifted
+        // before the collapse. Sharing them makes that class of drift unrepresentable.
         Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped, paneRules: paneRules, keptNames: keptNames) }
+            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, paneRules: paneRules, keptNames: keptNames) }
             TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
+            // Sorted on the bare parent (root rows first, siblings adjacent); the cell prints it
+            // anchored at the compared folder's name so a root-level row reads "Home", not "".
+            TableColumn("Path", value: \.parentPath, comparator: .localizedStandard) { DifferencePathCell(difference: $0, compact: compact, rootName: pathRootName) }
+                .width(min: 80, ideal: 150)
             TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
-            TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
-                .width(min: 96, ideal: 140)
         } rows: {
             if grouped {
                 ForEach(sections) { section in
@@ -1297,6 +1305,13 @@ public struct DifferencesView: View {
         .scrollContentBackground(.hidden)
         .tableStyle(.inset(alternatesRowBackgrounds: false))
         .listDensity(listDensity)
+        // Sort chevrons and other table chrome follow the app hue, as in the review table.
+        .tint(glassHue.accentColor)
+        // The selection: the same accent wash the panes draw, in place of the OS highlight —
+        // full pane strength, since this table has no active/inactive pairing to signal.
+        .background(DifferencesTableSelectionStyler(
+            washColor: NSColor(glassHue.accentColor)
+                .withAlphaComponent(PaneSelectionWash.active)))
         .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
             differenceContextMenu(for: ids, in: sorted)
         }
@@ -1917,7 +1932,7 @@ struct DifferenceSectionHeader: View {
     /// overshot is that this padding is not the only thing setting the row's height: a SwiftUI
     /// Table adds ~8pt of its own chrome around a hosted section header, so at Comfortable — where
     /// nothing is pinned and the Table measures its rows — 7pt of padding became a 38pt row around
-    /// 16pt of text, better than half again a 25pt data row. Collapsed, that is the entire view.
+    /// 16pt of text, better than half again a 24pt data row. Collapsed, that is the entire view.
     ///
     /// **2 is the end of the lever, not a preference.** A section header row cannot go below 28pt,
     /// and 2 is the largest padding that reaches it — measured off a mounted table rather than
@@ -2038,23 +2053,20 @@ struct DifferenceSectionHeader: View {
     }
 }
 
-/// Name column: type glyph, dimmed parent path, then the filename — single line, middle-truncated.
+/// Name column: type glyph then the filename — single line, middle-truncated. The row's
+/// location lives in the Path column (it used to be a dimmed prefix here, where a root-level
+/// row showed nothing and a long name truncated it away); the full relative path stays on the
+/// hover help.
 ///
 /// `compact` shrinks the cell text to subheadline so it fits the compact row height — the
 /// Table doesn't propagate an ambient `.font` into its cells (see `listDensity(_:)` in
 /// Design), so each default-font cell opts in itself (via `compactCellFont`).
 ///
-/// Internal rather than file-private so `FileExplorerSnapshotTests.differenceNameCellGroupedVersusFlat`
-/// can render both modes: the pure `pathWithinSection` helper is well covered, but nothing pinned
-/// that the cell actually SHOWS the shortened prefix — same reason `DifferenceSectionHeader` is
-/// internal.
+/// Internal rather than file-private so `FileExplorerSnapshotTests` can render it directly —
+/// same reason `DifferenceSectionHeader` is internal.
 struct DifferenceNameCell: View {
     let difference: FileDifference
     var compact: Bool = false
-    /// True when a folder section header is already naming this row's top-level folder, in which
-    /// case the prefix drops that component instead of repeating it (`DifferenceGrouping
-    /// .pathWithinSection`). The full path is still on the row's hover help either way.
-    var grouped: Bool = false
     /// Both panes' rulesets. Defaulted to the strictest so every existing caller — and every test
     /// that builds this cell directly — behaves as it did, rather than needing a provider it has
     /// no opinion about.
@@ -2062,11 +2074,6 @@ struct DifferenceNameCell: View {
     /// Names the user has said they meant, so a keep made from a pane row also silences the badge
     /// here. Empty for callers with no store.
     var keptNames: Set<String> = []
-
-    /// The dimmed prefix ahead of the filename, or "" for none.
-    private var prefix: String {
-        grouped ? DifferenceGrouping.pathWithinSection(difference) : difference.parentPath
-    }
 
     /// Why this name will not survive this comparison, or nil when it will.
     ///
@@ -2096,10 +2103,6 @@ struct DifferenceNameCell: View {
                 .symbolRenderingMode(.hierarchical)
             // Affix whitespace made visible (NameDisplay): a row can exist precisely because
             // its name differs invisibly from the other side's ("Swimming␣" vs "Swimming").
-            if !prefix.isEmpty {
-                Text(NameDisplay.visiblePath(prefix) + "/")
-                    .foregroundStyle(.secondary)
-            }
             Text(NameDisplay.visibleName(difference.fileName))
                 .fontWeight(.medium)
                 .layoutPriority(1)
@@ -2179,32 +2182,29 @@ private struct ReviewStatusCell: View {
     }
 }
 
-/// Copy-to column: a small tinted direction chip (blue → right, purple → left) naming the
-/// destination pane. Rows going the same way as the bulk of the list quiet the chip to dim
-/// text — 559 identical capsules repeat what the header already says — and re-ink it on
-/// hover; counter-direction rows keep the full chip, so the exceptions pop.
-private struct DifferenceDirectionCell: View {
+/// Path column: where the row's file lives, anchored at the compared folder's name — "Home"
+/// for a root-level row, "Home/Legal" for a nested one (`DifferencesQuery.pathColumnText`).
+/// This replaced the "Copy to" direction chip, which only restated the Change column's
+/// "Missing on right (Dropbox)" — while a root-level file's location appeared NOWHERE on the
+/// row: no prefix (empty parent), no section header (grouping needs multiple folders), only a
+/// tooltip. Middle-truncated so both the anchor and the nearest parent survive a squeeze.
+///
+/// Internal rather than file-private so `FileExplorerSnapshotTests` can render it directly.
+struct DifferencePathCell: View {
     let difference: FileDifference
-    let paneNames: PaneProviderNames
-    let bulkDirection: FileDifference.SyncAction?
-
-    @State private var isHovered = false
+    var compact: Bool = false
+    /// The compared folder's name, or nil when the two roots disagree (see
+    /// `DifferencesView.pathRootName`) — the cell then shows the bare parent path.
+    var rootName: String? = nil
 
     var body: some View {
-        let toRight = difference.action == .copyToRight
-        let tint = DifferenceGlyph.color(toRight: toRight)
-        let isQuiet = difference.action == bulkDirection && !isHovered
-        HStack(spacing: 4) {
-            Image(systemName: toRight ? "arrow.right" : "arrow.left")
-                .scaledFont(PillVariant.mini.iconFont)
-            Text(toRight ? paneNames.right : paneNames.left)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .scaledFont(PillVariant.mini.labelFont)
-        .foregroundStyle(isQuiet ? AnyShapeStyle(.tertiary) : AnyShapeStyle(tint))
-        .pillSurface(.mini, tint: tint, showsFill: !isQuiet)
-        .onHover { isHovered = $0 }
+        Text(NameDisplay.visiblePath(
+            DifferencesQuery.pathColumnText(parentPath: difference.parentPath, rootName: rootName)))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .compactCellFont(compact)
+            .help(NameDisplay.visiblePath(difference.relativePath))
     }
 }
 

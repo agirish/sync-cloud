@@ -179,44 +179,33 @@ import Sync
             named: "section-headers")
     }
 
-    /// The Name cell's two modes, which differ ONLY in how much of the path they print.
+    /// The Name and Path cells side by side, as the table now splits them: the name alone in the
+    /// Name cell, the location in the Path cell anchored at the compared folder's name.
     ///
-    /// `pathWithinSection` is well covered as a pure function, but nothing pinned that the cell
-    /// actually SHOWS its result: `grouped` could stop being read, or be read backwards, and every
-    /// existing test would still pass. The reference must show the grouped rows printing only the
-    /// path BELOW their folder and the flat rows printing the whole parent — the top pair being the
-    /// same file, so the difference between the two lines is the entire subject of the snapshot.
-    ///
-    /// Both modes in one image on purpose: the defect 507d641 fixed is a *comparison* (the folder
-    /// appearing twice, once in a header and once in the row), so a reference that showed one mode
-    /// alone would leave a reviewer nothing to compare against.
-    @Test func differenceNameCellGroupedVersusFlat() {
+    /// `pathColumnText` is well covered as a pure function, but nothing else pins that the cell
+    /// actually SHOWS its result — the cell could stop passing `rootName` through and every pure
+    /// test would still pass. The last row is the entire point of the column: a ROOT-level file,
+    /// whose location used to render as nothing at all (empty prefix, no section header), must
+    /// print the compared folder's own name ("Home"), not a blank.
+    @Test func differenceNameAndPathCells() {
         let paths = ["Claude/Projects/Investing/notes.md",
                      "Immigration/Authorization/H-1B/form.pdf",
                      "Work/report.docx",
                      "loose.pdf"]
-        func cells(grouped: Bool) -> some View {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(grouped ? "grouped: true — header already names the folder" : "grouped: false — whole parent")
-                    .font(.caption2).foregroundStyle(.secondary)
+        assertViewSnapshot(
+            of: VStack(alignment: .leading, spacing: 3) {
                 ForEach(paths, id: \.self) { path in
-                    DifferenceNameCell(difference: Self.difference(path), grouped: grouped)
+                    HStack(spacing: 12) {
+                        DifferenceNameCell(difference: Self.difference(path))
+                            .frame(width: 180, alignment: .leading)
+                        DifferencePathCell(difference: Self.difference(path), rootName: "Home")
+                    }
                 }
             }
-        }
-        assertViewSnapshot(
-            of: VStack(alignment: .leading, spacing: 10) {
-                cells(grouped: true)
-                Divider()
-                cells(grouped: false)
-            }
-            .frame(width: 400, alignment: .leading)
+            .frame(width: 460, alignment: .leading)
             .padding(10),
-            // Tall enough for all eight rows: the last flat row is the ROOT-level one, where both
-            // modes must agree on printing no prefix at all, so a canvas that clipped it would hide
-            // the one comparison in the image that is supposed to come out equal.
-            size: CGSize(width: 420, height: 230),
-            named: "name-cell-grouped-vs-flat")
+            size: CGSize(width: 480, height: 120),
+            named: "name-and-path-cells")
     }
 
     private static func difference(_ relativePath: String) -> FileDifference {

@@ -101,6 +101,26 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) == nil)
     }
 
+    /// The differences table's styler asks for the OPPOSITE split: the one multi-column `Table`,
+    /// never a pane list. Same resolver, same frame anchoring, inverted column filter.
+    @Test func testMultiColumnModeResolvesTheDifferencesTable() {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 300)
+        let (scroll, table) = list(at: frame, columns: 4)
+        let anchor = anchor(at: frame)
+        _ = nest([scroll, anchor])
+        #expect(PaneListResolver.table(matching: anchor, multiColumn: true) === table)
+    }
+
+    /// And a pane list under a multi-column anchor is refused — the differences styler painting
+    /// washes into a pane list would double up the pane's own selection drawing.
+    @Test func testMultiColumnModeIgnoresPaneLists() {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 300)
+        let (scroll, _) = list(at: frame, columns: 1)
+        let anchor = anchor(at: frame)
+        _ = nest([scroll, anchor])
+        #expect(PaneListResolver.table(matching: anchor, multiColumn: true) == nil)
+    }
+
     /// An anchor SwiftUI has not sized yet resolves to nothing rather than matching whatever
     /// happens to sit at the origin — the caller retries once it has a frame.
     @Test func testAnUnlaidOutAnchorResolvesToNothing() {

@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import SwiftUI
 import Sync
 import Testing
@@ -257,6 +258,12 @@ import Testing
     /// the ⌘←/⌘→ copy shortcut hang off that binding, and the review flagged them as "under
     /// suspicion of not binding through" the enclosing `Group` the two Tables sat in. That Group
     /// is gone — the modifiers now attach to the Table itself — and this keeps both shapes honest.
+    ///
+    /// Selectability used to be pinned by `selectionHighlightStyle != .none`. That is now the
+    /// WRONG sign: `DifferencesTableSelectionStyler` deliberately sets `.none` (the OS highlight
+    /// is replaced by the accent wash, as in the panes), and `.none` only suppresses AppKit's
+    /// selection DRAWING — the selection itself, asserted below by the row actually selecting,
+    /// is untouched. Waiting for `.none` first also proves the styler resolved this table.
     @Test func bothRowShapesAcceptSelection() async throws {
         for grouped in [false, true] {
             let (host, window, _) = mount(grouped: grouped)
@@ -267,7 +274,9 @@ import Testing
             #expect(settled.rows == expected,
                     "grouped=\(grouped) settled at \(settled.rows) row(s) after \(settled.pumps) passes, expected \(expected)")
             let table = try #require(tableView(in: host))
-            #expect(table.selectionHighlightStyle != .none, "grouped=\(grouped): table is not selectable")
+            let styled = await wait(host, for: { table.selectionHighlightStyle == .none })
+            #expect(styled.held,
+                    "grouped=\(grouped): the wash styler never reached the table after \(styled.pumps) passes")
 
             // Row 0 is a section header in the grouped shape, so reach past it for a data row.
             let target = grouped ? 1 : 0
@@ -276,6 +285,51 @@ import Testing
             #expect(selected.held,
                     "grouped=\(grouped): row \(target) would not select after \(selected.pumps) passes")
         }
+    }
+
+    /// The selected row wears the panes' accent wash — hue and strength — and sheds it on
+    /// deselection. This is the user-visible half of what replacing the OS highlight bought:
+    /// `.none` alone would leave selection INVISIBLE, which no count of green selection-binding
+    /// assertions could distinguish from styled (see the memory of asserting the container, not
+    /// the outcome — the wash view's presence and color are the outcome here).
+    @Test func selectedRowsWearTheAccentWash() async throws {
+        let (host, window, _) = mount(grouped: false)
+        defer { window.contentView = nil }
+
+        let settled = await settle(host, atRows: 12)
+        #expect(settled.rows == 12,
+                "settled at \(settled.rows) row(s) after \(settled.pumps) passes, not the 12 fixture rows")
+        let table = try #require(tableView(in: host))
+        let styled = await wait(host, for: { table.selectionHighlightStyle == .none })
+        #expect(styled.held, "the wash styler never reached the table after \(styled.pumps) passes")
+
+        func wash(row: Int) -> SelectionWashView? {
+            table.rowView(atRow: row, makeIfNecessary: false)?
+                .subviews.compactMap { $0 as? SelectionWashView }.first
+        }
+
+        table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
+        let washed = await wait(host, for: { wash(row: 2) != nil }, timeout: 5)
+        #expect(washed.held, "no wash appeared on the selected row after \(washed.pumps) passes")
+        #expect(wash(row: 3) == nil, "an unselected row is wearing the selection wash")
+
+        // The exact wash the panes draw: the app accent (blue — the scratch store carries no hue
+        // override) at the active pane strength. Compared component-wise in sRGB because both
+        // sides are dynamic colors.
+        let painted = try #require(wash(row: 2)?.color.usingColorSpace(.sRGB))
+        let expected = try #require(NSColor(LiquidGlassHue.blue.accentColor)
+            .withAlphaComponent(PaneSelectionWash.active).usingColorSpace(.sRGB))
+        for (name, a, b) in [("red", painted.redComponent, expected.redComponent),
+                             ("green", painted.greenComponent, expected.greenComponent),
+                             ("blue", painted.blueComponent, expected.blueComponent),
+                             ("alpha", painted.alphaComponent, expected.alphaComponent)] {
+            #expect(abs(a - b) < 0.02, "wash \(name) is \(a), the panes' wash is \(b)")
+        }
+
+        // Deselection must take the wash with it, or every visited row stays painted.
+        table.selectRowIndexes(IndexSet(), byExtendingSelection: false)
+        let cleared = await wait(host, for: { wash(row: 2) == nil }, timeout: 5)
+        #expect(cleared.held, "the wash outlived its selection after \(cleared.pumps) passes")
     }
 
     /// The four columns are declared once now, so both shapes must show the same four in the same
@@ -300,7 +354,7 @@ import Testing
                     "grouped=\(grouped) settled at \(settled.rows) row(s) after \(settled.pumps) passes, expected \(expected)")
             seen.append(try #require(tableView(in: host)).tableColumns.map(\.title))
         }
-        #expect(seen[0] == ["Name", "Change", "Size", "Copy to"], "flat columns were \(seen[0])")
+        #expect(seen[0] == ["Name", "Change", "Path", "Size"], "flat columns were \(seen[0])")
         #expect(seen[0] == seen[1], "grouped drew \(seen[1]), flat drew \(seen[0])")
     }
 }
