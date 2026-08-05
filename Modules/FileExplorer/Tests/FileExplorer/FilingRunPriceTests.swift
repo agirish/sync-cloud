@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import Foundation
 import Sync
 import SwiftUI
@@ -142,6 +143,34 @@ import Testing
         // Guards the vacuity trap: a card that laid out to the right size but drew nothing would
         // satisfy every other assertion here.
         #expect(inkedPixels(render(card(nil))) > 500)
+    }
+
+    @MainActor
+    private func card(intro: LensIntro) -> some View {
+        FilingSetupCard(intro: intro,
+                        price: FilingRunPrice.Readout(buttonSuffix: nil, detail: nil),
+                        accent: .blue, onStart: {})
+    }
+
+    /// Every part of the intro has to reach the card, and the safety line most of all.
+    ///
+    /// Replacing `EmptyStateView` with a bespoke card moved the safety contract out of the slot
+    /// that template documents as its home. If the card had simply dropped that `Text`, nothing
+    /// would have caught it: `LensIntroTests` pins that `LensIntros` CONTAINS a safety line, and
+    /// containing it is not showing it. Rendering the same card with the field blanked and
+    /// comparing ink is what tells those two apart.
+    @MainActor
+    @Test(arguments: ["title", "message", "safety"])
+    func everyPartOfTheIntroReachesTheCard(blanked: String) {
+        let full = LensIntros.organize(scanTargetName: "TODO")
+        let stripped = LensIntro(
+            icon: full.icon,
+            title: blanked == "title" ? "" : full.title,
+            message: blanked == "message" ? "" : full.message,
+            safety: blanked == "safety" ? "" : full.safety)
+        #expect(inkedPixels(render(card(intro: full)))
+                > inkedPixels(render(card(intro: stripped))),
+                "blanking \(blanked) did not change what the card paints")
     }
 
     @MainActor
