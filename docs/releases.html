@@ -132,9 +132,65 @@
 
 <div class="timeline">
 
+  <!-- v3.1 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v3.1</span><span class="tag latest">Latest</span></div>
+    <p class="lede">Two questions this release answers that the app used to leave to you: <i>where is the file I'm thinking of?</i> and <i>what is this scan going to cost me?</i> The panes get a real find (⌘F), and the lenses stop re-doing — and, with Claude selected, re-billing — work they have already done. Around those two: hold ⌥ to see every shortcut on screen, an inspector answer for "where does this file live?", and "Find duplicates of this" on every file row. On the v3 line, so it <b>requires macOS 26</b> — coming from 2.x, read the v3.0 entry first.</p>
+    <div class="grp">
+      <h3>Find in the panes</h3>
+      <ul class="flist">
+        <li><span class="ic">🔍</span><span><b>⌘F searches inside a pane's tree — as a find, not a filter.</b> Every list in the app already had search; the two panes, the hardest and most useful half, had none. Matches keep their place in the tree: the matched run is bolded, everything off the path to an answer dims but stays readable, and a collapsed folder with hits inside says "2 matches" instead of hiding them. Nothing is removed, because the tree's shape — where a hit <i>sits</i> — is the answer.</span></li>
+        <li><span class="ic">↩</span><span><b>↩ and ⇧↩ walk the hits</b>, opening only the folders on the way to each one, in Tree and Columns alike; switching view mode mid-search keeps your place. Esc puts the field away. In Compare, each hit says <b>"both sides"</b> or <b>"left only"</b> — which side a copy is missing from is usually the reason for searching at all.</span></li>
+        <li><span class="ic">☁</span><span><b>A search never touches the disk.</b> It runs over the tree the pane has already loaded, so a query cannot make a cloud provider download anything.</span></li>
+        <li><span class="ic">▤</span><span><b>The magnifier joins the pane bar</b>, including — once — on a bar you had customized before it existed. Remove it and it stays removed; ⌘F works either way.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Nothing unchanged is paid for twice</h3>
+      <ul class="flist">
+        <li><span class="ic">↺</span><span><b>Organize reuses suggestions for files that haven't changed.</b> A file with the same content, under the same model and instructions, gets the suggestion it got last time — without asking the model, which with Claude selected means <b>without paying for it</b>. A "reused" pill on the results says what the scan got for free; <b>Rescan ▸ Ignore saved suggestions</b> asks afresh (and says that it re-runs the paid classification); switching models re-asks everything, and Settings ▸ Organize says so, shows how many suggestions are saved, and can clear them.</span></li>
+        <li><span class="ic">$</span><span><b>The price is on the button that spends it.</b> Organize's setup card quotes your last cloud run — file count, model, cost — before you start, instead of after. On a genuine first run it says the run is billed rather than inventing a number.</span></li>
+        <li><span class="ic">⚡</span><span><b>Verify and Duplicates stop re-reading gigabytes they have already read.</b> File digests persist across launches, so a rescan of an unchanged tree skips the reads entirely — and a cancelled scan keeps what it measured, because the reading had already happened. Merges keep their digests too.</span></li>
+        <li><span class="ic">◔</span><span><b>Storage opens with your last report instead of an empty panel</b>, marked with how old the reading is — "Scanned 2h ago", amber once it is stale — because a saved report is a reading, not a live one. Storage is the one lens whose results are safe to restore: its only action is Reveal in Finder, so a stale row can't misdirect a destructive apply.</span></li>
+        <li><span class="ic">⚙︎</span><span><b>Everything kept is visible and clearable.</b> Saved suggestions live under Settings ▸ Organize; the file digests and saved Storage reports under Settings ▸ Advanced ▸ Saved scan data, each with its size on disk and a Clear. Clearing costs time on the next scan and nothing else.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Hold ⌥ to see every shortcut</h3>
+      <ul class="flist">
+        <li><span class="ic">⌥</span><span><b>Hold ⌥ for a fifth of a second and every control with a keyboard shortcut grows a key badge</b>; release and they vanish. The control fades back and an opaque keycap takes its place, so nothing shifts and nothing is half-covered. Starting a chord, clicking, or typing cancels the reveal — ⌥-click still acts on both panes exactly as before.</span></li>
+        <li><span class="ic">💬</span><span><b>The shortcuts were already there; now they are discoverable in passing</b>: the ⌥ hold is new, and every badged control's tooltip now names the shortcut beside the action — joining the ⌘/ reference window that already listed them all. VoiceOver hears each control's shortcut unconditionally, since a held modifier is not a discovery path a screen reader can use.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Where a file lives</h3>
+      <ul class="flist">
+        <li><span class="ic">ℹ</span><span><b>The Info inspector answers "where does this file live?"</b> — <i>This Mac only</i>, <i>This Mac · iCloud</i>, or <i>OneDrive only</i> — as the conclusion of two facts shown right above it: the path, and whether the content is downloaded. The wording is deliberately literal. "This Mac only" means the path is inside no cloud-synced folder — never "unprotected", and never a guess: when the answer can't be proved, the row shows nothing rather than something plausible.</span></li>
+        <li><span class="ic">⌂</span><span><b>Rows in a folder source carry a small ⌂ when a file is on this Mac only</b> — the mirror of the ☁ cloud-only badge, in the same quiet grey, and free: it is pure path arithmetic, no syscall per row. Inside a cloud source's own pane it never appears, because there it would mark everything and mean nothing.</span></li>
+        <li><span class="ic">✓</span><span><b>A disabled source still counts as a second copy.</b> Its folder is on disk whether or not the checkbox is on, so disabling a provider cannot make its files report riskier than they are.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Find duplicates of this</h3>
+      <ul class="flist">
+        <li><span class="ic">⧉</span><span><b>Every file row's context menu can ask "does this have copies?"</b> — the question Duplicates answers in bulk, scoped to the one file you're looking at. If the current results already cover it, you land on its group, expanded, marked, and scrolled into view. If not, the right scan starts first.</span></li>
+        <li><span class="ic">🛡</span><span><b>"No duplicates" is only ever said by a scan that actually looked.</b> A file outside what was last scanned gets "<i>wasn't in the last scan</i>" and a button that scans its own folder — not a confident all-clear borrowed from results that never saw it.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Appearance &amp; fixes</h3>
+      <ul class="flist">
+        <li><span class="ic">🎨</span><span><b>The segmented pickers in Settings follow the app's accent.</b> Choosing Cyan used to recolour the rail and leave Theme, Text size and List density in system blue. The "None" accent keeps the stock macOS look untouched — that being the point of "None".</span></li>
+        <li><span class="ic">🎨</span><span><b>The seam between the panes wears its swap/link capsule in the app hue again.</b> v3.0 had rested it on a neutral grey wash to sit level with the nav pills; floating over pane content on an already-tinted window, grey read as unstyled rather than as quiet. It is back to a frosted accent capsule, with its glyph inks bounded so every hue stays legible on it.</span></li>
+        <li><span class="ic">✓</span><span><b>Switching providers no longer leaves the previous provider's Storage report on screen.</b> Every other lens cleared its results on a source switch; Storage kept showing numbers measured somewhere else, under a folder chip naming a root the window no longer showed. Read-only, so nothing could be misapplied — but it was a reading attributed to the wrong place.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v3.0...v3.1">v3.0...v3.1</a></p>
+  </article>
+
   <!-- v3.0 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v3.0</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v3.0</span><span class="tag">The v3 line</span></div>
     <p class="lede">The first release on the v3 line, and the first one that <b>requires macOS 26</b>. Three things here are new rather than repaired: any folder on this Mac can be a source, a name the cloud will reject is reported and marked where you already are instead of behind a tab you had to remember to visit, and the scan is roughly twice as fast on a real provider root. The navigation above all of it went from two levels to one. Changes that shipped in v2.9 are not repeated here — if you are coming from v2.8, read that entry too.</p>
     <div class="grp">
       <h3>Requires macOS 26</h3>
