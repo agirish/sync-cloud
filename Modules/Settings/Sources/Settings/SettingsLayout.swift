@@ -120,7 +120,7 @@ enum SettingsSheetMetrics {
 
     /// A settings page's side inset. Named rather than inline because it is the difference between
     /// the content COLUMN and the width a control actually gets, which is what
-    /// `theTextSizeRowFitsTheNarrowestColumnAtTheLargestTextSize` measures against.
+    /// `theTextSizeRowFitsTheNarrowestColumnTheSheetCanOffer` measures against.
     static let pagePaddingH: CGFloat = 18
 
     /// The sheet's size: the base size scaled by the text setting, then clamped to what the host

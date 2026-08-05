@@ -40,7 +40,8 @@ import Testing
     /// has to earn it, which is exactly what `accentFillColor` guarantees.
     ///
     /// This is the assertion that fails if someone "simplifies" `SegmentedAccent.tint(for:)` to
-    /// `hue.accentColor` — six of the twelve hues drop below 4.5:1.
+    /// `hue.accentColor` — measured, that drops NINE of the eleven named hues below 4.5:1 (only
+    /// Indigo and Slate are dark enough raw), the worst being Cyan at 2.07:1.
     @Test func theTintCarriesTheWhiteLabelAppKitImposes() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let ratio = whiteContrast(srgb(SegmentedAccent.tint(for: hue)))
@@ -62,15 +63,21 @@ import Testing
     /// The tint must be colour and nothing else. A modifier that changed the control's metrics
     /// would reflow the Settings sheet, whose Appearance tab already fits its opening with single
     /// digits of slack — and the pane bar sheet's picker is inside a `.fixedSize()` footer row.
+    ///
+    /// The specimen must have a segment genuinely SELECTED. The selection is the part the tint
+    /// actually colours — it is the `WindowPortal` lift — so a fixture whose `selection` matches no
+    /// tag measures the one state in which the tint has nothing to do, and would be blind to a
+    /// modifier that only disturbed the selected segment. (This test shipped that way: its tags
+    /// were `rawValue.hashValue` against a `selection` of `1`, which matched nothing.)
     @MainActor
     @Test func tintingChangesNoMetrics() {
         struct Specimen: View {
             var hue: LiquidGlassHue?
-            @State private var selection = 1
+            @State private var selection = FontSize.medium.rawValue
             var body: some View {
                 Picker("Text size", selection: $selection) {
                     ForEach(FontSize.allCases) { size in
-                        Text(size.displayName).tag(size.rawValue.hashValue)
+                        Text(size.displayName).tag(size.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -90,6 +97,10 @@ import Testing
             return host.fittingSize
         }
 
+        // The premise the fixture depends on: the specimen's selection names a tag that exists.
+        #expect(FontSize.allCases.contains { $0.rawValue == FontSize.medium.rawValue },
+                "the specimen selects a tag no segment carries — nothing is selected")
+
         let bare = size(nil)
         #expect(bare.width > 0 && bare.height > 0, "the specimen laid out to nothing")
         for hue in LiquidGlassHue.allCases {
@@ -107,40 +118,99 @@ import Testing
     /// Scans sources rather than views because a SwiftUI tree cannot be asked what tint it carries;
     /// `SettingsSearchTests.controlLabelsInTabSources` reads sources for the same reason.
     @Test func everySegmentedPickerInTheAppTakesTheAppAccent() throws {
-        let modules = URL(fileURLWithPath: #filePath)   // …/Design/Tests/DesignTests/<this>.swift
+        var sites = 0
+        for file in try Self.appSwiftSources() {
+            // Collapse whitespace first, and ask the COLLAPSED text whether this file has a
+            // segmented picker: a chain that happens to wrap as `.pickerStyle(\n.segmented)` is
+            // invisible to the same question asked of the raw source, and would be skipped whole.
+            let collapsed = try String(contentsOf: file, encoding: .utf8)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard collapsed.contains(".pickerStyle(.segmented)") else { continue }
+
+            // One picker's modifier chain runs from its own `Picker(` to the next one, so
+            // splitting there bounds each chain EXACTLY. The first draft counted characters
+            // instead (a 220-char window), which is both fragile and wrong in the dangerous
+            // direction: measured, the nearest following `Picker(` in SettingsView sits 201
+            // characters away, so 19 more characters of caption would have let one picker's
+            // window reach its neighbour's tint and report a missing tint as present.
+            //
+            // Splitting on `Picker(` also catches `DatePicker(`/`ColorPicker(`, which only adds
+            // harmless extra boundaries — none of them can fall inside a segmented picker's chain.
+            for chunk in collapsed.components(separatedBy: "Picker(")
+            where chunk.contains(".pickerStyle(.segmented)") {
+                sites += 1
+                let site = "\(file.lastPathComponent): \(String(chunk.prefix(90)))"
+                guard let argRange = chunk.range(of: ".accentedSegments(") else {
+                    Issue.record("""
+                        A `.segmented` picker in \(site) does not call `.accentedSegments(hue)`, \
+                        so its selection will paint the SYSTEM accent while the rest of the window \
+                        follows the app's.
+                        """)
+                    continue
+                }
+                // ...and it has to be handed the LIVE hue. `.accentedSegments(.blue)` would tint
+                // every picker blue for ever, which is the same bug wearing the fix's clothes and
+                // is invisible to every other test here.
+                let argument = chunk[argRange.upperBound...].prefix { $0 != ")" }
+                    .trimmingCharacters(in: .whitespaces)
+                #expect(!argument.hasPrefix("."),
+                        """
+                        A `.segmented` picker in \(site) passes the hue LITERAL \
+                        `\(argument)` to `.accentedSegments`, so it will ignore the accent the \
+                        user picks. Pass the selected hue.
+                        """)
+            }
+        }
+        // A tripwire, so the scan cannot pass by finding nothing. If you added a segmented picker
+        // deliberately AND gave it `.accentedSegments`, raise this number.
+        #expect(sites == 6, "expected 6 segmented pickers in the app, found \(sites)")
+    }
+
+    /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.
+    ///
+    /// Both halves of this are corrections to the first draft, and both were latent rather than
+    /// visible — the test passed with either bug present.
+    ///
+    /// `MacApp/` was not scanned at all. It is a sibling of `Modules/`, it is in no SPM package,
+    /// and it is full of SwiftUI views — which makes it the single likeliest home for exactly the
+    /// untinted seventh picker this test exists to catch.
+    ///
+    /// `.build/` WAS scanned. Walking `Modules/` for any path containing `/Sources/` swept in 553
+    /// checked-out dependency files against 194 of ours. None of them happens to use a segmented
+    /// picker today, so the count came out right by luck; one dependency shipping one would fail
+    /// this test on third-party code. It also made the file set depend on whether the tree had
+    /// been built.
+    private static func appSwiftSources() throws -> [URL] {
+        let repo = URL(fileURLWithPath: #filePath)      // …/Design/Tests/DesignTests/<this>.swift
             .deletingLastPathComponent()                // …/Design/Tests/DesignTests
             .deletingLastPathComponent()                // …/Design/Tests
             .deletingLastPathComponent()                // …/Modules/Design
             .deletingLastPathComponent()                // …/Modules
+            .deletingLastPathComponent()                // …/<repo>
 
-        let swiftFiles = FileManager.default
-            .enumerator(at: modules, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" && $0.path.contains("/Sources/") } ?? []
-        #expect(!swiftFiles.isEmpty, "found no module sources under \(modules.path)")
+        let modules = repo.appendingPathComponent("Modules")
+        var roots = [repo.appendingPathComponent("MacApp")]
+        roots += try FileManager.default
+            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
+            .map { $0.appendingPathComponent("Sources") }
 
-        var sites = 0
-        for file in swiftFiles {
-            let source = try String(contentsOf: file, encoding: .utf8)
-            guard source.contains(".pickerStyle(.segmented)") else { continue }
-            // Collapse whitespace so the scan is not defeated by where the chain wraps.
-            let collapsed = source.replacingOccurrences(of: #"\s+"#, with: " ",
-                                                        options: .regularExpression)
-            let chains = collapsed.components(separatedBy: ".pickerStyle(.segmented)").dropFirst()
-            for chain in chains {
-                sites += 1
-                // The tint has to be on the picker's own chain: the next few modifiers, before
-                // anything that could close the expression.
-                let window = String(chain.prefix(220))
-                #expect(window.contains(".accentedSegments("),
-                        """
-                        A `.segmented` picker in \(file.lastPathComponent) does not call \
-                        `.accentedSegments(hue)`, so its selection will paint the SYSTEM accent \
-                        while the rest of the window follows the app's. Chain was: \(window)
-                        """)
-            }
+        var files: [URL] = []
+        for root in roots {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+            let found = FileManager.default
+                .enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" } ?? []
+            files += found
         }
-        // A count, so the scan cannot pass by finding nothing — the six the app ships today.
-        #expect(sites == 6, "expected 6 segmented pickers in the app, found \(sites)")
+        // Nothing below a module's `Sources` or `MacApp` is a dependency, so no `.build` filter is
+        // needed — but prove the roots resolved, or this returns [] and everything passes vacuously.
+        #expect(files.count > 100, "found only \(files.count) app sources — the roots did not resolve")
+        #expect(files.contains { $0.path.hasSuffix("MacApp/SyncCloudApp.swift") },
+                "MacApp is not being scanned")
+        #expect(!files.contains { $0.path.contains("/.build/") }, "a dependency source leaked in")
+        return files
     }
 }
