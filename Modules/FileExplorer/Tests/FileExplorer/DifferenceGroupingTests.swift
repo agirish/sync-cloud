@@ -151,65 +151,31 @@ import Sync
         }
     }
 
-    // MARK: Path shown inside a section
+    // MARK: Bucketing robustness over malformed parents
 
-    @Test func testPathWithinSectionDropsTheFolderTheHeaderAlreadyNames() {
-        // The defect this exists to stop: a header reading "Claude" over a row reading
-        // "Claude/Projects/Investing/…", i.e. the folder said twice, in the one column that was
-        // already truncating.
-        #expect(DifferenceGrouping.pathWithinSection(diff("Claude/Projects/Investing/notes.md"))
-                == "Projects/Investing")
-        #expect(DifferenceGrouping.pathWithinSection(diff("Immigration/Authorization/H-1B/form.pdf"))
-                == "Authorization/H-1B")
-    }
-
-    @Test func testPathWithinSectionIsEmptyWhenTheParentIsTheSectionFolder() {
-        // A row sitting directly in the section folder has nothing left to say — it must render
-        // no prefix at all, not a bare "/".
-        #expect(DifferenceGrouping.pathWithinSection(diff("Work/report.docx")) == "")
-    }
-
-    @Test func testPathWithinSectionIsEmptyAtTheRoot() {
-        #expect(DifferenceGrouping.pathWithinSection(diff("loose.pdf")) == "")
-    }
-
-    /// The prefix and the header must partition the parent path between them with nothing lost
-    /// and nothing repeated — reassembling them has to give the original parent back.
-    ///
-    /// The malformed inputs below are the point. Engine-built `relativePath`s never carry a leading
-    /// slash, a trailing slash or a "//", so the two functions could disagree about them for as long
-    /// as they liked without anyone seeing it — and they did: "/Immigration" gave a header of
-    /// "/Immigration" over rows of "Immigration/…". A latent disagreement between two halves of one
-    /// partition is one refactor away from being live, so the invariant covers the whole input space
-    /// rather than the well-formed corner of it.
-    ///
-    /// Expected values are built with `components(separatedBy:)` + an explicit non-empty filter,
-    /// NOT with the `split` the implementation uses: an expectation that restates the code under
-    /// test passes no matter what that code does.
-    @Test func testFolderAndPathWithinSectionReassembleTheParent() {
+    /// `folder(for:)` must produce a printable bucket for the WHOLE input space, not just the
+    /// well-formed corner of it. Engine-built `relativePath`s never carry a leading slash, a
+    /// trailing slash or a "//" — which is exactly why a latent mishandling could sit unseen
+    /// until a refactor made it live; "/Immigration" once produced a header reading
+    /// "/Immigration". (This suite used to also pin `pathWithinSection`, the Name-cell prefix's
+    /// half of a partition invariant; the prefix is gone — the Path column shows the whole
+    /// anchored parent — and the function went with it. The header-side robustness stays.)
+    @Test func testMalformedParentsStillBucketPrintably() {
         let paths = [
-            // Well-formed.
             "Claude/Projects/Investing/notes.md", "Work/report.docx", "loose.pdf",
-            "Immigration/Authorization/H-1B/form.pdf",
-            // Leading slash — the case that was actually broken.
             "/Immigration/form.pdf", "/loose.pdf", "/Claude/Projects/notes.md",
-            // Trailing slash and repeated slashes: empty components mid-path and at the end.
             "Work//report.docx", "Claude///Projects/notes.md", "Immigration//",
-            // Nothing but separators, and nothing at all.
             "/", "//", "///", "",
         ]
         for path in paths {
             let d = diff(path)
             let folder = DifferenceGrouping.folder(for: d)
-            let rest = DifferenceGrouping.pathWithinSection(d)
-            let rejoined = [folder, rest]
-                .filter { !$0.isEmpty && $0 != DifferenceGrouping.rootKey }
-                .joined(separator: "/")
-            let expected = d.parentPath
-                .components(separatedBy: "/")
-                .filter { !$0.isEmpty }
-                .joined(separator: "/")
-            #expect(rejoined == expected, "path \(path): folder=\(folder) rest=\(rest)")
+            // The bucket is the FIRST non-empty component, or the root key — computed here with
+            // `components(separatedBy:)`, NOT the `split` the implementation uses: an expectation
+            // that restates the code under test passes no matter what that code does.
+            let expected = d.parentPath.components(separatedBy: "/").first { !$0.isEmpty }
+                ?? DifferenceGrouping.rootKey
+            #expect(folder == expected, "path \(path): folder=\(folder)")
             // Never a section with no name, and never one named after a separator. Asserted on
             // the TITLE, which is what a header prints: the root bucket's key is deliberately "/"
             // (the one string no path component can be — see `rootKey`), and it is `Section.title`
@@ -218,23 +184,7 @@ import Sync
             #expect(!folder.isEmpty, "path \(path)")
             #expect(!title.isEmpty, "path \(path)")
             #expect(!title.contains("/"), "path \(path): header would read \(title)")
-            // Never a prefix that opens or closes on a bare separator — the Name cell appends "/".
-            #expect(!rest.hasPrefix("/") && !rest.hasSuffix("/"), "path \(path)")
         }
-    }
-
-    /// The two functions must agree about where the boundary falls, not merely reassemble.
-    ///
-    /// Stated separately from the reassembly invariant because reassembly alone would tolerate the
-    /// original bug in one direction: had `folder(for:)` kept returning the whole "/Immigration"
-    /// while `pathWithinSection` returned "", the pieces would still rejoin — and the header would
-    /// still be printing a leading slash the rows knew to drop.
-    @Test func testTheTwoHalvesAgreeOnALeadingSlash() {
-        let d = diff("/Immigration/form.pdf")
-        #expect(DifferenceGrouping.folder(for: d) == "Immigration")
-        // "" — the row sits directly in the section folder. Returning "Immigration" here is what
-        // made the header and the row say the folder twice.
-        #expect(DifferenceGrouping.pathWithinSection(d) == "")
     }
 
     /// A leading slash must not fragment one folder into two sections: "/Work/a.pdf" and
@@ -249,7 +199,6 @@ import Sync
     /// than minting a section whose header is blank or "/".
     @Test func testASeparatorOnlyParentFilesUnderTheRootLabel() {
         #expect(DifferenceGrouping.folder(for: diff("//loose.pdf")) == DifferenceGrouping.rootKey)
-        #expect(DifferenceGrouping.pathWithinSection(diff("//loose.pdf")) == "")
     }
 
     // MARK: The worth-grouping gate

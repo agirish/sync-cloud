@@ -83,43 +83,43 @@ import Sync
 
     @Test func kindMatchesExtensionCaseInsensitively() {
         let query = DifferenceSearch.parse("kind:pdf")
-        #expect(query.matches(diff("Docs/a.PDF")))
-        #expect(!query.matches(diff("Docs/a.txt")))
-        #expect(!query.matches(diff("Docs/folder")))                 // no extension
+        #expect(query.matches(diff("Docs/a.PDF"), pathRootName: nil))
+        #expect(!query.matches(diff("Docs/a.txt"), pathRootName: nil))
+        #expect(!query.matches(diff("Docs/folder"), pathRootName: nil))                 // no extension
     }
 
     @Test func sizeComparatorsUseDisplaySize() {
         // A missing-on-right item's shown size is its left size.
-        #expect(DifferenceSearch.parse(">10mb").matches(diff("a", leftSize: 20_000_000)))
-        #expect(!DifferenceSearch.parse(">10mb").matches(diff("a", leftSize: 5_000_000)))
-        #expect(DifferenceSearch.parse("<1mb").matches(diff("a", leftSize: 500_000)))
+        #expect(DifferenceSearch.parse(">10mb").matches(diff("a", leftSize: 20_000_000), pathRootName: nil))
+        #expect(!DifferenceSearch.parse(">10mb").matches(diff("a", leftSize: 5_000_000), pathRootName: nil))
+        #expect(DifferenceSearch.parse("<1mb").matches(diff("a", leftSize: 500_000), pathRootName: nil))
         // A folder / unknown size never matches a size token.
-        #expect(!DifferenceSearch.parse(">1kb").matches(diff("a", leftSize: nil)))
+        #expect(!DifferenceSearch.parse(">1kb").matches(diff("a", leftSize: nil), pathRootName: nil))
     }
 
     @Test func sideTokensMapToTheMissingSide() {
-        #expect(DifferenceSearch.parse("only:left").matches(diff("a", type: .missingOnRight)))
-        #expect(!DifferenceSearch.parse("only:left").matches(diff("a", type: .missingOnLeft)))
-        #expect(DifferenceSearch.parse("only:right").matches(diff("a", type: .missingOnLeft)))
+        #expect(DifferenceSearch.parse("only:left").matches(diff("a", type: .missingOnRight), pathRootName: nil))
+        #expect(!DifferenceSearch.parse("only:left").matches(diff("a", type: .missingOnLeft), pathRootName: nil))
+        #expect(DifferenceSearch.parse("only:right").matches(diff("a", type: .missingOnLeft), pathRootName: nil))
     }
 
     @Test func tokensAndFreeTextCombineWithAnd() {
         let query = DifferenceSearch.parse("kind:pdf report")
-        #expect(query.matches(diff("Docs/report.pdf", leftSize: 1)))
-        #expect(!query.matches(diff("Docs/summary.pdf", leftSize: 1)))   // free text "report" fails
-        #expect(!query.matches(diff("Docs/report.txt", leftSize: 1)))    // kind fails
+        #expect(query.matches(diff("Docs/report.pdf", leftSize: 1), pathRootName: nil))
+        #expect(!query.matches(diff("Docs/summary.pdf", leftSize: 1), pathRootName: nil))   // free text "report" fails
+        #expect(!query.matches(diff("Docs/report.txt", leftSize: 1), pathRootName: nil))    // kind fails
     }
 
     @Test func kindImageClassMatchesAnyImageExtension() {
         // `kind:image` is the same class alias the Tidy search resolves — one vocabulary across
         // surfaces (it used to be Tidy-only, so `kind:image` in Compare matched nothing).
         let query = DifferenceSearch.parse("kind:image")
-        #expect(query.matches(diff("Photos/a.jpg")))
-        #expect(query.matches(diff("Photos/a.PNG")))
-        #expect(query.matches(diff("Photos/a.heic")))
-        #expect(!query.matches(diff("Docs/a.pdf")))
+        #expect(query.matches(diff("Photos/a.jpg"), pathRootName: nil))
+        #expect(query.matches(diff("Photos/a.PNG"), pathRootName: nil))
+        #expect(query.matches(diff("Photos/a.heic"), pathRootName: nil))
+        #expect(!query.matches(diff("Docs/a.pdf"), pathRootName: nil))
         // No extension named "image" would ever match literally — the alias owns the word.
-        #expect(!query.matches(diff("Docs/noext")))
+        #expect(!query.matches(diff("Docs/noext"), pathRootName: nil))
     }
 
     @Test func kindClassTableIsSharedWithTheTidySearch() {
@@ -135,8 +135,8 @@ import Sync
         // parse keeps only the last, like the Tidy and Log families.
         let query = DifferenceSearch.parse("kind:pdf kind:png")
         #expect(query.tokens == [.kind("png")])
-        #expect(query.matches(diff("a.png")))
-        #expect(!query.matches(diff("a.pdf")))
+        #expect(query.matches(diff("a.png"), pathRootName: nil))
+        #expect(!query.matches(diff("a.pdf"), pathRootName: nil))
         // Size and only: stay conjunctive — ranges are legitimate.
         let range = DifferenceSearch.parse(">1mb <5mb")
         #expect(range.tokens == [.sizeAtLeast(1_000_000), .sizeAtMost(5_000_000)])
@@ -203,10 +203,25 @@ import Sync
         // The effective query behaves as the active chips read: the kind is the class alias (a
         // PNG matches — the superseded kind:JPG must not still filter), size bounds apply, the
         // side token maps to missing-on-right, and the free text matches the path.
-        #expect(query.matches(diff("Photos/draft copy.png", type: .missingOnRight, leftSize: 1_000_000)))
-        #expect(!query.matches(diff("Photos/draft copy.pdf", type: .missingOnRight, leftSize: 1_000_000)))  // not an image
-        #expect(!query.matches(diff("Photos/draft copy.png", type: .missingOnRight, leftSize: 400_000)))    // below >500kb
-        #expect(!query.matches(diff("Photos/draft copy.png", type: .missingOnLeft, leftSize: nil, rightSize: 1_000_000))) // wrong side
-        #expect(!query.matches(diff("Photos/summary.png", type: .missingOnRight, leftSize: 1_000_000)))     // free text fails
+        #expect(query.matches(diff("Photos/draft copy.png", type: .missingOnRight, leftSize: 1_000_000), pathRootName: nil))
+        #expect(!query.matches(diff("Photos/draft copy.pdf", type: .missingOnRight, leftSize: 1_000_000), pathRootName: nil))  // not an image
+        #expect(!query.matches(diff("Photos/draft copy.png", type: .missingOnRight, leftSize: 400_000), pathRootName: nil))    // below >500kb
+        #expect(!query.matches(diff("Photos/draft copy.png", type: .missingOnLeft, leftSize: nil, rightSize: 1_000_000), pathRootName: nil)) // wrong side
+        #expect(!query.matches(diff("Photos/summary.png", type: .missingOnRight, leftSize: 1_000_000), pathRootName: nil))     // free text fails
+    }
+
+    // MARK: The Path column's anchor is searchable
+
+    /// Free text must match what the table SHOWS. The anchor ("Home") and the root fallback
+    /// ("Top level") appear in no `relativePath` — before this, a user reading "Home/Legal" in
+    /// the Path column and typing "Home" got a silent empty list.
+    @Test func testFreeTextMatchesTheAnchoredPathColumnText() {
+        #expect(DifferenceSearch.parse("home").matches(diff("Legal/lease.pdf"), pathRootName: "Home"))
+        #expect(DifferenceSearch.parse("home/legal").matches(diff("Legal/lease.pdf"), pathRootName: "Home"))
+        // Root rows with no anchor read "Top level" — visible, so findable.
+        #expect(DifferenceSearch.parse("top level").matches(diff("loose.pdf"), pathRootName: nil))
+        // No anchor on a nested row: the Path cell shows only the bare parent, and text that
+        // appears nowhere must keep NOT matching.
+        #expect(!DifferenceSearch.parse("home").matches(diff("Legal/lease.pdf"), pathRootName: nil))
     }
 }

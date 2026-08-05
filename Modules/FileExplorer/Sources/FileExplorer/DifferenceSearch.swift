@@ -36,10 +36,16 @@ enum DifferenceSearch {
 
         var isEmpty: Bool { tokens.isEmpty && freeText.isEmpty }
 
-        func matches(_ difference: FileDifference) -> Bool {
+        /// `pathRootName` is the Path column's anchor for the rows being searched. Free text
+        /// matches what the table shows: `relativePath` (the legacy haystack) OR the anchored
+        /// Path-column text — the anchor ("Home", or the "Top level" fallback) appears in no
+        /// `relativePath`, and visible-but-unfindable text reads as "no differences match".
+        func matches(_ difference: FileDifference, pathRootName: String?) -> Bool {
             for token in tokens where !DifferenceSearch.matches(token, difference) { return false }
             if freeText.isEmpty { return true }
-            return difference.relativePath.range(of: freeText, options: .caseInsensitive) != nil
+            if difference.relativePath.range(of: freeText, options: .caseInsensitive) != nil { return true }
+            return DifferencesQuery.pathColumnText(parentPath: difference.parentPath, rootName: pathRootName)
+                .range(of: freeText, options: .caseInsensitive) != nil
         }
     }
 

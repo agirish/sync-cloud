@@ -44,21 +44,15 @@ enum DifferenceGrouping {
     /// name. See `Section.title`.
     static let rootLabel = "Top level"
 
-    /// The single split `folder(for:)` and `pathWithinSection(_:)` both read, so the header and the
-    /// row prefix under it cannot disagree about where the boundary falls.
-    ///
-    /// One function, not two, because these two must PARTITION the parent path: whatever the header
-    /// names, the prefix must not repeat, and between them they must account for the whole path.
-    /// Two independent implementations each owning their own edge cases is how that invariant
-    /// breaks — and it had. A parent of "/Immigration" made `folder(for:)` fall back to the whole
-    /// string while `pathWithinSection` dropped only the slash, yielding a header reading
-    /// "/Immigration" over rows reading "Immigration/…": the folder said twice, which is precisely
-    /// the defect the prefix drop exists to prevent. Engine-built `relativePath`s never start with
-    /// "/", so that was latent rather than live — the fix is for the disagreement, not the symptom.
-    ///
-    /// Empty components are dropped (`split` omits them by default), which is what makes a leading
-    /// slash, a trailing slash and a "//" all land on the same answer from both sides.
-    /// `folder` is nil only when nothing is left — an empty parent, or a parent of pure separators.
+    /// The bucketing split. Historical note that still earns its keep: when the Name cell drew a
+    /// per-row prefix, this function was shared with `pathWithinSection` so the header and the
+    /// prefix could never disagree about where the boundary fell — a parent of "/Immigration" had
+    /// made two independent splitters yield a header reading "/Immigration" over rows reading
+    /// "Immigration/…". The prefix (and `pathWithinSection` with it) is gone — the Path column
+    /// shows the whole anchored parent — but the hard-won edge-case handling stays: empty
+    /// components are dropped (`split` omits them by default), so a leading slash, a trailing
+    /// slash and a "//" all land on the same bucket. `folder` is nil only when nothing is left —
+    /// an empty parent, or a parent of pure separators.
     private static func split(_ parent: String) -> (folder: String?, rest: String) {
         var components = parent.split(separator: "/").map(String.init)
         guard !components.isEmpty else { return (nil, "") }
@@ -73,21 +67,6 @@ enum DifferenceGrouping {
     /// top-level folder is the unit people actually decide about.
     static func folder(for difference: FileDifference) -> String {
         split(difference.parentPath).folder ?? rootKey
-    }
-
-    /// The parent path with the section's own folder taken off the front — what the Name cell
-    /// shows once a header is already naming that folder.
-    ///
-    /// Without this the grouped table says the folder twice: a header reading "Claude" over a row
-    /// reading `Claude/Projects/Investing/US/Trump Accounts/ Trump_Accounts_Research.md`. The
-    /// repetition lands in the one column that was already truncating, which is the opposite of
-    /// what grouping is for.
-    ///
-    /// Returns "" for a row sitting directly in the section folder (its whole parent WAS the
-    /// folder) and for root-level rows, so the Name cell drops the prefix entirely rather than
-    /// printing a bare "/".
-    static func pathWithinSection(_ difference: FileDifference) -> String {
-        split(difference.parentPath).rest
     }
 
     /// Groups `sorted` into sections **without reordering anything**.

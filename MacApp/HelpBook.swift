@@ -152,7 +152,7 @@ enum HelpBook {
                 intro: "Copying leaves the original in place; moving removes it from the source once the copy safely lands. SyncCloud confirms before it changes anything on either side.",
                 blocks: [
                     .bullets([
-                        "Copy a single row with its inline arrow, or select several and use ⌘→ / ⌘←.",
+                        "Select one or more difference rows and use ⌘→ / ⌘← (⇧ makes it a move), or the row's right-click menu.",
                         "In a pane, select rows and use its action bar — “Copy to …” and “Move to …” name the other side — or the row's right-click menu.",
                         "Bulk-sync every difference in one direction from the toolbar.",
                     ]),

@@ -16,16 +16,18 @@ import SwiftUI
 ///
 /// What repaints the washes is three signals, each covering a hole in the others:
 /// - `NSTableView.selectionDidChangeNotification` — selection moved (posted for both user clicks
-///   and the programmatic writes SwiftUI makes when its selection binding changes).
+///   and the programmatic writes SwiftUI makes when its selection binding changes) — plus
+///   `selectionIsChangingNotification`, the live stream a drag-extend posts before mouse-up.
 /// - the clip view's bounds changing — scrolling recycles row views, and a reused row view
 ///   scrolled in under a selected index must gain the wash (and one under an unselected index
 ///   must lose a stale one) without any selection having changed.
 /// - this view's own `layout()` — mount, resize, and SwiftUI re-tiling, which also re-asserts
 ///   `selectionHighlightStyle` on a table SwiftUI may have rebuilt.
 struct DifferencesTableSelectionStyler: NSViewRepresentable {
-    /// The wash: the app accent at `PaneSelectionWash.active`. An `NSColor` rather than a `Color`
-    /// so the row views can resolve it per appearance pass — the accent is a dynamic color and
-    /// must stay one all the way to the layer.
+    /// The wash: the app accent at `PaneSelectionWash.active`. An `NSColor` so the row views can
+    /// resolve it at draw time. (Correctness doesn't hinge on the color staying dynamic: an
+    /// accent or appearance change re-evaluates the view's body and pushes a fresh color through
+    /// `updateNSView`, and an appearance switch redisplays the window anyway.)
     let washColor: NSColor
 
     func makeNSView(context: Context) -> StylerView { StylerView() }
@@ -38,7 +40,10 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
 
     final class StylerView: NSView {
         var washColor: NSColor = .clear {
-            didSet { paintWashes() }
+            // Equality-guarded: `updateNSView` assigns on every SwiftUI update, and the
+            // differences view re-renders per published file during a bulk sync — an
+            // unconditional repaint here would enumerate the visible rows twice per file.
+            didSet { if washColor != oldValue { paintWashes() } }
         }
 
         private weak var cachedTable: NSTableView?
@@ -65,6 +70,7 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
                 observers.forEach(NotificationCenter.default.removeObserver)
                 observers = []
                 observedTable = nil
+                observedClip = nil
                 return
             }
             rearmSearch()
@@ -90,20 +96,33 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
 
         /// Attaches the repaint observers to a newly resolved table (and its clip view),
         /// dropping any previous table's. Safe to call with the same table repeatedly — it
-        /// re-registers only when the table actually changed.
+        /// re-registers only when something is actually missing.
+        ///
+        /// The clip view is tracked as its own condition, not folded into "observers exist":
+        /// a table can resolve before SwiftUI has wrapped it in its scroll view, and a guard
+        /// that read one registered observer as "fully observed" would then skip the clip
+        /// observer for the table's whole lifetime — scroll-driven row-view reuse would repaint
+        /// nothing, leaving reused rows washless (or stale-washed) until the next selection
+        /// change or unrelated re-render.
         private func observe(_ table: NSTableView) {
-            guard observedTable !== table || observers.isEmpty else { return }
+            let clip = table.enclosingScrollView?.contentView
+            guard observedTable !== table || observers.isEmpty || observedClip !== clip else { return }
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             observedTable = table
+            observedClip = clip
             let center = NotificationCenter.default
-            observers.append(center.addObserver(
-                forName: NSTableView.selectionDidChangeNotification,
-                object: table, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.paintWashes() }
-            })
-            if let clip = table.enclosingScrollView?.contentView {
+            // Both selection notifications: `DidChange` lands at mouse-up, but a drag-extend
+            // posts `IsChanging` throughout — with the native highlight off, that stream is the
+            // only live feedback a rubber-band selection has.
+            for name in [NSTableView.selectionDidChangeNotification,
+                         NSTableView.selectionIsChangingNotification] {
+                observers.append(center.addObserver(forName: name, object: table, queue: .main) {
+                    [weak self] _ in
+                    MainActor.assumeIsolated { self?.paintWashes() }
+                })
+            }
+            if let clip {
                 clip.postsBoundsChangedNotifications = true
                 observers.append(center.addObserver(
                     forName: NSView.boundsDidChangeNotification,
@@ -114,6 +133,7 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             }
         }
         private weak var observedTable: NSTableView?
+        private weak var observedClip: NSClipView?
 
         private func paintWashes() {
             guard let table = cachedTable else { return }

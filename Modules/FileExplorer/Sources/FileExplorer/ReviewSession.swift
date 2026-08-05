@@ -130,14 +130,23 @@ struct ReviewSession: Equatable {
     let isMove: Bool
     /// The frozen review queue, in the table order visible when the session started.
     let queue: [FileDifference]
+    /// The Path column's anchor (the compared folder's name), frozen WITH the queue it labels.
+    /// The queue is a snapshot, so reading the live `lastScanRootNames` instead would label
+    /// these rows with whatever the panes scanned NEXT — navigate both panes to Photos
+    /// mid-review and every frozen Home row's Path cell would read "Photos/…", on the exact
+    /// surface where the user is deciding copies. nil renders bare parents + "Top level".
+    let pathRootName: String?
     private(set) var currentIndex: Int = 0
     private(set) var outcomes: [UUID: Outcome] = [:]
     private(set) var verdicts: [UUID: VerifyVerdict] = [:]
 
-    /// nil when there is nothing to review.
-    init?(queue: [FileDifference], isMove: Bool) {
+    /// nil when there is nothing to review. `pathRootName` has no default on purpose: every
+    /// constructor must decide what anchor travels with the queue, because forgetting it is
+    /// exactly how the live-anchor bug this field fixes would creep back.
+    init?(queue: [FileDifference], isMove: Bool, pathRootName: String?) {
         guard !queue.isEmpty else { return nil }
         self.queue = queue
+        self.pathRootName = pathRootName
         self.isMove = isMove
     }
 

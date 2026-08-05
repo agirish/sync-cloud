@@ -140,7 +140,9 @@ public struct DifferencesView: View {
     /// panes mirror each other). Nil when the two roots carry different names — anchoring at
     /// either would misname the other side — or before any scan lands; the cells then fall back
     /// to the bare parent path (see `DifferencesQuery.pathColumnText`).
-    private var pathRootName: String? {
+    /// Internal, not private: the test seam. The equality gate is the one display-policy
+    /// decision made here, and a private property would leave it (and its inversion) untestable.
+    var pathRootName: String? {
         guard let roots = syncManager.lastScanRootNames, roots.left == roots.right else { return nil }
         return roots.left
     }
@@ -183,6 +185,10 @@ public struct DifferencesView: View {
         var searchText: String
         var sortOrder: [KeyPathComparator<FileDifference>]
         var isReviewing: Bool
+        /// The Path column's anchor, snapshotted with the rows it labels — the search pass
+        /// matches against the anchored path text the user actually sees, so it must use the
+        /// same anchor the cells will render with.
+        var pathRootName: String?
     }
 
     private var displayInputs: DisplayInputs {
@@ -191,7 +197,8 @@ public struct DifferencesView: View {
             filter: selectedFilter,
             searchText: searchText,
             sortOrder: sortOrder,
-            isReviewing: reviewStore.session != nil
+            isReviewing: reviewStore.session != nil,
+            pathRootName: pathRootName
         )
     }
 
@@ -335,7 +342,7 @@ public struct DifferencesView: View {
                 return
             }
             let rows = await Task.detached(priority: .userInitiated) { () -> DisplayRows in
-                let filtered = DifferencesQuery.filtered(inputs.differences, filter: inputs.filter, searchText: inputs.searchText)
+                let filtered = DifferencesQuery.filtered(inputs.differences, filter: inputs.filter, searchText: inputs.searchText, pathRootName: inputs.pathRootName)
                 return DisplayRows(
                     filtered: filtered,
                     sorted: filtered.sorted(using: inputs.sortOrder),
@@ -1243,7 +1250,7 @@ public struct DifferencesView: View {
         return Table(session.queue, selection: $reviewSelection) {
             TableColumn("Name") { DifferenceNameCell(difference: $0, compact: compact, paneRules: paneRules, keptNames: keptNames) }
             TableColumn("Change") { DifferenceChangeCell(difference: $0, compact: compact) }
-            TableColumn("Path") { DifferencePathCell(difference: $0, compact: compact, rootName: pathRootName) }
+            TableColumn("Path") { DifferencePathCell(difference: $0, compact: compact, rootName: session.pathRootName) }
                 .width(min: 80, ideal: 150)
             TableColumn("Size") { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
@@ -1472,7 +1479,9 @@ public struct DifferencesView: View {
     private func startReview(targets: DifferenceActionTargets, sorted: [FileDifference]) {
         let targetIds = Set(targets.targets.map(\.id))
         let queue = sorted.filter { targetIds.contains($0.id) }
-        guard let session = ReviewSession(queue: queue, isMove: ModifierTracker.moveModifierHeld) else { return }
+        // The anchor freezes with the queue it labels — see `ReviewSession.pathRootName`.
+        guard let session = ReviewSession(queue: queue, isMove: ModifierTracker.moveModifierHeld,
+                                          pathRootName: pathRootName) else { return }
         Logger.shared.debug(
             "Review started: \(queue.count) item(s)"
             + "\(session.isMove ? " (move)" : "")"

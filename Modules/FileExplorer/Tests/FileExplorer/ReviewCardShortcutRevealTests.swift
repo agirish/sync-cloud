@@ -139,7 +139,7 @@ import Testing
             action: .copyToRight,
             description: "test"
         )]
-        guard let session = ReviewSession(queue: queue, isMove: false) else {
+        guard let session = ReviewSession(queue: queue, isMove: false, pathRootName: nil) else {
             Issue.record("fixture queue produced no session")
             return
         }

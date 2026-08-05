@@ -29,9 +29,9 @@ enum DifferenceGlyph {
         }
     }
 
-    /// The direction tint (blue → right, purple → left) behind the type colors above;
-    /// also used directly by the Differences table's "Copy to" chip so the chip and the
-    /// badges can't diverge.
+    /// The direction tint (blue → right, purple → left) behind the type colors above.
+    /// (It once also fed the table's "Copy to" direction chip; the chip is gone — the
+    /// Change column names the destination — and the type badges are the remaining reader.)
     static func color(toRight: Bool) -> Color {
         toRight ? .blue : .purple
     }

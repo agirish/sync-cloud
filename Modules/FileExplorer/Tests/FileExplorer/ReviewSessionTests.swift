@@ -32,12 +32,12 @@ private func diff(
     }
 
     @Test func emptyQueueRefusesToStart() {
-        #expect(ReviewSession(queue: [], isMove: false) == nil)
+        #expect(ReviewSession(queue: [], isMove: false, pathRootName: nil) == nil)
     }
 
     @Test func startsAtFirstItemWithNothingDecided() throws {
         let queue = [diff("a"), diff("b")]
-        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        let session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         #expect(session.current?.id == queue[0].id)
         #expect(session.position == 1)
         #expect(session.total == 2)
@@ -47,7 +47,7 @@ private func diff(
 
     @Test func recordAdvancesInQueueOrder() throws {
         let queue = [diff("a"), diff("b"), diff("c")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         try decide(&session, .copied)
         #expect(session.current?.id == queue[1].id)
         #expect(session.outcome(for: queue[0].id) == .copied)
@@ -60,7 +60,7 @@ private func diff(
 
     @Test func completingEveryItemEndsTheSession() throws {
         let queue = [diff("a"), diff("b")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         try decide(&session, .copied)
         try decide(&session, .copied)
         #expect(session.isComplete)
@@ -72,7 +72,7 @@ private func diff(
 
     @Test func jumpMovesOnlyToPendingItems() throws {
         let queue = [diff("a"), diff("b"), diff("c")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         try decide(&session, .copied)
 
         // Jumping to the decided first item is refused; the cursor stays put.
@@ -90,7 +90,7 @@ private func diff(
 
     @Test func advanceWrapsToUndecidedIslandsLeftByJumps() throws {
         let queue = [diff("a"), diff("b"), diff("c")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         // Jump straight to the last item and decide it: the cursor must wrap back to "a".
         session.jump(to: queue[2].id)
         try decide(&session, .copied)
@@ -104,7 +104,7 @@ private func diff(
 
     @Test func doubleRecordAndUnknownIdsAreNoOps() throws {
         let queue = [diff("a"), diff("b")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         try decide(&session, .copied)
         let afterFirst = session
 
@@ -120,7 +120,7 @@ private func diff(
 
     @Test func recordForNonCurrentItemKeepsTheCursor() throws {
         let queue = [diff("a"), diff("b"), diff("c")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         // A copy of "a" is in flight when the user jumps to "c"; the copy's outcome lands late.
         session.jump(to: queue[2].id)
         session.record(.copied, for: queue[0].id)
@@ -132,7 +132,7 @@ private func diff(
 
     @Test func verdictsAreRecordedPerItem() throws {
         let queue = [diff("a"), diff("b")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         session.recordVerdict(.identical, for: queue[0].id)
         #expect(session.verdict(for: queue[0].id) == .identical)
         #expect(session.verdict(for: queue[1].id) == nil)
@@ -142,14 +142,14 @@ private func diff(
     /// refused — same membership rule `record` enforces for outcomes.
     @Test func verdictForAnUnknownIdIsRefused() throws {
         let queue = [diff("a")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         session.recordVerdict(.identical, for: UUID())
         #expect(session.verdicts.isEmpty)
     }
 
     @Test func pendingPreservesQueueOrderAroundDecisions() throws {
         let queue = [diff("a"), diff("b"), diff("c")]
-        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         session.jump(to: queue[1].id)
         try decide(&session, .copied)
         #expect(session.pending.map(\.id) == [queue[0].id, queue[2].id])
@@ -163,7 +163,7 @@ private func diff(
     @Test func isReviewingTracksTheSession() {
         let store = ReviewSessionStore()
         #expect(!store.isReviewing)
-        store.session = ReviewSession(queue: [diff("a")], isMove: false)
+        store.session = ReviewSession(queue: [diff("a")], isMove: false, pathRootName: nil)
         #expect(store.isReviewing)
         store.session = nil
         #expect(!store.isReviewing)
@@ -176,12 +176,12 @@ private func diff(
     @Test func staleOutcomeAgainstAReplacedSessionIsDropped() throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
-        let old = try #require(ReviewSession(queue: queue, isMove: false))
+        let old = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = old
         let staleToken = old.sessionToken   // captured before the "await", as reviewPrimary does
 
         // Exit + restart over the SAME queue (identical ids), before the old outcome lands.
-        let replacement = try #require(ReviewSession(queue: queue, isMove: false))
+        let replacement = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = replacement
 
         #expect(!store.apply(.copied, for: queue[0].id, token: staleToken))
@@ -196,7 +196,7 @@ private func diff(
     @Test func lateOutcomeForTheSameSessionStillApplies() throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
-        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        let session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = session
 
         #expect(store.apply(.copied, for: queue[0].id, token: session.sessionToken))
@@ -209,11 +209,11 @@ private func diff(
     @Test func staleVerdictAgainstAReplacedSessionIsDropped() throws {
         let store = ReviewSessionStore()
         let queue = [diff("a")]
-        let old = try #require(ReviewSession(queue: queue, isMove: false))
+        let old = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = old
         let staleToken = old.sessionToken
 
-        store.session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
 
         #expect(!store.recordVerdict(.identical, for: queue[0].id, token: staleToken))
         #expect(store.session?.verdict(for: queue[0].id) == nil)
@@ -232,11 +232,11 @@ private func diff(
     @Test func decideCapturesTheTokenBeforeTheAwaitNotAfter() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
-        let original = try #require(ReviewSession(queue: queue, isMove: false))
+        let original = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = original
         store.isActing = true
 
-        let replacement = try #require(ReviewSession(queue: queue, isMove: false))
+        let replacement = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         let applied = await store.decide(for: queue[0].id, token: original.sessionToken) {
             // Exit + restart lands WHILE the copy is out — the window the token exists for.
             store.session = replacement
@@ -267,7 +267,7 @@ private func diff(
     @Test func decideAppliesTheTokenItWasGivenNotTheLiveOne() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
-        store.session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.isActing = true
 
         let applied = await store.decide(for: queue[0].id, token: UUID()) {
@@ -285,7 +285,7 @@ private func diff(
     @Test func decideAppliesAnOutcomeToTheSessionItStartedUnder() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
-        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        let session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = session
         store.isActing = true
 
@@ -329,7 +329,7 @@ private func diff(
     @Test func outcomeAfterTeardownIsDropped() throws {
         let store = ReviewSessionStore()
         let queue = [diff("a")]
-        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        let session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = session
         store.endSession()
 

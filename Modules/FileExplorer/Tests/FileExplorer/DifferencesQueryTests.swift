@@ -38,29 +38,29 @@ import Sync
 
     @Test func testEmptySearchPassesEverythingMatchingTheFilter() {
         let d = diff("docs/report.txt")
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: ""))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "", pathRootName: nil))
         // Empty search must not narrow the list at all.
         let list = [diff("a"), diff("b/c"), diff("d/e/f")]
-        #expect(DifferencesQuery.filtered(list, filter: .all, searchText: "").count == 3)
+        #expect(DifferencesQuery.filtered(list, filter: .all, searchText: "", pathRootName: nil).count == 3)
     }
 
     @Test func testSearchIsCaseInsensitiveSubstringOfRelativePath() {
         let d = diff("Docs/Report.txt")
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "report"))
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "DOCS"))
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "s/R"))
-        #expect(!DifferencesQuery.matches(d, filter: .all, searchText: "missing"))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "report", pathRootName: nil))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "DOCS", pathRootName: nil))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "s/R", pathRootName: nil))
+        #expect(!DifferencesQuery.matches(d, filter: .all, searchText: "missing", pathRootName: nil))
     }
 
     @Test func testFilterAndSearchAreCombinedWithAnd() {
         // A missing-on-left item fails the missing-on-right filter regardless of search text.
         let d = diff("docs/report.txt", type: .missingOnLeft, action: .copyToLeft)
-        #expect(!DifferencesQuery.matches(d, filter: .missingOnRight, searchText: "report"))
+        #expect(!DifferencesQuery.matches(d, filter: .missingOnRight, searchText: "report", pathRootName: nil))
         // Passes the filter but the search excludes it.
         let onRight = diff("docs/report.txt", type: .missingOnRight)
-        #expect(!DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "budget"))
+        #expect(!DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "budget", pathRootName: nil))
         // Passes both.
-        #expect(DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "report"))
+        #expect(DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "report", pathRootName: nil))
     }
 
     @Test func testFilteredCombinesBothInOnePass() {
@@ -69,7 +69,7 @@ import Sync
             diff("keep/budget.txt", type: .missingOnRight),
             diff("skip/report.txt", type: .missingOnLeft, action: .copyToLeft),
         ]
-        let result = DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "report")
+        let result = DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "report", pathRootName: nil)
         #expect(result.map(\.relativePath) == ["keep/report.txt"])
     }
 
@@ -108,7 +108,7 @@ import Sync
         ]
         let counts = DifferencesQuery.counts(list)
         #expect(counts[.missingOnRight, default: 0]
-            == DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "").count)
+            == DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "", pathRootName: nil).count)
         #expect(counts[.all, default: 0] == list.count)
     }
 
@@ -175,6 +175,17 @@ import Sync
         #expect(DifferencesQuery.pathColumnText(parentPath: "", rootName: "Home") == "Home")
         #expect(DifferencesQuery.pathColumnText(parentPath: "Legal", rootName: "Home") == "Home/Legal")
         #expect(DifferencesQuery.pathColumnText(parentPath: "HOA/2024", rootName: "Home") == "Home/HOA/2024")
+    }
+
+    @Test func testPathColumnTextDropsLeadingSeparators() {
+        // Engine-built parents never lead with "/" — but this join is the second place that
+        // assumption became load-bearing (DifferenceGrouping records the first), and unguarded
+        // it would print "Home//Immigration".
+        #expect(DifferencesQuery.pathColumnText(parentPath: "/Immigration", rootName: "Home")
+                == "Home/Immigration")
+        #expect(DifferencesQuery.pathColumnText(parentPath: "//", rootName: "Home") == "Home")
+        #expect(DifferencesQuery.pathColumnText(parentPath: "/", rootName: nil)
+                == DifferenceGrouping.rootLabel)
     }
 
     @Test func testPathColumnWithoutARootNameFallsBackToTheBareParent() {

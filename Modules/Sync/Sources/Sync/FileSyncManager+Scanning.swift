@@ -654,9 +654,6 @@ extension FileSyncManager {
             self.lastRightProviderType = request.right.type
             // The provider pair the destination name check attributes transfer targets to.
             self.lastScanProviders = (request.left, request.right)
-            // The compared folders' names, captured with the results they describe — the Path
-            // column must keep naming the scanned roots even if the panes navigate on.
-            self.lastScanRootNames = (leftURL.lastPathComponent, rightURL.lastPathComponent)
             self.lastScanDate = Date()
             self.verifiedSameDifferenceIds.removeAll()
             // A fresh scan regenerates every row's id, so a "copy verified-identical left→right"
@@ -664,6 +661,16 @@ extension FileSyncManager {
             // (same reason swapPanes clears it), so confirming can't bulk-copy stale pairs.
             self.verifiedIdenticalForCopy = nil
             await self.applyFilters()
+            // The compared folders' names, captured with the results they describe — the Path
+            // column must keep naming the scanned roots even if the panes navigate on. Set AFTER
+            // the filter pass on purpose: the pass suspends on a detached compute while the
+            // PREVIOUS scan's rows are still published (they stay visible through navigation by
+            // design), and the `lastScanDate` write above re-renders the view — assigning the
+            // new names before the pass would label those old rows with the new scan's anchor
+            // for the pass's whole duration. `applyFilters` publishes the rows synchronously
+            // before returning, so this write shares its main-actor slot with them: no render
+            // can interleave and pair new rows with old names either.
+            self.lastScanRootNames = (leftURL.lastPathComponent, rightURL.lastPathComponent)
             hasScanned = true
 
             // `.info`, matching the start line above rather than the `.debug` this used to be.

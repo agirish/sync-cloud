@@ -6,18 +6,23 @@ import Sync
 /// target set. Kept free of SwiftUI so every rule is unit-testable.
 enum DifferencesQuery {
     /// A difference is visible when it matches the active type filter AND the search query — which
-    /// is the structured token search (`kind:`, size, `only:`) plus free-text substring. A query
-    /// with no recognized tokens is exactly the legacy case-insensitive `relativePath` substring.
-    static func matches(_ difference: FileDifference, filter: DifferenceFilter, searchText: String) -> Bool {
+    /// is the structured token search (`kind:`, size, `only:`) plus free-text substring over the
+    /// text the table SHOWS: `relativePath` and the anchored Path-column text. `pathRootName` is
+    /// the same anchor the cells render with (no default — the caller must pass what it displays),
+    /// so a user who reads "Home/Legal" in the Path column and searches "Home" finds rows instead
+    /// of a silent empty result.
+    static func matches(_ difference: FileDifference, filter: DifferenceFilter, searchText: String,
+                        pathRootName: String?) -> Bool {
         guard filter.matches(difference) else { return false }
-        return DifferenceSearch.parse(searchText).matches(difference)
+        return DifferenceSearch.parse(searchText).matches(difference, pathRootName: pathRootName)
     }
 
     /// Single O(n) pass over the whole list. The search query is parsed ONCE here (not per row) and
     /// reused, so the token grammar costs nothing per difference.
-    static func filtered(_ differences: [FileDifference], filter: DifferenceFilter, searchText: String) -> [FileDifference] {
+    static func filtered(_ differences: [FileDifference], filter: DifferenceFilter, searchText: String,
+                         pathRootName: String?) -> [FileDifference] {
         let query = DifferenceSearch.parse(searchText)
-        return differences.filter { filter.matches($0) && query.matches($0) }
+        return differences.filter { filter.matches($0) && query.matches($0, pathRootName: pathRootName) }
     }
 
     /// Per-filter row counts for the filter menu (the `Identical (312)` parity ask): how many
@@ -45,10 +50,15 @@ enum DifferencesQuery {
     /// then falls back to the bare parent, with `DifferenceGrouping.rootLabel` standing in for
     /// the root itself.
     static func pathColumnText(parentPath: String, rootName: String?) -> String {
+        // Engine-built relativePaths never lead with "/", but this is the second place that
+        // assumption gets load-bearing (DifferenceGrouping.split records the first going wrong),
+        // and here it would print "Home//Immigration". Dropping leading slashes is the whole
+        // defence — cheaper than sharing the grouping's splitter for one cosmetic join.
+        let parent = String(parentPath.drop(while: { $0 == "/" }))
         guard let rootName, !rootName.isEmpty else {
-            return parentPath.isEmpty ? DifferenceGrouping.rootLabel : parentPath
+            return parent.isEmpty ? DifferenceGrouping.rootLabel : parent
         }
-        return parentPath.isEmpty ? rootName : rootName + "/" + parentPath
+        return parent.isEmpty ? rootName : rootName + "/" + parent
     }
 
     /// Inserts every difference's `relativePath` into the ignore set (the bulk "Ignore all"
@@ -166,7 +176,7 @@ extension FileDifference {
         return String(relativePath[relativePath.index(after: slash)...])
     }
 
-    /// The parent-path prefix dimmed ahead of the filename in the Name cell; empty at the root.
+    /// The Path column's display source (via `pathColumnText`) and its sort key; empty at the root.
     var parentPath: String {
         guard let slash = relativePath.lastIndex(of: "/") else { return "" }
         return String(relativePath[..<slash])

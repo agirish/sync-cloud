@@ -83,15 +83,25 @@ import Testing
     /// value can be latched. Mid-test toggles write to the returned `store`, whose location has
     /// been live and observing since that first render.
     private func mount(grouped: Bool,
-                       rows: [FileDifference]? = nil)
+                       rows: [FileDifference]? = nil,
+                       manager externalManager: FileSyncManager? = nil,
+                       reviewStore: ReviewSessionStore = ReviewSessionStore())
         -> (host: NSHostingView<AnyView>, window: NSWindow, store: UserDefaults) {
         let store = ScratchDefaults("DifferencesTableIdentityTests")
         store.set(grouped, forKey: "differencesGroupByFolder")
-        let manager = FileSyncManager()
-        manager.differences = rows ?? differences()
-        manager.hasScanned = true
+        // An external manager arrives with its state already scanned in (the path-anchor tests
+        // need `lastScanRootNames` captured by the production publish, not poked); the default
+        // one gets the fixture rows directly.
+        let manager: FileSyncManager
+        if let externalManager {
+            manager = externalManager
+        } else {
+            manager = FileSyncManager()
+            manager.differences = rows ?? differences()
+            manager.hasScanned = true
+        }
 
-        let view = DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())
+        let view = DifferencesView(syncManager: manager, reviewStore: reviewStore)
             .defaultAppStorage(store)
         let host = NSHostingView(rootView: AnyView(view))
         host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
@@ -166,6 +176,50 @@ import Testing
     /// if one were ever inserted before it.
     private func sizeColumn(of table: NSTableView) -> NSTableColumn? {
         table.tableColumns.first { $0.title == "Size" || $0.headerCell.stringValue == "Size" }
+    }
+
+    // MARK: Path-anchor helpers
+
+    /// A manager whose `lastScanRootNames` was captured by the PRODUCTION publish path: two real
+    /// temp folders, scanned through the public API. Poking the internal tuple would test a state
+    /// no production code can reach; a scan of `Home` vs `Home` is the state the anchor exists for.
+    /// The left folder holds one root-level file, so the diff is a single row whose Path cell is
+    /// exactly the case that used to render as nothing.
+    private func scannedManager(leftFolder: String, rightFolder: String) async throws
+        -> (manager: FileSyncManager, cleanup: URL) {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("DiffPathAnchor-\(UUID().uuidString)")
+        let left = base.appendingPathComponent(leftFolder)
+        let right = base.appendingPathComponent("other").appendingPathComponent(rightFolder)
+        try FileManager.default.createDirectory(at: left, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: left.appendingPathComponent("loose.pdf"))
+        let manager = FileSyncManager()
+        let l = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: left.path, type: .iCloud)
+        let r = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: right.path, type: .iCloud)
+        await manager.scanDirectories(left: l, leftPath: left.path, right: r, rightPath: right.path)
+        return (manager, base)
+    }
+
+    /// The single root-level fixture row the anchor tests render without a scan — the same shape
+    /// `scannedManager`'s diff produces, so the two mounts differ ONLY in the anchor.
+    private func rootLevelRow() -> FileDifference {
+        FileDifference(relativePath: "loose.pdf",
+                       leftItemPath: "/left/loose.pdf", rightItemPath: "/right/loose.pdf",
+                       type: .missingOnRight, action: .copyToRight,
+                       description: "Missing on right", leftFileSize: 1)
+    }
+
+    /// The Path cell of `row`, rendered to PNG bytes. Pixels, not view introspection: a SwiftUI
+    /// cell exposes no readable text from AppKit, and what the user sees IS the paint.
+    private func pathCellPNG(in host: NSView, row: Int) throws -> Data {
+        let table = try #require(tableView(in: host))
+        let column = try #require(table.tableColumns.firstIndex { $0.title == "Path" },
+                                  "no Path column — titles were \(table.tableColumns.map(\.title))")
+        let cell = try #require(table.view(atColumn: column, row: row, makeIfNecessary: true))
+        let rep = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+        cell.cacheDisplay(in: cell.bounds, to: rep)
+        return try #require(rep.representation(using: .png, properties: [:]))
     }
 
     // MARK: Tests
@@ -330,6 +384,81 @@ import Testing
         table.selectRowIndexes(IndexSet(), byExtendingSelection: false)
         let cleared = await wait(host, for: { wash(row: 2) == nil }, timeout: 5)
         #expect(cleared.held, "the wash outlived its selection after \(cleared.pumps) passes")
+    }
+
+    /// The seam every pure test stops short of: DifferencesView must actually FEED the captured
+    /// scan-root anchor into the Path cells. `pathColumnText` is tested pure, the cell is
+    /// snapshot-tested with an anchor passed BY THE TEST, and the manager's capture is pinned in
+    /// Sync — but severing `rootName: pathRootName` at the call site left all of them green
+    /// (measured before this test existed). So: one mount whose anchor came through a real scan
+    /// ("Home"), one with no scan (fallback "Top level"), and the rendered Path cell must differ.
+    /// Self-detecting against a blind harness: if offscreen cell rendering ever produced nothing,
+    /// both PNGs would be equal blanks and the test would FAIL, not pass vacuously.
+    @Test func pathCellsRenderTheScannedRootAnchor() async throws {
+        let scanned = try await scannedManager(leftFolder: "Home", rightFolder: "Home")
+        defer { try? FileManager.default.removeItem(at: scanned.cleanup) }
+        #expect(scanned.manager.differences.count == 1,
+                "the real scan found \(scanned.manager.differences.count) difference(s), not the 1 fixture file")
+
+        let (hostA, windowA, _) = mount(grouped: false, manager: scanned.manager)
+        defer { windowA.contentView = nil }
+        let settledA = await settle(hostA, atRows: 1)
+        #expect(settledA.rows == 1, "anchored mount settled at \(settledA.rows) after \(settledA.pumps) passes")
+        let anchored = try pathCellPNG(in: hostA, row: 0)
+
+        let (hostB, windowB, _) = mount(grouped: false, rows: [rootLevelRow()])
+        defer { windowB.contentView = nil }
+        let settledB = await settle(hostB, atRows: 1)
+        #expect(settledB.rows == 1, "fallback mount settled at \(settledB.rows) after \(settledB.pumps) passes")
+        let fallback = try pathCellPNG(in: hostB, row: 0)
+
+        #expect(anchored != fallback,
+                "the Path cell rendered identically with and without a scanned root anchor — the view is not feeding lastScanRootNames into the cells")
+    }
+
+    /// The review table's anchor must be the SESSION's frozen one, not the live scan's. The
+    /// queue is a snapshot (it doubles as a receipt), so a mid-review rescan of different
+    /// folders must not relabel the frozen rows — here the live anchor is nil in BOTH mounts,
+    /// and only the session's differs, so any difference in the rendered cell can have come
+    /// from the frozen anchor alone. Also pins the review table's five columns.
+    @Test func reviewTableRendersItsFrozenPathAnchor() async throws {
+        var pngs: [Data] = []
+        for anchor in ["Home", nil] {
+            let row = rootLevelRow()
+            let reviewStore = ReviewSessionStore()
+            reviewStore.session = try #require(
+                ReviewSession(queue: [row], isMove: false, pathRootName: anchor))
+            // The manager holds NO differences and NO scan: review renders from the frozen queue.
+            let manager = FileSyncManager()
+            manager.hasScanned = true
+            let (host, window, _) = mount(grouped: false, manager: manager, reviewStore: reviewStore)
+            defer { window.contentView = nil }
+            let settled = await settle(host, atRows: 1)
+            #expect(settled.rows == 1,
+                    "review mount (anchor \(anchor ?? "nil")) settled at \(settled.rows) after \(settled.pumps) passes")
+            let table = try #require(tableView(in: host))
+            #expect(table.tableColumns.map(\.title) == ["Name", "Change", "Path", "Size", "Status"],
+                    "review columns were \(table.tableColumns.map(\.title))")
+            pngs.append(try pathCellPNG(in: host, row: 0))
+        }
+        #expect(pngs[0] != pngs[1],
+                "the review Path cell ignored the session's frozen anchor — with the live anchor nil in both mounts, only session.pathRootName could make these differ")
+    }
+
+    /// The anchor policy itself: equal root names anchor, differing ones must NOT — either name
+    /// would misname the other side. Driven through real scans so the gate is exercised against
+    /// state the production publish actually creates.
+    @Test func pathRootNameAnchorsOnlyMatchingRoots() async throws {
+        let matching = try await scannedManager(leftFolder: "Home", rightFolder: "Home")
+        defer { try? FileManager.default.removeItem(at: matching.cleanup) }
+        #expect(DifferencesView(syncManager: matching.manager, reviewStore: ReviewSessionStore())
+            .pathRootName == "Home")
+
+        let differing = try await scannedManager(leftFolder: "Home", rightFolder: "Backup")
+        defer { try? FileManager.default.removeItem(at: differing.cleanup) }
+        #expect(DifferencesView(syncManager: differing.manager, reviewStore: ReviewSessionStore())
+            .pathRootName == nil,
+                "Home vs Backup anchored anyway — the equality gate is not being consulted")
     }
 
     /// The four columns are declared once now, so both shapes must show the same four in the same
