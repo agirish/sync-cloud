@@ -19,108 +19,83 @@ import SwiftUI
 
 /// Every number the keycap paints, in one place so they can be asserted without rendering.
 public enum ShortcutKeycapMetrics {
-    public static let cornerRadius: CGFloat = 4
-    public static let horizontalPadding: CGFloat = 4
-    public static let verticalPadding: CGFloat = 1
+    public static let cornerRadius: CGFloat = 5
+    public static let horizontalPadding: CGFloat = 6
+    public static let verticalPadding: CGFloat = 2.5
     public static let borderWidth: CGFloat = 0.75
 
-    /// How far the keycap is inset from its host's trailing edge.
-    public static let trailingInset: CGFloat = 4
-
-    /// Alpha of the black scrim under an on-accent keycap.
+    /// How far the control itself fades back while its keycap is showing.
     ///
-    /// **Darkens, deliberately, and the direction is the whole point.** `accentFillColor` is
-    /// already deepened until white clears 4.55:1 on it (`AccentFill.targetLuminance`), so a
-    /// *lightened* chip — the obvious "translucent white key" — would push its own backing back up
-    /// the luminance curve and drop the white glyph on it below that floor, while every other
-    /// label on the same button stayed fine. Scrimming down can only move contrast the good way:
-    /// the keycap glyph is guaranteed to be at least as legible as the button's own label, by
-    /// construction rather than by measurement.
-    public static let onAccentScrim: Double = 0.18
-
-    /// Alpha of the hairline around an on-accent keycap. White, so the key reads as an object on
-    /// the fill rather than a hole in it.
-    public static let onAccentBorder: Double = 0.55
-}
-
-/// Which surface a keycap is sitting on, which is all it needs to know to color itself.
-public enum ShortcutKeycapSurface: Sendable {
-    /// A control with no strong fill of its own — a glyph button, an outline button, plain chrome.
-    case standard
-    /// A control that already carries a solid, label-is-white fill: `.actionBar(.primary)`, whose
-    /// tint `AccentFill.deepened`s, and `.borderedProminent`, whose bezel AppKit fills with the
-    /// system accent and labels in white.
+    /// This is what makes the reveal read as an answer rather than as a collision. The keycap used
+    /// to be a small chip anchored to the control's trailing edge, and on anything whose content
+    /// already fills it — which is every control — that lands the chip ON the content: half over
+    /// the last word of "Copy 1 to Dropbox", or squarely on top of a 15pt magnifier glyph, which
+    /// looked like a rendering fault rather than a badge. Partial occlusion always does.
     ///
-    /// The two are NOT the same colour, and the keycap does not need them to be. Its guarantee is
-    /// *relative* — the scrim only ever darkens, so the white glyph on it is at least as legible as
-    /// the white label beside it, whatever the fill underneath. That is why this case can be
-    /// applied to a `.borderedProminent` button whose fill is the raw system accent (which the user
-    /// may have set to something as light as Yellow) without inheriting a new contrast problem:
-    /// it inherits the button's existing one, unchanged, rather than adding to it.
-    case accentFill
+    /// Fading the whole control and centring an opaque key on it occludes nothing partially: the
+    /// control steps back, the key steps forward, and both are legible for what they are. Low
+    /// enough that the label underneath cannot be misread as still-active, high enough that the
+    /// control's shape, position and colour are all still there.
+    public static let contentOpacity: Double = 0.13
+
+    /// Alpha of the drop shadow that lifts the key off the control — see `ShortcutKeycap.body`.
+    public static let shadowOpacity: Double = 0.22
 }
 
 /// The badge itself. Rendered only while the reveal is active; see `.shortcutKeycap(_:)`.
+///
+/// **Opaque, and appearance-semantic rather than tinted.** It used to come in two variants so its
+/// contrast could be reasoned about against whatever fill it sat on — a translucent chip on a
+/// deepened accent, a different one elsewhere. An opaque key needs none of that: its legibility is
+/// a property of the key itself, `labelColor` on `controlBackgroundColor`, which AppKit pairs and
+/// which holds on a blue button, a white sheet and a dark window alike. One appearance everywhere
+/// is also what a key *is* — keys do not change colour with what they are sitting on.
 public struct ShortcutKeycap: View {
     private let symbol: String
-    private let surface: ShortcutKeycapSurface
 
-    public init(_ symbol: String, surface: ShortcutKeycapSurface = .standard) {
+    public init(_ symbol: String) {
         self.symbol = symbol
-        self.surface = surface
     }
 
     public var body: some View {
         Text(symbol)
-            .scaledFont(.caption2.monospaced().weight(.medium))
-            .foregroundStyle(labelStyle)
+            .scaledFont(.caption.monospaced().weight(.semibold))
+            // Pinned colours, not `.secondary`/`.quaternary`. Hierarchical styles resolve against
+            // the *enclosing* foreground style, which inside a filled button is white — so the
+            // hierarchical version rendered a white glyph on a light key the moment it was dropped
+            // onto the primary transfer button.
+            .foregroundStyle(Color(nsColor: .labelColor))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, ShortcutKeycapMetrics.horizontalPadding)
             .padding(.vertical, ShortcutKeycapMetrics.verticalPadding)
-            .background(shape.fill(fillStyle))
-            .overlay(shape.strokeBorder(borderStyle, lineWidth: ShortcutKeycapMetrics.borderWidth))
+            .background(shape.fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(shape.strokeBorder(Color(nsColor: .separatorColor),
+                                        lineWidth: ShortcutKeycapMetrics.borderWidth))
+            // Lifts the key off the control it is sitting on. Needed most in LIGHT mode, where the
+            // faded control cannot get out of the way on its own: a white label on a coloured fill
+            // converges to the white ground as it fades, so the letterforms stay visible as
+            // negative space no matter how far the fade goes. The shadow is what still separates
+            // "key on top" from "key embedded in the label" there. Dark mode fades properly and
+            // barely needs it.
+            .shadow(color: .black.opacity(ShortcutKeycapMetrics.shadowOpacity), radius: 2.5, y: 1)
             // Not a hit target and not a second thing to announce: the shortcut reaches VoiceOver
             // through the hint the modifier applies to the CONTROL, where it belongs.
             //
             // `allowsHitTesting(false)` is load-bearing — a SwiftUI overlay takes hits by default,
             // and this one sits ON the control it describes, so without it the badge would swallow
-            // the click on exactly the button whose shortcut you just looked up (worst on the
-            // icon-only controls, where the keycap covers the whole target).
+            // the click on exactly the button whose shortcut you just looked up.
             //
             // **Asserted by construction, not by test, and deliberately so.** A test was written
             // for it and deleted: `NSHostingView.hitTest` does not decompose a SwiftUI overlay into
             // its own view, so it returns the hosting view whether or not this line is here — the
-            // test passed with `allowsHitTesting(true)` and was proving nothing. There is no seam
-            // in this process that can tell the two apart, and a test that cannot fail is a worse
-            // claim of coverage than none.
+            // test passed with `allowsHitTesting(true)` and was proving nothing.
             .accessibilityHidden(true)
             .allowsHitTesting(false)
     }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: ShortcutKeycapMetrics.cornerRadius, style: .continuous)
-    }
-
-    private var labelStyle: AnyShapeStyle {
-        switch surface {
-        case .standard: return AnyShapeStyle(.secondary)
-        case .accentFill: return AnyShapeStyle(.white)
-        }
-    }
-
-    private var fillStyle: AnyShapeStyle {
-        switch surface {
-        case .standard: return AnyShapeStyle(.quaternary.opacity(0.4))
-        case .accentFill: return AnyShapeStyle(Color.black.opacity(ShortcutKeycapMetrics.onAccentScrim))
-        }
-    }
-
-    private var borderStyle: AnyShapeStyle {
-        switch surface {
-        case .standard: return AnyShapeStyle(.quaternary)
-        case .accentFill: return AnyShapeStyle(Color.white.opacity(ShortcutKeycapMetrics.onAccentBorder))
-        }
     }
 }
 
@@ -130,32 +105,21 @@ public extension View {
     /// Badges this control with `symbol` while the ⌥-hold reveal is active, and names the same
     /// shortcut to VoiceOver unconditionally.
     ///
-    /// The badge rides in an overlay pinned to the control's trailing edge, so it costs the
-    /// control's layout nothing — pass the shortcut in the form a user reads it (`"⌘R"`, `"⇧⌘→"`,
-    /// `"esc"`), which is also what the accessibility hint says.
-    ///
-    /// - Parameters:
-    ///   - symbol: the shortcut as displayed, e.g. `"⌘F"`.
-    ///   - surface: `.accentFill` on a button already filled with the hue's accent, so the keycap
-    ///     scrims down instead of washing out. `.standard` everywhere else.
-    ///   - alignment: where the badge sits over the control. Trailing suits a labelled button;
-    ///     `.center` suits an icon-only one, where a keycap is nearly as wide as the whole control.
+    /// While the reveal is on, the control fades back and an opaque key sits centred on it; the
+    /// control's frame never changes. Pass the shortcut in the form a user reads it (`"⌘R"`,
+    /// `"⇧⌘→"`, `"esc"`), which is also what the accessibility hint says.
     ///
     /// **Apply this ABOVE any `.disabled(…)` on the control**, so the modifier sits inside that
     /// scope and can read `isEnabled` — the same ordering rule `ChromeHoverModifier` documents,
     /// and for the same reason: a badge on a greyed-out button advertises a shortcut that does
     /// nothing when you press it.
-    func shortcutKeycap(_ symbol: String,
-                        surface: ShortcutKeycapSurface = .standard,
-                        alignment: Alignment = .trailing) -> some View {
-        modifier(ShortcutKeycapModifier(symbol: symbol, surface: surface, alignment: alignment))
+    func shortcutKeycap(_ symbol: String) -> some View {
+        modifier(ShortcutKeycapModifier(symbol: symbol))
     }
 }
 
 private struct ShortcutKeycapModifier: ViewModifier {
     let symbol: String
-    let surface: ShortcutKeycapSurface
-    let alignment: Alignment
 
     @Environment(\.shortcutRevealActive) private var isRevealActive
     /// A disabled control's shortcut does not fire, so it must not advertise one. Same guard, and
@@ -166,20 +130,22 @@ private struct ShortcutKeycapModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // The control steps back so the key can be read against it rather than on top of it.
+            // Opacity, never `.hidden()` or a branch: both would take the control out of the
+            // layout and move everything beside it.
+            .opacity(showsKeycap ? ShortcutKeycapMetrics.contentOpacity : 1)
             // `.overlay` and not an `HStack`: an overlay takes its size FROM the host and gives
             // none back, which is the zero-layout-shift guarantee in one modifier. The ternary
             // swaps only what the overlay draws, never whether the overlay exists, so the host's
             // measured size cannot depend on the reveal.
-            .overlay(alignment: alignment) {
+            //
+            // Centred, with no alignment choice offered. A trailing anchor was the first design and
+            // it is wrong for every control the app actually has: it lands the key ON the content
+            // rather than beside it, because the content already fills the control. Centring is
+            // also the only placement that cannot overhang asymmetrically onto a neighbour.
+            .overlay {
                 if showsKeycap {
-                    ShortcutKeycap(symbol, surface: surface)
-                        // Only for a trailing badge — the inset exists to hold it off the control's
-                        // edge. Applied unconditionally it would push a CENTRED badge (what the
-                        // icon-only controls use) half the inset off-centre, which on a 28pt glyph
-                        // button is visible.
-                        .padding(.trailing, alignment.horizontal == .trailing
-                                 ? ShortcutKeycapMetrics.trailingInset : 0)
-                        .transition(.opacity)
+                    ShortcutKeycap(symbol).transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.12), value: showsKeycap)

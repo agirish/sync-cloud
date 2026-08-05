@@ -269,7 +269,7 @@ public struct DestinationPicker: View {
             Spacer(minLength: 8)
             CloseButton(action: onCancel)
                 .keyboardShortcut(.cancelAction)
-                .shortcutKeycap("esc", alignment: .center)
+                .shortcutKeycap("esc")
                 .help(ShortcutHint.tooltip("Cancel", "esc"))
         }
         .padding(.horizontal, 20)
@@ -527,7 +527,7 @@ public struct DestinationPicker: View {
                                             tint: AccentFill.deepened(accent),
                                             onTint: glassHue.onAccentLabelColor))
                     .keyboardShortcut(.defaultAction)
-                    .shortcutKeycap("⏎", surface: .accentFill)
+                    .shortcutKeycap("⏎")
                     .disabled(!canCommit)
             }
         }

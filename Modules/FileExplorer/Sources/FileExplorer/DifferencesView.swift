@@ -1093,7 +1093,7 @@ public struct DifferencesView: View {
         // and `isMove` is `ModifierTracker.isMoveModifierPressed` (⇧ or ⌘), so the two are
         // mutually exclusive by construction. The TOOLTIP is where the ⇧⌘ form is reachable —
         // it is ungated, so it renders while ⇧ is held and the button has retitled to Move.
-        .shortcutKeycap(chord, surface: weight == .primary ? .accentFill : .standard)
+        .shortcutKeycap(chord)
         .disabled(isSyncActionBlocked)
         // The label may shed the destination; the tooltip never does, and it always names the verb
         // — and now the chord, ungated, for anyone who never finds the ⌥ hold.

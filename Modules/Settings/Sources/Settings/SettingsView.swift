@@ -194,7 +194,7 @@ public struct SettingsView: View {
                 CloseButton(action: onClose)
                     // Escape closes the overlay even when focus is elsewhere in the card.
                     .keyboardShortcut(.cancelAction)
-                    .shortcutKeycap("esc", alignment: .center)
+                    .shortcutKeycap("esc")
                     .help(ShortcutHint.tooltip("Close settings", "esc"))
             }
             .padding(.horizontal, 16)

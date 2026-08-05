@@ -388,7 +388,7 @@ struct AutomationRuleEditor: View {
                 .shortcutKeycap("esc")
             Button("Save") { onSave(assembled) }
                 .keyboardShortcut(.defaultAction)
-                .shortcutKeycap("⏎", surface: .accentFill)
+                .shortcutKeycap("⏎")
                 .buttonStyle(.borderedProminent)
                 .chromeHover()
                 // Gate on the RAW rows, not `assembled`: canonicalization already stripped the

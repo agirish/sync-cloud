@@ -494,7 +494,7 @@ struct HelpView: View {
             Spacer()
             CloseButton(action: onClose)
                 .keyboardShortcut(.cancelAction)
-                .shortcutKeycap("esc", alignment: .center)
+                .shortcutKeycap("esc")
                 .help(ShortcutHint.tooltip("Close Help", "esc"))
                 .accessibilityLabel("Close Help")
         }

@@ -15,20 +15,17 @@ import Testing
     private static let canvas = CGSize(width: 240, height: 44)
     private static let tint = Color(red: 0, green: 0.44, blue: 0.91)
 
-    /// The three control shapes the badge is actually adopted on, so the size assertions cover a
-    /// filled button, an outline button and a bare glyph rather than one lucky case. Each carries
-    /// the alignment its real call sites use — a labelled button badges at its trailing edge, an
-    /// icon-only one badges over the glyph, because a keycap is nearly as wide as the whole
-    /// control there and anything overhanging would foul the neighbouring nav buttons.
+    /// The three control shapes the badge is actually adopted on, so the assertions cover a filled
+    /// button, an outline button and a bare glyph rather than one lucky case.
     @MainActor
-    private static func subjects() -> [(name: String, view: AnyView, alignment: Alignment)] {
+    private static func subjects() -> [(name: String, view: AnyView)] {
         [
             ("primary", AnyView(Button("Copy 560 to Dropbox") {}
-                .buttonStyle(.actionBar(.primary, tint: tint, onTint: .white))), .trailing),
+                .buttonStyle(.actionBar(.primary, tint: tint, onTint: .white)))),
             ("outline", AnyView(Button("Review 12") {}
-                .buttonStyle(.actionBar(.outline, tint: tint, onTint: .white))), .trailing),
+                .buttonStyle(.actionBar(.outline, tint: tint, onTint: .white)))),
             ("glyph", AnyView(Button { } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(.hoverAffordance(.glyph, tint: tint))), .center),
+                .buttonStyle(.hoverAffordance(.glyph, tint: tint)))),
         ]
     }
 
@@ -36,7 +33,8 @@ import Testing
         NSHostingView(rootView: AnyView(view.environment(\.shortcutRevealActive, revealed)))
     }
 
-    private func render(_ view: some View, revealed: Bool) -> NSBitmapImageRep? {
+    private func render(_ view: some View, revealed: Bool,
+                        background: Color = Color(nsColor: .windowBackgroundColor)) -> NSBitmapImageRep? {
         let subject = view
             .environment(\.shortcutRevealActive, revealed)
             .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .leading)
@@ -45,7 +43,7 @@ import Testing
             // composites to a ZERO pixel delta against it. The first version of this file measured
             // exactly that and reported "the keycap did not paint" for every subject that wasn't
             // sitting on an accent fill.
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(background)
             .environment(\.colorScheme, .light)
 
         let host = NSHostingView(rootView: AnyView(subject))
@@ -89,9 +87,9 @@ import Testing
     /// someone swapped in because it looked tidier.
     @Test func aBadgedControlIsTheSameSizeInBothStates() {
         for subject in Self.subjects() {
-            let off = hosted(subject.view.shortcutKeycap("⇧⌘→", alignment: subject.alignment),
+            let off = hosted(subject.view.shortcutKeycap("⇧⌘→"),
                              revealed: false).fittingSize
-            let on = hosted(subject.view.shortcutKeycap("⇧⌘→", alignment: subject.alignment),
+            let on = hosted(subject.view.shortcutKeycap("⇧⌘→"),
                             revealed: true).fittingSize
             #expect(off == on, "\(subject.name) resized when the reveal came up: \(off) → \(on)")
         }
@@ -102,7 +100,7 @@ import Testing
     @Test func adoptingTheBadgeDoesNotChangeARestingControl() {
         for subject in Self.subjects() {
             let bare = hosted(subject.view, revealed: false).fittingSize
-            let badged = hosted(subject.view.shortcutKeycap("⇧⌘→", alignment: subject.alignment),
+            let badged = hosted(subject.view.shortcutKeycap("⇧⌘→"),
                                 revealed: false).fittingSize
             #expect(bare == badged, "\(subject.name) grew just from adopting a keycap: \(bare) → \(badged)")
         }
@@ -124,7 +122,7 @@ import Testing
     /// vacuously whether or not anything was drawn.
     @Test func theKeycapPaintsWhenTheRevealIsActive() {
         for subject in Self.subjects() {
-            let badged = subject.view.shortcutKeycap("⌘F", alignment: subject.alignment)
+            let badged = subject.view.shortcutKeycap("⌘F")
             guard let off = render(badged, revealed: false),
                   let on = render(badged, revealed: true) else {
                 Issue.record("\(subject.name): no bitmap rep")
@@ -144,7 +142,7 @@ import Testing
     @Test func theKeycapPaintsNothingAtRest() {
         for subject in Self.subjects() {
             guard let bare = render(subject.view, revealed: false),
-                  let badged = render(subject.view.shortcutKeycap("⌘F", alignment: subject.alignment),
+                  let badged = render(subject.view.shortcutKeycap("⌘F"),
                                       revealed: false) else {
                 Issue.record("\(subject.name): no bitmap rep")
                 continue
@@ -165,7 +163,7 @@ import Testing
     @Test func aDisabledControlWearsNoBadge() {
         for subject in Self.subjects() {
             let badged = subject.view
-                .shortcutKeycap("⌘F", alignment: subject.alignment)
+                .shortcutKeycap("⌘F")
                 .disabled(true)
             guard let off = render(badged, revealed: false),
                   let on = render(badged, revealed: true) else {
@@ -179,7 +177,7 @@ import Testing
 
     /// ...and the guard is the modifier's, not the call site's ordering alone: applied BELOW
     /// `.disabled(…)` the modifier cannot see the state, which is why the ordering is documented
-    /// on `shortcutKeycap(_:surface:alignment:)`. This pins the shape that ordering assumes — a
+    /// on `shortcutKeycap(_:)`. This pins the shape that ordering assumes — a
     /// control disabled *outside* the badge still reads as enabled, so the badge shows.
     @Test func theDisabledGuardDependsOnTheDocumentedOrdering() {
         let wrongOrder = Button("Review 12") {}
@@ -194,90 +192,78 @@ import Testing
                 "the ordering rule is no longer load-bearing: if the modifier now sees through `.disabled` from outside, drop the ordering note from the doc comment")
     }
 
-    // MARK: Placement
+    // MARK: The key is opaque, and the control steps back
 
-    /// The bounding box of every pixel that changed between two renders, in POINTS.
-    private func changedBox(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> CGRect? {
-        let scale = CGFloat(lhs.pixelsWide) / Self.canvas.width
-        var minX = Int.max, maxX = -1, minY = Int.max, maxY = -1
-        for y in 0..<min(lhs.pixelsHigh, rhs.pixelsHigh) {
-            for x in 0..<min(lhs.pixelsWide, rhs.pixelsWide) {
-                guard let a = lhs.colorAt(x: x, y: y), let b = rhs.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(a.redComponent - b.redComponent),
-                                max(abs(a.greenComponent - b.greenComponent),
-                                    abs(a.blueComponent - b.blueComponent)))
-                if delta > 0.02 {
-                    minX = min(minX, x); maxX = max(maxX, x)
-                    minY = min(minY, y); maxY = max(maxY, y)
-                }
+    /// A colour sampled at the control's centre — which is where the key sits.
+    private func centrePixel(_ rep: NSBitmapImageRep, controlWidth: CGFloat) -> NSColor? {
+        let scale = CGFloat(rep.pixelsWide) / Self.canvas.width
+        return rep.colorAt(x: Int(controlWidth / 2 * scale), y: Int(Self.canvas.height / 2 * scale))
+    }
+
+    /// The key is **opaque**: nothing behind it shows through.
+    ///
+    /// This is the whole reason the badge stopped being a translucent chip anchored to the trailing
+    /// edge. Rendered over a white ground and a black one, the key's own pixels must be identical —
+    /// if any of the ground bleeds through, the key is legible on one background and not the other,
+    /// which is exactly the state the first design shipped in.
+    @Test func theKeyIsOpaqueWhateverIsBehindIt() {
+        for subject in Self.subjects() {
+            let badged = subject.view.shortcutKeycap("⌘F")
+            let controlWidth = hosted(subject.view, revealed: false).fittingSize.width
+            guard let onWhite = render(badged, revealed: true, background: .white),
+                  let onBlack = render(badged, revealed: true, background: .black),
+                  let a = centrePixel(onWhite, controlWidth: controlWidth),
+                  let b = centrePixel(onBlack, controlWidth: controlWidth) else {
+                Issue.record("\(subject.name): no bitmap rep")
+                continue
+            }
+            let delta = max(abs(a.redComponent - b.redComponent),
+                            max(abs(a.greenComponent - b.greenComponent),
+                                abs(a.blueComponent - b.blueComponent)))
+            #expect(delta < 0.02,
+                    "\(subject.name): the ground shows through the key (delta \(delta))")
+        }
+    }
+
+    /// ...and the control behind it steps back, rather than staying at full strength under a key
+    /// that only covers part of it.
+    ///
+    /// Sampled at the control's LEADING edge, well clear of the centred key, so this measures the
+    /// fade and not the badge. Without it the label reads straight through beside the key — which
+    /// is what "Copy 1 to Dropbo[⌘→]" looked like, and why it read as a rendering fault.
+    /// Mean luminance over a rectangle of the canvas, in points.
+    private func meanLuminance(_ rep: NSBitmapImageRep, _ rect: CGRect) -> CGFloat {
+        let scale = CGFloat(rep.pixelsWide) / Self.canvas.width
+        var total: CGFloat = 0, n = 0
+        for y in stride(from: rect.minY, to: rect.maxY, by: 1) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 1) {
+                guard let c = rep.colorAt(x: Int(x * scale), y: Int(y * scale)) else { continue }
+                total += luminance(c); n += 1
             }
         }
-        guard maxX >= 0 else { return nil }
-        // `maxX`/`maxY` are INCLUSIVE pixel indices, so the box's far edge is one pixel past them.
-        // Without the +1 every measurement here reads half a point short at 2x backing, which is
-        // most of the 4pt quantity the inset tests are trying to see.
-        return CGRect(x: CGFloat(minX) / scale, y: CGFloat(minY) / scale,
-                      width: CGFloat(maxX + 1 - minX) / scale,
-                      height: CGFloat(maxY + 1 - minY) / scale)
+        return n == 0 ? 0 : total / CGFloat(n)
     }
 
-    /// A centred badge must actually land centred on its control.
-    ///
-    /// The trailing inset exists to hold a *trailing* badge off the control's edge. Applied
-    /// unconditionally — which is how it shipped — it also pushes a CENTRED badge half the inset
-    /// off-centre, and on a 28pt glyph button, which is what every icon-only adopter is, that is
-    /// visible. Nothing caught it: the size tests are blind to placement and the paint tests only
-    /// count pixels, so the fix went in with no coverage at all until this.
-    @Test func aCentredBadgeIsCentredOnItsControl() {
-        let glyph = Button { } label: { Image(systemName: "magnifyingglass") }
-            .buttonStyle(.hoverAffordance(.glyph, tint: Self.tint))
-        // Centred in the canvas, NOT at its leading edge — and that is load-bearing. A glyph button
-        // measures 15pt and a `⌘F` keycap 17.5pt, so a centred badge is WIDER than the control it
-        // sits on and overhangs it. Rendered against the leading edge it is clipped at x = 0, and
-        // clipping swallows exactly the shift this test exists to detect: the first version of it
-        // measured a clipped box and passed against the unconditional-inset mutation.
-        let badged = glyph
-            .shortcutKeycap("⌘F", alignment: .center)
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-
-        guard let off = render(badged, revealed: false),
-              let on = render(badged, revealed: true),
-              let box = changedBox(off, on) else {
-            Issue.record("no bitmap rep, or the keycap painted nothing")
-            return
-        }
-        let controlCentre = Self.canvas.width / 2
-        #expect(box.minX > 0 && box.maxX < Self.canvas.width - 1,
-                "the badge is clipped by the canvas (\(box)) — this test cannot see a shift")
-        #expect(abs(box.midX - controlCentre) < 1.5,
-                "the centred keycap sits at \(box.midX)pt on a control centred at \(controlCentre)pt")
-    }
-
-    /// ...and the other half of the same rule: a TRAILING badge really is held off the control's
-    /// edge by the inset, rather than sitting flush against it.
-    ///
-    /// Added because a mutation that dropped the inset entirely survived the centring test above —
-    /// that one can only see a badge move, not a badge failing to be offset in the first place.
-    @Test func aTrailingBadgeIsInsetFromTheControlsEdge() {
+    @Test func theControlFadesBehindTheKey() {
         let button = Button("Copy 560 to Dropbox") {}
             .buttonStyle(.actionBar(.primary, tint: Self.tint, onTint: .white))
-        let badged = button.shortcutKeycap("⌘→", surface: .accentFill)
-
-        let controlWidth = hosted(button, revealed: false).fittingSize.width
-        guard let off = render(badged, revealed: false),
-              let on = render(badged, revealed: true),
-              let box = changedBox(off, on) else {
-            Issue.record("no bitmap rep, or the keycap painted nothing")
-            return
+        let size = hosted(button, revealed: false).fittingSize
+        guard let atRest = render(button.shortcutKeycap("⌘→"), revealed: false),
+              let revealed = render(button.shortcutKeycap("⌘→"), revealed: true) else {
+            Issue.record("no bitmap rep"); return
         }
-        // The control is laid out against the canvas's leading edge, so its trailing edge is at
-        // `controlWidth`. One point of tolerance and no more — the quantity under test is 4pt, so
-        // this still fails a dropped or doubled inset. The slack is for the keycap's 0.75pt border,
-        // which is stroked INSIDE its shape and whose outermost column falls under the 0.02 colour
-        // threshold this box is measured with.
-        let expected = controlWidth - ShortcutKeycapMetrics.trailingInset
-        #expect(abs(box.maxX - expected) < 1,
-                "the trailing keycap ends at \(box.maxX)pt, but \(ShortcutKeycapMetrics.trailingInset)pt inside a control ending at \(controlWidth)pt would be \(expected)pt")
+        // The control's leading third: inside the fill, clear of the centred key. A mean rather
+        // than a probe pixel — a single sample lands on a letter as easily as on the fill, and the
+        // first version of this test did exactly that and reported "did not fade" twice.
+        let top = (Self.canvas.height - size.height) / 2
+        let region = CGRect(x: 4, y: top + 2, width: size.width / 3, height: size.height - 4)
+
+        let before = meanLuminance(atRest, region)
+        let after = meanLuminance(revealed, region)
+        // Vacuity guard: a deep accent fill is dark. Measured 0.10 at rest and 0.71 revealed on the
+        // recording machine — the thresholds sit far inside both.
+        #expect(before < 0.35, "the region is not the fill (mean \(before)) — this test is vacuous")
+        #expect(after > before + 0.25, "the control did not fade: \(before) → \(after)")
     }
 
     // MARK: Modifier ordering
@@ -312,14 +298,8 @@ import Testing
                 "\(weight): the reorder changed \(pixelsDiffering(a, b)) pixels of the disabled control")
     }
 
-    // MARK: On-accent contrast
+    // MARK: Contrast
 
-    /// Re-tags into sRGB before reading components, rather than trusting the caller to.
-    ///
-    /// `NSColor.white` and `.black` are Generic Gray, and `redComponent` on those *raises* rather
-    /// than answering — an uncaught `NSInvalidArgumentException` that takes the whole test process
-    /// down, so it reads as a crash rather than as a failing assertion. That has now cost this file
-    /// two debugging rounds; the conversion belongs here, once, and not at each call site.
     private func luminance(_ color: NSColor) -> CGFloat {
         guard let rgb = color.usingColorSpace(.sRGB) else {
             Issue.record("\(color) has no sRGB representation")
@@ -330,81 +310,58 @@ import Testing
                                              blue: rgb.blueComponent)
     }
 
-    /// `over` composited onto `base` at `alpha`, in sRGB components — which is what the renderer
-    /// does with a `Color.black.opacity(_:)` fill over a solid button.
+    /// The key's legibility is a property of the key, in both appearances.
     ///
-    /// Both sides are re-tagged into sRGB first: `NSColor.black` is a Generic Gray colour and
-    /// *raises* on `redComponent` rather than answering, which is the one way this arithmetic can
-    /// fail loudly instead of quietly.
-    private func composite(_ over: NSColor, alpha: CGFloat, on base: NSColor) -> NSColor {
-        guard let over = over.usingColorSpace(.sRGB), let base = base.usingColorSpace(.sRGB) else {
-            Issue.record("no sRGB representation to composite")
-            return .white
-        }
-        return NSColor(srgbRed: over.redComponent * alpha + base.redComponent * (1 - alpha),
-                       green: over.greenComponent * alpha + base.greenComponent * (1 - alpha),
-                       blue: over.blueComponent * alpha + base.blueComponent * (1 - alpha),
-                       alpha: 1)
-    }
-
-    private func srgb(_ color: Color) -> NSColor {
-        guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
-            Issue.record("\(color) has no sRGB representation")
-            return .white
-        }
-        return converted
-    }
-
-    /// The keycap's white glyph on an accent-filled button must clear the same body-text bar the
-    /// button's own label clears — on every hue, including any added later.
-    ///
-    /// This is the assertion the "obvious" design fails. A translucent *white* key, which is what
-    /// the drawing instinct reaches for, lightens its own backing off the deepened fill and drops
-    /// the glyph under the floor; scrimming down can only help. Measured over all twelve hues
-    /// rather than eyeballed on Blue.
-    @Test func theOnAccentKeycapClearsBodyTextContrastOnEveryHue() {
-        for hue in LiquidGlassHue.allCases where hue != .none {
-            let fill = srgb(hue.accentFillColor)
-            let backing = composite(.black, alpha: ShortcutKeycapMetrics.onAccentScrim, on: fill)
-            let ratio = 1.05 / (luminance(backing) + 0.05)
-            #expect(ratio >= AccentFill.whiteLabelContrast,
-                    "white keycap glyph on \(hue) is only \(ratio):1")
+    /// It used to be a property of whatever the key sat on: a translucent chip whose contrast had
+    /// to be argued hue by hue, and separately again for `.borderedProminent`, whose fill this code
+    /// does not choose. An opaque key ends that whole class of question — `labelColor` on
+    /// `controlBackgroundColor` is an AppKit-paired combination, and this measures it rather than
+    /// trusting the pairing.
+    @Test func theKeyClearsBodyTextContrastInBothAppearances() {
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            var label = NSColor.labelColor, ground = NSColor.controlBackgroundColor
+            NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
+                label = NSColor.labelColor.usingColorSpace(.sRGB) ?? .black
+                ground = NSColor.controlBackgroundColor.usingColorSpace(.sRGB) ?? .white
+            }
+            let lighter = max(luminance(label), luminance(ground))
+            let darker = min(luminance(label), luminance(ground))
+            let ratio = (lighter + 0.05) / (darker + 0.05)
+            #expect(ratio >= 4.5, "\(name): the key's glyph reads at only \(ratio):1")
         }
     }
 
-    /// ...and it is never *worse* than the label beside it, on **any** fill — which is the actual
-    /// promise, and the more important one.
+    /// ...and the key actually USES those colours.
     ///
-    /// The test above only covers `accentFillColor`, which is what `.actionBar(.primary)` deepens
-    /// its tint to. Five adopters are `.borderedProminent` instead, whose bezel AppKit fills with
-    /// the raw system accent — a colour this code neither chooses nor deepens, and which the user
-    /// may have set to something as light as Yellow, where white text sits near 2:1 before the
-    /// keycap is involved at all. So the guarantee that has to hold there is relative, not
-    /// absolute: scrimming may not make it worse.
-    ///
-    /// Sampled over the light hues and the raw accents too, not just the deepened ones, so a fill
-    /// the keycap was never designed against still cannot be degraded by it. Fails if the scrim is
-    /// ever flipped to a lightening one — the single most likely edit to this file, and the reason
-    /// the direction is spelled out in `onAccentScrim`'s doc.
-    @Test func theOnAccentScrimNeverLightensAnyBacking() {
-        var fills: [(String, NSColor)] = []
-        for hue in LiquidGlassHue.allCases where hue != .none {
-            fills.append(("\(hue) deepened", srgb(hue.accentFillColor)))
-            fills.append(("\(hue) raw", srgb(hue.accentColor)))
+    /// The measurement above is of `NSColor` pairings and never touches `ShortcutKeycap` — a
+    /// regression to `.secondary`, which is the exact bug this design replaced (a hierarchical
+    /// style resolves against the enclosing foreground, so it rendered a WHITE glyph on the light
+    /// key the moment it was dropped on the primary transfer button), would leave it green. This
+    /// one reads the rendered key: its own fill against its own darkest glyph pixel.
+    @Test func theRenderedKeyIsLegibleAgainstItsOwnFill() {
+        let key = ShortcutKeycap("W")
+        let size = hosted(key, revealed: true).fittingSize
+        guard let rep = render(key, revealed: true) else {
+            Issue.record("no bitmap rep"); return
         }
-        // The two extremes a system accent can reach, which no `LiquidGlassHue` covers.
-        fills.append(("white", .white))
-        fills.append(("black", .black))
+        let scale = CGFloat(rep.pixelsWide) / Self.canvas.width
+        let top = (Self.canvas.height - size.height) / 2
 
-        for (name, fill) in fills {
-            let backing = composite(.black, alpha: ShortcutKeycapMetrics.onAccentScrim, on: fill)
-            let before = 1.05 / (luminance(fill) + 0.05)
-            let after = 1.05 / (luminance(backing) + 0.05)
-            #expect(luminance(backing) <= luminance(fill),
-                    "\(name): the keycap backing is lighter than the fill it sits on")
-            #expect(after >= before - 0.0001,
-                    "\(name): the keycap glyph reads at \(after):1 where the button's own label reads at \(before):1")
+        // Just inside the leading border, clear of the glyph: the key's own fill.
+        guard let fill = rep.colorAt(x: Int(2 * scale), y: Int((top + size.height / 2) * scale)) else {
+            Issue.record("no fill pixel"); return
         }
+        // The darkest pixel inside the key is the glyph (or its anti-aliased core).
+        var glyph = CGFloat(1)
+        for y in stride(from: top + 2, to: top + size.height - 2, by: 0.5) {
+            for x in stride(from: CGFloat(2), to: size.width - 2, by: 0.5) {
+                guard let c = rep.colorAt(x: Int(x * scale), y: Int(y * scale)) else { continue }
+                glyph = min(glyph, luminance(c))
+            }
+        }
+        let lighter = max(luminance(fill), glyph), darker = min(luminance(fill), glyph)
+        let ratio = (lighter + 0.05) / (darker + 0.05)
+        #expect(ratio >= 4.5, "the rendered key's glyph reads at only \(ratio):1 on its own fill")
     }
 
     // MARK: Speech

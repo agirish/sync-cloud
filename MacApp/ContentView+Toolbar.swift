@@ -240,7 +240,7 @@ extension ContentView {
                     // an overlay hung outside the SwiftUI content is the one that gets clipped.
                     // Centred for the same reason as the pane magnifier — the keycap is wider
                     // than the gear.
-                    .shortcutKeycap("⌘,", alignment: .center)
+                    .shortcutKeycap("⌘,")
             }
             .help(ShortcutHint.tooltip("Settings", "⌘,"))
         }

@@ -439,7 +439,7 @@ public struct AutomationsLens: View {
                 .chromeHover()
                 .controlSize(.large)
                 .keyboardShortcut(.return, modifiers: [])
-                .shortcutKeycap("⏎", surface: .accentFill)
+                .shortcutKeycap("⏎")
             }
             Button("Cancel") { filing.cancel() }
                 .keyboardShortcut(.cancelAction)

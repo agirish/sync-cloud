@@ -798,7 +798,7 @@ public struct PaneHeader: View {
                 // anything overhanging would foul the nav glyphs either side of it. Covering the
                 // magnifier for the length of an ⌥ hold is fine — the badge IS the answer to the
                 // question the hold asked.
-                .shortcutKeycap("⌘F", alignment: .center)
+                .shortcutKeycap("⌘F")
                 .help(ShortcutHint.tooltip("Find a file or folder in this pane", "⌘F"))
             }
         }
