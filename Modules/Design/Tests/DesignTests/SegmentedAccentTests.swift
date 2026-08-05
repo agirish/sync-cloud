@@ -42,6 +42,14 @@ import Testing
     /// This is the assertion that fails if someone "simplifies" `SegmentedAccent.tint(for:)` to
     /// `hue.accentColor` — measured, that drops NINE of the eleven named hues below 4.5:1 (only
     /// Indigo and Slate are dark enough raw), the worst being Cyan at 2.07:1.
+    ///
+    /// **`.none` is excluded on purpose, and the exclusion is load-bearing rather than tidy-up.**
+    /// It takes the system accent untouched so that it draws exactly what macOS draws, which means
+    /// it inherits Apple's contrast — 4.02:1 on the default blue, i.e. it would FAIL this bound.
+    /// The way to satisfy this test for `.none` would be to deepen it, and deepening it is the
+    /// thing that was tried and rejected: it makes "no accent" look unlike a stock control. If this
+    /// loop is ever widened to all twelve, the fix is to narrow it again, not to change the tint.
+    /// See `noneIsTheSystemAccentUntouched`.
     @Test func theTintCarriesTheWhiteLabelAppKitImposes() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let ratio = whiteContrast(srgb(SegmentedAccent.tint(for: hue)))
@@ -50,14 +58,29 @@ import Testing
         }
     }
 
-    /// `.none` means "follow the system accent", and it has to keep meaning that here: the stock
-    /// macOS look is a real choice in the picker, not a gap to be patched over with a literal blue.
-    /// Pinned as the deepened SYSTEM accent — deepened for the same white-label reason as every
-    /// other hue, and system rather than hardcoded so it still tracks the user's macOS setting.
-    @Test func noneFollowsTheSystemAccentRatherThanALiteral() {
-        #expect(srgb(SegmentedAccent.tint(for: .none)) == srgb(AccentFill.deepened(Color.accentColor)))
-        // ...and it is genuinely the system's, not the palette's own Blue.
+    /// `.none` means "the stock macOS look", so it takes the system accent VERBATIM — not deepened
+    /// like the eleven named hues, and certainly not a hardcoded blue.
+    ///
+    /// It was deepened at first, on uniformity grounds, and that was the wrong trade: it made the
+    /// selection ~7% darker than a stock control, i.e. it changed the appearance of "no change".
+    /// The accepted cost of handing the accent over untouched is that `.none` inherits Apple's own
+    /// white-label contrast (4.02:1 on the default blue) — which is why
+    /// `theTintCarriesTheWhiteLabelAppKitImposes` excludes it.
+    ///
+    /// Deliberately NOT written as "`.none` differs from the deepened accent". `AccentFill` only
+    /// darkens what is too light, so on a Mac whose accent is already dark — Purple, Graphite — the
+    /// deepening is a no-op and raw and deepened are the same colour. That assertion would pass
+    /// here and fail on someone else's machine. The contract is "the system accent, untouched",
+    /// and that is what is asserted; the separate check that named hues DO move uses Amber, a
+    /// literal, so it means the same thing everywhere.
+    @Test func noneIsTheSystemAccentUntouched() {
+        #expect(srgb(SegmentedAccent.tint(for: .none)) == srgb(Color.accentColor),
+                "`.none` must hand the system accent over verbatim, so it draws what macOS draws")
+        // ...it is genuinely the system's, not the palette's own Blue...
         #expect(srgb(SegmentedAccent.tint(for: .none)) != srgb(SegmentedAccent.tint(for: .blue)))
+        // ...and the exemption is `.none`'s alone: a named light hue is still deepened.
+        #expect(srgb(SegmentedAccent.tint(for: .amber)) != srgb(LiquidGlassHue.amber.accentColor),
+                "Amber is light enough to need deepening — only `.none` is exempt")
     }
 
     /// The tint must be colour and nothing else. A modifier that changed the control's metrics
