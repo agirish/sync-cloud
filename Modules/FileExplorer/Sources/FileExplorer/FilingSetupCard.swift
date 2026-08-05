@@ -1,6 +1,5 @@
 import Design
 import SwiftUI
-import Sync
 
 /// Organize before its first run: what will happen, what it looks like, and what it costs.
 ///

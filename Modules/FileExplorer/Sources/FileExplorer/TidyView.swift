@@ -140,6 +140,14 @@ public struct TidyView: View {
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     // Both toggles, because cloud rides on top of on-device AI: a scan only reaches the paid
     // backend when each is on, so the setup card only quotes a price when each is on.
+    /// The last recorded cloud run, for the setup card's price.
+    ///
+    /// Held in state rather than read in `body`. `FilingSpendStore.last()` is a UserDefaults read
+    /// plus a `JSONDecoder` pass, and `filingIntroState` is evaluated on EVERY body evaluation
+    /// while the card is showing — which is every keystroke in the search field, every hover, and
+    /// every publish from the manager. The value only changes when a cloud call records spend, so
+    /// it is refreshed at the two moments that can happen across: appearing, and a scan finishing.
+    @State private var lastFilingSpend: FilingSpendEntry?
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUsesAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUsesCloud: Bool = false
 
@@ -465,6 +473,7 @@ public struct TidyView: View {
         // `isSuggestingFiles` handler further down: two handlers on one value both fired, so the
         // behaviour was right, but an editor changing "the" Organize scan-start handler would find
         // only one of them.
+        .onAppear { lastFilingSpend = FilingSpendStore.last() }
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
             if isScanning {
                 filedThisSession = false
@@ -477,6 +486,11 @@ public struct TidyView: View {
                 // header, and its query would survive into a list it no longer describes.
                 showingRiskyNames = false
                 searchQueries[.rename] = ""
+            } else {
+                // Finished: a cloud call may have recorded spend, and the setup card shows again
+                // after a provider switch or the next launch. Deliberately this handler's `else`
+                // rather than a second `.onChange` on the same value — see the note above.
+                lastFilingSpend = FilingSpendStore.last()
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
@@ -1556,7 +1570,7 @@ public struct TidyView: View {
         FilingSetupCard(
             intro: LensIntros.organize(scanTargetName: scanTargetName),
             price: FilingRunPrice.readout(cloudEnabled: filingUsesAI && filingUsesCloud,
-                                          last: FilingSpendStore.last()),
+                                          last: lastFilingSpend),
             accent: glassHue.accentColor,
             onStart: onFindFilingSuggestions
         )

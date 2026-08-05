@@ -30,6 +30,16 @@ enum FilingRunPrice {
         let detail: String?
     }
 
+    /// **Known imprecision, deliberately not plumbed:** `cloudEnabled` is what the two toggles
+    /// say, and the real gate also requires a readable Keychain key and budget left under the
+    /// caps. With cloud switched on but no key, every scan silently runs on-device while this
+    /// still shows a figure. The error is in the safe direction — it over-states cost, so nobody
+    /// is surprised by a bill — and the wording is past-tense throughout ("last run", "Last cloud
+    /// run"), so it remains a true statement about a run that happened rather than a promise
+    /// about this one. Closing it properly means the app answering the routing question, as
+    /// `filingBackendIdentity` does for the verdict cache; querying the Keychain from a view that
+    /// re-renders on every keystroke would be far worse than the imprecision.
+    ///
     /// - Parameters:
     ///   - cloudEnabled: whether a scan would actually reach the paid backend. Both the AI toggle
     ///     and the cloud toggle have to be on: cloud rides on top of on-device AI, exactly as

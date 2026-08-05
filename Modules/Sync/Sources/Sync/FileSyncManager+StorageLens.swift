@@ -50,6 +50,13 @@ extension FileSyncManager {
     /// Returns whether anything was restored. Refuses while a build is running and refuses to
     /// replace results already on screen: a restore is a way to start from something rather than
     /// nothing, never a way to overwrite something newer.
+    ///
+    /// Reads the file on each attempt rather than memoizing it. That is a real cost — the app
+    /// calls this whenever the workspace, or the focused root, changes — but a bounded one: the
+    /// store holds at most `maxRoots` snapshots of `topN` rows each, so it is tens of kilobytes,
+    /// and the guards above mean it is only ever reached while nothing is displayed. A memo would
+    /// be a fourth piece of cache state to keep in step with a background writer, which is a worse
+    /// trade than the read it saves.
     @discardableResult
     public func restoreStorageLens(root: URL) -> Bool {
         guard let url = storageLensStoreURL,

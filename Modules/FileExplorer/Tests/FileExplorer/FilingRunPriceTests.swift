@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import Sync
+import SwiftUI
 import Testing
 @testable import FileExplorer
 
@@ -90,9 +92,6 @@ import Testing
         #expect(FilingSetupCard.samples.contains { $0.isConfident })
     }
 }
-
-import AppKit
-import SwiftUI
 
 /// Does the price actually reach the screen?
 ///
