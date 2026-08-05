@@ -215,6 +215,12 @@ struct SyncCloudApp: App {
         // rather than an empty panel. Storage is the only lens whose RESULTS are restored — see
         // `StorageLensSnapshot` for why its read-only nature is what makes that safe.
         manager.storageLensStoreURL = StorageLensStore.defaultURL()
+        // The other two lenses never restore results (their rows carry destructive applies);
+        // instead, opening one re-runs its scan automatically when the target matches the last
+        // completed scan and the run cannot cost money — rows recomputed from the live
+        // filesystem, so nothing stale is ever offered. This store remembers those targets;
+        // leaving it unset (CLI, tests) turns the feature off.
+        manager.lensAutoRescanDefaults = .standard
         // The content-hash index survives launches, so Verify and Duplicates stop re-reading
         // gigabytes they already hashed. Enabled here for the same reason as the verdict cache
         // below: `ContentHashCache.shared` is the DEFAULT argument of `findDuplicates` and Verify,

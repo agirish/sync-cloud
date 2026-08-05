@@ -243,6 +243,27 @@ public class FileSyncManager: ObservableObject {
     /// Indicates whether at least one successful scan has occurred.
     @Published public var hasScanned = false
 
+    // MARK: Lens auto-rescan — re-run a previously scanned lens on open, when it costs nothing
+
+    /// Store remembering each lens's last-completed scan target, so opening that lens next launch
+    /// can re-run the scan instead of sitting on the intro card. Injected by the app; **nil — the
+    /// default, what the CLI and bare test managers get — turns the feature off entirely, reads
+    /// and writes both.** Same rule as the cache-store URLs, and for the same reason: a fallback
+    /// to `.standard` would have every test that completes a scan writing the user's real
+    /// defaults.
+    public var lensAutoRescanDefaults: UserDefaults?
+    /// Where the last completed Find Duplicates scan pointed (absolute path).
+    public static let lastDuplicatesScanRootKey = "tidyLastDuplicatesScanRoot"
+    /// Where the last completed Filing scan pointed (absolute path).
+    public static let lastFilingScanFolderKey = "tidyLastFilingScanFolder"
+    /// The target an auto-rescan was already attempted for this session, per lens — whatever the
+    /// outcome. One attempt per target: a completed scan latches via `hasCompleted`, but a
+    /// cancelled or (Filing) declined-as-not-free attempt must not be retried by the next
+    /// workspace switch, which would re-pay the walk each time. Cleared with the lens's results
+    /// on a provider switch, so returning to a provider behaves like a fresh launch.
+    var duplicateAutoRescanAttempted: String?
+    var filingAutoRescanAttempted: String?
+
     // MARK: Tidy — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
 
     /// The Find Duplicates scan lifecycle (see ``ScanLifecycle``). The legacy per-field property

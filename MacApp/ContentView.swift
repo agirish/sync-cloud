@@ -666,6 +666,7 @@ struct ContentView: View {
         .onChange(of: selectedWorkspace) { _, _ in
             infoPath = nil
             restoreStorageLensIfShowing()
+            autoRescanTidyLensIfShowing()
         }
         // The workspace is @AppStorage, so quitting on Storage means the next launch STARTS there
         // and `onChange` never fires — the restore has to be attempted on appearance too, or the
@@ -673,8 +674,16 @@ struct ContentView: View {
         // provider discovery finishes, which is why its own change is a trigger as well.
         // `restoreStorageLens` declines when a build is running or results already exist, so the
         // three triggers cannot fight: whichever arrives first wins and the rest are no-ops.
-        .onAppear { restoreStorageLensIfShowing() }
-        .onChange(of: tidyScanRootExpanded) { _, _ in restoreStorageLensIfShowing() }
+        // `autoRescanTidyLensIfShowing` rides the same trio under the same contract, for the two
+        // lenses whose results are recomputed rather than restored.
+        .onAppear {
+            restoreStorageLensIfShowing()
+            autoRescanTidyLensIfShowing()
+        }
+        .onChange(of: tidyScanRootExpanded) { _, _ in
+            restoreStorageLensIfShowing()
+            autoRescanTidyLensIfShowing()
+        }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -1389,6 +1398,35 @@ struct ContentView: View {
         syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
     }
 
+    /// Re-runs the showing lens's scan on open — Duplicates and Organize, the two lenses whose
+    /// results are never restored (their rows carry destructive applies; see
+    /// `StorageLensSnapshot`). Same trigger trio and safe-to-call-anytime contract as
+    /// `restoreStorageLensIfShowing` above: the manager declines unless the target matches the
+    /// last completed scan, nothing has run this session, and — for Organize — the scan cannot
+    /// cost money (on-device backend, or every loose file already verdict-cached). The rows an
+    /// auto-rescan shows are recomputed from the live filesystem, so nothing stale is offered.
+    func autoRescanTidyLensIfShowing() {
+        switch selectedWorkspace {
+        case .duplicates:
+            let root = tidyScanRootExpanded
+            guard !root.isEmpty else { return }
+            syncManager.autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: root),
+                                                       options: DuplicateFinderOptions.fromDefaults())
+        case .filing:
+            let root = tidyProviderRootExpanded
+            guard let folder = filingScanTargetFolder else { return }
+            let providerName = tidyProviderName
+            let nameProvider = tidyProviderType
+            Task {
+                await syncManager.autoRescanFilingIfEligible(
+                    folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: root),
+                    providerName: providerName, nameProvider: nameProvider)
+            }
+        default:
+            break
+        }
+    }
+
     func buildStorageLensAction() {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
@@ -1475,25 +1513,33 @@ struct ContentView: View {
                                           providerName: tidyProviderName, only: only)
     }
 
-    /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy. Defaults to
-    /// the loose-files inbox (Settings ▸ Organize, default "TODO"); if the rail has been navigated into a
-    /// subfolder, that focused folder is scanned instead.
-    func findFilingSuggestionsAction(ignoringCache: Bool = false) {
+    /// The folder a Filing scan targets right now — the loose-files inbox (Settings ▸ Organize,
+    /// default "TODO") when the rail sits at the provider root and the inbox exists, else the
+    /// focused folder. One resolver shared by the manual action and the auto-rescan, so the two
+    /// can never scan different places.
+    ///
+    /// The inbox is used only when we're at the provider root AND the inbox folder actually
+    /// exists. This mirrors `tidyRailRelativePath`'s existence check, so the rail and the scan
+    /// never disagree about a missing inbox (before, the rail fell back to the root but the scan
+    /// blindly targeted a non-existent root/TODO).
+    var filingScanTargetFolder: String? {
         let focused = tidyScanRootExpanded
         let root = tidyProviderRootExpanded
-        guard !focused.isEmpty, !root.isEmpty else { return }
+        guard !focused.isEmpty, !root.isEmpty else { return nil }
         let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
             .trimmingCharacters(in: .whitespaces)
         let atRoot = (focused as NSString).standardizingPath == (root as NSString).standardizingPath
-        // Default to the inbox only when we're at the provider root AND the inbox folder actually
-        // exists; otherwise scan the focused folder. This mirrors `tidyRailRelativePath`'s existence
-        // check, so the rail and the scan never disagree about a missing inbox (before, the rail fell
-        // back to the root but the scan blindly targeted a non-existent root/TODO).
         let inboxPath = (root as NSString).appendingPathComponent(inbox)
         var isDir: ObjCBool = false
         let inboxExists = !inbox.isEmpty
             && FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
-        let folder = (atRoot && inboxExists) ? inboxPath : focused
+        return (atRoot && inboxExists) ? inboxPath : focused
+    }
+
+    /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy.
+    func findFilingSuggestionsAction(ignoringCache: Bool = false) {
+        let root = tidyProviderRootExpanded
+        guard let folder = filingScanTargetFolder else { return }
         Logger.shared.info("User requested Filing suggestions for \(folder)"
             + (ignoringCache ? " (ignoring saved suggestions)" : ""))
         selectedWorkspace = .filing
