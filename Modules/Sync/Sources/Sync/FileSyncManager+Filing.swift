@@ -242,13 +242,34 @@ extension FileSyncManager {
                 // nil ⇒ the cache is off for this scan, read and write both. `ignoringCache` is
                 // deliberately NOT part of this: it suppresses the read below while leaving the
                 // write intact.
-                let identity: String? = filingReusesVerdicts
-                    ? (filingBackendIdentity?() ?? configuredFilingBackendIdentity) : nil
+                //
+                // **An `if let` on the closure, NOT `filingBackendIdentity?() ?? …`.** Optional
+                // chaining FLATTENS in Swift, so that spelling gives a plain `String?` in which a
+                // closure that RETURNED nil is indistinguishable from one that was never set — and
+                // `??` then sends both to the configured identity. That silently voided the one
+                // guarantee ``filingBackendIdentity`` documents: returning nil is how the app says
+                // it cannot vouch for which backend will run, and answering `"cloud:<model>"` on
+                // its behalf is exactly the durable silent-substitution the seam exists to prevent.
+                // The fallback is for an UNSET closure (the CLI, tests) and nothing else.
+                let identity: String?
+                if !filingReusesVerdicts {
+                    identity = nil
+                } else if let resolveBackend = filingBackendIdentity {
+                    identity = resolveBackend()
+                } else {
+                    identity = configuredFilingBackendIdentity
+                }
                 var keysByFile: [String: FilingVerdictKey] = [:]
                 var cachedVerdicts: [String: FilingVerdict] = [:]
                 var misses = toClassify
                 if let identity {
-                    let cache = ignoringCache ? nil : await loadedFilingVerdictCache()
+                    // Warmed even on the ignore-cache path, where the READ result is thrown away.
+                    // `recordFilingVerdicts` below still has to merge into the existing cache, and
+                    // it reaches the SYNCHRONOUS accessor — so skipping this put a decode of a
+                    // file that reaches ~12 MB at the entry cap back on the main actor, mid-scan,
+                    // which is the whole thing the async accessor exists to avoid.
+                    let loaded = await loadedFilingVerdictCache()
+                    let cache = ignoringCache ? nil : loaded
                     misses = []
                     for f in toClassify {
                         let key = FilingVerdictKey(
@@ -512,11 +533,18 @@ extension FileSyncManager {
         return loaded
     }
 
-    /// The in-memory copy, loading synchronously only if a scan has not already warmed it.
+    /// The in-memory copy, loading synchronously only if nothing has already warmed it.
     ///
-    /// Used by `Clear` and by the Settings count — both rare, both user-initiated, and neither on a
-    /// path where a few milliseconds is observable. The scan uses the async accessor above; if it
-    /// has run this returns the memoized copy and touches no disk at all.
+    /// **Every caller must have warmed the memo first, and that is a real obligation rather than a
+    /// preference.** This runs on the main actor, and at ``FilingVerdictCache/maxEntries`` the file
+    /// is on the order of twelve megabytes — a decode nobody would call "a few milliseconds", which
+    /// is what this doc used to claim on the strength of the callers being rare. Rare is not the
+    /// same as cheap. Both callers now arrive warm: the scan awaits ``loadedFilingVerdictCache()``
+    /// before recording (on the ignore-cache path too, where the read is discarded), and the
+    /// Settings readout awaits ``filingVerdictCacheCount()`` before offering `Clear`.
+    ///
+    /// It stays synchronous because both of them need it from a non-async position afterwards, and
+    /// once warm it touches no disk at all.
     func filingVerdictCacheNow() -> FilingVerdictCache {
         if let cached = filingVerdictCache { return cached }
         let loaded = filingVerdictCacheURL.map { FilingVerdictStore.load(from: $0) } ?? FilingVerdictCache()
@@ -560,8 +588,20 @@ extension FileSyncManager {
         Logger.shared.info("Filing: cleared \(before - cache.count) cached classification(s)")
     }
 
-    /// How many verdicts are cached — for the Settings readout.
-    public var filingVerdictCacheCount: Int { filingVerdictCacheNow().count }
+    /// How many verdicts are cached — for the Settings readout, and the call that WARMS the memo
+    /// for the `Clear` button beside it.
+    ///
+    /// Async, and that is the point: it is the first thing the Organize settings tab asks, so a
+    /// synchronous version would decode the whole file on the main actor the moment the tab
+    /// appeared. Awaiting ``loadedFilingVerdictCache()`` moves that decode off the actor once per
+    /// launch and leaves every later read — including ``filingVerdictCacheCountNow`` below — free.
+    public func filingVerdictCacheCount() async -> Int {
+        await loadedFilingVerdictCache().count
+    }
+
+    /// The same count without awaiting, for reading back the result of an action that has just
+    /// written the memo (`Clear`). Never the FIRST read — see ``filingVerdictCacheNow()``.
+    public var filingVerdictCacheCountNow: Int { filingVerdictCacheNow().count }
 
     /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
     public static let readContentsDefaultsKey = "tidyFilingReadContents"

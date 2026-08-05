@@ -634,7 +634,11 @@ public enum PaneBarMigration {
         guard from < currentVersion else { return false }
         defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
 
-        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return true }
+        // `false`, not `true`: there is no stored arrangement, so nothing was rewritten. Returning
+        // `true` here made the app log "added Search to a stored pane-bar arrangement" on the first
+        // launch of EVERY install that had never customized its bar — the common case — about an
+        // arrangement that does not exist, in the log file a launch is verified through.
+        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return false }
         var arrangement = PaneBarArrangement(encoded: stored)
         let before = arrangement.items
         // v1 — Search. Appended at the trailing end, where the default carries it and where the

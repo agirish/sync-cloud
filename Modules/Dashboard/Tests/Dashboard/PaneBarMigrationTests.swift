@@ -58,7 +58,11 @@ import Foundation
     /// just done with Search.
     @Test func testAnUncustomizedBarIsStampedWithoutBeingWritten() {
         let defaults = ScratchDefaults("PaneBarMigrationTests-fresh")
-        #expect(PaneBarMigration.apply(defaults: defaults))
+        // FALSE, for the same reason `testAFullBarIsLeftAloneAndSaysSo` expects false: the return
+        // value is "was a stored arrangement rewritten", and there is no stored arrangement. This
+        // expected `true` and so held the return value to the opposite contract from its sibling —
+        // which is how the app came to log a migration on every uncustomized install.
+        #expect(!PaneBarMigration.apply(defaults: defaults))
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == nil, "nothing to migrate, nothing written")
         #expect(defaults.integer(forKey: PaneBar.migrationKey) == PaneBarMigration.currentVersion)
     }

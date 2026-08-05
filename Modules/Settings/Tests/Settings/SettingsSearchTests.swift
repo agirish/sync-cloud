@@ -211,6 +211,7 @@ import Testing
     /// Claude entry is ever retitled.
     static let unindexedByDesign: Set<String> = [
         "Startup", "Conflicts", "Comparison", "Confirmations", "Logging", "Maintenance", "Suggestions",
+        "Saved scan data",
         "Total spent", "Tokens", "Cloud scans", "Last scan",
     ]
 

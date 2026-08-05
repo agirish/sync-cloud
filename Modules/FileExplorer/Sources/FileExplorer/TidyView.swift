@@ -138,16 +138,24 @@ public struct TidyView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+    /// The recorded cloud spend both Organize surfaces read — the setup card's price and the
+    /// spend row above the results.
+    ///
+    /// **Held in state, and BOTH of them, which is the half that was missed.** Each of
+    /// `FilingSpendStore.last()` and `.totals()` is a `UserDefaults` read plus a `JSONDecoder`
+    /// pass, and each was being re-read on every body evaluation. Caching only the setup card's
+    /// copy fixed the state that has nothing to type in — the card shows when there are no results
+    /// — and left `filingSpendRow`, which renders alongside the results and therefore on every
+    /// keystroke in the Organize search field, decoding twice per render. One value, refreshed by
+    /// ``refreshFilingSpend()`` at the three moments spend can change across: appearing, a scan
+    /// finishing, and the history sheet closing (it can Clear).
+    ///
+    /// Same shape as `SettingsView`'s `spendTotals`/`spendLast`/`refreshSpend`, deliberately: the
+    /// two surfaces read the same store and now keep it the same way.
+    @State private var spendLast: FilingSpendEntry?
+    @State private var spendTotals = FilingSpendTotals()
     // Both toggles, because cloud rides on top of on-device AI: a scan only reaches the paid
     // backend when each is on, so the setup card only quotes a price when each is on.
-    /// The last recorded cloud run, for the setup card's price.
-    ///
-    /// Held in state rather than read in `body`. `FilingSpendStore.last()` is a UserDefaults read
-    /// plus a `JSONDecoder` pass, and `filingIntroState` is evaluated on EVERY body evaluation
-    /// while the card is showing — which is every keystroke in the search field, every hover, and
-    /// every publish from the manager. The value only changes when a cloud call records spend, so
-    /// it is refreshed at the two moments that can happen across: appearing, and a scan finishing.
-    @State private var lastFilingSpend: FilingSpendEntry?
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUsesAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUsesCloud: Bool = false
 
@@ -471,7 +479,11 @@ public struct TidyView: View {
             if showSourcePicker { sourceBar }
             lensBody(rows: rows)
         }
-        .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
+        // `onDismiss`, because the history sheet can Clear History. Without it the setup card went
+        // on quoting "last run ~$0.18" from a record the user had just erased through this very
+        // sheet — the one invalidation the cached spend needed and did not have. `SettingsView`
+        // presents the same sheet the same way.
+        .sheet(isPresented: $showSpendHistory, onDismiss: refreshFilingSpend) { FilingSpendHistoryView() }
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
         // exactly as created — the review is an offer, not a gate.
@@ -493,7 +505,7 @@ public struct TidyView: View {
         // `isSuggestingFiles` handler further down: two handlers on one value both fired, so the
         // behaviour was right, but an editor changing "the" Organize scan-start handler would find
         // only one of them.
-        .onAppear { lastFilingSpend = FilingSpendStore.last() }
+        .onAppear(perform: refreshFilingSpend)
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
             if isScanning {
                 filedThisSession = false
@@ -507,10 +519,10 @@ public struct TidyView: View {
                 showingRiskyNames = false
                 searchQueries[.rename] = ""
             } else {
-                // Finished: a cloud call may have recorded spend, and the setup card shows again
-                // after a provider switch or the next launch. Deliberately this handler's `else`
-                // rather than a second `.onChange` on the same value — see the note above.
-                lastFilingSpend = FilingSpendStore.last()
+                // Finished: a cloud call may have recorded spend, and both the spend row and the
+                // setup card quote it. Deliberately this handler's `else` rather than a second
+                // `.onChange` on the same value — see the note above.
+                refreshFilingSpend()
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
@@ -839,9 +851,12 @@ public struct TidyView: View {
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
 
-    // Cloud Filing spend (read fresh each render — cheap; only two small structs).
-    private var spendTotals: FilingSpendTotals { FilingSpendStore.totals() }
-    private var spendLast: FilingSpendEntry? { FilingSpendStore.last() }
+    /// Re-reads the recorded cloud spend. See ``spendLast`` for why it is read here rather than in
+    /// `body`, and for the three moments this is called from.
+    private func refreshFilingSpend() {
+        spendLast = FilingSpendStore.last()
+        spendTotals = FilingSpendStore.totals()
+    }
 
     private var filingSpendRow: some View {
         HStack(spacing: 8) {
@@ -1697,14 +1712,15 @@ public struct TidyView: View {
     /// trigger can spend money, and the template centres two sentences in a large panel while
     /// leaving the model and the cost nowhere near the button. See ``FilingSetupCard``.
     ///
-    /// Read live rather than cached in `@State`: the spend store is written by the classifier at
-    /// the end of a scan, and this view is rebuilt when the scan publishes, so the figure is
-    /// current the next time the card appears without anything having to invalidate it.
+    /// The price comes from ``spendLast``, which is cached rather than read here — see that
+    /// property for why, and for the three moments that refresh it. (This doc used to claim the
+    /// opposite, "read live … without anything having to invalidate it", directly above the
+    /// `@State` it was reading.)
     private var filingIntroState: some View {
         FilingSetupCard(
             intro: LensIntros.organize(scanTargetName: scanTargetName),
             price: FilingRunPrice.readout(cloudEnabled: filingUsesAI && filingUsesCloud,
-                                          last: lastFilingSpend),
+                                          last: spendLast),
             accent: glassHue.accentColor,
             onStart: onFindFilingSuggestions
         )
@@ -1881,11 +1897,17 @@ public struct TidyView: View {
     /// into a silently empty filtered list — is pinned by `DuplicateRevealTests` without mounting
     /// anything. `applyRevealPlan` is the seam a view test drives.
     ///
-    /// **`appliedRevealID` is set only once a plan is actually applied.** A `.waiting` outcome
+    /// **`appliedRevealID` is set only once an outcome ANSWERS the request.** A `.waiting` outcome
     /// leaves it alone, which is what lets the same request resolve again when the scan it is
-    /// waiting for publishes its results. Once applied, re-resolving is suppressed — otherwise a
+    /// waiting for publishes its results. Once recorded, re-resolving is suppressed — otherwise a
     /// group resolving (which moves `groupCount`, and so the key) would re-clear a search the user
     /// had typed since landing.
+    ///
+    /// Every outcome, `.waiting` included, goes through the SAME apply. Waiting used to be a
+    /// hand-written early return that cleared the mark and the landing itself — a duplicate of what
+    /// applying `DuplicateReveal.plan(for: .waiting)` does, which left that branch unreachable and
+    /// its documentation describing behaviour nothing ran. The only thing special about waiting now
+    /// is that it is not recorded.
     func applyRevealRequest() {
         guard let request = revealRequest, request.id != appliedRevealID,
               let outcome = DuplicateReveal.outcome(for: request,
@@ -1893,16 +1915,7 @@ public struct TidyView: View {
                                                     isScanning: syncManager.isFindingDuplicates,
                                                     scannedRoot: syncManager.duplicateScanRoot)
         else { return }
-        guard outcome != .waiting else {
-            // A NEW request we cannot answer yet. Whatever landing is on screen names a different
-            // file, so it retires now rather than describing this one until the scan lands. (A
-            // request already answered never reaches here — the id guard above returns first — so
-            // waiting on one's OWN scan does not flicker the answer away.)
-            revealedGroupID = nil
-            revealLanding = nil
-            return
-        }
-        appliedRevealID = request.id
+        if outcome != .waiting { appliedRevealID = request.id }
         applyRevealPlan(DuplicateReveal.plan(for: outcome))
     }
 

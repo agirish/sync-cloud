@@ -74,9 +74,24 @@ extension FileSyncManager {
     }
 
     /// Erases the saved report for `root`, or every saved report when `root` is nil.
+    ///
+    /// Called from Settings ▸ Advanced ▸ *Saved scan data*. It shipped with no caller at all for a
+    /// release — documented from ``clearStorageLens()`` as "the explicit erase" while there was no
+    /// way to reach it, which also left saved reports as the one on-disk store the user could
+    /// neither see nor clear.
+    ///
+    /// Deliberately does NOT take the report off screen: a reading you are looking at does not
+    /// become untrue because you stopped saving it, and `clearStorageLens()` is the one that
+    /// clears the view.
     public func forgetStoredStorageLens(root: String? = nil) {
         guard let url = storageLensStoreURL else { return }
         StorageLensStore.clearInBackground(root: root, from: url)
+    }
+
+    /// Bytes the saved Storage Lens reports occupy, or nil when nothing is saved — the Advanced
+    /// tab's readout.
+    public func storedStorageLensSizeOnDisk() -> Int? {
+        storageLensStoreURL.flatMap { StorageLensStore.sizeOnDisk(at: $0) }
     }
 
     /// Walks `root` in full, analyzes it (pure), and publishes the report on the main actor.

@@ -423,6 +423,12 @@ enum SettingsSearchIndex {
               keywords: ["log file", "logs", "clear log", "show log"]),
         .init(tab: .advanced, title: "Sweep orphaned temporary files",
               keywords: ["orphan", "temp files", "tmp", "sweep", "maintenance", "cleanup", "clean up"]),
+        .init(tab: .advanced, title: "File digests",
+              keywords: ["digests", "checksums", "hashes", "content hash", "cache", "disk space",
+                         "storage", "saved scan data", "duplicates", "verify"]),
+        .init(tab: .advanced, title: "Saved Storage reports",
+              keywords: ["storage lens", "saved reports", "snapshots", "cache", "disk space",
+                         "saved scan data"]),
         .init(tab: .advanced, title: "Reset all settings",
               keywords: ["reset", "defaults", "restore defaults", "factory reset", "wipe"]),
     ]
@@ -1817,7 +1823,9 @@ struct FilingSettingsTab: View {
                             .monospacedDigit()
                         Button("Clear") {
                             syncManager?.clearFilingVerdictCache()
-                            savedSuggestionCount = syncManager?.filingVerdictCacheCount ?? 0
+                            // The non-awaiting read: `clearFilingVerdictCache` has just written the
+                            // memo, so this cannot be the first load and cannot decode anything.
+                            savedSuggestionCount = syncManager?.filingVerdictCacheCountNow ?? 0
                         }
                         .disabled(savedSuggestionCount == 0)
                     }
@@ -1899,6 +1907,11 @@ struct FilingSettingsTab: View {
             }
         }
         .onAppear(perform: refreshSpend)
+        // The saved-suggestion count is asked SEPARATELY from the spend figures, and awaited.
+        // Folding it into `refreshSpend` — which is what this did — put a decode of a file that
+        // reaches ~12 MB at the entry cap on the main actor the moment this tab appeared. The two
+        // spend reads are small `UserDefaults` blobs and stay where they are.
+        .task { savedSuggestionCount = await syncManager?.filingVerdictCacheCount() ?? 0 }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             FilingSpendHistorySheet()
         }
@@ -1907,7 +1920,6 @@ struct FilingSettingsTab: View {
     private func refreshSpend() {
         spendTotals = FilingSpendStore.totals()
         spendLast = FilingSpendStore.last()
-        savedSuggestionCount = syncManager?.filingVerdictCacheCount ?? 0
     }
 
 }
@@ -2077,6 +2089,10 @@ struct AdvancedSettingsTab: View {
     @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
+    /// Human-readable sizes of the two saved-scan-data files, or nil where there is no file. nil is
+    /// what disables each Clear, so "None" and a live button cannot disagree.
+    @State private var hashIndexSizeText: String?
+    @State private var storageLensSizeText: String?
 
     var body: some View {
         SettingsPage {
@@ -2129,6 +2145,52 @@ struct AdvancedSettingsTab: View {
                 }
             }
 
+            // The two scan caches the app writes to Application Support that had no readout and no
+            // way to clear them. Saved suggestions is the third and stays in Organize, where the
+            // toggles that decide what it keys on live; these two belong beside the log file,
+            // because what a user wants from them is "how much is this storing, and make it stop".
+            //
+            // Sizes rather than entry counts: a `stat` each, where a count would mean parsing the
+            // largest file this app writes — on the main actor, on a tab appearing.
+            SettingsSection(
+                "Saved scan data",
+                caption: "Kept so a rescan doesn't repeat work it already did. Clearing costs time on the next scan and nothing else — your files aren't affected, and neither are your saved suggestions (Organize)."
+            ) {
+                SettingsRow("File digests") {
+                    HStack(spacing: 8) {
+                        Text(hashIndexSizeText ?? "None")
+                            .foregroundStyle(.secondary)
+                        Button("Clear") {
+                            Task {
+                                await ContentHashCache.shared.forgetPersistedIndex()
+                                ContentHashIndexStore.waitForPendingWrites()
+                                await refreshSavedScanData()
+                            }
+                        }
+                        .disabled(hashIndexSizeText == nil)
+                    }
+                    .controlSize(.small)
+                }
+                .help("Checksums of files Duplicates and Verify have already read, so unchanged files aren't read again. Clearing means the next scan re-reads them.")
+
+                SettingsRow("Saved Storage reports") {
+                    HStack(spacing: 8) {
+                        Text(storageLensSizeText ?? "None")
+                            .foregroundStyle(.secondary)
+                        Button("Clear") {
+                            syncManager?.forgetStoredStorageLens()
+                            Task {
+                                StorageLensStore.waitForPendingWrites()
+                                await refreshSavedScanData()
+                            }
+                        }
+                        .disabled(storageLensSizeText == nil || syncManager == nil)
+                    }
+                    .controlSize(.small)
+                }
+                .help("The last Storage analysis for each folder, shown while a fresh one runs. Clearing means Storage starts from an empty panel again.")
+            }
+
             if let onResetAllSettings {
                 SettingsSection(
                     caption: "Restores defaults for appearance, sync behavior, and source names and paths, and clears the folders you added as sources. Your files aren't affected."
@@ -2140,6 +2202,24 @@ struct AdvancedSettingsTab: View {
             }
         }
         .task { await refreshLogFileSize() }
+        .task { await refreshSavedScanData() }
+    }
+
+    /// Stats the two saved-scan-data files. The hash index's size is asked of the cache actor
+    /// rather than of the store, because only the actor knows whether persistence was enabled at
+    /// all — a location the app injects and tests never do.
+    private func refreshSavedScanData() async {
+        let hashBytes = await ContentHashCache.shared.persistedSizeOnDisk()
+        let storageBytes = syncManager?.storedStorageLensSizeOnDisk()
+        // Zero-byte files read as "None": a store that has been cleared leaves an empty payload
+        // behind in the Storage case, and offering Clear for 0 bytes is offering nothing.
+        hashIndexSizeText = Self.sizeText(hashBytes)
+        storageLensSizeText = Self.sizeText(storageBytes)
+    }
+
+    private static func sizeText(_ bytes: Int?) -> String? {
+        guard let bytes, bytes > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must

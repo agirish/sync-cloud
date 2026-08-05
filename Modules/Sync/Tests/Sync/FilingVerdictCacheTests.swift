@@ -3,6 +3,15 @@ import Testing
 @testable import Sync
 
 /// Records what the classifier was asked, across concurrent calls.
+/// One observation made from inside the injected classifier — mid-scan, where no assertion made
+/// after the scan can reach. `nil` means the classifier never ran, which is its own failure.
+private final class WarmProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool?
+    func record(_ warm: Bool) { lock.lock(); defer { lock.unlock() }; value = warm }
+    var observed: Bool? { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 private final class CallLog: @unchecked Sendable {
     private let lock = NSLock()
     private var calls: [[String]] = []
@@ -311,6 +320,116 @@ private final class CallLog: @unchecked Sendable {
         #expect(log.count == 2)
     }
 
+    // MARK: A backend the app cannot name
+    //
+    // **The contract `filingBackendIdentity` documents: returning nil means "I cannot vouch for
+    // which backend will run", and must switch the cache off for the scan — read AND write.**
+    //
+    // It did not. `filingBackendIdentity?() ?? configuredFilingBackendIdentity` FLATTENS in Swift,
+    // so a closure that RETURNED nil was indistinguishable from one that was never SET, and `??`
+    // answered the configured identity for both. A verdict from an unvouched scan was then cached
+    // under whatever Settings happened to say — an on-device answer filed under a Claude model's
+    // name, which is the silent substitution the seam exists to prevent, made durable.
+    //
+    // **Two tests, because one fixture cannot discriminate both halves — measured, not assumed.**
+    // The first version asserted both against a single `identity: "test-model"` fixture and its
+    // READ assertion passed against the bug: with the fallback in place the unvouched scan resolves
+    // to "on-device" (the configured identity in a test, where the cloud toggle is off), which is a
+    // DIFFERENT key from "test-model" — so it misses and re-asks either way.
+    //
+    // So the read half needs the fallback identity to EQUAL the warm entry's, and the write half
+    // needs it to DIFFER (or the errant write lands on the same key and the count never moves).
+    // Each test below is mutation-checked against restoring the `??`.
+
+    @MainActor
+    @Test func aBackendTheAppCannotNameIsNotServedFromTheCache() async throws {
+        let root = try fixture("nil-identity-read")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("nil-identity-read")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        // The warm entry is keyed on the SAME identity the fallback would produce — `on-device` is
+        // what `configuredFilingBackendIdentity` answers with the cloud toggle off. That is what
+        // makes this discriminating: under the bug the unvouched scan hits this entry.
+        let vouched = manager(cacheAt: url, log: log, identity: FileSyncManager.onDeviceBackendIdentity)
+        await scan(vouched, downloads, root: root)
+        #expect(log.count == 1)
+
+        let unvouched = manager(cacheAt: url, log: log, identity: FileSyncManager.onDeviceBackendIdentity)
+        unvouched.filingBackendIdentity = { nil }
+        await scan(unvouched, downloads, root: root)
+        #expect(log.count == 2, "a warm entry must not be served to a scan whose backend the app could not name")
+    }
+
+    @MainActor
+    @Test func aBackendTheAppCannotNameWritesNothingToTheCache() async throws {
+        let root = try fixture("nil-identity-write")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("nil-identity-write")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        // `test-model` here, DIFFERENT from the `on-device` the fallback would produce — so a write
+        // that should not have happened lands as a SECOND entry rather than overwriting this one.
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
+        #expect(log.count == 1)
+
+        let unvouched = manager(cacheAt: url, log: log)
+        unvouched.filingBackendIdentity = { nil }
+        await scan(unvouched, downloads, root: root)
+
+        let after = manager(cacheAt: url, log: log)
+        #expect(await after.filingVerdictCacheCount() == 1,
+                "an unvouched scan must add no entry — a fallback identity would have cached its answer under whatever Settings happened to say")
+    }
+
+    @MainActor
+    @Test func ignoringTheCacheStillWarmsItOffTheMainActor() async throws {
+        // "Rescan (ignore cache)" skipped the ASYNC accessor (it has no use for the READ) and then
+        // reached the SYNCHRONOUS one from `recordFilingVerdicts` — putting a decode of a file that
+        // reaches ~12 MB at the entry cap back on the main actor, mid-scan, which is the one thing
+        // the async accessor exists to prevent.
+        //
+        // **Asserted at CLASSIFY time, not at the end of the scan.** The first version of this
+        // checked `filingVerdictCache != nil` afterwards and passed against the bug: recording
+        // warms the memo through the synchronous accessor, so it is non-nil either way — the
+        // measurement could not see WHICH accessor had loaded it. The classifier runs after the
+        // cache split and before recording, so "already warm by then" is exactly the invariant,
+        // and it is false under the mutation.
+        let root = try fixture("ignore-warms")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("ignore-warms")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        await scan(manager(cacheAt: url, log: log), downloads, root: root)
+
+        // A FRESH manager whose memo is cold, told to ignore the cache.
+        let ignoring = manager(cacheAt: url, log: log)
+        #expect(ignoring.filingVerdictCache == nil, "the fixture must start cold")
+
+        let warmAtClassify = WarmProbe()
+        ignoring.filingClassifier = { [weak ignoring] _, files in
+            log.record(files.map(\.fileName))
+            if let ignoring {
+                await MainActor.run { warmAtClassify.record(ignoring.filingVerdictCache != nil) }
+            }
+            return files.reduce(into: [:]) { out, f in
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
+                                                confidence: .high, reason: "Divit’s record")
+            }
+        }
+        await scan(ignoring, downloads, root: root, ignoringCache: true)
+
+        #expect(warmAtClassify.observed == true,
+                "the ignoring scan must warm the memo through the async accessor BEFORE it reaches the synchronous one in recordFilingVerdicts")
+        #expect(ignoring.filingVerdictCacheCountNow == 1)
+    }
+
     @MainActor
     @Test func withNoCacheURLNothingIsReused() async throws {
         // The default for the CLI and every existing test: no location configured, no cache, and
@@ -418,15 +537,17 @@ private final class CallLog: @unchecked Sendable {
         let log = CallLog()
         let first = manager(cacheAt: url, log: log)
         await scan(first, downloads, root: root)
-        #expect(first.filingVerdictCacheCount == 1)
+        #expect(first.filingVerdictCacheCountNow == 1)   // memo warm from the scan
 
         first.clearFilingVerdictCache()
         FilingVerdictStore.waitForPendingWrites()
-        #expect(first.filingVerdictCacheCount == 0)
+        #expect(first.filingVerdictCacheCountNow == 0)
 
         // A fresh manager reading the file agrees — the clear was persisted, not just forgotten.
+        // AWAITED, because this one's memo is cold and that is the load: the same distinction the
+        // Settings readout makes between its first read and the one after `Clear`.
         let second = manager(cacheAt: url, log: log)
-        #expect(second.filingVerdictCacheCount == 0)
+        #expect(await second.filingVerdictCacheCount() == 0)
         await scan(second, downloads, root: root)
         #expect(log.count == 2)                       // and the backend is consulted again
     }

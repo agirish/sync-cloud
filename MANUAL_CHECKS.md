@@ -140,3 +140,18 @@ Two things worth an eye that no fixture can judge:
 - [ ] **The inspector's three rows read top-down as evidence → conclusion.** Path, then *On this
   Mac*, then *Where it lives*. The pill should feel like it follows from the two rows above it
   rather than arriving from nowhere.
+
+## v3.1 review fixes (2026-08-04) — the two that stayed view-level
+
+Everything else from that review is pinned by a mutation-checked test. These two are SwiftUI
+wiring, which no `swift test` process can drive (a `Button` is not an `NSControl`, and a sheet's
+`onDismiss` needs a real presentation).
+
+- [ ] **Clearing spend history updates the Organize setup card.** Organize ▸ *History* ▸ **Clear
+  History** ▸ close the sheet. The setup card's *last run ~$x.xx* must be gone, not still quoting
+  the run you just erased. (The bug: `TidyView` cached the figure and presented the sheet with no
+  `onDismiss` — `SettingsView` presents the same sheet and always got this right.)
+- [ ] **Settings ▸ Advanced ▸ Saved scan data reads and clears.** Both rows show a size after a
+  Duplicates/Verify run and a Storage analysis respectively; **Clear** takes each to *None* and
+  disables its button. Then run a duplicate scan and re-open the tab — *File digests* has a size
+  again, which is the cache doing its job rather than the Clear having failed.

@@ -33,6 +33,41 @@ import Testing
         #expect(await reader.hash(for: key("/root/a.bin")) == "abc123")
     }
 
+    // MARK: Forgetting
+
+    @Test func forgettingDropsTheFileAndTheSessionsOwnDigests() async throws {
+        // **Both halves, and the second is the one that makes it stick.** Deleting the file alone
+        // looks like it worked and then quietly undoes itself: the actor still holds this session's
+        // digests, and its next `save()` — which the duplicate scan and Verify each call
+        // unconditionally — writes every one of them straight back out. That is why the erase lives
+        // on the cache rather than on the store, and why this test saves AFTER forgetting.
+        let url = try indexURL("forget")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let cache = ContentHashCache()
+        await cache.enablePersistence(at: url)
+        await cache.store("abc123", for: key("/root/a.bin"))
+        await cache.store("def456", for: key("/root/b.bin"))
+        await cache.save()
+        ContentHashIndexStore.waitForPendingWrites()
+        #expect(await cache.persistedSizeOnDisk() != nil)
+
+        await cache.forgetPersistedIndex()
+        ContentHashIndexStore.waitForPendingWrites()
+        #expect(await cache.persistedSizeOnDisk() == nil, "the file must be gone")
+        #expect(await cache.hash(for: key("/root/a.bin")) == nil, "and so must the in-memory digest")
+
+        // The resurrection path: a scan finishing right after the Clear.
+        await cache.save()
+        ContentHashIndexStore.waitForPendingWrites()
+        #expect(await cache.persistedSizeOnDisk() == nil,
+                "a save after forgetting must not write the forgotten digests back")
+
+        // A fresh instance, standing in for the next launch, adopts nothing.
+        let reader = ContentHashCache()
+        #expect(await reader.enablePersistence(at: url) == 0)
+    }
+
     @Test func aSubMillisecondMtimeSurvivesTheRoundTrip() async throws {
         // The whole index rests on this: the reloaded key must reproduce one built at hashing time
         // from `attributesOfItem[.modificationDate]`, so any drift in the mtime makes every entry

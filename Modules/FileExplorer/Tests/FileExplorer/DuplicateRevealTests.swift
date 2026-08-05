@@ -234,11 +234,25 @@ import Sync
         #expect(plan.revealedGroupID == nil)
     }
 
-    /// Waiting changes nothing at all — including not clearing a previous landing's mark. What is
-    /// on screen during a scan is the previous scan's results, and the previous landing is still
-    /// the truthful thing to be showing.
-    @Test func waitingPlansNothing() {
-        #expect(DuplicateReveal.plan(for: .waiting) == DuplicateReveal.Plan())
+    /// Waiting changes no NAVIGATION — what is on screen during a scan is the previous scan's
+    /// results and stays put — but it does retire the named answer and the mark, because a request
+    /// that cannot be answered yet is about a different file than whatever is being claimed.
+    ///
+    /// **Each field is asserted, not just `== Plan()`.** The equality alone says "this equals the
+    /// default" and leaves what the default MEANS somewhere else; the whole reason this needed
+    /// correcting is that `TidyView` hand-wrote the two clearing lines beside an early return, so
+    /// this branch never ran and its doc drifted into describing the opposite behaviour. Spelling
+    /// out the four fields is what makes applying this plan and the old hand-written pair visibly
+    /// the same two writes.
+    @Test func waitingRetiresTheAnswerAndNavigatesNowhere() {
+        let plan = DuplicateReveal.plan(for: .waiting)
+        // Retires the previous answer: `TidyView.applyRevealPlan` assigns both unconditionally.
+        #expect(plan.landing == nil)
+        #expect(plan.revealedGroupID == nil)
+        // …and moves nothing the user set up.
+        #expect(plan.clearsFilterAndQuery == false)
+        #expect(plan.searchQuery == nil)
+        #expect(plan.expandsGroupID == nil)
     }
 
     /// A repeat ask about the same file is a new request. A bare path would compare equal to

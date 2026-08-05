@@ -164,9 +164,17 @@ public enum DuplicateReveal {
 
     /// What to change about the lens to show `outcome`.
     ///
-    /// `waiting` plans nothing at all — not even clearing the mark from a previous reveal. The
-    /// results on screen during a scan are the previous scan's, and the previous landing is still
-    /// the truthful thing to be showing until new ones arrive.
+    /// `waiting` plans no NAVIGATION — no filter change, no query, no expansion; the results on
+    /// screen during a scan are the previous scan's and are still the truthful thing to show. What
+    /// it does carry is the absence of a landing and of a mark, and applying that clears both,
+    /// because a request that cannot be answered yet names a different file than whatever answer is
+    /// on screen. (A request already answered never reaches here — the caller's applied-id guard
+    /// returns first — so waiting on one's OWN scan does not flicker the answer away.)
+    ///
+    /// That clearing used to be hand-written in `TidyView.applyRevealRequest` alongside an early
+    /// return, which made this branch unreachable and left this doc describing behaviour that never
+    /// ran. Every outcome now goes through the same apply; only whether the request is RECORDED as
+    /// applied differs, which is the caller's bookkeeping rather than a decision about the lens.
     public static func plan(for outcome: Outcome) -> Plan {
         switch outcome {
         case .waiting:

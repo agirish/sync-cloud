@@ -218,6 +218,31 @@ import Testing
     }
 
     @MainActor
+    @Test func forgettingEverythingLeavesNoFileBehind() async throws {
+        // The Settings readout asks what this store OCCUPIES, and it has to be able to answer
+        // "nothing" after a Clear. `write` used to encode an empty payload for an empty list, so a
+        // cleared store left 27 bytes of `{"schema":1,"snapshots":[]}` on disk — invisible to
+        // `load` (which answers `[]` either way) but not to a size readout, where it showed as a
+        // Clear that had not worked, next to a Clear button still offering to do it again.
+        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreForgetAll")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try storeURL("forget-all")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
+
+        let manager = FileSyncManager()
+        manager.storageLensStoreURL = url
+        await manager.buildStorageLens(root: root)
+        StorageLensStore.waitForPendingWrites()
+        #expect(manager.storedStorageLensSizeOnDisk() != nil)
+
+        manager.forgetStoredStorageLens()
+        StorageLensStore.waitForPendingWrites()
+        #expect(manager.storedStorageLensSizeOnDisk() == nil, "a cleared store must occupy nothing")
+        #expect(StorageLensStore.load(from: url).isEmpty)
+    }
+
+    @MainActor
     @Test func aRescanClearsTheRestoredFlag() async throws {
         // Once you re-analyze, the numbers are live again and the "from your last scan" marker
         // must stop claiming otherwise.

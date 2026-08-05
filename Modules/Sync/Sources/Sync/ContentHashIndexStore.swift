@@ -87,6 +87,34 @@ public enum ContentHashIndexStore {
         }
     }
 
+    /// Bytes the index occupies on disk, or nil when there is no file yet.
+    ///
+    /// A `stat`, deliberately, not a decode: this answers "what is SyncCloud storing", which is a
+    /// question about the file rather than about its contents, and the entry count would cost a
+    /// full parse of the largest thing this app writes to say something less useful.
+    public static func sizeOnDisk(at url: URL, fileManager: FileManager = .default) -> Int? {
+        (try? fileManager.attributesOfItem(atPath: url.path))?[.size].flatMap { $0 as? NSNumber }?.intValue
+    }
+
+    /// Deletes the index file. Serialized with the writes, so a save already queued cannot land
+    /// after the delete and resurrect it.
+    ///
+    /// **Not the whole of forgetting.** ``ContentHashCache`` holds this session's digests in
+    /// memory and would write them straight back on its next `save()`, so the user-facing erase is
+    /// ``ContentHashCache/forgetPersistedIndex()``, which drops both halves. This is the disk half
+    /// alone and exists for that method to call.
+    static func deleteInBackground(at url: URL) {
+        writeQueue.async {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch CocoaError.fileNoSuchFile {
+                // Nothing to delete is the desired end state, not a failure.
+            } catch {
+                Logger.shared.warning("Couldn't delete the content-hash index: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Blocks until queued writes finish. Tests only — see ``FilingVerdictStore/waitForPendingWrites()``
     /// for why a barrier rather than a wait-and-hope.
     public static func waitForPendingWrites() {

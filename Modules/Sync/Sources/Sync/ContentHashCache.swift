@@ -242,6 +242,29 @@ public actor ContentHashCache {
         ContentHashIndexStore.saveInBackground(records, to: persistenceURL)
     }
 
+    /// Bytes the persisted index occupies, or nil when persistence is off or nothing is written.
+    public func persistedSizeOnDisk() -> Int? {
+        persistenceURL.flatMap { ContentHashIndexStore.sizeOnDisk(at: $0) }
+    }
+
+    /// Forgets every digest — the in-memory ones AND the file.
+    ///
+    /// **Both halves, and that is the whole point of it living here rather than on the store.**
+    /// Deleting the file alone would look like it worked and then quietly undo itself: this actor
+    /// still holds the session's digests, and its next `save()` — which the duplicate scan and
+    /// Verify each call unconditionally — would write them all back out. Clearing the memory too
+    /// costs the current session some re-hashing, which is exactly what the user asked for.
+    ///
+    /// `unsavedInsertions` is reset because there is genuinely nothing left to write; that is the
+    /// one case where zeroing it is not discarding a dirty flag (compare `adopt`, which must not).
+    public func forgetPersistedIndex() {
+        entries.removeAll()
+        insertionOrder.removeAll()
+        evictedPrefix = 0
+        unsavedInsertions = 0
+        if let persistenceURL { ContentHashIndexStore.deleteInBackground(at: persistenceURL) }
+    }
+
     /// Test seam: how many entries are held right now.
     var count: Int { entries.count }
 }

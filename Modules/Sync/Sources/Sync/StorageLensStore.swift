@@ -73,6 +73,12 @@ public enum StorageLensStore {
         load(from: url).first { $0.root == root }
     }
 
+    /// Bytes the snapshot file occupies, or nil when there is none. A `stat`, like the hash
+    /// index's — see ``ContentHashIndexStore/sizeOnDisk(at:fileManager:)``.
+    public static func sizeOnDisk(at url: URL, fileManager: FileManager = .default) -> Int? {
+        (try? fileManager.attributesOfItem(atPath: url.path))?[.size].flatMap { $0 as? NSNumber }?.intValue
+    }
+
     private static let writeQueue = DispatchQueue(label: "com.synccloud.storage-lens-store")
 
     /// Replaces the snapshot for `snapshot.root` and writes the file, off the calling thread.
@@ -98,6 +104,19 @@ public enum StorageLensStore {
 
     private static func write(_ snapshots: [StorageLensSnapshot], to url: URL) {
         do {
+            // Empty means DELETE, not "write an empty payload". `load` cannot tell the two apart —
+            // both answer `[]` — but anything asking what this store occupies on disk can, and a
+            // Clear that left 27 bytes of `{"schema":1,"snapshots":[]}` behind reads as a Clear
+            // that did not work. Nothing else writes an empty list: `saveInBackground` always
+            // inserts one.
+            guard !snapshots.isEmpty else {
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch CocoaError.fileNoSuchFile {
+                    // Already absent is the desired end state.
+                }
+                return
+            }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(Payload(schema: currentSchema, snapshots: snapshots))

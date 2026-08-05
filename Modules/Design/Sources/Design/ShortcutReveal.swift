@@ -3,7 +3,8 @@ import SwiftUI
 
 // MARK: - Shortcut reveal
 //
-// Hold ⌥ alone for 700 ms and every control with a keyboard shortcut grows a keycap badge;
+// Hold ⌥ alone for `ShortcutRevealMachine.holdDuration` and every control with a keyboard shortcut
+// grows a keycap badge;
 // release it and they vanish. This file is the ONE place that decides whether the reveal is on —
 // `ShortcutKeycap` is the one place that decides what a badge looks like. Same shape as
 // `HoverAffordanceStyle`: one choke point per affordance, so a change lands everywhere at once.
@@ -46,7 +47,11 @@ public struct ShortcutRevealModifiers: OptionSet, Sendable {
     }
 }
 
-/// The 700 ms rule, as a pure state machine over an injected clock.
+/// The hold rule, as a pure state machine over an injected clock.
+///
+/// The duration is ``holdDuration``, and is deliberately named nowhere else in prose: this line and
+/// the file header above both still said "700 ms" a release after the constant became 0.2 — a
+/// number `theHoldDurationIsWhatTheInterfacePromises` had been pinning the whole time.
 ///
 /// Every transition is a function of (current phase, event, instant) — nothing here reads the
 /// wall clock, schedules anything, or touches AppKit, so the whole interaction is assertable in
