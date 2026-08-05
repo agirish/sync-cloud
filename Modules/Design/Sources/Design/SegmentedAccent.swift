@@ -30,7 +30,10 @@ import SwiftUI
 //    So the tint passed here must be the DEEPENED `accentFillColor`, never the raw `accentColor`.
 //    That is the same pairing the rail row and the filled chips already use, arrived at from the
 //    other direction: they choose white deliberately, here white is imposed and the fill has to
-//    earn it. `AccentFill` guarantees ≥4.55:1 for all twelve hues by construction.
+//    earn it. `AccentFill` guarantees ≥4.55:1 by construction.
+//
+//    `.none` is exempt from that, deliberately — see `SegmentedAccent.tint(for:)`. It means "the
+//    stock macOS look", so it takes the system accent untouched and inherits Apple's contrast.
 
 /// The one place that decides what a `.segmented` picker's selection is tinted with.
 ///
@@ -41,19 +44,27 @@ public enum SegmentedAccent {
 
     /// The tint a `.segmented` picker takes for `hue`.
     ///
-    /// The DEEPENED fill, because AppKit draws the selected segment's label white unconditionally.
+    /// A named hue takes the DEEPENED fill, because AppKit draws the selected segment's label white
+    /// unconditionally — even on a fill far too light to carry it, which is what the raw accent
+    /// would leave on Amber (2.24:1) and Cyan (2.07:1).
     ///
-    /// `.none` goes through the same transform rather than being special-cased, so it keeps
-    /// following the user's macOS accent — `LiquidGlassHue.none.accentColor` IS the system accent.
-    /// One consequence is worth stating plainly instead of leaving to be discovered: the system
-    /// accent is itself deepened, so at `.none` the selection sits about 7% darker than a stock
-    /// macOS segmented control (system blue (0, 0.478, 1.0) → (0, 0.445, 0.933)). That is a real
-    /// difference and it is deliberate — measured, Apple's own blue carries its white label at only
-    /// 4.02:1, under the 4.5:1 floor every other filled control in this app is held to. Uniformity
-    /// with the other eleven hues was preferred to matching the system exactly at one of the twelve.
-    /// If that trade is ever judged the wrong way round, it is one line — return `hue.accentColor`
-    /// for `.none` — and `noneFollowsTheSystemAccentRatherThanALiteral` is where it is pinned.
-    public static func tint(for hue: LiquidGlassHue) -> Color { hue.accentFillColor }
+    /// **`.none` is the deliberate exception: it takes the RAW system accent, undeepened.** The
+    /// whole meaning of `.none` in the accent picker is "no app accent — the stock macOS look", and
+    /// `LiquidGlassHue.none.accentColor` IS `Color.accentColor`, so handing it over untouched makes
+    /// the control identical to the one macOS would draw by itself. Deepening it instead — which is
+    /// what this did first — bought AA contrast at the cost of the one thing the setting is FOR:
+    /// the selection came out about 7% darker than a stock control (system blue (0, 0.478, 1.0) →
+    /// (0, 0.445, 0.933)), which is a change to the appearance of "no change".
+    ///
+    /// The cost of the exception, stated plainly so it is not rediscovered as a bug: at `.none` the
+    /// white label AppKit imposes sits at whatever contrast Apple ships, measured at **4.02:1** on
+    /// the default blue — under the 4.5:1 floor every other filled surface in this app meets. That
+    /// is Apple's ratio on Apple's control, and matching the system exactly is the point of the
+    /// setting; `theTintCarriesTheWhiteLabelAppKitImposes` therefore holds the eleven named hues to
+    /// the floor and excludes this one on purpose rather than by oversight.
+    public static func tint(for hue: LiquidGlassHue) -> Color {
+        hue == .none ? hue.accentColor : hue.accentFillColor
+    }
 }
 
 public extension View {
