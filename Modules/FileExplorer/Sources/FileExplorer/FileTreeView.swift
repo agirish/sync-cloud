@@ -363,10 +363,10 @@ public struct FileTreeView: View, Equatable {
     /// `applySelectionWrite` — so the one-pane-selected invariant is enforced by the same code a
     /// click goes through, and the sibling pane's clear is deferred rather than written synchronously
     /// from here.
-    private func revealInTree(_ proxy: ScrollViewProxy) {
+    private func revealInTree(_ proxy: ScrollViewProxy, selecting: Bool) {
         guard let hit = search.hit(at: searchHitIndex) else { return }
         expanded = PaneTreeSearch.expansion(expanded, revealing: hit)
-        if selection != [hit.path] { selection = [hit.path] }
+        if selecting, selection != [hit.path] { selection = [hit.path] }
         let animation = revealAnimation
         func attempt() {
             withAnimation(animation) { proxy.scrollTo(hit.path, anchor: .center) }
@@ -389,11 +389,36 @@ public struct FileTreeView: View, Equatable {
     ///
     /// Drilling re-roots nothing and rescans nothing (see `PaneBrowsePath`), so every difference
     /// badge stays valid across a search walk — the same property a click already relies on.
-    private func revealInColumns() {
+    private func revealInColumns(selecting: Bool) {
         guard let hit = search.hit(at: searchHitIndex) else { return }
         let target = hit.browsePath
         if browsePath != target { (onColumnNavigate ?? { browsePath = $0 })(target) }
-        if selection != [hit.path] { selection = [hit.path] }
+        if selecting, selection != [hit.path] { selection = [hit.path] }
+    }
+
+    /// The expansion set, dropped to what the pane could still be showing.
+    ///
+    /// **The set only ever grew.** Every folder opened stayed in it for the session, including after
+    /// the pane re-rooted somewhere else entirely — focus a subfolder, switch provider, walk a
+    /// search through three trees, and it accumulates paths from all of them that no row will ever
+    /// match again.
+    ///
+    /// Pruned on the ROOT changing rather than on every republish, and that is the whole design.
+    /// Republishes are constant (a scan, a copy, a hidden-files toggle) and deciding "is this path
+    /// still a folder" needs a walk of ~40,000 nodes — the same per-republish main-thread cost this
+    /// feature already had to have removed once. A root change is rare, and a prefix test costs one
+    /// comparison per remembered path.
+    ///
+    /// What it deliberately does NOT prune is a folder deleted from under the current root. That
+    /// path stays remembered, so a folder deleted and recreated comes back open — which is what a
+    /// user who had it open would expect, and matches how the outline behaves across a republish.
+    ///
+    /// Static and non-private so `PaneOutlineExpansionTests` can pin it: the alternative is a
+    /// `@State` set no test can read.
+    static func expansionPruned(_ expanded: Set<String>, toRoot root: String) -> Set<String> {
+        let normalized = PaneBrowsePath.normalized(root)
+        guard !normalized.isEmpty else { return expanded }
+        return expanded.filter { $0 == normalized || $0.hasPrefix(normalized + "/") }
     }
 
     /// One row's search decoration, in the Tree presentation. `isExpanded` is the outline's own
@@ -474,6 +499,12 @@ public struct FileTreeView: View, Equatable {
                 // the answers the OTHER pane's rows were still relying on. See `badgeMemoRoot` for
                 // why that root is `currentPath` rather than `rootPath`.
                 .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear(underRoot: badgeMemoRoot) }
+                // Re-rooting the pane makes every remembered expansion under the OLD root dead
+                // weight — see `expansionPruned`. Keyed on the root rather than the tree so it costs
+                // nothing on the republishes that happen constantly.
+                .onChange(of: currentPath) { _, root in
+                    expanded = Self.expansionPruned(expanded, toRoot: root)
+                }
 
             switch emptyState {
             case .none:
@@ -579,8 +610,10 @@ public struct FileTreeView: View, Equatable {
             )
             // The reveal, Columns side. Same token as the Tree branch, so the two presentations walk
             // the same hits in the same order and switching mode mid-search keeps your place.
-            .onChange(of: revealToken) { _, _ in revealInColumns() }
-            .onAppear { revealInColumns() }
+            .onChange(of: revealToken) { _, _ in revealInColumns(selecting: true) }
+            // See the Tree branch: an appearance re-opens the columns down to the hit but must not
+            // move a selection the user has made since.
+            .onAppear { revealInColumns(selecting: false) }
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
             .background(
@@ -610,12 +643,19 @@ public struct FileTreeView: View, Equatable {
             paneListBody
                 // The reveal, Tree side. Keyed on the hit rather than on the query, so typing costs
                 // nothing and only arriving at a hit opens anything — see `revealInTree`.
-                .onChange(of: revealToken) { _, _ in revealInTree(proxy) }
+                .onChange(of: revealToken) { _, _ in revealInTree(proxy, selecting: true) }
                 // And once on arrival, so switching Tree↔Columns mid-search lands on the hit you
                 // were standing on rather than at the top of a tree you have to walk again. Costs
                 // an inactive pane one guarded return per appearance: `revealInTree` finds no hit
                 // and does nothing, which is every launch and every tab switch.
-                .onAppear { revealInTree(proxy) }
+                //
+                // **`selecting: false`, and that is the whole difference between the two callers.**
+                // An appearance is not a walk. This fires on every tab switch and every pane
+                // collapse/expand, not only on a mode switch, so selecting here would reach past the
+                // search and move a selection the user had made since — walk to a hit, click a
+                // different file, switch tabs, and the click was silently undone. Revealing is
+                // harmless (the row is already where the walk left it); selecting is not.
+                .onAppear { revealInTree(proxy, selecting: false) }
         }
     }
 

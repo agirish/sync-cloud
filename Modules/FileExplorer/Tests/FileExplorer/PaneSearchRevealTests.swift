@@ -82,6 +82,12 @@ import Sync
         /// The pane's publish counter. Bumping it republishes the same tree under a new stamp, which
         /// is what `PaneTree.==` treats as a genuine change — the pane rebuilds its rows from it.
         @Published var treeVersion = 1
+        /// The pane's root. Changing it is what a re-root looks like to the outline.
+        ///
+        /// The literal rather than `PaneSearchTreeRevealTests.root`: the suite is `@MainActor`, so
+        /// its static is too, and a main-actor default value cannot initialize a property of this
+        /// nonisolated class.
+        @Published var currentPath = "/root"
     }
 
     struct Harness: View {
@@ -95,7 +101,7 @@ import Sync
                 tree: tree,
                 otherTree: PaneTree(side: .right, version: 1, nodes: []),
                 isLoading: false,
-                currentPath: PaneSearchTreeRevealTests.root,
+                currentPath: box.currentPath,
                 selection: $box.selection,
                 otherSelection: [],
                 isLeft: true,
@@ -382,6 +388,154 @@ import Sync
         let landed = await LayoutPumpWait.pump(window, upTo: 5) { box.selection.count == 2 }
         #expect(landed.held,
                 "both rows should reach the selection binding (\(landed.pumps) pumps, got \(box.selection))")
+    }
+}
+
+/// An APPEARANCE is not a walk.
+///
+/// The pane reveals the current hit when it appears, so switching Tree↔Columns mid-search lands on
+/// the hit you were standing on. But that handler fires on every appearance — a tab switch, a pane
+/// collapse and re-expand — and it used to select the hit as well. Walk to a hit, click a different
+/// file, switch tabs, and the click was silently undone.
+///
+/// Mounting IS an appearance, which is what makes this testable at all: the pane is created with a
+/// live search already in it, exactly as it is when a mode switch rebuilds it.
+@MainActor
+@Suite struct PaneSearchAppearanceTests {
+
+    typealias Fixture = PaneSearchTreeRevealTests
+
+    @Test("Appearing with a live search reveals the hit without taking the selection")
+    func appearingRevealsButDoesNotSelect() async {
+        let box = Fixture.Box()
+        // The state a mode switch hands the new pane: results and a walk position already set, and a
+        // selection the user made on something else.
+        box.search = Fixture.results("notes")
+        box.hitIndex = 0
+        box.selection = ["\(Fixture.root)/Movies"]
+
+        let window = Fixture.mount(box, viewMode: .tree)
+        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
+            Fixture.rowCount(window) == Fixture.financeOpenRowCount
+        }
+        #expect(revealed.held,
+                "appearing should still open the hit's ancestors (\(revealed.pumps) pumps, \(Fixture.rowCount(window)) rows)")
+        #expect(box.selection == ["\(Fixture.root)/Movies"],
+                "appearing must not move a selection the user made — got \(box.selection)")
+    }
+
+    /// …and the same in Columns, where the appearance also re-opens the column stack.
+    @Test("Appearing in Columns opens the stack without taking the selection")
+    func appearingInColumnsDoesNotSelect() async {
+        let box = Fixture.Box()
+        box.search = Fixture.results("notes")
+        box.hitIndex = 0
+        box.selection = ["\(Fixture.root)/Movies"]
+
+        let window = Fixture.mount(box, viewMode: .columns)
+        let opened = await LayoutPumpWait.pump(window, upTo: 10) {
+            box.browsePath.components == ["Documents", "Finance"]
+        }
+        #expect(opened.held, "appearing should still open the columns (\(opened.pumps) pumps)")
+        #expect(box.selection == ["\(Fixture.root)/Movies"],
+                "appearing must not move a selection the user made — got \(box.selection)")
+    }
+
+    /// The control: a WALK still selects. Without this the fix above could be "never select", which
+    /// would break the feature rather than the appearance case.
+    @Test("A walk still takes the selection")
+    func walkingStillSelects() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .tree)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) {
+            Fixture.rowCount(window) == Fixture.collapsedRowCount
+        }
+        box.search = Fixture.results("notes")
+        box.hitIndex = 0
+        let selected = await LayoutPumpWait.pump(window, upTo: 10) {
+            box.selection == ["\(Fixture.root)/Documents/Finance/tax-notes.md"]
+        }
+        #expect(selected.held, "walking to a hit must still select it (\(selected.pumps) pumps)")
+    }
+}
+
+/// The expansion set is bounded by the pane's current root.
+///
+/// `@MainActor` because `FileTreeView` is — SwiftUI infers it for the whole type, statics included.
+/// Without it the suite compiles and then TRAPS at run time (signal 5), which is a crash rather
+/// than a failure and takes the whole bundle with it.
+@MainActor
+@Suite struct PaneOutlineExpansionTests {
+
+    private static let remembered: Set<String> = [
+        "/root/Documents", "/root/Documents/Finance", "/elsewhere/Archive", "/root2/Docs",
+    ]
+
+    /// Re-rooting the pane makes every remembered expansion under the old root dead weight. Without
+    /// this the set only ever grew — a session that focuses a subfolder, switches provider and walks
+    /// a search accumulates paths from every tree it has seen.
+    @Test("Re-rooting drops the expansions that belong to somewhere else")
+    func reRootingDropsForeignPaths() {
+        let kept = FileTreeView.expansionPruned(Self.remembered, toRoot: "/root")
+        #expect(kept == ["/root/Documents", "/root/Documents/Finance"])
+    }
+
+    /// A trailing slash on the root must not make every path foreign — the pane's `currentPath`
+    /// comes from a join and `PaneBrowsePath.normalized` is the one rule for this.
+    @Test("A trailing slash on the root changes nothing")
+    func aTrailingSlashIsNormalized() {
+        #expect(FileTreeView.expansionPruned(Self.remembered, toRoot: "/root/")
+                == FileTreeView.expansionPruned(Self.remembered, toRoot: "/root"))
+    }
+
+    /// A sibling root that shares a prefix is NOT under the root — `/root2` must not survive a
+    /// prune to `/root`, which a bare `hasPrefix` without the separator would let through.
+    @Test("A sibling root sharing a prefix is not kept")
+    func aPrefixSiblingIsNotUnderTheRoot() {
+        #expect(!FileTreeView.expansionPruned(Self.remembered, toRoot: "/root").contains("/root2/Docs"))
+    }
+
+    /// The root itself is legitimately expandable, so it survives its own prune.
+    @Test("The root itself is kept")
+    func theRootSurvives() {
+        #expect(FileTreeView.expansionPruned(["/root"], toRoot: "/root") == ["/root"])
+    }
+
+    /// An empty root is not a root — it arrives before a pane has one, and pruning everything
+    /// against it would silently collapse the outline.
+    @Test("An empty root prunes nothing")
+    func anEmptyRootIsNotAFilter() {
+        #expect(FileTreeView.expansionPruned(Self.remembered, toRoot: "") == Self.remembered)
+    }
+
+    /// **And the pane actually calls it.** The rule above is a pure function, and a pure function
+    /// with no caller is a green test over a dead code path — the exact shape this repo has been
+    /// caught by before. Driven through the mounted pane: expand the outline, move the ROOT without
+    /// touching the tree, and the remembered expansions (all under the old root) must go.
+    ///
+    /// Changing the root while the nodes stay put is artificial — a real re-root replaces both — and
+    /// that is deliberate: it is the only way to observe the prune rather than the tree change.
+    @Test("Re-rooting the mounted pane really does prune it")
+    func theMountedPanePrunesOnReRoot() async {
+        typealias Fixture = PaneSearchTreeRevealTests
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .tree)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) {
+            Fixture.rowCount(window) == Fixture.collapsedRowCount
+        }
+        box.search = Fixture.results("notes")
+        box.hitIndex = 0
+        let opened = await LayoutPumpWait.pump(window, upTo: 10) {
+            Fixture.rowCount(window) == Fixture.financeOpenRowCount
+        }
+        #expect(opened.held, "the reveal should have opened two folders (\(opened.pumps) pumps)")
+
+        box.currentPath = "/somewhere-else"
+        let pruned = await LayoutPumpWait.pump(window, upTo: 10) {
+            Fixture.rowCount(window) == Fixture.collapsedRowCount
+        }
+        #expect(pruned.held,
+                "re-rooting should drop the old root's expansions (\(pruned.pumps) pumps, \(Fixture.rowCount(window)) rows)")
     }
 }
 
