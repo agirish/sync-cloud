@@ -48,7 +48,8 @@ import Testing
     /// 15s wait. A location born from this mount's own store cannot hold a foreign value. Full
     /// account: `DifferencesTableIdentityTests`.
     private func rowHeights(_ density: ListDensity,
-                            expectingData expectedData: CGFloat) async -> (header: CGFloat, data: CGFloat)? {
+                            expectingData expectedData: CGFloat)
+        async -> (heights: (header: CGFloat, data: CGFloat)?, pumps: Int) {
         let store = ScratchDefaults("SectionRowHeightTests")
         store.set(true, forKey: "differencesGroupByFolder")
         store.set(density.rawValue, forKey: ListDensity.defaultsKey)
@@ -82,23 +83,25 @@ import Testing
         // settled pair the assertions expect, `waitForOrigin`-style (PaneColumnsScrollTests),
         // and on timeout return the last measurement so a real regression fails with the
         // numbers actually on screen rather than hanging the assertions on a nil.
+        //
+        // Bounded by `LayoutPumpWait`'s pass floor as well as by its deadline: the invalidation
+        // arrives on main-actor turns, and a congested full-package run has fewer of them per
+        // second, so fifteen seconds can buy too few passes to see it. This suite gave up with no
+        // rows at all in a loaded run on 2026-08-04. See `docs/flaky-tests.md`, mechanism 2.
         let settled = (header: Self.headerRowHeight, data: expectedData)
-        let deadline = Date().addingTimeInterval(15)
         var last: (header: CGFloat, data: CGFloat)?
-        while Date() < deadline {
-            host.layoutSubtreeIfNeeded()
-            if let t = table(host), t.numberOfRows >= 2 {
-                last = (header: t.rect(ofRow: 0).height, data: t.rect(ofRow: 1).height)
-                if last! == settled { return last }
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
+        let outcome = await LayoutPumpWait.pump(host, upTo: 15) {
+            guard let t = table(host), t.numberOfRows >= 2 else { return false }
+            last = (header: t.rect(ofRow: 0).height, data: t.rect(ofRow: 1).height)
+            return last! == settled
         }
-        return last
+        return (last, outcome.pumps)
     }
 
     @Test func comfortableDrawsTheHeaderAtTheFloor() async throws {
-        let heights = try #require(await rowHeights(.comfortable, expectingData: 25),
-                                   "table never produced rows")
+        let measured = await rowHeights(.comfortable, expectingData: 25)
+        let heights = try #require(measured.heights,
+                                   "table never produced rows after \(measured.pumps) passes")
         #expect(heights.header == Self.headerRowHeight)
         // Named so a failure says which number moved. The data row is the yardstick the header is
         // judged against — a header that grew because the whole table grew is a different bug.
@@ -106,8 +109,9 @@ import Testing
     }
 
     @Test func compactDrawsTheSameHeaderOverShorterRows() async throws {
-        let heights = try #require(await rowHeights(.compact, expectingData: 20),
-                                   "table never produced rows")
+        let measured = await rowHeights(.compact, expectingData: 20)
+        let heights = try #require(measured.heights,
+                                   "table never produced rows after \(measured.pumps) passes")
         #expect(heights.header == Self.headerRowHeight)
         #expect(heights.data == 20)
     }
@@ -115,8 +119,12 @@ import Testing
     /// The claim the padding constant's doc rests on, asserted rather than left as a comment: the
     /// densities differ in their data rows and agree on their header.
     @Test func theTwoDensitiesAgreeOnTheHeaderAndDisagreeOnTheRow() async throws {
-        let comfortable = try #require(await rowHeights(.comfortable, expectingData: 25))
-        let compact = try #require(await rowHeights(.compact, expectingData: 20))
+        let comfortableMeasured = await rowHeights(.comfortable, expectingData: 25)
+        let compactMeasured = await rowHeights(.compact, expectingData: 20)
+        let comfortable = try #require(comfortableMeasured.heights,
+                                       "comfortable never produced rows after \(comfortableMeasured.pumps) passes")
+        let compact = try #require(compactMeasured.heights,
+                                   "compact never produced rows after \(compactMeasured.pumps) passes")
         #expect(comfortable.header == compact.header)
         #expect(comfortable.data > compact.data)
     }

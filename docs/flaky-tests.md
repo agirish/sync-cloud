@@ -270,17 +270,29 @@ does nothing for it.
 
 - `ExpandingSearchFieldTests.becomesEditingText` — in **Design**, not FileExplorer. A sweep that
   greps only `Modules/FileExplorer` will not see it.
-- `HeaderLadderTests.settle(_:atRows:)`, `SectionRowHeightTests` and
-  `DifferencesTableIdentityTests.settle(_:atRows:)` poll `layoutSubtreeIfNeeded()` on a host
-  **view**, not a window, and return a *measurement* rather than a Bool. Adopting the floor means a
-  view-based entry point on `LayoutPumpWait`, not a substitution — which is why they were recorded
-  here rather than mechanically migrated.
+- ~~`HeaderLadderTests.settle(_:atRows:)`, `SectionRowHeightTests` and
+  `DifferencesTableIdentityTests.settle(_:atRows:)`~~ and
+  ~~`DifferencesTableIdentityTests.wait(for:timeout:)`~~ — **all four migrated 2026-08-04.** They
+  polled `layoutSubtreeIfNeeded()` on a host **view**, not a window, and returned a *measurement*
+  rather than a Bool, so adopting the floor needed a view-based entry point on `LayoutPumpWait`
+  rather than a substitution. That entry point exists, and they now use it; each returns its pass
+  count alongside its measurement and every caller names it in the failure message.
 
-  **That entry point now exists** (`LayoutPumpWait.pump(_ view:upTo:until:)`), so these three are a
-  one-line migration each rather than a design question. `FoldAllToggleBindingTests` has taken it —
-  see below.
-- `DifferencesTableIdentityTests.wait(for:timeout:)` — the one this section already named, polling
-  no view at all.
+  **What prompted it, and the part worth copying.** Two of them failed in the same seven
+  full-package runs — `DifferencesTableIdentityTests.widthSurvivesTheGroupingToggle` at 0 rows
+  against 12, `SectionRowHeightTests.comfortableDrawsTheHeaderAtTheFloor` at no rows at all — while
+  new mounted-view suites (the lens-cache work) were landing alongside. That is the second time
+  added mount load has tipped an unmigrated wait, after `FoldAllToggleBindingTests` below, and it
+  is the reason to migrate the residual rather than wait for each one to be seen.
+
+  **The floor itself is now tested** (`LayoutPumpWaitTests`), which it never was, despite ten suites
+  in the target depending on it. That matters because the floor's guarantee could not be shown from
+  the migrated suites: on an idle `--filter` run their rows arrive on the FIRST pass, so setting the
+  deadline to zero and watching them pass proves nothing — a check that looked like a verification
+  and was not. The guarantee is a property of the loop, and against a counter it is deterministic:
+  with the deadline already spent, a condition needing 25 passes still gets them. Mutation says
+  `pumpFloor = 0` fails it; `pumpFloor = 24` does **not**, because the loop re-evaluates
+  `condition()` once after the deadline, so the real guarantee is `pumpFloor + 1` evaluations.
 - `ColumnDrillSourceTests.settle` — **the grep above misses it**, because it writes
   `while !condition() && Date() < end`. It does fail on expiry via `#require`, so it cannot pass
   vacuously, but it forwards no `#_sourceLocation`, so every caller's timeout is reported against

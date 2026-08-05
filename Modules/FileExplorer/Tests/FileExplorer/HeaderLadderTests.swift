@@ -534,9 +534,10 @@ struct HeaderLadderTests {
             // Grouping is on, so the table draws a header row per section as well as the rows.
             let expectedRows = rows.count + sections.count
             let settled = await settle(mount.host, atRows: expectedRows)
-            let settleNote = "table settled at \(settled) row(s), not \(expectedRows) — the header "
-                + "would be measured half-built and every assertion below would be vacuous"
-            #expect(settled == expectedRows, "\(settleNote)")
+            let settleNote = "table settled at \(settled.rows) row(s) after \(settled.pumps) passes, "
+                + "not \(expectedRows) — the header would be measured half-built and every "
+                + "assertion below would be vacuous"
+            #expect(settled.rows == expectedRows, "\(settleNote)")
             let drawn = headerRingSizes(mount.host)
             #expect(!drawn.isEmpty, "no header controls found at \(paneWidth)pt")
 
@@ -605,16 +606,18 @@ struct HeaderLadderTests {
     /// Waits for the differences table to settle at exactly `expected` rows. The header's shape
     /// depends on `sections`, which is empty until the rows land, so measuring early would read a
     /// header the user never sees.
-    private func settle(_ view: NSView, atRows expected: Int, timeout: TimeInterval = 15) async -> Int {
-        let deadline = Date().addingTimeInterval(timeout)
+    /// Bounded by `LayoutPumpWait`'s pass floor as well as by its deadline, and reports the passes
+    /// so a failure says whether it was starved or disproved. The rows arrive on main-actor turns,
+    /// and a congested full-package run has fewer of them per second — seconds were never the unit.
+    /// See `docs/flaky-tests.md`, mechanism 2.
+    private func settle(_ view: NSView, atRows expected: Int,
+                        timeout: TimeInterval = 15) async -> (rows: Int, pumps: Int) {
         var last = 0
-        while Date() < deadline {
-            view.layoutSubtreeIfNeeded()
+        let outcome = await LayoutPumpWait.pump(view, upTo: timeout) {
             last = tableRowCount(view) ?? 0
-            if last == expected { return last }
-            try? await Task.sleep(nanoseconds: 20_000_000)
+            return last == expected
         }
-        return last
+        return (last, outcome.pumps)
     }
 
     private func tableRowCount(_ view: NSView) -> Int? {

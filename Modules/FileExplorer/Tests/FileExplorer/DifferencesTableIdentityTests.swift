@@ -111,13 +111,12 @@ import Testing
     /// Every caller must assert on the return value. The rows arrive asynchronously, so a test
     /// that waited a while and then asserted would pass vacuously the day the rows stopped
     /// arriving — there would be nothing on screen to contradict it.
-    private func wait(for condition: () -> Bool, timeout: TimeInterval = 5) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return condition()
+    ///
+    /// Pumps `host` rather than merely sleeping, and is bounded by `LayoutPumpWait`'s pass floor
+    /// as well as by its deadline — see `settle` below for why seconds are the wrong unit.
+    private func wait(_ host: NSView, for condition: () -> Bool,
+                      timeout: TimeInterval = 5) async -> (held: Bool, pumps: Int) {
+        await LayoutPumpWait.pump(host, upTo: timeout, until: condition)
     }
 
     /// Waits for the table to settle at EXACTLY `expected` rows, and reports the last count seen.
@@ -127,18 +126,25 @@ import Testing
     /// happened to render first rather than the one under test. The count is returned rather
     /// than asserted so each caller's failure message can name the mount it was measuring; on
     /// timeout that is the count actually on screen, not a nil — the same shape as
-    /// `SectionRowHeightTests.rowHeights`. The 15s deadline is sized for a machine under
-    /// deliberate CPU load, where a toggle can take seconds to redraw the table.
-    private func settle(_ host: NSView, atRows expected: Int, timeout: TimeInterval = 15) async -> Int {
-        let deadline = Date().addingTimeInterval(timeout)
+    /// `SectionRowHeightTests.rowHeights`.
+    ///
+    /// **Bounded by `LayoutPumpWait`'s pass floor, not by the deadline alone, and it reports the
+    /// passes.** The 15s deadline was sized for a machine under deliberate CPU load, on the
+    /// assumption that a loaded machine needs more seconds. It needs more main-actor TURNS, and a
+    /// congested full-package run delivers fewer of them per second — this suite gave up at 0 rows
+    /// twice in seven runs on 2026-08-04, alongside newly landed mounted-view suites, which is
+    /// mechanism 2 with nothing else in it. The pass count is the diagnosis: giving up after the
+    /// floor's 50 means starved, after a thousand means genuinely disproved, and elapsed time
+    /// cannot tell those apart because both spend the whole deadline.
+    /// See `docs/flaky-tests.md`, mechanism 2.
+    private func settle(_ host: NSView, atRows expected: Int,
+                        timeout: TimeInterval = 15) async -> (rows: Int, pumps: Int) {
         var last = 0
-        while Date() < deadline {
-            host.layoutSubtreeIfNeeded()
+        let outcome = await LayoutPumpWait.pump(host, upTo: timeout) {
             last = tableView(in: host)?.numberOfRows ?? 0
-            if last == expected { return last }
-            try? await Task.sleep(nanoseconds: 20_000_000)
+            return last == expected
         }
-        return last
+        return (last, outcome.pumps)
     }
 
     private func tableView(in view: NSView) -> NSTableView? {
@@ -169,9 +175,9 @@ import Testing
         let (host, window, store) = mount(grouped: false)
         defer { window.contentView = nil }
 
-        let flatRows = await settle(host, atRows: 12)
-        #expect(flatRows == 12,
-                "flat table settled at \(flatRows) row(s), not the 12 fixture rows — every later assertion would be vacuous")
+        let flat = await settle(host, atRows: 12)
+        #expect(flat.rows == 12,
+                "flat table settled at \(flat.rows) row(s) after \(flat.pumps) passes, not the 12 fixture rows — every later assertion would be vacuous")
         let table = try #require(tableView(in: host))
         let column = try #require(sizeColumn(of: table))
 
@@ -184,9 +190,9 @@ import Testing
         #expect(abs(column.width - dragged) < 0.5, "the fixture could not set the width it measures")
 
         store.set(true, forKey: "differencesGroupByFolder")
-        let groupedRows = await settle(host, atRows: 15)
-        #expect(groupedRows == 15,
-                "grouping toggle never took effect — settled at \(groupedRows) row(s), not the 15 sectioned rows (12 + 3 headers)")
+        let grouped = await settle(host, atRows: 15)
+        #expect(grouped.rows == 15,
+                "grouping toggle never took effect — settled at \(grouped.rows) row(s) after \(grouped.pumps) passes, not the 15 sectioned rows (12 + 3 headers)")
 
         let after = try #require(tableView(in: host))
         #expect(after === table, "the toggle swapped the NSTableView — the Table was rebuilt")
@@ -209,8 +215,8 @@ import Testing
         let (host, window, store) = mount(grouped: false, rows: many)
         defer { window.contentView = nil }
 
-        let flatRows = await settle(host, atRows: 120)
-        #expect(flatRows == 120, "expected 120 fixture rows, settled at \(flatRows)")
+        let flat = await settle(host, atRows: 120)
+        #expect(flat.rows == 120, "expected 120 fixture rows, settled at \(flat.rows) after \(flat.pumps) passes")
         let scroller = try #require(scrollView(in: host))
 
         let offset: CGFloat = 400
@@ -221,9 +227,9 @@ import Testing
         #expect(scrolledTo > 100, "the fixture could not scroll (landed at \(scrolledTo)) — nothing to preserve")
 
         store.set(true, forKey: "differencesGroupByFolder")
-        let groupedRows = await settle(host, atRows: 140)
-        #expect(groupedRows == 140,
-                "grouping toggle never took effect — settled at \(groupedRows) row(s), not the 140 sectioned rows (120 + 20 headers)")
+        let grouped = await settle(host, atRows: 140)
+        #expect(grouped.rows == 140,
+                "grouping toggle never took effect — settled at \(grouped.rows) row(s) after \(grouped.pumps) passes, not the 140 sectioned rows (120 + 20 headers)")
 
         let after = try #require(scrollView(in: host))
         #expect(after === scroller, "the toggle swapped the NSScrollView — the Table was rebuilt")
@@ -238,13 +244,13 @@ import Testing
         let (host, window, store) = mount(grouped: false)
         defer { window.contentView = nil }
 
-        let flatRows = await settle(host, atRows: 12)
-        #expect(flatRows == 12, "expected the 12 fixture rows, settled at \(flatRows)")
+        let flat = await settle(host, atRows: 12)
+        #expect(flat.rows == 12, "expected the 12 fixture rows, settled at \(flat.rows) after \(flat.pumps) passes")
 
         store.set(true, forKey: "differencesGroupByFolder")
-        let groupedRows = await settle(host, atRows: 15)
-        #expect(groupedRows > flatRows,
-                "grouped settled at \(groupedRows) rows vs flat \(flatRows) — fixture is not clearing isWorthGrouping")
+        let grouped = await settle(host, atRows: 15)
+        #expect(grouped.rows > flat.rows,
+                "grouped settled at \(grouped.rows) rows vs flat \(flat.rows) — fixture is not clearing isWorthGrouping")
     }
 
     /// Both row shapes must reach the same selection binding. `contextMenu(forSelectionType:)` and
@@ -257,16 +263,18 @@ import Testing
             defer { window.contentView = nil }
 
             let expected = grouped ? 15 : 12
-            let rows = await settle(host, atRows: expected)
-            #expect(rows == expected, "grouped=\(grouped) settled at \(rows) row(s), expected \(expected)")
+            let settled = await settle(host, atRows: expected)
+            #expect(settled.rows == expected,
+                    "grouped=\(grouped) settled at \(settled.rows) row(s) after \(settled.pumps) passes, expected \(expected)")
             let table = try #require(tableView(in: host))
             #expect(table.selectionHighlightStyle != .none, "grouped=\(grouped): table is not selectable")
 
             // Row 0 is a section header in the grouped shape, so reach past it for a data row.
             let target = grouped ? 1 : 0
             table.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
-            #expect(await wait(for: { table.selectedRowIndexes.contains(target) }, timeout: 2),
-                    "grouped=\(grouped): row \(target) would not select")
+            let selected = await wait(host, for: { table.selectedRowIndexes.contains(target) }, timeout: 2)
+            #expect(selected.held,
+                    "grouped=\(grouped): row \(target) would not select after \(selected.pumps) passes")
         }
     }
 
@@ -287,8 +295,9 @@ import Testing
             defer { window.contentView = nil }
 
             let expected = grouped ? 15 : 12
-            let rows = await settle(host, atRows: expected)
-            #expect(rows == expected, "grouped=\(grouped) settled at \(rows) row(s), expected \(expected)")
+            let settled = await settle(host, atRows: expected)
+            #expect(settled.rows == expected,
+                    "grouped=\(grouped) settled at \(settled.rows) row(s) after \(settled.pumps) passes, expected \(expected)")
             seen.append(try #require(tableView(in: host)).tableColumns.map(\.title))
         }
         #expect(seen[0] == ["Name", "Change", "Size", "Copy to"], "flat columns were \(seen[0])")
