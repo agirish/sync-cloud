@@ -1401,10 +1401,14 @@ struct ContentView: View {
     /// Re-runs the showing lens's scan on open — Duplicates and Organize, the two lenses whose
     /// results are never restored (their rows carry destructive applies; see
     /// `StorageLensSnapshot`). Same trigger trio and safe-to-call-anytime contract as
-    /// `restoreStorageLensIfShowing` above: the manager declines unless the target matches the
-    /// last completed scan, nothing has run this session, and — for Organize — the scan cannot
-    /// cost money (on-device backend, or every loose file already verdict-cached). The rows an
-    /// auto-rescan shows are recomputed from the live filesystem, so nothing stale is offered.
+    /// `restoreStorageLensIfShowing` above: the manager declines unless the target is one the
+    /// user has scanned to completion before and still exists, and nothing has run this session.
+    /// The rows an auto-rescan shows are recomputed from the live filesystem, so nothing stale is
+    /// offered.
+    ///
+    /// Organize's "can this cost money?" question is deliberately NOT asked here. It lives inside
+    /// the scan, which stops before it walks anything expensive — so this stays a plain
+    /// synchronous call that cannot race a scan the user starts a moment later.
     func autoRescanTidyLensIfShowing() {
         switch selectedWorkspace {
         case .duplicates:
@@ -1415,13 +1419,9 @@ struct ContentView: View {
         case .filing:
             let root = tidyProviderRootExpanded
             guard let folder = filingScanTargetFolder else { return }
-            let providerName = tidyProviderName
-            let nameProvider = tidyProviderType
-            Task {
-                await syncManager.autoRescanFilingIfEligible(
-                    folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: root),
-                    providerName: providerName, nameProvider: nameProvider)
-            }
+            syncManager.autoRescanFilingIfEligible(
+                folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: root),
+                providerName: tidyProviderName, nameProvider: tidyProviderType)
         default:
             break
         }

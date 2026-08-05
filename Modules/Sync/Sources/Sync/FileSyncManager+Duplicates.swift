@@ -75,14 +75,16 @@ extension FileSyncManager {
         duplicateScanTask?.cancel()
     }
 
-    /// Re-runs the duplicate scan on lens open, when `root` is exactly what the last completed
-    /// scan covered. Free by construction — the scan reads and hashes locally, and the persisted
-    /// hash index means unchanged files are not even re-read — so the only questions are consent
-    /// and idempotence:
+    /// Re-runs the duplicate scan on lens open, when `root` is one of the targets the user has
+    /// scanned to completion before. Free by construction — the scan reads and hashes locally,
+    /// and the persisted hash index means unchanged files are not even re-read — so the only
+    /// questions are consent and idempotence:
     ///
-    /// - **Consent** is the recorded target matching: the user has scanned exactly this before,
-    ///   so repeating it unasked offers nothing they didn't already ask for. No recorded target
-    ///   (or no injected store) means never.
+    /// - **Consent** is a remembered target matching: the user has scanned exactly this before,
+    ///   so repeating it unasked offers nothing they didn't already ask for. Nothing remembered
+    ///   (or no injected store) means never, and a target that is no longer a reachable directory
+    ///   is declined rather than scanned into an empty result — see
+    ///   ``FileSyncManager/isReachableDirectory(_:fileManager:)``.
     /// - **Idempotence** against the callers' overlapping triggers (appear, workspace change,
     ///   root change — the same trio as `restoreStorageLens`): a completed scan this session
     ///   declines via `hasFoundDuplicates`, a running one via `isFindingDuplicates`, and an
@@ -92,8 +94,8 @@ extension FileSyncManager {
     @discardableResult
     public func autoRescanDuplicatesIfEligible(root: URL,
                                                options: DuplicateFinderOptions = .init()) -> Bool {
-        guard let defaults = lensAutoRescanDefaults,
-              defaults.string(forKey: Self.lastDuplicatesScanRootKey) == root.path,
+        guard lensScanTargetIsRemembered(root.path, forKey: Self.lastDuplicatesScanRootKey),
+              Self.isReachableDirectory(root.path, fileManager: fileManager),
               !isFindingDuplicates, !hasFoundDuplicates,
               duplicateAutoRescanAttempted != root.path else { return false }
         duplicateAutoRescanAttempted = root.path
@@ -216,7 +218,7 @@ extension FileSyncManager {
         completeScan(\.duplicateScanLifecycle, root: root)
         // Remembered only on completion, for the same reason: the auto-rescan consent is "the
         // user scanned exactly this before", and a cancelled scan is not that.
-        lensAutoRescanDefaults?.set(root.path, forKey: Self.lastDuplicatesScanRootKey)
+        rememberLensScanTarget(root.path, forKey: Self.lastDuplicatesScanRootKey)
         let summary = duplicateSummary
         Logger.shared.info("Tidy: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
         let skips = duplicateScanSkips

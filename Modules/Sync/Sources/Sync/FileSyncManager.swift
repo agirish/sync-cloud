@@ -252,10 +252,17 @@ public class FileSyncManager: ObservableObject {
     /// to `.standard` would have every test that completes a scan writing the user's real
     /// defaults.
     public var lensAutoRescanDefaults: UserDefaults?
-    /// Where the last completed Find Duplicates scan pointed (absolute path).
+    /// Absolute paths recent completed Find Duplicates scans covered, newest first.
     public static let lastDuplicatesScanRootKey = "tidyLastDuplicatesScanRoot"
-    /// Where the last completed Filing scan pointed (absolute path).
+    /// Absolute folders recent completed Filing scans covered, newest first.
     public static let lastFilingScanFolderKey = "tidyLastFilingScanFolder"
+    /// How many targets per lens to remember. **A single remembered target is not enough**: two
+    /// panes on two providers is the ordinary way this app is used, so one key meant scanning the
+    /// right pane silently withdrew consent for the left, and the feature fired or didn't
+    /// depending on which provider was scanned last. Sized like ``StorageLensStore/maxRoots`` and
+    /// for the same reason — someone who points a lens at a dozen folders should not accumulate
+    /// consent forever, and the oldest is the least likely to be wanted.
+    public static let maxRememberedScanTargets = 12
     /// The target an auto-rescan was already attempted for this session, per lens — whatever the
     /// outcome. One attempt per target: a completed scan latches via `hasCompleted`, but a
     /// cancelled or (Filing) declined-as-not-free attempt must not be retried by the next
@@ -263,6 +270,41 @@ public class FileSyncManager: ObservableObject {
     /// on a provider switch, so returning to a provider behaves like a fresh launch.
     var duplicateAutoRescanAttempted: String?
     var filingAutoRescanAttempted: String?
+
+    /// Records `path` as a target the user has scanned to completion, newest first and bounded.
+    /// A no-op without an injected store, which is how the feature stays off for the CLI and
+    /// tests.
+    func rememberLensScanTarget(_ path: String, forKey key: String) {
+        guard let defaults = lensAutoRescanDefaults else { return }
+        var recent = (defaults.array(forKey: key) as? [String] ?? []).filter { $0 != path }
+        recent.insert(path, at: 0)
+        defaults.set(Array(recent.prefix(Self.maxRememberedScanTargets)), forKey: key)
+    }
+
+    /// Whether `path` is one of the targets the user has scanned to completion — the consent an
+    /// auto-rescan needs.
+    ///
+    /// `array(forKey:)` rather than `stringArray(forKey:)` so a value of the wrong shape reads as
+    /// "nothing remembered" instead of trapping: the first build of this feature wrote a bare
+    /// String to these keys, and an install that ran it has one sitting there. It self-heals —
+    /// the next completed scan overwrites the key with an array — at the cost of that install
+    /// forgetting one target once, which is a manual scan away from being right again.
+    func lensScanTargetIsRemembered(_ path: String, forKey key: String) -> Bool {
+        guard let defaults = lensAutoRescanDefaults else { return false }
+        return (defaults.array(forKey: key) as? [String] ?? []).contains(path)
+    }
+
+    /// Whether `path` is a directory that exists right now.
+    ///
+    /// A remembered target can be deleted, renamed, or — the case that matters — sit on a cloud
+    /// folder that is not mounted this launch. Scanning it anyway succeeds and publishes zero
+    /// rows, and "no duplicates found" is a very different claim from "not scanned": it reads as
+    /// a result about the user's files rather than as an absence of one. A manual scan may still
+    /// do that, because the user asked; an automatic one must not say it unprompted.
+    static func isReachableDirectory(_ path: String, fileManager: FileManaging) -> Bool {
+        var isDir: ObjCBool = false
+        return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+    }
 
     // MARK: Tidy — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
 

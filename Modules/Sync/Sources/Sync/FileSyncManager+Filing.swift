@@ -87,89 +87,122 @@ extension FileSyncManager {
     public func cancelFindFilingSuggestions() { filingScanTask?.cancel() }
 
     /// Re-runs the Filing scan on lens open, when `folder` is exactly what the last completed
-    /// scan covered **and the scan cannot cost money**. Consent and idempotence work as in
-    /// ``autoRescanDuplicatesIfEligible(root:options:)`` — recorded target match, then
+    /// scan covered. Consent and idempotence work as in
+    /// ``autoRescanDuplicatesIfEligible(root:options:)`` — a remembered target, then
     /// `hasSuggestedFiling` / `isSuggestingFiles` / the per-target latch against the callers'
-    /// overlapping triggers. What is extra here is the money question:
+    /// overlapping triggers.
     ///
-    /// A Filing scan is free unless phase 3 puts files to the PAID backend. So the scan may
-    /// auto-run when classification is off entirely, when the backend routes on-device, or when
-    /// the backend is cloud but **every** loose file already has a verdict-cache entry under the
-    /// key phase 3 will ask with. That last check is this pre-flight: a cheap one-level walk of
-    /// `folder` plus cache lookups — no taxonomy walk, no content reads. It is deliberately
-    /// conservative in both directions it can be wrong: key *presence* is checked rather than
-    /// full hit validity (validity needs the taxonomy, and the `autoFreeOnly` stop inside the
-    /// scan catches the file that turns stale), and files a remembered rule would keep off the
-    /// backend still need an entry here (knowing that would take the taxonomy too). Declining
-    /// costs nothing — the lens shows the intro card it would have shown anyway.
+    /// **The money question is not asked here.** It was, once, as a pre-flight that walked the
+    /// folder and checked the verdict cache before starting anything — and that walk, that
+    /// candidate filter and that key construction were a second copy of what the scan does a few
+    /// lines into its own body. The copy is the whole bug surface: it can answer a different
+    /// question than the scan will, it walks the same folder twice, and being `async` it opened a
+    /// window in which the user could start a scan of their own between the check and the start.
+    /// The scan now asks it once, itself, before it walks anything expensive — see
+    /// ``findFilingSuggestions(folder:providerRoot:providerName:nameProvider:ignoringCache:autoFreeOnly:options:fileManager:)``.
     ///
     /// Returns whether a scan was started, for tests.
     @discardableResult
     public func autoRescanFilingIfEligible(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
-                                           options: FilingOptions = .init()) async -> Bool {
-        guard let defaults = lensAutoRescanDefaults,
-              defaults.string(forKey: Self.lastFilingScanFolderKey) == folder.path,
+                                           options: FilingOptions = .init()) -> Bool {
+        guard lensScanTargetIsRemembered(folder.path, forKey: Self.lastFilingScanFolderKey),
+              Self.isReachableDirectory(folder.path, fileManager: fileManager),
               !isSuggestingFiles, !hasSuggestedFiling,
               filingAutoRescanAttempted != folder.path else { return false }
-        // Latched before the first await: the appear/workspace/root triggers overlap, and the
-        // main actor only serializes them up to a suspension point.
         filingAutoRescanAttempted = folder.path
-
-        if filingUsesAI, filingClassifier != nil {
-            // The same resolution order as the scan's cache identity, but for the ROUTE — asked
-            // even when verdict reuse is off, because what matters here is who would be paid.
-            let route: String?
-            if let resolveBackend = filingBackendIdentity {
-                route = resolveBackend()
-            } else {
-                route = configuredFilingBackendIdentity
-            }
-            if route?.hasPrefix("cloud:") ?? filingUsesCloud {
-                // Paid backend: free only if the cache can answer for every file phase 3 would
-                // send. The key must be built exactly as the scan builds it — identity included,
-                // so reuse-off (identity nil) declines here rather than paying.
-                guard let identity = resolvedFilingVerdictIdentity else { return false }
-                let looseTree = await Self.buildTree(url: folder, sortOption: .name,
-                                                     fileManager: fileManager, maxDepth: 1)
-                let candidates = looseTree.filter {
-                    !$0.isDirectory && !options.ignoredNames.contains($0.name)
-                        && ($0.fileSize ?? 0) >= options.minFileSize
-                }
-                let cache = await loadedFilingVerdictCache()
-                let scopedRejections = filingRejections(under: providerRoot)
-                for f in candidates {
-                    let rejected = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
-                        .union(filingSessionRejections[f.id] ?? [])
-                        .compactMap { Self.relativePath($0, under: providerRoot.path) }
-                    let key = FilingVerdictKey(
-                        filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize ?? 0,
-                        model: identity, promptVersion: CloudFilingProtocol.promptVersion,
-                        excludedRelativePaths: rejected)
-                    guard cache.entries[key] != nil else {
-                        Logger.shared.info("Filing: no auto-rescan of \(folder.lastPathComponent) — "
-                            + "\(f.name) (at least) has no cached verdict, so a scan would cost money")
-                        return false
-                    }
-                }
-            }
-        }
-        // The pre-flight awaited; a scan the user started in the meantime must not be replaced.
-        guard !isSuggestingFiles else { return false }
-        Logger.shared.info("Filing: auto-rescanning \(folder.lastPathComponent) (scanned before, free to repeat)")
+        Logger.shared.info("Filing: auto-rescanning \(folder.lastPathComponent) (scanned before)")
         startFindFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                    providerName: providerName, nameProvider: nameProvider,
                                    autoFreeOnly: true, options: options)
         return true
     }
 
+    /// Whether this scan could reach ``filingCloudSpendConfirmer`` — the modal an auto-scan must
+    /// never raise.
+    ///
+    /// **Keyed on the same thing the confirmer is: the cloud SETTING, not the resolved route.**
+    /// `cloudSpendAllows` returns early only when `filingUsesCloud` is false, so any test that
+    /// decides "this scan is free" from the route alone is not a superset of the confirmer's
+    /// trigger — and the gap is a real, ordinary state. Cloud on with no usable Keychain key
+    /// makes the app's resolver report the on-device DOWNGRADE: the scan really is free, the
+    /// route really is on-device, and `cloudSpendAllows` puts up a payment dialog anyway. The
+    /// first cut of this feature read the route and shipped exactly that.
+    ///
+    /// The cost of keying on the setting is that a downgraded install gets no auto-rescan even
+    /// though its scans are free. That is the right way to be wrong: it withholds a convenience,
+    /// where the other way charges the user for a scan they never asked for.
+    ///
+    /// The route is still consulted, because it can say cloud when the setting is unset — the
+    /// seam tests inject, and the direction where reading only the setting would be too lax.
+    var filingScanCouldReachTheSpendPrompt: Bool {
+        if filingUsesCloud { return true }
+        if let resolveBackend = filingBackendIdentity {
+            return resolveBackend()?.hasPrefix("cloud:") ?? false
+        }
+        // No app resolver — the CLI and tests. The only other source of a route is
+        // ``configuredFilingBackendIdentity``, which derives from the very setting checked
+        // above, so with cloud off it cannot answer cloud.
+        return false
+    }
+
+    /// Whether an auto-scan of `looseFiles` would have to put at least one of them to the paid
+    /// backend — the check that stops an auto-rescan before it walks the provider tree.
+    ///
+    /// Conservative in both directions it can be wrong, and deliberately so, because being wrong
+    /// costs only a withheld convenience: it tests key *presence* rather than full hit validity
+    /// (validity needs the taxonomy this runs before), and it counts files a remembered rule
+    /// would keep off the backend entirely (knowing that would take the taxonomy too). What it
+    /// cannot do is miss a file that WOULD be sent — hence the second stop at phase 3, which
+    /// runs against the real misses once the taxonomy is known.
+    func filingAutoScanWouldNeedPaidBackend(looseFiles: [FileNode], providerRoot: URL,
+                                            options: FilingOptions) async -> Bool {
+        guard filingUsesAI, filingClassifier != nil else { return false }   // no classification at all
+        guard filingScanCouldReachTheSpendPrompt else { return false }
+        // Cloud is in play, so the cache is the only thing that can make this free — and with
+        // verdict reuse off there is no cache to consult.
+        guard let identity = resolvedFilingVerdictIdentity else { return true }
+        let candidates = looseFiles.filter {
+            !options.ignoredNames.contains($0.name) && ($0.fileSize ?? 0) >= options.minFileSize
+        }
+        guard !candidates.isEmpty else { return false }
+        let cache = await loadedFilingVerdictCache()
+        let scopedRejections = filingRejections(under: providerRoot)
+        for f in candidates {
+            let rejected = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
+                .union(filingSessionRejections[f.id] ?? [])
+                .compactMap { Self.relativePath($0, under: providerRoot.path) }
+            let key = FilingVerdictKey(
+                filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize ?? 0,
+                model: identity, promptVersion: CloudFilingProtocol.promptVersion,
+                excludedRelativePaths: rejected)
+            if cache.entries[key] == nil {
+                Logger.shared.info("Filing: auto-rescan of \(providerRoot.lastPathComponent) stopped — "
+                    + "\(f.name) (at least) has no cached verdict, so a scan would cost money")
+                return true
+            }
+        }
+        return false
+    }
+
     /// Reads the loose files in `folder`, learns the provider's folder taxonomy, and produces
     /// suggested homes.
     ///
     /// `autoFreeOnly` marks an auto-rescan (lens open, not a click): the scan must not cost
-    /// money, so it stops — publishing nothing — the moment classification would put files to
-    /// the paid backend. See ``autoRescanFilingIfEligible(folder:providerRoot:providerName:nameProvider:options:)``,
-    /// whose pre-flight makes actually hitting that stop rare.
+    /// money, so it stops the moment classification would put files to the paid backend. It stops
+    /// **twice**, and both are needed:
+    ///
+    /// - Once below, right after the loose-file walk and before anything expensive — the whole
+    ///   provider-tree walk, the name check, any content reads. An auto-scan that stops here has
+    ///   published nothing at all, which is what lets it leave the lens on its intro card.
+    /// - Once at phase 3, against the real misses. The early stop cannot be exact: it runs before
+    ///   the taxonomy exists, so it can only ask whether a verdict is *cached*, not whether that
+    ///   verdict is still *valid*. A cached destination whose anchor folder has since been
+    ///   deleted is a miss, and only phase 3 knows.
+    ///
+    /// An auto-scan never publishes a partial result either way: stopping means returning, not
+    /// falling through with the cache-and-heuristics answers, which would pass off lesser
+    /// suggestions as the paid scan a click would have bought.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
         nameProvider: CloudProvider.ProviderType? = nil, ignoringCache: Bool = false,
@@ -196,6 +229,19 @@ extension FileSyncManager {
         // Loose files = the direct files sitting in the picked folder (not its subfolders).
         let looseTree = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
         let looseFiles = looseTree.filter { !$0.isDirectory }
+        if Task.isCancelled { return }
+
+        // An auto-rescan's first stop, placed HERE — before the provider-tree walk below, which
+        // on a real account is tens of thousands of nodes, and before `detectRiskyNames`, which
+        // PUBLISHES. Stopping after those would have left the Organize lens showing a rename
+        // finding, complete with its "Fix all", over an intro card saying nothing was scanned:
+        // a scan the user never ran, offering to rename their files. Nothing above this line
+        // publishes anything, so returning here is indistinguishable from never having started.
+        if autoFreeOnly,
+           await filingAutoScanWouldNeedPaidBackend(looseFiles: looseFiles, providerRoot: providerRoot,
+                                                    options: options) {
+            return
+        }
         if Task.isCancelled { return }
 
         updateScan(\.filingScanLifecycle, epoch: epoch, status: FilingScanPhase.learningFolders.status)
@@ -355,15 +401,15 @@ extension FileSyncManager {
                     }
                 }
 
-                // An auto-rescan stops HERE, before the misses' snippet extraction and — the
-                // point — before `cloudSpendAllows` can put up a payment prompt nobody asked
-                // for. Publishing nothing and leaving `hasCompleted` unset keeps the lens on
-                // its intro card, exactly as if the auto-attempt had never run; publishing the
-                // partial (cache + heuristics) result instead would silently pass off lesser
-                // answers as the paid scan the user would have gotten by clicking. When no
-                // identity is resolvable (verdict reuse off, or the app cannot vouch), the
-                // cloud toggle decides — enabled counts as paid, the conservative side.
-                if autoFreeOnly, !misses.isEmpty, identity?.hasPrefix("cloud:") ?? filingUsesCloud {
+                // An auto-rescan's second stop — the exact one, now that the real misses are
+                // known. It catches what the early stop cannot see: a file whose verdict IS
+                // cached but no longer resolves (its destination's anchor folder was deleted),
+                // which is a miss and would be sent and paid for.
+                //
+                // The condition is ``filingScanCouldReachTheSpendPrompt``, not "is the route
+                // cloud" — see that property for why the two differ and why reading the route
+                // here let an auto-scan raise a payment dialog.
+                if autoFreeOnly, !misses.isEmpty, filingScanCouldReachTheSpendPrompt {
                     Logger.shared.info("Filing: auto-rescan of \(folder.lastPathComponent) stopped — "
                         + "\(misses.count) file(s) would need the paid backend")
                     return
@@ -437,7 +483,7 @@ extension FileSyncManager {
         hasSuggestedFiling = true
         // Remembered only on completion: the auto-rescan consent is "the user scanned exactly
         // this before", and a cancelled or stopped scan is not that.
-        lensAutoRescanDefaults?.set(folder.path, forKey: Self.lastFilingScanFolderKey)
+        rememberLensScanTarget(folder.path, forKey: Self.lastFilingScanFolderKey)
         let homed = suggestions.filter { $0.hasConfidentHome }.count
         let steered = suggestions.filter { $0.best?.remembered == true }.count
         Logger.shared.info("Filing: scanned \(folder.lastPathComponent) — \(suggestions.count) loose file(s), "
