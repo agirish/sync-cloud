@@ -1085,10 +1085,16 @@ public struct DifferencesView: View {
         }
         .buttonStyle(.actionBar(weight, tint: glassHue.accentColor,
                                 onTint: glassHue.onAccentLabelColor))
-        .disabled(isSyncActionBlocked)
+        // ABOVE `.disabled`, so the badge sits inside that scope and stays off a blocked button.
         // `.accentFill` on the filled weight only: that is the one surface whose keycap has to
         // scrim down instead of washing out.
+        //
+        // The badge can only ever render the ⌘ form, never ⇧⌘: the reveal requires ⌥ held ALONE,
+        // and `isMove` is `ModifierTracker.isMoveModifierPressed` (⇧ or ⌘), so the two are
+        // mutually exclusive by construction. The TOOLTIP is where the ⇧⌘ form is reachable —
+        // it is ungated, so it renders while ⇧ is held and the button has retitled to Move.
         .shortcutKeycap(chord, surface: weight == .primary ? .accentFill : .standard)
+        .disabled(isSyncActionBlocked)
         // The label may shed the destination; the tooltip never does, and it always names the verb
         // — and now the chord, ungated, for anyone who never finds the ⌥ hold.
         .help(ShortcutHint.tooltip(

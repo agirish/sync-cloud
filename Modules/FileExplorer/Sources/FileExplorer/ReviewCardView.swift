@@ -138,6 +138,13 @@ struct ReviewCardView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Reviewing \(model.parentPath.isEmpty ? model.fileName : model.parentPath + "/" + model.fileName)")
+        // The keys, stated on the card itself rather than left to the hidden hint row below.
+        // `ReviewKeyHints` renders at zero opacity when the reveal is off, and whether SwiftUI
+        // drops a zero-opacity view from the accessibility tree is not something this project can
+        // verify — there is no assistive client under `swift test`, so any test of it would pass
+        // vacuously either way. So the guarantee is made here, where it does not depend on the
+        // answer: this hint is unconditional and order-independent.
+        .accessibilityHint("Return \(model.primaryVerb.lowercased())s, Delete skips, Space previews, Escape ends the review")
     }
 
     // MARK: Rows
@@ -417,9 +424,11 @@ struct ReviewCardView: View {
 /// never to do. Opacity reserves the row's full footprint in both states, so there is no height to
 /// gain and no width for the enclosing `Spacer` to redistribute.
 ///
-/// Zero opacity does not remove a view from the accessibility tree, and that is the behaviour we
-/// want rather than one to work around: the visual gating declutters the screen, and a VoiceOver
-/// user — who has no ⌥ hold to discover — still hears the keys.
+/// **Accessibility does not rely on this row.** Whether SwiftUI keeps a zero-opacity view in the
+/// accessibility tree is not something this project can check — there is no assistive client under
+/// `swift test`, so a test either way would pass vacuously — so the card states the keys itself in
+/// an unconditional `.accessibilityHint`. A VoiceOver user, who has no ⌥ hold to discover, hears
+/// them whatever SwiftUI decides about this view.
 ///
 /// **Its own type rather than a method on the card, so the reservation can be measured.** Inside
 /// the card this row sits in an `HStack` with the action buttons, which are taller than it is —

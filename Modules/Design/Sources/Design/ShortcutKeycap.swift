@@ -47,7 +47,16 @@ public enum ShortcutKeycapMetrics {
 public enum ShortcutKeycapSurface: Sendable {
     /// A control with no strong fill of its own — a glyph button, an outline button, plain chrome.
     case standard
-    /// A control already filled with `LiquidGlassHue.accentFillColor`, whose label is white.
+    /// A control that already carries a solid, label-is-white fill: `.actionBar(.primary)`, whose
+    /// tint `AccentFill.deepened`s, and `.borderedProminent`, whose bezel AppKit fills with the
+    /// system accent and labels in white.
+    ///
+    /// The two are NOT the same colour, and the keycap does not need them to be. Its guarantee is
+    /// *relative* — the scrim only ever darkens, so the white glyph on it is at least as legible as
+    /// the white label beside it, whatever the fill underneath. That is why this case can be
+    /// applied to a `.borderedProminent` button whose fill is the raw system accent (which the user
+    /// may have set to something as light as Yellow) without inheriting a new contrast problem:
+    /// it inherits the button's existing one, unchanged, rather than adding to it.
     case accentFill
 }
 
@@ -73,6 +82,18 @@ public struct ShortcutKeycap: View {
             .overlay(shape.strokeBorder(borderStyle, lineWidth: ShortcutKeycapMetrics.borderWidth))
             // Not a hit target and not a second thing to announce: the shortcut reaches VoiceOver
             // through the hint the modifier applies to the CONTROL, where it belongs.
+            //
+            // `allowsHitTesting(false)` is load-bearing — a SwiftUI overlay takes hits by default,
+            // and this one sits ON the control it describes, so without it the badge would swallow
+            // the click on exactly the button whose shortcut you just looked up (worst on the
+            // icon-only controls, where the keycap covers the whole target).
+            //
+            // **Asserted by construction, not by test, and deliberately so.** A test was written
+            // for it and deleted: `NSHostingView.hitTest` does not decompose a SwiftUI overlay into
+            // its own view, so it returns the hosting view whether or not this line is here — the
+            // test passed with `allowsHitTesting(true)` and was proving nothing. There is no seam
+            // in this process that can tell the two apart, and a test that cannot fail is a worse
+            // claim of coverage than none.
             .accessibilityHidden(true)
             .allowsHitTesting(false)
     }
@@ -118,7 +139,12 @@ public extension View {
     ///   - surface: `.accentFill` on a button already filled with the hue's accent, so the keycap
     ///     scrims down instead of washing out. `.standard` everywhere else.
     ///   - alignment: where the badge sits over the control. Trailing suits a labelled button;
-    ///     `.bottomTrailing` keeps a bare glyph visible under its badge.
+    ///     `.center` suits an icon-only one, where a keycap is nearly as wide as the whole control.
+    ///
+    /// **Apply this ABOVE any `.disabled(…)` on the control**, so the modifier sits inside that
+    /// scope and can read `isEnabled` — the same ordering rule `ChromeHoverModifier` documents,
+    /// and for the same reason: a badge on a greyed-out button advertises a shortcut that does
+    /// nothing when you press it.
     func shortcutKeycap(_ symbol: String,
                         surface: ShortcutKeycapSurface = .standard,
                         alignment: Alignment = .trailing) -> some View {
@@ -132,6 +158,11 @@ private struct ShortcutKeycapModifier: ViewModifier {
     let alignment: Alignment
 
     @Environment(\.shortcutRevealActive) private var isRevealActive
+    /// A disabled control's shortcut does not fire, so it must not advertise one. Same guard, and
+    /// the same reasoning, as `HoverAffordanceMetrics.resolve`'s `isEnabled` check.
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var showsKeycap: Bool { isRevealActive && isEnabled }
 
     func body(content: Content) -> some View {
         content
@@ -140,15 +171,27 @@ private struct ShortcutKeycapModifier: ViewModifier {
             // swaps only what the overlay draws, never whether the overlay exists, so the host's
             // measured size cannot depend on the reveal.
             .overlay(alignment: alignment) {
-                if isRevealActive {
+                if showsKeycap {
                     ShortcutKeycap(symbol, surface: surface)
-                        .padding(.trailing, ShortcutKeycapMetrics.trailingInset)
+                        // Only for a trailing badge — the inset exists to hold it off the control's
+                        // edge. Applied unconditionally it would push a CENTRED badge (what the
+                        // icon-only controls use) half the inset off-centre, which on a 28pt glyph
+                        // button is visible.
+                        .padding(.trailing, alignment.horizontal == .trailing
+                                 ? ShortcutKeycapMetrics.trailingInset : 0)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.12), value: isRevealActive)
-            // Ungated, on purpose — see the file header. A hint rather than appending to the
-            // label, so the control's name stays the thing VoiceOver leads with.
+            .animation(.easeOut(duration: 0.12), value: showsKeycap)
+            // Ungated by the reveal, on purpose — see the file header. Applied to a DISABLED
+            // control too: "this button has a shortcut" stays true of the control even when it is
+            // momentarily unavailable, and unlike the badge it makes no promise about right now.
+            //
+            // Ordering note: on macOS `.help(_:)` and `.accessibilityHint(_:)` both land on the
+            // element's accessibility help, so whichever is applied OUTERMOST wins. Every adopter
+            // puts `.help` outside this modifier and every adopter's help text names the shortcut,
+            // so the shortcut survives either way — but a call site that applied `.help` *inside*
+            // would lose its description to this line. Keep `.help` outside.
             .accessibilityHint("Keyboard shortcut: \(ShortcutKeycapSpeech.spoken(symbol))")
     }
 }
@@ -177,8 +220,13 @@ public enum ShortcutHint {
 /// substitution table rather than anything clever, and it stays in the Design module beside the
 /// keycap so the two forms of one shortcut cannot drift apart.
 public enum ShortcutKeycapSpeech {
-    /// Ordered longest-first so multi-character names are not eaten by a single-character rule.
+    /// Ordered longest glyph first, so a multi-character name can never be half-eaten by a
+    /// single-character rule that runs before it. Nothing in the table overlaps today — the
+    /// modifier symbols are all one scalar and `esc` shares no character with them — so the order
+    /// is insurance rather than load-bearing. It is stated and held anyway, because the failure it
+    /// prevents is silent: a wrong substitution produces speech, just not the right speech.
     private static let names: [(glyph: String, spoken: String)] = [
+        ("esc", "Escape"),
         ("⇧", "Shift "),
         ("⌘", "Command "),
         ("⌥", "Option "),
@@ -190,7 +238,6 @@ public enum ShortcutKeycapSpeech {
         ("⏎", "Return"),
         ("␣", "Space"),
         ("⌫", "Delete"),
-        ("esc", "Escape"),
     ]
 
     public static func spoken(_ symbol: String) -> String {

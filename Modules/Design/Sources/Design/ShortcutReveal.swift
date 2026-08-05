@@ -56,9 +56,18 @@ public struct ShortcutRevealMachine: Equatable, Sendable {
 
     /// How long ⌥ must be held **alone** before the keycaps appear.
     ///
-    /// Long enough that it cannot be reached by the ⌥ that begins an ⌥-click or an ⌥-typed
-    /// character, short enough to feel like a deliberate look rather than a wait.
-    public static let holdDuration: TimeInterval = 0.7
+    /// Deliberately short — the reveal should feel like the window answering, not like a wait you
+    /// have to learn the length of. It is not zero because the ⌥ that *begins* an ⌥-click or an
+    /// ⌥-typed character is itself a brief ⌥-alone hold, and at zero every one of those would
+    /// flash the badges up for a frame before the click or keystroke cancelled them.
+    ///
+    /// So this is the only thing separating "looking" from "about to do something with ⌥", and it
+    /// buys that separation with the shortest delay that still reads as deliberate. Shorter is a
+    /// legitimate taste call; the cost is paid in flicker during ⌥-click, not in correctness —
+    /// every cancel rule holds at any duration. One constant, pinned by
+    /// `ShortcutRevealMachineTests.theHoldDurationIsWhatTheInterfacePromises`; every other test
+    /// derives its timings from it so changing this number cannot quietly invalidate them.
+    public static let holdDuration: TimeInterval = 0.2
 
     public enum Phase: Equatable, Sendable {
         /// Nothing is held that could become a reveal.
@@ -72,7 +81,7 @@ public struct ShortcutRevealMachine: Equatable, Sendable {
         ///
         /// Load-bearing, not bookkeeping. Without it the cancel rules would merely *defer* the
         /// reveal: ⌥-typing `ø` and keeping ⌥ down would re-arm on the next `flagsChanged` and
-        /// flash badges 700 ms after the user stopped typing, and pressing ⌥⌘ then releasing only
+        /// flash badges a moment after the user stopped typing, and pressing ⌥⌘ then releasing only
         /// ⌘ would open a reveal nobody asked for.
         case blocked
     }
@@ -165,46 +174,75 @@ public final class ShortcutRevealTracker: ObservableObject {
     /// the main actor. Written once in `init`, never mutated afterwards.
     nonisolated(unsafe) private var monitors: [Any] = []
     private var deadline: Task<Void, Never>?
+    /// The wait most recently handed to the deadline timer; nil once a hold is cancelled.
+    ///
+    /// Deliberately NOT cleared when a deadline actually fires — "last scheduled" is what it says
+    /// and what the tests read. Only a cancel nils it, because a cancel is the case where a
+    /// leftover value would describe a timer that no longer exists.
+    ///
+    /// Test observability, and it earns its keep: the whole job of `rescheduleDeadline` is that a
+    /// repeat `flagsChanged` — which a held ⌥ produces a stream of — SHORTENS the remaining wait
+    /// rather than restarting it. Restarting it would push the reveal permanently out of reach on
+    /// a real keyboard, and that bug is completely invisible from `isActive`, which eventually
+    /// goes true either way. A test written against `isActive` alone passed against it.
+    private(set) var lastScheduledInterval: TimeInterval?
     nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
-    private let now: () -> Date
+    private let now: @MainActor () -> Date
 
     /// - Parameter now: the clock, injectable so a test can drive the driver as well as the
-    ///   machine. Defaults to the real one.
-    public init(now: @escaping () -> Date = Date.init) {
+    ///   machine. `@MainActor` so a test can back it with main-actor state it advances by hand.
+    public init(now: @escaping @MainActor () -> Date = Date.init) {
         self.now = now
 
         // Local monitors only: the reveal is about *this* app's controls, and a global monitor
         // would need Accessibility permission to watch the whole system's keystrokes — a
         // spectacularly disproportionate ask for a hint overlay.
         add(matching: .flagsChanged) { [weak self] event in
-            guard let self else { return }
-            self.machine.modifiersChanged(to: ShortcutRevealModifiers(event.modifierFlags), at: self.now())
-            self.rescheduleDeadline()
-            self.publish()
+            self?.noteModifiersChanged(to: ShortcutRevealModifiers(event.modifierFlags))
         }
-        add(matching: .keyDown) { [weak self] _ in
-            guard let self else { return }
-            self.machine.keyDown()
-            self.rescheduleDeadline()
-            self.publish()
-        }
+        add(matching: .keyDown) { [weak self] _ in self?.noteKeyDown() }
         add(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            guard let self else { return }
-            self.machine.mouseDown()
-            self.rescheduleDeadline()
-            self.publish()
+            self?.noteMouseDown()
         }
 
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.machine.reset()
-                self.rescheduleDeadline()
-                self.publish()
-            }
+            MainActor.assumeIsolated { self?.noteResignedActive() }
         }
+    }
+
+    // MARK: The transitions the monitors drive
+    //
+    // Internal rather than private, and each a one-liner over the machine, purely so the tests can
+    // reach them: driving this class through real `NSEvent`s would mean synthesising events and
+    // running an app event loop, which is not something a `swift test` process has. Without this
+    // seam the entire driver — deadline scheduling, the `isActive` write, resign-active — is
+    // untested, and a break there means the feature never appears while every machine test still
+    // passes.
+
+    func noteModifiersChanged(to modifiers: ShortcutRevealModifiers) {
+        machine.modifiersChanged(to: modifiers, at: now())
+        rescheduleDeadline()
+        publish()
+    }
+
+    func noteKeyDown() {
+        machine.keyDown()
+        rescheduleDeadline()
+        publish()
+    }
+
+    func noteMouseDown() {
+        machine.mouseDown()
+        rescheduleDeadline()
+        publish()
+    }
+
+    func noteResignedActive() {
+        machine.reset()
+        rescheduleDeadline()
+        publish()
     }
 
     private func add(matching mask: NSEvent.EventTypeMask,
@@ -238,8 +276,12 @@ public final class ShortcutRevealTracker: ObservableObject {
     private func rescheduleDeadline() {
         deadline?.cancel()
         deadline = nil
-        guard let fireAt = machine.pendingDeadline else { return }
+        guard let fireAt = machine.pendingDeadline else {
+            lastScheduledInterval = nil
+            return
+        }
         let interval = fireAt.timeIntervalSince(now())
+        lastScheduledInterval = interval
         deadline = Task { @MainActor [weak self] in
             if interval > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))

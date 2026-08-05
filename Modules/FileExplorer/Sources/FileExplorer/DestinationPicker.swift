@@ -510,10 +510,11 @@ public struct DestinationPicker: View {
                 // Otherwise you could create a folder inside the very folder you are moving and
                 // then aim at it: the operation layer refuses that move, but only after leaving a
                 // stray empty folder behind on disk.
-                .disabled(!canCommit)
                 .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
                 .keyboardShortcut("n", modifiers: [.shift, .command])
+                // ABOVE `.disabled`, so no badge on a button whose shortcut is refused.
                 .shortcutKeycap("⇧⌘N")
+                .disabled(!canCommit)
 
                 Button("Other…") { onChooseOther() }
                     .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
@@ -525,9 +526,9 @@ public struct DestinationPicker: View {
                     .buttonStyle(.actionBar(.primary,
                                             tint: AccentFill.deepened(accent),
                                             onTint: glassHue.onAccentLabelColor))
-                    .disabled(!canCommit)
                     .keyboardShortcut(.defaultAction)
                     .shortcutKeycap("⏎", surface: .accentFill)
+                    .disabled(!canCommit)
             }
         }
         .padding(.horizontal, 20)

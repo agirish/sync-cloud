@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import Design
 
-/// The 700 ms ⌥-hold rule, driven directly with a clock the test picks.
+/// The ⌥-hold rule, driven directly with a clock the test picks.
 ///
 /// Every one of these is a real interaction someone performs in the app — ⌥-clicking a breadcrumb
 /// to move both panes, ⌥-typing a `ø` into a rename field, ⌥⇥-ing away mid-look. The reveal is
@@ -14,6 +14,23 @@ import Testing
     /// arithmetic on this, so nothing depends on how long the test itself takes to run.
     private static let t0 = Date(timeIntervalSinceReferenceDate: 780_000_000)
 
+    /// Every timing below is expressed in terms of the real constant rather than a literal.
+    ///
+    /// This is not tidiness. The first version of this file hardcoded `0.7` in twelve places, and
+    /// `anOptionTapShorterThanTheHoldRevealsNothing` released ⌥ at a hardcoded 0.3 — *shorter* than
+    /// a 0.7 hold, but *longer* than the 0.2 the constant later became. Shortening the hold would
+    /// have turned a cancel test into one that releases after the deadline has already passed:
+    /// still green, no longer testing anything. Derived timings cannot rot that way.
+    private static let hold = ShortcutRevealMachine.holdDuration
+    private static func at(_ fraction: Double) -> Date { t0.addingTimeInterval(hold * fraction) }
+
+    /// The one place the constant is pinned to a number — so a change to it is a deliberate edit
+    /// here and not a silent drift everywhere else. If you are changing the feel of the reveal,
+    /// this is the test that is supposed to fail.
+    @Test func theHoldDurationIsWhatTheInterfacePromises() {
+        #expect(ShortcutRevealMachine.holdDuration == 0.2)
+    }
+
     private func armed(at start: Date = t0) -> ShortcutRevealMachine {
         var machine = ShortcutRevealMachine()
         machine.modifiersChanged(to: .option, at: start)
@@ -23,10 +40,10 @@ import Testing
     /// The whole feature in four lines: ⌥ down alone, wait, keycaps.
     @Test func holdingOptionAloneRevealsAfterTheHoldDuration() {
         var machine = armed()
-        #expect(machine.phase == .arming(deadline: Self.t0.addingTimeInterval(0.7)))
+        #expect(machine.phase == .arming(deadline: Self.at(1)))
         #expect(!machine.isRevealActive)
 
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(ShortcutRevealMachine.holdDuration))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(machine.isRevealActive)
     }
 
@@ -34,21 +51,21 @@ import Testing
     /// ⌥ that merely *begins* an ⌥-click, which is over in a fraction of the window.
     @Test func anOptionTapShorterThanTheHoldRevealsNothing() {
         var machine = armed()
-        // Released at 300 ms...
-        machine.modifiersChanged(to: [], at: Self.t0.addingTimeInterval(0.3))
+        // Released at half the hold...
+        machine.modifiersChanged(to: [], at: Self.at(0.5))
         #expect(machine.phase == .idle)
 
         // ...and the timer that was already in flight for the original deadline must not fire.
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(!machine.isRevealActive)
     }
 
     /// Fires only at the deadline, not merely because a timer called.
     @Test func anEarlyDeadlineCallDoesNotReveal() {
         var machine = armed()
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.699))
+        machine.deadlineElapsed(at: Self.at(1).addingTimeInterval(-0.001))
         #expect(!machine.isRevealActive)
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(machine.isRevealActive)
     }
 
@@ -57,22 +74,22 @@ import Testing
     @Test func aKeyDownDuringArmingCancels() {
         var machine = armed()
         machine.keyDown()
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(!machine.isRevealActive)
     }
 
     @Test func aMouseDownDuringArmingCancels() {
         var machine = armed()
         machine.mouseDown()
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(!machine.isRevealActive)
     }
 
     @Test(arguments: [ShortcutRevealModifiers.command, .shift, .control])
     func aSecondModifierDuringArmingCancels(extra: ShortcutRevealModifiers) {
         var machine = armed()
-        machine.modifiersChanged(to: [.option, extra], at: Self.t0.addingTimeInterval(0.1))
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.modifiersChanged(to: [.option, extra], at: Self.at(0.15))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(!machine.isRevealActive)
     }
 
@@ -80,14 +97,14 @@ import Testing
 
     private func revealed() -> ShortcutRevealMachine {
         var machine = armed()
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(machine.isRevealActive, "fixture failed to reveal")
         return machine
     }
 
     @Test func releasingOptionDismisses() {
         var machine = revealed()
-        machine.modifiersChanged(to: [], at: Self.t0.addingTimeInterval(2))
+        machine.modifiersChanged(to: [], at: Self.at(3))
         #expect(!machine.isRevealActive)
         #expect(machine.phase == .idle)
     }
@@ -106,14 +123,14 @@ import Testing
 
     @Test func aSecondModifierAfterTheRevealDismisses() {
         var machine = revealed()
-        machine.modifiersChanged(to: [.option, .command], at: Self.t0.addingTimeInterval(1))
+        machine.modifiersChanged(to: [.option, .command], at: Self.at(1.5))
         #expect(!machine.isRevealActive)
     }
 
     // MARK: The `blocked` phase — cancels must not merely defer
 
     /// ⌥-typing a character (`⌥o` → `ø`) with ⌥ still down. A cancel that only reset the clock
-    /// would light the badges up 700 ms after the user stopped typing, over the field they are
+    /// would light the badges up a beat after the user stopped typing, over the field they are
     /// typing into. Nothing re-arms until ⌥ is released.
     @Test func typingWithOptionHeldStaysBlockedUntilOptionIsReleased() {
         var machine = armed()
@@ -121,13 +138,13 @@ import Testing
         #expect(machine.phase == .blocked)
 
         // A repeat flagsChanged still reporting ⌥-alone — which AppKit does send — must not re-arm.
-        machine.modifiersChanged(to: .option, at: Self.t0.addingTimeInterval(0.2))
+        machine.modifiersChanged(to: .option, at: Self.at(0.3))
         #expect(machine.phase == .blocked)
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(5))
+        machine.deadlineElapsed(at: Self.at(10))
         #expect(!machine.isRevealActive)
 
         // Releasing ⌥ is the only way out.
-        machine.modifiersChanged(to: [], at: Self.t0.addingTimeInterval(0.4))
+        machine.modifiersChanged(to: [], at: Self.at(0.6))
         #expect(machine.phase == .idle)
     }
 
@@ -136,9 +153,9 @@ import Testing
     @Test func releasingTheSecondModifierDoesNotReArmWhileOptionIsStillDown() {
         var machine = ShortcutRevealMachine()
         machine.modifiersChanged(to: [.option, .command], at: Self.t0)
-        machine.modifiersChanged(to: .option, at: Self.t0.addingTimeInterval(0.1))
+        machine.modifiersChanged(to: .option, at: Self.at(0.15))
         #expect(machine.phase == .blocked)
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(5))
+        machine.deadlineElapsed(at: Self.at(10))
         #expect(!machine.isRevealActive)
     }
 
@@ -147,8 +164,8 @@ import Testing
     @Test func optionClickThenKeepingOptionDownRevealsNothing() {
         var machine = armed()
         machine.mouseDown()
-        machine.modifiersChanged(to: .option, at: Self.t0.addingTimeInterval(0.05))
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(10))
+        machine.modifiersChanged(to: .option, at: Self.at(0.1))
+        machine.deadlineElapsed(at: Self.at(20))
         #expect(!machine.isRevealActive)
     }
 
@@ -158,10 +175,10 @@ import Testing
     /// reveal would never arrive.
     @Test func repeatedOptionAloneEventsDoNotRestartTheClock() {
         var machine = armed()
-        machine.modifiersChanged(to: .option, at: Self.t0.addingTimeInterval(0.5))
-        #expect(machine.phase == .arming(deadline: Self.t0.addingTimeInterval(0.7)),
+        machine.modifiersChanged(to: .option, at: Self.at(0.7))
+        #expect(machine.phase == .arming(deadline: Self.at(1)),
                 "the second event moved the deadline")
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(machine.isRevealActive)
     }
 
@@ -169,15 +186,15 @@ import Testing
     /// hold's behalf — the second hold has its own, later deadline and has not earned it yet.
     @Test func aStaleTimerFromAnEarlierHoldDoesNotReveal() {
         var machine = armed()
-        machine.modifiersChanged(to: [], at: Self.t0.addingTimeInterval(0.2))
-        machine.modifiersChanged(to: .option, at: Self.t0.addingTimeInterval(0.5))
+        machine.modifiersChanged(to: [], at: Self.at(0.3))
+        machine.modifiersChanged(to: .option, at: Self.at(0.7))
 
         // The abandoned first timer, arriving at its own deadline.
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(!machine.isRevealActive, "a stale timer revealed on the new hold's behalf")
 
         // The live one, at the second hold's deadline.
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(1.2))
+        machine.deadlineElapsed(at: Self.at(1.7))
         #expect(machine.isRevealActive)
     }
 
@@ -201,7 +218,7 @@ import Testing
 
         var machine = ShortcutRevealMachine()
         machine.modifiersChanged(to: ShortcutRevealModifiers([.option, .capsLock]), at: Self.t0)
-        machine.deadlineElapsed(at: Self.t0.addingTimeInterval(0.7))
+        machine.deadlineElapsed(at: Self.at(1))
         #expect(machine.isRevealActive, "Caps Lock suppressed the reveal")
     }
 

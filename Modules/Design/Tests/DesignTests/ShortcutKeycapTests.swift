@@ -154,12 +154,62 @@ import Testing
         }
     }
 
+    // MARK: Disabled controls
+
+    /// A disabled control's shortcut does not fire, so it must not advertise one.
+    ///
+    /// The badge was doing exactly that on the transfer buttons and the destination picker's two
+    /// gated buttons — a keycap on a greyed-out control, promising a chord that the key equivalent
+    /// refuses. Two things had to be true to fix it and both are asserted here: the modifier reads
+    /// `isEnabled`, and it is applied ABOVE `.disabled(…)` so there is an `isEnabled` to read.
+    @Test func aDisabledControlWearsNoBadge() {
+        for subject in Self.subjects() {
+            let badged = subject.view
+                .shortcutKeycap("⌘F", alignment: subject.alignment)
+                .disabled(true)
+            guard let off = render(badged, revealed: false),
+                  let on = render(badged, revealed: true) else {
+                Issue.record("\(subject.name): no bitmap rep")
+                continue
+            }
+            #expect(pixelsDiffering(off, on) == 0,
+                    "\(subject.name): a disabled control painted a keycap during the reveal")
+        }
+    }
+
+    /// ...and the guard is the modifier's, not the call site's ordering alone: applied BELOW
+    /// `.disabled(…)` the modifier cannot see the state, which is why the ordering is documented
+    /// on `shortcutKeycap(_:surface:alignment:)`. This pins the shape that ordering assumes — a
+    /// control disabled *outside* the badge still reads as enabled, so the badge shows.
+    @Test func theDisabledGuardDependsOnTheDocumentedOrdering() {
+        let wrongOrder = Button("Review 12") {}
+            .buttonStyle(.actionBar(.outline, tint: Self.tint, onTint: .white))
+            .disabled(true)
+            .shortcutKeycap("⌘F")
+        guard let off = render(wrongOrder, revealed: false),
+              let on = render(wrongOrder, revealed: true) else {
+            Issue.record("no bitmap rep"); return
+        }
+        #expect(pixelsDiffering(off, on) > 200,
+                "the ordering rule is no longer load-bearing: if the modifier now sees through `.disabled` from outside, drop the ordering note from the doc comment")
+    }
+
     // MARK: On-accent contrast
 
+    /// Re-tags into sRGB before reading components, rather than trusting the caller to.
+    ///
+    /// `NSColor.white` and `.black` are Generic Gray, and `redComponent` on those *raises* rather
+    /// than answering — an uncaught `NSInvalidArgumentException` that takes the whole test process
+    /// down, so it reads as a crash rather than as a failing assertion. That has now cost this file
+    /// two debugging rounds; the conversion belongs here, once, and not at each call site.
     private func luminance(_ color: NSColor) -> CGFloat {
-        AccentLabel.relativeLuminance(red: color.redComponent,
-                                      green: color.greenComponent,
-                                      blue: color.blueComponent)
+        guard let rgb = color.usingColorSpace(.sRGB) else {
+            Issue.record("\(color) has no sRGB representation")
+            return 0
+        }
+        return AccentLabel.relativeLuminance(red: rgb.redComponent,
+                                             green: rgb.greenComponent,
+                                             blue: rgb.blueComponent)
     }
 
     /// `over` composited onto `base` at `alpha`, in sRGB components — which is what the renderer
@@ -204,17 +254,38 @@ import Testing
         }
     }
 
-    /// ...and it is never *worse* than the label beside it, which is the actual promise: the
-    /// keycap borrows the button's own guarantee rather than establishing a weaker one.
+    /// ...and it is never *worse* than the label beside it, on **any** fill — which is the actual
+    /// promise, and the more important one.
     ///
-    /// Fails if the scrim is ever flipped to a lightening one — the single most likely edit to
-    /// this file, and the reason the direction is spelled out in `onAccentScrim`'s doc.
-    @Test func theOnAccentScrimNeverLightensTheBacking() {
+    /// The test above only covers `accentFillColor`, which is what `.actionBar(.primary)` deepens
+    /// its tint to. Five adopters are `.borderedProminent` instead, whose bezel AppKit fills with
+    /// the raw system accent — a colour this code neither chooses nor deepens, and which the user
+    /// may have set to something as light as Yellow, where white text sits near 2:1 before the
+    /// keycap is involved at all. So the guarantee that has to hold there is relative, not
+    /// absolute: scrimming may not make it worse.
+    ///
+    /// Sampled over the light hues and the raw accents too, not just the deepened ones, so a fill
+    /// the keycap was never designed against still cannot be degraded by it. Fails if the scrim is
+    /// ever flipped to a lightening one — the single most likely edit to this file, and the reason
+    /// the direction is spelled out in `onAccentScrim`'s doc.
+    @Test func theOnAccentScrimNeverLightensAnyBacking() {
+        var fills: [(String, NSColor)] = []
         for hue in LiquidGlassHue.allCases where hue != .none {
-            let fill = srgb(hue.accentFillColor)
+            fills.append(("\(hue) deepened", srgb(hue.accentFillColor)))
+            fills.append(("\(hue) raw", srgb(hue.accentColor)))
+        }
+        // The two extremes a system accent can reach, which no `LiquidGlassHue` covers.
+        fills.append(("white", .white))
+        fills.append(("black", .black))
+
+        for (name, fill) in fills {
             let backing = composite(.black, alpha: ShortcutKeycapMetrics.onAccentScrim, on: fill)
+            let before = 1.05 / (luminance(fill) + 0.05)
+            let after = 1.05 / (luminance(backing) + 0.05)
             #expect(luminance(backing) <= luminance(fill),
-                    "\(hue): the keycap backing is lighter than the fill it sits on")
+                    "\(name): the keycap backing is lighter than the fill it sits on")
+            #expect(after >= before - 0.0001,
+                    "\(name): the keycap glyph reads at \(after):1 where the button's own label reads at \(before):1")
         }
     }
 
