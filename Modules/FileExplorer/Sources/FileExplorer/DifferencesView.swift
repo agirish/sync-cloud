@@ -1271,6 +1271,13 @@ public struct DifferencesView: View {
         .scrollContentBackground(.hidden)
         .tableStyle(.inset(alternatesRowBackgrounds: false))
         .listDensity(listDensity)
+        // Sort chevrons and other table chrome follow the app hue, as in the review table.
+        .tint(glassHue.accentColor)
+        // The selection: the same accent wash the panes draw, in place of the OS highlight —
+        // full pane strength, since this table has no active/inactive pairing to signal.
+        .background(DifferencesTableSelectionStyler(
+            washColor: NSColor(glassHue.accentColor)
+                .withAlphaComponent(PaneSelectionWash.active)))
         .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
             differenceContextMenu(for: ids, in: sorted)
         }

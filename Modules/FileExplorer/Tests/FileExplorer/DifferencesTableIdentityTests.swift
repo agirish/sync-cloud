@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import SwiftUI
 import Sync
 import Testing
@@ -260,7 +261,16 @@ import Testing
             let rows = await settle(host, atRows: expected)
             #expect(rows == expected, "grouped=\(grouped) settled at \(rows) row(s), expected \(expected)")
             let table = try #require(tableView(in: host))
-            #expect(table.selectionHighlightStyle != .none, "grouped=\(grouped): table is not selectable")
+            // Selectability used to be pinned by `selectionHighlightStyle != .none`. That is now
+            // the WRONG sign: `DifferencesTableSelectionStyler` deliberately sets `.none` (the OS
+            // highlight is replaced by the accent wash, as in the panes), and `.none` only
+            // suppresses AppKit's selection DRAWING — the selection itself, asserted below by the
+            // row actually selecting, is untouched. Waiting for `.none` first also proves the
+            // styler resolved this table. The condition pumps layout: the styler re-asserts from
+            // `layout()`, which nothing drives while this wait merely sleeps.
+            #expect(await wait(for: { host.layoutSubtreeIfNeeded()
+                                      return table.selectionHighlightStyle == .none }),
+                    "grouped=\(grouped): the wash styler never reached the table")
 
             // Row 0 is a section header in the grouped shape, so reach past it for a data row.
             let target = grouped ? 1 : 0
@@ -268,6 +278,48 @@ import Testing
             #expect(await wait(for: { table.selectedRowIndexes.contains(target) }, timeout: 2),
                     "grouped=\(grouped): row \(target) would not select")
         }
+    }
+
+    /// The selected row wears the panes' accent wash — hue and strength — and sheds it on
+    /// deselection. This is the user-visible half of what replacing the OS highlight bought:
+    /// `.none` alone would leave selection INVISIBLE, which no count of green selection-binding
+    /// assertions could distinguish from styled.
+    @Test func selectedRowsWearTheAccentWash() async throws {
+        let (host, window, _) = mount(grouped: false)
+        defer { window.contentView = nil }
+
+        let rows = await settle(host, atRows: 12)
+        #expect(rows == 12, "settled at \(rows) row(s), not the 12 fixture rows")
+        let table = try #require(tableView(in: host))
+        #expect(await wait(for: { host.layoutSubtreeIfNeeded()
+                                  return table.selectionHighlightStyle == .none }),
+                "the wash styler never reached the table")
+
+        func wash(row: Int) -> SelectionWashView? {
+            table.rowView(atRow: row, makeIfNecessary: false)?
+                .subviews.compactMap { $0 as? SelectionWashView }.first
+        }
+
+        table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
+        #expect(await wait(for: { wash(row: 2) != nil }), "no wash appeared on the selected row")
+        #expect(wash(row: 3) == nil, "an unselected row is wearing the selection wash")
+
+        // The exact wash the panes draw: the app accent (blue — the scratch store carries no hue
+        // override) at the active pane strength. Compared component-wise in sRGB because both
+        // sides are dynamic colors.
+        let painted = try #require(wash(row: 2)?.color.usingColorSpace(.sRGB))
+        let expected = try #require(NSColor(LiquidGlassHue.blue.accentColor)
+            .withAlphaComponent(PaneSelectionWash.active).usingColorSpace(.sRGB))
+        for (name, a, b) in [("red", painted.redComponent, expected.redComponent),
+                             ("green", painted.greenComponent, expected.greenComponent),
+                             ("blue", painted.blueComponent, expected.blueComponent),
+                             ("alpha", painted.alphaComponent, expected.alphaComponent)] {
+            #expect(abs(a - b) < 0.02, "wash \(name) is \(a), the panes' wash is \(b)")
+        }
+
+        // Deselection must take the wash with it, or every visited row stays painted.
+        table.selectRowIndexes(IndexSet(), byExtendingSelection: false)
+        #expect(await wait(for: { wash(row: 2) == nil }), "the wash outlived its selection")
     }
 
     /// The four columns are declared once now, so both shapes must show the same four in the same
