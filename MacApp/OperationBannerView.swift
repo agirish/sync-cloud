@@ -61,7 +61,7 @@ struct OperationBannerView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.hoverAffordance(.segment, tint: tint))
-                    .help("Undo this operation (⌘Z)")
+                    .help(ShortcutHint.tooltip("Undo this operation", "⌘Z"))
                     .accessibilityLabel("Undo this operation")
                 }
 

@@ -254,7 +254,7 @@ struct FirstRunOverlay: View {
         CloseButton { onDismiss(dontShowAgain) }
             .keyboardShortcut(.cancelAction)
             .padding(4)
-            .help("Skip")
+            .help(ShortcutHint.tooltip("Skip", "esc"))
             .accessibilityLabel("Skip")
     }
 }

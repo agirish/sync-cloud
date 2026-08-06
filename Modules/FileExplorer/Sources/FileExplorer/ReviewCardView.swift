@@ -258,7 +258,9 @@ struct ReviewCardView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.hoverAffordance(.segment, tint: accent))
-                .help("Quick Look the copy being \(session.isMove ? "moved" : "copied") (space) — right-click the row for the other side")
+                .help(ShortcutHint.tooltip(
+                    "Quick Look the copy being \(session.isMove ? "moved" : "copied") — right-click the row for the other side",
+                    "␣"))
             }
             if model.canVerify {
                 Button {

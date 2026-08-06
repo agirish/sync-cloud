@@ -190,7 +190,7 @@ extension ContentView {
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")
             }
-            .help("Settings")
+            .help(ShortcutHint.tooltip("Settings", "⌘,"))
         }
     }
 }

@@ -269,7 +269,7 @@ public struct DestinationPicker: View {
             Spacer(minLength: 8)
             CloseButton(action: onCancel)
                 .keyboardShortcut(.cancelAction)
-                .help("Cancel")
+                .help(ShortcutHint.tooltip("Cancel", "esc"))
         }
         .padding(.horizontal, 20)
         .frame(height: Self.headerHeight)
