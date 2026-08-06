@@ -520,16 +520,24 @@ extension FileSyncManager {
     /// `activeRefreshKey` is deliberately not touched: the cancelled task's own cleanup releases
     /// it (matched by task identity), and clearing it here would let a superseding refresh's key be
     /// dropped by an unrelated cancel.
-    /// Liveness is `activeRefreshKey`, not `activeRefreshTask`: the task handle is never nilled
-    /// out, only overwritten, so a finished refresh leaves a completed `Task` sitting there and a
-    /// guard on it would report "cancelled" long after there was anything to cancel. The key is
-    /// set before the task and released by that task's own cleanup, so it is non-nil for exactly
-    /// the in-flight window.
+    /// Liveness is `isScanning` or a live `activeRefreshKey`, and **not** `activeRefreshTask`: that
+    /// handle is never nilled out, only overwritten, so a finished refresh leaves a completed
+    /// `Task` sitting there and a guard on it would report "cancelled" long after there was
+    /// anything to cancel. The key covers the load phase in front of a scan; `isScanning` covers
+    /// the drained scan, which runs on no refresh at all.
+    ///
+    /// Both tasks are cancelled because a scan can be reached two ways. Ordinarily it is inside
+    /// `refreshTreesAndScan`'s task. But a scan queued behind a superseded one is drained on an
+    /// unstructured task **after** its refresh has finished and released the key — and the Stop
+    /// button shows for as long as `isScanning`, so without `scanDrainTask` that whole scan would
+    /// present a dead control. Cancelling a finished or absent task is a no-op, so no branch is
+    /// needed to decide which one is live.
     public func cancelScan() {
-        guard activeRefreshKey != nil else { return }
+        guard isScanning || activeRefreshKey != nil else { return }
         Logger.shared.info("[scan] cancelled by the user")
         pendingScanRequest = nil
         activeRefreshTask?.cancel()
+        scanDrainTask?.cancel()
     }
 
     private func executeScan(_ request: ScanRequest) async {
@@ -766,7 +774,12 @@ extension FileSyncManager {
                 // discard its fresh results (the Differences list stuck on the previous
                 // folder). Re-enters through runOrQueueScan so a scan that claims the slot
                 // in the meantime re-queues it instead of two scans running at once.
-                Task { await self.runOrQueueScan(pending) }
+                //
+                // HELD, because this is the one scan that runs outside a refresh task: the refresh
+                // that queued it has already finished and released its key, so `cancelScan` has
+                // no other way to reach it — and the Stop button, which shows for as long as
+                // `isScanning`, would be a dead control for this whole scan.
+                scanDrainTask = Task { await self.runOrQueueScan(pending) }
             }
         }
     }

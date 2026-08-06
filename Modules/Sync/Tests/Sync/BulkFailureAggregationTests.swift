@@ -113,7 +113,6 @@ import Events
         let error = SyncError.bulkFailed(
             verb: "copy",
             failureCount: 3,
-            firstItem: "a.txt",
             firstPath: "/src/a.txt",
             firstReason: "disk full"
         )

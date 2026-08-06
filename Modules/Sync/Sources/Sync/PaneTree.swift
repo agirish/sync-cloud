@@ -46,9 +46,12 @@ public struct PaneTree: Equatable, Sendable {
     /// `applyFilters`), and `SortConfigRaceTests` pins them as per-pane *counts*. Both panes
     /// therefore sit at the same integer most of the time, and a bare version is only meaningful
     /// alongside the side that minted it.
-    public enum Side: Sendable {
+    public enum Side: Sendable, Equatable {
         case left
         case right
+
+        /// The other pane. Used wherever a per-side fact has to travel with a pane swap.
+        public var opposite: Side { self == .left ? .right : .left }
     }
 
     public let side: Side

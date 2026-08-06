@@ -63,13 +63,15 @@ extension SyncError {
 
     /// A bulk run finished with several failures. Presenting one `SyncError` per failure would
     /// overwrite `currentError` each time (last one wins, the rest become log-only), so callers
-    /// log every failure individually and present this single summary built from the first one.
-    /// `verb` is the lowercase operation name ("sync", "copy", "move") and drives both the title
-    /// and the message.
+    /// log every failure individually and present this single summary. `verb` is the lowercase
+    /// operation name ("sync", "copy", "move") and drives both the title and the message.
+    ///
+    /// The first failure supplies the alert's `path` and `reason` — the detail rows — but no longer
+    /// its NAME: naming one item out of N was the old message's way of gesturing at a list it
+    /// could not show, and the Failed filter shows the list. The path row still identifies it.
     public static func bulkFailed(
         verb: String,
         failureCount: Int,
-        firstItem: String,
         firstPath: String?,
         firstReason: String
     ) -> SyncError {

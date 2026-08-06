@@ -1328,6 +1328,23 @@ public class FileSyncManager: ObservableObject {
     /// `nil` until the first selection of the session, which `CurrentSelection.quickLookPath`
     /// treats as pane-first — the panes are what a fresh window is looking at.
     @Published public var lastSelectionSurface: SelectionSurface? = nil
+
+    /// Which pane the pane-scoped chords act on, once something has said so explicitly — ⌃⇥, or a
+    /// click that selects in a pane. `nil` until then, which hands the question to the
+    /// selection-derived fallback in `PaneLogic.searchTargetIsLeft`.
+    ///
+    /// A second stored fact next to the selection was the thing to avoid, so this deliberately
+    /// does NOT feed the action bar: that bar is about a selection and draws where the selection
+    /// is, which `PaneLogic.activePane` still answers on its own and unchanged. This answers the
+    /// different question the chords ask — "which pane am I working in" — and it is the one the
+    /// selection cannot answer, because letting go of a selection does not mean leaving the pane.
+    ///
+    /// **Held here rather than on the view because `swapPanes` has to swap it.** It is a per-side
+    /// fact exactly like the selections, histories and browse paths beside it, and as view `@State`
+    /// it was one line in `swapPanesAction` away from being forgotten — with no test that could
+    /// reach the omission. Here it swaps with everything else, in the function whose whole job is
+    /// swapping per-side facts.
+    @Published public var focusedPaneSide: PaneTree.Side?
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.
@@ -1462,6 +1479,10 @@ public class FileSyncManager: ObservableObject {
     private var hasPendingSelectionPrune = false
     var scanRequestGeneration = 0
     var pendingScanRequest: ScanRequest?
+    /// The task draining a queued scan, when one is running. Separate from `activeRefreshTask`
+    /// because a drained scan runs after its refresh has finished — see the drain at the end of
+    /// `executeScan`, and `cancelScan`, which is the only reader.
+    var scanDrainTask: Task<Void, Never>?
     
     /// Synchronously counts a file operation whose `enqueueFileOperation` call happens inside a
     /// `Task` the caller is about to spawn (the undo/redo handlers). The counter must move

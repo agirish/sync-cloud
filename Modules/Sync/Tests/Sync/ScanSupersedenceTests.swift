@@ -184,19 +184,42 @@ import Testing
     /// The negative control for the test above, and the guard's real job: `activeRefreshTask` is
     /// never nilled out — only overwritten — so a completed refresh leaves a finished handle
     /// sitting there, and a `cancelScan` written against the handle alone would "cancel" long
-    /// after the last scan ended. Liveness is the KEY, which that refresh's own cleanup released.
+    /// after the last scan ended. Liveness is the KEY (or a running scan), not the handle.
     @MainActor
     @Test func testCancelScanLeavesAFinishedRefreshAlone() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         let refresh = Task<Void, Never> { try? await Task.sleep(nanoseconds: 30_000_000_000) }
         manager.activeRefreshTask = refresh          // the stale handle a finished refresh leaves
         manager.activeRefreshKey = nil               // ...and the released key that says it is done
+        #expect(!manager.isScanning, "nothing may be running, or the guard passes for another reason")
 
         manager.cancelScan()
 
         #expect(!refresh.isCancelled)
         refresh.cancel()
         await refresh.value
+    }
+
+    /// A DRAINED scan — one queued behind a superseded scan and run afterwards — is the single
+    /// path that reaches `executeScan` outside a refresh task. Its refresh has already finished
+    /// and released the key, so `activeRefreshTask` is stale and cancelling it does nothing; the
+    /// Stop button, which shows for as long as `isScanning`, would be dead for that whole scan.
+    ///
+    /// Both facts are asserted, because either alone passes for the wrong reason: the guard has to
+    /// admit this state (`isScanning` with no key), and the drain handle has to be the thing that
+    /// gets cancelled.
+    @MainActor
+    @Test func testCancelScanReachesAScanDrainedOutsideARefresh() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let drain = Task<Void, Never> { try? await Task.sleep(nanoseconds: 30_000_000_000) }
+        manager.scanDrainTask = drain
+        manager.isScanning = true          // the drained scan holds the slot...
+        manager.activeRefreshKey = nil     // ...on no refresh at all
+
+        manager.cancelScan()
+
+        #expect(drain.isCancelled)
+        await drain.value
     }
 
     /// Cancel must also drop a scan that is QUEUED but not started, or the drain at the end of

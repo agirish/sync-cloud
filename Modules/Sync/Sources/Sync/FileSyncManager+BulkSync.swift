@@ -133,7 +133,6 @@ extension FileSyncManager {
             present(.bulkFailed(
                 verb: "copy",
                 failureCount: result.failures.count,
-                firstItem: firstDiff.relativePath,
                 firstPath: firstDiff.leftItemPath,
                 firstReason: firstError.localizedDescription
             ))
@@ -524,7 +523,6 @@ extension FileSyncManager {
             present(.bulkFailed(
                 verb: "sync",
                 failureCount: result.failures.count,
-                firstItem: firstDiff.relativePath,
                 firstPath: firstDiff.sourceItemPath,
                 firstReason: firstError.localizedDescription
             ))

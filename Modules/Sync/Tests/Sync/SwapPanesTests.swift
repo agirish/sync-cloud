@@ -4,6 +4,38 @@ import Foundation
 
 @Suite struct SwapPanesTests {
 
+    /// The focused side is a per-side fact like the selections and histories beside it, so it has
+    /// to travel with them: the pane the user was working in is now the other one, and a focused
+    /// side left behind aims ⌘F, ⌘[ and ⇧⌘N at the pane their content just left.
+    ///
+    /// It lives on the manager rather than on the view precisely so this cannot be forgotten. As
+    /// view `@State` it was one line in `swapPanesAction` away from being dropped, with no test
+    /// that could reach the omission — deleting that line left the whole suite green.
+    @MainActor
+    @Test func testSwapPanesCarriesTheFocusedSide() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        manager.focusedPaneSide = .right
+        manager.swapPanes()
+        #expect(manager.focusedPaneSide == .left)
+
+        // ...and back, so the swap is its own inverse here too.
+        manager.swapPanes()
+        #expect(manager.focusedPaneSide == .right)
+    }
+
+    /// Implicit focus has nothing to swap. Materialising a side here would OVERRIDE the fallback,
+    /// which reads the selection — and the selection is what `swapPanes` has just moved, so it
+    /// already carries the right answer.
+    @MainActor
+    @Test func testSwapPanesLeavesImplicitFocusImplicit() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        manager.swapPanes()
+
+        #expect(manager.focusedPaneSide == nil)
+    }
+
     @MainActor
     @Test func testSwapPanesExchangesPathsSelectionsAndHistories() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())

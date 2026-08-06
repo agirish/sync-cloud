@@ -163,7 +163,7 @@ extension ContentView {
     /// the three live facts.
     var paneSearchTargetIsLeft: Bool {
         PaneLogic.searchTargetIsLeft(isSingleSource: layoutMode == .singleSource,
-                                     focusedSide: focusedPaneSide,
+                                     focusedSide: syncManager.focusedPaneSide,
                                      activePane: activePane)
     }
 
@@ -175,7 +175,7 @@ extension ContentView {
     var switchPaneFocusAction: PaneFocusSwitch? {
         guard layoutMode == .compare else { return nil }
         let target = PaneLogic.focusSwitchTarget(isSingleSource: false,
-                                                 focusedSide: focusedPaneSide,
+                                                 focusedSide: syncManager.focusedPaneSide,
                                                  activePane: activePane)
         let name = target == .left ? paneNames.left : paneNames.right
         // Deliberately a bare state write, with no side effect on either pane. Closing the vacated
@@ -184,7 +184,7 @@ extension ContentView {
         // thing hiding it, and discarding a search to animate a focus move trades real state for
         // decoration. What this does not yet have is a resting indicator of which pane is focused
         // — see the note in `ROADMAP.md`.
-        return PaneFocusSwitch(targetName: name) { focusedPaneSide = target }
+        return PaneFocusSwitch(targetName: name) { syncManager.focusedPaneSide = target }
     }
 
     /// Opens the focused pane's search field, or — if it is already open — puts the caret back in it

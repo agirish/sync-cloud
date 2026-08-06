@@ -194,23 +194,6 @@ struct ContentView: View {
     /// it re-reads the flipped edge — animated. Selection changes re-render on their own.
     @State private var leftBarAtTop = false
     @State private var rightBarAtTop = false
-    /// Which pane the pane-scoped chords act on, once something has said so explicitly — ⌃⇥, or a
-    /// click that selects in a pane. `nil` until then, which hands the question to the
-    /// selection-derived fallback in `PaneLogic.searchTargetIsLeft`.
-    ///
-    /// A second stored fact next to `activePane` was the thing to avoid here, so this deliberately
-    /// does NOT feed the action bar: that bar is about a selection and draws where the selection
-    /// is, which `activePane` still answers on its own and unchanged. This answers the different
-    /// question the chords ask — "which pane am I working in" — and it is the one the selection
-    /// cannot answer at all, because letting go of a selection does not mean leaving the pane.
-    ///
-    /// Session-scoped `@State`, not persisted and not App-owned: a window close + Dock reopen
-    /// losing it costs exactly one fallback, which is where a cold window starts anyway.
-    ///
-    /// Not `private`: the pane-search extension lives in another file and both reads and writes it,
-    /// and `private` is invisible to a same-type extension across files.
-    @State var focusedPaneSide: PaneTree.Side?
-
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -2023,8 +2006,8 @@ struct ContentView: View {
                 // use both. The empty-write case is the one that must NOT move it; that rule lives
                 // in `PaneLogic` where a test can hold it.
                 let side = PaneLogic.focusedSideAfterSelectionWrite(
-                    newSelection, isLeft: isLeft, current: focusedPaneSide)
-                if focusedPaneSide != side { focusedPaneSide = side }
+                    newSelection, isLeft: isLeft, current: syncManager.focusedPaneSide)
+                if syncManager.focusedPaneSide != side { syncManager.focusedPaneSide = side }
                 PaneLogic.applySelectionWrite(
                     newSelection,
                     isLeft: isLeft,

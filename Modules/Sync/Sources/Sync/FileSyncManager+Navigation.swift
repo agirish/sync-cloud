@@ -449,6 +449,12 @@ extension FileSyncManager {
 
         swap(&leftRelativePath, &rightRelativePath)
         swap(&selectedLeftPaths, &selectedRightPaths)
+        // Travels with the selection: the pane the user was working in is now the other one, and
+        // a focused side left behind aims ⌘F, ⌘[ and ⇧⌘N at the pane their content just left.
+        // `nil` stays nil — with focus still implicit the fallback reads the selection, which the
+        // line above has already moved.
+        focusedPaneSide = focusedPaneSide?.opposite
+
         swap(&leftHistory, &rightHistory)
         // Travels with the tree it indexes, like the history beside it: after a swap the left pane
         // shows what the right one did, so it must be looking at the same folder within it.
