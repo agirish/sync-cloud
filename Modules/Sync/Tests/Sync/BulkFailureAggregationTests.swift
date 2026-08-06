@@ -118,9 +118,84 @@ import Events
             firstReason: "disk full"
         )
         #expect(error.title == "Copy Failed")
-        #expect(error.message == "Couldn't copy 3 items. The first failure was \"a.txt\"; the rest are in the Activity Log.")
+        // Names where the failed ROWS are, not only where the error text is. `firstItem` is no
+        // longer in the message — one name out of N was never the useful part, and the filter
+        // shows all of them.
+        #expect(error.message == "Couldn't copy 3 items. They are listed under the “Failed to transfer” filter; the reason for each is in the Activity Log.")
         #expect(error.path == "/src/a.txt")
         #expect(error.reason == "disk full")
         #expect(error.isRetryable == false)
+    }
+
+    // MARK: The failed rows, recorded where the table can find them
+
+    /// The CALL SITE, not the rule: `recordTransferFailures` is unit-tested on its own, and a pure
+    /// function's test says nothing about whether anything calls it. This drives a real `syncAll`
+    /// whose copies all fail and asserts the record came out the other end.
+    @MainActor
+    @Test func testSyncAllRecordsItsFailedRowsForTheFailedFilter() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let diffs = [makeMissingSourceDiff("a.txt"), makeMissingSourceDiff("b.txt")]
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)))
+        // ...and the rows themselves are still in the list for that filter to select — a record
+        // pointing at rows the run had removed would show an empty table.
+        #expect(Set(manager.differences.map(\.id)) == Set(diffs.map(\.id)))
+    }
+
+    /// The same call site's other half: a run with nothing to report clears the record. Without
+    /// this the Failed filter would keep offering the previous run's rows after they went through.
+    @MainActor
+    @Test func testACleanSyncAllClearsAPreviousRunsFailedRows() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        // A real, copyable file this time, so the run succeeds.
+        mockFM.virtualDisk["/src/ok.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let diff = makeMissingSourceDiff("ok.txt")
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+        // Stand in for an earlier partial run.
+        manager.recordTransferFailures([(makeMissingSourceDiff("old.txt"), NSError(domain: "t", code: 1))])
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(manager.currentError == nil, "the fixture must SUCCEED, or this passes for the wrong reason")
+        #expect(manager.lastTransferFailures == nil)
+    }
+
+    /// The SECOND bulk path — the "copy the verified-identical rows to match dates" run — records
+    /// its failures too.
+    ///
+    /// This test exists because deleting the call in this path left all 1403 Sync tests green: the
+    /// `syncAll` test above covers one site and says nothing about the other, and two call sites
+    /// with identical code is exactly the shape where one gets fixed and one does not.
+    @MainActor
+    @Test func testTheVerifiedCopyPathRecordsItsFailedRowsToo() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        // No sources on the virtual disk, so every copy fails.
+        let diffs = [makeMissingSourceDiff("v1.txt"), makeMissingSourceDiff("v2.txt")]
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        // `asOf` is re-checked against the live epoch at the point the write is ordered; passing
+        // the current one is what a confirm with nothing in between would have carried.
+        await manager.bulkCopyDifferencesLeftToRight(diffs, asOf: manager.fileOperationsEpoch)
+
+        #expect(manager.currentError != nil, "the fixture must FAIL its copies, or this proves nothing")
+        #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)))
     }
 }

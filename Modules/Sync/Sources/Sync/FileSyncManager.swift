@@ -1228,6 +1228,10 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// When non-nil, a bulk sync is in progress: (completed count, total count). Used for progress indicator.
+    /// The rows the last bulk transfer failed on, or nil when the last one was clean. Drives the
+    /// Differences table's Failed filter — see ``TransferFailures`` for why this exists at all.
+    @Published public internal(set) var lastTransferFailures: TransferFailures?
+
     @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
     /// Cached "Apply to all" resolution for the current bulk run; cleared when bulk sync ends.
     internal var bulkApplyToAllResolution: CollisionResolution?
@@ -1499,6 +1503,22 @@ public class FileSyncManager: ObservableObject {
     /// `applyFilters()` rebuilds `differences` from `rawDifferences`, so removing from the
     /// published list alone lets any pre-rescan filter change (hidden toggle, sort, the post-sync
     /// refresh itself) resurrect items that were already synced.
+    /// Records which rows a bulk transfer could not move, or clears the record on a clean run.
+    ///
+    /// Called by BOTH bulk paths, unconditionally, at the same point each removes its successes —
+    /// including when `failures` is empty. That is the half worth stating: a clean run has to
+    /// *clear* the previous run's failures, or the Failed filter keeps offering rows that have
+    /// since gone through, and the count in the menu becomes a number nobody can reconcile.
+    internal func recordTransferFailures(_ failures: [(FileDifference, Error)]) {
+        guard !failures.isEmpty else {
+            // Assigning nil over nil would republish for no reason on every clean run; the manager
+            // has ~56 published properties and every write re-evaluates the window's body.
+            if lastTransferFailures != nil { lastTransferFailures = nil }
+            return
+        }
+        lastTransferFailures = TransferFailures(ids: Set(failures.map { $0.0.id }))
+    }
+
     internal func removeResolvedDifferences(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         differences.removeAll { ids.contains($0.id) }

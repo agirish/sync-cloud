@@ -12,17 +12,19 @@ enum DifferencesQuery {
     /// so a user who reads "Home/Legal" in the Path column and searches "Home" finds rows instead
     /// of a silent empty result.
     static func matches(_ difference: FileDifference, filter: DifferenceFilter, searchText: String,
-                        pathRootName: String?) -> Bool {
-        guard filter.matches(difference) else { return false }
+                        pathRootName: String?, failedIDs: Set<UUID>) -> Bool {
+        guard filter.matches(difference, failedIDs: failedIDs) else { return false }
         return DifferenceSearch.parse(searchText).matches(difference, pathRootName: pathRootName)
     }
 
     /// Single O(n) pass over the whole list. The search query is parsed ONCE here (not per row) and
     /// reused, so the token grammar costs nothing per difference.
     static func filtered(_ differences: [FileDifference], filter: DifferenceFilter, searchText: String,
-                         pathRootName: String?) -> [FileDifference] {
+                         pathRootName: String?, failedIDs: Set<UUID>) -> [FileDifference] {
         let query = DifferenceSearch.parse(searchText)
-        return differences.filter { filter.matches($0) && query.matches($0, pathRootName: pathRootName) }
+        return differences.filter {
+            filter.matches($0, failedIDs: failedIDs) && query.matches($0, pathRootName: pathRootName)
+        }
     }
 
     /// Per-filter row counts for the filter menu (the `Identical (312)` parity ask): how many
@@ -31,10 +33,10 @@ enum DifferencesQuery {
     /// filter per render. `searchText` is intentionally ignored — the counts reflect the entire
     /// diff regardless of the search box, matching Tidy's filter menu. Filters with no matches are
     /// absent from the dictionary; read with a `0` default.
-    static func counts(_ differences: [FileDifference]) -> [DifferenceFilter: Int] {
+    static func counts(_ differences: [FileDifference], failedIDs: Set<UUID>) -> [DifferenceFilter: Int] {
         var tally: [DifferenceFilter: Int] = [:]
         for difference in differences {
-            for filter in DifferenceFilter.allCases where filter.matches(difference) {
+            for filter in DifferenceFilter.allCases where filter.matches(difference, failedIDs: failedIDs) {
                 tally[filter, default: 0] += 1
             }
         }

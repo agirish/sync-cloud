@@ -195,6 +195,11 @@ public struct DifferencesView: View {
         /// matches against the anchored path text the user actually sees, so it must use the
         /// same anchor the cells will render with.
         var pathRootName: String?
+        /// The last bulk transfer's failed rows. An INPUT, not something read inside the pass:
+        /// the Failed filter's membership and its menu count both come from it, so a run that
+        /// fails has to re-run this pass — otherwise the count sits at its old value and the
+        /// filter shows the previous run's rows.
+        var failedIDs: Set<UUID>
     }
 
     private var displayInputs: DisplayInputs {
@@ -204,7 +209,8 @@ public struct DifferencesView: View {
             searchText: searchText,
             sortOrder: sortOrder,
             isReviewing: reviewStore.session != nil,
-            pathRootName: pathRootName
+            pathRootName: pathRootName,
+            failedIDs: syncManager.lastTransferFailures?.ids ?? []
         )
     }
 
@@ -343,6 +349,25 @@ public struct DifferencesView: View {
         // appear). task(id:) cancels a stale rebuild when the inputs change again mid-flight,
         // and the isCancelled check keeps its result from landing over a newer one — the same
         // shape as ContentView's DiffStatusIndex rebuild.
+        // A partial run leaves its failures in the list, unmarked and — on a large diff — not
+        // findable. Land on them.
+        //
+        // Keyed on the publish IDENTITY, never on the id set: two runs failing on the same rows
+        // produce an equal set, and a view watching the set would not fire the second time. This is
+        // the replay family in reverse — the usual bug is a reveal that re-fires on a republish, so
+        // note why this one cannot: `TransferFailures.id` changes only where
+        // `recordTransferFailures` mints a new value, which is once per bulk run, and `onChange`
+        // never fires on a remount.
+        .onChange(of: syncManager.lastTransferFailures?.id) { _, id in
+            guard id != nil else {
+                // The failures went away — a clean run or a rescan. Leaving the user parked on a
+                // filter that is no longer in the menu shows an empty table with no way back to
+                // it, because the Picker's selection no longer matches any of its tags.
+                if selectedFilter == .failed { selectedFilter = .all }
+                return
+            }
+            selectedFilter = .failed
+        }
         .task(id: displayInputs) {
             let inputs = displayInputs
             if inputs.isReviewing {
@@ -359,11 +384,11 @@ public struct DifferencesView: View {
                 return
             }
             let rows = await Task.detached(priority: .userInitiated) { () -> DisplayRows in
-                let filtered = DifferencesQuery.filtered(inputs.differences, filter: inputs.filter, searchText: inputs.searchText, pathRootName: inputs.pathRootName)
+                let filtered = DifferencesQuery.filtered(inputs.differences, filter: inputs.filter, searchText: inputs.searchText, pathRootName: inputs.pathRootName, failedIDs: inputs.failedIDs)
                 return DisplayRows(
                     filtered: filtered,
                     sorted: filtered.sorted(using: inputs.sortOrder),
-                    filterCounts: DifferencesQuery.counts(inputs.differences)
+                    filterCounts: DifferencesQuery.counts(inputs.differences, failedIDs: inputs.failedIDs)
                 )
             }.value
             guard !Task.isCancelled else { return }
@@ -934,7 +959,10 @@ public struct DifferencesView: View {
             // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
             // on unselected rows). Same pattern as the main toolbar's Sort menu.
             Picker("Filter", selection: $selectedFilter) {
-                ForEach(DifferenceFilter.allCases, id: \.self) { filter in
+                // `.failed` is withheld at zero — see `DifferenceFilter.isOffered`. Everything
+                // else is listed even at zero, so the menu's shape stays constant.
+                ForEach(DifferenceFilter.allCases.filter { $0.isOffered(failedCount: filterCounts[.failed, default: 0]) },
+                        id: \.self) { filter in
                     // Count appended to each dropdown row (Tidy's `Identical (312)` pattern);
                     // the collapsed menu button below stays just the active filter's name.
                     Text("\(filter.displayName(leftName: paneNames.left, rightName: paneNames.right)) (\(filterCounts[filter, default: 0]))")

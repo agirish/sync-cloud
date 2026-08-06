@@ -38,29 +38,29 @@ import Sync
 
     @Test func testEmptySearchPassesEverythingMatchingTheFilter() {
         let d = diff("docs/report.txt")
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "", pathRootName: nil))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "", pathRootName: nil, failedIDs: []))
         // Empty search must not narrow the list at all.
         let list = [diff("a"), diff("b/c"), diff("d/e/f")]
-        #expect(DifferencesQuery.filtered(list, filter: .all, searchText: "", pathRootName: nil).count == 3)
+        #expect(DifferencesQuery.filtered(list, filter: .all, searchText: "", pathRootName: nil, failedIDs: []).count == 3)
     }
 
     @Test func testSearchIsCaseInsensitiveSubstringOfRelativePath() {
         let d = diff("Docs/Report.txt")
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "report", pathRootName: nil))
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "DOCS", pathRootName: nil))
-        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "s/R", pathRootName: nil))
-        #expect(!DifferencesQuery.matches(d, filter: .all, searchText: "missing", pathRootName: nil))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "report", pathRootName: nil, failedIDs: []))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "DOCS", pathRootName: nil, failedIDs: []))
+        #expect(DifferencesQuery.matches(d, filter: .all, searchText: "s/R", pathRootName: nil, failedIDs: []))
+        #expect(!DifferencesQuery.matches(d, filter: .all, searchText: "missing", pathRootName: nil, failedIDs: []))
     }
 
     @Test func testFilterAndSearchAreCombinedWithAnd() {
         // A missing-on-left item fails the missing-on-right filter regardless of search text.
         let d = diff("docs/report.txt", type: .missingOnLeft, action: .copyToLeft)
-        #expect(!DifferencesQuery.matches(d, filter: .missingOnRight, searchText: "report", pathRootName: nil))
+        #expect(!DifferencesQuery.matches(d, filter: .missingOnRight, searchText: "report", pathRootName: nil, failedIDs: []))
         // Passes the filter but the search excludes it.
         let onRight = diff("docs/report.txt", type: .missingOnRight)
-        #expect(!DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "budget", pathRootName: nil))
+        #expect(!DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "budget", pathRootName: nil, failedIDs: []))
         // Passes both.
-        #expect(DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "report", pathRootName: nil))
+        #expect(DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "report", pathRootName: nil, failedIDs: []))
     }
 
     @Test func testFilteredCombinesBothInOnePass() {
@@ -69,7 +69,7 @@ import Sync
             diff("keep/budget.txt", type: .missingOnRight),
             diff("skip/report.txt", type: .missingOnLeft, action: .copyToLeft),
         ]
-        let result = DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "report", pathRootName: nil)
+        let result = DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "report", pathRootName: nil, failedIDs: [])
         #expect(result.map(\.relativePath) == ["keep/report.txt"])
     }
 
@@ -84,31 +84,84 @@ import Sync
             diff("e", type: .differentDates, action: .copyToLeft, leftSize: 1, rightSize: 1),
             diff("f", type: .nameConflict, action: .copyToRight),
         ]
-        let counts = DifferencesQuery.counts(list)
+        let counts = DifferencesQuery.counts(list, failedIDs: [])
         #expect(counts[.all] == 6)
         #expect(counts[.missingOnRight] == 2)
         #expect(counts[.missingOnLeft] == 1)
         #expect(counts[.changedCopyToRight] == 1)
         #expect(counts[.changedCopyToLeft] == 1)
         #expect(counts[.nameConflicts] == 1)
-        // The specific-filter counts partition the whole diff: they sum to `.all`.
-        let specificsSum = DifferenceFilter.allCases
-            .filter { $0 != .all }
+        // The SHAPE filters partition the whole diff: they sum to `.all`. `.failed` is excluded
+        // because it is not one of them — it asks what happened to a row rather than what the row
+        // is, so a failed missing-on-right row is counted by both and the sum would exceed the
+        // total. (It contributes 0 here anyway; excluding it by name states the rule rather than
+        // relying on this fixture's empty failure set to hide the overlap.)
+        let shapeSum = DifferenceFilter.allCases
+            .filter { $0 != .all && $0 != .failed }
             .reduce(0) { $0 + (counts[$1] ?? 0) }
-        #expect(specificsSum == counts[.all])
+        #expect(shapeSum == counts[.all])
+    }
+
+    // MARK: The Failed filter
+
+    /// The Failed filter selects exactly the ids the last bulk run could not transfer — and
+    /// nothing else. The fixture deliberately makes the failed row IDENTICAL in shape to a
+    /// passing one, so a rule that matched on `type` instead of on the id set cannot pass.
+    @Test func testFailedFilterSelectsOnlyTheFailedRows() {
+        let failed = diff("a", type: .missingOnRight)
+        let sameShape = diff("b", type: .missingOnRight)
+        let list = [failed, sameShape]
+
+        let result = DifferencesQuery.filtered(list, filter: .failed, searchText: "",
+                                               pathRootName: nil, failedIDs: [failed.id])
+        #expect(result.map(\.relativePath) == ["a"])
+    }
+
+    /// A stale set — every id regenerated by a rescan — selects nothing rather than resurrecting
+    /// rows. That is what makes ids the right thing to store: the failure mode of forgetting to
+    /// invalidate is an empty filter, not a wrong one.
+    @Test func testFailedFilterWithUnknownIDsMatchesNothing() {
+        let list = [diff("a"), diff("b")]
+        let result = DifferencesQuery.filtered(list, filter: .failed, searchText: "",
+                                               pathRootName: nil, failedIDs: [UUID()])
+        #expect(result.isEmpty)
+    }
+
+    /// The count the menu badges, and the gate that decides whether the row is offered at all.
+    @Test func testFailedCountDrivesWhetherTheFilterIsOffered() {
+        let failed = diff("a")
+        let counts = DifferencesQuery.counts([failed, diff("b")], failedIDs: [failed.id])
+        #expect(counts[.failed] == 1)
+        #expect(DifferenceFilter.failed.isOffered(failedCount: 1))
+        #expect(!DifferenceFilter.failed.isOffered(failedCount: 0))
+        // ...and no OTHER filter is ever withheld, including at zero — a menu whose entries come
+        // and go is harder to use than one with zeroes in it.
+        for filter in DifferenceFilter.allCases where filter != .failed {
+            #expect(filter.isOffered(failedCount: 0), "\(filter) must stay listed at zero")
+        }
+    }
+
+    /// The Failed filter still ANDs with the search box, like every other filter — it narrows the
+    /// same list rather than escaping the query.
+    @Test func testFailedFilterCombinesWithSearch() {
+        let a = diff("keep/report.txt")
+        let b = diff("keep/budget.txt")
+        let result = DifferencesQuery.filtered([a, b], filter: .failed, searchText: "report",
+                                               pathRootName: nil, failedIDs: [a.id, b.id])
+        #expect(result.map(\.relativePath) == ["keep/report.txt"])
     }
 
     @Test func testCountsIgnoresSearchTextAndEmptyListYieldsZeroes() {
         // Counts reflect the whole diff (search is not a parameter), matching Tidy's menu.
-        #expect(DifferencesQuery.counts([]).isEmpty)
+        #expect(DifferencesQuery.counts([], failedIDs: []).isEmpty)
         // A single filter's count matches `filtered` with an empty search over the same list.
         let list = [
             diff("keep/report.txt", type: .missingOnRight),
             diff("skip/report.txt", type: .missingOnLeft, action: .copyToLeft),
         ]
-        let counts = DifferencesQuery.counts(list)
+        let counts = DifferencesQuery.counts(list, failedIDs: [])
         #expect(counts[.missingOnRight, default: 0]
-            == DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "", pathRootName: nil).count)
+            == DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "", pathRootName: nil, failedIDs: []).count)
         #expect(counts[.all, default: 0] == list.count)
     }
 

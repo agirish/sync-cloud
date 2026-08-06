@@ -12,28 +12,28 @@ import Sync
     }
 
     @Test func testAllAcceptsEveryDifference() {
-        #expect(DifferenceFilter.all.matches(diff(.missingOnLeft, .copyToLeft)))
-        #expect(DifferenceFilter.all.matches(diff(.missingOnRight, .copyToRight)))
-        #expect(DifferenceFilter.all.matches(diff(.differentDates, .copyToRight)))
+        #expect(DifferenceFilter.all.matches(diff(.missingOnLeft, .copyToLeft), failedIDs: []))
+        #expect(DifferenceFilter.all.matches(diff(.missingOnRight, .copyToRight), failedIDs: []))
+        #expect(DifferenceFilter.all.matches(diff(.differentDates, .copyToRight), failedIDs: []))
     }
 
     @Test func testMissingFiltersBySide() {
-        #expect(DifferenceFilter.missingOnLeft.matches(diff(.missingOnLeft, .copyToLeft)))
-        #expect(!DifferenceFilter.missingOnLeft.matches(diff(.missingOnRight, .copyToRight)))
+        #expect(DifferenceFilter.missingOnLeft.matches(diff(.missingOnLeft, .copyToLeft), failedIDs: []))
+        #expect(!DifferenceFilter.missingOnLeft.matches(diff(.missingOnRight, .copyToRight), failedIDs: []))
 
-        #expect(DifferenceFilter.missingOnRight.matches(diff(.missingOnRight, .copyToRight)))
-        #expect(!DifferenceFilter.missingOnRight.matches(diff(.missingOnLeft, .copyToLeft)))
+        #expect(DifferenceFilter.missingOnRight.matches(diff(.missingOnRight, .copyToRight), failedIDs: []))
+        #expect(!DifferenceFilter.missingOnRight.matches(diff(.missingOnLeft, .copyToLeft), failedIDs: []))
     }
 
     @Test func testChangedFiltersOnTypeAndAction() {
         // changedCopyToRight requires differentDates AND copyToRight.
-        #expect(DifferenceFilter.changedCopyToRight.matches(diff(.differentDates, .copyToRight)))
-        #expect(!DifferenceFilter.changedCopyToRight.matches(diff(.differentDates, .copyToLeft)))   // wrong action
-        #expect(!DifferenceFilter.changedCopyToRight.matches(diff(.missingOnRight, .copyToRight)))  // wrong type
+        #expect(DifferenceFilter.changedCopyToRight.matches(diff(.differentDates, .copyToRight), failedIDs: []))
+        #expect(!DifferenceFilter.changedCopyToRight.matches(diff(.differentDates, .copyToLeft), failedIDs: []))   // wrong action
+        #expect(!DifferenceFilter.changedCopyToRight.matches(diff(.missingOnRight, .copyToRight), failedIDs: []))  // wrong type
 
         // changedCopyToLeft requires differentDates AND copyToLeft.
-        #expect(DifferenceFilter.changedCopyToLeft.matches(diff(.differentDates, .copyToLeft)))
-        #expect(!DifferenceFilter.changedCopyToLeft.matches(diff(.differentDates, .copyToRight)))
+        #expect(DifferenceFilter.changedCopyToLeft.matches(diff(.differentDates, .copyToLeft), failedIDs: []))
+        #expect(!DifferenceFilter.changedCopyToLeft.matches(diff(.differentDates, .copyToRight), failedIDs: []))
     }
 
     @Test func testDisplayNameUsesProviderNames() {
@@ -43,6 +43,20 @@ import Sync
         // The "changed" cases name the NEWER side: copyToRight means the left copy is newer.
         #expect(DifferenceFilter.changedCopyToRight.displayName(leftName: "iCloud", rightName: "Dropbox") == "Changed (iCloud newer)")
         #expect(DifferenceFilter.changedCopyToLeft.displayName(leftName: "iCloud", rightName: "Dropbox") == "Changed (Dropbox newer)")
+        // The one label that names neither pane: it is about an event, not a side.
+        #expect(DifferenceFilter.failed.displayName(leftName: "iCloud", rightName: "Dropbox") == "Failed to transfer")
+    }
+
+    /// `.failed` ignores every property the shape filters read, and answers only from the id set.
+    /// Both fixtures use the SAME difference, so nothing but the set can be deciding.
+    @Test func testFailedFiltersOnTheIDSetAndNothingElse() {
+        let d = diff(.missingOnRight, .copyToRight)
+        #expect(DifferenceFilter.failed.matches(d, failedIDs: [d.id]))
+        #expect(!DifferenceFilter.failed.matches(d, failedIDs: []))
+        // ...and a shape filter is deaf to the set, or a failed row would vanish from the
+        // filter that describes what it IS the moment a transfer failed on it.
+        #expect(DifferenceFilter.missingOnRight.matches(d, failedIDs: []))
+        #expect(DifferenceFilter.missingOnRight.matches(d, failedIDs: [d.id]))
     }
 
     @Test func testDisplayNameWithSpatialFallbackMatchesOriginalLabels() {
@@ -61,7 +75,7 @@ import Sync
             let renamed = filter.displayName(leftName: "A", rightName: "B")
             #expect(renamed.isEmpty == false)
         }
-        #expect(DifferenceFilter.missingOnLeft.matches(diff(.missingOnLeft, .copyToLeft)))
+        #expect(DifferenceFilter.missingOnLeft.matches(diff(.missingOnLeft, .copyToLeft), failedIDs: []))
     }
 }
 
