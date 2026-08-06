@@ -75,7 +75,12 @@ extension SyncError {
     ) -> SyncError {
         SyncError(
             title: "\(verb.capitalized) Failed",
-            message: "Couldn't \(verb) \(failureCount) items. The first failure was \"\(firstItem)\"; the rest are in the Activity Log.",
+            // Names where the failed ROWS are, not just where the error text is. The Activity Log
+            // has every reason and is still worth naming, but it is a separate window holding a
+            // text log — sending someone there to work out which 12 of 400 files to retry was the
+            // only answer this alert had, and the rows themselves were sitting in the table the
+            // whole time.
+            message: "Couldn't \(verb) \(failureCount) items. They are listed under the “Failed to transfer” filter; the reason for each is in the Activity Log.",
             path: firstPath,
             reason: firstReason,
             isRetryable: false

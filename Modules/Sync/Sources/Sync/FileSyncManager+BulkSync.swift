@@ -109,6 +109,9 @@ extension FileSyncManager {
         }
         recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
+        // The failures stay in the list — only successes were removed — so mark them while they
+        // are still in hand. Unconditional: a clean run clears the previous one's marks.
+        recordTransferFailures(result.failures)
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         if result.failures.count == 1, let (diff, error) = result.failures.first {
@@ -494,6 +497,9 @@ extension FileSyncManager {
         }
         recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
+        // The failures stay in the list — only successes were removed — so mark them while they
+        // are still in hand. Unconditional: a clean run clears the previous one's marks.
+        recordTransferFailures(result.failures)
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         if result.failures.count == 1, let (diff, error) = result.failures.first {

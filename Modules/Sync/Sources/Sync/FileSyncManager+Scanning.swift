@@ -539,6 +539,10 @@ extension FileSyncManager {
             self.lastScanProviders = (request.left, request.right)
             self.lastScanDate = Date()
             self.verifiedSameDifferenceIds.removeAll()
+            // A fresh scan regenerates every row id, so a kept failure set would match nothing —
+            // harmless, but it would leave the Failed filter in the menu with a count of zero and
+            // the user selected into an empty list. Same reasoning as the line above.
+            self.lastTransferFailures = nil
             // A fresh scan regenerates every row's id, so a "copy verified-identical left→right"
             // offer built from the previous scan now references superseded differences — drop it
             // (same reason swapPanes clears it), so confirming can't bulk-copy stale pairs.
