@@ -564,6 +564,142 @@ width note in 1b.
 
 ---
 
+## 17. A filing profile: give Organize the tree's own conventions
+
+**Why:** `FilingClassifier` takes `taxonomyFolders: [String]` — bare paths, no semantics. It cannot
+know that a folder is an inbox rather than a destination, that a tree files tax documents by IRS
+form number, or that a destination has a *filename* convention as well as a location. So the
+classifier re-derives from scratch, per file, facts that are stable properties of the tree, and the
+free on-device tier — which has the least room to reason — gets the least help.
+
+A survey of one real tree (`~/Documents`, 12,767 files, 3,082 folders, a file read from every one
+of the 2,504 folders that hold one) found conventions strong enough to route most files with no
+model call at all:
+
+- **`NN. Mon YYYY.pdf` — 2,708 files, 21% of everything.** Zero-padded ordinal, three-letter month,
+  year, so statements sort chronologically inside a year folder; `0. Summary YYYY` takes the first
+  slot. Filing a statement correctly means *renaming* it, which no verdict currently expresses.
+- **Jurisdiction is a level-2 axis** (`US` / `IN` under Finance, Legal, Purchases, School) **and it
+  changes the year format**: US tax years are one calendar year (`2023`), Indian ones span two
+  (`2013-2014`, 62 such folders). The format has to come from the branch — a classifier reading the
+  file's mtime gets every Indian one wrong.
+- **Tax documents are foldered by form number** — `Income Tax/<year>/Forms/Form W-2|1098|1099-R|5498`.
+- **Some folders must never receive a file**: 138 inbox folders (`TODO`, `EDD - TODO`,
+  `TODO - May 2025`) and an outbound document pack whose contents duplicate their real homes on
+  purpose. Nothing in a path list says so.
+
+**What:** A `FolderProfile` value and a `FolderProfileStore` in `Modules/Sync/Sources/Sync/`,
+matching `FilingVerdictCache` and `StorageLensStore` in shape and location, plus a projection of it
+passed to the classifier in place of the bare path list. Per folder: role (destination / year-bucket
+/ container / person-bucket / archive / inbox), the axes in play, the filename convention that
+folder actually uses, whether it accepts new files, and routing anchors mined from its own name and
+its files' names.
+
+**A profile is per-tree and per-person, and the store must say so.** The conventions above were
+mined from one tree; another user's Documents folder would yield a different and possibly
+contradictory set, so there is no default profile to ship and nothing here generalizes. The store is
+keyed by profile id — `profiles/<id>/folder-profile.json` plus a `profiles.json` index naming the
+active one — so a second tree is additive rather than destructive. A first profile already exists on
+this machine, generated from the survey, with its generator kept beside it.
+
+**Two constraints the profile itself should carry:**
+
+- **Page 1 only.** A statement, form, letter or bill says what it is on its first page; pages 2..n
+  are line items that lengthen the prompt, cost money at the refine tier, and do not change the
+  destination. Large files are where the temptation to read more is worst and the payoff smallest.
+- **Content extraction fails on scans, and unevenly.** 212 of 2,503 sampled folders (8.5%) held a
+  PDF with no text layer at all — but that is 21% in Immigration, 13% in Legal and Vehicles, 10% in
+  School against 7.5% in Finance. Those are exactly the folders where a wrong guess is most
+  annoying, and there `contentSnippet` is nil: the profile's per-folder anchors are the only signal
+  left short of Vision OCR.
+
+**Impact:** High. It is also the cheapest way to make the **free** tier good — most of these routes
+are decidable from filename plus conventions, so the fraction of files that ever need the paid
+refine pass drops.
+
+**Effort:** Medium. **Risk:** Low–Medium — additive, and a missing profile just restores today's
+behaviour. The sharp edge is that a profile is *learned state about the user's tree*: listing an
+inbox among "destinations" would actively teach the classifier to file into it, so the projection
+must honour `acceptsNewFiles` (a first cut of that projection leaked 105 inbox folders into its own
+destination list while the prose above it said never to use them).
+
+---
+
+## 18. A content fingerprint for PDFs — duplicates a byte hash cannot see
+
+**Why:** Providers re-generate the PDF on every download, stamping a fresh document `/ID` into the
+header. The same bill downloaded twice is therefore **byte-different with identical content**, and
+`DuplicateFinder`'s content hash reports no match. Measured in one tree:
+
+```
+Home/Utilities/PG&E/2023/07. Jul 2023.pdf         402,394 bytes   md5 8689e3fb…
+Home/Utilities/PG&E/2023/9829custbill07182023.pdf 402,394 bytes   md5 931c425b…
+```
+
+Same bill, same byte count, differing at byte 36; extracted text identical. Both sit in the *same
+folder* — one renamed to the house convention, one the original that was never deleted. The August
+pair is the same story. Tree-wide: **383 groups share a (name, size); 315 are byte-identical and 68
+are not.** Those 68 are real duplicate sets the app currently misses.
+
+This is a **fourth** blind spot, and worse than the three in `DEFERRED_ENHANCEMENTS.md` #6
+(cloud-only, over the size cap, hard-linked) in one specific way: those three are *detected and
+reported* — `DuplicateScanSkips` counts each reason and the results view says so. This one is
+silent. The files hash successfully and simply do not match, so the scan reports a clean result
+that is wrong, and no counter moves.
+
+**What:** For PDFs, a fingerprint over the *content* rather than the file bytes — the extracted text
+(PDFKit gives it without an external dependency), or the concatenated page content streams for
+scans with no text layer. Grouped as a weaker claim than byte-identical, with its own vocabulary and
+its own never-auto-trash rule, exactly as Deferred #6 argues a sampled hash would need. Cheap
+pre-filter: only files that already share a (name, size) or a (size, page count) need the second
+pass, which is 828 files out of 9,861 in the surveyed tree.
+
+**Impact:** High, and it lands on the tree's largest single category — 80% of these files are PDFs.
+It also makes the rename backlog in item 19 safe to act on: you cannot confidently delete the raw
+original after renaming a copy if the app cannot prove the two are the same document.
+
+**Effort:** Medium. **Risk:** Medium — it lands on the destructive review path, and a text-equal
+claim is genuinely weaker than a byte-equal one. Scanned pages that OCR differently between two
+downloads must not be called identical.
+
+---
+
+## 19. A rename pass for the filing backlog
+
+**Why:** The house convention (`NN. Mon YYYY.pdf`, item 17) is applied by hand, so it decays exactly
+where the volume is. One provider folder shows the whole failure mode:
+
+| | |
+|---|---|
+| `PG&E/2021/` | fully renamed, 1-digit ordinals (`1. Mar 2021.pdf`) |
+| `PG&E/2022/` | not renamed at all — raw `9829custbill…` |
+| `PG&E/2023/` | renamed Jan–Aug (2-digit this time), raw after — **plus a January *2024* bill filed under 2023** |
+| `PG&E/PGE/` | 18 raw files, an unnamed inbox, including a `-2` duplicate pair |
+
+Tree-wide there are 114 provider-datestamped names (`20260416-statements-8857-.pdf`), 79 UUIDs, 55
+bare-digit names, and 4 Google Drive exports over 200 characters long. Separately, **682 files carry
+a duplicate marker in the name** — 233 `-2`/` 2`, 113 ` copy`, 24 `(1)`, 18 with a doubled
+extension (`….pdf.pdf`). The root `TODO/` folder holds **524 loose files** and has been growing 12–46
+a month, every month, since September 2024.
+
+**What:** Extend Organize's suggestion model from *where does this go* to *what is it called once it
+lands* — the same review-and-apply path, proposing a rename alongside the move. The convention is
+inferable per destination folder (item 17 already records which convention each folder uses), and
+the month and year are usually in the raw name (`9829custbill07182023.pdf`, `20240128-statements-…`),
+so most of the backlog needs no model call. Two details the survey settled: pad to **2 digits** (the
+tree contains both, and 1-digit misorders past September), and the ordinal is position-within-folder,
+so a rename pass has to renumber the folder rather than each file alone.
+
+**Impact:** Medium–High. It is the visible half of Organize — a file filed under a name that matches
+its siblings is what makes the folder readable — and it directly drains the largest backlog in the
+tree.
+
+**Effort:** Medium. **Risk:** Medium — renaming is reversible via Undo, but a wrong ordinal
+misorders a folder silently, and the pass must not rename the raw original and its renamed copy to
+the same target. That collision is item 18's problem, which is why it comes first.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
@@ -796,6 +932,9 @@ the question hundreds of keeper picks actually raise.
 | 14 | ⌘K command palette | Low–Medium | Medium–High |
 | 15 | Rules view inside Organize | Low–Medium | Medium |
 | 16 | Home workspace | Medium | Medium (after 1c) |
+| 17 | Filing profile for Organize | Medium | **High** |
+| 18 | PDF content fingerprint | Medium | High |
+| 19 | Rename pass for the backlog | Medium | Medium–High |
 
 ### Interface
 
@@ -817,6 +956,15 @@ Cited by name; this list has no stable numbering.
 **folder sources**, has shipped and unblocks the rest — the lens is what to build next. Items **2** and
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
+
+**The Organize trio (17–19) is one arc, and the order inside it is forced.** 18 before 19, because a
+rename pass that cannot tell the raw original from its renamed copy will produce a collision it
+cannot see; 17 under both, because it is what tells a rename which convention the destination folder
+uses. Taken together they are the first work aimed at the *backlog* rather than at the scan: one
+surveyed tree carries 524 loose files at its root, 682 files with a duplicate marker in the name,
+and 68 duplicate groups that hash-based Tidy silently misses. 17 is also the cheapest route to a
+better **free** tier — most routes fall out of filename plus conventions, so fewer files ever reach
+the paid refine pass.
 
 **The cheapest two, both independent of item 1:** **15** (the rules view, which moves an existing
 list into a slot that already exists) and **14** (the ⌘K palette), which is the one that pays
