@@ -744,10 +744,48 @@ tree** — Income Tax (13 years, 4 eras) and `Immigration/Authorization/H-4` (4 
 the survey had not spotted). The controls stayed quiet: `Travel/Trips/United States`, whose states
 each hold different cities; `Chase/Archive`, whose accounts each ran for different years;
 `Credit Accounts`, where two of four have a backlog folder and two do not. Divergence is one
-detector of six — the others cover a subtree mirrored under an inbox (`Health/Dental` vs
+detector of eight — the others cover a subtree mirrored under an inbox (`Health/Dental` vs
 `Health/TODO/Dental`), a child whose name echoes its parent's (`PG&E/PGE`, 18 raw files, invisible to
 the `TODO` rule), a loose folder beside a container that already owns the concept (`Home/ATT Bill`),
-files parked above a year series, and dead weight (76 empty, 52 pass-through, 434 single-file leaves).
+files parked above a year series, dead weight (52 pass-through, 434 single-file leaves), and the two
+below that the 6 Aug reorganisation added.
+
+### What reorganising `Immigration/` by hand taught this design
+
+The H-4 finding above was **acted on for real on 2026-08-06** — 132 file moves, 4 folder renames, 39
+empty-folder removals, per-action evidence, md5-verified, two removals reverted as mistakes. The log
+is `immigration_reorg_2026-08-06.json` beside the profile, and it is the worked example of the plan
+format. Five things it changed here, each of which the design had wrong or missing:
+
+- **Tabulate siblings before theorising, across the whole family group.** The detector flagged H-4,
+  but the *cause* only appeared once the three parallel families (H-1B, H-4, H-4 EAD — **fourteen
+  eras sharing one vocabulary**) were laid out as a table: **each new filing lands flat and is only
+  foldered later, so the newest era has never been foldered.** 2026–2029 was flat in all three at
+  once. Divergence is not mysterious drift; it is a backlog with a predictable shape. The comparison
+  unit is therefore the family *group* — fixing H-4 alone would have left it disagreeing with its two
+  siblings. **New detector: the newest instance of a recurring series has no folders yet**, which is
+  worth saying the month it happens rather than thirteen years later.
+- **Neither the newest era nor the majority is the authority.** This item originally proposed
+  defaulting to the newest. The real fix went both ways at once: H-1B is filed on **Form I-129, a
+  petition**, H-4 on I-539 and H-4 EAD on I-765, **applications** — so one folder was renamed
+  `Application → Petition` and two `Petition → Application`, from a fact that exists nowhere in the
+  tree. A recency or majority default would have been confidently wrong in both directions. *Name it
+  myself* has to sit among the schemes it found, not behind them.
+- **Rename the folder; do not move the files.** Four `rename-dir` operations brought all fourteen
+  eras into agreement, **carrying 58 files each and moving none**. Where siblings differ only in what
+  a folder is *called*, a rename is atomic, preserves file identity and cannot half-finish. The plan
+  must distinguish *files moved* from *files carried*, and prefer the rename whenever a mapping is
+  one folder to one folder.
+- **An empty folder is not uniformly debt.** A prune scoped to the branch rather than to what the
+  move emptied removed two folders it should not have — `Supporting Documents/Resume` and
+  `Supporting Docs/HPE/Payslips`, both already empty and both *category* names. An empty **date
+  bucket** is debt; an empty **category** is a destination waiting for its next file. So the 76
+  empties are split by the shape of the name and never offered as one number, and the removal step is
+  scoped to folders the plan itself emptied.
+- **New detector: a shadow axis value.** `Finance/US/Income Tax/IRS Docs - 2023` and `IRS Docs - 2024`
+  sit beside the bare-year folders `2012`–`2025`, but the profile records no `year` axis for them, so
+  they land in a different family and are never compared with the years they belong to. Same class as
+  the inbox that is not called `TODO`.
 
 **One detector is deliberately absent.** *Duplicated taxonomy* — `Work/Archive/MapR/Compensation/`
 holding both `Forms/` and `Income Tax/`, each with the same three form folders — must not ship on
@@ -758,9 +796,10 @@ What separates MapR is that the same documents sit in both, so this is a content
 on item 18.
 
 **A proposal is a plan, and the plan is a manifest.** Restructure emits an ordered list of typed
-operations — create folder, move folder, move file, and only as a separate opt-in step remove an
-emptied folder. It never deletes a file. Four invariants make it safe to aim at thirteen years of
-tax documents:
+operations — create folder, **rename folder**, move folder, move file, and only as a separate opt-in
+step remove a folder this plan emptied. Each carries its own written justification, as the 6 Aug log
+does. It never deletes a file. Six invariants make it safe to aim at thirteen years of tax documents,
+and the last three are scars from that day's work:
 
 1. Every file that will move is listed by full path **before** anything runs, and the number on the
    button is the length of that list.
@@ -771,14 +810,26 @@ tax documents:
    still reversible.
 4. **Nothing is dropped to make the shape fit.** A folder the target scheme has no slot for —
    `Transcripts/` under the 2024–25 vocabulary — stays where it is and is listed as *kept*.
+5. **Every claim is re-derived at the moment of the action.** A planning-time fact about a file is a
+   fact about a *past* state of the disk. That guard is what stopped a file being retired as
+   "byte-identical" on a size match that had never been hashed — and **he edits this tree while the
+   work is open**: twenty files moved out from under one session and a whole subtree was relocated
+   mid-run, so every destination is re-probed immediately before it is used.
+6. **Never hand an operation a parent folder as a proxy for its contents, and verify with a number
+   from a different code path.** Collapsing per-file deletes into "directories containing nothing
+   kept" sent **69 files classified *keep*** to the Trash; separately, a verifier reported all 75
+   moves as missing because it resolved paths against the wrong root, and what exposed it was an
+   independent file count that reconciled exactly. A verifier that says everything is broken is
+   usually itself broken.
 
-**The app proposes; it does not decide.** It shows the eras it found and asks which is the house
-style, defaulting to the newest because that is current practice. The leverage is that the mapping
-is edited once and applies to all thirteen years. And where the tree is genuinely ambiguous —
-`Health/Kaiser - PG&E` beside `Health/Medical/Kaiser` share an institution anchor, but coverage
-through an employer versus care records is not a fact recorded anywhere — the finding is a
-**Question with no Apply button**, whose answer is written into the profile's `folderSemantics` and
-never asked again. Guessing there is worse than asking.
+**The app proposes; it does not decide.** It shows the schemes it found, offers *Name it myself*
+beside them, and defaults to nothing when the family group disagrees about which is current. The
+leverage is that the mapping is edited once and applies to every member. And where the tree is
+genuinely ambiguous — `Health/Kaiser - PG&E` beside `Health/Medical/Kaiser` share an institution
+anchor, but coverage through an employer versus care records is not a fact recorded anywhere — the
+finding is a **Question with no Apply button**, whose answer is written into the profile's
+`folderSemantics` and never asked again. Guessing there is worse than asking, and the Immigration
+rename — where the authority was a form number — is the case that proves it.
 
 **Impact:** High. It is the only item that acts on the shape of the tree rather than its contents,
 and the flagship case has been accumulating for thirteen years.
@@ -787,7 +838,8 @@ and the flagship case has been accumulating for thirteen years.
 dozens of moves across folders in daily use, and a wrong one is much harder to notice than a wrong
 file copy. It is gated behind the filing profile, and it should share the rename pass's
 review-and-apply path rather than growing a second one, which is the argument for building it fourth
-in that arc rather than first.
+in that arc rather than first. The counterweight is that **the whole flow has now been run by hand on
+this tree** — the mistakes above are the ones it actually makes, not the ones it might.
 
 ---
 
