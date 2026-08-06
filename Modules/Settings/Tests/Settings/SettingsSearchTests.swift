@@ -124,7 +124,7 @@ import Testing
     /// misfiled instead of only that one is.
     @Test func theOldTidyEntriesLandOnTheTabThatOwnsTheirControl() {
         let duplicates = ["Ignore files smaller than", "Folders overlap at", "Detect versions"]
-        let organize = ["Suggest folders with on-device AI", "Use Claude (cloud) for the best suggestions",
+        let organize = ["Suggest folders with on-device AI", "Use Claude (cloud) to refine suggestions",
                         "Anthropic API key", "Cloud model", "Read file contents on-device for better signals",
                         "Remembered rules", "Cloud spend", "Monthly budget cap", "Total budget cap"]
 

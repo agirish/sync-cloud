@@ -154,10 +154,12 @@ public struct TidyView: View {
     /// two surfaces read the same store and now keep it the same way.
     @State private var spendLast: FilingSpendEntry?
     @State private var spendTotals = FilingSpendTotals()
-    // Both toggles, because cloud rides on top of on-device AI: a scan only reaches the paid
-    // backend when each is on, so the setup card only quotes a price when each is on.
-    @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUsesAI: Bool = true
-    @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUsesCloud: Bool = false
+    // The model the refine button names. Read here rather than derived from the manager because
+    // the button has to re-render the moment the Settings picker changes, and resolved through
+    // `currentModel` at the point of use so a stored id from before a model refresh names the
+    // model that will actually run.
+    @AppStorage(FileSyncManager.cloudModelDefaultsKey)
+    private var filingCloudModel: String = CloudFilingProtocol.defaultModel
 
     /// Honors Settings ▸ Accessibility ▸ Reduce motion: when true, the row-exit slides (H4) and the
     /// reclaim glow (H5) are dropped for today's instant swap. The numeric count-up is kept — it's an
@@ -240,6 +242,11 @@ public struct TidyView: View {
     private let onFindFilingSuggestions: () -> Void
     /// The same scan, but ignoring saved suggestions — see `rescanFilingButton`.
     private let onFindFilingSuggestionsFresh: () -> Void
+    /// Opens Settings ▸ Organize, where the cloud backend is set up. Optional so the previews and
+    /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
+    /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
+    /// host that has no Settings to open.
+    private let onConfigureCloudRefine: (() -> Void)?
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
@@ -301,6 +308,7 @@ public struct TidyView: View {
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {},
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
+        onConfigureCloudRefine: (() -> Void)? = nil,
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         automationDestinationRoot: String? = nil,
@@ -325,6 +333,7 @@ public struct TidyView: View {
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
+        self.onConfigureCloudRefine = onConfigureCloudRefine
         self.onNormalizeNames = onNormalizeNames
         self.onPreviewAutomations = onPreviewAutomations
         self.automationDestinationRoot = automationDestinationRoot
@@ -722,6 +731,7 @@ public struct TidyView: View {
         case .filing:
             if hasFilingResults, !syncManager.isSuggestingFiles {
                 rescanFilingButton
+                refineButton(rows.filing)
                 fileAllButton(rows.filing)
             }
         case .automations:
@@ -919,6 +929,87 @@ public struct TidyView: View {
         }
     }
 
+    /// "Refine N with Opus" — Organize's opt-in second pass.
+    ///
+    /// The scan that produced these rows was free and on-device. This is the only control in the
+    /// lens that can spend money, and it says so three ways before it does: it names the model it
+    /// will use, it names how many files it will send, and the click itself raises the existing
+    /// spend pre-flight with a real estimate. Nothing here quotes a price — the estimate needs the
+    /// taxonomy and the token count, which the pre-flight has and a toolbar button does not, and a
+    /// figure invented here would be the one the user remembered.
+    ///
+    /// `scope` is the FILTERED rows, and the count is derived from it, for the same reason
+    /// `fileAllButton` does it: a paid action must send exactly what it counted. A query leaving
+    /// 3 of 12 makes this read "Refine 3 with Opus" and send exactly those three.
+    ///
+    /// When cloud isn't set up the button becomes the invitation instead — same slot, same words
+    /// up to the ellipsis, opening Settings ▸ Organize. Hiding it there would mean the better
+    /// answer is only discoverable by someone who already knew to go looking in Settings.
+    @ViewBuilder
+    private func refineButton(_ scope: [FilingSuggestion]) -> some View {
+        if syncManager.filingRefineCouldReachTheSpendPrompt {
+            let batch = syncManager.filingSuggestionsEligibleForRefine(scope)
+            if !batch.isEmpty || syncManager.isRefiningFilingSuggestions {
+                Button { refineFilingSuggestions(batch) } label: {
+                    if syncManager.isRefiningFilingSuggestions {
+                        Label("Refining…", systemImage: "sparkles")
+                    } else {
+                        Label("Refine \(batch.count) with \(FilingSpendFormat.model(refineModelName))",
+                              systemImage: "sparkles")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .chromeHover()
+                .controlSize(.small)
+                // `canRefineFilingSuggestions` is false while a pass runs — it reads the same
+                // in-flight token — so this is the whole condition, not half of it.
+                .disabled(!syncManager.canRefineFilingSuggestions)
+                .help(refineButtonHelp(count: batch.count))
+            }
+        } else if syncManager.canRefineFilingSuggestions, let configure = onConfigureCloudRefine {
+            Button(action: configure) {
+                Label("Refine with Claude…", systemImage: "sparkles")
+            }
+            .buttonStyle(.bordered)
+            .chromeHover()
+            .controlSize(.small)
+            .help("These suggestions came from the free on-device pass. Set up Claude in "
+                  + "Settings ▸ Organize to re-ask a stronger model about them — billed to your "
+                  + "own API key, and never used by a scan.")
+        }
+    }
+
+    /// The model id a refine pass would name — the Settings picker's value, resolved the same way
+    /// `CloudFilingClassifier` resolves it so the button cannot name one model and send another.
+    private var refineModelName: String {
+        CloudFilingProtocol.currentModel(for: filingCloudModel)
+    }
+
+    /// Split out of the `.help` modifier, not for tidiness: inline, the interpolation plus the
+    /// pluralization plus the `isFiltered` branch put the whole `Button` expression past what the
+    /// type-checker will solve in reasonable time, and the build fails with no other diagnostic.
+    private func refineButtonHelp(count: Int) -> String {
+        let model = FilingSpendFormat.model(refineModelName)
+        let files = count == 1 ? "1 suggestion" : "\(count) suggestions"
+        let scope = isFiltered ? " — the ones your search left showing" : ""
+        return "Re-asks Claude (\(model)) about \(files)\(scope). This one is billed to your API "
+            + "key; you'll see an estimate first. Suggestions your own rules steered are left "
+            + "alone, and files already answered by this model aren't sent again."
+    }
+
+    /// Runs the refine pass over `batch`. Unstructured on purpose: this is a user-initiated round
+    /// trip that must survive the view re-rendering underneath it (the manager republishes the
+    /// suggestions when it lands), and the manager's own in-flight token — not this Task — is what
+    /// makes a second click a no-op.
+    private func refineFilingSuggestions(_ batch: [FilingSuggestion]) {
+        guard !batch.isEmpty else { return }
+        Task {
+            await syncManager.refineFilingSuggestions(batch)
+            // The pass may have spent; the spend row above the list reads from a cached snapshot.
+            refreshFilingSpend()
+        }
+    }
+
     /// The folder a rescan would walk (the focused pane's current directory), by leaf name.
     private var scanTargetName: String {
         guard let f = scanTargetFolder, !f.isEmpty else { return "this folder" }
@@ -1037,7 +1128,33 @@ public struct TidyView: View {
                          systemImage: "clock.arrow.circlepath")
                     .help(reuseHelp(reuse))
             }
+            // Durable evidence that the paid pass ran, and what it bought. The banner says so once
+            // and goes away; this stays with the rows it describes. Pass-level like `reused` and
+            // for the same reason — narrowing the search does not change how many files were sent.
+            if let refine = syncManager.filingLastRefine {
+                StatPill(count: refine.changed, label: "refined", color: glassHue.accentColor,
+                         systemImage: "sparkles")
+                    .help(refineHelp(refine))
+            }
         }
+    }
+
+    /// What the refine pass actually did, in the terms that matter: how many were sent (the part
+    /// that was billed), how many came back free from the cache, and how many homes it moved. The
+    /// pill counts `changed` rather than `asked` because that is the number the user is entitled
+    /// to judge the spend by — "refined 40" with nothing moved would read as forty improvements.
+    private func refineHelp(_ refine: FileSyncManager.FilingRefineSummary) -> String {
+        let sent = refine.classified == 0
+            ? "Nothing needed sending — every answer came from the cache."
+            : (refine.classified == 1 ? "1 file was sent to Claude."
+                                      : "\(refine.classified) files were sent to Claude.")
+        let reused = refine.reused == 0 ? ""
+            : " \(refine.reused) had already been answered by this model, so they cost nothing."
+        let changed = refine.changed == 0
+            ? "No suggestion changed — the free pass had already found the same homes."
+            : (refine.changed == 1 ? "1 suggestion moved to a better home."
+                                   : "\(refine.changed) suggestions moved to better homes.")
+        return "Asked about \(refine.asked). \(sent)\(reused) \(changed)"
     }
 
     /// Spells out what "reused" bought, in the terms the user cares about — the model wasn't asked,
@@ -1755,19 +1872,19 @@ public struct TidyView: View {
         )
     }
 
-    /// The pre-scan state. Not `EmptyStateView` like the other four: this is the one lens whose
-    /// trigger can spend money, and the template centres two sentences in a large panel while
-    /// leaving the model and the cost nowhere near the button. See ``FilingSetupCard``.
+    /// The pre-scan state. Not `EmptyStateView` like the other four: the template centres two
+    /// sentences in a large panel, and this card shows three sample rows in the shape real
+    /// suggestions take, which is what makes the first real result list legible. See
+    /// ``FilingSetupCard``.
     ///
-    /// The price comes from ``spendLast``, which is cached rather than read here — see that
-    /// property for why, and for the three moments that refresh it. (This doc used to claim the
-    /// opposite, "read live … without anything having to invalidate it", directly above the
-    /// `@State` it was reading.)
+    /// **It no longer carries a price, because the scan no longer has one.** It used to quote the
+    /// last recorded cloud run — a figure about a different folder, hedged into honesty by the
+    /// word "last" — because the trigger beneath it could reach the paid backend. It cannot: the
+    /// scan runs at ``FilingClassifierTier/free`` and money is spent only by the refine button on
+    /// the results, which quotes a real estimate for a batch it has in hand.
     private var filingIntroState: some View {
         FilingSetupCard(
             intro: LensIntros.organize(scanTargetName: scanTargetName),
-            price: FilingRunPrice.readout(cloudEnabled: filingUsesAI && filingUsesCloud,
-                                          last: spendLast),
             accent: glassHue.accentColor,
             onStart: onFindFilingSuggestions
         )

@@ -51,9 +51,38 @@ public struct FilingVerdict: Sendable, Equatable {
     }
 }
 
+/// Which backends a classification call is allowed to reach.
+///
+/// Organize runs in two passes, and the difference between them is **not** a quality setting the
+/// user tunes — it is which backends are permitted to answer, and therefore whether the pass can
+/// cost money. The tier is what carries that permission from the caller to the app's router, so
+/// "this pass is free" is a property of the call rather than a promise about the state of a
+/// toggle somewhere. That distinction is the whole point: the previous design gated an
+/// auto-started scan by *inspecting* settings and the verdict cache to predict whether cloud
+/// would be reached, and the prediction disagreed with the router in an ordinary state (cloud on,
+/// no readable key), which put a payment dialog in front of a scan that was going to be free.
+public enum FilingClassifierTier: String, Sendable, Equatable, CaseIterable {
+    /// The pass every scan runs. **On-device backends only** — a backend that bills the user must
+    /// never be reached here, whatever the cloud toggle says. Because no scan can spend at this
+    /// tier, no scan needs a spend pre-flight, and an auto-started rescan is free by construction
+    /// rather than by a check that has to agree with the router.
+    case free
+    /// The opt-in second pass, reached only by an explicit click on the results. May use the cloud
+    /// (Claude) backend when the user has enabled it and stored a key, and falls back to the
+    /// on-device model when it can't. This is the only tier at which Organize can spend money.
+    case refine
+}
+
 /// The seam the app injects. Classifies a batch of files against the folder taxonomy (folder paths
 /// relative to the provider root). Returns a verdict per `filePath`; an absent key means the backend
 /// declined (no confident home), so that file falls back to the heuristic engine's suggestion.
 /// Runs off the main actor and should honor task cancellation.
+///
+/// **`tier` is a constraint on the implementation, not a hint.** An implementation that reaches a
+/// paid backend for `.free` breaks the guarantee every free-pass caller relies on; `Sync` checks
+/// the app's own routing answer for `.free` before classifying (see
+/// ``FileSyncManager/freePassWouldReachAPaidBackend``) rather than taking it on trust, but the
+/// contract lives here.
 public typealias FilingClassifier =
-    @Sendable (_ taxonomyFolders: [String], _ files: [FilingCandidateFile]) async -> [String: FilingVerdict]
+    @Sendable (_ taxonomyFolders: [String], _ files: [FilingCandidateFile],
+               _ tier: FilingClassifierTier) async -> [String: FilingVerdict]

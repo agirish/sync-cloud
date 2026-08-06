@@ -719,7 +719,7 @@ final class CallCounter: @unchecked Sendable {
         final class Names: @unchecked Sendable { var value: [String] = [] }
         let seen = Names()
         let manager = FileSyncManager()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             seen.value = files.map(\.fileName)
             return [:]
         }
@@ -738,7 +738,7 @@ final class CallCounter: @unchecked Sendable {
 
         let manager = FileSyncManager()
         // A stand-in for the on-device model: it "reasons" Divit → Family/Divit.
-        manager.filingClassifier = { taxonomy, files in
+        manager.filingClassifier = { taxonomy, files, _ in
             #expect(taxonomy.contains("Documents/Family/Divit"))     // handed the real taxonomy
             var out: [String: FilingVerdict] = [:]
             for f in files where f.fileName.contains("Divit") {
@@ -769,7 +769,7 @@ final class CallCounter: @unchecked Sendable {
         manager.filingContentDefaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
         // A classifier that WOULD give a home — proving it isn't consulted when AI is off.
         let consulted = Flag()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             consulted.value = true
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
                 FilingVerdict(relativePath: "Documents", confidence: .high, reason: "x")) })
@@ -790,7 +790,7 @@ final class CallCounter: @unchecked Sendable {
     @Test func tryAnotherFolderIgnoresAnotherProvidersCachedTaxonomy() async throws {
         let manager = FileSyncManager()
         let consulted = Flag()
-        manager.filingClassifier = { _, _ in consulted.value = true; return [:] }
+        manager.filingClassifier = { _, _, _ in consulted.value = true; return [:] }
         manager.filingLastProviderRoot = "/other"          // stale: another provider's scan
         manager.filingLastTaxonomyFolders = ["Docs"]
         let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
@@ -810,7 +810,7 @@ final class CallCounter: @unchecked Sendable {
         let suite = "FilingAI-\(UUID().uuidString)"
         manager.filingContentDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
                 FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
         }
@@ -841,7 +841,7 @@ final class CallCounter: @unchecked Sendable {
         manager.filingContentDefaults = UserDefaults(suiteName: suite)!
         manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             // Another provider's scan lands while the classifier is out: it overwrites every
             // cached set (clearFiling would empty them — same failure shape).
             await MainActor.run {
@@ -880,7 +880,7 @@ final class CallCounter: @unchecked Sendable {
         manager.filingContentDefaults = UserDefaults(suiteName: suite)!
         manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             // Another provider's scan lands mid-round-trip and swaps the taxonomy list.
             await MainActor.run {
                 manager.filingLastProviderRoot = "/other"
@@ -927,7 +927,7 @@ final class CallCounter: @unchecked Sendable {
         let calls = Counter()
         let released = Flag()
         let parkTimedOut = Flag()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             // Only the FIRST round-trip parks: a second one (the bug this test pins) returns
             // immediately, so a regressed build fails the call-count check below instead of
             // deadlocking the suite waiting for a release that can never come.
@@ -1007,7 +1007,7 @@ final class CallCounter: @unchecked Sendable {
         let releaseB = Flag()
         let parkATimedOut = Flag()
         let parkBTimedOut = Flag()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             // Round-trip A parks on its own gate, B on its own; anything later (the bug this
             // test pins) returns immediately so a regressed build fails the call-count check
             // below instead of deadlocking the suite. Bounded parks, same reason.
@@ -1085,7 +1085,7 @@ final class CallCounter: @unchecked Sendable {
         let calls = CallCounter()
         let releaseA = Flag()
         let parkTimedOut = Flag()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             if calls.next() == 1 {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
@@ -1135,7 +1135,7 @@ final class CallCounter: @unchecked Sendable {
         let calls = CallCounter()
         let releaseA = Flag()
         let parkTimedOut = Flag()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             if calls.next() == 1 {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
@@ -1190,7 +1190,7 @@ final class CallCounter: @unchecked Sendable {
         let calls = CallCounter()
         let releaseA = Flag()
         let parkTimedOut = Flag()
-        manager.filingClassifier = { _, files in
+        manager.filingClassifier = { _, files, _ in
             if calls.next() == 1 {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }

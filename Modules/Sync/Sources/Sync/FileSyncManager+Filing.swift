@@ -73,13 +73,11 @@ extension FileSyncManager {
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
                                            ignoringCache: Bool = false,
-                                           autoFreeOnly: Bool = false,
                                            options: FilingOptions = .init()) {
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                               providerName: providerName, nameProvider: nameProvider,
-                                              ignoringCache: ignoringCache, autoFreeOnly: autoFreeOnly,
-                                              options: options)
+                                              ignoringCache: ignoringCache, options: options)
         }
     }
 
@@ -92,14 +90,16 @@ extension FileSyncManager {
     /// `hasSuggestedFiling` / `isSuggestingFiles` / the per-target latch against the callers'
     /// overlapping triggers.
     ///
-    /// **The money question is not asked here.** It was, once, as a pre-flight that walked the
-    /// folder and checked the verdict cache before starting anything — and that walk, that
-    /// candidate filter and that key construction were a second copy of what the scan does a few
-    /// lines into its own body. The copy is the whole bug surface: it can answer a different
-    /// question than the scan will, it walks the same folder twice, and being `async` it opened a
-    /// window in which the user could start a scan of their own between the check and the start.
-    /// The scan now asks it once, itself, before it walks anything expensive — see
-    /// ``findFilingSuggestions(folder:providerRoot:providerName:nameProvider:ignoringCache:autoFreeOnly:options:fileManager:)``.
+    /// **There is no money question here, and none inside the scan either.** There was, in two
+    /// places: a pre-flight that walked the folder and probed the verdict cache to predict
+    /// whether the scan would reach the paid backend, and a second, exact stop at the
+    /// classification phase. Both existed because a scan *could* spend, so an auto-started one
+    /// had to be talked out of it. A scan can no longer spend at all —
+    /// ``FilingClassifierTier/free`` is the only tier it classifies at, and the cloud backend is
+    /// reachable only from the refine pass, which is a click. Predicting a route the scan cannot
+    /// take is not a weaker version of that guarantee, it is a different and worse one: the
+    /// prediction has to agree with the router, and where it didn't (cloud on, no readable key)
+    /// it raised a payment dialog for a scan that was always going to be free.
     ///
     /// Returns whether a scan was started, for tests.
     @discardableResult
@@ -114,99 +114,59 @@ extension FileSyncManager {
         Logger.shared.info("Filing: auto-rescanning \(folder.lastPathComponent) (scanned before)")
         startFindFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                    providerName: providerName, nameProvider: nameProvider,
-                                   autoFreeOnly: true, options: options)
+                                   options: options)
         return true
     }
 
-    /// Whether this scan could reach ``filingCloudSpendConfirmer`` — the modal an auto-scan must
-    /// never raise.
+    /// Whether the app's own router says a ``FilingClassifierTier/free`` classification would
+    /// reach a paid backend — which would mean the app is not honouring the tier.
     ///
-    /// **Keyed on the same thing the confirmer is: the cloud SETTING, not the resolved route.**
-    /// `cloudSpendAllows` returns early only when `filingUsesCloud` is false, so any test that
-    /// decides "this scan is free" from the route alone is not a superset of the confirmer's
-    /// trigger — and the gap is a real, ordinary state. Cloud on with no usable Keychain key
-    /// makes the app's resolver report the on-device DOWNGRADE: the scan really is free, the
-    /// route really is on-device, and `cloudSpendAllows` puts up a payment dialog anyway. The
-    /// first cut of this feature read the route and shipped exactly that.
+    /// The free pass's guarantee is structural: it passes `.free`, and the app routes `.free` to
+    /// the on-device model. This asks the app to state that, rather than assuming it. The one
+    /// line in the app's wiring that maps tier → backend is the whole of the guarantee, and
+    /// nothing in this module compiles against it; if it ever stops being true, the honest
+    /// outcome is a scan with no classification phase and a loud log line, not a silent bill.
     ///
-    /// The cost of keying on the setting is that a downgraded install gets no auto-rescan even
-    /// though its scans are free. That is the right way to be wrong: it withholds a convenience,
-    /// where the other way charges the user for a scan they never asked for.
-    ///
-    /// The route is still consulted, because it can say cloud when the setting is unset — the
-    /// seam tests inject, and the direction where reading only the setting would be too lax.
-    var filingScanCouldReachTheSpendPrompt: Bool {
-        if filingUsesCloud { return true }
-        if let resolveBackend = filingBackendIdentity {
-            return resolveBackend()?.hasPrefix("cloud:") ?? false
-        }
-        // No app resolver — the CLI and tests. The only other source of a route is
-        // ``configuredFilingBackendIdentity``, which derives from the very setting checked
-        // above, so with cloud off it cannot answer cloud.
-        return false
+    /// With no app resolver (the CLI, tests) the answer is no by construction —
+    /// ``configuredFilingBackendIdentity(for:)`` returns the on-device identity for `.free`
+    /// unconditionally.
+    var freePassWouldReachAPaidBackend: Bool {
+        guard let resolveBackend = filingBackendIdentity else { return false }
+        return resolveBackend(.free)?.hasPrefix("cloud:") ?? false
     }
 
-    /// Whether an auto-scan of `looseFiles` would have to put at least one of them to the paid
-    /// backend — the check that stops an auto-rescan before it walks the provider tree.
+    /// Whether the refine pass could reach ``filingCloudSpendConfirmer`` — i.e. whether clicking
+    /// Refine can cost money, which is what the UI needs to know before it offers the button.
     ///
-    /// Conservative in both directions it can be wrong, and deliberately so, because being wrong
-    /// costs only a withheld convenience: it tests key *presence* rather than full hit validity
-    /// (validity needs the taxonomy this runs before), and it counts files a remembered rule
-    /// would keep off the backend entirely (knowing that would take the taxonomy too). What it
-    /// cannot do is miss a file that WOULD be sent — hence the second stop at phase 3, which
-    /// runs against the real misses once the taxonomy is known.
-    func filingAutoScanWouldNeedPaidBackend(looseFiles: [FileNode], providerRoot: URL,
-                                            options: FilingOptions) async -> Bool {
-        guard filingUsesAI, filingClassifier != nil else { return false }   // no classification at all
-        guard filingScanCouldReachTheSpendPrompt else { return false }
-        // Cloud is in play, so the cache is the only thing that can make this free — and with
-        // verdict reuse off there is no cache to consult.
-        guard let identity = resolvedFilingVerdictIdentity else { return true }
-        let candidates = looseFiles.filter {
-            !options.ignoredNames.contains($0.name) && ($0.fileSize ?? 0) >= options.minFileSize
+    /// **Keyed on the cloud SETTING as well as the route, because the confirmer is.**
+    /// `cloudSpendAllows` returns early only when `filingUsesCloud` is false, so deciding from
+    /// the route alone is not a superset of the confirmer's trigger — and the gap is an ordinary
+    /// state. Cloud on with no usable Keychain key makes the app's resolver report the on-device
+    /// DOWNGRADE: the pass really would be free, the route really is on-device, and
+    /// `cloudSpendAllows` puts up a payment dialog anyway.
+    public var filingRefineCouldReachTheSpendPrompt: Bool {
+        if filingUsesCloud { return true }
+        if let resolveBackend = filingBackendIdentity {
+            return resolveBackend(.refine)?.hasPrefix("cloud:") ?? false
         }
-        guard !candidates.isEmpty else { return false }
-        let cache = await loadedFilingVerdictCache()
-        let scopedRejections = filingRejections(under: providerRoot)
-        for f in candidates {
-            let rejected = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
-                .union(filingSessionRejections[f.id] ?? [])
-                .compactMap { Self.relativePath($0, under: providerRoot.path) }
-            let key = FilingVerdictKey(
-                filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize ?? 0,
-                model: identity, promptVersion: CloudFilingProtocol.promptVersion,
-                excludedRelativePaths: rejected)
-            if cache.entries[key] == nil {
-                Logger.shared.info("Filing: auto-rescan of \(providerRoot.lastPathComponent) stopped — "
-                    + "\(f.name) (at least) has no cached verdict, so a scan would cost money")
-                return true
-            }
-        }
+        // No app resolver — the CLI and tests. The only other source of a route is
+        // ``configuredFilingBackendIdentity(for:)``, which derives from the very setting checked
+        // above, so with cloud off it cannot answer cloud.
         return false
     }
 
     /// Reads the loose files in `folder`, learns the provider's folder taxonomy, and produces
     /// suggested homes.
     ///
-    /// `autoFreeOnly` marks an auto-rescan (lens open, not a click): the scan must not cost
-    /// money, so it stops the moment classification would put files to the paid backend. It stops
-    /// **twice**, and both are needed:
-    ///
-    /// - Once below, right after the loose-file walk and before anything expensive — the whole
-    ///   provider-tree walk, the name check, any content reads. An auto-scan that stops here has
-    ///   published nothing at all, which is what lets it leave the lens on its intro card.
-    /// - Once at phase 3, against the real misses. The early stop cannot be exact: it runs before
-    ///   the taxonomy exists, so it can only ask whether a verdict is *cached*, not whether that
-    ///   verdict is still *valid*. A cached destination whose anchor folder has since been
-    ///   deleted is a miss, and only phase 3 knows.
-    ///
-    /// An auto-scan never publishes a partial result either way: stopping means returning, not
-    /// falling through with the cache-and-heuristics answers, which would pass off lesser
-    /// suggestions as the paid scan a click would have bought.
+    /// **This is the free pass, all of it.** Phases 1–3 run at ``FilingClassifierTier/free``, so
+    /// the whole scan — started by a click or automatically on lens open — costs nothing and can
+    /// raise no spend prompt. The paid backend is reached only by ``refineFilingSuggestions(_:)``,
+    /// which acts on the results this publishes. That is why there is no `autoFreeOnly` here and
+    /// no cost pre-flight anywhere in the body: "free" is not a mode this scan can be asked to run
+    /// in, it is the only mode it has.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
         nameProvider: CloudProvider.ProviderType? = nil, ignoringCache: Bool = false,
-        autoFreeOnly: Bool = false,
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
         guard !isSuggestingFiles else { return }
@@ -229,19 +189,6 @@ extension FileSyncManager {
         // Loose files = the direct files sitting in the picked folder (not its subfolders).
         let looseTree = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
         let looseFiles = looseTree.filter { !$0.isDirectory }
-        if Task.isCancelled { return }
-
-        // An auto-rescan's first stop, placed HERE — before the provider-tree walk below, which
-        // on a real account is tens of thousands of nodes, and before `detectRiskyNames`, which
-        // PUBLISHES. Stopping after those would have left the Organize lens showing a rename
-        // finding, complete with its "Fix all", over an intro card saying nothing was scanned:
-        // a scan the user never ran, offering to rename their files. Nothing above this line
-        // publishes anything, so returning here is indistinguishable from never having started.
-        if autoFreeOnly,
-           await filingAutoScanWouldNeedPaidBackend(looseFiles: looseFiles, providerRoot: providerRoot,
-                                                    options: options) {
-            return
-        }
         if Task.isCancelled { return }
 
         updateScan(\.filingScanLifecycle, epoch: epoch, status: FilingScanPhase.learningFolders.status)
@@ -340,11 +287,17 @@ extension FileSyncManager {
         // previous results with its own numbers.
         var cacheReuse: FilingCacheReuse?
 
-        // Phase 3 — intelligent classification. Reasons about the folder taxonomy + document text
-        // to pick a home, overriding the keyword guess for the files it's confident about. An
-        // explicit remembered rule (F3) still wins, and a backend that declines/errors never makes
-        // things worse than the keyword engine alone.
-        if filingUsesAI, let classifier = filingClassifier {
+        // Phase 3 — intelligent classification, at the FREE tier. Reasons about the folder taxonomy
+        // + document text to pick a home, overriding the keyword guess for the files it's confident
+        // about. An explicit remembered rule (F3) still wins, and a backend that declines/errors
+        // never makes things worse than the keyword engine alone.
+        //
+        // `freePassWouldReachAPaidBackend` is the app's own answer to "what will you route `.free`
+        // to?", and a cloud answer means the tier is not being honoured. Skipping classification
+        // entirely is the conservative reading: the user gets the phase-1/2 suggestions, which is
+        // exactly what they get when no backend is available at all, rather than a bill for a scan
+        // that promised to be free.
+        if filingUsesAI, let classifier = filingClassifier, !freePassWouldReachAPaidBackend {
             let remembered = Set(suggestions.filter { $0.best?.remembered == true }.map { $0.filePath })
             // Same ignoredNames/minFileSize filters the suggestion engine applied: an
             // unfiltered list sent ".DS_Store" & co. into the PAID request (name in the
@@ -362,10 +315,9 @@ extension FileSyncManager {
 
                 // Split against the verdict cache BEFORE anything else in this phase. The ordering
                 // is the whole value of the cache, not an optimization detail: a hit must not have
-                // its contents read (that is OCR/PDF work), must not occupy a slot against the
-                // classifier's per-scan file cap, and above all must not be PRICED — the spend
-                // preflight below quotes a figure the user approves, and quoting for files that
-                // are not going to be sent would make that figure a lie.
+                // its contents read (that is OCR/PDF work) and must not occupy a slot against the
+                // classifier's per-pass file cap. On the refine pass the same ordering also keeps
+                // the spend estimate honest — see ``refineFilingSuggestions(_:)``.
                 let existingRelative = filingLastExistingFolders
                 let excludedByFile = Dictionary(uniqueKeysWithValues: toClassify.map { f in
                     (f.id, (rejectedByFile[f.id] ?? []).compactMap { Self.relativePath($0, under: providerRoot.path) })
@@ -373,7 +325,7 @@ extension FileSyncManager {
                 // nil ⇒ the cache is off for this scan, read and write both. `ignoringCache` is
                 // deliberately NOT part of this: it suppresses the read below while leaving the
                 // write intact.
-                let identity = resolvedFilingVerdictIdentity
+                let identity = resolvedFilingVerdictIdentity(for: .free)
                 var keysByFile: [String: FilingVerdictKey] = [:]
                 var cachedVerdicts: [String: FilingVerdict] = [:]
                 var misses = toClassify
@@ -401,20 +353,6 @@ extension FileSyncManager {
                     }
                 }
 
-                // An auto-rescan's second stop — the exact one, now that the real misses are
-                // known. It catches what the early stop cannot see: a file whose verdict IS
-                // cached but no longer resolves (its destination's anchor folder was deleted),
-                // which is a miss and would be sent and paid for.
-                //
-                // The condition is ``filingScanCouldReachTheSpendPrompt``, not "is the route
-                // cloud" — see that property for why the two differ and why reading the route
-                // here let an auto-scan raise a payment dialog.
-                if autoFreeOnly, !misses.isEmpty, filingScanCouldReachTheSpendPrompt {
-                    Logger.shared.info("Filing: auto-rescan of \(folder.lastPathComponent) stopped — "
-                        + "\(misses.count) file(s) would need the paid backend")
-                    return
-                }
-
                 var snippets: [String: String] = [:]
                 if filingReadsContents, let extractor = filingSnippetExtractor, !misses.isEmpty {
                     // Only read contents for files whose NAME says nothing — a meaningful name plus
@@ -432,25 +370,20 @@ extension FileSyncManager {
                                         excludedRelativePaths: excludedByFile[f.id] ?? [])
                 }
 
-                // Cloud spend guardrail (X6): the true cost of a cloud (Claude) call is only known
-                // AFTER it runs, so when cloud is the active backend, estimate it up front and let the
-                // user — or the monthly budget cap — decline before it commits. Only gates the cloud
-                // path; the on-device backend is free and never asked. A decline (user cancelled, or
-                // this month's spend would exceed the cap) skips the classifier entirely, leaving the
-                // scan's on-device suggestions untouched — a graceful, non-empty fallback that still
-                // publishes below. No-op when cloud is off (the common case), and with the default
-                // confirmer that returns true.
+                // No spend pre-flight: this is the free tier, so there is nothing to confirm. The
+                // guardrail moved to ``refineFilingSuggestions(_:)``, the only pass that can
+                // reach a paid backend — which is also the only pass the user explicitly asks
+                // for, so the dialog now answers a question they just posed.
                 var verdicts = cachedVerdicts
                 var classifiedCount = 0
-                if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
-                    let fresh = await classifier(taxonomyFolders, files)
+                if !files.isEmpty {
+                    let fresh = await classifier(taxonomyFolders, files, .free)
                     // Recorded BEFORE the cancellation check, unlike everything else in this scan.
-                    // The call has already happened and, on the cloud backend, has already been
-                    // billed; dropping its answers because the user cancelled a moment later would
-                    // mean paying for them a second time. The verdicts are true regardless of what
-                    // this scan goes on to do with them — cancelling abandons the SUGGESTIONS, and
-                    // there is nothing to abandon about a question that was already answered.
-                    // `keysByFile` is empty exactly when the cache is off, so this is a no-op then.
+                    // The verdicts are true regardless of what this scan goes on to do with them —
+                    // cancelling abandons the SUGGESTIONS, and there is nothing to abandon about a
+                    // question that was already answered. (On the refine pass the same line has a
+                    // second, sharper reason: the answer has already been billed.) `keysByFile` is
+                    // empty exactly when the cache is off, so this is a no-op then.
                     recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: providerRoot.path,
                                          existingRelative: existingRelative)
                     if Task.isCancelled { return }
@@ -461,10 +394,6 @@ extension FileSyncManager {
                     verdicts.merge(fresh) { _, new in new }
                 }
                 if !cachedVerdicts.isEmpty {
-                    // `classifiedCount`, not `files.count`: the spend guardrail can decline, in
-                    // which case nothing was sent and reporting the batch size would overstate
-                    // what the scan did — and the pill reading off this is the user's evidence
-                    // about cost.
                     cacheReuse = FilingCacheReuse(reused: cachedVerdicts.count, classified: classifiedCount)
                     Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
                         + "from cache, \(classifiedCount) sent to the backend")
@@ -480,6 +409,10 @@ extension FileSyncManager {
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
         filingLastCacheReuse = cacheReuse
+        // These results have not been refined — whatever the previous list's refine pass did, it
+        // was about files that are no longer on screen. Cleared in the same publish so the summary
+        // and the rows it describes can never be one scan apart.
+        filingLastRefine = nil
         hasSuggestedFiling = true
         // Remembered only on completion: the auto-rescan consent is "the user scanned exactly
         // this before", and a cancelled or stopped scan is not that.
@@ -548,10 +481,16 @@ extension FileSyncManager {
     /// when cloud is off (the on-device path is free — never gated). When cloud is on, it builds a
     /// pre-flight cost estimate (`FilingSpendPreflight`) from this month's and lifetime spend, the
     /// monthly + total caps, and the batch's estimated tokens, consults `filingCloudSpendConfirmer`,
-    /// and returns its answer — logging when a
-    /// call is skipped so a paused/declined scan is auditable. Returning false here leaves the scan's
-    /// on-device suggestions in place (graceful fallback).
-    private func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
+    /// and returns its answer — logging when a call is skipped so a paused/declined pass is
+    /// auditable. Returning false leaves the suggestions exactly as the free scan left them
+    /// (graceful fallback).
+    ///
+    /// **Called only from ``refineFilingSuggestions(_:)``.** The scan classifies at
+    /// ``FilingClassifierTier/free``, so it has nothing to confirm — and asking anyway is not a
+    /// harmless extra check: this returns early on the cloud *setting*, so a scan that consulted
+    /// it raised a payment dialog for an install with cloud switched on and no readable key, whose
+    /// scans were free.
+    func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
         guard filingUsesCloud else { return true }
         // Resolve the same way the classifier does, so the cost the user confirms is priced for the
         // model the call will actually name.
@@ -581,7 +520,7 @@ extension FileSyncManager {
         return false
     }
 
-    private static func modificationYear(_ date: Date?) -> String? {
+    static func modificationYear(_ date: Date?) -> String? {
         guard let date else { return nil }
         return Calendar(identifier: .gregorian).dateComponents([.year], from: date).year.map(String.init)
     }
@@ -631,23 +570,32 @@ extension FileSyncManager {
     }
 
     /// The identity recorded for a verdict the on-device model produced.
-    public static let onDeviceBackendIdentity = "on-device"
+    // `nonisolated` for the same reason as the defaults-key constants below: it is an immutable
+    // string, main-actor-isolated only by living on `FileSyncManager`, and the `@Sendable`
+    // routing closures the app and the tests install — which must answer `.free` with exactly
+    // this value — cannot cross an actor boundary to read a constant.
+    public nonisolated static let onDeviceBackendIdentity = "on-device"
 
     /// The backend identity derivable from settings alone — what ``filingBackendIdentity`` falls
     /// back to when the app has not supplied one (the CLI and tests, neither of which has a
     /// Keychain downgrade to account for). Resolved through `currentModel` so a stored id from
     /// before a model refresh keys the same as the model that will actually run.
-    var configuredFilingBackendIdentity: String {
-        guard filingUsesCloud else { return Self.onDeviceBackendIdentity }
+    ///
+    /// `.free` is the on-device identity **unconditionally** — not "when cloud is off". That is
+    /// the same guarantee the tier itself carries, stated where the cache can see it: a free-pass
+    /// verdict is an on-device verdict, so it must never key under a cloud model's name, or a
+    /// later refine pass would serve the free answer back as if Claude had given it.
+    func configuredFilingBackendIdentity(for tier: FilingClassifierTier) -> String {
+        guard tier == .refine, filingUsesCloud else { return Self.onDeviceBackendIdentity }
         let model = CloudFilingProtocol.currentModel(
             for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
         return "cloud:" + model
     }
 
-    /// The identity this scan's verdict cache keys on — nil turns the cache off for the scan,
+    /// The identity this pass's verdict cache keys on — nil turns the cache off for the pass,
     /// read and write both (verdict reuse switched off, or the app's resolver declining to vouch).
     ///
-    /// **An `if let` on the closure, NOT `filingBackendIdentity?() ?? …`.** Optional chaining
+    /// **An `if let` on the closure, NOT `filingBackendIdentity?(tier) ?? …`.** Optional chaining
     /// FLATTENS in Swift, so that spelling gives a plain `String?` in which a closure that
     /// RETURNED nil is indistinguishable from one that was never set — and `??` then sends both
     /// to the configured identity. That silently voided the one guarantee
@@ -655,10 +603,10 @@ extension FileSyncManager {
     /// which backend will run, and answering `"cloud:<model>"` on its behalf is exactly the
     /// durable silent-substitution the seam exists to prevent. The fallback is for an UNSET
     /// closure (the CLI, tests) and nothing else.
-    var resolvedFilingVerdictIdentity: String? {
+    func resolvedFilingVerdictIdentity(for tier: FilingClassifierTier) -> String? {
         if !filingReusesVerdicts { return nil }
-        if let resolveBackend = filingBackendIdentity { return resolveBackend() }
-        return configuredFilingBackendIdentity
+        if let resolveBackend = filingBackendIdentity { return resolveBackend(tier) }
+        return configuredFilingBackendIdentity(for: tier)
     }
 
     /// The cache, read from disk at most once per launch and then held in memory. An unset
@@ -1020,7 +968,16 @@ extension FileSyncManager {
                                        ext: (suggestion.fileName as NSString).pathExtension.lowercased(),
                                        year: Self.modificationYear(suggestion.modificationDate),
                                        contentSnippet: nil, excludedRelativePaths: excluded)
-        let verdicts = await classifier(taxonomyFolders, [file])
+        // `.refine`, not `.free` — this is the same thing the refine pass is, for one card: an
+        // explicit click asking the preferred backend for a better answer. Routing it to the free
+        // tier would re-ask the model that already produced the destination being rejected.
+        //
+        // **Known gap, unchanged by the tier split:** a re-ask has never consulted
+        // `cloudSpendAllows`, so on the cloud backend it spends without a pre-flight. A modal per
+        // card click would be worse than the gap, and the hard monthly/total caps inside
+        // `CloudFilingClassifier` still bound it — but it is the one paid path with no dialog, and
+        // naming the tier is what makes that visible rather than incidental.
+        let verdicts = await classifier(taxonomyFolders, [file], .refine)
         // The verdict was computed against THIS invocation's pre-await snapshots — its taxonomy,
         // its rejections, its session. If the filing state moved on while the classifier was out,
         // the card now on screen (same id: the stable file path) belongs to the NEW state, and
@@ -1049,7 +1006,12 @@ extension FileSyncManager {
     /// The one way to WHOLESALE replace the published suggestion list. Bumps
     /// ``filingSuggestionsGeneration`` with the assignment so the two can never drift — see that
     /// property for why per-item edits are excluded.
-    func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
+    /// `public` so a caller outside the module can put a list on screen at all — `filingSuggestions`
+    /// is `internal(set)` precisely so that nobody can do it any other way, and the render tests in
+    /// `FileExplorer` need a lens showing results. Exposing THIS rather than the property is the
+    /// point: the generation bump is not optional, and a setter that skipped it would silently
+    /// disarm every staleness guard that reads it.
+    public func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
         filingSuggestions = suggestions
         filingSuggestionsGeneration &+= 1
     }
@@ -1090,6 +1052,7 @@ extension FileSyncManager {
         publishFilingSuggestions([])
         filingScanFolder = nil
         filingLastCacheReuse = nil
+        filingLastRefine = nil
         hasSuggestedFiling = false
         // Re-arm the auto-rescan: switching back to this provider should behave like a fresh
         // launch, exactly as Storage's restore does after `clearStorageLens()`.
@@ -1098,6 +1061,10 @@ extension FileSyncManager {
         filingLastTaxonomyFolders = []
         filingLastExistingFolders = []
         filingSessionRejections = [:]
+        // The refine guard, released wholesale for the same reason and with the same safety: a
+        // still-out pass checks its invocation token before releasing or publishing, so clearing
+        // here can neither strip a successor's guard nor land a stale verdict.
+        filingRefineInFlight = nil
         // The re-ask guard too. `tryAnotherFolder` releases its own entry in a `defer`, but only
         // if it returns: `FilingClassifier` has no timeout, so a round-trip that never comes back
         // leaves the entry latched forever and every later "Try another" for that card is a

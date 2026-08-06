@@ -2126,6 +2126,14 @@ struct ContentView: View {
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: { findFilingSuggestionsAction() },
                 onFindFilingSuggestionsFresh: { findFilingSuggestionsAction(ignoringCache: true) },
+                // The way in to the paid pass for someone who has never set it up: Organize's
+                // results offer it, and the offer has to land somewhere. Deep-links the tab the
+                // same way the Sources shortcut does, so the user arrives at the cloud toggle
+                // rather than at whichever tab Settings last showed.
+                onConfigureCloudRefine: {
+                    settingsTab = .filing
+                    showSettings = true
+                },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 automationDestinationRoot: tidyProviderRootExpanded,

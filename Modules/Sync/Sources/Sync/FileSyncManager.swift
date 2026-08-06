@@ -89,10 +89,11 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// Confirms a cloud (Claude) Filing classify before it commits, given a pre-flight cost estimate
-    /// and this month's spend-vs-cap. Consulted once per scan, only when cloud Filing is actually on
-    /// (`filingUsesAI && filingUsesCloud`), just before the classifier runs — the real cost is only
-    /// known after the call, so this is the only chance to show the user a figure first. Returning
-    /// false skips the cloud call and the scan degrades gracefully to its on-device suggestions.
+    /// and this month's spend-vs-cap. Consulted once per **refine pass** — never by a scan, which
+    /// classifies at ``FilingClassifierTier/free`` and cannot spend — and only when cloud Filing is
+    /// actually on (`filingUsesAI && filingUsesCloud`), just before the classifier runs. The real
+    /// cost is only known after the call, so this is the only chance to show the user a figure
+    /// first. Returning false skips the cloud call and leaves the free scan's suggestions in place.
     /// Defaults to `true` (proceed) so an unwired manager keeps its prior behavior; the app wires an
     /// NSAlert-backed estimate/budget prompt at construction.
     public var filingCloudSpendConfirmer: @MainActor (FilingSpendPreflight) -> Bool = { _ in
@@ -454,6 +455,32 @@ public class FileSyncManager: ObservableObject {
     /// (including when there was no classification phase at all). Published with the results and
     /// cleared by ``clearFiling()``, so it always describes the suggestions currently on screen.
     @Published public internal(set) var filingLastCacheReuse: FilingCacheReuse?
+
+    /// What the last refine pass did, or nil if none has run for the suggestions on screen.
+    /// Published with the refined results and cleared by ``clearFiling()`` and by every scan, so
+    /// like ``filingLastCacheReuse`` it always describes the list currently shown.
+    @Published public internal(set) var filingLastRefine: FilingRefineSummary?
+
+    /// The running refine pass's token, or nil when none is running.
+    ///
+    /// Both the re-entrancy guard and the ownership stamp: the token is compared again after the
+    /// await for the same reason `filingTryAnotherInFlight` carries one — a pass whose entry was
+    /// cleared mid-round-trip (a provider switch) must not release or overwrite its successor's.
+    ///
+    /// **The single storage for "a refine is running".** There was a separate stored
+    /// `isRefiningFilingSuggestions` boolean, set and cleared alongside this — the same fact twice,
+    /// with nothing stopping the two from disagreeing. Measured: deleting the token's re-entrancy
+    /// check changed no test, because the boolean's copy of that check silently covered for it.
+    /// One stored fact, so a mutation to the guard is a mutation to the only guard.
+    @Published public internal(set) var filingRefineInFlight: UUID?
+
+    /// True while the opt-in refine pass is out at the backend.
+    ///
+    /// Deliberately **not** `isSuggestingFiles`: that flag swaps the Organize lens to its scanning
+    /// view, and the whole point of the refine pass is that it improves a list the user is already
+    /// looking at. Flipping the scan flag would take that list off screen and put it back changed,
+    /// which is the one thing a "refine what I'm seeing" action must not do.
+    public var isRefiningFilingSuggestions: Bool { filingRefineInFlight != nil }
     /// Counts WHOLESALE replacements of `filingSuggestions` — the scan's single publish and
     /// `clearFiling()`, and nothing else. It is the currency check a "Try another" round-trip
     /// needs across its await: "is the list my verdict was computed against still the list on
@@ -512,8 +539,17 @@ public class FileSyncManager: ObservableObject {
     /// when a Filing scan starts so the ~cold-start latency overlaps the keyword + content phases.
     public var filingClassifierPrewarm: (@Sendable () -> Void)?
 
-    /// Names the backend that will answer this scan's classifications — the `model` component of
-    /// ``FilingVerdictKey``. Called once per scan, before any classifying.
+    /// Names the backend that will answer this pass's classifications — the `model` component of
+    /// ``FilingVerdictKey``. Called once per pass, before any classifying.
+    ///
+    /// **Takes the tier**, because the answer differs by tier and nothing else can reconcile them:
+    /// the free pass resolves to the on-device model however the cloud toggle is set, while the
+    /// refine pass resolves the way the router does. Asking one tier-blind question and using the
+    /// answer for both would file every free-pass verdict under whatever the refine pass would
+    /// have used — the same silent substitution described below, in the other direction and on
+    /// every scan. It doubles as the check ``FileSyncManager/freePassWouldReachAPaidBackend``
+    /// makes: the app answering "cloud" for `.free` is the app telling us its router will bill for
+    /// a pass that promised not to, and we skip classifying rather than find out by being charged.
     ///
     /// It exists because **only the app can answer this correctly.** The manager knows what is
     /// *configured* (the cloud toggle and the model picker, both plain defaults), but the app's
@@ -537,7 +573,7 @@ public class FileSyncManager: ObservableObject {
     /// (ignore cache)", and closing it properly would mean widening the `FilingClassifier` seam to
     /// carry provenance back — a change to a public contract with a dozen call sites, for a window
     /// the app already logs a warning about.
-    public var filingBackendIdentity: (@Sendable () -> String?)?
+    public var filingBackendIdentity: (@Sendable (FilingClassifierTier) -> String?)?
 
     /// Where the Filing verdict cache is persisted. **nil disables the cache entirely** — no read,
     /// no write, every file classified as before.

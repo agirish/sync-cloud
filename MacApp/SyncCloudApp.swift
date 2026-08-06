@@ -252,7 +252,13 @@ struct SyncCloudApp: App {
         // mean the Keychain is queried twice per cloud-enabled scan; that is a live key being read
         // twice, not a prompt, and the gating that matters (never asking when cloud is off) is
         // preserved because the toggle is still checked first.
-        manager.filingBackendIdentity = {
+        manager.filingBackendIdentity = { tier in
+            // `.free` short-circuits BEFORE the router, and that is the whole guarantee stated
+            // once: the free pass routes on-device below, so its verdicts are on-device verdicts
+            // and must key as such. Running the router here would name a cloud model for a pass
+            // that never calls cloud, and the next refine would serve the free answer back as
+            // Claude's.
+            guard tier == .refine else { return FileSyncManager.onDeviceBackendIdentity }
             switch FilingBackendRouter.route(
                 cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
                 hasCloudKey: AnthropicKeychain.hasKey,
@@ -268,16 +274,26 @@ struct SyncCloudApp: App {
         // Filing (AI): reason about the folder taxonomy + document text to pick a home, overriding
         // keyword guesses. Hybrid backend — opt-in cloud (Claude) as primary when enabled with a
         // key, else the on-device Apple Foundation Models model. Always injected so the cloud toggle
-        // and key can change at runtime; the routing closure resolves the backend per scan.
-        manager.filingClassifier = { taxonomy, files in
+        // and key can change at runtime; the routing closure resolves the backend per call.
+        //
+        // **This closure is where `FilingClassifierTier` is honoured, and it is the entire
+        // implementation of "a scan cannot cost money".** `.free` goes straight to the on-device
+        // model without consulting the cloud toggle or the Keychain; only `.refine` — an explicit
+        // click on the results, or a per-card "Try another" — may reach Claude. Nothing in `Sync`
+        // enforces this by construction, so `Sync` asks for the routing answer instead and skips
+        // classifying if it comes back cloud (`freePassWouldReachAPaidBackend`).
+        manager.filingClassifier = { taxonomy, files, tier in
             // The router also LOGS the one silent case — cloud Filing on, no usable key — which
             // otherwise left the user believing Claude filed documents the on-device model filed.
             // `hasCloudKey` is an @autoclosure, so the Keychain below is only queried once the
-            // toggle says yes — as the plain `if` this replaced did. Evaluating it on every scan
+            // toggle says yes — as the plain `if` this replaced did. Evaluating it on every call
             // regardless would warn (and can prompt) on a locked item for a disabled feature.
-            let route = FilingBackendRouter.route(
-                cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
-                hasCloudKey: AnthropicKeychain.hasKey)
+            // Gating the whole route on the tier means a scan never queries the Keychain at all.
+            let route = tier == .refine
+                ? FilingBackendRouter.route(
+                    cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
+                    hasCloudKey: AnthropicKeychain.hasKey)
+                : .onDevice
             if route == .cloud {
                 if let cloud = await CloudFilingClassifier.classify(taxonomyFolders: taxonomy, files: files) {
                     return cloud   // cloud succeeded (even if it placed nothing)

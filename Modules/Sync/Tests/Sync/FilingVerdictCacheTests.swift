@@ -21,6 +21,16 @@ private final class CallLog: @unchecked Sendable {
     var everSaw: [String] { lock.lock(); defer { lock.unlock() }; return calls.flatMap { $0 } }
 }
 
+/// Counts spend-confirmer calls. Same shape as `LensAutoRescanTests`' probe, redeclared because
+/// both are file-private — the two suites assert opposite things about the same seam and are read
+/// on their own.
+private final class SpendProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func record() { lock.lock(); count += 1; lock.unlock() }
+    var prompts: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
 @Suite struct FilingVerdictCacheTests {
 
     private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
@@ -183,13 +193,22 @@ private final class CallLog: @unchecked Sendable {
         return root
     }
 
+    /// `identity` is the identity for BOTH tiers by default, which is what most of these tests
+    /// want: they are about the cache key, and the scan is the cheapest way to exercise it.
+    ///
+    /// `refineIdentity` overrides the refine tier alone, for the tests that are about the paid
+    /// pass. Note that an `identity` naming a cloud backend makes the SCAN skip classification
+    /// (`freePassWouldReachAPaidBackend`) — a scan that reports a paid route for `.free` is a
+    /// misrouted app, and `Sync` refuses rather than being billed. So a cloud identity belongs on
+    /// `refineIdentity`, never on `identity`.
     @MainActor
     private func manager(cacheAt url: URL, log: CallLog,
-                         identity: String = "test-model") -> FileSyncManager {
+                         identity: String = "test-model",
+                         refineIdentity: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingVerdictCacheURL = url
-        m.filingBackendIdentity = { identity }
-        m.filingClassifier = { _, files in
+        m.filingBackendIdentity = { tier in tier == .refine ? (refineIdentity ?? identity) : identity }
+        m.filingClassifier = { _, files, _ in
             log.record(files.map(\.fileName))
             var out: [String: FilingVerdict] = [:]
             for f in files {
@@ -201,6 +220,20 @@ private final class CallLog: @unchecked Sendable {
         return m
     }
 
+    /// A manager whose refine pass routes to a cloud model with the cloud toggle on — the only
+    /// configuration in which `cloudSpendAllows` consults the confirmer. The scan stays free.
+    @MainActor
+    private func refiningManager(cacheAt url: URL, log: CallLog, suite: String,
+                                 confirm: @escaping @MainActor (FilingSpendPreflight) -> Bool)
+    -> FileSyncManager {
+        let m = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
+        let scratch = ScratchDefaults(suite)
+        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        m.filingContentDefaults = scratch
+        m.filingCloudSpendConfirmer = confirm
+        return m
+    }
+
     /// Runs a scan and waits for the cache write to land. The wait is the point: these tests
     /// build a SECOND manager to prove the entry survived to disk, and the write is asynchronous —
     /// without the barrier they would be racing it.
@@ -208,6 +241,15 @@ private final class CallLog: @unchecked Sendable {
     private func scan(_ m: FileSyncManager, _ folder: URL, root: URL,
                       ignoringCache: Bool = false) async {
         await m.findFilingSuggestions(folder: folder, providerRoot: root, ignoringCache: ignoringCache)
+        FilingVerdictStore.waitForPendingWrites()
+    }
+
+    /// Scans, then refines everything the scan published — the two-pass sequence a user performs
+    /// by clicking Suggest homes and then Refine.
+    @MainActor
+    private func scanThenRefine(_ m: FileSyncManager, _ folder: URL, root: URL) async {
+        await scan(m, folder, root: root)
+        await m.refineFilingSuggestions(m.filingSuggestions)
         FilingVerdictStore.waitForPendingWrites()
     }
 
@@ -286,6 +328,10 @@ private final class CallLog: @unchecked Sendable {
     @Test func switchingBackendReclassifies() async throws {
         // Changing the model in Settings must re-ask: an on-device answer is not an Opus answer,
         // and serving one as the other is the silent-substitution failure the identity exists for.
+        //
+        // Exercised through REFINE, because that is the only pass whose backend can vary now —
+        // the scan is pinned to on-device by its tier. The old version switched the scan's
+        // identity between two runs, which after the split is not a state the app can produce.
         let root = try fixture("backend")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("backend")
@@ -293,10 +339,43 @@ private final class CallLog: @unchecked Sendable {
         let downloads = root.appendingPathComponent("Downloads")
 
         let log = CallLog()
-        await scan(manager(cacheAt: url, log: log, identity: "on-device"), downloads, root: root)
-        await scan(manager(cacheAt: url, log: log, identity: "cloud:claude-opus-5"), downloads, root: root)
+        let haiku = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-haiku-4-5")
+        await scanThenRefine(haiku, downloads, root: root)
+        #expect(log.count == 2)                       // one free scan, one refine
 
+        // Same file, same everything — except the model the refine names.
+        let opus = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
+        await scanThenRefine(opus, downloads, root: root)
+
+        // The scan reused its cached on-device verdict; the refine did NOT reuse Haiku's.
+        #expect(log.count == 3)
+        #expect(opus.filingLastRefine?.classified == 1)
+        #expect(opus.filingLastRefine?.reused == 0)
+    }
+
+    @MainActor
+    @Test func refiningTwiceOnTheSameModelIsFree() async throws {
+        // The other direction, and the one that costs money if it breaks: an unchanged file that
+        // this model has already answered must not be sent again. Same key, same guarantee as
+        // `anUnchangedFolderIsNotReclassified` — but on the pass where a miss is billed.
+        let root = try fixture("refine-twice")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("refine-twice")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        let first = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
+        await scanThenRefine(first, downloads, root: root)
         #expect(log.count == 2)
+        let refinedResults = first.filingSuggestions
+
+        let second = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
+        await scanThenRefine(second, downloads, root: root)
+        #expect(log.count == 2)                            // neither pass asked anything
+        #expect(second.filingSuggestions == refinedResults)
+        #expect(second.filingLastRefine == FileSyncManager.FilingRefineSummary(
+            asked: 1, reused: 1, classified: 0, changed: 0))
     }
 
     @MainActor
@@ -358,7 +437,7 @@ private final class CallLog: @unchecked Sendable {
         #expect(log.count == 1)
 
         let unvouched = manager(cacheAt: url, log: log, identity: FileSyncManager.onDeviceBackendIdentity)
-        unvouched.filingBackendIdentity = { nil }
+        unvouched.filingBackendIdentity = { _ in nil }
         await scan(unvouched, downloads, root: root)
         #expect(log.count == 2, "a warm entry must not be served to a scan whose backend the app could not name")
     }
@@ -378,7 +457,7 @@ private final class CallLog: @unchecked Sendable {
         #expect(log.count == 1)
 
         let unvouched = manager(cacheAt: url, log: log)
-        unvouched.filingBackendIdentity = { nil }
+        unvouched.filingBackendIdentity = { _ in nil }
         await scan(unvouched, downloads, root: root)
 
         let after = manager(cacheAt: url, log: log)
@@ -413,7 +492,7 @@ private final class CallLog: @unchecked Sendable {
         #expect(ignoring.filingVerdictCache == nil, "the fixture must start cold")
 
         let warmAtClassify = WarmProbe()
-        ignoring.filingClassifier = { [weak ignoring] _, files in
+        ignoring.filingClassifier = { [weak ignoring] _, files, _ in
             log.record(files.map(\.fileName))
             if let ignoring {
                 await MainActor.run { warmAtClassify.record(ignoring.filingVerdictCache != nil) }
@@ -474,7 +553,7 @@ private final class CallLog: @unchecked Sendable {
         for _ in 0..<2 {
             let m = FileSyncManager()
             #expect(m.filingVerdictCacheURL == nil)
-            m.filingClassifier = { _, files in log.record(files.map(\.fileName)); return [:] }
+            m.filingClassifier = { _, files, _ in log.record(files.map(\.fileName)); return [:] }
             await m.findFilingSuggestions(folder: downloads, providerRoot: root)
         }
         #expect(log.count == 2)
@@ -494,8 +573,8 @@ private final class CallLog: @unchecked Sendable {
         let log = CallLog()
         let cancelling = FileSyncManager()
         cancelling.filingVerdictCacheURL = url
-        cancelling.filingBackendIdentity = { "test-model" }
-        cancelling.filingClassifier = { _, files in
+        cancelling.filingBackendIdentity = { _ in "test-model" }
+        cancelling.filingClassifier = { _, files, _ in
             log.record(files.map(\.fileName))
             // Cancel the scan from inside the call — the answer exists and has been paid for,
             // and the scan is abandoned immediately afterwards.
@@ -526,9 +605,9 @@ private final class CallLog: @unchecked Sendable {
 
     @MainActor
     @Test func aDeclinedSpendIsNotCountedAsClassified() async throws {
-        // The "reused" pill reads off this, and the pill is the user's evidence about cost. If the
-        // spend guardrail declines, NOTHING was sent — reporting the batch size would claim work
-        // (and money) that never happened.
+        // The refine pill reads off this, and it is the user's evidence about cost. If the spend
+        // guardrail declines, NOTHING was sent — reporting the batch size would claim work (and
+        // money) that never happened.
         let root = try makeCanonicalTempRoot(prefix: "VerdictDeclined")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("declined")
@@ -537,22 +616,25 @@ private final class CallLog: @unchecked Sendable {
         try write(root.appendingPathComponent("Downloads/first.pdf"))
         let downloads = root.appendingPathComponent("Downloads")
 
+        // One refine at the paid model, so `first.pdf` has an Opus answer on file.
         let log = CallLog()
-        await scan(manager(cacheAt: url, log: log), downloads, root: root)
-        #expect(log.count == 1)
+        let bought = refiningManager(cacheAt: url, log: log, suite: "verdictBought") { _ in true }
+        await scanThenRefine(bought, downloads, root: root)
+        #expect(log.count == 2)
 
         // A second file arrives, and the guardrail refuses the spend for it.
         try write(downloads.appendingPathComponent("second.pdf"))
-        let declining = manager(cacheAt: url, log: log)
-        let scratch = ScratchDefaults("verdictDeclined")
-        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        declining.filingContentDefaults = scratch
-        declining.filingCloudSpendConfirmer = { _ in false }
-        await scan(declining, downloads, root: root)
+        let declining = refiningManager(cacheAt: url, log: log, suite: "verdictDeclined") { _ in false }
+        await scanThenRefine(declining, downloads, root: root)
 
-        #expect(log.count == 1)   // the declined call never happened
-        #expect(declining.filingLastCacheReuse
-                == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
+        // The free scan classified both files; the refine sent nothing.
+        #expect(log.count == 3)
+        #expect(declining.filingLastRefine
+                == FileSyncManager.FilingRefineSummary(asked: 2, reused: 1, classified: 0, changed: 0))
+        // A decline is not a failure: the free pass's suggestions are still standing, and the one
+        // file that had a cached Opus answer still got it.
+        #expect(declining.filingSuggestions.count == 2)
+        #expect(declining.filingSuggestions.allSatisfy { $0.best != nil })
     }
 
     @MainActor
@@ -586,8 +668,8 @@ private final class CallLog: @unchecked Sendable {
 
     @MainActor
     @Test func theSpendPreflightPricesOnlyTheMisses() async throws {
-        // The reason the split happens before `cloudSpendAllows` and not after. The preflight is
-        // what the user is shown and approves; quoting it for files that are already answered
+        // The reason the cache split happens before `cloudSpendAllows` and not after. The preflight
+        // is what the user is shown and approves; quoting it for files that are already answered
         // would make the figure a fiction — and would also re-read their contents for nothing.
         let root = try makeCanonicalTempRoot(prefix: "VerdictPreflight")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -606,23 +688,49 @@ private final class CallLog: @unchecked Sendable {
         let quotes = Quotes()
         let log = CallLog()
 
-        func cloudManager() -> FileSyncManager {
-            let m = manager(cacheAt: url, log: log, identity: "cloud:claude-opus-5")
-            let scratch = ScratchDefaults("verdictPreflight")
-            scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-            m.filingContentDefaults = scratch
-            m.filingCloudSpendConfirmer = { preflight in quotes.add(preflight.fileCount); return true }
-            return m
+        func cloudManager(_ suite: String) -> FileSyncManager {
+            refiningManager(cacheAt: url, log: log, suite: suite) { preflight in
+                quotes.add(preflight.fileCount); return true
+            }
         }
 
-        await scan(cloudManager(), downloads, root: root)
-        #expect(quotes.all == [4])          // first scan: all four priced and sent
+        await scanThenRefine(cloudManager("verdictPreflight1"), downloads, root: root)
+        #expect(quotes.all == [4])          // first refine: all four priced and sent
+        #expect(log.lastBatch.count == 4)
 
-        // Add a fifth file; the other four are unchanged and already answered.
+        // Add a fifth file; the other four are unchanged and already answered by this model.
         try write(downloads.appendingPathComponent("scan-4.pdf"))
-        await scan(cloudManager(), downloads, root: root)
+        let second = cloudManager("verdictPreflight2")
+        await scanThenRefine(second, downloads, root: root)
 
         #expect(quotes.all == [4, 1])       // the quote covers ONE file, not five
         #expect(log.lastBatch == ["scan-4.pdf"])
+        #expect(second.filingLastRefine?.reused == 4)
+    }
+
+    @MainActor
+    @Test func aScanNeverPricesAnythingBecauseItCannotSpend() async throws {
+        // The companion assertion to the one above, and the whole point of the split: the same
+        // configuration that prices a refine prices NOTHING for the scan that preceded it. Without
+        // this, every quote count above is equally consistent with the scan doing the pricing.
+        let root = try fixture("scan-unpriced")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("scan-unpriced")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        let log = CallLog()
+        let prompts = SpendProbe()
+        let m = refiningManager(cacheAt: url, log: log, suite: "verdictScanUnpriced") { _ in
+            prompts.record(); return true
+        }
+
+        await scan(m, downloads, root: root)
+        #expect(prompts.prompts == 0)   // the scan priced nothing…
+        #expect(log.count == 1)         // …and still classified, at the free tier
+
+        await m.refineFilingSuggestions(m.filingSuggestions)
+        #expect(prompts.prompts == 1)   // the refine is what asks
+        #expect(log.count == 2)
     }
 }

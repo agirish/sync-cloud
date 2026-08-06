@@ -1,13 +1,16 @@
 import Design
 import SwiftUI
 
-/// Organize before its first run: what will happen, what it looks like, and what it costs.
+/// Organize before its first run: what will happen and what it looks like.
 ///
 /// Replaces the centred `EmptyStateView` this state used to be. That template puts the icon and
-/// two sentences in the middle of a large panel and the one fact that changes the decision — the
-/// model and what a run costs — nowhere near the button that spends the money. This card is
-/// top-anchored, carries the price on the trigger itself, and shows three sample rows in the
-/// shape real suggestions take.
+/// two sentences in the middle of a large panel; this card is top-anchored and shows three sample
+/// rows in the shape real suggestions take.
+///
+/// **The price is gone because the scan is free.** This card used to carry the last recorded
+/// cloud run's cost on the trigger, on the rule that a spending action wears its price. The scan
+/// classifies at `FilingClassifierTier.free` now — the paid pass is the Refine button on the
+/// results — so a price here would be quoting a cost for something that has none.
 ///
 /// The sample rows are the part that is easy to dismiss and worth keeping: without them the first
 /// real run is also the first time anyone sees that layout, at the moment they are being asked to
@@ -19,7 +22,6 @@ import SwiftUI
 /// renders, so the card cannot drift from the explanation shown everywhere else.
 struct FilingSetupCard: View {
     let intro: LensIntro
-    let price: FilingRunPrice.Readout
     let accent: Color
     let onStart: () -> Void
 
@@ -28,12 +30,6 @@ struct FilingSetupCard: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 trigger
-                if let detail = price.detail {
-                    Text(detail)
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
                 sampleSection
             }
             .frame(maxWidth: 520, alignment: .leading)
@@ -70,16 +66,13 @@ struct FilingSetupCard: View {
 
     private var trigger: some View {
         Button(action: onStart) {
-            // One label, not a label plus a badge: the price has to travel with the button
-            // wherever it is read out, including by VoiceOver, which a separate view beside it
-            // would not do.
-            Label(price.buttonSuffix.map { "Suggest homes · \($0)" } ?? "Suggest homes",
-                  systemImage: FilingGlyph.lens)
+            Label("Suggest homes", systemImage: FilingGlyph.lens)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .chromeHover()
-        .help(price.detail ?? "Suggest where the loose files in this folder belong")
+        .help("Suggest where the loose files in this folder belong. Runs on this Mac and costs "
+              + "nothing; once there are results you can re-ask Claude about them.")
     }
 
     private var sampleSection: some View {

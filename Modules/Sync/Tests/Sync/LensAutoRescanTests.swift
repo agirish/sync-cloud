@@ -239,15 +239,33 @@ private final class PromptProbe: @unchecked Sendable {
         return root
     }
 
+    /// Records the tier every classification came in at, so a test can assert what a scan is
+    /// allowed to reach and not merely that it reached something.
+    private final class TierLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [FilingClassifierTier] = []
+        func record(_ tier: FilingClassifierTier) { lock.lock(); seen.append(tier); lock.unlock() }
+        var tiers: [FilingClassifierTier] { lock.lock(); defer { lock.unlock() }; return seen }
+    }
+
+    /// A manager wired the way the **app** wires one: the identity resolver answers per tier, with
+    /// `.free` pinned to on-device exactly as `SyncCloudApp` pins it. `identity` is therefore the
+    /// REFINE identity — the only one a route can vary.
+    ///
+    /// Mirroring the app's shape here is the point. A helper that returned one identity for both
+    /// tiers would be testing a wiring nothing ships, and would hide the case
+    /// ``theFreePassIsSkippedRatherThanBilledIfTheAppMisroutesIt`` exists to catch.
     @MainActor
     private func filingManager(cacheAt url: URL?, log: CallLog, identity: String?,
-                               store: UserDefaults?) -> FileSyncManager {
+                               store: UserDefaults?, tiers: TierLog? = nil,
+                               freeIdentity: String? = FileSyncManager.onDeviceBackendIdentity) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingVerdictCacheURL = url
         m.lensAutoRescanDefaults = store
-        m.filingBackendIdentity = { identity }
-        m.filingClassifier = { _, files in
+        m.filingBackendIdentity = { tier in tier == .refine ? identity : freeIdentity }
+        m.filingClassifier = { _, files, tier in
             log.record(files.map(\.fileName))
+            tiers?.record(tier)
             var out: [String: FilingVerdict] = [:]
             for f in files {
                 out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
@@ -272,69 +290,79 @@ private final class PromptProbe: @unchecked Sendable {
     }
 
     @MainActor
-    @Test func filingAutoRescanStopsWhenTheScanWouldCostMoney() async throws {
-        // The heart of the money contract, as a minimal pair with the test below — the two
-        // differ ONLY in what the backend identity resolves to. Cloud with an empty cache means
-        // the one loose file would be sent, and paid for.
+    @Test func noScanEverReachesTheSpendPromptWhateverTheCloudSettingSays() async throws {
+        // **The money contract, and it is now one sentence: a scan cannot spend.** This replaces a
+        // pair of tests that pinned the old contract — an auto-scan predicting whether it would
+        // reach the paid backend and stopping if so. That prediction had to agree with the app's
+        // router and didn't (see `cloudEnabledWithoutAUsableKeyStillNeverPrompts`), and everything
+        // it protected is now structural: the scan classifies at `.free`, which routes on-device.
         //
-        // Asserted on the OUTCOME, not on the eligibility answer: eligibility is now consent and
-        // idempotence only, and the scan itself decides the money question. What the user must
-        // never see is what is checked — no classifier call, nothing published, and (the point
-        // of stopping this early) no risky-name finding either.
-        let root = try filingFixture("paid")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/trailing space /keep.txt"), bytes: 1)
-        let downloads = root.appendingPathComponent("Downloads")
-        let defaults = ScratchDefaults("autoFilingPaid")
-        defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
-        let log = CallLog()
-        let manager = filingManager(cacheAt: nil, log: log,
-                                    identity: "cloud:claude-opus-5", store: defaults)
+        // Both entry points, both cloud settings, one assertion — the confirmer is never called
+        // and every classification came in at `.free`. The old version of this file needed six
+        // tests to say less than this.
+        for cloudOn in [false, true] {
+            let root = try filingFixture("nospend-\(cloudOn)")
+            defer { try? FileManager.default.removeItem(at: root) }
+            try write(root.appendingPathComponent("Documents/trailing space /keep.txt"), bytes: 1)
+            let downloads = root.appendingPathComponent("Downloads")
+            let defaults = ScratchDefaults("autoFilingNoSpend-\(cloudOn)")
+            defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
+            let log = CallLog(), tiers = TierLog(), probe = PromptProbe()
+            let settings = ScratchDefaults("autoFilingNoSpendSettings-\(cloudOn)")
+            settings.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
 
-        manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root,
-                                           nameProvider: .dropBox)
-        await manager.filingScanTask?.value
+            // Auto-started.
+            let auto = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
+                                     store: defaults, tiers: tiers)
+            auto.filingContentDefaults = settings
+            auto.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+            #expect(auto.autoRescanFilingIfEligible(folder: downloads, providerRoot: root,
+                                                    nameProvider: .dropBox))
+            await auto.filingScanTask?.value
 
-        #expect(log.count == 0)                       // the paid backend was never consulted
-        #expect(manager.filingSuggestions.isEmpty)
-        #expect(!manager.hasSuggestedFiling)          // the lens stays on its intro card
-        // **The stop is before the provider walk, so the name check never ran.** Publishing a
-        // rename finding here would put "Fix all" — a bulk rename of the user's files — on
-        // screen under an intro card saying nothing had been scanned. The fixture really does
-        // contain a name Dropbox rejects, so this assertion can fail.
-        #expect(manager.riskyNames.isEmpty)
-        #expect(!manager.hasScannedNames)
-        // Nothing was remembered either: a stopped scan is not consent.
-        #expect(defaults.array(forKey: FileSyncManager.lastFilingScanFolderKey) as? [String]
-                == [downloads.path])
+            // Clicked.
+            let manual = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
+                                       store: nil, tiers: tiers)
+            manual.filingContentDefaults = settings
+            manual.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+            await manual.findFilingSuggestions(folder: downloads, providerRoot: root,
+                                               nameProvider: .dropBox)
+
+            #expect(probe.prompts == 0, "a scan raised a payment dialog (cloud on: \(cloudOn))")
+            #expect(tiers.tiers == [.free, .free], "a scan classified off the free tier")
+            // The positive control, and it is load-bearing: without it "no prompt" is equally
+            // consistent with a scan that did nothing at all. Both scans classified, published,
+            // and — the thing the old early stop had to suppress — reported the fixture's bad name.
+            #expect(log.count == 2)
+            #expect(auto.hasSuggestedFiling && manual.hasSuggestedFiling)
+            #expect(!auto.riskyNames.isEmpty && !manual.riskyNames.isEmpty)
+        }
     }
 
     @MainActor
-    @Test func aManualScanOfTheSameFolderStillPromptsAndClassifies() async throws {
-        // The positive control for the stop above, on the SAME fixture: without `autoFreeOnly`
-        // the identical scan reaches the confirmer and the classifier, and publishes both the
-        // suggestions and the name finding. Without this, "nothing happened" would be equally
-        // consistent with a fixture that could never have produced anything.
-        let root = try filingFixture("paid-manual")
+    @Test func theFreePassIsSkippedRatherThanBilledIfTheAppMisroutesIt() async throws {
+        // `.free` routing on-device is one line in `SyncCloudApp`, and nothing in `Sync` compiles
+        // against it. So `Sync` asks the app what it will route `.free` to, and refuses to
+        // classify when the answer is a paid backend — the guarantee is checked, not assumed.
+        //
+        // `freeIdentity` is the misrouting: an app that reports "cloud" for the free tier.
+        let root = try filingFixture("misroute")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/trailing space /keep.txt"), bytes: 1)
         let downloads = root.appendingPathComponent("Downloads")
-        let log = CallLog()
-        let probe = PromptProbe()
-        let manager = filingManager(cacheAt: nil, log: log,
-                                    identity: "cloud:claude-opus-5", store: nil)
-        let scratch = ScratchDefaults("autoFilingPaidManual")
-        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        manager.filingContentDefaults = scratch
+        let log = CallLog(), probe = PromptProbe()
+        let manager = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
+                                    store: nil, freeIdentity: "cloud:claude-opus-5")
         manager.filingCloudSpendConfirmer = { _ in probe.record(); return true }
 
-        await manager.findFilingSuggestions(folder: downloads, providerRoot: root,
-                                            nameProvider: .dropBox)
+        await manager.findFilingSuggestions(folder: downloads, providerRoot: root)
 
-        #expect(probe.prompts == 1)
-        #expect(log.count == 1)
+        #expect(log.count == 0)     // the classifier was never called
+        #expect(probe.prompts == 0)
+        // Skipped, not failed: phases 1–2 still ran and published. The user loses the AI pass,
+        // not the scan.
         #expect(manager.hasSuggestedFiling)
-        #expect(!manager.riskyNames.isEmpty)   // the fixture's bad name IS reportable
+        #expect(manager.filingSuggestions.count == 1)
+        #expect(manager.filingSuggestions.first?.best?.fromAI != true)
     }
 
     @MainActor
@@ -362,11 +390,11 @@ private final class PromptProbe: @unchecked Sendable {
     }
 
     @MainActor
-    @Test func filingAutoRescanRunsWhenEveryFileIsAlreadyCached() async throws {
-        // Cloud backend, but a previous (manual, paid) scan cached the verdict for the one loose
-        // file — so a rescan costs nothing and may auto-run. The cache is populated by a real
-        // scan rather than by hand, so the pre-flight's key construction is checked against the
-        // scan's own, not against a copy of it in the test.
+    @Test func anAutoRescanReusesTheCachedAnswersTheLastScanWrote() async throws {
+        // The cache still earns its keep on the free pass — an unchanged file is not re-asked, so
+        // the auto-rescan on lens open is close to instant instead of re-running the model over
+        // the whole folder. Populated by a real scan rather than by hand, so the key construction
+        // is checked against the scan's own rather than against a copy of it here.
         let root = try filingFixture("cached")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try makeCanonicalTempRoot(prefix: "AutoRescanCache").appendingPathComponent("verdicts.json")
@@ -375,84 +403,44 @@ private final class PromptProbe: @unchecked Sendable {
         let defaults = ScratchDefaults("autoFilingCached")
         let log = CallLog()
 
-        let paidScan = filingManager(cacheAt: url, log: log,
-                                     identity: "cloud:claude-opus-5", store: defaults)
-        await paidScan.findFilingSuggestions(folder: downloads, providerRoot: root)
+        let first = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
+        await first.findFilingSuggestions(folder: downloads, providerRoot: root)
         FilingVerdictStore.waitForPendingWrites()
         #expect(log.count == 1)
-        let paidResults = paidScan.filingSuggestions
+        let firstResults = first.filingSuggestions
 
         // A fresh manager, standing in for the next launch.
-        let next = filingManager(cacheAt: url, log: log,
-                                 identity: "cloud:claude-opus-5", store: defaults)
+        let next = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
         #expect(next.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
         await next.filingScanTask?.value
-        #expect(log.count == 1)                          // the paid backend was never consulted
-        #expect(next.filingSuggestions == paidResults)   // and the answer is the same one
+        #expect(log.count == 1)                          // the model was never asked again
+        #expect(next.filingSuggestions == firstResults)  // and the answer is the same one
         #expect(next.hasSuggestedFiling)
+        #expect(next.filingLastCacheReuse == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
 
-        // A new file arrives overnight: the folder is no longer fully answered, so the next
-        // launch's scan stops instead of paying for it (fresh manager, because the completed run
-        // above latched this one).
+        // A new file arrives overnight. It is a miss, so the scan asks about it — and, unlike
+        // before the tier split, that is simply what happens: the answer is free, so there is
+        // nothing to stop for. The old version of this test asserted the opposite.
         try write(downloads.appendingPathComponent("new-arrival.pdf"))
-        let blocked = filingManager(cacheAt: url, log: log,
-                                    identity: "cloud:claude-opus-5", store: defaults)
-        blocked.autoRescanFilingIfEligible(folder: downloads, providerRoot: root)
-        await blocked.filingScanTask?.value
-        #expect(log.count == 1)
-        #expect(!blocked.hasSuggestedFiling)
-    }
-
-    @MainActor
-    @Test func aCachedButNoLongerResolvableVerdictIsStoppedByThePhaseThreeCheck() async throws {
-        // Why there are two stops. The early one runs before the taxonomy exists, so all it can
-        // ask is whether a verdict is CACHED. A cached verdict whose destination no longer
-        // resolves — its anchor folder deleted since — is a MISS at phase 3, and would be sent
-        // and paid for. Only the second stop can see that, and this is the state that proves it
-        // is not redundant.
-        let root = try filingFixture("stale-anchor")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try makeCanonicalTempRoot(prefix: "AutoRescanStale").appendingPathComponent("verdicts.json")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
-        let defaults = ScratchDefaults("autoFilingStale")
-        let log = CallLog()
-        let probe = PromptProbe()
-
-        // A paid scan caches a verdict naming Documents/Family/Divit, which exists today.
-        let paidScan = filingManager(cacheAt: url, log: log,
-                                     identity: "cloud:claude-opus-5", store: defaults)
-        await paidScan.findFilingSuggestions(folder: downloads, providerRoot: root)
-        FilingVerdictStore.waitForPendingWrites()
-        #expect(log.count == 1)
-
-        // Documents/Family goes away, so the cached destination now proposes MORE new folders
-        // than it did when cached — the staleness rule turns the hit into a miss.
-        try FileManager.default.removeItem(at: root.appendingPathComponent("Documents/Family"))
-
-        let next = filingManager(cacheAt: url, log: log,
-                                 identity: "cloud:claude-opus-5", store: defaults)
-        let scratch = ScratchDefaults("autoFilingStaleSettings")
-        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        next.filingContentDefaults = scratch
-        next.filingCloudSpendConfirmer = { _ in probe.record(); return true }
-
-        // The early stop lets it through — the key IS present — and phase 3 catches it.
-        #expect(next.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
-        await next.filingScanTask?.value
-        #expect(probe.prompts == 0)
-        #expect(log.count == 1)                 // still just the original paid call
-        #expect(!next.hasSuggestedFiling)
+        let third = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
+        #expect(third.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
+        await third.filingScanTask?.value
+        #expect(log.count == 2)
+        #expect(third.hasSuggestedFiling)
+        #expect(third.filingSuggestions.count == 2)
     }
 
     @MainActor
     @Test func cloudEnabledWithoutAUsableKeyStillNeverPrompts() async throws {
-        // THE case the first round's minimal pair could not see, because its two inputs moved
-        // together: cloud is ON in Settings but the Keychain has no usable key, so the app's
-        // resolver reports the DOWNGRADE — "on-device". The scan really is free, but
-        // `cloudSpendAllows` gates the confirmer on the SETTINGS TOGGLE, not on the route, so
-        // anything that decides "free" from the route alone walks straight into a payment
-        // dialog raised by a scan the user never asked for.
+        // The state that killed the previous design, kept as a regression: cloud is ON in Settings
+        // but the Keychain has no usable key, so the app's resolver reports the DOWNGRADE. The
+        // scan is free, but `cloudSpendAllows` gates the confirmer on the SETTINGS TOGGLE rather
+        // than the route — so anything that decided "free" from the route walked straight into a
+        // payment dialog for a scan the user never asked for.
+        //
+        // It passes trivially now, and that is the result rather than a weakness of the test: the
+        // scan never consults `cloudSpendAllows` at all. Kept because it is cheap and because it
+        // is the exact state a future re-wiring would break first.
         let root = try filingFixture("downgrade")
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")
@@ -471,44 +459,6 @@ private final class PromptProbe: @unchecked Sendable {
         _ = manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root)
         await manager.filingScanTask?.value
         #expect(probe.prompts == 0)   // no payment dialog, whatever the eligibility answer was
-    }
-
-    @MainActor
-    @Test func anAutoScanStopsBeforeTheSpendPromptEvenPastThePreflight() async throws {
-        // The in-scan backstop, tested by driving the scan directly with `autoFreeOnly` — the
-        // state the pre-flight cannot rule out (a file can change between pre-flight and phase
-        // 3). The spend confirmer is the line that must not be crossed: an auto-scan popping a
-        // payment prompt is the feature at its worst, worse than not existing.
-        let root = try filingFixture("backstop")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let downloads = root.appendingPathComponent("Downloads")
-        let log = CallLog()
-
-        let probe = PromptProbe()
-
-        func cloudManager() -> FileSyncManager {
-            let m = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5", store: nil)
-            let scratch = ScratchDefaults("autoFilingBackstop")
-            scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-            m.filingContentDefaults = scratch
-            m.filingCloudSpendConfirmer = { _ in probe.record(); return true }
-            return m
-        }
-
-        // Auto: stops before the prompt, publishes nothing.
-        let auto = cloudManager()
-        await auto.findFilingSuggestions(folder: downloads, providerRoot: root, autoFreeOnly: true)
-        #expect(probe.prompts == 0)
-        #expect(log.count == 0)
-        #expect(!auto.hasSuggestedFiling)
-        #expect(auto.filingSuggestions.isEmpty)
-
-        // Manual control: the same scan without the flag prompts and proceeds — proving the
-        // stop above was `autoFreeOnly`'s doing, not the confirmer never being reachable.
-        let manual = cloudManager()
-        await manual.findFilingSuggestions(folder: downloads, providerRoot: root)
-        #expect(probe.prompts == 1)
-        #expect(log.count == 1)
-        #expect(manual.hasSuggestedFiling)
+        #expect(manager.hasSuggestedFiling)   // and the scan ran, rather than declining to
     }
 }

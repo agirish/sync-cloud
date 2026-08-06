@@ -743,9 +743,24 @@ public enum FilingEngine {
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      taxonomy: [FileNode], providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:]) -> [FilingSuggestion] {
-        guard !verdicts.isEmpty else { return suggestions }
         // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
-        let existingRelative = Set(relativeFolderPaths(of: taxonomy, limit: .max))
+        applyVerdicts(verdicts, to: suggestions,
+                      existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
+                      providerRoot: providerRoot, rejectedByFile: rejectedByFile)
+    }
+
+    /// The same overlay against an already-derived folder set, for callers that have one and no
+    /// tree — the refine pass, which reasons against the taxonomy the scan cached rather than
+    /// re-walking a provider that can be tens of thousands of nodes.
+    ///
+    /// `existingRelative` is what marks a destination's trailing segments new-vs-existing, so it
+    /// must be the **uncapped** set: passing the capped list the classifier was given would label
+    /// a real folder beyond the cap as one to create, and the apply path would then be asked to
+    /// create a folder that already exists.
+    public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
+                                     existingRelative: Set<String>, providerRoot: String,
+                                     rejectedByFile: [String: Set<String>] = [:]) -> [FilingSuggestion] {
+        guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
             guard let v = verdicts[s.filePath],

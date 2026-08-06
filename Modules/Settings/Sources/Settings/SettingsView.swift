@@ -371,8 +371,11 @@ enum SettingsSearchIndex {
         .init(tab: .filing, title: "Suggest folders with on-device AI",
               keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders",
                          "sort files", "organize", "tidy"]),
-        .init(tab: .filing, title: "Use Claude (cloud) for the best suggestions",
-              keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai"]),
+        // "refine" is the word on the button this row enables, and the one someone who has seen
+        // that button will type; "best suggestions" is what the row used to be called.
+        .init(tab: .filing, title: "Use Claude (cloud) to refine suggestions",
+              keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai", "refine",
+                         "best suggestions"]),
         .init(tab: .filing, title: "Anthropic API key",
               keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "token"]),
         .init(tab: .filing, title: "Cloud model",
@@ -1785,8 +1788,12 @@ struct FilingSettingsTab: View {
             // other half of the tab rather than as a subsection of filing.
             SettingsSection("Suggestions", content: {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
-                Toggle("Use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
+                // "to refine suggestions", not "for the best suggestions": Claude is no longer
+                // something a scan uses, it is what the Refine button on the results uses. The old
+                // label described a setting that changed what every scan did — and cost.
+                Toggle("Use Claude (cloud) to refine suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
+                    .help("Turns on the Refine button in Organize. Scans stay free and on-device; refining is the only thing that reaches Claude, and only when you click it.")
                 // Cloud filing rides on top of on-device AI (its toggle is disabled when AI is
                 // off). Gate the key/model sub-panel on both flags so turning AI off doesn't
                 // strand a live-looking cloud panel whose own toggle can no longer dismiss it.
@@ -1810,12 +1817,12 @@ struct FilingSettingsTab: View {
                         .labelsHidden()
                         .fixedSize()
                     }
-                    .help("Saved suggestions are per model — switching means the next scan asks, and pays for, every file again.")
+                    .help("Saved suggestions are per model — switching means the next Refine asks, and pays for, every file again.")
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
                 Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
                     .disabled(!filingUseAI)
-                    .help("A file that hasn’t been edited, renamed, or moved gets the same suggestion it got last time, so scanning the same folder again doesn’t ask the model — or, with Claude, pay — a second time. Turning this off asks afresh every scan.")
+                    .help("A file that hasn’t been edited, renamed, or moved gets the same suggestion it got last time, so scanning — or refining — the same folder again doesn’t ask the model, or pay Claude, a second time. Turning this off asks afresh every time.")
                 SettingsRow("Saved suggestions") {
                     HStack(spacing: 8) {
                         Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
@@ -1830,7 +1837,7 @@ struct FilingSettingsTab: View {
                         .disabled(savedSuggestionCount == 0)
                     }
                 }
-                .help("Forget every saved suggestion. The next scan asks the model about each file again — with Claude, that means paying for them again.")
+                .help("Forget every saved suggestion. The next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again.")
                 SettingsRow("Loose-files inbox") {
                     TextField("TODO", text: $filingInbox)
                         .frame(maxWidth: 180)
@@ -1843,12 +1850,12 @@ struct FilingSettingsTab: View {
                 }
                 .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Automations workspace.")
             }, caption: {
-                Text("Organize suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Organize falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Organize to remember are saved as automations (the Automations workspace). Changes apply on the next scan.")
+                Text("Organize suggests where loose files belong, in two passes. **Scanning is always free**: the on-device model (Apple Intelligence, macOS 26) runs private and at no cost, and where it isn’t available Organize falls back to name/metadata matching. **Refining is the opt-in second pass** — once a scan has results, a Refine button re-asks Claude about them, billed to your API key. It is the only thing here that spends money, it never runs on its own, and you see a cost estimate before each one. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per pass. Pick Haiku for the cheapest runs (roughly a penny a pass). The key is stored in the macOS Keychain. The corrections you ask Organize to remember are saved as automations (the Automations workspace). Changes apply on the next scan.")
             })
 
             SettingsSection(
                 "Cloud spend",
-                caption: "Before each cloud (Claude) scan you’ll see a cost estimate to confirm. Two caps pause cloud classification when a scan would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached falls back to the free on-device suggestions until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); on-device and keyword suggestions are free."
+                caption: "Before each Refine you’ll see a cost estimate to confirm. Two caps pause cloud classification when a refine would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached leaves the free on-device suggestions in place until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); scanning is free."
             ) {
                 // A cap is the one setting where a blank picker is actively dangerous: the stored
                 // value keeps pausing (or not pausing) cloud scans regardless of what the control
