@@ -66,7 +66,16 @@ extension FileSyncManager {
         // Provider-scoped for the same reason `tryAnotherFolder` validates its cached root: the
         // taxonomy this pass reasons against belongs to one provider, and a verdict resolved
         // against the wrong tree names a destination in the wrong provider.
-        return scope.filter { $0.providerRoot == root && $0.best?.remembered != true }
+        //
+        // **De-duplicated by file path, and that is a correctness requirement rather than
+        // tidiness.** `scope` comes from a caller, and two dictionaries downstream are built with
+        // `uniqueKeysWithValues`, which TRAPS on a repeated key — a list naming the same file
+        // twice crashed the process. Quietly sending a file twice would be no better: this pass is
+        // priced per file, so a duplicate is a double charge and a count the button over-quotes.
+        var seen: Set<String> = []
+        return scope.filter {
+            $0.providerRoot == root && $0.best?.remembered != true && seen.insert($0.filePath).inserted
+        }
     }
 
     /// Re-asks the preferred backend about `scope`, and republishes the list with whatever it
@@ -114,16 +123,11 @@ extension FileSyncManager {
         let preAwaitGeneration = filingSuggestionsGeneration
 
         // Rejections, exactly as the scan builds them: persisted (token-keyed) plus this session's
-        // path-keyed ones, relativized for the backend's exclusion list.
-        let scopedRejections = filingRejections(under: URL(fileURLWithPath: root))
-        var rejectedByFile: [String: Set<String>] = [:]
-        for s in eligible {
-            let paths = Self.rejectedPaths(forFileNamed: s.fileName, in: scopedRejections)
-                .union(filingSessionRejections[s.filePath] ?? [])
-            if !paths.isEmpty { rejectedByFile[s.filePath] = paths }
-        }
+        // path-keyed ones, relativized for the backend's exclusion list. Read here, pre-await,
+        // because this list is what the REQUEST carries — it has to describe what was actually
+        // sent. The apply filter re-reads them afterwards; see below.
         let excludedByFile = Dictionary(uniqueKeysWithValues: eligible.map { s in
-            (s.filePath, (rejectedByFile[s.filePath] ?? []).compactMap { Self.relativePath($0, under: root) })
+            (s.filePath, rejectedFolders(for: s, under: root).compactMap { Self.relativePath($0, under: root) })
         })
 
         // Split against the cache first — see the doc above for why this precedes the pre-flight.
@@ -189,6 +193,19 @@ extension FileSyncManager {
             return nil
         }
 
+        // Rejections RE-READ after the await, not the pre-await snapshot. `applyVerdicts` uses
+        // these to refuse a verdict naming a folder the user rejected, and that is a claim about
+        // what is on screen NOW — a "Try another" landing while this pass was out records a
+        // rejection the snapshot cannot see, and applying against the stale copy re-suggests the
+        // folder the user just rejected. (The request's exclusion list above is the opposite case:
+        // it must stay pre-await, because it describes what was actually sent.)
+        var rejectedByFile: [String: Set<String>] = [:]
+        for s in filingSuggestions {
+            let paths = rejectedFolders(for: s, under: root)
+            if !paths.isEmpty { rejectedByFile[s.filePath] = paths }
+        }
+        // `uniqueKeysWithValues` is safe here where it is not on `scope`: this maps the manager's
+        // own published list, whose ids come from a directory walk.
         let before = Dictionary(uniqueKeysWithValues: filingSuggestions.map { ($0.id, $0.best?.path) })
         let refined = FilingEngine.applyVerdicts(verdicts, to: filingSuggestions,
                                                  existingRelative: existingRelative,
@@ -208,5 +225,14 @@ extension FileSyncManager {
             : "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
               + "no better homes found.")
         return summary
+    }
+
+    /// Every folder rejected for `suggestion` — this session's path-keyed rejections plus the
+    /// persisted token-keyed ones scoped to `root`. The one derivation, so the request's exclusion
+    /// list and the apply filter cannot answer differently for reasons other than *when* they ran.
+    private func rejectedFolders(for suggestion: FilingSuggestion, under root: String) -> Set<String> {
+        Self.rejectedPaths(forFileNamed: suggestion.fileName,
+                           in: filingRejections(under: URL(fileURLWithPath: root)))
+            .union(filingSessionRejections[suggestion.filePath] ?? [])
     }
 }

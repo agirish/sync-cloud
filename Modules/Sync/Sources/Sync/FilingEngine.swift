@@ -743,10 +743,16 @@ public enum FilingEngine {
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      taxonomy: [FileNode], providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:]) -> [FilingSuggestion] {
+        // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
+        // happens on the way in. Deriving the folder set first and letting the other one return
+        // early is a full recursive walk of the provider — tens of thousands of nodes on a real
+        // account — to build a set nothing then reads. Not a rare path either: a machine without
+        // Apple Intelligence gets `[:]` from the classifier on every single scan.
+        guard !verdicts.isEmpty else { return suggestions }
         // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
-        applyVerdicts(verdicts, to: suggestions,
-                      existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
-                      providerRoot: providerRoot, rejectedByFile: rejectedByFile)
+        return applyVerdicts(verdicts, to: suggestions,
+                             existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
+                             providerRoot: providerRoot, rejectedByFile: rejectedByFile)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no

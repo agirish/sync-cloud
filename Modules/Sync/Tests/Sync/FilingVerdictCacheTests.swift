@@ -709,6 +709,54 @@ private final class SpendProbe: @unchecked Sendable {
     }
 
     @MainActor
+    @Test func aCachedVerdictWhoseAnchorFolderVanishedIsRePricedNotServedStale() async throws {
+        // The staleness rule, end to end and on the pass where being wrong costs money. A cached
+        // verdict whose destination no longer resolves the way it did — its anchor folder deleted
+        // since — is a MISS, so it must be re-asked and must appear in the quote the user approves.
+        //
+        // This replaces the scan-level test the tier split retired
+        // (`aCachedButNoLongerResolvableVerdictIsStoppedByThePhaseThreeCheck`, which existed to
+        // stop an auto-scan paying for it). The rule still matters, and it matters here now: on the
+        // free pass a stale hit costs a re-run, on the refine pass it costs a re-purchase, and a
+        // quote that omitted it would understate the bill.
+        let root = try fixture("stale-anchor")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try cacheURL("stale-anchor")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let downloads = root.appendingPathComponent("Downloads")
+
+        final class Quotes: @unchecked Sendable {
+            private let lock = NSLock()
+            private var seen: [Int] = []
+            func add(_ n: Int) { lock.lock(); defer { lock.unlock() }; seen.append(n) }
+            var all: [Int] { lock.lock(); defer { lock.unlock() }; return seen }
+        }
+        let quotes = Quotes()
+        let log = CallLog()
+
+        // A paid refine caches a verdict naming Documents/Family/Divit, which exists today.
+        let first = refiningManager(cacheAt: url, log: log, suite: "verdictStale1") {
+            quotes.add($0.fileCount); return true
+        }
+        await scanThenRefine(first, downloads, root: root)
+        #expect(quotes.all == [1])
+        #expect(first.filingLastRefine?.classified == 1)
+
+        // Documents/Family goes away, so the cached destination now proposes MORE new folders than
+        // it did when cached — the staleness rule turns the hit into a miss.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("Documents/Family"))
+
+        let second = refiningManager(cacheAt: url, log: log, suite: "verdictStale2") {
+            quotes.add($0.fileCount); return true
+        }
+        await scanThenRefine(second, downloads, root: root)
+
+        #expect(quotes.all == [1, 1], "the stale hit was not re-priced")
+        #expect(second.filingLastRefine?.classified == 1)
+        #expect(second.filingLastRefine?.reused == 0)
+    }
+
+    @MainActor
     @Test func aScanNeverPricesAnythingBecauseItCannotSpend() async throws {
         // The companion assertion to the one above, and the whole point of the split: the same
         // configuration that prices a refine prices NOTHING for the scan that preceded it. Without

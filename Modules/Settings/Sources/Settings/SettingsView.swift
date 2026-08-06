@@ -1793,7 +1793,7 @@ struct FilingSettingsTab: View {
                 // label described a setting that changed what every scan did — and cost.
                 Toggle("Use Claude (cloud) to refine suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
-                    .help("Turns on the Refine button in Organize. Scans stay free and on-device; refining is the only thing that reaches Claude, and only when you click it.")
+                    .help("Lets Organize's Refine button send to Claude — with a key stored below; without one it offers to bring you back here instead. Scans stay free and on-device either way; refining is the only thing that reaches Claude, and only when you click it.")
                 // Cloud filing rides on top of on-device AI (its toggle is disabled when AI is
                 // off). Gate the key/model sub-panel on both flags so turning AI off doesn't
                 // strand a live-looking cloud panel whose own toggle can no longer dismiss it.

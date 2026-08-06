@@ -22,8 +22,15 @@ import Sync
 /// another's write and its mount, and the second renders whichever state won the race. That is a
 /// flake that reports as "the button paints the same thing for Opus and Haiku", i.e. as the exact
 /// product bug this suite exists to catch.
+///
+/// **`.machinePinned(.pixelSampling)`** because it reads pixels back out of a live renderer
+/// (`colorAt(`) — the repo-wide marker for a suite that only produces a trustworthy verdict on the
+/// recording Mac. CI currently excludes only `referenceImages`, so this still runs there; the
+/// marker is what makes it *selectable*. Leaving it off is exactly the gap `MachinePinnedReason`
+/// was introduced to close: `AccentPreviewTests` was every bit as machine-pinned as the snapshot
+/// suites and was silently never skipped, because the old switch selected by name.
 @MainActor
-@Suite(.serialized) struct FilingRefineControlTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct FilingRefineControlTests {
 
     private static let canvas = CGSize(width: 900, height: 620)
 
@@ -45,8 +52,12 @@ import Sync
     /// store where the button and the manager can be made to agree, which is the very thing these
     /// tests are checking. Under `swift test` this is the test runner's own domain, and every
     /// caller removes both keys in a `defer`.
-    private static func manager(cloudOn: Bool, model: String? = nil) -> FileSyncManager {
+    private static func manager(cloudOn: Bool, model: String? = nil,
+                                routesTo: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
+        // `routesTo` stands in for the app's router. nil leaves it unset, so the manager falls back
+        // to what the toggle configures — which is what most of these tests want.
+        if let routesTo { m.filingBackendIdentity = { _ in routesTo } }
         m.publishFilingSuggestions([suggestion("a.pdf"), suggestion("b.pdf")])
         m.hasSuggestedFiling = true
         m.filingScanFolder = "/root/Downloads"
@@ -181,5 +192,30 @@ import Sync
         let empty = FileSyncManager()
         #expect(!empty.canRefineFilingSuggestions)
         #expect(empty.filingSuggestionsEligibleForRefine([]).isEmpty)
+    }
+
+    @Test func cloudEnabledWithoutAKeyOffersTheInvitationNotAModelPromise() throws {
+        // The downgrade, at the button. Cloud is ON, so a toggle-based branch painted
+        // "Refine 2 with Opus" — for a pass the router sends to the same on-device model the scan
+        // already ran. The correct control here is the invitation, which opens the Settings tab
+        // holding the key row that is actually missing.
+        //
+        // Compared against the WORKING cloud state rather than against "something painted": both
+        // paint a sparkles button of similar size, so only comparing the two catches a branch that
+        // picked the wrong one.
+        defer { Self.resetDefaults() }
+        let downgraded = try #require(toolbarStrip(mount(
+            Self.manager(cloudOn: true, model: "claude-opus-5", routesTo: "on-device"),
+            configure: {})))
+        let working = try #require(toolbarStrip(mount(
+            Self.manager(cloudOn: true, model: "claude-opus-5", routesTo: "cloud:claude-opus-5"),
+            configure: {})))
+        let invitation = try #require(toolbarStrip(mount(
+            Self.manager(cloudOn: false), configure: {})))
+
+        #expect(differingPixels(downgraded, working) > 200,
+                "cloud-on-without-a-key painted the same button as cloud-on-with-one")
+        #expect(differingPixels(downgraded, invitation) == 0,
+                "cloud-on-without-a-key should paint exactly the invitation")
     }
 }

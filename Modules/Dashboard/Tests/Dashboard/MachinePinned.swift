@@ -1,14 +1,14 @@
 import Foundation
 import Testing
 
-// NOTE: This helper is intentionally duplicated (verbatim) in the other three test
+// NOTE: This helper is intentionally duplicated (verbatim) in the other four test
 // targets — SPM offers no clean way to share test-support code across packages without
 // minting a production library product, and the harness must stay test-only. If you change
 // this file, change the copies too:
 //   Modules/Design/Tests/DesignTests/MachinePinned.swift
 //   Modules/FileExplorer/Tests/FileExplorer/MachinePinned.swift
 //   Modules/Settings/Tests/Settings/MachinePinned.swift
-
+//   Modules/Sync/Tests/Sync/MachinePinned.swift
 /// Why a suite only produces a trustworthy verdict on the machine that recorded it.
 ///
 /// These suites are not flaky and they are not wrong — they are *pinned*: they compare

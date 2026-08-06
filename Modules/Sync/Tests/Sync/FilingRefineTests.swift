@@ -373,3 +373,199 @@ private actor AsyncGate {
         for c in waiting { c.resume() }
     }
 }
+
+/// The states an adversarial review of the refine split turned up, each written to fail against
+/// `5e326d78` first. They are grouped rather than scattered because they share one theme: every
+/// one is a place where the pass's answer to "will this cost money / what did the user reject /
+/// what is in scope" was derived twice and the two derivations could disagree.
+@MainActor
+@Suite struct FilingRefineReviewTests {
+
+    private final class Probe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var prompts = 0
+        func record() { lock.lock(); prompts += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return prompts }
+    }
+
+    private func write(_ url: URL, bytes: Int = 5000) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: bytes).write(to: url)
+    }
+
+    private func fixture(_ name: String) throws -> URL {
+        let root = try makeCanonicalTempRoot(prefix: "RefineReview-\(name)")
+        try write(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/mystery-0.pdf"))
+        return root
+    }
+
+    /// Cloud ON in Settings, no usable key, so the app's router downgrades to
+    /// on-device. The refine pass really is free and really will run on-device, but the spend
+    /// guardrail keys on the SETTING, so it raises a payment dialog for a call nobody is billed
+    /// for. This is the exact failure the auto-rescan shipped and had fixed a day earlier — the
+    /// tier split moved it from the scan to the Refine button rather than removing it.
+    @Test func aDowngradedRefineDoesNotRaiseAPaymentDialog() async throws {
+        let root = try fixture("downgrade")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let probe = Probe()
+        let m = FileSyncManager()
+        // Cloud ON…
+        let settings = ScratchDefaults("refineDowngrade")
+        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        // …and verdict reuse OFF, which is what leaves a miss for the guardrail to price. With the
+        // cache on, the scan's own on-device verdicts are hits under the same downgraded identity
+        // and the dialog never comes up — the state is real either way, this is just the half that
+        // reaches the confirmer.
+        settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
+        m.filingContentDefaults = settings
+        // …but the app vouches for the on-device DOWNGRADE, for both tiers.
+        m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        m.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                      providerRoot: root)
+        await m.refineFilingSuggestions(m.filingSuggestions)
+
+        #expect(probe.count == 0, "a refine that runs on-device raised a payment dialog")
+    }
+
+    /// The same state, seen from the button. `filingRefineReachesTheCloud`
+    /// is what picks between "Refine N with Opus" and the "set up Claude" invitation, so keying it
+    /// on the toggle makes the button promise a model that is not going to run.
+    @Test func theButtonDoesNotPromiseAModelTheRouterWillNotUse() async throws {
+        let m = FileSyncManager()
+        let settings = ScratchDefaults("refineDowngradeLabel")
+        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        m.filingContentDefaults = settings
+        m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
+
+        #expect(!m.filingRefineReachesTheCloud,
+                "the button would name a cloud model for a pass the router sends on-device")
+    }
+
+    /// A "Try another" landing while a refine is out records a rejection the refine's
+    /// pre-await snapshot cannot see, so the refine can re-suggest the folder the user just
+    /// rejected. The snapshot is right for the REQUEST (that is what was sent); it is wrong for
+    /// the APPLY, which is about what the user is shown.
+    @Test func aRejectionRecordedDuringTheRoundTripIsStillHonoured() async throws {
+        let root = try fixture("rejected")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager()
+        m.filingRuleDefaults = ScratchDefaults("refineRejected")
+        let rejected = root.appendingPathComponent("Archive/2026").path
+        m.filingClassifier = { _, files, tier in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: tier == .refine ? "Archive/2026" : "Documents/Family",
+                                            confidence: .high, reason: "t"))
+            })
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let scope = m.filingSuggestions
+        let file = try #require(scope.first)
+
+        // The user rejects Archive/2026 while the refine is out at the backend.
+        m.filingClassifier = { [weak m] _, files, _ in
+            await MainActor.run {
+                m?.filingSessionRejections[file.filePath, default: []].insert(rejected)
+            }
+            return Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        await m.refineFilingSuggestions(scope)
+
+        let after = try #require(m.filingSuggestions.first)
+        #expect(after.best?.path != rejected,
+                "the refine landed on a folder the user rejected while it was running")
+    }
+
+    /// `scope` is caller-supplied, and two of the dictionaries built from it use
+    /// `uniqueKeysWithValues`, which TRAPS on a duplicate key. A public API should not crash on a
+    /// list that happens to name the same file twice.
+    @Test func aDuplicateInTheScopeDoesNotTrap() async throws {
+        let root = try fixture("dupes")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager()
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let doubled = m.filingSuggestions + m.filingSuggestions
+
+        let summary = await m.refineFilingSuggestions(doubled)
+        // Deduped rather than merely survived: the count is what the user is quoted, and sending a
+        // file twice would bill for it twice.
+        #expect(summary?.asked == 1)
+    }
+
+    /// The free tier's identity is pinned to on-device even with cloud switched on, with no app
+    /// resolver in play (the CLI, and every test that doesn't inject one). Without this a
+    /// cloud-enabled CLI would file its free-pass answers under a Claude model's name.
+    @Test func theFreeTiersConfiguredIdentityIgnoresTheCloudToggle() {
+        let m = FileSyncManager()
+        let settings = ScratchDefaults("refineFreeIdentity")
+        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        m.filingContentDefaults = settings
+
+        #expect(m.configuredFilingBackendIdentity(for: .free) == FileSyncManager.onDeviceBackendIdentity)
+        #expect(m.configuredFilingBackendIdentity(for: .refine).hasPrefix("cloud:"))
+        #expect(!m.filingRoutesToCloud(.free))
+        #expect(m.filingRoutesToCloud(.refine))
+
+    }
+}
+
+/// The one cost assertion in this package, and it earns the machine-pinned marker for the same
+/// reason `ColumnClickCostBenchmark` does: the bar is a RATIO between two calls in the same run,
+/// so it scales with the machine, but it is still a latency claim rather than a behavioural one.
+///
+/// It exists because the regression it catches was invisible to every other test: the refactor
+/// that added the `existingRelative:` overload moved the empty-verdicts early-out into it, so the
+/// taxonomy overload derived the folder set — a full recursive walk of the provider — before
+/// returning the input untouched. The result was identical, so only the cost changed, and only a
+/// clock can see that.
+@Suite(.machinePinned(.calibratedTiming)) struct FilingApplyVerdictsCostTests {
+
+    /// `applyVerdicts(taxonomy:)` lost its empty-verdicts early-out in the refactor, so
+    /// a scan whose backend declined (no Apple Intelligence — an ordinary Mac) now walks the whole
+    /// provider tree to build a folder set nothing reads. Asserted on the walk itself, because the
+    /// result is identical either way and only the cost changed.
+    @Test func anEmptyVerdictSetDoesNotWalkTheTaxonomy() {
+        // A tree big enough that the difference is unmistakable, and a suggestion list to map over.
+        let taxonomy = (0..<2000).map {
+            FileNode(id: "/root/f\($0)", name: "f\($0)", isDirectory: true)
+        }
+        let suggestions = [FilingSuggestion(filePath: "/root/Downloads/a.pdf", fileName: "a.pdf",
+                                            size: 1, modificationDate: nil, candidates: [],
+                                            providerRoot: "/root")]
+        let clock = ContinuousClock()
+        let empty = clock.measure {
+            for _ in 0..<200 {
+                _ = FilingEngine.applyVerdicts([:], to: suggestions, taxonomy: taxonomy,
+                                               providerRoot: "/root")
+            }
+        }
+        let populated = clock.measure {
+            for _ in 0..<200 {
+                _ = FilingEngine.applyVerdicts(
+                    ["/root/Downloads/a.pdf": FilingVerdict(relativePath: "f1", confidence: .high, reason: "t")],
+                    to: suggestions, taxonomy: taxonomy, providerRoot: "/root")
+            }
+        }
+        // The empty case should not pay for the taxonomy walk the populated case needs. A generous
+        // ratio, because this is about "did the walk happen at all", not about microseconds.
+        #expect(empty < populated / 4,
+                "empty verdicts cost \(empty) vs \(populated) populated — the walk was not skipped")
+    }
+
+}

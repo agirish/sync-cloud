@@ -945,9 +945,15 @@ public struct TidyView: View {
     /// When cloud isn't set up the button becomes the invitation instead — same slot, same words
     /// up to the ellipsis, opening Settings ▸ Organize. Hiding it there would mean the better
     /// answer is only discoverable by someone who already knew to go looking in Settings.
+    ///
+    /// **The branch is `filingRefineReachesTheCloud` — the resolved route, not the cloud toggle.**
+    /// With cloud switched on and no readable key the router downgrades to on-device, and a
+    /// toggle-based branch put "Refine 2 with Opus" on a button that would run the same on-device
+    /// model the scan already ran. The invitation is the correct control for that state: it opens
+    /// the Settings tab holding the key row that is actually missing.
     @ViewBuilder
     private func refineButton(_ scope: [FilingSuggestion]) -> some View {
-        if syncManager.filingRefineCouldReachTheSpendPrompt {
+        if syncManager.filingRefineReachesTheCloud {
             let batch = syncManager.filingSuggestionsEligibleForRefine(scope)
             if !batch.isEmpty || syncManager.isRefiningFilingSuggestions {
                 Button { refineFilingSuggestions(batch) } label: {

@@ -8,7 +8,7 @@ import Testing
 //   Modules/Dashboard/Tests/Dashboard/MachinePinned.swift
 //   Modules/Design/Tests/DesignTests/MachinePinned.swift
 //   Modules/FileExplorer/Tests/FileExplorer/MachinePinned.swift
-//   Modules/Sync/Tests/Sync/MachinePinned.swift
+//   Modules/Settings/Tests/Settings/MachinePinned.swift
 /// Why a suite only produces a trustworthy verdict on the machine that recorded it.
 ///
 /// These suites are not flaky and they are not wrong — they are *pinned*: they compare

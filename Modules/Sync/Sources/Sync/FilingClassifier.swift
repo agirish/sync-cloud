@@ -61,7 +61,7 @@ public struct FilingVerdict: Sendable, Equatable {
 /// auto-started scan by *inspecting* settings and the verdict cache to predict whether cloud
 /// would be reached, and the prediction disagreed with the router in an ordinary state (cloud on,
 /// no readable key), which put a payment dialog in front of a scan that was going to be free.
-public enum FilingClassifierTier: String, Sendable, Equatable, CaseIterable {
+public enum FilingClassifierTier: Sendable, Equatable {
     /// The pass every scan runs. **On-device backends only** — a backend that bills the user must
     /// never be reached here, whatever the cloud toggle says. Because no scan can spend at this
     /// tier, no scan needs a spend pre-flight, and an auto-started rescan is free by construction

@@ -130,30 +130,43 @@ extension FileSyncManager {
     /// With no app resolver (the CLI, tests) the answer is no by construction —
     /// ``configuredFilingBackendIdentity(for:)`` returns the on-device identity for `.free`
     /// unconditionally.
-    var freePassWouldReachAPaidBackend: Bool {
-        guard let resolveBackend = filingBackendIdentity else { return false }
-        return resolveBackend(.free)?.hasPrefix("cloud:") ?? false
+    var freePassWouldReachAPaidBackend: Bool { filingRoutesToCloud(.free) }
+
+    /// Whether a classification at `tier` will reach the paid backend.
+    ///
+    /// **The single answer to the money question, asked by everything that needs it** — the
+    /// free-pass misroute check above, the spend guardrail, and the Refine button's label. Three
+    /// call sites that must agree, so they read one function rather than three predicates that
+    /// happen to line up today.
+    ///
+    /// That is the whole lesson of the auto-rescan bug this feature replaced: the guard read the
+    /// resolved ROUTE while `cloudSpendAllows` returned early on the cloud SETTING, and in the
+    /// ordinary state where the two disagree — cloud switched on, no readable Keychain key, so the
+    /// app's router reports the on-device downgrade — a free pass raised a payment dialog. Keying
+    /// every consumer on the route is safe *because the app's classifier uses the same router with
+    /// the same inputs*: if this says on-device, the call that follows cannot be billed.
+    ///
+    /// **An `if let` on the closure, never `filingBackendIdentity?(tier) ?? …`** — optional
+    /// chaining flattens, and a closure that RETURNED nil would be indistinguishable from one
+    /// never set. nil means "the app cannot vouch for which backend will run", and for a money
+    /// gate the safe reading of "don't know" is to fall back on what settings configure — i.e. to
+    /// ask — rather than to assume free and spend silently.
+    func filingRoutesToCloud(_ tier: FilingClassifierTier) -> Bool {
+        if let resolveBackend = filingBackendIdentity, let identity = resolveBackend(tier) {
+            return identity.hasPrefix("cloud:")
+        }
+        return configuredFilingBackendIdentity(for: tier).hasPrefix("cloud:")
     }
 
-    /// Whether the refine pass could reach ``filingCloudSpendConfirmer`` — i.e. whether clicking
-    /// Refine can cost money, which is what the UI needs to know before it offers the button.
+    /// Whether clicking Refine can actually reach Claude — what the UI needs before it decides
+    /// between "Refine N with Opus" and the "set up Claude" invitation.
     ///
-    /// **Keyed on the cloud SETTING as well as the route, because the confirmer is.**
-    /// `cloudSpendAllows` returns early only when `filingUsesCloud` is false, so deciding from
-    /// the route alone is not a superset of the confirmer's trigger — and the gap is an ordinary
-    /// state. Cloud on with no usable Keychain key makes the app's resolver report the on-device
-    /// DOWNGRADE: the pass really would be free, the route really is on-device, and
-    /// `cloudSpendAllows` puts up a payment dialog anyway.
-    public var filingRefineCouldReachTheSpendPrompt: Bool {
-        if filingUsesCloud { return true }
-        if let resolveBackend = filingBackendIdentity {
-            return resolveBackend(.refine)?.hasPrefix("cloud:") ?? false
-        }
-        // No app resolver — the CLI and tests. The only other source of a route is
-        // ``configuredFilingBackendIdentity(for:)``, which derives from the very setting checked
-        // above, so with cloud off it cannot answer cloud.
-        return false
-    }
+    /// Route-based, not toggle-based, and the difference is visible to the user. With cloud
+    /// switched on but no usable key, a toggle-based answer promises a model the router is not
+    /// going to use: the button offers Opus, the pass runs on-device, and the result comes back
+    /// "no better homes found" having asked nothing. The invitation is the honest control for that
+    /// state — it points at Settings ▸ Organize, which is exactly where the missing key goes.
+    public var filingRefineReachesTheCloud: Bool { filingRoutesToCloud(.refine) }
 
     /// Reads the loose files in `folder`, learns the provider's folder taxonomy, and produces
     /// suggested homes.
@@ -477,21 +490,23 @@ extension FileSyncManager {
                                                           : defaults.double(forKey: totalBudgetCapKey)
     }
 
-    /// Decides whether the cloud (Claude) classifier may run for this batch. Returns true immediately
-    /// when cloud is off (the on-device path is free — never gated). When cloud is on, it builds a
-    /// pre-flight cost estimate (`FilingSpendPreflight`) from this month's and lifetime spend, the
-    /// monthly + total caps, and the batch's estimated tokens, consults `filingCloudSpendConfirmer`,
-    /// and returns its answer — logging when a call is skipped so a paused/declined pass is
-    /// auditable. Returning false leaves the suggestions exactly as the free scan left them
-    /// (graceful fallback).
+    /// Decides whether the cloud (Claude) classifier may run for this batch. Returns true
+    /// immediately when the pass is not going to reach the paid backend (never gated — there is
+    /// nothing to confirm). Otherwise it builds a pre-flight cost estimate (`FilingSpendPreflight`)
+    /// from this month's and lifetime spend, the monthly + total caps, and the batch's estimated
+    /// tokens, consults `filingCloudSpendConfirmer`, and returns its answer — logging when a call
+    /// is skipped so a paused/declined pass is auditable. Returning false leaves the suggestions
+    /// exactly as the free scan left them (graceful fallback).
     ///
     /// **Called only from ``refineFilingSuggestions(_:)``.** The scan classifies at
-    /// ``FilingClassifierTier/free``, so it has nothing to confirm — and asking anyway is not a
-    /// harmless extra check: this returns early on the cloud *setting*, so a scan that consulted
-    /// it raised a payment dialog for an install with cloud switched on and no readable key, whose
-    /// scans were free.
+    /// ``FilingClassifierTier/free``, which cannot route to cloud, so it has nothing to confirm.
+    ///
+    /// **Gated on ``filingRoutesToCloud(_:)``, not on `filingUsesCloud`.** The toggle is not the
+    /// same question: cloud on with no readable key routes on-device, and gating on the toggle put
+    /// a payment dialog in front of a pass that was never going to be billed. See
+    /// ``filingRoutesToCloud(_:)`` for why the route is the safe thing to read here.
     func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
-        guard filingUsesCloud else { return true }
+        guard filingRefineReachesTheCloud else { return true }
         // Resolve the same way the classifier does, so the cost the user confirms is priced for the
         // model the call will actually name.
         let model = CloudFilingProtocol.currentModel(
