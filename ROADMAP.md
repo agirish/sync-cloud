@@ -843,6 +843,75 @@ this tree** — the mistakes above are the ones it actually makes, not the ones 
 
 ---
 
+## 21. A filing memory: what each folder has already received
+
+**Why:** `FilingClassifier` is handed `taxonomyFolders: [String]` and, per file, a name, an extension,
+a year and 400 characters of page 1. Item 17 upgrades the folder list to a profile — role, axes,
+naming convention, routing anchors — but every one of those is mined from **names**. Nothing tells
+the classifier what a folder's existing documents actually *say*, which is the signal the manual
+filing sessions decided on almost every time: four CEAC screenshots carrying nothing but case
+numbers `AA00CVPBHP` / `AA00CVPBQZ` were attributed by extracting two **already-filed** DS-160
+confirmations; fourteen payslips named `Nov 30 Paycheck HPE.pdf` belonged with files named
+`Payslip_2025-11-28.pdf`. In both cases the name was useless and the neighbours were decisive.
+
+That is measurable, because every filed document is a labelled example. Text extracted during the
+earlier filing sessions gives 9,558 documents whose correct folder is known, so three routing
+algorithms can be run against them held-out rather than argued about. Same inputs each time — file
+name plus page 1, capped at 400 characters — choosing one of ~2,950 destination folders:
+
+| | top-1 | top-3 | right branch |
+|---|---|---|---|
+| Name against a bare taxonomy list — **today** | 12.6% | 19.3% | 16.2% |
+| ＋ the folder profile (item 17) | 28.9% | 40.2% | 31.0% |
+| ＋ a filing memory | **58.2%** | **77.5%** | **60.9%** |
+
+**What:** a `filing-memory.json` beside `folder-profile.json`, keyed the same way. Per folder, the
+tokens its filed documents actually contain, weighted by how rare they are across the tree, split
+into two kinds:
+
+- **anchors** — readable words: provider, document type, clinician, plan name. `Kaiser/Surgery`
+  earns `stoll · nancy · pcp · mrn · operative · perioperative`. These serve the paid tier as prompt
+  context as well as the free tier as a matcher.
+- **idHashes** — anything containing digits, which is where account last-4s, case numbers, member
+  and policy IDs live. Stored as salted hashes, so equality matching still works but the file is not
+  a readable list of account numbers sitting in Application Support. The salt is in the same file by
+  necessity: this is obfuscation, not a security boundary. **No raw document text is stored.**
+
+Routing then does what the sessions did by hand: content identifies the *family* — provider, account,
+person — and the profile's axes pick the *member*, which year. Two details earned by measurement.
+Evidence has to be **inherited from the parent**, or an empty `Home/Utilities/AT&T/2024` can never be
+proposed however obviously an AT&T bill belongs there. And **years must be read out of the document,
+not only the filename**: three files all called `Lease Agreement.pdf` differ only by the term printed
+inside them, and reading it is worth ~5 points on folders with real history.
+
+**A third extraction state, previously uncounted.** The survey recorded PDFs with no text layer
+(8.5% of folders). There is a worse case: a PDF whose fonts carry no `ToUnicode` map **extracts
+successfully and returns glyph codes** — PG&E's bills come back as `') ! ) ) ! A A @ A 1 < H <`. No
+error, no empty result, and because that junk is unique it takes maximum rarity weight and wins the
+anchor list outright: PG&E's top anchors were `d9`, `lm`, `g8` until it was caught. **5.3% of the
+corpus is undecodable this way and must be detected and discarded, not trusted.** Those folders fall
+back to name and axis signals, which is the honest answer.
+
+**Impact:** High, and it is the cheapest route to a good **free** tier — the whole thing is integer
+arithmetic over a 2.6 MB table, no model call, so the fraction of files that ever reach the paid
+refine pass drops sharply. It also makes Organize's confidence honest for the first time: the margin
+between the top two candidates predicts correctness well enough to act on — **94% correct on the 15%
+of files it would call high confidence**, against 42% on the 46% it would call low. That is the
+signal for what to auto-file, what to suggest, and what to send to refine.
+
+**Effort:** Low–Medium — a builder, a store matching `FolderProfileStore`, and a scorer. **Risk:**
+Low. It is additive; a missing memory restores item 17's behaviour exactly. Two sharp edges, both
+already hit: the index is a **snapshot**, so a reorganisation strands it — 116 of 9,558 paths were
+stale from one day's work, and the builder relocates by name rather than teaching the old tree. And a
+folder the memory has never seen scores **zero** on content, so it must not be ranked by content at
+all; propose its parent instead. Build it **after item 17 and before 18–20** — it needs the profile,
+nothing else needs it, and it is the largest accuracy gain per unit of work on this list.
+
+A first memory already exists on this machine: 8,999 documents across 2,096 folders, built from text
+the filing sessions had already extracted, with its generator and a held-out verifier kept beside it.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
@@ -1079,6 +1148,7 @@ the question hundreds of keeper picks actually raise.
 | 18 | PDF content fingerprint | Medium | High |
 | 19 | Rename pass for the backlog | Medium | Medium–High |
 | 20 | Restructure — is the shape itself right | High | **High** |
+| 21 | Filing memory (what each folder has received) | Low–Medium | **High** |
 
 ### Interface
 
@@ -1101,17 +1171,22 @@ Cited by name; this list has no stable numbering.
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
 
-**The Organize arc (17–20) is one arc, and the order inside it is forced.** 18 before 19, because a
-rename pass that cannot tell the raw original from its renamed copy will produce a collision it
-cannot see; 17 under all of them, because it is what tells a rename which convention the destination
-folder uses — and what tells 20 which folders are inboxes, which names are axis values, and which
-duplication is deliberate. **20 comes last**, both because it is the only one that moves folders
-rather than files and because it should inherit 19's review-and-apply path instead of growing a
-second one. Taken together they are the first work aimed at the *backlog* rather than at the scan:
-one surveyed tree carries 524 loose files at its root, 682 files with a duplicate marker in the name,
-68 duplicate groups that hash-based Tidy silently misses, and one thirteen-year folder series filed
-four different ways. 17 is also the cheapest route to a better **free** tier — most routes fall out
-of filename plus conventions, so fewer files ever reach the paid refine pass.
+**The Organize arc (17–21) is one arc, and the order inside it is forced.** 21 goes second, right
+after 17: it needs the profile, nothing else needs it, and held-out on 7,558 real filed documents it
+more than doubles top-1 routing accuracy over the profile alone (28.9% → 58.2%) for Low–Medium
+effort. Then 18 before 19, because a rename pass that cannot tell the raw original from its renamed
+copy will produce a collision it cannot see; 17 sits under all of them, because it is what tells a
+rename which convention the destination folder uses — and what tells 20 which folders are inboxes,
+which names are axis values, and which duplication is deliberate. **20 comes last**, both because it
+is the only one that moves folders rather than files and because it should inherit 19's
+review-and-apply path instead of growing a second one.
+
+Taken together they are the first work aimed at the *backlog* rather than at the scan: one surveyed
+tree carries 524 loose files at its root, 682 files with a duplicate marker in the name, 68 duplicate
+groups that hash-based Tidy silently misses, and one thirteen-year folder series filed four different
+ways. **17 and 21 are together the cheapest route to a good free tier** — between the tree's own
+conventions and what its folders already contain, most routes are decidable by arithmetic, so fewer
+files ever reach the paid refine pass.
 
 **The cheapest two, both independent of item 1:** **15** (the rules view, which moves an existing
 list into a slot that already exists) and **14** (the ⌘K palette), which is the one that pays
