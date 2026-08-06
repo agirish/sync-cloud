@@ -727,6 +727,33 @@ against `LiquidGlass.headerHeight`, and `LensHeaderCard` shares that line from t
 
 ---
 
+### A resting indicator for which pane is focused
+
+**Now:** ⌃⇥ moves the pane-scoped chords (⌘F, ⌘[ / ⌘], ⇧⌘N, ⇧⌘P) between the two comparison panes,
+and a click in a pane moves it too — but **nothing on either pane says which one has it.** The only
+at-rest answer is the Go menu, whose item names the pane it would move *to*
+(`SwitchPaneFocusCommand`). Pressing the chord with nothing selected changes no pixel.
+
+This is not a regression the chord introduced: before it, "the focused pane" was already invisible,
+because `PaneSelectionWash` — the one existing cue — modulates *selected rows*, and the case that
+matters is the one with no selection to modulate.
+
+**Change:** a resting cue on the focused pane's header. The provider capsule is the obvious carrier
+(it is already the pane's identity chip and already hue-aware), taking an accent ring or a deepened
+fill; the unfocused pane keeps today's appearance, so the change is additive and the diff is one
+pane's worth.
+
+**The constraint that decides it:** `PaneHeader` has pinned geometry (`PaneHeaderHeightTests`
+against `LiquidGlass.headerHeight`, shared from the other side by `LensHeaderCard`), so the cue must
+cost **zero height** — a ring or a fill, never a badge or a row. And it needs a real pixel test:
+"width proves ROOM, only pixels prove PAINT", and a focus cue that renders as nothing is exactly the
+failure mode that survives a green geometry suite.
+
+**Effort:** Small. **Risk:** Low–Medium — the header's height is pinned, and the cue must be legible
+in both appearances at every glass level.
+
+---
+
 ### A review sheet before a bulk duplicate trash
 
 **Now:** *Apply N recommended* raises a native confirm that gets the safety story right — group
@@ -783,6 +810,7 @@ Cited by name; this list has no stable numbering.
 | One sequential ramp for the treemap | Small | Medium |
 | Name the compared pair in the title bar | Small | Medium |
 | One-line pane headers | Medium | Medium — ~44 pt on every window |
+| A resting indicator for which pane is focused | Small | Medium — ⌃⇥ ships without one |
 | A review sheet before a bulk duplicate trash | Medium | Medium |
 
 **Where the value is.** Item 1 is the largest single addition on this list. Its first stage,

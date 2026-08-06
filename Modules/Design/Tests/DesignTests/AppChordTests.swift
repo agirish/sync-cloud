@@ -20,6 +20,7 @@ import Testing
         #expect(AppChord.hiddenFiles.display == "⇧⌘.")
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")
+        #expect(AppChord.switchPaneFocus.display == "⌃⇥")
         #expect(AppChord.reviewDifferences.display == "⇧⌘R")
         #expect(AppChord.verifyDifferences.display == "⇧⌘V")
         #expect(AppChord.differencesList.display == "⌘D")
@@ -36,8 +37,8 @@ import Testing
         let all: [AppChord] = [
             .settings, .infoInspector, .activityLog, .shortcutsReference, .findInPane,
             .paneBack, .paneForward, .rescan, .newFolder, .hiddenFiles, .previewColumn,
-            .deleteSelection, .reviewDifferences, .verifyDifferences, .differencesList,
-            .foldAllDifferences,
+            .deleteSelection, .switchPaneFocus, .reviewDifferences, .verifyDifferences,
+            .differencesList, .foldAllDifferences,
             .workspace(1), .workspace(2), .workspace(3), .workspace(4), .workspace(5),
         ]
         for chord in all {
@@ -52,12 +53,12 @@ import Testing
         let all: [AppChord] = [
             .settings, .infoInspector, .activityLog, .shortcutsReference, .findInPane,
             .paneBack, .paneForward, .rescan, .newFolder, .hiddenFiles, .previewColumn,
-            .deleteSelection, .reviewDifferences, .verifyDifferences, .differencesList,
-            .foldAllDifferences,
+            .deleteSelection, .switchPaneFocus, .reviewDifferences, .verifyDifferences,
+            .differencesList, .foldAllDifferences,
         ]
         for chord in all {
             let spoken = ShortcutKeycapSpeech.spoken(chord.display)
-            #expect(!spoken.contains(where: { "[]./,⌫".contains($0) }),
+            #expect(!spoken.contains(where: { "[]./,⌫⇥".contains($0) }),
                     "\(chord.display) speaks as “\(spoken)” — add the key to ShortcutKeycapSpeech")
         }
     }

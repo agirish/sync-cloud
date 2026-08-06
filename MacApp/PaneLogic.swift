@@ -147,20 +147,59 @@ enum PaneLogic {
         results.query != previous.query
     }
 
-    /// Which pane ⌘F opens the search field on.
+    /// Which pane the pane-scoped chords act on — ⌘F, ⌘[, ⌘], ⇧⌘N and ⇧⌘P, all of which route
+    /// through here so "the focused pane" can never mean two different panes to two shortcuts.
     ///
-    /// **Selection-derived, with a floor.** `activePane` is the same rule that decides where the
-    /// action bar draws and which pane's selection wash is strong, so the Find shortcut lands where
-    /// every other pane-scoped affordance already points. But it is `nil` whenever nothing is
-    /// selected, which is most of the time and is not an answer — so the left pane is the floor,
-    /// matching the reading order of a left-to-right comparison.
+    /// **`focusedSide` is the answer whenever there is one.** It is set by ⌃⇥ and by clicking in a
+    /// pane (`ContentView.paneSelectionBinding`), which makes it the one fact that survives letting
+    /// go of a selection — the case the rule below cannot answer.
+    ///
+    /// **The selection is the fallback, with a floor.** `activePane` is the rule that decides where
+    /// the action bar draws and which pane's selection wash is strong, so before anything has taken
+    /// focus these chords still land where every other pane-scoped affordance points. But it is
+    /// `nil` whenever nothing is selected, which on a cold window is *everything* — and the left
+    /// pane is the floor there, matching the reading order of a left-to-right comparison. That
+    /// floor is exactly what `focusedSide` exists to stop being the only answer: it used to mean a
+    /// user who had never clicked a row had no way at all to aim ⌘F at the right-hand pane.
     ///
     /// On the single-source rail the question does not arise at all: the rail IS the left pane (see
     /// `ContentView.paneContext`) and is the only pane on screen, so a right answer there would open
-    /// a field on a pane nobody can see.
-    static func searchTargetIsLeft(isSingleSource: Bool, activePane: ActivePane?) -> Bool {
+    /// a field on a pane nobody can see — including a stale `focusedSide` left over from Compare,
+    /// which is why the rail's guard comes first.
+    static func searchTargetIsLeft(isSingleSource: Bool,
+                                   focusedSide: PaneTree.Side?,
+                                   activePane: ActivePane?) -> Bool {
         guard !isSingleSource else { return true }
+        if let focusedSide { return focusedSide == .left }
         return activePane != .right
+    }
+
+    /// The focused side after one pane-selection write — the mouse's half of the same fact ⌃⇥ sets.
+    ///
+    /// Extracted rather than written inline at the binding because the interesting case is the one
+    /// that changes NOTHING: an empty write is a deselect, and a deselect is not leaving the pane.
+    /// Moving focus there would send the next ⌘F back to the left-hand floor the moment you pressed
+    /// Escape, which is the behaviour the focused side exists to end — and inline in a `Binding`'s
+    /// setter that rule has no test that can reach it.
+    static func focusedSideAfterSelectionWrite(_ newSelection: Set<String>,
+                                               isLeft: Bool,
+                                               current: PaneTree.Side?) -> PaneTree.Side? {
+        guard !newSelection.isEmpty else { return current }
+        return isLeft ? .left : .right
+    }
+
+    /// Where ⌃⇥ moves focus from the pane the chords act on now.
+    ///
+    /// Resolved from the *effective* target rather than from the stored `focusedSide`, so the first
+    /// press always flips what is actually in effect. Flipping the stored value instead would make
+    /// the first press a no-op for anyone whose focus is still implicit: `nil` has no opposite, and
+    /// picking one arbitrarily lands on the pane the fallback had already chosen half the time.
+    static func focusSwitchTarget(isSingleSource: Bool,
+                                  focusedSide: PaneTree.Side?,
+                                  activePane: ActivePane?) -> PaneTree.Side {
+        searchTargetIsLeft(isSingleSource: isSingleSource,
+                           focusedSide: focusedSide,
+                           activePane: activePane) ? .right : .left
     }
 
     /// SF Symbols for the action bar's Copy/Move buttons, drawn from the shared `TransferGlyph`

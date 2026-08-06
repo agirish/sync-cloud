@@ -158,11 +158,33 @@ extension ContentView {
         state.wrappedValue.revealNonce &+= 1
     }
 
-    /// What ⌘F opens. The rule itself is `PaneLogic.searchTargetIsLeft`, where it can be tested —
-    /// this only supplies the two live facts.
+    /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘], ⇧⌘N and ⇧⌘P act on. The
+    /// rule itself is `PaneLogic.searchTargetIsLeft`, where it can be tested; this only supplies
+    /// the three live facts.
     var paneSearchTargetIsLeft: Bool {
         PaneLogic.searchTargetIsLeft(isSingleSource: layoutMode == .singleSource,
+                                     focusedSide: focusedPaneSide,
                                      activePane: activePane)
+    }
+
+    /// ⌃⇥ — move the pane-scoped chords to the other comparison pane.
+    ///
+    /// `nil` on the single-source workspaces, which show one pane: an enabled item that moved focus
+    /// to something not on screen would be worse than a disabled one, and the menu item names the
+    /// destination pane, which there is no second of.
+    var switchPaneFocusAction: PaneFocusSwitch? {
+        guard layoutMode == .compare else { return nil }
+        let target = PaneLogic.focusSwitchTarget(isSingleSource: false,
+                                                 focusedSide: focusedPaneSide,
+                                                 activePane: activePane)
+        let name = target == .left ? paneNames.left : paneNames.right
+        // Deliberately a bare state write, with no side effect on either pane. Closing the vacated
+        // pane's search field was tried as a way to make the chord produce something visible, and
+        // it is not worth it: the field holds a query the user typed, `isExpanded` is the only
+        // thing hiding it, and discarding a search to animate a focus move trades real state for
+        // decoration. What this does not yet have is a resting indicator of which pane is focused
+        // — see the note in `ROADMAP.md`.
+        return PaneFocusSwitch(targetName: name) { focusedPaneSide = target }
     }
 
     /// Opens the focused pane's search field, or — if it is already open — puts the caret back in it

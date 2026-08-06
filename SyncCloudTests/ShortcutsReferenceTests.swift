@@ -36,7 +36,7 @@ import Testing
     /// the point.
     @Test func testEveryMenuChordHasAReferenceRow() {
         let allKeys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
-        let chords = ["⌘ 1 – ⌘ 5", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫",
+        let chords = ["⌘ 1 – ⌘ 5", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫", "⌃ ⇥",
                       "⇧⌘ R", "⇧⌘ V", "⌘ D", "⇧⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /"]
         for chord in chords {
             #expect(allKeys.contains(chord), "no reference row lists “\(chord)”")

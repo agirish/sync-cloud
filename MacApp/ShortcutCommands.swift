@@ -62,6 +62,28 @@ private struct DeleteSelectionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct SwitchPaneFocusKey: FocusedValueKey {
+    typealias Value = PaneFocusSwitch
+}
+
+/// ⌃⇥'s payload: where it will move focus, and doing it.
+///
+/// The name travels with the action for the same reason `FoldAllAction` carries its verb — the menu
+/// item is the only resting surface that says which pane is focused now, so it has to read "Focus
+/// Dropbox" rather than "Switch Pane". A menu title that named neither pane would leave the state
+/// completely unreadable.
+struct PaneFocusSwitch: Equatable {
+    /// The pane this moves focus TO, by its provider display name.
+    let targetName: String
+    let run: () -> Void
+
+    /// The closure is identity-free, so equality is the name — which is the only part the menu
+    /// renders, and the only part a republish can meaningfully change.
+    static func == (lhs: PaneFocusSwitch, rhs: PaneFocusSwitch) -> Bool {
+        lhs.targetName == rhs.targetName
+    }
+}
+
 extension FocusedValues {
     /// The workspace bar's selection, as the same binding the segments write — going through it
     /// (never `selectedWorkspace` directly) is what re-homes the Tidy rail on a switch.
@@ -127,11 +149,18 @@ extension FocusedValues {
         get { self[DeleteSelectionKey.self] }
         set { self[DeleteSelectionKey.self] = newValue }
     }
+
+    /// Moves the pane-scoped chords to the other comparison pane; `nil` on a single-source
+    /// workspace, which has no other pane.
+    var switchPaneFocus: PaneFocusSwitch? {
+        get { self[SwitchPaneFocusKey.self] }
+        set { self[SwitchPaneFocusKey.self] = newValue }
+    }
 }
 
 // MARK: - ContentView's half
 
-/// The ten focused-value publications, bundled into one modifier with every field explicitly
+/// The eleven focused-value publications, bundled into one modifier with every field explicitly
 /// typed. Not organizational: chained inline in `ContentView.body` — an expression the compiler
 /// already strains under — the ternaries and property references pushed type-checking past its
 /// time limit and failed the build. Stored properties give inference nothing to solve.
@@ -146,6 +175,7 @@ struct ShortcutValuePublisher: ViewModifier {
     let inspector: Binding<Bool>
     let differencesList: Binding<Bool>?
     let delete: (() -> Void)?
+    let switchPaneFocus: PaneFocusSwitch?
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
     /// file operation is waiting on an answer — but focused values are published by the still-
@@ -169,6 +199,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
     var effectiveDifferencesList: Binding<Bool>? { suspended ? nil : differencesList }
     var effectiveDelete: (() -> Void)? { suspended ? nil : delete }
+    var effectiveSwitchPaneFocus: PaneFocusSwitch? { suspended ? nil : switchPaneFocus }
 
     func body(content: Content) -> some View {
         content
@@ -182,6 +213,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.infoInspector, effectiveInspector)          // ⌘I
             .focusedSceneValue(\.differencesListVisible, effectiveDifferencesList)  // ⌘D
             .focusedSceneValue(\.deleteSelection, effectiveDelete)           // ⌘⌫
+            .focusedSceneValue(\.switchPaneFocus, effectiveSwitchPaneFocus)  // ⌃⇥
     }
 }
 
@@ -198,6 +230,7 @@ extension ContentView {
             inspector: shortcutInfoInspector,
             differencesList: shortcutDifferencesList,
             delete: shortcutDeleteSelection,
+            switchPaneFocus: switchPaneFocusAction,
             suspended: pendingDestination != nil
         )
     }
@@ -371,6 +404,23 @@ struct DeleteSelectionCommand: View {
         }
         .keyboardShortcut(AppChord.deleteSelection.key, modifiers: AppChord.deleteSelection.modifiers)
         .disabled(delete == nil)
+    }
+}
+
+/// Go ▸ Focus <the other pane>, ⌃⇥.
+///
+/// The title names the destination — resolved from the same rule the chord acts on, exactly as
+/// `FoldAllDifferencesCommand` takes its verb from the header's resolved `FoldAllAction` — so the
+/// menu bar is where "which pane is focused?" can be answered at rest. Without that the state is
+/// invisible: the panes carry no focus indicator, so a title reading "Switch Pane" would say
+/// nothing about where you are or where you would end up.
+struct SwitchPaneFocusCommand: View {
+    @FocusedValue(\.switchPaneFocus) private var focus
+
+    var body: some View {
+        Button(focus.map { "Focus \($0.targetName)" } ?? "Focus Other Pane") { focus?.run() }
+            .keyboardShortcut(AppChord.switchPaneFocus.key, modifiers: AppChord.switchPaneFocus.modifiers)
+            .disabled(focus == nil)
     }
 }
 

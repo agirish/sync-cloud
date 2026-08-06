@@ -18,12 +18,13 @@ import Testing
             inspector: .constant(false),
             differencesList: .constant(true),
             delete: {},
+            switchPaneFocus: PaneFocusSwitch(targetName: "Dropbox", run: {}),
             suspended: suspended
         )
     }
 
     /// While the destination picker is up its overlay blocks the mouse from every control these
-    /// chords mirror; the keyboard must not tunnel under it. One flag silences all ten.
+    /// chords mirror; the keyboard must not tunnel under it. One flag silences all eleven.
     @Test func suspensionSilencesEveryPublishedValue() {
         let publisher = loadedPublisher(suspended: true)
         #expect(publisher.effectiveWorkspace == nil)
@@ -36,6 +37,7 @@ import Testing
         #expect(publisher.effectiveInspector == nil)
         #expect(publisher.effectiveDifferencesList == nil)
         #expect(publisher.effectiveDelete == nil)
+        #expect(publisher.effectiveSwitchPaneFocus == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -53,6 +55,7 @@ import Testing
         #expect(publisher.effectiveInspector != nil)
         #expect(publisher.effectiveDifferencesList != nil)
         #expect(publisher.effectiveDelete != nil)
+        #expect(publisher.effectiveSwitchPaneFocus != nil)
     }
 
     /// The ⌘/ window is `.contentSize`-resizable — the user cannot enlarge it — so the whole

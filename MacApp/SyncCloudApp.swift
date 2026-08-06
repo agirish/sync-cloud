@@ -457,10 +457,15 @@ struct SyncCloudApp: App {
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
             }
-            // Go ▸ per-pane history, Finder's own menu for Finder's own chords.
+            // Go ▸ per-pane history, Finder's own menu for Finder's own chords — plus the chord
+            // that decides which pane "per-pane" means. `SwitchPaneFocusCommand` sits with them
+            // because it is what the other two (and ⌘F, ⇧⌘N, ⇧⌘P) are aimed by, and its title
+            // naming the destination pane is the only at-rest answer to "which pane is focused".
             CommandMenu("Go") {
                 GoBackCommand()             // ⌘[
                 GoForwardCommand()          // ⌘]
+                Divider()
+                SwitchPaneFocusCommand()    // ⌃⇥
             }
             // Compare ▸ the differences header's two bulk actions. Their availability is the
             // header's own facts, published by `DifferencesView` from the render that drew (or

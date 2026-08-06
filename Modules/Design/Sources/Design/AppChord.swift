@@ -35,8 +35,10 @@ public struct AppChord: Sendable {
     }
 
     private static func keyGlyph(_ key: KeyEquivalent) -> String {
-        // The one key whose `character` is a control code rather than something drawable.
+        // The keys whose `character` is a control code rather than something drawable — ⌫ is
+        // U+007F and ⇥ is a literal tab, which a keycap would render as blank space.
         if key == .delete { return "⌫" }
+        if key == .tab { return "⇥" }
         return String(key.character).uppercased()
     }
 }
@@ -63,6 +65,15 @@ public extension AppChord {
     static let hiddenFiles = AppChord(".", [.shift, .command])
     static let previewColumn = AppChord("p", [.shift, .command])
     static let deleteSelection = AppChord(.delete, .command)
+    /// Moves the pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P) to the other comparison pane.
+    ///
+    /// ⌃⇥ and deliberately **not** a bare ⇥, which is the two-pane convention this borrows from.
+    /// A menu key equivalent outranks the field editor — the hazard `DeleteSelectionCommand`
+    /// documents for ⌘⌫ — and unlike ⌘⌫ there would be no way to route it back: plain Tab is how
+    /// you leave every text field in the app and how SwiftUI walks focus, so registering it would
+    /// take that away everywhere, permanently. ⌃⇥ is free here because this is a single-`Window`
+    /// scene with no window tabs for macOS to claim it for.
+    static let switchPaneFocus = AppChord(.tab, .control)
 
     // Differences
     static let reviewDifferences = AppChord("r", [.shift, .command])
