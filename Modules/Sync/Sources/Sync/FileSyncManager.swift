@@ -256,15 +256,55 @@ public class FileSyncManager: ObservableObject {
     /// Indicates whether at least one successful scan has occurred.
     @Published public var hasScanned = false
 
+    // MARK: Small persisted facts about what the user last did
+
+    /// Where the manager keeps the handful of small facts that have to outlive a launch — each
+    /// lens's last-completed scan target, and the Compare scan's last summary.
+    ///
+    /// Injected by the app; **nil — the default, what the CLI and bare test managers get — turns
+    /// every one of them off entirely, reads and writes both.** Same rule as the cache-store URLs,
+    /// and for the same reason: a fallback to `.standard` would have every test that completes a
+    /// scan writing the user's real defaults.
+    ///
+    /// One property rather than one per feature, and named for the rule rather than for the first
+    /// feature to need it (it was `lensAutoRescanDefaults`): a second injected store would be a
+    /// second thing for the app to remember to set, and the failure mode of forgetting is a
+    /// feature that is silently off.
+    public var persistedUIStateDefaults: UserDefaults?
+
+    /// The defaults key holding ``LastScanSummary`` as JSON.
+    public static let lastScanSummaryKey = "compareLastScanSummary"
+
+    /// What the last completed Compare scan found, restored at launch. See ``LastScanSummary``.
+    ///
+    /// `@Published` and loaded through ``loadLastScanSummary()`` rather than lazily in a getter:
+    /// the empty state renders from it, and a getter that decoded on first read would decode
+    /// inside `body`.
+    @Published public internal(set) var lastScanSummary: LastScanSummary?
+
+    /// Restores the persisted summary. Called once by the app after injecting the defaults; a
+    /// no-op without them, which is how this stays off for the CLI and tests.
+    ///
+    /// A value that no longer decodes is dropped rather than repaired: the whole feature is one
+    /// line of reassurance on an empty state, and there is nothing here worth a migration.
+    public func loadLastScanSummary() {
+        guard let defaults = persistedUIStateDefaults,
+              let data = defaults.data(forKey: Self.lastScanSummaryKey),
+              let summary = try? JSONDecoder().decode(LastScanSummary.self, from: data) else { return }
+        lastScanSummary = summary
+    }
+
+    /// Records what a completed scan found. Publishes even without a store so the current session
+    /// is consistent either way — only the *persistence* is gated, not the fact.
+    func recordLastScanSummary(_ summary: LastScanSummary) {
+        lastScanSummary = summary
+        guard let defaults = persistedUIStateDefaults,
+              let data = try? JSONEncoder().encode(summary) else { return }
+        defaults.set(data, forKey: Self.lastScanSummaryKey)
+    }
+
     // MARK: Lens auto-rescan — re-run a previously scanned lens on open, when it costs nothing
 
-    /// Store remembering each lens's last-completed scan target, so opening that lens next launch
-    /// can re-run the scan instead of sitting on the intro card. Injected by the app; **nil — the
-    /// default, what the CLI and bare test managers get — turns the feature off entirely, reads
-    /// and writes both.** Same rule as the cache-store URLs, and for the same reason: a fallback
-    /// to `.standard` would have every test that completes a scan writing the user's real
-    /// defaults.
-    public var lensAutoRescanDefaults: UserDefaults?
     /// Absolute paths recent completed Find Duplicates scans covered, newest first.
     public static let lastDuplicatesScanRootKey = "tidyLastDuplicatesScanRoot"
     /// Absolute folders recent completed Filing scans covered, newest first.
@@ -288,7 +328,7 @@ public class FileSyncManager: ObservableObject {
     /// A no-op without an injected store, which is how the feature stays off for the CLI and
     /// tests.
     func rememberLensScanTarget(_ path: String, forKey key: String) {
-        guard let defaults = lensAutoRescanDefaults else { return }
+        guard let defaults = persistedUIStateDefaults else { return }
         var recent = (defaults.array(forKey: key) as? [String] ?? []).filter { $0 != path }
         recent.insert(path, at: 0)
         defaults.set(Array(recent.prefix(Self.maxRememberedScanTargets)), forKey: key)
@@ -303,7 +343,7 @@ public class FileSyncManager: ObservableObject {
     /// the next completed scan overwrites the key with an array — at the cost of that install
     /// forgetting one target once, which is a manual scan away from being right again.
     func lensScanTargetIsRemembered(_ path: String, forKey key: String) -> Bool {
-        guard let defaults = lensAutoRescanDefaults else { return false }
+        guard let defaults = persistedUIStateDefaults else { return false }
         return (defaults.array(forKey: key) as? [String] ?? []).contains(path)
     }
 

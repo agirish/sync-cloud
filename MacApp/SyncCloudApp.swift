@@ -220,7 +220,12 @@ struct SyncCloudApp: App {
         // completed scan and the run cannot cost money — rows recomputed from the live
         // filesystem, so nothing stale is ever offered. This store remembers those targets;
         // leaving it unset (CLI, tests) turns the feature off.
-        manager.lensAutoRescanDefaults = .standard
+        manager.persistedUIStateDefaults = .standard
+        // ...and, from the same store, what the last Compare scan found — Compare cannot restore
+        // its rows for the same reason the two lenses cannot, so it restores the SUMMARY and
+        // offers only a Scan button. Loaded straight after the store is injected, because
+        // ContentView's empty state renders from it on the first frame.
+        manager.loadLastScanSummary()
         // The content-hash index survives launches, so Verify and Duplicates stop re-reading
         // gigabytes they already hashed. Enabled here for the same reason as the verdict cache
         // below: `ContentHashCache.shared` is the DEFAULT argument of `findDuplicates` and Verify,

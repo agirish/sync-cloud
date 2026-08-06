@@ -709,6 +709,28 @@ extension FileSyncManager {
             // can interleave and pair new rows with old names either.
             self.lastScanRootNames = (leftURL.lastPathComponent, rightURL.lastPathComponent)
             hasScanned = true
+            // Recorded from THIS request's own paths, not from the panes: the panes can have
+            // navigated on while the scan ran (that is why `lastScanRootNames` is set from the
+            // request too), and a summary stamped with where the panes ended up would claim a
+            // count for folders that were never compared.
+            //
+            // `results.count`, the unfiltered scan output, not `differences.count`: the published
+            // list is `rawDifferences` minus the hidden/ignored filter, and it keeps moving after
+            // the scan — toggling ⇧⌘. or ignoring a row would leave the summary disagreeing with a
+            // number it was never measuring.
+            recordLastScanSummary(LastScanSummary(
+                date: self.lastScanDate ?? Date(),
+                differenceCount: results.count,
+                leftProviderID: request.left.id,
+                // The request's own path, tilde-expanded — the same expression the pane's
+                // `PaneLogic.fullPath` produces — rather than `leftURL.path`, which is that string
+                // after `URL`'s normalization. `describes` trims trailing separators anyway, so
+                // this is belt and braces; it is written this way so the two sides START equal
+                // rather than relying on the trim to reconcile them.
+                leftPath: (request.leftPath as NSString).expandingTildeInPath,
+                rightProviderID: request.right.id,
+                rightPath: (request.rightPath as NSString).expandingTildeInPath
+            ))
 
             // `.info`, matching the start line above rather than the `.debug` this used to be.
             // A start and an outcome at different levels is the unpairable state this whole

@@ -48,7 +48,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
         let defaults = ScratchDefaults("autoRescanRecords")
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
 
         #expect(defaults.array(forKey: FileSyncManager.lastDuplicatesScanRootKey) == nil)
         await manager.findDuplicates(root: root, cache: nil)
@@ -63,7 +63,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
         let defaults = ScratchDefaults("autoRescanCancelled")
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
 
         manager.startFindDuplicates(root: root)
         manager.cancelFindDuplicates()
@@ -77,7 +77,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
         let defaults = ScratchDefaults("autoRescanEligible")
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
 
         // A different recorded root is someone else's consent.
         defaults.set(["/somewhere/else"], forKey: FileSyncManager.lastDuplicatesScanRootKey)
@@ -116,7 +116,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
         let defaults = ScratchDefaults("autoRescanLatch")
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
         defaults.set([root.path], forKey: FileSyncManager.lastDuplicatesScanRootKey)
 
         #expect(manager.autoRescanDuplicatesIfEligible(root: root))
@@ -143,7 +143,7 @@ private final class PromptProbe: @unchecked Sendable {
         let defaults = ScratchDefaults("autoRescanTwoProviders")
 
         let manager = FileSyncManager()
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
         await manager.findDuplicates(root: first, cache: nil)
         manager.clearDuplicates()                       // the provider switch
         await manager.findDuplicates(root: second, cache: nil)
@@ -158,7 +158,7 @@ private final class PromptProbe: @unchecked Sendable {
     @Test func onlyTheMostRecentTargetsAreRemembered() async throws {
         let defaults = ScratchDefaults("autoRescanTargetCap")
         let manager = FileSyncManager()
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
         let key = FileSyncManager.lastDuplicatesScanRootKey
 
         for i in 0...(FileSyncManager.maxRememberedScanTargets) {
@@ -184,7 +184,7 @@ private final class PromptProbe: @unchecked Sendable {
         let root = try duplicateFixture("vanished")
         let defaults = ScratchDefaults("autoRescanVanished")
         let manager = FileSyncManager()
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
         await manager.findDuplicates(root: root, cache: nil)
         manager.clearDuplicates()
 
@@ -211,7 +211,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
         let defaults = ScratchDefaults("autoRescanManual")
-        manager.lensAutoRescanDefaults = defaults
+        manager.persistedUIStateDefaults = defaults
         defaults.set([root.path], forKey: FileSyncManager.lastDuplicatesScanRootKey)
 
         await manager.findDuplicates(root: root, cache: nil)
@@ -261,7 +261,7 @@ private final class PromptProbe: @unchecked Sendable {
                                freeIdentity: String? = FileSyncManager.onDeviceBackendIdentity) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingVerdictCacheURL = url
-        m.lensAutoRescanDefaults = store
+        m.persistedUIStateDefaults = store
         m.filingBackendIdentity = { tier in tier == .refine ? identity : freeIdentity }
         m.filingClassifier = { _, files, tier in
             log.record(files.map(\.fileName))

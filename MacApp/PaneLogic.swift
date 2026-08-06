@@ -1,4 +1,5 @@
 import CoreGraphics
+import Design
 import Events
 import FileExplorer
 import Foundation
@@ -172,6 +173,25 @@ enum PaneLogic {
         guard !isSingleSource else { return true }
         if let focusedSide { return focusedSide == .left }
         return activePane != .right
+    }
+
+    /// What Compare's not-scanned card says, given the persisted summary and where the panes point.
+    ///
+    /// The rule, not just the sentence: `ComparePrompt` owns the wording and `LastScanSummary`
+    /// owns "is this the same comparison", but the DECISION to consult the summary at all lives
+    /// here so a test can hold it. Inline in a view's computed property it had no reachable test,
+    /// and the failure it guards against is silent — a count for the wrong pair of folders reads
+    /// as current, which is worse than the cold "Nothing scanned yet" it replaces.
+    static func notScannedMessage(summary: LastScanSummary?,
+                                  leftProviderID: String, leftPath: String,
+                                  rightProviderID: String, rightPath: String,
+                                  now: Date) -> String {
+        guard let summary,
+              summary.describes(leftProviderID: leftProviderID, leftPath: leftPath,
+                                rightProviderID: rightProviderID, rightPath: rightPath)
+        else { return ComparePrompt.neverScanned }
+        return ComparePrompt.lastScan(differenceCount: summary.differenceCount,
+                                      date: summary.date, now: now)
     }
 
     /// The focused side after one pane-selection write — the mouse's half of the same fact ⌃⇥ sets.

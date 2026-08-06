@@ -1951,6 +1951,18 @@ struct ContentView: View {
     }
 
 
+    /// What the not-scanned card says. The rule is `PaneLogic.notScannedMessage`, where it can be
+    /// tested; this supplies the live facts. `hasScanned` is false whenever this renders, so there
+    /// is no live result for it to contradict — this is the cold-open card and nothing else.
+    private var notScannedMessage: String {
+        PaneLogic.notScannedMessage(
+            summary: syncManager.lastScanSummary,
+            leftProviderID: leftProviderId, leftPath: currentLeftPath,
+            rightProviderID: rightProviderId, rightPath: currentRightPath,
+            now: Date()
+        )
+    }
+
     /// The Compare busy state: the whole placeholder becomes the scan while the first one runs
     /// (the Tidy pattern) — livelier than a spinning button glyph.
     ///
@@ -2261,7 +2273,7 @@ struct ContentView: View {
                             icon: PaneGlyph.compare,
                             tint: glassHue.accentColor,
                             title: "Compare \(paneNames.left) ↔ \(paneNames.right)",
-                            message: "Nothing scanned yet. Scan the two focused folders to see what differs.",
+                            message: notScannedMessage,
                             primary: .init("Scan", systemImage: "arrow.clockwise") { forceRefreshAction() }
                         )
                     }
