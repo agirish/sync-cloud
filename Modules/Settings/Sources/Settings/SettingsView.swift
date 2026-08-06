@@ -1595,6 +1595,13 @@ struct TidySettingsTab: View {
             }
         }
         .onAppear(perform: refreshSpend)
+        // The three moments below — appearing, this page's own sheet closing, its own Clear —
+        // are the ones this page can name. They are not all of them: `FilingSpendHistoryView`
+        // is presented from the Organize lens as well, with its own Clear History, and a scan
+        // records spend while this tab sits open. `receive(on:)` because `record` posts from
+        // off the main actor. See `FilingSpendStore.didChange`.
+        .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
+            .receive(on: DispatchQueue.main)) { _ in refreshSpend() }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             TidySpendHistorySheet()
         }
