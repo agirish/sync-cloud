@@ -42,6 +42,11 @@ public struct PaneHeader: View {
     public let onRefresh: (() -> Void)?
     /// Spins the refresh glyph while a scan is running.
     public let isRefreshing: Bool
+    /// Stops the running scan. When this is present the scan rung becomes a Stop button for as
+    /// long as `isRefreshing` holds, instead of a disabled spinner — the control that started the
+    /// scan is the one place a user looks to stop it. `nil` keeps the old disabled-while-running
+    /// behaviour, which is what every caller outside the app passes.
+    public let onCancelScan: (() -> Void)?
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
@@ -122,6 +127,7 @@ public struct PaneHeader: View {
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
+        onCancelScan: (() -> Void)? = nil,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
         onNewFolder: (() -> Void)? = nil,
@@ -148,6 +154,7 @@ public struct PaneHeader: View {
         self.onCollapse = onCollapse
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
+        self.onCancelScan = onCancelScan
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.onNewFolder = onNewFolder
@@ -710,16 +717,27 @@ public struct PaneHeader: View {
             // why `PaneBarItem.pinned` refuses to remove or fold it: a gate here means a pane that
             // can never be scanned.
             if let onRefresh {
-                // The arrow spins while a scan runs (reduced-motion is honored automatically).
-                Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise")
-                        .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
+                // Mid-scan this rung becomes Stop, when the host supplied one. The scan it would
+                // start is the one already running, so the button was disabled anyway — a live
+                // Stop occupies dead chrome rather than adding any. The rung keeps its position
+                // and size, so nothing after it moves when the swap happens.
+                //
+                // The spinning arrow goes with it, and that is the trade: "something is happening"
+                // is still carried by the differences count pill's "scanning…" and by both panes'
+                // own loading state, while "you can stop this" had no carrier at all. A spinner
+                // you cannot stop was the whole complaint.
+                let stopping = isRefreshing && onCancelScan != nil
+                Button(action: { stopping ? onCancelScan?() : onRefresh() }) {
+                    Image(systemName: stopping ? "stop.circle" : "arrow.clockwise")
+                        .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing && !stopping)
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .shortcutKeycap(AppChord.rescan.display)
-                .disabled(isRefreshing)
-                .help(ShortcutHint.tooltip("Scan for changes", AppChord.rescan.display))
+                .shortcutKeycap(stopping ? nil : AppChord.rescan.display)
+                .disabled(isRefreshing && !stopping)
+                .help(stopping ? "Stop scanning"
+                               : ShortcutHint.tooltip("Scan for changes", AppChord.rescan.display))
+                .accessibilityLabel(stopping ? "Stop scanning" : "Scan for changes")
             }
 
         case .newFolder:

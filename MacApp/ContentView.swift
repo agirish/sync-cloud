@@ -1679,6 +1679,11 @@ struct ContentView: View {
                     : nil,
                 onRefresh: { forceRefreshAction() },
                 isRefreshing: isScanning,
+                // Turns the rung into Stop for as long as the scan runs. Both panes get it —
+                // there is one scan behind the two of them, so stopping from either is the same
+                // act, and the pane the user happens to be looking at is the one they will reach
+                // for.
+                onCancelScan: { syncManager.cancelScan() },
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail gets the switch too, bound to its own key.
                 viewMode: layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft),
@@ -1946,6 +1951,49 @@ struct ContentView: View {
     }
 
 
+    /// The Compare busy state: the whole placeholder becomes the scan while the first one runs
+    /// (the Tidy pattern) — livelier than a spinning button glyph.
+    ///
+    /// It reports **elapsed time and nothing else**, because elapsed time is the only honest number
+    /// available. A percentage would need a total, and the walk that produces one
+    /// (`FileDiffEngine.getFilesInDirectory`) counts nothing on the way through; instrumenting it
+    /// means a callback in the hottest loop in the app plus a main-actor hop to publish from, in a
+    /// function whose comments already record two rounds of performance work. A running clock costs
+    /// a `TimelineView` and cannot be wrong.
+    ///
+    /// Cancel is the point of the whole card. `stop.circle` and the same wording as the pane rung's
+    /// Stop, which is the other door to `cancelScan()`.
+    @ViewBuilder
+    private var scanningPlaceholder: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.large)
+            VStack(spacing: 4) {
+                Text("Scanning \(paneNames.left) and \(paneNames.right)…")
+                    .scaledFont(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if let started = syncManager.scanStartedAt {
+                    // Ticks once a second from the scan's own start, so the run has no drift to
+                    // accumulate and the label is not a view-owned clock that a remount resets.
+                    TimelineView(.periodic(from: started, by: 1)) { context in
+                        Text(ScanElapsed.text(since: started, now: context.date))
+                            .scaledFont(.system(size: 11))
+                            .monospacedDigit()
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            Button {
+                syncManager.cancelScan()
+            } label: {
+                Label("Stop", systemImage: "stop.circle")
+            }
+            .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                    onTint: glassHue.onAccentLabelColor))
+            .help("Stop scanning")
+        }
+    }
+
     /// Selection binding for one pane that enforces the one-pane-selected invariant: setting a
     /// non-empty selection in one pane clears the other. The clicked pane commits synchronously
     /// so the click lands on the first try; the OTHER pane's clear is deferred one runloop tick,
@@ -2197,15 +2245,7 @@ struct ContentView: View {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {
                     if isScanning {
-                        // While the first scan runs the whole placeholder becomes a busy
-                        // state (the Tidy pattern) — livelier than a spinning button glyph.
-                        VStack(spacing: 14) {
-                            ProgressView()
-                                .controlSize(.large)
-                            Text("Scanning \(paneNames.left) and \(paneNames.right)…")
-                                .scaledFont(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
+                        scanningPlaceholder
                     } else if syncManager.hasScanned {
                         EmptyStateView(
                             icon: "checkmark.seal.fill",

@@ -241,6 +241,18 @@ public class FileSyncManager: ObservableObject {
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
+    /// When the running scan started, or nil when none is running.
+    ///
+    /// The Compare scan is the longest thing the app does — two full directory walks — and until
+    /// this existed it published a bare `isScanning` and nothing else, so its only report was an
+    /// indeterminate spinner. Every lens scan says more than that. There is no honest *fraction* to
+    /// publish (`FileDiffEngine.getFilesInDirectory` counts nothing on the way through, and adding
+    /// a per-entry callback would put a main-actor hop in the hottest path in the app), so this
+    /// publishes the one true number that costs nothing: how long it has been running.
+    ///
+    /// Set and cleared in lockstep with `isScanning`, so "scanning with no start time" is not a
+    /// state any reader has to handle.
+    @Published public internal(set) var scanStartedAt: Date?
     /// Indicates whether at least one successful scan has occurred.
     @Published public var hasScanned = false
 

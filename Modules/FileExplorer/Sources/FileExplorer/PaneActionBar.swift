@@ -178,26 +178,13 @@ public struct PaneActionBar: View {
                                 onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor))
         // Between the style and `.help`: the keycap's ordering rules are the adopters' to hold —
         // above any `.disabled` (none here), and with `.help` OUTSIDE it so the tooltip keeps
-        // the control's description on the accessibility element.
-        .modifier(OptionalKeycap(symbol: keycap))
+        // the control's description on the accessibility element. `shortcutKeycap` takes the
+        // Optional directly and withholds both the badge and the hint on nil, which is what the
+        // private `OptionalKeycap` wrapper here used to do by branching.
+        .shortcutKeycap(keycap)
         // `.help` takes a non-optional, and `.help("")` renders an empty tooltip box rather than
         // none, so the presence check has to happen somewhere.
         .modifier(OptionalHelp(text: help))
-    }
-}
-
-/// Applies `.shortcutKeycap` only when a symbol is present — `OptionalHelp`'s shape, and safe
-/// under the same reasoning: the buttons hold no state, and the keycap changes only when the
-/// bar is rebuilt anyway.
-private struct OptionalKeycap: ViewModifier {
-    let symbol: String?
-
-    func body(content: Content) -> some View {
-        if let symbol {
-            content.shortcutKeycap(symbol)
-        } else {
-            content
-        }
     }
 }
 

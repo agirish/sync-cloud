@@ -113,20 +113,32 @@ public extension View {
     /// scope and can read `isEnabled` — the same ordering rule `ChromeHoverModifier` documents,
     /// and for the same reason: a badge on a greyed-out button advertises a shortcut that does
     /// nothing when you press it.
-    func shortcutKeycap(_ symbol: String) -> some View {
+    /// `symbol` is Optional so a control that only *sometimes* has a chord — a rung that swaps
+    /// between two actions, one bound and one not — can say so. A `String` call site still reads
+    /// exactly as before; Swift promotes it.
+    ///
+    /// `nil` has to mean "no badge" rather than "an empty badge": the modifier draws a keycap
+    /// around whatever it is given, so `""` would produce a blank capsule, the same trap `.help("")`
+    /// sets one layer over. Applying the modifier conditionally at the call site instead would make
+    /// the two arms two structural identities, which is safe only for a control holding no state —
+    /// one identity that decides inside is safe for every control.
+    func shortcutKeycap(_ symbol: String?) -> some View {
         modifier(ShortcutKeycapModifier(symbol: symbol))
     }
 }
 
 private struct ShortcutKeycapModifier: ViewModifier {
-    let symbol: String
+    /// `nil` for a control that has no chord right now — see the optional `shortcutKeycap`
+    /// overload. It suppresses the badge and the hint together: a control with no shortcut must
+    /// not announce one to VoiceOver either, which a badge-only gate would leave it doing.
+    let symbol: String?
 
     @Environment(\.shortcutRevealActive) private var isRevealActive
     /// A disabled control's shortcut does not fire, so it must not advertise one. Same guard, and
     /// the same reasoning, as `HoverAffordanceMetrics.resolve`'s `isEnabled` check.
     @Environment(\.isEnabled) private var isEnabled
 
-    private var showsKeycap: Bool { isRevealActive && isEnabled }
+    private var showsKeycap: Bool { symbol != nil && isRevealActive && isEnabled }
 
     func body(content: Content) -> some View {
         content
@@ -144,7 +156,7 @@ private struct ShortcutKeycapModifier: ViewModifier {
             // rather than beside it, because the content already fills the control. Centring is
             // also the only placement that cannot overhang asymmetrically onto a neighbour.
             .overlay {
-                if showsKeycap {
+                if showsKeycap, let symbol {
                     ShortcutKeycap(symbol).transition(.opacity)
                 }
             }
@@ -158,7 +170,7 @@ private struct ShortcutKeycapModifier: ViewModifier {
             // puts `.help` outside this modifier and every adopter's help text names the shortcut,
             // so the shortcut survives either way — but a call site that applied `.help` *inside*
             // would lose its description to this line. Keep `.help` outside.
-            .accessibilityHint("Keyboard shortcut: \(ShortcutKeycapSpeech.spoken(symbol))")
+            .accessibilityHint(symbol.map { "Keyboard shortcut: \(ShortcutKeycapSpeech.spoken($0))" } ?? "")
     }
 }
 

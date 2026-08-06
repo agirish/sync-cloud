@@ -500,8 +500,41 @@ extension FileSyncManager {
         await executeScan(request)
     }
 
+    /// Stops the running scan (and the tree loads in front of it) at the user's request.
+    ///
+    /// Every lens scan has had a Cancel since it shipped — `cancelFindDuplicates`,
+    /// `cancelBuildStorageLens`, `cancelFindFilingSuggestions`, `cancelAutomationDryRun` — and the
+    /// Compare scan, which walks *two* whole trees and is the longest operation in the app, had
+    /// none. Starting one against the wrong pair of roots meant waiting it out or quitting.
+    ///
+    /// Cancels the refresh task rather than anything scan-specific, because that is the unit the
+    /// app actually starts (`refreshTreesAndScan` is the only production entry point): the two pane
+    /// loads and the scan behind them are one structured chain, and cancelling only the scan would
+    /// leave the loads running. `executeScan`'s publish gate already discards a cancelled scan's
+    /// results, and its `isScanning = false` still runs, so nothing here has to unwind state.
+    ///
+    /// **The queued request has to go too.** `pendingScanRequest` holds a scan that has not started
+    /// yet; leaving it would let the drain at the end of `executeScan` start a *fresh* scan the
+    /// instant the cancelled one unwound, so Cancel would look like it did nothing at all.
+    ///
+    /// `activeRefreshKey` is deliberately not touched: the cancelled task's own cleanup releases
+    /// it (matched by task identity), and clearing it here would let a superseding refresh's key be
+    /// dropped by an unrelated cancel.
+    /// Liveness is `activeRefreshKey`, not `activeRefreshTask`: the task handle is never nilled
+    /// out, only overwritten, so a finished refresh leaves a completed `Task` sitting there and a
+    /// guard on it would report "cancelled" long after there was anything to cancel. The key is
+    /// set before the task and released by that task's own cleanup, so it is non-nil for exactly
+    /// the in-flight window.
+    public func cancelScan() {
+        guard activeRefreshKey != nil else { return }
+        Logger.shared.info("[scan] cancelled by the user")
+        pendingScanRequest = nil
+        activeRefreshTask?.cancel()
+    }
+
     private func executeScan(_ request: ScanRequest) async {
         isScanning = true
+        scanStartedAt = Date()
         // Same identity discipline as the load records: the scan's own request generation, so a
         // start line pairs with its outcome even when a refresh supersedes the scan mid-flight
         // (which publishes nothing and, before this, logged nothing at all).
@@ -695,6 +728,7 @@ extension FileSyncManager {
         }
 
         isScanning = false
+        scanStartedAt = nil
 
         if let pending = pendingScanRequest {
             pendingScanRequest = nil
