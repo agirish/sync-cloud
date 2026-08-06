@@ -700,6 +700,97 @@ the same target. That collision is item 18's problem, which is why it comes firs
 
 ---
 
+## 20. Restructure: ask whether the shape itself is right
+
+**Why:** Organize answers *where does this file go*, one loose file at a time, and the rename pass
+above answers *what is it called once it lands*. Neither can see a **series**. The same survey that
+produced the filing profile found `Finance/US/Income Tax/<year>/` using **four different internal
+schemes across thirteen years** for the same recurring annual event:
+
+| Years | Shape |
+|---|---|
+| 2013–2014 | `Federal Tax/` · `State Tax (California)/` · `State Tax (North Carolina)/` |
+| 2015 | `Common/` · `Federal Tax/` · `State Tax/` |
+| 2016–2023 | `Forms/` · `Reference/` · `Refund/` · `Transcripts/` (＋ drifting extras) |
+| 2024–2025 | `Deductions/` · `Income/` · `Tax Records/` · `Tax Returns/` |
+
+Nothing there is a filing mistake — each year was filed sensibly at the time. Finding a W-2 simply
+means first working out which era you are standing in. No per-file verdict can express that, because
+the defect is not in any file.
+
+**What:** A second lens inside Organize — a *Structure* tab beside *Files* — that reads the filing
+profile and reports where the tree disagrees with itself, then proposes a plan to fix it. **Not a
+sixth workspace:** the bar already carries five labelled segments, `WorkspaceBarMetrics` sheds every
+label at once at the 600 pt floor, and items 1b and 16 are both ahead of this in the queue for that
+space. Not a Tidy mode either — Tidy judges a compared pair; this judges one tree against its own
+habits.
+
+**The hard part is silence, and it is a detector design problem.** 247 folder names appear under
+more than one parent and 105 span different top-level areas, and **almost all of them are correct**:
+`Statements/`, `Reference/` and `Transcripts/` are role folders that are supposed to recur, and
+`Abhishek/` in fourteen places is the person axis working as designed. A detector that flags
+repeated names produces hundreds of false positives and gets switched off in a day. So the detector
+never compares names globally — it compares siblings inside one family (one parent, one role) under
+two rules:
+
+- **Axis values are not structure.** Children named for a year, a person, a jurisdiction or an inbox
+  are dropped before two siblings are compared. They recur legitimately *and* differ legitimately.
+  What survives is the folder's role vocabulary — the part that is supposed to agree.
+- **Difference is not divergence.** A family diverges only when **two or more groups of siblings
+  each vouch for a different shape**. One odd sibling out of thirteen is drift, not an era.
+
+Run against the profile's 2,798 folders those two rules return **two divergent families in the whole
+tree** — Income Tax (13 years, 4 eras) and `Immigration/Authorization/H-4` (4 periods, 2 eras, which
+the survey had not spotted). The controls stayed quiet: `Travel/Trips/United States`, whose states
+each hold different cities; `Chase/Archive`, whose accounts each ran for different years;
+`Credit Accounts`, where two of four have a backlog folder and two do not. Divergence is one
+detector of six — the others cover a subtree mirrored under an inbox (`Health/Dental` vs
+`Health/TODO/Dental`), a child whose name echoes its parent's (`PG&E/PGE`, 18 raw files, invisible to
+the `TODO` rule), a loose folder beside a container that already owns the concept (`Home/ATT Bill`),
+files parked above a year series, and dead weight (76 empty, 52 pass-through, 434 single-file leaves).
+
+**One detector is deliberately absent.** *Duplicated taxonomy* — `Work/Archive/MapR/Compensation/`
+holding both `Forms/` and `Income Tax/`, each with the same three form folders — must not ship on
+name evidence. Tested against the tree, matching siblings by child names is dominated by correct
+parallels: Vanguard's Roth and Traditional IRAs, four Chase accounts each foldered by year,
+`PFL - Shweta` beside `SDI - Shweta`. **Identical sibling structure is usually a sign of health.**
+What separates MapR is that the same documents sit in both, so this is a content claim and it waits
+on item 18.
+
+**A proposal is a plan, and the plan is a manifest.** Restructure emits an ordered list of typed
+operations — create folder, move folder, move file, and only as a separate opt-in step remove an
+emptied folder. It never deletes a file. Four invariants make it safe to aim at thirteen years of
+tax documents:
+
+1. Every file that will move is listed by full path **before** anything runs, and the number on the
+   button is the length of that list.
+2. **Apply is closed over the manifest.** A folder holding a file the scan never listed is skipped
+   and reported, not swept along — and the rest of the plan still runs. "Never silently touch a file
+   it did not list" has to be an enforced guard, not a promise in a doc.
+3. **The inverse plan is written to disk before the first move**, so a run interrupted halfway is
+   still reversible.
+4. **Nothing is dropped to make the shape fit.** A folder the target scheme has no slot for —
+   `Transcripts/` under the 2024–25 vocabulary — stays where it is and is listed as *kept*.
+
+**The app proposes; it does not decide.** It shows the eras it found and asks which is the house
+style, defaulting to the newest because that is current practice. The leverage is that the mapping
+is edited once and applies to all thirteen years. And where the tree is genuinely ambiguous —
+`Health/Kaiser - PG&E` beside `Health/Medical/Kaiser` share an institution anchor, but coverage
+through an employer versus care records is not a fact recorded anywhere — the finding is a
+**Question with no Apply button**, whose answer is written into the profile's `folderSemantics` and
+never asked again. Guessing there is worse than asking.
+
+**Impact:** High. It is the only item that acts on the shape of the tree rather than its contents,
+and the flagship case has been accumulating for thirteen years.
+
+**Effort:** High. **Risk:** High — this is the most destructive operation the app would offer:
+dozens of moves across folders in daily use, and a wrong one is much harder to notice than a wrong
+file copy. It is gated behind the filing profile, and it should share the rename pass's
+review-and-apply path rather than growing a second one, which is the argument for building it fourth
+in that arc rather than first.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
@@ -935,6 +1026,7 @@ the question hundreds of keeper picks actually raise.
 | 17 | Filing profile for Organize | Medium | **High** |
 | 18 | PDF content fingerprint | Medium | High |
 | 19 | Rename pass for the backlog | Medium | Medium–High |
+| 20 | Restructure — is the shape itself right | High | **High** |
 
 ### Interface
 
@@ -957,14 +1049,17 @@ Cited by name; this list has no stable numbering.
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
 
-**The Organize trio (17–19) is one arc, and the order inside it is forced.** 18 before 19, because a
+**The Organize arc (17–20) is one arc, and the order inside it is forced.** 18 before 19, because a
 rename pass that cannot tell the raw original from its renamed copy will produce a collision it
-cannot see; 17 under both, because it is what tells a rename which convention the destination folder
-uses. Taken together they are the first work aimed at the *backlog* rather than at the scan: one
-surveyed tree carries 524 loose files at its root, 682 files with a duplicate marker in the name,
-and 68 duplicate groups that hash-based Tidy silently misses. 17 is also the cheapest route to a
-better **free** tier — most routes fall out of filename plus conventions, so fewer files ever reach
-the paid refine pass.
+cannot see; 17 under all of them, because it is what tells a rename which convention the destination
+folder uses — and what tells 20 which folders are inboxes, which names are axis values, and which
+duplication is deliberate. **20 comes last**, both because it is the only one that moves folders
+rather than files and because it should inherit 19's review-and-apply path instead of growing a
+second one. Taken together they are the first work aimed at the *backlog* rather than at the scan:
+one surveyed tree carries 524 loose files at its root, 682 files with a duplicate marker in the name,
+68 duplicate groups that hash-based Tidy silently misses, and one thirteen-year folder series filed
+four different ways. 17 is also the cheapest route to a better **free** tier — most routes fall out
+of filename plus conventions, so fewer files ever reach the paid refine pass.
 
 **The cheapest two, both independent of item 1:** **15** (the rules view, which moves an existing
 list into a slot that already exists) and **14** (the ⌘K palette), which is the one that pays
