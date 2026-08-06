@@ -43,11 +43,12 @@ extension FileSyncManager {
 
     /// Whether there is a list to refine and a backend to refine it with.
     ///
-    /// Deliberately says nothing about *cost* — that is ``filingRefineCouldReachTheSpendPrompt``,
-    /// and the UI needs both: this one decides whether the control can work at all, that one
-    /// decides whether it is worth offering (a refine that routes back to the same on-device model
-    /// the scan already ran would re-ask the same question and bill nothing, but also improve
-    /// nothing, so offering it as an upgrade would be a lie).
+    /// Deliberately says nothing about *cost* — that is ``filingCloudRefineAvailable`` (is a key
+    /// stored, cheap enough to ask per render) and ``filingRoutesToCloud(_:)`` (will this be
+    /// billed, resolved for real). The UI needs this one and the first of those: this decides
+    /// whether the control can work at all, that decides whether it is worth offering — a refine
+    /// routing back to the on-device model the scan already ran would improve nothing, so offering
+    /// it as an upgrade would be a lie.
     public var canRefineFilingSuggestions: Bool {
         filingUsesAI && filingClassifier != nil && !isRefiningFilingSuggestions
             && !filingSuggestions.isEmpty
@@ -126,8 +127,10 @@ extension FileSyncManager {
         // path-keyed ones, relativized for the backend's exclusion list. Read here, pre-await,
         // because this list is what the REQUEST carries — it has to describe what was actually
         // sent. The apply filter re-reads them afterwards; see below.
+        let scopedRejections = filingRejections(under: URL(fileURLWithPath: root))
         let excludedByFile = Dictionary(uniqueKeysWithValues: eligible.map { s in
-            (s.filePath, rejectedFolders(for: s, under: root).compactMap { Self.relativePath($0, under: root) })
+            (s.filePath, rejectedFolders(for: s, in: scopedRejections)
+                .compactMap { Self.relativePath($0, under: root) })
         })
 
         // Split against the cache first — see the doc above for why this precedes the pre-flight.
@@ -199,9 +202,10 @@ extension FileSyncManager {
         // rejection the snapshot cannot see, and applying against the stale copy re-suggests the
         // folder the user just rejected. (The request's exclusion list above is the opposite case:
         // it must stay pre-await, because it describes what was actually sent.)
+        let liveRejections = filingRejections(under: URL(fileURLWithPath: root))
         var rejectedByFile: [String: Set<String>] = [:]
         for s in filingSuggestions {
-            let paths = rejectedFolders(for: s, under: root)
+            let paths = rejectedFolders(for: s, in: liveRejections)
             if !paths.isEmpty { rejectedByFile[s.filePath] = paths }
         }
         // `uniqueKeysWithValues` is safe here where it is not on `scope`: this maps the manager's
@@ -217,6 +221,18 @@ extension FileSyncManager {
         filingLastRefine = summary
         Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(classifiedCount) sent to the backend, "
             + "\(cachedVerdicts.count) reused from cache, \(changed) home(s) changed")
+        // The one state where the button and the router disagree: a key IS stored (so the button
+        // offered Claude) but it could not be read (so the pass ran on-device). Nothing was
+        // billed, and saying "no better homes found" would report a Claude verdict nobody got —
+        // the honest answer names the key. See ``filingCloudRefineConfigured`` for why the cheap
+        // display check is allowed to be weaker than the route.
+        if filingCloudRefineIsDowngraded {
+            Logger.shared.warning("Filing: refine ran on-device — Claude is switched on but the "
+                + "saved key could not be read, so nothing was sent or billed")
+            banner = .warning("Couldn't reach Claude — your saved API key couldn't be read. "
+                              + "These are the on-device suggestions; check the key in Settings ▸ Organize.")
+            return summary
+        }
         // Success in both directions: "no better homes found" is a complete, correct answer to
         // what was asked, not a failure to warn about.
         banner = .success(changed > 0
@@ -228,11 +244,17 @@ extension FileSyncManager {
     }
 
     /// Every folder rejected for `suggestion` — this session's path-keyed rejections plus the
-    /// persisted token-keyed ones scoped to `root`. The one derivation, so the request's exclusion
-    /// list and the apply filter cannot answer differently for reasons other than *when* they ran.
-    private func rejectedFolders(for suggestion: FilingSuggestion, under root: String) -> Set<String> {
-        Self.rejectedPaths(forFileNamed: suggestion.fileName,
-                           in: filingRejections(under: URL(fileURLWithPath: root)))
+    /// persisted token-keyed ones. The one derivation, so the request's exclusion list and the
+    /// apply filter cannot answer differently for reasons other than *when* they ran.
+    ///
+    /// **`scopedRejections` is passed in, deliberately, rather than read here.** `filingRejections`
+    /// decodes JSON out of `UserDefaults` on *every* access — the getters are hot enough that
+    /// `readPersistedStore` documents a scan reading them per file — so a helper that fetched them
+    /// itself would decode the whole store once per suggestion, on the main actor, twice per pass.
+    /// Each caller decodes once and hands the result down.
+    private func rejectedFolders(for suggestion: FilingSuggestion,
+                                 in scopedRejections: [FilingRejection]) -> Set<String> {
+        Self.rejectedPaths(forFileNamed: suggestion.fileName, in: scopedRejections)
             .union(filingSessionRejections[suggestion.filePath] ?? [])
     }
 }

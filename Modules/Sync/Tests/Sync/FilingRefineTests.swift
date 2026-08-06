@@ -333,6 +333,55 @@ import Testing
         #expect(!m.isRefiningFilingSuggestions)   // and the guard was released, not latched
     }
 
+    /// Refine republishes, and `publishFilingSuggestions` bumps the generation — so refine is a NEW
+    /// invalidator of an in-flight "Try another", which before this feature only scans and
+    /// `clearFiling()` could be. Pinned because it is an interaction nothing else covers: the
+    /// re-ask must drop its verdict rather than write it over the list refine just produced.
+    @MainActor
+    @Test func aTryAnotherInFlightIsDiscardedByARefinesRepublish() async throws {
+        let root = try fixture("tryanother-vs-refine")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager()
+        m.filingRuleDefaults = ScratchDefaults("refineVsTryAnother")
+        m.filingClassifier = { _, files, tier in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: tier == .free ? "Documents/Family" : "Archive/2026",
+                                            confidence: .high, reason: "t"))
+            })
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let card = try #require(m.filingSuggestions.first)
+        #expect(card.best?.path.hasSuffix("Documents/Family") == true)
+
+        // A "Try another" goes out and is held open…
+        let gate = AsyncGate()
+        m.filingClassifier = { _, files, _ in
+            await gate.wait()
+            return Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Documents", confidence: .high, reason: "re-ask"))
+            })
+        }
+        async let reask: Void = m.tryAnotherFolder(for: card)
+        await waitUntil("the re-ask reaches the classifier") { m.filingTryAnotherInFlight[card.id] != nil }
+
+        // …while a refine completes and republishes the whole list.
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "refine"))
+            })
+        }
+        await m.refineFilingSuggestions(m.filingSuggestions)
+        #expect(m.filingSuggestions.first?.best?.path.hasSuffix("Archive/2026") == true)
+
+        await gate.open()
+        await reask
+
+        // The re-ask's answer is about the pre-refine list, so it is dropped — the card keeps what
+        // the refine put there rather than reverting to the stale re-ask destination.
+        #expect(m.filingSuggestions.first?.best?.path.hasSuffix("Archive/2026") == true,
+                "an in-flight Try another overwrote the refine that republished after it started")
+    }
+
     @MainActor
     @Test func aNewScanClearsThePreviousRefinesSummary() async throws {
         // The summary describes the rows it is shown beside. A rescan replaces those rows, so a
@@ -437,9 +486,12 @@ private actor AsyncGate {
         #expect(probe.count == 0, "a refine that runs on-device raised a payment dialog")
     }
 
-    /// The same state, seen from the button. `filingRefineReachesTheCloud`
-    /// is what picks between "Refine N with Opus" and the "set up Claude" invitation, so keying it
-    /// on the toggle makes the button promise a model that is not going to run.
+    /// The same state, seen from the button. `filingCloudRefineAvailable` is what picks between
+    /// "Refine N with Opus" and the "set up Claude" invitation, so keying it on the toggle makes
+    /// the button promise a model that is not going to run.
+    ///
+    /// With no `filingCloudRefineConfigured` seam it falls back to the real route, which is the
+    /// CLI/test shape — so this pins the fallback as well as the branch.
     @Test func theButtonDoesNotPromiseAModelTheRouterWillNotUse() async throws {
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineDowngradeLabel")
@@ -447,8 +499,39 @@ private actor AsyncGate {
         m.filingContentDefaults = settings
         m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
 
-        #expect(!m.filingRefineReachesTheCloud,
+        #expect(!m.filingCloudRefineAvailable,
                 "the button would name a cloud model for a pass the router sends on-device")
+    }
+
+    /// The display seam answers the button, and the ROUTE answers the money — they are allowed to
+    /// disagree in exactly one state (a key that is stored but cannot be read), and when they do
+    /// the pass must say so rather than report a Claude result nobody got.
+    @Test func aStoredButUnreadableKeyOffersRefineAndThenNamesTheDowngrade() async throws {
+        let root = try fixture("unreadable")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager()
+        let settings = ScratchDefaults("refineUnreadable")
+        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        m.filingContentDefaults = settings
+        // A key IS stored (so the button offers Claude)…
+        m.filingCloudRefineConfigured = { true }
+        // …but the router cannot read it, so the pass runs on-device.
+        m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        let probe = Probe()
+        m.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+
+        #expect(m.filingCloudRefineAvailable)      // the button is offered…
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        await m.refineFilingSuggestions(m.filingSuggestions)
+
+        #expect(probe.count == 0)                  // …nothing was priced or billed…
+        #expect(m.banner?.severity == .warning)       // …and the banner names the key rather than
+        #expect(m.banner?.message.contains("couldn't be read") == true)   // claiming a Claude answer
     }
 
     /// A "Try another" landing while a refine is out records a rejection the refine's
@@ -568,4 +651,67 @@ private actor AsyncGate {
                 "empty verdicts cost \(empty) vs \(populated) populated — the walk was not skipped")
     }
 
+}
+
+/// Reads of the persisted rejection store must not scale with the number of suggestions.
+///
+/// `filingRejections` decodes JSON out of `UserDefaults` on every access — `readPersistedStore`
+/// says as much ("these getters are hot — a scan reads them per file"). The round-1 review
+/// extracted a `rejectedFolders(for:…)` helper for the good reason that the request's exclusion
+/// list and the apply filter must derive rejections identically; the helper then fetched the store
+/// itself, turning two decodes into two per suggestion, on the main actor.
+@MainActor
+@Suite struct FilingRefineRejectionReadTests {
+
+    /// Counts `data(forKey:)` reads of one key, which is what `readPersistedStore` fetches.
+    private final class CountingDefaults: UserDefaults, @unchecked Sendable {
+        let watched: String
+        private let lock = NSLock()
+        private var n = 0
+        init?(name: String, watching key: String) {
+            self.watched = key
+            super.init(suiteName: name)
+            removePersistentDomain(forName: name)
+        }
+        override func data(forKey defaultName: String) -> Data? {
+            if defaultName == watched { lock.lock(); n += 1; lock.unlock() }
+            return super.data(forKey: defaultName)
+        }
+        var reads: Int { lock.lock(); defer { lock.unlock() }; return n }
+    }
+
+    private func write(_ url: URL, bytes: Int = 5000) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: bytes).write(to: url)
+    }
+
+    @Test func theRejectionStoreIsDecodedOncePerLoopNotOncePerSuggestion() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RefineRejectionReads")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
+        let fileCount = 25
+        for i in 0..<fileCount { try write(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
+
+        let counting = try #require(CountingDefaults(name: "refineRejectionReads",
+                                                     watching: FileSyncManager.rejectionsDefaultsKey))
+        let m = FileSyncManager()
+        m.filingRuleDefaults = counting
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        #expect(m.filingSuggestions.count == fileCount)
+
+        let before = counting.reads
+        await m.refineFilingSuggestions(m.filingSuggestions)
+        let spent = counting.reads - before
+
+        // Two loops read the store, so two decodes is the floor. The bar is well under the file
+        // count so it fails on "per suggestion" rather than on an extra hoisted read appearing.
+        #expect(spent <= 4,
+                "the refine pass decoded the rejection store \(spent) times for \(fileCount) suggestions")
+    }
 }

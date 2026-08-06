@@ -218,4 +218,29 @@ import Sync
         #expect(differingPixels(downgraded, invitation) == 0,
                 "cloud-on-without-a-key should paint exactly the invitation")
     }
+
+    @Test func changingTheCloudSettingUpdatesTheButtonOnTheNextRender() throws {
+        // The liveness claim behind the design: `filingCloudRefineAvailable` is not `@Published`
+        // and nothing observes the defaults key, so the button depends on SwiftUI re-rendering
+        // TidyView when the Settings overlay closes — which ContentView does, because dismissing
+        // it flips `showSettings` and re-runs the body containing this lens.
+        //
+        // Asserted on ONE mounted view across a setting change, not on two fresh mounts: two mounts
+        // would pass even if the value were captured at init, which is exactly the failure mode.
+        defer { Self.resetDefaults() }
+        let m = Self.manager(cloudOn: false)
+        let mounted = mount(m, configure: {})
+        let before = try #require(toolbarStrip(mounted))
+
+        UserDefaults.standard.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        UserDefaults.standard.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
+        // Re-render the way dismissing the Settings overlay does.
+        m.banner = .success("settings closed")
+        mounted.host.needsLayout = true
+        mounted.host.layoutSubtreeIfNeeded()
+        let after = try #require(toolbarStrip(mounted))
+
+        #expect(differingPixels(before, after) > 200,
+                "the Refine button did not pick up the cloud setting on re-render")
+    }
 }

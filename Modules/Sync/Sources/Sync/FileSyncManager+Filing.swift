@@ -158,15 +158,33 @@ extension FileSyncManager {
         return configuredFilingBackendIdentity(for: tier).hasPrefix("cloud:")
     }
 
-    /// Whether clicking Refine can actually reach Claude — what the UI needs before it decides
+    /// Whether to offer the cloud Refine button at all — the UI's question, before it decides
     /// between "Refine N with Opus" and the "set up Claude" invitation.
     ///
-    /// Route-based, not toggle-based, and the difference is visible to the user. With cloud
-    /// switched on but no usable key, a toggle-based answer promises a model the router is not
-    /// going to use: the button offers Opus, the pass runs on-device, and the result comes back
-    /// "no better homes found" having asked nothing. The invitation is the honest control for that
-    /// state — it points at Settings ▸ Organize, which is exactly where the missing key goes.
-    public var filingRefineReachesTheCloud: Bool { filingRoutesToCloud(.refine) }
+    /// Not the toggle: with cloud switched on and nothing stored, a toggle-based answer promises a
+    /// model the router will not use, and the pass comes back "no better homes found" having asked
+    /// nothing. The invitation is the honest control there — it opens Settings ▸ Organize, which is
+    /// where the missing key goes.
+    ///
+    /// **Not the real route either, and that is the point of ``filingCloudRefineConfigured``.**
+    /// This is read on every render of the Organize toolbar; resolving the route means decrypting
+    /// the Keychain item, which can raise the password prompt — while the user types. The cheap
+    /// seam answers "is a key stored", the route stays for the money decisions, and the narrow
+    /// gap between them (stored but unreadable) is reported by the refine banner rather than
+    /// silently believed.
+    public var filingCloudRefineAvailable: Bool {
+        guard filingUsesCloud else { return false }
+        if let configured = filingCloudRefineConfigured { return configured() }
+        return filingRoutesToCloud(.refine)
+    }
+
+    /// True when the user has asked for Claude but the router will not reach it — a key that is
+    /// stored yet unreadable. The one state where ``filingCloudRefineAvailable`` and the real
+    /// route disagree, named here so the refine pass can say so instead of quietly running
+    /// on-device under a button that promised Opus.
+    var filingCloudRefineIsDowngraded: Bool {
+        filingUsesCloud && !filingRoutesToCloud(.refine)
+    }
 
     /// Reads the loose files in `folder`, learns the provider's folder taxonomy, and produces
     /// suggested homes.
@@ -501,12 +519,14 @@ extension FileSyncManager {
     /// **Called only from ``refineFilingSuggestions(_:)``.** The scan classifies at
     /// ``FilingClassifierTier/free``, which cannot route to cloud, so it has nothing to confirm.
     ///
-    /// **Gated on ``filingRoutesToCloud(_:)``, not on `filingUsesCloud`.** The toggle is not the
-    /// same question: cloud on with no readable key routes on-device, and gating on the toggle put
-    /// a payment dialog in front of a pass that was never going to be billed. See
-    /// ``filingRoutesToCloud(_:)`` for why the route is the safe thing to read here.
+    /// **Gated on the real route, not on `filingUsesCloud` and not on the display seam.** The
+    /// toggle is not the same question: cloud on with no readable key routes on-device, and gating
+    /// on the toggle put a payment dialog in front of a pass that was never going to be billed.
+    /// ``filingCloudRefineAvailable`` is not the question either — it answers "is a key stored"
+    /// cheaply enough to ask per render, which is deliberately weaker than "will this be billed".
+    /// Money reads ``filingRoutesToCloud(_:)``, which resolves the route for real.
     func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
-        guard filingRefineReachesTheCloud else { return true }
+        guard filingRoutesToCloud(.refine) else { return true }
         // Resolve the same way the classifier does, so the cost the user confirms is priced for the
         // model the call will actually name.
         let model = CloudFilingProtocol.currentModel(

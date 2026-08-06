@@ -946,14 +946,21 @@ public struct TidyView: View {
     /// up to the ellipsis, opening Settings ▸ Organize. Hiding it there would mean the better
     /// answer is only discoverable by someone who already knew to go looking in Settings.
     ///
-    /// **The branch is `filingRefineReachesTheCloud` — the resolved route, not the cloud toggle.**
-    /// With cloud switched on and no readable key the router downgrades to on-device, and a
-    /// toggle-based branch put "Refine 2 with Opus" on a button that would run the same on-device
-    /// model the scan already ran. The invitation is the correct control for that state: it opens
-    /// the Settings tab holding the key row that is actually missing.
+    /// **The branch is `filingCloudRefineAvailable` — is a key stored, not the cloud toggle.**
+    /// With cloud switched on and nothing stored, a toggle-based branch put "Refine 2 with Opus"
+    /// on a button that would run the same on-device model the scan already ran. The invitation is
+    /// the correct control for that state: it opens the Settings tab holding the missing key row.
+    /// It is deliberately NOT the resolved route — that answer costs a Keychain decrypt, and this
+    /// is read on every render including every keystroke in the search field.
+    ///
+    /// **Shown only when it could actually run** (`canRefineFilingSuggestions`), with the
+    /// in-flight case as the one exception, since that property goes false while a pass runs.
+    /// Without the check, switching off on-device AI left a permanently disabled button behind,
+    /// wearing a tooltip that promised to re-ask Claude.
     @ViewBuilder
     private func refineButton(_ scope: [FilingSuggestion]) -> some View {
-        if syncManager.filingRefineReachesTheCloud {
+        let canRun = syncManager.canRefineFilingSuggestions || syncManager.isRefiningFilingSuggestions
+        if syncManager.filingCloudRefineAvailable, canRun {
             let batch = syncManager.filingSuggestionsEligibleForRefine(scope)
             if !batch.isEmpty || syncManager.isRefiningFilingSuggestions {
                 Button { refineFilingSuggestions(batch) } label: {

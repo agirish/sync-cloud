@@ -575,6 +575,28 @@ public class FileSyncManager: ObservableObject {
     /// the app already logs a warning about.
     public var filingBackendIdentity: (@Sendable (FilingClassifierTier) -> String?)?
 
+    /// Whether the cloud backend is **set up** — the display question, and a different question
+    /// from ``filingBackendIdentity``'s.
+    ///
+    /// **It exists because the two cost wildly different things, and only one of them may be asked
+    /// while the user types.** `filingBackendIdentity` resolves the real route, which means
+    /// `AnthropicKeychain.hasKey`, which *reads the secret* and on a locked or ACL-guarded item
+    /// raises the Keychain password prompt. That is the right question for a pass about to use the
+    /// key — and exactly the wrong one for a toolbar button, which SwiftUI re-evaluates on every
+    /// render, including every keystroke in the Organize search field. Measured: the Refine button
+    /// asked the router once per render.
+    ///
+    /// The app answers this with `AnthropicKeychain.isConfigured` — an attributes-only match that
+    /// never decrypts and never prompts. `AnthropicKeychain` documents the split itself and points
+    /// display-only callers here.
+    ///
+    /// The trade is that "an item is stored" is not "the item is readable", so with a corrupt or
+    /// ACL-refused key this says yes while the route says on-device. That costs no money — the
+    /// spend gate reads the real route — and ``refineFilingSuggestions(_:)`` names the downgrade in
+    /// its banner rather than reporting a Claude result nobody got. nil (unset) falls back to the
+    /// real route, which is right for the CLI and tests: neither has a Keychain to be slow about.
+    public var filingCloudRefineConfigured: (@Sendable () -> Bool)?
+
     /// Where the Filing verdict cache is persisted. **nil disables the cache entirely** — no read,
     /// no write, every file classified as before.
     ///

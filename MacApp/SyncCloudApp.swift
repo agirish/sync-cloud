@@ -271,6 +271,14 @@ struct SyncCloudApp: App {
                 return FileSyncManager.onDeviceBackendIdentity
             }
         }
+        // The DISPLAY half of the same question, and the reason it is a second seam:
+        // `isConfigured` is an attributes-only Keychain match — it never decrypts and so never
+        // raises the password prompt, which `hasKey` above can. The Organize toolbar reads this on
+        // every render (every keystroke in its search field), and pointing that at the router
+        // meant a Keychain decrypt per keystroke. `AnthropicKeychain` documents the split and
+        // sends display-only callers here; the residual gap — an item that exists but cannot be
+        // read — costs nothing and is named in the refine banner.
+        manager.filingCloudRefineConfigured = { AnthropicKeychain.isConfigured }
         // Filing (AI): reason about the folder taxonomy + document text to pick a home, overriding
         // keyword guesses. Hybrid backend — opt-in cloud (Claude) as primary when enabled with a
         // key, else the on-device Apple Foundation Models model. Always injected so the cloud toggle
