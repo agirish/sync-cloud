@@ -701,6 +701,17 @@ public class FileSyncManager: ObservableObject {
     var automationDryRunTask: Task<Void, Never>?
     /// The capped folder list SENT to the classifier (bounded for token cost).
     public var filingLastTaxonomyFolders: [String] = []
+    /// The tree's own filing artifacts, loaded once and reused by every pass.
+    ///
+    /// Injected by the app rather than read here, exactly as the verdict cache and the hash index
+    /// are: `Sync` never reaches into a real home directory. Both nil is the ordinary state for
+    /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
+    /// any of this existed.
+    public var filingFolderProfile: FolderProfile?
+    public var filingMemory: FilingMemory?
+    /// The prepared router index for the current taxonomy. Built once per scan — rebuilding it per
+    /// file would walk every folder's token list for every loose file.
+    var filingRouterIndex: FilingRouter.Index?
     /// The FULL set of existing relative folders (uncapped), used only to mark a "Try another"
     /// verdict's segments new-vs-existing — the same basis the main scan uses. Kept separate from
     /// the capped `filingLastTaxonomyFolders` so a real folder beyond the classifier cap isn't

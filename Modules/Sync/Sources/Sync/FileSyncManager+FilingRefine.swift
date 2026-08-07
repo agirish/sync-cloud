@@ -179,7 +179,7 @@ extension FileSyncManager {
         var verdicts = cachedVerdicts
         var classifiedCount = 0
         if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
-            let fresh = await classifier(taxonomyFolders, files, .refine)
+            let fresh = await classifier(filingContext(taxonomyFolders: taxonomyFolders), files, .refine)
             // Before the staleness check, deliberately — the answer is already paid for.
             recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: root,
                                  existingRelative: existingRelative)

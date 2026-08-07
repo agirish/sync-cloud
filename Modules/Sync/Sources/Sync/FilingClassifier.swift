@@ -73,10 +73,45 @@ public enum FilingClassifierTier: Sendable, Equatable {
     case refine
 }
 
-/// The seam the app injects. Classifies a batch of files against the folder taxonomy (folder paths
-/// relative to the provider root). Returns a verdict per `filePath`; an absent key means the backend
-/// declined (no confident home), so that file falls back to the heuristic engine's suggestion.
-/// Runs off the main actor and should honor task cancellation.
+/// What a backend gets to reason about: the taxonomy, and what the app has learned about it.
+///
+/// This replaced a bare `[String]` of folder paths. The paths are still the contract — a verdict
+/// names one of them — but a backend handed only paths has to re-derive per file the facts that are
+/// stable properties of the tree, and the on-device tier, which has the least room to reason, got
+/// the least help.
+///
+/// Both learned parts are **optional and per-tree**. Nothing here ships with a default: a context
+/// with no profile and no memory is exactly the input backends received before this existed, which
+/// is what makes the whole thing additive.
+public struct FilingContext: Sendable {
+    /// Destination folders, relative to the provider root. Still the vocabulary a verdict must
+    /// answer in.
+    public let taxonomyFolders: [String]
+    /// What each folder *is* — role, axes, naming convention, and whether it may receive files.
+    public let profile: FolderProfile?
+    /// What each folder has *received* — the discriminative content already filed in it.
+    public let memory: FilingMemory?
+
+    public init(taxonomyFolders: [String], profile: FolderProfile? = nil, memory: FilingMemory? = nil) {
+        self.taxonomyFolders = taxonomyFolders
+        self.profile = profile
+        self.memory = memory
+    }
+
+    /// Folders that may actually receive a file. **A backend must route into this, not into
+    /// `taxonomyFolders`** — 138 of one tree's folders are inboxes, and listing an inbox among
+    /// destinations actively teaches a classifier to file into the very place the user put things
+    /// when they had nowhere to put them.
+    public var destinations: [String] {
+        guard let profile else { return taxonomyFolders }
+        return taxonomyFolders.filter { profile.acceptsNewFiles($0) }
+    }
+}
+
+/// The seam the app injects. Classifies a batch of files against the folder taxonomy. Returns a
+/// verdict per `filePath`; an absent key means the backend declined (no confident home), so that
+/// file falls back to the heuristic engine's suggestion. Runs off the main actor and should honor
+/// task cancellation.
 ///
 /// **`tier` is a constraint on the implementation, not a hint.** An implementation that reaches a
 /// paid backend for `.free` breaks the guarantee every free-pass caller relies on; `Sync` checks
@@ -84,5 +119,5 @@ public enum FilingClassifierTier: Sendable, Equatable {
 /// ``FileSyncManager/freePassWouldReachAPaidBackend``) rather than taking it on trust, but the
 /// contract lives here.
 public typealias FilingClassifier =
-    @Sendable (_ taxonomyFolders: [String], _ files: [FilingCandidateFile],
+    @Sendable (_ context: FilingContext, _ files: [FilingCandidateFile],
                _ tier: FilingClassifierTier) async -> [String: FilingVerdict]

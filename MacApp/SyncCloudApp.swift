@@ -295,7 +295,10 @@ struct SyncCloudApp: App {
         // click on the results, or a per-card "Try another" — may reach Claude. Nothing in `Sync`
         // enforces this by construction, so `Sync` asks for the routing answer instead and skips
         // classifying if it comes back cloud (`freePassWouldReachAPaidBackend`).
-        manager.filingClassifier = { taxonomy, files, tier in
+        manager.filingClassifier = { context, files, tier in
+            // **Destinations, not the raw taxonomy.** The context knows which folders are inboxes;
+            // handing a backend the unfiltered list is what teaches it to file into `TODO`.
+            let taxonomy = context.destinations
             // The router also LOGS the one silent case — cloud Filing on, no usable key — which
             // otherwise left the user believing Claude filed documents the on-device model filed.
             // `hasCloudKey` is an @autoclosure, so the Keychain below is only queried once the
@@ -320,6 +323,18 @@ struct SyncCloudApp: App {
         }
         manager.filingSnippetExtractor = { path in
             await ContentSignalExtractor.snippet(forFileAt: path)
+        }
+        // The tree's own filing artifacts, if this machine has been surveyed. Read HERE, not in
+        // `Sync`: library code must not reach into a real home directory just because nobody said
+        // otherwise — the same rule the verdict cache and the hash index follow. Absent is the
+        // ordinary state and costs nothing but the accuracy it would have added.
+        if let profiles = FilingProfileStore.defaultDirectory(),
+           let loaded = FilingProfileStore.active(in: profiles) {
+            manager.filingFolderProfile = loaded.profile
+            manager.filingMemory = loaded.memory
+            Logger.shared.info("Filing profile '\(loaded.profile.profileId)' loaded — "
+                               + "\(loaded.profile.folders.count) folders, "
+                               + "\(loaded.memory?.folders.count ?? 0) with filing memory")
         }
         if OnDeviceFilingClassifier.isAvailable {
             manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }

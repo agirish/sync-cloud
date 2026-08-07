@@ -738,8 +738,12 @@ final class CallCounter: @unchecked Sendable {
 
         let manager = FileSyncManager()
         // A stand-in for the on-device model: it "reasons" Divit → Family/Divit.
-        manager.filingClassifier = { taxonomy, files, _ in
-            #expect(taxonomy.contains("Documents/Family/Divit"))     // handed the real taxonomy
+        manager.filingClassifier = { context, files, _ in
+            #expect(context.taxonomyFolders.contains("Documents/Family/Divit"))  // the real taxonomy
+            // With no profile loaded, destinations is the taxonomy unchanged — the seam widened
+            // without changing what a backend sees on a machine that has never been surveyed.
+            #expect(context.destinations == context.taxonomyFolders)
+            #expect(context.profile == nil)
             var out: [String: FilingVerdict] = [:]
             for f in files where f.fileName.contains("Divit") {
                 out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",

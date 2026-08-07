@@ -282,6 +282,10 @@ extension FileSyncManager {
         filingLastTaxonomyFolders = taxonomyFolders
         // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
         filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, limit: .max))
+        // The router reasons over the UNCAPPED folder set: the classifier's cap exists to bound
+        // token cost, and this pass sends nothing anywhere, so capping it would hide real
+        // destinations for no benefit.
+        prepareFilingRouter(destinations: Array(filingLastExistingFolders))
 
         // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
@@ -307,6 +311,37 @@ extension FileSyncManager {
                                                        providerName: providerName,
                                                        automationSnippets: automationSnippets, now: scanClock,
                                                        rejectedByFile: rejectedByFile, options: options)
+                }
+            }
+        }
+
+        if Task.isCancelled { return }
+
+        // Phase 2.5 — the tree's own profile and memory, with no model call. Reads page 1 for the
+        // files still without a home and ranks destinations by what each folder already contains.
+        // Skipped entirely when no profile has been loaded, which is the ordinary state.
+        //
+        // The snippets are kept: phase 3 would otherwise read the same pages again, and a PDF page
+        // is the expensive part of this whole scan.
+        var routerSnippets: [String: String] = [:]
+        if let routerIndex = filingRouterIndex {
+            let unsure = suggestions.filter { !$0.hasConfidentHome }
+            if !unsure.isEmpty {
+                if filingReadsContents, let extractor = filingSnippetExtractor {
+                    updateScan(\.filingScanLifecycle, epoch: epoch,
+                               status: FilingScanPhase.readingContent(unsure.count).status)
+                    routerSnippets = await Self.extractSnippets(for: unsure.map { $0.filePath },
+                                                               using: extractor)
+                    if Task.isCancelled { return }
+                }
+                let (routed, count) = Self.applyRoutes(suggestions, index: routerIndex,
+                                                       snippets: routerSnippets,
+                                                       providerRoot: providerRoot.path,
+                                                       rejectedByFile: rejectedByFile)
+                suggestions = routed
+                if count > 0 {
+                    Logger.shared.info("Filing: the folder profile placed \(count) of \(unsure.count) "
+                                       + "file(s) with no name match, without a model call")
                 }
             }
         }
@@ -390,8 +425,14 @@ extension FileSyncManager {
                     // the folder tree is enough for the model, and this skips OCR/PDF work (and the
                     // token cost) for the common named-file case.
                     let namelessPaths = misses.filter { !FilingEngine.canRemember(fileName: $0.name) }.map { $0.id }
-                    snippets = await Self.extractSnippets(for: namelessPaths, using: extractor)
-                    if Task.isCancelled { return }
+                    // Phase 2.5 already read some of these. Re-reading a PDF page to get a string
+                    // that is already in hand is the most expensive no-op in the scan.
+                    let needed = namelessPaths.filter { routerSnippets[$0] == nil }
+                    snippets = routerSnippets.filter { namelessPaths.contains($0.key) }
+                    if !needed.isEmpty {
+                        snippets.merge(await Self.extractSnippets(for: needed, using: extractor)) { _, new in new }
+                        if Task.isCancelled { return }
+                    }
                 }
                 let files = misses.map { f -> FilingCandidateFile in
                     FilingCandidateFile(filePath: f.id, fileName: f.name,
@@ -408,7 +449,7 @@ extension FileSyncManager {
                 var verdicts = cachedVerdicts
                 var classifiedCount = 0
                 if !files.isEmpty {
-                    let fresh = await classifier(taxonomyFolders, files, .free)
+                    let fresh = await classifier(filingContext(taxonomyFolders: taxonomyFolders), files, .free)
                     // Recorded BEFORE the cancellation check, unlike everything else in this scan.
                     // The verdicts are true regardless of what this scan goes on to do with them —
                     // cancelling abandons the SUGGESTIONS, and there is nothing to abandon about a
@@ -1012,7 +1053,7 @@ extension FileSyncManager {
         // card click would be worse than the gap, and the hard monthly/total caps inside
         // `CloudFilingClassifier` still bound it — but it is the one paid path with no dialog, and
         // naming the tier is what makes that visible rather than incidental.
-        let verdicts = await classifier(taxonomyFolders, [file], .refine)
+        let verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], .refine)
         // The verdict was computed against THIS invocation's pre-await snapshots — its taxonomy,
         // its rejections, its session. If the filing state moved on while the classifier was out,
         // the card now on screen (same id: the stable file path) belongs to the NEW state, and
