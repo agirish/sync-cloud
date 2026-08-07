@@ -47,6 +47,16 @@ public struct PaneHeader: View {
     /// scan is the one place a user looks to stop it. `nil` keeps the old disabled-while-running
     /// behaviour, which is what every caller outside the app passes.
     public let onCancelScan: (() -> Void)?
+    /// Whether this is the pane the pane-scoped chords act on — ⌃⇥, ⌘F, ⌘[ / ⌘], ⇧⌘N, ⇧⌘P.
+    ///
+    /// Rings the provider capsule. Without it the focused side is state with no carrier at all:
+    /// ⌃⇥ shipped changing no pixel, and the panes' only existing "which one is active" cue is
+    /// `PaneSelectionWash`, which modulates *selected rows* — so it says nothing in exactly the
+    /// case that matters, a pane with nothing selected.
+    ///
+    /// `false` for a lone pane. The single-source rail is the only pane on screen, so a ring there
+    /// would distinguish it from nothing.
+    public let isFocused: Bool
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
@@ -128,6 +138,7 @@ public struct PaneHeader: View {
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
         onCancelScan: (() -> Void)? = nil,
+        isFocused: Bool = false,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
         onNewFolder: (() -> Void)? = nil,
@@ -155,6 +166,7 @@ public struct PaneHeader: View {
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
         self.onCancelScan = onCancelScan
+        self.isFocused = isFocused
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.onNewFolder = onNewFolder
@@ -385,6 +397,22 @@ public struct PaneHeader: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .chromePillSurface(glassLevel, wash: hue.soft)
+        // The focused pane's ring. `.overlay` and not a border or a padding change: an overlay
+        // takes its size FROM the host and gives none back, which is the whole reason this can be
+        // added to a header whose height is pinned (`PaneHeaderHeightTests`, and `LensHeaderCard`
+        // shares that line from the other side). A ring that cost even a point would push the
+        // pinned rung out of its rail.
+        //
+        // On the capsule because that is the pane's identity chip — the thing already saying
+        // *which* pane this is — so "and it is the one the keyboard is in" lands on the same
+        // object rather than inventing a second marker. The raw accent rather than
+        // `accentFillColor`: the deepening exists to keep a LABEL legible on a fill, and a stroke
+        // carries no label; what a line needs is saturation.
+        .overlay {
+            if isFocused {
+                Capsule().strokeBorder(glassHue.accentColor, lineWidth: 2)
+            }
+        }
     }
 
     /// This pane's bar: the track running from the provider capsule to the pane's trailing edge.

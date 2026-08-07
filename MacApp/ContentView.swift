@@ -1667,6 +1667,11 @@ struct ContentView: View {
                 // act, and the pane the user happens to be looking at is the one they will reach
                 // for.
                 onCancelScan: { syncManager.cancelScan() },
+                // The ring goes on whichever pane the chords act on — the same resolved answer
+                // ⌃⇥ flips and ⌘F opens on, so the indicator cannot claim one pane while the
+                // shortcuts use the other. Compare only: on a single-source workspace the rail is
+                // the one pane on screen and a ring would distinguish it from nothing.
+                isFocused: layoutMode == .compare && paneSearchTargetIsLeft == isLeft,
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail gets the switch too, bound to its own key.
                 viewMode: layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft),
