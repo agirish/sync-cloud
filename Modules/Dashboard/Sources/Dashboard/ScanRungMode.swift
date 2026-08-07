@@ -11,7 +11,11 @@ import Foundation
 ///
 /// The rung is the only place `PaneBarItem.pinned` refuses to remove, so it is on screen in every
 /// arrangement — which is why Stop lives here rather than in chrome of its own.
-public enum ScanRungMode: Equatable, Sendable {
+///
+/// Internal: it appears in no public signature — `PaneHeader` takes an `onCancelScan` closure and
+/// resolves this inside its own body — and the tests reach it with `@testable`. A public type
+/// nothing outside the module can receive or return is API surface for free.
+enum ScanRungMode: Equatable, Sendable {
     /// Idle. Pressing it starts a scan.
     case scan
     /// A scan is running and the host offered a way to stop it.
@@ -23,30 +27,30 @@ public enum ScanRungMode: Equatable, Sendable {
     /// `canCancel` is "the host passed an `onCancelScan`", not "a scan is cancellable": a header
     /// with no cancel handler must keep behaving exactly as it did before Stop existed, or adding
     /// the parameter would change every other caller's rung.
-    public static func resolve(isRefreshing: Bool, canCancel: Bool) -> ScanRungMode {
+    static func resolve(isRefreshing: Bool, canCancel: Bool) -> ScanRungMode {
         guard isRefreshing else { return .scan }
         return canCancel ? .stop : .busy
     }
 
-    public var symbol: String { self == .stop ? "stop.circle" : "arrow.clockwise" }
+    var symbol: String { self == .stop ? "stop.circle" : "arrow.clockwise" }
 
     /// Only `.busy` is dead. `.stop` is the whole point — a live control in chrome that was
     /// disabled anyway.
-    public var isEnabled: Bool { self != .busy }
+    var isEnabled: Bool { self != .busy }
 
     /// The arrow spins only while it IS the arrow. `.stop` swapped the glyph, and a spinning stop
     /// sign is not a thing.
-    public var spins: Bool { self == .busy }
+    var spins: Bool { self == .busy }
 
     /// `nil` on `.stop`: ⌘R starts a scan, it does not stop one, so a badge there would advertise
     /// a chord that does something else. `shortcutKeycap` withholds the VoiceOver hint with it.
-    public var keycap: String? { self == .stop ? nil : AppChord.rescan.display }
+    var keycap: String? { self == .stop ? nil : AppChord.rescan.display }
 
     /// Spoken and shown identically, because the glyph alone carries the difference on screen.
-    public var label: String { self == .stop ? "Stop scanning" : "Scan for changes" }
+    var label: String { self == .stop ? "Stop scanning" : "Scan for changes" }
 
     /// The tooltip. Only the scan form names a chord — see `keycap`.
-    public var help: String {
+    var help: String {
         self == .stop ? label : ShortcutHint.tooltip(label, AppChord.rescan.display)
     }
 }

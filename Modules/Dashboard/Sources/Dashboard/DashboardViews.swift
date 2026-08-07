@@ -1014,9 +1014,18 @@ public struct PaneHeader: View {
             // Unreachable: `PaneBarItem.pinned` is never folded and never absent. Handled rather
             // than defaulted so that adding a case to the enum fails the build here instead of
             // silently dropping the new control out of the menu.
+            //
+            // Unreachable is not the same as free to diverge, and this is the branch that would
+            // diverge: it read `isRefreshing` directly and so still offered a DISABLED "Scan for
+            // Changes" mid-scan — the dead control the rung above no longer has. If `pinned` ever
+            // moves, that older behaviour would ship silently from here. One `ScanRungMode` for
+            // both renderings means they cannot disagree about what this control is.
             if let onRefresh {
-                Button(action: onRefresh) { Label("Scan for Changes", systemImage: "arrow.clockwise") }
-                    .disabled(isRefreshing)
+                let mode = ScanRungMode.resolve(isRefreshing: isRefreshing, canCancel: onCancelScan != nil)
+                Button(action: { mode == .stop ? onCancelScan?() : onRefresh() }) {
+                    Label(mode.label, systemImage: mode.symbol)
+                }
+                .disabled(!mode.isEnabled)
             }
         case .newFolder:
             if let onNewFolder {

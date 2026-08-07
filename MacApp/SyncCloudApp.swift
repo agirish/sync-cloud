@@ -218,14 +218,21 @@ struct SyncCloudApp: App {
         // The other two lenses never restore results (their rows carry destructive applies);
         // instead, opening one re-runs its scan automatically when the target matches the last
         // completed scan and the run cannot cost money — rows recomputed from the live
-        // filesystem, so nothing stale is ever offered. This store remembers those targets;
-        // leaving it unset (CLI, tests) turns the feature off.
-        manager.persistedUIStateDefaults = .standard
-        // ...and, from the same store, what the last Compare scan found — Compare cannot restore
-        // its rows for the same reason the two lenses cannot, so it restores the SUMMARY and
-        // offers only a Scan button. Loaded straight after the store is injected, because
+        // filesystem, so nothing stale is ever offered. This store remembers those targets, and
+        // carries the Compare scan's last summary alongside them — Compare cannot restore its rows
+        // for the same reason the two lenses cannot, so it restores the SUMMARY and offers only a
+        // Scan button. The summary is loaded straight after the store is injected, because
         // ContentView's empty state renders from it on the first frame.
-        manager.loadLastScanSummary()
+        //
+        // **Not under tests**, which is the whole reason the library's own default is nil: the
+        // app-target suite is hosted in this app, so injecting `.standard` here hands every test
+        // that completes a scan a writable handle on the user's real defaults domain. The CLI and
+        // bare test managers were already covered by leaving it unset; the test HOST was the hole,
+        // and it widened when the Compare summary started writing through the same store.
+        if !isRunningTests {
+            manager.persistedUIStateDefaults = .standard
+            manager.loadLastScanSummary()
+        }
         // The content-hash index survives launches, so Verify and Duplicates stop re-reading
         // gigabytes they already hashed. Enabled here for the same reason as the verdict cache
         // below: `ContentHashCache.shared` is the DEFAULT argument of `findDuplicates` and Verify,
