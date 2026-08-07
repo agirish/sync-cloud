@@ -327,21 +327,28 @@ extension FileSyncManager {
         if let routerIndex = filingRouterIndex {
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !unsure.isEmpty {
-                if filingReadsContents, let extractor = filingSnippetExtractor {
+                // Read page 1 only for files whose NAME says nothing — the same bound phase 3 has
+                // always applied. Extracting for every homeless file instead would have made a
+                // scan on a surveyed machine read *more* pages than before this pass existed, and
+                // a PDF page is the expensive part of the whole scan. These snippets are then
+                // handed to phase 3, so nothing is read twice.
+                let nameless = unsure.filter { !FilingEngine.canRemember(fileName: $0.fileName) }
+                if filingReadsContents, let extractor = filingSnippetExtractor, !nameless.isEmpty {
                     updateScan(\.filingScanLifecycle, epoch: epoch,
-                               status: FilingScanPhase.readingContent(unsure.count).status)
-                    routerSnippets = await Self.extractSnippets(for: unsure.map { $0.filePath },
+                               status: FilingScanPhase.readingContent(nameless.count).status)
+                    routerSnippets = await Self.extractSnippets(for: nameless.map { $0.filePath },
                                                                using: extractor)
                     if Task.isCancelled { return }
                 }
-                let (routed, count) = Self.applyRoutes(suggestions, index: routerIndex,
-                                                       snippets: routerSnippets,
-                                                       providerRoot: providerRoot.path,
-                                                       rejectedByFile: rejectedByFile)
+                let (routed, count) = await applyRoutesYielding(suggestions, index: routerIndex,
+                                                                snippets: routerSnippets,
+                                                                providerRoot: providerRoot.path,
+                                                                rejectedByFile: rejectedByFile)
+                if Task.isCancelled { return }
                 suggestions = routed
                 if count > 0 {
                     Logger.shared.info("Filing: the folder profile placed \(count) of \(unsure.count) "
-                                       + "file(s) with no name match, without a model call")
+                                       + "file(s) with no confident home, without a model call")
                 }
             }
         }
@@ -427,8 +434,9 @@ extension FileSyncManager {
                     let namelessPaths = misses.filter { !FilingEngine.canRemember(fileName: $0.name) }.map { $0.id }
                     // Phase 2.5 already read some of these. Re-reading a PDF page to get a string
                     // that is already in hand is the most expensive no-op in the scan.
+                    let wanted = Set(namelessPaths)
                     let needed = namelessPaths.filter { routerSnippets[$0] == nil }
-                    snippets = routerSnippets.filter { namelessPaths.contains($0.key) }
+                    snippets = routerSnippets.filter { wanted.contains($0.key) }
                     if !needed.isEmpty {
                         snippets.merge(await Self.extractSnippets(for: needed, using: extractor)) { _, new in new }
                         if Task.isCancelled { return }

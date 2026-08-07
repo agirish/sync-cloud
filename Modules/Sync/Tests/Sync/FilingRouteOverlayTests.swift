@@ -93,14 +93,30 @@ import Testing
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
     }
 
+    /// Rejections are recorded as **absolute** paths, which is the form the scan actually builds
+    /// (phase 3 converts them to relative before handing them to a backend). An earlier version of
+    /// this test used a relative path — a domain no caller produces — so it passed while the
+    /// conversion inside `applyRoutes` was missing entirely.
     @Test func aRejectedDestinationIsNotReoffered() {
         let s = [Self.suggestion("scan001.pdf", best: nil)]
-        let rejected = ["\(Self.root)/TODO/scan001.pdf": Set(["Health/Medical/Kaiser/Surgery"])]
+        let rejected = ["\(Self.root)/TODO/scan001.pdf":
+                            Set(["\(Self.root)/Health/Medical/Kaiser/Surgery"])]
         let (out, routed) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"],
             providerRoot: Self.root, rejectedByFile: rejected)
         #expect(routed == 0)
         #expect(out[0].best == nil)
+    }
+
+    /// The other half: an unrelated rejection must not suppress a good home.
+    @Test func anUnrelatedRejectionDoesNotBlockRouting() {
+        let s = [Self.suggestion("scan001.pdf", best: nil)]
+        let rejected = ["\(Self.root)/TODO/scan001.pdf": Set(["\(Self.root)/Finance/US/Income Tax/2023"])]
+        let (out, routed) = FileSyncManager.applyRoutes(
+            s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"],
+            providerRoot: Self.root, rejectedByFile: rejected)
+        #expect(routed == 1)
+        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
     }
 
     /// With nothing extracted the router still has the filename, and must not invent a home from
@@ -111,6 +127,21 @@ import Testing
                                                         providerRoot: Self.root)
         #expect(routed == 0)
         #expect(out[0].best == nil)
+    }
+
+    /// **A file that already has a confident home is left alone.** Ranking it could only replace a
+    /// filename match with an equally confident content one — which flips `fromContent` and drops
+    /// the file out of the blind "File all N" batch for no accuracy gain.
+    @Test func aConfidentlyPlacedFileIsNotReRouted() {
+        let strong = Self.destination("Finance/US/Income Tax/2023", .high)
+        let s = [Self.suggestion("op.pdf", best: strong)]
+        let (out, routed) = FileSyncManager.applyRoutes(
+            s, index: Self.index,
+            snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
+            providerRoot: Self.root)
+        #expect(routed == 0)
+        #expect(out[0].best == strong)
+        #expect(out[0].isBatchEligible)          // still auto-filable, which is the point
     }
 
     /// The whole phase is gated on artifacts existing. An empty index must leave every suggestion
@@ -124,5 +155,44 @@ import Testing
             providerRoot: Self.root)
         #expect(routed == 0)
         #expect(out == s)
+    }
+}
+
+/// The chunked driver used by the scan. It exists so a few hundred homeless files do not freeze the
+/// window, and it must agree with the one-pass helper exactly.
+@Suite @MainActor struct FilingRouteYieldingTests {
+
+    @Test func yieldingAgreesWithTheOnePassHelper() async {
+        let index = FilingRouteOverlayTests.index
+        let snippets = (0..<60).reduce(into: [String: String]()) {
+            $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia stoll"
+        }
+        let files = (0..<60).map { FilingRouteOverlayTests.suggestion("f\($0).pdf", best: nil) }
+        let manager = FileSyncManager()
+        let chunked = await manager.applyRoutesYielding(files, index: index, snippets: snippets,
+                                                        providerRoot: "/prov", chunk: 7)
+        let onePass = FileSyncManager.applyRoutes(files, index: index, snippets: snippets,
+                                                  providerRoot: "/prov")
+        #expect(chunked.routed == onePass.routed)
+        #expect(chunked.routed == 60)
+        #expect(chunked.suggestions == onePass.suggestions)
+    }
+
+    /// A cancelled scan must get its input back untouched, not a half-routed list.
+    @Test func cancellationReturnsTheInputUnchanged() async {
+        let index = FilingRouteOverlayTests.index
+        let files = (0..<60).map { FilingRouteOverlayTests.suggestion("f\($0).pdf", best: nil) }
+        let snippets = (0..<60).reduce(into: [String: String]()) {
+            $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia stoll"
+        }
+        let manager = FileSyncManager()
+        let task = Task { @MainActor in
+            await manager.applyRoutesYielding(files, index: index, snippets: snippets,
+                                              providerRoot: "/prov", chunk: 1)
+        }
+        task.cancel()
+        let out = await task.value
+        #expect(out.routed == 0)
+        #expect(out.suggestions == files)
     }
 }

@@ -116,6 +116,23 @@ import Testing
         #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
     }
 
+    /// **A future schema is refused, not half-read.** The store's own doc claimed this and only
+    /// `profiles.json` was ever checked, so an artifact with a new shape would have been decoded
+    /// field-by-field into a mostly empty value and used — the silent wrong answer this store
+    /// exists to avoid.
+    @Test func aForeignSchemaIsRefusedRatherThanHalfRead() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fps-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let future = Self.memoryJSON.replacingOccurrences(of: "\"schemaVersion\":1",
+                                                          with: "\"schemaVersion\":99")
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: future)
+        #expect(FilingProfileStore.memory(id: "abhishek", in: dir) == nil)
+        // and the same file at the current schema still reads, or the test above proves nothing
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: Self.memoryJSON)
+        #expect(FilingProfileStore.memory(id: "abhishek", in: dir) != nil)
+    }
+
     /// **The hash format is the contract with the builder that wrote the file.** A change here does
     /// not fail — it silently stops every identifier matching — so it is pinned against a literal
     /// computed independently: `sha256("abc123" + "1892")[0..<16]`.
@@ -153,7 +170,7 @@ struct RealFilingProfileTests {
         for folder in unknown {
             // Answering at all is the requirement; an unknown folder must not become a destination
             // just because the profile cannot vouch for it.
-            #expect(loaded.profile.acceptsNewFiles(folder) != FilingRouter.isInboxPath(folder))
+            #expect(loaded.profile.acceptsNewFiles(folder) != FolderProfile.isInboxPath(folder))
         }
 
         // No inbox may carry filing memory into a destination list.

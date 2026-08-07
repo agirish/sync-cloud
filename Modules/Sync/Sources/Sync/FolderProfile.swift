@@ -42,12 +42,26 @@ public struct FolderProfile: Sendable, Equatable {
             if e.acceptsNewFiles == false { return false }
             if e.role == .inbox { return false }
         }
+        return !FolderProfile.isInboxPath(relativePath)
+    }
+
+    /// Whether any component of a path names an inbox, on the name alone.
+    ///
+    /// **The one implementation of this rule.** It is asked in three places — here, when the router
+    /// builds its destination list, and when a context is handed to a backend — and three copies
+    /// would be three chances for one of them to start filing into `TODO`.
+    ///
+    /// Matching is on whole *words* inside a component, not on a substring: `EDD - TODO` and
+    /// `New (TODO)` are inboxes, but a folder called `Mastodon` is not, and a `contains("todo")`
+    /// test refuses it. That folder does not exist in the surveyed tree, which is precisely why the
+    /// bug would have gone unnoticed until it hit someone else's.
+    public static func isInboxPath(_ relativePath: String) -> Bool {
         for component in relativePath.split(separator: "/") {
-            let c = component.lowercased()
-            if c == "todo" || c == "inbox" || c == "misc" || c == "unfiled" { return false }
-            if c.contains("todo") { return false }
+            for word in component.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+                if word == "todo" || word == "inbox" || word == "unfiled" { return true }
+            }
         }
-        return true
+        return false
     }
 }
 

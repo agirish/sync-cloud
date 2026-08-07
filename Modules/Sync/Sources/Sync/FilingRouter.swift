@@ -82,6 +82,17 @@ public enum FilingRouter {
         let children: [String: [String]]
         let personTokens: Set<String>
         let salt: String
+        /// Name-token → folders, and year → folders.
+        ///
+        /// These exist for speed, and the speed is not a nicety. Scoring names by walking every
+        /// destination cost **10 ms per file** against a real 2,979-folder tree; the root inbox of
+        /// the tree this was built for holds 524 loose files, so a scan spent five seconds of
+        /// synchronous work before showing anything. Looking folders up by the tokens a file
+        /// actually has is the same arithmetic over a few hundred folders instead of three thousand.
+        let foldersByPathToken: [String: [String]]
+        let foldersByYear: [String: [String]]
+        /// Folder → its anchors, for recovering display evidence for the shown candidates.
+        let anchorsByFolder: [String: [String: Double]]
 
         public var isEmpty: Bool { destinations.isEmpty }
     }
@@ -92,14 +103,18 @@ public enum FilingRouter {
     /// dropped here rather than at the call site so no consumer can forget.
     public static func makeIndex(destinations: [String], profile: FolderProfile?,
                                  memory: FilingMemory?) -> Index {
-        let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !isInboxPath($0) }
+        // One rule, asked the same way everywhere — see ``FolderProfile/isInboxPath(_:)``.
+        let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
         var byAnchor: [String: [(String, Double)]] = [:]
         var byIdHash: [String: [(String, Double)]] = [:]
         var docs: [String: Int] = [:]
+        var anchorsByFolder: [String: [String: Double]] = [:]
         let allowedSet = Set(allowed)
         if let memory {
             for (folder, entry) in memory.folders where allowedSet.contains(folder) {
                 docs[folder] = entry.docs
+                anchorsByFolder[folder] = Dictionary(entry.anchors.map { ($0.token, $0.weight) },
+                                                     uniquingKeysWith: { a, b in max(a, b) })
                 for t in entry.anchors { byAnchor[t.token, default: []].append((folder, t.weight)) }
                 for t in entry.idHashes { byIdHash[t.token, default: []].append((folder, t.weight)) }
             }
@@ -109,15 +124,24 @@ public enum FilingRouter {
         var yearKey: [String: String] = [:]
         var roleBonus: [String: Double] = [:]
         var children: [String: [String]] = [:]
+        var foldersByPathToken: [String: [String]] = [:]
+        var foldersByYear: [String: [String]] = [:]
         for f in allowed {
-            pathTokens[f] = Set(tokenize(f))
+            let pt = Set(tokenize(f))
+            pathTokens[f] = pt
             let entry = profile?.folders[f]
-            anchorTokens[f] = Set((entry?.anchors ?? []).flatMap { tokenize($0) })
+            let at = Set((entry?.anchors ?? []).flatMap { tokenize($0) })
+            anchorTokens[f] = at
+            for t in pt.union(at) { foldersByPathToken[t, default: []].append(f) }
             if let y = entry?.yearKey {
                 yearKey[f] = y
             } else if let base = f.split(separator: "/").last.map(String.init),
                       FolderProfileEntry.looksLikeYear(base) {
                 yearKey[f] = base
+            }
+            // A fiscal span is reachable from either half, so `2019-2020` is listed under both.
+            for part in (yearKey[f] ?? "").split(separator: "-") where Int(part) != nil {
+                foldersByYear[String(part), default: []].append(f)
             }
             switch entry?.role {
             case .destination, .yearBucket: roleBonus[f] = 0.5
@@ -131,7 +155,9 @@ public enum FilingRouter {
         return Index(byAnchor: byAnchor, byIdHash: byIdHash, docs: docs, destinations: allowed,
                      pathTokens: pathTokens, anchorTokens: anchorTokens, yearKey: yearKey,
                      roleBonus: roleBonus, children: children,
-                     personTokens: profile?.personTokens ?? [], salt: memory?.salt ?? "")
+                     personTokens: profile?.personTokens ?? [], salt: memory?.salt ?? "",
+                     foldersByPathToken: foldersByPathToken, foldersByYear: foldersByYear,
+                     anchorsByFolder: anchorsByFolder)
     }
 
     /// Ranks destinations for one file.
@@ -154,9 +180,11 @@ public enum FilingRouter {
         let yearsInBody = contentTokens.filter(isYearToken)
 
         // ---- content evidence -------------------------------------------------------------
+        // Scoring keeps ONE number per folder. Which anchor won and how many matched are needed
+        // only for the handful of folders actually shown, so they are recovered at the end instead
+        // of being maintained for every folder a common word touches — a document routinely puts
+        // thousands in play, and that bookkeeping was two extra dictionary writes on each.
         var content: [String: Double] = [:]
-        var bestAnchor: [String: (token: String, weight: Double)] = [:]
-        var anchorHits: [String: Int] = [:]
         for token in contentTokens {
             if isIdentifier(token) {
                 let h = FilingMemory.hash(token, salt: index.salt)
@@ -166,10 +194,6 @@ public enum FilingRouter {
             }
             for (folder, weight) in index.byAnchor[token] ?? [] {
                 content[folder, default: 0] += weight
-                anchorHits[folder, default: 0] += 1
-                if weight > (bestAnchor[folder]?.weight ?? -1) {
-                    bestAnchor[folder] = (token, weight)
-                }
             }
         }
         for (folder, raw) in content {
@@ -199,12 +223,30 @@ public enum FilingRouter {
         }
 
         // ---- name and axis evidence -------------------------------------------------------
+        //
+        // Only folders this file can actually reach are scored: ones sharing a name token, ones
+        // whose year the file names, and ones content already put in play. Everything else scores
+        // zero (no overlap, no year) or loses anyway (a non-matching year is a penalty on a folder
+        // with nothing else going for it), so walking the whole tree only bought latency.
+        var reachable = Set<String>()
+        for t in nameTokens {
+            if let fs = index.foldersByPathToken[t] { reachable.formUnion(fs) }
+        }
+        for y in yearsInName.union(yearsInBody) {
+            if let fs = index.foldersByYear[y] { reachable.formUnion(fs) }
+        }
+        reachable.formUnion(content.keys)          // a wrong year must still penalise a live folder
+
+        let people = nameTokens.intersection(index.personTokens)
         var name: [String: Double] = [:]
-        for folder in index.destinations {
+        for folder in reachable {
             var s = 0.0
-            let overlap = nameTokens.intersection(index.pathTokens[folder] ?? [])
-                .union(nameTokens.intersection(index.anchorTokens[folder] ?? []))
-            s += Double(overlap.count) * 2.0
+            let pathToks = index.pathTokens[folder] ?? []
+            var overlap = 0
+            for t in nameTokens where pathToks.contains(t) || index.anchorTokens[folder]?.contains(t) == true {
+                overlap += 1
+            }
+            s += Double(overlap) * 2.0
             if let year = index.yearKey[folder] {
                 if !yearsInName.isEmpty { s += yearInNameWeight * yearFit(year, yearsInName) }
                 if !yearsInBody.isEmpty { s += yearInBodyWeight * yearFit(year, yearsInBody) }
@@ -213,8 +255,7 @@ public enum FilingRouter {
             }
             if s == 0 { continue }
             s += index.roleBonus[folder] ?? 0
-            let people = nameTokens.intersection(index.personTokens)
-            if !people.isEmpty, !people.isDisjoint(with: index.pathTokens[folder] ?? []) { s += 2.0 }
+            if !people.isEmpty, !people.isDisjoint(with: pathToks) { s += 2.0 }
             name[folder] = s
         }
 
@@ -225,6 +266,7 @@ public enum FilingRouter {
         let contentPeak = content.values.max() ?? 0
         let namePeak = name.values.max() ?? 0
         var total: [String: Double] = [:]
+        total.reserveCapacity(content.count + name.count)
         if contentPeak > 0 {
             for (f, v) in content { total[f, default: 0] += contentWeight * (v / contentPeak) }
         }
@@ -234,17 +276,51 @@ public enum FilingRouter {
         for f in excluding { total.removeValue(forKey: f) }
         guard !total.isEmpty else { return .empty }
 
-        let ranked = total.sorted { a, b in
-            a.value == b.value ? a.key < b.key : a.value > b.value
+        // Top-k by selection, not by sorting. A document routinely puts a few thousand folders in
+        // play and only the first five are ever shown, so a full `sorted()` was ordering ~3,000
+        // string keys to read six of them — the single largest cost in this function.
+        let want = max(limit, 2)                       // the runner-up is what the margin needs
+        var best: [(key: String, value: Double)] = []
+        best.reserveCapacity(want + 1)
+        for entry in total {
+            if best.count == want, entry.value < best[best.count - 1].value { continue }
+            // Ties break on the path so a ranking is reproducible run to run.
+            var i = best.count
+            while i > 0, entry.value > best[i - 1].value
+                || (entry.value == best[i - 1].value && entry.key < best[i - 1].key) { i -= 1 }
+            best.insert((entry.key, entry.value), at: i)
+            if best.count > want { best.removeLast() }
         }
-        let top = ranked[0].value
-        let margin = ranked.count > 1 && top > 0 ? (top - ranked[1].value) / top : 1.0
-        let candidates = ranked.prefix(limit).map { entry in
-            Candidate(relativePath: entry.key, score: entry.value,
-                      evidenceToken: bestAnchor[entry.key]?.token,
-                      neighborMatches: anchorHits[entry.key] ?? 0)
+        let top = best[0].value
+        let margin = best.count > 1 && top > 0 ? (top - best[1].value) / top : 1.0
+        let candidates = best.prefix(limit).map { entry -> Candidate in
+            let (token, hits) = evidence(for: entry.key, tokens: contentTokens, index: index)
+            return Candidate(relativePath: entry.key, score: entry.value,
+                             evidenceToken: token, neighborMatches: hits)
         }
         return Ranking(candidates: Array(candidates), margin: margin)
+    }
+
+    /// The heaviest anchor this file shares with `folder`, and how many it shares.
+    ///
+    /// Recomputed for the shown candidates rather than tracked for every folder during scoring.
+    /// Ties break on the token so the evidence chip on a card is the same on every run —
+    /// `contentTokens` is a Set, and its iteration order is not.
+    static func evidence(for folder: String, tokens: Set<String>,
+                         index: Index) -> (token: String?, hits: Int) {
+        guard let anchors = index.anchorsByFolder[folder] else { return (nil, 0) }
+        var bestToken: String?
+        var bestWeight = -1.0
+        var hits = 0
+        for token in tokens {
+            guard let w = anchors[token] else { continue }
+            hits += 1
+            if w > bestWeight || (w == bestWeight && token < (bestToken ?? "\u{10FFFF}")) {
+                bestWeight = w
+                bestToken = token
+            }
+        }
+        return (bestToken, hits)
     }
 
     // MARK: - Tokenizing
@@ -297,13 +373,5 @@ public enum FilingRouter {
         let hits = parts.filter { years.contains($0) }.count
         if hits == parts.count { return 1.0 }
         return hits > 0 ? 0.5 : -1.0
-    }
-
-    static func isInboxPath(_ relativePath: String) -> Bool {
-        for component in relativePath.split(separator: "/") {
-            let c = component.lowercased()
-            if c == "inbox" || c == "misc" || c == "unfiled" || c.contains("todo") { return true }
-        }
-        return false
     }
 }

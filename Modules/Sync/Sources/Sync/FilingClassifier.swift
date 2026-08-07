@@ -102,9 +102,11 @@ public struct FilingContext: Sendable {
     /// `taxonomyFolders`** — 138 of one tree's folders are inboxes, and listing an inbox among
     /// destinations actively teaches a classifier to file into the very place the user put things
     /// when they had nowhere to put them.
+    /// The same rule the router applies, asked the same way — a profile when there is one, the
+    /// name rule when there is not. Answering it two different ways in two places is how one of
+    /// them ends up offering `TODO` as a home.
     public var destinations: [String] {
-        guard let profile else { return taxonomyFolders }
-        return taxonomyFolders.filter { profile.acceptsNewFiles($0) }
+        taxonomyFolders.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
     }
 }
 

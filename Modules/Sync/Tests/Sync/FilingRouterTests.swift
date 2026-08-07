@@ -43,7 +43,7 @@ import Testing
                 idHashes: tokens.filter { FilingRouter.isIdentifier($0) }
                     .map { FilingMemoryToken(token: FilingMemory.hash($0, salt: "s"), weight: 3.0) })
         }
-        let memory = FilingMemory(profileId: "t", salt: "s", folders: memFolders, folderBase: 6)
+        let memory = FilingMemory(profileId: "t", salt: "s", folders: memFolders)
         return FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory)
     }
 
@@ -170,5 +170,41 @@ import Testing
         #expect(FilingRouter.yearFit("2019-2020", ["2019"]) == 0.5)
         #expect(FilingRouter.yearFit("2019-2020", ["2024"]) == -1.0)
         #expect(FilingRouter.yearFit("2023", ["2023"]) == 1.0)
+    }
+}
+
+/// The inbox rule, and the seam that hands it to a backend. Both were asked in three places with
+/// two different answers before this suite existed.
+@Suite struct FilingDestinationRuleTests {
+
+    /// **A whole word, not a substring.** `contains("todo")` also refuses `Mastodon` — and it
+    /// refused all four real `Misc` folders in the surveyed tree (`Semester Fees/Misc`,
+    /// `System Design/Misc`), which are ordinary destinations, not inboxes.
+    @Test func inboxMatchingIsOnWholeWords() {
+        #expect(FolderProfile.isInboxPath("Documents/TODO"))
+        #expect(FolderProfile.isInboxPath("Work/EDD - TODO"))
+        #expect(FolderProfile.isInboxPath("Health/New (TODO)/Dental"))
+        #expect(FolderProfile.isInboxPath("Home/TODO - May 2025"))
+        #expect(!FolderProfile.isInboxPath("Media/Mastodon"))
+        #expect(!FolderProfile.isInboxPath("School/IN/BMS College of Engineering/Misc"))
+        #expect(!FolderProfile.isInboxPath("Finance/US/Income Tax/2023"))
+    }
+
+    /// A backend must be handed destinations, not the raw taxonomy — and the answer must not change
+    /// depending on whether a profile happens to be loaded.
+    @Test func destinationsExcludeInboxesWithAndWithoutAProfile() {
+        let taxonomy = ["Finance/US/Income Tax/2023", "Documents/TODO", "Health/TODO/Dental"]
+        let bare = FilingContext(taxonomyFolders: taxonomy)
+        #expect(bare.destinations == ["Finance/US/Income Tax/2023"])
+
+        let entry = FolderProfileEntry(path: "Documents/TODO", role: .inbox, naming: nil,
+                                       anchors: [], acceptsNewFiles: false, fileCount: 9,
+                                       subfolderCount: 0, axes: [:])
+        let profiled = FilingContext(taxonomyFolders: taxonomy,
+                                     profile: FolderProfile(profileId: "t", root: "~",
+                                                            folders: [entry.path: entry],
+                                                            personTokens: []))
+        #expect(profiled.destinations == bare.destinations)
+        #expect(profiled.taxonomyFolders.count == 3)     // the full list is still there to read
     }
 }

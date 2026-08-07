@@ -20,15 +20,11 @@ public struct FilingMemory: Sendable, Equatable {
     /// Application Support and gets backed up. It is **obfuscation, not a security boundary.**
     public let salt: String
     public let folders: [String: FilingMemoryEntry]
-    /// How many folders the weights were computed against — used to age a weight that was learned
-    /// against a much smaller tree.
-    public let folderBase: Int
 
-    public init(profileId: String, salt: String, folders: [String: FilingMemoryEntry], folderBase: Int) {
+    public init(profileId: String, salt: String, folders: [String: FilingMemoryEntry]) {
         self.profileId = profileId
         self.salt = salt
         self.folders = folders
-        self.folderBase = folderBase
     }
 
     public var isEmpty: Bool { folders.isEmpty }
@@ -109,13 +105,12 @@ extension FilingMemoryEntry: Decodable {
 
 extension FilingMemory: Decodable {
     private enum Key: String, CodingKey {
-        case profileId, salt, folders, idfFolderBase
+        case profileId, salt, folders
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
         salt = try c.decodeIfPresent(String.self, forKey: .salt) ?? ""
         folders = try c.decodeIfPresent([String: FilingMemoryEntry].self, forKey: .folders) ?? [:]
-        folderBase = try c.decodeIfPresent(Int.self, forKey: .idfFolderBase) ?? max(folders.count, 1)
     }
 }

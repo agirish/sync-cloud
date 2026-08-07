@@ -66,21 +66,19 @@ public enum FilingProfileStore {
         return (profile, memory(id: id, in: directory))
     }
 
-    /// Bytes the two artifacts occupy for `id` — a `stat`, like the hash index's, so Settings can
-    /// report what this costs on disk without reading 3 MB of JSON.
-    public static func sizeOnDisk(id: String, in directory: URL,
-                                  fileManager: FileManager = .default) -> Int? {
-        let paths = ["\(id)/folder-profile.json", "\(id)/filing-memory.json"]
-            .map { directory.appendingPathComponent($0).path }
-        let sizes = paths.compactMap { p -> Int? in
-            (try? fileManager.attributesOfItem(atPath: p))?[.size]
-                .flatMap { $0 as? NSNumber }?.intValue
-        }
-        return sizes.isEmpty ? nil : sizes.reduce(0, +)
-    }
+    private struct SchemaProbe: Decodable { let schemaVersion: Int? }
 
     private static func decode<T: Decodable>(_ type: T.Type, at url: URL, what: String) -> T? {
         guard let data = try? Data(contentsOf: url) else { return nil }
+        // The artifacts carry their own version, and until now only `profiles.json`'s was read —
+        // so a future shape would have been decoded field-by-field into a half-empty value and
+        // used, which is the silent-wrong-answer failure this store exists to avoid.
+        if let probe = try? JSONDecoder().decode(SchemaProbe.self, from: data),
+           let v = probe.schemaVersion, v != currentSchema {
+            Logger.shared.warning("The \(what) at \(url.lastPathComponent) is schema \(v), not "
+                                  + "\(currentSchema) — ignoring it rather than half-reading it")
+            return nil
+        }
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
