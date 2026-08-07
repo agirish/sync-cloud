@@ -61,9 +61,13 @@ public struct LastScanSummary: Codable, Equatable, Sendable {
     ///
     /// Deliberately string-only: no `standardizingPath`, no `URL` round-trip. Both of those touch
     /// the file system to resolve symlinks, and this runs while a view body is being evaluated.
+    ///
+    /// `trimmed != "/"` rather than a length check: `String.count` walks the whole string, so a
+    /// `count > 1` guard inside the loop costs O(n) per iteration to answer a question `"/"` answers
+    /// in O(1). It reads the same and keeps the root from being trimmed to "".
     static func normalized(_ path: String) -> String {
         var trimmed = path
-        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        while trimmed.hasSuffix("/"), trimmed != "/" { trimmed.removeLast() }
         return trimmed
     }
 }

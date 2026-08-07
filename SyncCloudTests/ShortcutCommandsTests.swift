@@ -58,6 +58,23 @@ import Testing
         #expect(publisher.effectiveSwitchPaneFocus != nil)
     }
 
+    /// The Go menu item names the pane it moves focus TO — and it is the only surface that says
+    /// which pane is focused at all, because the panes carry no indicator. A title reading
+    /// "Switch Pane" would leave the state unreadable.
+    @Test func theFocusSwitchItemNamesItsDestinationPane() {
+        #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "Dropbox", run: {}))
+                == "Focus Dropbox")
+        // Same-provider panes are disambiguated upstream by `PaneProviderNames`, so the title
+        // still names ONE pane rather than repeating a word twice.
+        #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "iCloud (right)", run: {}))
+                == "Focus iCloud (right)")
+    }
+
+    /// The disabled form — a single-source workspace, where there is no second pane to name.
+    @Test func theFocusSwitchItemNamesNoPaneWhenThereIsNoOtherOne() {
+        #expect(PaneFocusSwitch.menuTitle(for: nil) == "Focus Other Pane")
+    }
+
     /// The ⌘/ window is `.contentSize`-resizable — the user cannot enlarge it — so the whole
     /// reference must fit its fixed frame at the default text size. It stopped fitting when the
     /// twelve menu-bar chords nearly doubled the row count, and nothing failed: the ScrollView

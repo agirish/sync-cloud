@@ -507,31 +507,36 @@ extension FileSyncManager {
     /// Compare scan, which walks *two* whole trees and is the longest operation in the app, had
     /// none. Starting one against the wrong pair of roots meant waiting it out or quitting.
     ///
-    /// Cancels the refresh task rather than anything scan-specific, because that is the unit the
-    /// app actually starts (`refreshTreesAndScan` is the only production entry point): the two pane
-    /// loads and the scan behind them are one structured chain, and cancelling only the scan would
-    /// leave the loads running. `executeScan`'s publish gate already discards a cancelled scan's
-    /// results, and its `isScanning = false` still runs, so nothing here has to unwind state.
+    /// **A scan can be reached two ways, and both have to be cancellable.** Ordinarily it runs
+    /// inside `refreshTreesAndScan`'s task, behind the two pane loads — one structured chain, so
+    /// cancelling the refresh task cancels the loads and the scan together, and cancelling only the
+    /// scan would leave the loads running. But a scan queued behind a superseded one is **drained
+    /// on an unstructured task after its refresh has already finished and released its key**
+    /// (`scanDrainTask`, at the end of `executeScan`); there, `activeRefreshTask` points at a
+    /// completed task and cancelling it does nothing at all. Both handles are cancelled
+    /// unconditionally — cancelling a finished or absent task is a no-op, so no branch has to
+    /// decide which one is live.
+    ///
+    /// **Liveness is `isScanning` or a live `activeRefreshKey` — never `activeRefreshTask`.** That
+    /// handle is never nilled out, only overwritten, so a finished refresh leaves a completed task
+    /// sitting there and a guard on it would report a cancel long after there was anything to
+    /// cancel. The key covers the load phase in front of a scan (where `isScanning` is still
+    /// false); `isScanning` covers the drained scan (which has no key). Together they are exactly
+    /// the window in which the UI offers Stop.
     ///
     /// **The queued request has to go too.** `pendingScanRequest` holds a scan that has not started
-    /// yet; leaving it would let the drain at the end of `executeScan` start a *fresh* scan the
-    /// instant the cancelled one unwound, so Cancel would look like it did nothing at all.
+    /// yet; leaving it would let the drain start a *fresh* scan the instant the cancelled one
+    /// unwound, so Cancel would look like it did nothing at all.
     ///
-    /// `activeRefreshKey` is deliberately not touched: the cancelled task's own cleanup releases
-    /// it (matched by task identity), and clearing it here would let a superseding refresh's key be
-    /// dropped by an unrelated cancel.
-    /// Liveness is `isScanning` or a live `activeRefreshKey`, and **not** `activeRefreshTask`: that
-    /// handle is never nilled out, only overwritten, so a finished refresh leaves a completed
-    /// `Task` sitting there and a guard on it would report "cancelled" long after there was
-    /// anything to cancel. The key covers the load phase in front of a scan; `isScanning` covers
-    /// the drained scan, which runs on no refresh at all.
+    /// `activeRefreshKey` is deliberately **not** cleared here. The cancelled task's own cleanup
+    /// releases it, matched by task identity, so clearing it here would only race that. Nor does
+    /// holding it briefly swallow the retry: every user-facing rescan goes through
+    /// `forceRefreshAction`, which calls `prepareForcedRescan()` and bumps the config epoch that
+    /// `RefreshKey` carries — so a Scan pressed while the cancelled refresh is still unwinding
+    /// builds a *different* key and is not deduped away.
     ///
-    /// Both tasks are cancelled because a scan can be reached two ways. Ordinarily it is inside
-    /// `refreshTreesAndScan`'s task. But a scan queued behind a superseded one is drained on an
-    /// unstructured task **after** its refresh has finished and released the key — and the Stop
-    /// button shows for as long as `isScanning`, so without `scanDrainTask` that whole scan would
-    /// present a dead control. Cancelling a finished or absent task is a no-op, so no branch is
-    /// needed to decide which one is live.
+    /// `executeScan`'s publish gate already discards a cancelled scan's results and still runs its
+    /// `isScanning = false`, so nothing here has to unwind state.
     public func cancelScan() {
         guard isScanning || activeRefreshKey != nil else { return }
         Logger.shared.info("[scan] cancelled by the user")

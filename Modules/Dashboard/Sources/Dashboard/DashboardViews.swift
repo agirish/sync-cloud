@@ -726,18 +726,22 @@ public struct PaneHeader: View {
                 // is still carried by the differences count pill's "scanning…" and by both panes'
                 // own loading state, while "you can stop this" had no carrier at all. A spinner
                 // you cannot stop was the whole complaint.
-                let stopping = isRefreshing && onCancelScan != nil
-                Button(action: { stopping ? onCancelScan?() : onRefresh() }) {
-                    Image(systemName: stopping ? "stop.circle" : "arrow.clockwise")
-                        .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing && !stopping)
+                //
+                // Every one of the five things that differ between the two states comes from one
+                // resolved `ScanRungMode`, where a test can hold them together — a rung whose
+                // glyph says Stop while its badge still offers ⌘R is the failure this shape rules
+                // out by construction.
+                let mode = ScanRungMode.resolve(isRefreshing: isRefreshing, canCancel: onCancelScan != nil)
+                Button(action: { mode == .stop ? onCancelScan?() : onRefresh() }) {
+                    Image(systemName: mode.symbol)
+                        .symbolEffect(.rotate, options: .repeating, isActive: mode.spins)
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
-                .shortcutKeycap(stopping ? nil : AppChord.rescan.display)
-                .disabled(isRefreshing && !stopping)
-                .help(stopping ? "Stop scanning"
-                               : ShortcutHint.tooltip("Scan for changes", AppChord.rescan.display))
-                .accessibilityLabel(stopping ? "Stop scanning" : "Scan for changes")
+                .shortcutKeycap(mode.keycap)
+                .disabled(!mode.isEnabled)
+                .help(mode.help)
+                .accessibilityLabel(mode.label)
             }
 
         case .newFolder:

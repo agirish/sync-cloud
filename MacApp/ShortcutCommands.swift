@@ -72,15 +72,21 @@ private struct SwitchPaneFocusKey: FocusedValueKey {
 /// item is the only resting surface that says which pane is focused now, so it has to read "Focus
 /// Dropbox" rather than "Switch Pane". A menu title that named neither pane would leave the state
 /// completely unreadable.
-struct PaneFocusSwitch: Equatable {
+/// Not `Equatable`, matching `FoldAllShortcut` — a focused value needs no equality, and the
+/// hand-written one this used to carry compared only `targetName`, so two switches pointing at
+/// different panes' closures could compare equal. An `==` nothing calls and that cannot be right
+/// is worse than none.
+struct PaneFocusSwitch {
     /// The pane this moves focus TO, by its provider display name.
     let targetName: String
     let run: () -> Void
 
-    /// The closure is identity-free, so equality is the name — which is the only part the menu
-    /// renders, and the only part a republish can meaningfully change.
-    static func == (lhs: PaneFocusSwitch, rhs: PaneFocusSwitch) -> Bool {
-        lhs.targetName == rhs.targetName
+    /// The menu item's title. A rule rather than an inline ternary because it is the ONLY resting
+    /// answer to "which pane is focused?" — the panes carry no indicator — so it is worth a test.
+    /// The `nil` form is what a disabled item shows: it names no pane, because there is no second
+    /// pane to name on a single-source workspace.
+    static func menuTitle(for focus: PaneFocusSwitch?) -> String {
+        focus.map { "Focus \($0.targetName)" } ?? "Focus Other Pane"
     }
 }
 
@@ -418,7 +424,7 @@ struct SwitchPaneFocusCommand: View {
     @FocusedValue(\.switchPaneFocus) private var focus
 
     var body: some View {
-        Button(focus.map { "Focus \($0.targetName)" } ?? "Focus Other Pane") { focus?.run() }
+        Button(PaneFocusSwitch.menuTitle(for: focus)) { focus?.run() }
             .keyboardShortcut(AppChord.switchPaneFocus.key, modifiers: AppChord.switchPaneFocus.modifiers)
             .disabled(focus == nil)
     }

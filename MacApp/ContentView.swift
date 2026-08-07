@@ -2000,14 +2000,6 @@ struct ContentView: View {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
             set: { newSelection in
-                // Picking something in a pane is the mouse saying which pane it is working in, so
-                // it moves the keyboard's focus there too — otherwise ⌃⇥ and the click would be
-                // two independent notions of "the focused pane" that drift apart the moment you
-                // use both. The empty-write case is the one that must NOT move it; that rule lives
-                // in `PaneLogic` where a test can hold it.
-                let side = PaneLogic.focusedSideAfterSelectionWrite(
-                    newSelection, isLeft: isLeft, current: syncManager.focusedPaneSide)
-                if syncManager.focusedPaneSide != side { syncManager.focusedPaneSide = side }
                 PaneLogic.applySelectionWrite(
                     newSelection,
                     isLeft: isLeft,
@@ -2015,6 +2007,22 @@ struct ContentView: View {
                     sequencer: selectionSequencer,
                     schedule: { DispatchQueue.main.async(execute: $0) }
                 )
+                // Picking something in a pane is the mouse saying which pane it is working in, so
+                // it moves the keyboard's focus there too — otherwise ⌃⇥ and the click would be
+                // two independent notions of "the focused pane" that drift apart the moment you
+                // use both. The empty-write case is the one that must NOT move it; that rule lives
+                // in `PaneLogic` where a test can hold it.
+                //
+                // **After `applySelectionWrite`, never before.** That call's first act is the
+                // commit the clicked List is waiting on, and it is written the way it is because
+                // publishing anything else into that window reloaded the List mid-commit and
+                // dropped the click outright (`aa9d407`, the two-clicks-to-select bug). This is
+                // another `@Published` write on the same manager, so it goes after the commit
+                // lands — it changes nothing about what this click selects, only where the
+                // keyboard points next.
+                let side = PaneLogic.focusedSideAfterSelectionWrite(
+                    newSelection, isLeft: isLeft, current: syncManager.focusedPaneSide)
+                if syncManager.focusedPaneSide != side { syncManager.focusedPaneSide = side }
             }
         )
     }

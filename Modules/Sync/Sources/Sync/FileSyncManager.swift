@@ -1267,11 +1267,11 @@ public class FileSyncManager: ObservableObject {
         Logger.shared.error(error.logDescription)
     }
 
-    /// When non-nil, a bulk sync is in progress: (completed count, total count). Used for progress indicator.
     /// The rows the last bulk transfer failed on, or nil when the last one was clean. Drives the
     /// Differences table's Failed filter — see ``TransferFailures`` for why this exists at all.
     @Published public internal(set) var lastTransferFailures: TransferFailures?
 
+    /// When non-nil, a bulk sync is in progress: (completed count, total count). Used for progress indicator.
     @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
     /// Cached "Apply to all" resolution for the current bulk run; cleared when bulk sync ends.
     internal var bulkApplyToAllResolution: CollisionResolution?

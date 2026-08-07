@@ -345,10 +345,6 @@ public struct DifferencesView: View {
         .onChange(of: syncManager.lastScanDate) { _, _ in
             collapsedSections.removeAll()
         }
-        // Rebuild the visible rows off the main actor whenever an input changes (and once on
-        // appear). task(id:) cancels a stale rebuild when the inputs change again mid-flight,
-        // and the isCancelled check keeps its result from landing over a newer one — the same
-        // shape as ContentView's DiffStatusIndex rebuild.
         // A partial run leaves its failures in the list, unmarked and — on a large diff — not
         // findable. Land on them.
         //
@@ -368,6 +364,10 @@ public struct DifferencesView: View {
             }
             selectedFilter = .failed
         }
+        // Rebuild the visible rows off the main actor whenever an input changes (and once on
+        // appear). task(id:) cancels a stale rebuild when the inputs change again mid-flight,
+        // and the isCancelled check keeps its result from landing over a newer one — the same
+        // shape as ContentView's DiffStatusIndex rebuild.
         .task(id: displayInputs) {
             let inputs = displayInputs
             if inputs.isReviewing {

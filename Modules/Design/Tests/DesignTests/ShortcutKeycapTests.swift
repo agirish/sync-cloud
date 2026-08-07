@@ -192,6 +192,40 @@ import Testing
                 "the ordering rule is no longer load-bearing: if the modifier now sees through `.disabled` from outside, drop the ordering note from the doc comment")
     }
 
+    /// A `nil` symbol paints nothing, reveal or no reveal — the state a control that only
+    /// *sometimes* has a chord is in, like the pane bar's scan rung once it has become Stop.
+    ///
+    /// Measured the same way as the disabled guard rather than by reading the flag, because the
+    /// modifier is still applied in this case: it has to decide to draw nothing, which is a
+    /// different thing from not being there.
+    @Test func aControlWithNoChordWearsNoBadge() {
+        for subject in Self.subjects() {
+            let unbadged = subject.view.shortcutKeycap(nil)
+            guard let off = render(unbadged, revealed: false),
+                  let on = render(unbadged, revealed: true) else {
+                Issue.record("\(subject.name): no bitmap rep")
+                continue
+            }
+            #expect(pixelsDiffering(off, on) == 0,
+                    "\(subject.name): a control with no chord painted a keycap during the reveal")
+        }
+    }
+
+    /// ...and the positive control for the test above: the SAME subjects with a symbol do paint,
+    /// so "nothing changed" cannot pass for "nil was honoured" on a harness that renders nothing.
+    @Test func theSameControlsDoPaintWhenGivenAChord() {
+        for subject in Self.subjects() {
+            let badged = subject.view.shortcutKeycap("⌘F")
+            guard let off = render(badged, revealed: false),
+                  let on = render(badged, revealed: true) else {
+                Issue.record("\(subject.name): no bitmap rep")
+                continue
+            }
+            #expect(pixelsDiffering(off, on) > 200,
+                    "\(subject.name): the fixture painted no keycap even WITH a symbol — the harness is broken, not the nil case")
+        }
+    }
+
     // MARK: The key is opaque, and the control steps back
 
     /// A colour sampled at the control's centre — which is where the key sits.
