@@ -285,7 +285,7 @@ extension FileSyncManager {
         // The router reasons over the UNCAPPED folder set: the classifier's cap exists to bound
         // token cost, and this pass sends nothing anywhere, so capping it would hide real
         // destinations for no benefit.
-        prepareFilingRouter(destinations: Array(filingLastExistingFolders))
+        prepareFilingRouter(destinations: filingLastExistingFolders)
 
         // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
@@ -297,12 +297,30 @@ extension FileSyncManager {
 
         // Phase 2 — for the files with no confident home, read their contents on-device and
         // re-suggest with those tokens merged in.
+        //
+        // **A page is read once and shared.** Tokens are a pure function of the extracted text, so
+        // when the router is also going to want that text, the text is what gets read and the
+        // tokens are derived from it. Reading the file twice — once for tokens, once for the
+        // router — doubled the most expensive work in the scan, and PDF extraction is that work.
+        var routerSnippets: [String: String] = [:]
         if filingReadsContents, let extractor = filingContentExtractor {
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !unsure.isEmpty {
                 updateScan(\.filingScanLifecycle, epoch: epoch,
                            status: FilingScanPhase.readingContent(unsure.count).status)
-                let content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
+                let content: [String: Set<String>]
+                if filingRouterIndex != nil, let snippetExtractor = filingSnippetExtractor,
+                   let tokenize = filingTokensFromText {
+                    routerSnippets = await Self.extractSnippets(for: unsure.map { $0.filePath },
+                                                               using: snippetExtractor)
+                    if Task.isCancelled { return }
+                    content = routerSnippets.compactMapValues { text in
+                        let t = tokenize(text)
+                        return t.isEmpty ? nil : t
+                    }
+                } else {
+                    content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
+                }
                 if Task.isCancelled { return }
                 if !content.isEmpty {
                     suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
@@ -323,23 +341,11 @@ extension FileSyncManager {
         //
         // The snippets are kept: phase 3 would otherwise read the same pages again, and a PDF page
         // is the expensive part of this whole scan.
-        var routerSnippets: [String: String] = [:]
         if let routerIndex = filingRouterIndex {
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !unsure.isEmpty {
-                // Read page 1 only for files whose NAME says nothing — the same bound phase 3 has
-                // always applied. Extracting for every homeless file instead would have made a
-                // scan on a surveyed machine read *more* pages than before this pass existed, and
-                // a PDF page is the expensive part of the whole scan. These snippets are then
-                // handed to phase 3, so nothing is read twice.
-                let nameless = unsure.filter { !FilingEngine.canRemember(fileName: $0.fileName) }
-                if filingReadsContents, let extractor = filingSnippetExtractor, !nameless.isEmpty {
-                    updateScan(\.filingScanLifecycle, epoch: epoch,
-                               status: FilingScanPhase.readingContent(nameless.count).status)
-                    routerSnippets = await Self.extractSnippets(for: nameless.map { $0.filePath },
-                                                               using: extractor)
-                    if Task.isCancelled { return }
-                }
+                // No extraction here: phase 2 already read these pages, and phase 3 reuses the same
+                // strings below. One read per file, three consumers.
                 let (routed, count) = await applyRoutesYielding(suggestions, index: routerIndex,
                                                                 snippets: routerSnippets,
                                                                 providerRoot: providerRoot.path,

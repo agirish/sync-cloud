@@ -21,14 +21,20 @@ public enum FilingRouter {
         /// The readable anchor that contributed most — display-ready evidence for the card, and nil
         /// when the folder was reached by name or by inheritance rather than by content.
         public let evidenceToken: String?
-        /// How many of the destination's filed documents share the matched anchors.
-        public let neighborMatches: Int
+        /// How many distinctive **words** this file shares with the folder's filed documents.
+        ///
+        /// Deliberately not called anything with "files" or "matches" in it. It was
+        /// `neighborMatches`, which is the name of a `FilingDestination` field meaning *how many
+        /// files in the target contain the evidence word* — so a token count reached a card that
+        /// renders it as "N similar files already here". The memory does not record per-token file
+        /// counts, so that claim cannot be made from it at all.
+        public let sharedAnchors: Int
 
-        public init(relativePath: String, score: Double, evidenceToken: String?, neighborMatches: Int) {
+        public init(relativePath: String, score: Double, evidenceToken: String?, sharedAnchors: Int) {
             self.relativePath = relativePath
             self.score = score
             self.evidenceToken = evidenceToken
-            self.neighborMatches = neighborMatches
+            self.sharedAnchors = sharedAnchors
         }
     }
 
@@ -296,7 +302,7 @@ public enum FilingRouter {
         let candidates = best.prefix(limit).map { entry -> Candidate in
             let (token, hits) = evidence(for: entry.key, tokens: contentTokens, index: index)
             return Candidate(relativePath: entry.key, score: entry.value,
-                             evidenceToken: token, neighborMatches: hits)
+                             evidenceToken: token, sharedAnchors: hits)
         }
         return Ranking(candidates: Array(candidates), margin: margin)
     }

@@ -41,7 +41,12 @@ import Testing
         #expect(out[0].best?.fromAI == false)
         #expect(out[0].isBatchEligible == false)
         #expect(out[0].best?.evidenceToken != nil)
-        #expect((out[0].best?.neighborMatches ?? 0) > 0)
+        // **Never a file count.** The card renders `neighborMatches` as "N similar files already
+        // here", and the memory cannot prove that number — it records which words a folder's
+        // documents use, not how many use each one.
+        #expect(out[0].best?.neighborMatches == 0)
+        #expect(out[0].best?.reasons.first?.contains("similar file") == false)
+        #expect(out[0].best?.reasons.first?.contains("read from the file") == true)
     }
 
     /// A remembered rule is an explicit correction the user taught. Nothing derived outranks it.

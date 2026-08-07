@@ -331,6 +331,10 @@ struct SyncCloudApp: App {
         manager.filingSnippetExtractor = { path in
             await ContentSignalExtractor.snippet(forFileAt: path)
         }
+        // The second half of `filingContentExtractor`, on its own. `tokens(forFileAt:)` reads the
+        // file and then derives tokens from what it read; handing the manager the derivation lets
+        // the scan read a page once and share it with the router and the classifier.
+        manager.filingTokensFromText = { ContentSignalExtractor.tokens(fromText: $0) }
         // The tree's own filing artifacts, if this machine has been surveyed. Read HERE, not in
         // `Sync`: library code must not reach into a real home directory just because nobody said
         // otherwise — the same rule the verdict cache and the hash index follow. Absent is the

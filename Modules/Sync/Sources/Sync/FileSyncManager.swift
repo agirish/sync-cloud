@@ -707,11 +707,34 @@ public class FileSyncManager: ObservableObject {
     /// are: `Sync` never reaches into a real home directory. Both nil is the ordinary state for
     /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
     /// any of this existed.
-    public var filingFolderProfile: FolderProfile?
-    public var filingMemory: FilingMemory?
-    /// The prepared router index for the current taxonomy. Built once per scan — rebuilding it per
-    /// file would walk every folder's token list for every loose file.
+    public var filingFolderProfile: FolderProfile? { didSet { invalidateFilingRouterIndex() } }
+    public var filingMemory: FilingMemory? { didSet { invalidateFilingRouterIndex() } }
+    /// The prepared router index, and the destination set it was built from.
+    ///
+    /// Building it costs ~85 ms against a 2,979-folder tree, and the taxonomy is usually identical
+    /// from one scan to the next — a rescan after a single file lands rebuilt the whole thing. The
+    /// key is the destination set itself rather than a hash of it: `Set` equality exits early on a
+    /// count mismatch, and an exact comparison cannot collide into serving a stale index.
     var filingRouterIndex: FilingRouter.Index?
+    var filingRouterIndexKey: Set<String>?
+    /// How many times the index has actually been built. Nothing reads it in the app — it exists
+    /// so a test can tell a reused index from a rebuilt one, which is otherwise invisible: a
+    /// rebuild produces a value equal to the one it replaced.
+    var filingRouterIndexBuilds = 0
+
+    /// Drops the cached index. Called whenever the artifacts it was built from are replaced.
+    func invalidateFilingRouterIndex() {
+        filingRouterIndex = nil
+        filingRouterIndexKey = nil
+    }
+
+    /// Derives content tokens from text already read, so a file's page is never extracted twice.
+    ///
+    /// `filingContentExtractor` reads the file and then derives tokens from what it read; this is
+    /// the second half of that on its own. With it, the scan reads a page once and shares it
+    /// between the keyword pass, the router and the classifier — without it, the keyword pass and
+    /// the router each read the same PDF.
+    public var filingTokensFromText: (@Sendable (String) -> Set<String>)?
     /// The FULL set of existing relative folders (uncapped), used only to mark a "Try another"
     /// verdict's segments new-vs-existing — the same basis the main scan uses. Kept separate from
     /// the capped `filingLastTaxonomyFolders` so a real folder beyond the classifier cap isn't

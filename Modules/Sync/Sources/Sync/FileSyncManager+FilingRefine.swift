@@ -178,8 +178,13 @@ extension FileSyncManager {
 
         var verdicts = cachedVerdicts
         var classifiedCount = 0
-        if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
-            let fresh = await classifier(filingContext(taxonomyFolders: taxonomyFolders), files, .refine)
+        // **Estimate the request that will actually be sent.** The classifier is handed
+        // `context.destinations`, which drops inbox folders; estimating against the unfiltered
+        // taxonomy priced a longer prompt than the one that goes out, and an over-estimate does not
+        // just misquote — it can trip the spend cap and refuse a pass that was within budget.
+        let context = filingContext(taxonomyFolders: taxonomyFolders)
+        if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: context.destinations) {
+            let fresh = await classifier(context, files, .refine)
             // Before the staleness check, deliberately — the answer is already paid for.
             recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: root,
                                  existingRelative: existingRelative)

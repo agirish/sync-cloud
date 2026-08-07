@@ -10,15 +10,18 @@ import Foundation
 // loaded, `filingRouterIndex` is nil and this whole phase is a no-op.
 extension FileSyncManager {
 
-    /// Builds the router index for a taxonomy, or clears it when there is nothing to route with.
-    func prepareFilingRouter(destinations: [String]) {
+    /// Builds the router index for a taxonomy, reusing the last one when the taxonomy has not moved.
+    func prepareFilingRouter(destinations: Set<String>) {
         guard filingFolderProfile != nil || filingMemory != nil, !destinations.isEmpty else {
-            filingRouterIndex = nil
+            invalidateFilingRouterIndex()
             return
         }
-        filingRouterIndex = FilingRouter.makeIndex(destinations: destinations,
+        if filingRouterIndex != nil, filingRouterIndexKey == destinations { return }
+        filingRouterIndex = FilingRouter.makeIndex(destinations: Array(destinations),
                                                    profile: filingFolderProfile,
                                                    memory: filingMemory)
+        filingRouterIndexKey = destinations
+        filingRouterIndexBuilds += 1
     }
 
     /// The context handed to a classifier — the taxonomy plus whatever has been learned about it.
@@ -98,21 +101,26 @@ extension FileSyncManager {
         let excluded = Set((rejectedByFile[s.filePath] ?? []).compactMap {
             relativePath($0, under: providerRoot)
         })
+        // Only the winner is used, and recovering display evidence is per-candidate work.
         let ranking = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
-                                        index: index, excluding: excluded)
+                                        index: index, excluding: excluded, limit: 1)
         guard let best = ranking.best else { return (s, false) }
         let confidence = ranking.confidence
         guard confidence >= (s.best?.confidence ?? .low) else { return (s, false) }
         let fromContent = best.evidenceToken != nil
+        // **No file count.** `FilingDestination.neighborMatches` means "how many files in the
+        // target contain this word", and the card prints it as "N similar files already here".
+        // The memory records which words a folder's documents use, not how many use each one, so
+        // that number cannot be produced honestly — it stays 0 and the sentence stays true.
         let reason = fromContent
-            ? "Matches \(best.neighborMatches) document\(best.neighborMatches == 1 ? "" : "s") already filed here"
+            ? "Matched “\(best.evidenceToken ?? "")” read from the file — a word this folder's documents use"
             : "Fits how this folder is used"
         let dest = FilingDestination(
             path: providerRoot + "/" + best.relativePath, confidence: confidence, reasons: [reason],
             // The router only ever names folders that came from the taxonomy, so nothing here is
             // ever a folder to create — an empty `newSegments` is a fact, not a default.
             newSegments: [], fromContent: fromContent, remembered: false, fromAI: false,
-            evidenceToken: best.evidenceToken, neighborMatches: best.neighborMatches)
+            evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0)
         let others = s.candidates.filter { $0.path != dest.path }
         return (FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
                                  modificationDate: s.modificationDate, candidates: [dest] + others,
