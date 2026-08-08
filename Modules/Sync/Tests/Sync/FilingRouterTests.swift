@@ -108,6 +108,32 @@ import Testing
                 "inherited \(child.score) against a parent at \(parent.score) — share out of scale")
     }
 
+    /// **The scorer reads the sample it was measured on, whatever the caller hands it.**
+    /// `ContentSignalExtractor` returns up to five pages and 20,000 characters — right for a
+    /// classifier prompt, four decimal orders more than these weights were tuned on. A real T-Mobile
+    /// bill passed at full length still ranked its true home first, but pages 2-5 are line items and
+    /// their vocabulary pulled four unrelated year folders up behind it: margin 0.37 → 0.14, which
+    /// is `.medium` → `.low`, which is the difference between leading a card and displacing nothing.
+    @Test func pagesTwoOnwardsCannotDiluteTheRanking() {
+        let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary,
+                                          "Finance/US/Income Tax/2023": ["itemised", "charges", "subtotal"]],
+                             extraFolders: ["Records/Consular"])
+        // Page 1 is a real page: longer than the sample window, so the window contains only page-1
+        // words. A 110-character stand-in would leave 290 characters of the window reaching into the
+        // tail — which is not the bound failing, it is the fixture not being a page.
+        let pageOne = String(repeating: Self.parentVocabulary.joined(separator: " ") + " ", count: 6)
+        #expect(pageOne.count > FilingRouter.contentSampleChars)
+        // Plus four pages of line items whose words belong to a different folder entirely.
+        let withTail = pageOne + String(repeating: "itemised charges subtotal ", count: 800)
+        #expect(withTail.count > 16_000)
+
+        let short = FilingRouter.rank(fileName: "bill.pdf", contentSnippet: pageOne, index: idx)
+        let long = FilingRouter.rank(fileName: "bill.pdf", contentSnippet: withTail, index: idx)
+        #expect(long.best?.relativePath == short.best?.relativePath)
+        #expect(long.margin == short.margin, "the tail changed the ranking: \(long.margin) vs \(short.margin)")
+        #expect(long.candidates == short.candidates)
+    }
+
     // MARK: - Reading the document's own years
 
     /// **A year is not always a token.** `tokenize` splits on non-alphanumerics, so the way every US

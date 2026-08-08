@@ -76,6 +76,20 @@ public enum FilingRouter {
     static let yearInBodyWeight = 2.0
     static let identifierBoost = 4.0
 
+    /// How much of a document the router reads: **page 1, 400 characters** — the sampling rule the
+    /// ``FilingMemory`` records for itself, and the rule under which every weight above was tuned
+    /// and every accuracy figure in this file was measured.
+    ///
+    /// **Enforced here rather than trusted from the caller**, because the caller was not honouring
+    /// it. `ContentSignalExtractor` returns up to five pages and 20,000 characters — a sane budget
+    /// for a classifier prompt, and four decimal orders more than this scorer was ever measured on.
+    /// A T-Mobile bill handed over at full length still ranked its real home first, but pages 2-5
+    /// are line items, and the vocabulary in them pulled `Home/Insurance/2025` and three tax-
+    /// deduction folders up close behind it: the margin fell from 0.37 to 0.14, which is the
+    /// difference between `.medium` and `.low` — between a home that leads a card and one that
+    /// cannot displace anything. The doc for `rank` always said "page 1 only". Nothing enforced it.
+    static let contentSampleChars = 400
+
     /// A prepared inverted index. Built once per scan, not per file: a scan of a few hundred loose
     /// files against a few thousand folders would otherwise walk every folder's token list per file.
     public struct Index: Sendable {
@@ -178,8 +192,11 @@ public enum FilingRouter {
         guard !index.isEmpty else { return .empty }
         let stem = (fileName as NSString).deletingPathExtension
         let nameTokens = Set(tokenize(stem))
+        // The sample this scorer was measured on — see ``contentSampleChars``. Callers hand over
+        // whatever their extractor produced; what gets scored is bounded here.
+        let sample = contentSnippet.map { String($0.prefix(contentSampleChars)) }
         var contentTokens = nameTokens
-        if let contentSnippet { contentTokens.formUnion(tokenize(contentSnippet)) }
+        if let sample { contentTokens.formUnion(tokenize(sample)) }
 
         let yearsInName = nameTokens.filter(isYearToken)
         // **Years must be read out of the document, not only the filename.** Three files all called
@@ -191,7 +208,7 @@ public enum FilingRouter {
         // `20nov2026` and never looks like a year at all. Worse, `contentTokens` starts as a copy of
         // `nameTokens`, so the "body" year was in practice the FILENAME's year counted a second
         // time: a document that named no year of its own still collected the body bonus.
-        let yearsInBody = contentSnippet.map(yearsInText) ?? []
+        let yearsInBody = sample.map(yearsInText) ?? []
 
         // ---- content evidence -------------------------------------------------------------
         // Scoring keeps ONE number per folder. Which anchor won and how many matched are needed

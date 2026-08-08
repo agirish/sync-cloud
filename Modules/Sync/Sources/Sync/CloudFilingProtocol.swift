@@ -44,7 +44,10 @@ public enum CloudFilingProtocol {
     /// them. Version 2 only changed the question for files the router had ranked, and the router
     /// only ranked the homeless ones; eleven of thirteen files in a real scan still went out as a
     /// bare filename against a menu describing everything except them.
-    public static let promptVersion = 3
+    ///
+    /// **4** — the router now reads the 400-character sample it was measured on rather than the
+    /// extractor's five pages, which changes its shortlist, which is the menu.
+    public static let promptVersion = 4
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
