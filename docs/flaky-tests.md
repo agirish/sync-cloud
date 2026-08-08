@@ -410,13 +410,36 @@ with the deadline set to **zero**, all 1167 Sync tests still pass — the floor 
 waits a full run makes.
 
 **The floor is tested this time** (`WaitUntilFloorTests`), rather than left as the untested constant
-`pumpFloor` was. Same shape as `LayoutPumpWaitTests`, and it reproduces that suite's two results
-exactly: `waitPollFloor = 0` fails the floor test twice (the helper's own labeled expiry at 0 polls,
+`pumpFloor` was. Same shape as the v3 line's pass-floor tests for `LayoutPumpWait`, and it
+reproduces their two results exactly: `waitPollFloor = 0` fails the floor test twice (the helper's own labeled expiry at 0 polls,
 then the count at 1 against 25), while `waitPollFloor = 24` — one under the demand — fails **only**
 the premise guard, because the post-deadline re-check buys a 25th evaluation. The real guarantee is
 `waitPollFloor + 1`. Note what cannot be tested here: `waitUntil` reports expiry by *recording a
 failure* rather than returning a Bool, so there is no passing test for the never-holds case; that
 half was checked by hand.
+
+**The sweep that finds this defect keys on the BOUND, not on the body — and the older recipe above
+does not.** That one filters `while Date() < deadline` by a following `layoutIfNeeded`, so it sees
+only layout pumps: it misses a condition wait that pumps nothing, misses `ContinuousClock`
+entirely, and misses any helper whose closure is not spelled `condition()`. A floored loop reads
+`while <n> < <…>Floor || <clock> < deadline`, so excluding `Floor` leaves exactly the unfloored
+ones, whatever they poll:
+
+```sh
+grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Modules SyncCloudTests \
+  | grep -v '/\.build/' | grep -v Floor
+```
+
+Run on this line 2026-08-08: **44 unfloored clock-bounded loops**, against 3 floored ones correctly
+excluded. Most of the 44 are fixed pumps with no condition to starve — the separate problem this
+section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
+are the real residual, and there are more of them than the list above says:
+`ExpandingSearchFieldTests`, `CloudDownloadWatchTests`, `CloudDownloadWiringTests`,
+`PaneColumnsScrollTests`, `HeaderLadderTests`, `SectionRowHeightTests`,
+`DifferencesTableIdentityTests`, `BulkSyncCancellationAndReservationTests` and
+`MergeCancelMidCopyTests`. **None is fixed.** Naming one and calling it "the real residual" is how
+this list stayed wrong through two sweeps; the count above is reproducible, so check it rather than
+trusting the prose.
 
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
