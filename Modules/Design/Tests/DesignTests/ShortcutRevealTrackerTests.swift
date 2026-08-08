@@ -163,6 +163,43 @@ import Testing
         await waitUntil("the reveal lands on the original deadline") { tracker.isActive }
     }
 
+    // MARK: The floor itself
+
+    /// How many polls the case below demands — a LITERAL, deliberately not derived from
+    /// `pollFloor`. Deriving it defeats its own mutation test: zeroing the floor would also zero
+    /// the requirement, and the condition would hold on the first poll against exactly the change
+    /// the test exists to catch.
+    private static let pollsDemanded = 25
+
+    /// Keeps that literal meaningful — and it is the only case that catches a floor lowered to just
+    /// *under* the demand, since the loop's post-deadline `#expect` re-evaluates the condition once
+    /// more and so buys a 25th poll from a floor of 24. The real guarantee is `pollFloor + 1`.
+    @Test func theDemandUsedByTheFloorCaseSitsBelowTheFloor() {
+        #expect(Self.pollsDemanded < Self.pollFloor,
+                "\(Self.pollsDemanded) polls is not reachable within a floor of \(Self.pollFloor) — the floor case below would be measuring the deadline")
+    }
+
+    /// **The floor outlives an expired deadline** — the property the flake fix rests on, pinned
+    /// rather than argued from pass rates.
+    ///
+    /// This is the suite whose wait actually failed CI, and until now its floor was the only one of
+    /// the repo's four with no test: `LayoutPumpWait.pumpFloor` and both `waitPollFloor` copies have
+    /// theirs. The bug the floor prevents reproduces only under congestion, but the floor's
+    /// *guarantee* is deterministic — a property of the loop, provable with a counter and a spent
+    /// deadline on an idle machine.
+    ///
+    /// `waitUntil` records its own labeled failure if it gives up, so a floor that stopped working
+    /// turns this red without any assertion of mine; the count then says by how much.
+    @Test func theFloorOutlivesAnExpiredDeadline() async {
+        var polls = 0
+        await waitUntil("a condition needing \(Self.pollsDemanded) polls never held", timeout: 0) {
+            polls += 1
+            return polls >= Self.pollsDemanded
+        }
+        #expect(polls >= Self.pollsDemanded,
+                "the condition was evaluated only \(polls) times against a floor of \(Self.pollFloor)")
+    }
+
     /// Nothing armed, nothing scheduled — the timer is torn down rather than left to fire into a
     /// machine that will ignore it.
     @Test func nothingIsScheduledWhileNoHoldIsArmed() {

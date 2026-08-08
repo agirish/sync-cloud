@@ -430,16 +430,20 @@ grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Mod
   | grep -v '/\.build/' | grep -v Floor
 ```
 
-Run on this line 2026-08-08: **44 unfloored clock-bounded loops**, against 3 floored ones correctly
-excluded. Most of the 44 are fixed pumps with no condition to starve — the separate problem this
+Run on this line 2026-08-08: **43 unfloored clock-bounded loops**, against 7 floored ones correctly
+excluded. Most of the 43 are fixed pumps with no condition to starve — the separate problem this
 section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
 are the real residual, and there are more of them than the list above says:
 `ExpandingSearchFieldTests`, `CloudDownloadWatchTests`, `CloudDownloadWiringTests`,
-`PaneColumnsScrollTests`, `HeaderLadderTests`, `SectionRowHeightTests`,
-`DifferencesTableIdentityTests`, `BulkSyncCancellationAndReservationTests` and
-`MergeCancelMidCopyTests`. **None is fixed.** Naming one and calling it "the real residual" is how
-this list stayed wrong through two sweeps; the count above is reproducible, so check it rather than
-trusting the prose.
+`PaneColumnsScrollTests`, `BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests`.
+**None is fixed.** Naming one and calling it "the real residual" is how this list stayed wrong
+through two sweeps; the count above is reproducible, so check it rather than trusting the prose.
+
+**Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 44 and 3, and
+its residual is nine, because the four view-based settles migrated on `main` on 2026-08-04 are still
+unmigrated there — and its floored count is lower because it has neither the Dashboard copy of
+`LayoutPumpWait` nor the view-based `pump` entry point `main` added to the FileExplorer one, only
+the window-based original. Re-run the sweep on the line you are on; do not cherry-pick the count.
 
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
