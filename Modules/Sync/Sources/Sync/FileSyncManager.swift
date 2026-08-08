@@ -493,6 +493,18 @@ public class FileSyncManager: ObservableObject {
     }
     /// True while a "Fix all" / per-row normalize pass is applying renames.
     @Published public var isNormalizingNames = false
+
+    // MARK: Rename pass — bring a folder back to its own convention (see +FilingRename.swift)
+
+    /// The folder rename plans found by the most recent Filing scan, one per folder that has
+    /// drifted from its own `NN. Mon YYYY` convention. Empty until a scan runs.
+    ///
+    /// `internal(set)` for the same reason `riskyNames` is: the only sound producer is the planner
+    /// running over a freshly walked tree, and a publicly settable list would let a caller put a
+    /// rename on screen that no folder ever asked for.
+    @Published public internal(set) var renamePlans: [RenamePlan] = []
+    /// True while an "Rename all" pass is applying renames.
+    @Published public var isApplyingRenames = false
     /// The in-flight Name Normalizer scan task, so the UI can cancel a long walk.
     var nameScanTask: Task<Void, Never>?
 

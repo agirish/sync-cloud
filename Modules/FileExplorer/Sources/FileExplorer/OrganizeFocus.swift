@@ -23,6 +23,9 @@ enum OrganizeFocus: String, CaseIterable, Identifiable {
     case queue
     /// The names this provider will not accept, found by the same scan.
     case names
+    /// Folders that have drifted from their own `NN. Mon YYYY` convention, and the renames that
+    /// would bring them back (ROADMAP 19). The third case this enum's doc comment was written for.
+    case renames
 
     var id: String { rawValue }
 
@@ -31,6 +34,10 @@ enum OrganizeFocus: String, CaseIterable, Identifiable {
         switch self {
         case .queue: return "to file"
         case .names: return count == 1 ? "risky name" : "risky names"
+        // The count is FOLDERS, not files — the unit of review and the unit of apply. A number that
+        // said "38 to rename" beside a list of nine rows would be counting something the user
+        // cannot point at.
+        case .renames: return count == 1 ? "folder to rename" : "folders to rename"
         }
     }
 }
@@ -43,8 +50,13 @@ extension OrganizeFocus {
     /// you into the queue rather than strand you on an empty list whose only way out is a chip that
     /// no longer exists — the invariant the old Bool carried inline as `&& !riskyNames.isEmpty`, kept
     /// because it is the one that makes this safe to store.
-    static func effective(_ selected: OrganizeFocus, riskyNameCount: Int) -> OrganizeFocus {
-        selected == .names && riskyNameCount == 0 ? .queue : selected
+    static func effective(_ selected: OrganizeFocus, riskyNameCount: Int,
+                          renamePlanCount: Int) -> OrganizeFocus {
+        switch selected {
+        case .names: return riskyNameCount == 0 ? .queue : .names
+        case .renames: return renamePlanCount == 0 ? .queue : .renames
+        case .queue: return .queue
+        }
     }
 
     /// The chips Organize's summary row draws, in reading order.
@@ -58,9 +70,12 @@ extension OrganizeFocus {
     /// empty queue with 17 risky names is a real state — the files are filed, the names are still
     /// wrong — and the radio group needs its first button on screen to be selectable back to. Alone
     /// and empty it draws nothing, exactly as today's results-gated pills do.
-    static func chips(queueCount: Int, riskyNameCount: Int) -> [OrganizeFocus] {
-        guard riskyNameCount > 0 else { return queueCount > 0 ? [.queue] : [] }
-        return [.queue, .names]
+    static func chips(queueCount: Int, riskyNameCount: Int, renamePlanCount: Int) -> [OrganizeFocus] {
+        var findings: [OrganizeFocus] = []
+        if riskyNameCount > 0 { findings.append(.names) }
+        if renamePlanCount > 0 { findings.append(.renames) }
+        guard !findings.isEmpty else { return queueCount > 0 ? [.queue] : [] }
+        return [.queue] + findings
     }
 
     /// The number a chip carries: **the whole list it names, never the filtered view of it.**
@@ -74,10 +89,12 @@ extension OrganizeFocus {
     /// readout. That readout is not lost — the pills after these chips (`ready`, `unsure`, and the
     /// names' `folders`) still count the rows on screen, and `N of M` at the row's trailing edge
     /// still says how much the query hid. What moves is only the number that doubles as a signpost.
-    static func count(_ focus: OrganizeFocus, queueCount: Int, riskyNameCount: Int) -> Int {
+    static func count(_ focus: OrganizeFocus, queueCount: Int, riskyNameCount: Int,
+                      renamePlanCount: Int) -> Int {
         switch focus {
         case .queue: return queueCount
         case .names: return riskyNameCount
+        case .renames: return renamePlanCount
         }
     }
 }

@@ -42,10 +42,20 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// How many files already in the destination share the matched signal — neighbor corroboration
     /// for a content match ("N similar files already in the target"). 0 when unknown or none.
     public let neighborMatches: Int
+    /// What the file would be **called** once it lands here, when this folder names its files by a
+    /// convention and the file's own name gives up its date — `04. Apr 2025.pdf` for a
+    /// `DetailedBillApr2025.pdf` heading into a `NN. Mon YYYY` folder. nil ⇒ it keeps its name.
+    ///
+    /// It hangs off the DESTINATION rather than off the suggestion because the answer *is* a
+    /// property of the destination: the slot a file takes is the folder's to decide, and "Try
+    /// another" moves the file to a folder that numbers its files differently, or not at all. A
+    /// name stored one level up would keep saying `04. Apr 2025.pdf` after the user sent the file
+    /// somewhere that has never numbered anything.
+    public let proposedName: String?
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0, proposedName: String? = nil) {
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
@@ -55,6 +65,15 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.fromAI = fromAI
         self.evidenceToken = evidenceToken
         self.neighborMatches = neighborMatches
+        self.proposedName = proposedName
+    }
+
+    /// A copy of this destination carrying `name` as the rename it would apply.
+    public func naming(_ name: String?) -> FilingDestination {
+        FilingDestination(path: path, confidence: confidence, reasons: reasons,
+                          newSegments: newSegments, fromContent: fromContent,
+                          remembered: remembered, fromAI: fromAI, evidenceToken: evidenceToken,
+                          neighborMatches: neighborMatches, proposedName: name)
     }
 }
 
@@ -74,6 +93,9 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public let providerRoot: String?
 
     public var best: FilingDestination? { candidates.first }
+    /// The rename the card offers alongside the move, or nil when the best home does not name its
+    /// files by a convention this pass can read.
+    public var proposedName: String? { best?.proposedName }
     public var hasConfidentHome: Bool { (best?.confidence ?? .low) >= .medium }
     /// Eligible for the blind "File recommended" batch: a confident home derived from the filename
     /// (not content, not the LLM). Content-derived and AI homes still show a per-file "File here"

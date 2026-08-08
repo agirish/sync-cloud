@@ -235,6 +235,12 @@ extension FileSyncManager {
             if Task.isCancelled { return }
         }
 
+        // The rename backlog, on the same walk and for the same reason. `RenamePlanner` is pure and
+        // reads the folder profile rather than the disk, so this costs one traversal of a tree that
+        // is already in memory — no second walk, and no tab to remember to visit.
+        await detectRenamePlans(in: taxonomy, root: providerRoot)
+        if Task.isCancelled { return }
+
         // The user's rules steer the suggestions. Automations are the one rule system; the legacy
         // remembered-rule store (F3) is consulted only until the one-time migration into
         // Automations has run, so an un-migrated install (tests, CLI) behaves exactly as before.
@@ -545,6 +551,12 @@ extension FileSyncManager {
         }
 
         if Task.isCancelled { return }
+        // What each file would be CALLED once it lands — computed against the taxonomy this scan
+        // already walked, so the queue answers "where does this go" and "what is it called there"
+        // in one pass. See `namingSuggestions`.
+        suggestions = Self.namingSuggestions(suggestions, taxonomy: taxonomy,
+                                             rootPath: providerRoot.path,
+                                             profile: filingFolderProfile)
         self.publishFilingSuggestions(suggestions)   // single publish
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -1349,6 +1361,7 @@ extension FileSyncManager {
         }
 
         let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
+        let profile = filingFolderProfile
         let anchor = Self.filingAnchor(for: destination, under: suggestion.providerRoot)
         let outcome: FilingMoveOutcome = await enqueueFileOperation {
             do {
@@ -1370,7 +1383,13 @@ extension FileSyncManager {
                     throw FileOperationError.destinationRootUnavailable
                 }
                 try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
-                var dst = destFolder.appendingPathComponent(suggestion.fileName)
+                // The rename the card offered, re-derived against the destination as it stands now
+                // rather than as the scan found it. Falls back to the file's own name.
+                let landingName = Self.liveIncomingName(
+                    for: suggestion.fileName, destination: destFolder.path,
+                    providerRoot: suggestion.providerRoot, profile: profile,
+                    fileManager: fm) ?? suggestion.fileName
+                var dst = destFolder.appendingPathComponent(landingName)
                 if fm.fileExists(atPath: dst.path) {
                     dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
                 }

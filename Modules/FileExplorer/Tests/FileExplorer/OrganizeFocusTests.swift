@@ -15,19 +15,19 @@ import Testing
         // Fixing the last risky name has to land you in the queue. Left on `.names`, the list is
         // empty AND the chip that would take you out of it is gone with the finding — a dead end
         // reachable by doing exactly what the lens asked.
-        #expect(OrganizeFocus.effective(.names, riskyNameCount: 0) == .queue)
+        #expect(OrganizeFocus.effective(.names, riskyNameCount: 0, renamePlanCount: 0) == .queue)
     }
 
     @Test func theFallbackDoesNotFireWhileTheFindingStands() {
-        #expect(OrganizeFocus.effective(.names, riskyNameCount: 1) == .names)
-        #expect(OrganizeFocus.effective(.names, riskyNameCount: 17) == .names)
+        #expect(OrganizeFocus.effective(.names, riskyNameCount: 1, renamePlanCount: 0) == .names)
+        #expect(OrganizeFocus.effective(.names, riskyNameCount: 17, renamePlanCount: 0) == .names)
     }
 
     @Test func theQueueIsNeverFalledBackFrom() {
         // It is the destination of the fallback, so it has to be stable under one — including in
         // the state that has no chips at all.
-        #expect(OrganizeFocus.effective(.queue, riskyNameCount: 0) == .queue)
-        #expect(OrganizeFocus.effective(.queue, riskyNameCount: 17) == .queue)
+        #expect(OrganizeFocus.effective(.queue, riskyNameCount: 0, renamePlanCount: 0) == .queue)
+        #expect(OrganizeFocus.effective(.queue, riskyNameCount: 17, renamePlanCount: 0) == .queue)
     }
 
     // MARK: Which chips exist
@@ -35,16 +35,16 @@ import Testing
     @Test func aFindingAtZeroDrawsNoChipAtAll() {
         // Not greyed, not "0". The whole argument for reporting a rare condition on this row
         // instead of giving it a tab is that it costs nothing on the days it has nothing to say.
-        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 0) == [.queue])
+        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 0, renamePlanCount: 0) == [.queue])
     }
 
     @Test func aFindingBringsItsChipAndTheQueuesWithIt() {
-        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 17) == [.queue, .names])
+        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 17, renamePlanCount: 0) == [.queue, .names])
     }
 
     @Test func theQueueLeads() {
         // Reading order is load-bearing: the place first, then what the scan turned up on the way.
-        let chips = OrganizeFocus.chips(queueCount: 3, riskyNameCount: 3)
+        let chips = OrganizeFocus.chips(queueCount: 3, riskyNameCount: 3, renamePlanCount: 0)
         #expect(chips.first == .queue)
     }
 
@@ -53,21 +53,21 @@ import Testing
         // chip is the radio group's first button and the only way back to it, so this is the one
         // member exempt from absent-at-zero — and it is exempt only here, where there is something
         // to be selected back FROM.
-        #expect(OrganizeFocus.chips(queueCount: 0, riskyNameCount: 17) == [.queue, .names])
+        #expect(OrganizeFocus.chips(queueCount: 0, riskyNameCount: 17, renamePlanCount: 0) == [.queue, .names])
     }
 
     @Test func anEmptyQueueAloneDrawsNothing() {
         // With no finding beside it there is nothing to switch between, so the row is as bare as
         // today's results-gated pills leave it. A lone chip reading "0 to file" is a zero with no
         // job to do.
-        #expect(OrganizeFocus.chips(queueCount: 0, riskyNameCount: 0).isEmpty)
+        #expect(OrganizeFocus.chips(queueCount: 0, riskyNameCount: 0, renamePlanCount: 0).isEmpty)
     }
 
     // MARK: What each chip counts
 
     @Test func eachChipCountsItsOwnList() {
-        #expect(OrganizeFocus.count(.queue, queueCount: 24, riskyNameCount: 17) == 24)
-        #expect(OrganizeFocus.count(.names, queueCount: 24, riskyNameCount: 17) == 17)
+        #expect(OrganizeFocus.count(.queue, queueCount: 24, riskyNameCount: 17, renamePlanCount: 0) == 24)
+        #expect(OrganizeFocus.count(.names, queueCount: 24, riskyNameCount: 17, renamePlanCount: 0) == 17)
     }
 
     // MARK: The words
@@ -89,5 +89,53 @@ import Testing
         #expect(OrganizeFocus.queue.rawValue == "queue")
         #expect(OrganizeFocus.names.rawValue == "names")
         #expect(Set(OrganizeFocus.allCases.map(\.rawValue)).count == OrganizeFocus.allCases.count)
+    }
+
+    // MARK: The third finding (ROADMAP 19)
+
+    @Test("The rename backlog is a third chip, after the names")
+    func renameBacklogIsAThirdChip() {
+        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 0, renamePlanCount: 9)
+                == [.queue, .renames])
+        // Reading order: the queue is the place, then the findings in the order the scan turned
+        // them up. Two findings beside the queue is the state that made this a selection rather
+        // than a Bool in the first place.
+        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 17, renamePlanCount: 9)
+                == [.queue, .names, .renames])
+    }
+
+    @Test("An empty backlog is absent, not a chip showing zero")
+    func anEmptyBacklogDrawsNothing() {
+        #expect(OrganizeFocus.chips(queueCount: 24, riskyNameCount: 0, renamePlanCount: 0)
+                == [.queue])
+        #expect(OrganizeFocus.chips(queueCount: 0, riskyNameCount: 0, renamePlanCount: 0).isEmpty)
+        // …and with nothing but a backlog, the queue is still drawn so the radio group has a first
+        // button to come back to — the same exemption the names finding relies on.
+        #expect(OrganizeFocus.chips(queueCount: 0, riskyNameCount: 0, renamePlanCount: 9)
+                == [.queue, .renames])
+    }
+
+    @Test("Renaming the last folder drops you into the queue, not onto an empty list")
+    func theBacklogFocusFallsBack() {
+        #expect(OrganizeFocus.effective(.renames, riskyNameCount: 0, renamePlanCount: 0) == .queue)
+        #expect(OrganizeFocus.effective(.renames, riskyNameCount: 0, renamePlanCount: 1) == .renames)
+        // The two findings fall back independently: an emptied NAMES list must not strand you on
+        // the queue while a live backlog sits beside it, and vice versa.
+        #expect(OrganizeFocus.effective(.renames, riskyNameCount: 0, renamePlanCount: 9) == .renames)
+        #expect(OrganizeFocus.effective(.names, riskyNameCount: 0, renamePlanCount: 9) == .queue)
+    }
+
+    @Test("The backlog chip counts FOLDERS, and says so")
+    func theBacklogChipCountsFolders() {
+        #expect(OrganizeFocus.count(.renames, queueCount: 24, riskyNameCount: 17,
+                                    renamePlanCount: 9) == 9)
+        #expect(OrganizeFocus.renames.label(count: 1) == "folder to rename")
+        #expect(OrganizeFocus.renames.label(count: 9) == "folders to rename")
+        // Each focus reads its OWN number — a chip labelled with a neighbour's count is the defect
+        // this triple-argument shape exists to make impossible.
+        #expect(OrganizeFocus.count(.names, queueCount: 24, riskyNameCount: 17,
+                                    renamePlanCount: 9) == 17)
+        #expect(OrganizeFocus.count(.queue, queueCount: 24, riskyNameCount: 17,
+                                    renamePlanCount: 9) == 24)
     }
 }

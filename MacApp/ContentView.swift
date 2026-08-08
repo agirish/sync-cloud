@@ -2216,6 +2216,7 @@ struct ContentView: View {
                     showSettings = true
                 },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
+                onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 automationDestinationRoot: tidyProviderRootExpanded,
                 onQuickLook: { toggleQuickLook($0) },

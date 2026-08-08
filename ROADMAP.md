@@ -594,48 +594,14 @@ pre-filter: only files that already share a (name, size) or a (size, page count)
 pass, which is 828 files out of 9,861 in the surveyed tree.
 
 **Impact:** High, and it lands on the tree's largest single category — 80% of these files are PDFs.
-It also makes the rename backlog in item 19 safe to act on: you cannot confidently delete the raw
-original after renaming a copy if the app cannot prove the two are the same document.
+It is also what would let the shipped rename pass do more than it currently can: that pass detects a
+raw original and its renamed copy contending for one slot and refuses both, because you cannot
+confidently delete the original after renaming a copy if the app cannot prove the two are the same
+document.
 
 **Effort:** Medium. **Risk:** Medium — it lands on the destructive review path, and a text-equal
 claim is genuinely weaker than a byte-equal one. Scanned pages that OCR differently between two
 downloads must not be called identical.
-
----
-
-## 19. A rename pass for the filing backlog
-
-**Why:** The house convention (`NN. Mon YYYY.pdf`, recorded per folder by the filing profile) is
-applied by hand, so it decays exactly where the volume is. One provider folder shows the whole failure mode:
-
-| | |
-|---|---|
-| `PG&E/2021/` | fully renamed, 1-digit ordinals (`1. Mar 2021.pdf`) |
-| `PG&E/2022/` | not renamed at all — raw `9829custbill…` |
-| `PG&E/2023/` | renamed Jan–Aug (2-digit this time), raw after — **plus a January *2024* bill filed under 2023** |
-| `PG&E/PGE/` | 18 raw files, an unnamed inbox, including a `-2` duplicate pair |
-
-Tree-wide there are 114 provider-datestamped names (`20260416-statements-8857-.pdf`), 79 UUIDs, 55
-bare-digit names, and 4 Google Drive exports over 200 characters long. Separately, **682 files carry
-a duplicate marker in the name** — 233 `-2`/` 2`, 113 ` copy`, 24 `(1)`, 18 with a doubled
-extension (`….pdf.pdf`). The root `TODO/` folder holds **524 loose files** and has been growing 12–46
-a month, every month, since September 2024.
-
-**What:** Extend Organize's suggestion model from *where does this go* to *what is it called once it
-lands* — the same review-and-apply path, proposing a rename alongside the move. The convention is
-inferable per destination folder (`FolderProfile` already records which convention each folder
-uses), and the month and year are usually in the raw name (`9829custbill07182023.pdf`, `20240128-statements-…`),
-so most of the backlog needs no model call. Two details the survey settled: pad to **2 digits** (the
-tree contains both, and 1-digit misorders past September), and the ordinal is position-within-folder,
-so a rename pass has to renumber the folder rather than each file alone.
-
-**Impact:** Medium–High. It is the visible half of Organize — a file filed under a name that matches
-its siblings is what makes the folder readable — and it directly drains the largest backlog in the
-tree.
-
-**Effort:** Medium. **Risk:** Medium — renaming is reversible via Undo, but a wrong ordinal
-misorders a folder silently, and the pass must not rename the raw original and its renamed copy to
-the same target. That collision is item 18's problem, which is why it comes first.
 
 ---
 
@@ -1030,7 +996,6 @@ the question hundreds of keeper picks actually raise.
 | 15 | Rules view inside Organize | Low–Medium | Medium |
 | 16 | Home workspace | Medium | Medium (after 1c) |
 | 18 | PDF content fingerprint | Medium | High |
-| 19 | Rename pass for the backlog | Medium | Medium–High |
 | 20 | Restructure — is the shape itself right | High | **High** |
 
 ### Interface
@@ -1056,12 +1021,14 @@ comparison and item 1c's best trigger. Biggest single payoff and biggest risk: *
 **The Organize arc (17–21) is one arc, and the order inside it is forced.** 21 goes second, right
 after 17: it needs the profile, nothing else needs it, and held-out on 7,558 real filed documents it
 more than doubles top-1 routing accuracy over the profile alone (28.9% → 58.2%) for Low–Medium
-effort. Then 18 before 19, because a rename pass that cannot tell the raw original from its renamed
-copy will produce a collision it cannot see; 17 sits under all of them, because it is what tells a
-rename which convention the destination folder uses — and what tells 20 which folders are inboxes,
-which names are axis values, and which duplication is deliberate. **20 comes last**, both because it
-is the only one that moves folders rather than files and because it should inherit 19's
-review-and-apply path instead of growing a second one.
+effort. **The rename pass has shipped** without waiting on 18, by refusing rather than guessing: where a raw
+original and its already-renamed copy both want one slot, it reports the collision and touches
+neither. That leaves 18 worth building for the *duplicate* verdict it was always about, not as a
+precondition. 17 sits under the rest, because it is what told the rename pass which convention each
+destination folder uses — and what tells 20 which folders are inboxes, which names are axis values,
+and which duplication is deliberate. **20 comes last**, both because it is the only one that moves
+folders rather than files and because it now has a review-and-apply path to inherit rather than
+one to invent.
 
 Taken together they are the first work aimed at the *backlog* rather than at the scan: one surveyed
 tree carries 524 loose files at its root, 682 files with a duplicate marker in the name, 68 duplicate

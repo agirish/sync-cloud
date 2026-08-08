@@ -266,6 +266,9 @@ extension FileSyncManager {
         clearFiling()
         clearAutomationDryRun()
         clearNameScan()
+        // A rename plan names absolute paths under one provider and means nothing under another —
+        // the same reason every other finding is dropped here.
+        clearRenamePlans()
         // Storage was the fifth lens and the omission this doc warns about, repeated: until now
         // `clearStorageLens()` was called from tests and from nowhere else, so switching provider
         // left the previous account's report on screen — its folder chip naming a root the window

@@ -67,7 +67,17 @@ import Design
 
     /// A manager holding a COMPLETED Organize scan — the state the lens is in when the user is
     /// looking at results, with both of Organize's lists under caller control.
-    private static func manager(queue: Int, names: Int, confident: Bool = true) -> FileSyncManager {
+    private static func plan(_ i: Int) -> RenamePlan {
+        RenamePlan(folderPath: "/root/Bills/20\(10 + i)", relativePath: "Bills/20\(10 + i)",
+                   scheme: .position,
+                   steps: [RenameStep(currentPath: "/root/Bills/20\(10 + i)/1. Jan.pdf",
+                                      currentName: "1. Jan.pdf", proposedName: "01. Jan.pdf",
+                                      kind: .tidied, reason: "Padded")],
+                   skips: [])
+    }
+
+    private static func manager(queue: Int, names: Int, confident: Bool = true,
+                                renames: Int = 0) -> FileSyncManager {
         let m = FileSyncManager()
         m.publishFilingSuggestions((0..<queue).map { suggestion("file\($0).pdf", confident: confident) })
         m.hasSuggestedFiling = true
@@ -75,7 +85,8 @@ import Design
         m.filingLastProviderRoot = "/root"
         m.riskyNames = (0..<names).map { risky("bad:name\($0).pdf") }
         m.nameScanRoot = URL(fileURLWithPath: "/root")
-        m.hasScannedNames = names > 0
+        m.hasScannedNames = names > 0 || renames > 0
+        m.publishRenamePlans((0..<renames).map { plan($0) })
         return m
     }
 
@@ -326,4 +337,32 @@ import Design
     // So the claim rests on `.overlay`'s documented behaviour and on the render, and this note
     // exists so the next person does not mistake the gap for an oversight — or re-add the version
     // that passes no matter what the ring does.
+
+    // MARK: The rename backlog chip (ROADMAP 19)
+
+    /// **The call site, not the rule.** `OrganizeFocusTests` proves `chips(…)` returns `.renames`
+    /// when there are plans; this proves the header actually draws it. A third case added to the
+    /// enum and never read by the view would pass every one of those tests.
+    @Test("A rename backlog paints a third chip on the summary row")
+    @MainActor func theBacklogChipPaints() throws {
+        let without = try #require(strip(mount(Self.manager(queue: 6, names: 0, renames: 0))))
+        let with = try #require(strip(mount(Self.manager(queue: 6, names: 0, renames: 9))))
+        let bare = inkedPixels(without)
+        let extra = inkedPixels(with)
+        // Measured as delta-from-the-corner, not by brightness: the chip's wash is pale, and a
+        // `brightness < 0.90` filter counts only its text — which moved this figure by almost
+        // nothing when the row plainly gained a whole capsule.
+        #expect(extra > bare, "adding 9 plans must paint more than an empty backlog does")
+        // A real capsule, not a stray pixel or two of relayout.
+        #expect(extra - bare > 200, "gained only \(extra - bare) inked pixels")
+    }
+
+    @Test("No backlog paints no backlog chip")
+    @MainActor func anEmptyBacklogPaintsNothing() throws {
+        // The other direction, and the one that makes the test above mean something: the row with
+        // zero plans must be pixel-identical to the row that never had a backlog concept at all.
+        let a = try #require(strip(mount(Self.manager(queue: 6, names: 0, renames: 0))))
+        let b = try #require(strip(mount(Self.manager(queue: 6, names: 0, renames: 0))))
+        #expect(differingPixels(a, b) == 0)
+    }
 }

@@ -250,6 +250,9 @@ public struct TidyView: View {
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
+    /// Applies whole folder rename plans. Takes the plans explicitly for the same reason
+    /// `onNormalizeNames` does: the button's label counts what the action receives.
+    private let onApplyRenames: ([RenamePlan]) -> Void
     /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
     /// nil = all enabled rules; a rule id = just that rule.
     private let onPreviewAutomations: (UUID?) -> Void
@@ -310,6 +313,7 @@ public struct TidyView: View {
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
         onConfigureCloudRefine: (() -> Void)? = nil,
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
+        onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         automationDestinationRoot: String? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
@@ -335,6 +339,7 @@ public struct TidyView: View {
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
         self.onConfigureCloudRefine = onConfigureCloudRefine
         self.onNormalizeNames = onNormalizeNames
+        self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
         self.automationDestinationRoot = automationDestinationRoot
         self.onQuickLook = onQuickLook
@@ -364,7 +369,8 @@ public struct TidyView: View {
 
     /// The focus actually on screen: `organizeFocus`, unless its list has emptied under it.
     private var effectiveOrganizeFocus: OrganizeFocus {
-        OrganizeFocus.effective(organizeFocus, riskyNameCount: syncManager.riskyNames.count)
+        OrganizeFocus.effective(organizeFocus, riskyNameCount: syncManager.riskyNames.count,
+                                renamePlanCount: syncManager.renamePlans.count)
     }
 
     /// The lens whose grammar, pills, actions and content are on screen right now.
@@ -375,6 +381,16 @@ public struct TidyView: View {
     /// reuse is the title: the header keeps saying Organize, because you have not gone anywhere.
     private var effectiveLens: TidyLens {
         (lens == .filing && effectiveOrganizeFocus == .names) ? .rename : lens
+    }
+
+    /// True when Organize is showing the rename backlog rather than the queue.
+    ///
+    /// Deliberately NOT a sixth `TidyLens`. The names focus borrows `.rename`'s apparatus because
+    /// that apparatus already fits its rows; the rename backlog's rows are folder plans, which no
+    /// existing lens describes — and a lens of its own would cost a bar segment for a finding that
+    /// is absent most days. So it stays inside Organize and the content card branches on it.
+    private var showingRenameBacklog: Bool {
+        lens == .filing && effectiveOrganizeFocus == .renames
     }
 
     // MARK: Search state
@@ -726,7 +742,12 @@ public struct TidyView: View {
                 fixAllButton(rows.risky)
             }
         case .filing:
-            if hasFilingResults, !syncManager.isSuggestingFiles {
+            if showingRenameBacklog {
+                if !syncManager.renamePlans.isEmpty, !syncManager.isSuggestingFiles {
+                    rescanFilingButton
+                    renameAllButton(syncManager.renamePlans)
+                }
+            } else if hasFilingResults, !syncManager.isSuggestingFiles {
                 rescanFilingButton
                 refineButton(rows.filing)
                 fileAllButton(rows.filing)
@@ -783,7 +804,8 @@ public struct TidyView: View {
     @ViewBuilder
     private func organizeSummary(rows: FilteredRows) -> some View {
         let chips = OrganizeFocus.chips(queueCount: syncManager.filingSuggestions.count,
-                                        riskyNameCount: syncManager.riskyNames.count)
+                                        riskyNameCount: syncManager.riskyNames.count,
+                                        renamePlanCount: syncManager.renamePlans.count)
         // No second `chips.isEmpty` gate: with the scope chip moved inside the branches below,
         // "nothing to report" already renders nothing — an empty `chips` draws no capsules, and
         // both branches are gated on having a list to describe. A guard that cannot change the
@@ -811,6 +833,15 @@ public struct TidyView: View {
                     scannedFolderChip(syncManager.nameScanRoot?.path)
                     renameSummary(rows.risky)
                 }
+            case .renames:
+                // Scoped to the whole provider, like the names finding and unlike the queue — the
+                // planner reads the folder profile, which describes the tree rather than one folder.
+                // Named from the FILING scan's own root rather than the name scan's: the plans come
+                // off that walk, and the name scan's root is only set when a provider was passed in
+                // for the names check, so borrowing it would leave this chip blank or, worse,
+                // pointing at a previous scan.
+                scannedFolderChip(syncManager.filingLastProviderRoot)
+                renameBacklogSummary(syncManager.renamePlans)
             }
         }
     }
@@ -833,12 +864,13 @@ public struct TidyView: View {
     private func organizeFocusChip(_ focus: OrganizeFocus, isInteractive: Bool) -> some View {
         let count = OrganizeFocus.count(focus,
                                         queueCount: syncManager.filingSuggestions.count,
-                                        riskyNameCount: syncManager.riskyNames.count)
+                                        riskyNameCount: syncManager.riskyNames.count,
+                                        renamePlanCount: syncManager.renamePlans.count)
         let isSelected = effectiveOrganizeFocus == focus
         let pill = StatPill(count: count,
                             label: focus.label(count: count),
                             color: focus == .queue ? SemanticColor.info : SemanticColor.caution,
-                            systemImage: focus == .queue ? "doc" : "character.cursor.ibeam")
+                            systemImage: Self.focusSymbol(focus))
         if isInteractive {
             Button {
                 // A radio member, so re-picking the one already on screen is a no-op — not an
@@ -862,6 +894,33 @@ public struct TidyView: View {
         }
     }
 
+    /// The glyph each focus wears. A `switch` rather than a ternary because there are three of
+    /// them now, and a ternary that reads "queue or not-queue" would give the rename backlog the
+    /// names finding's I-beam.
+    static func focusSymbol(_ focus: OrganizeFocus) -> String {
+        switch focus {
+        case .queue: return "doc"
+        case .names: return "character.cursor.ibeam"
+        case .renames: return "textformat.123"
+        }
+    }
+
+    /// Organize's pills while the rename backlog is on screen: how many files the listed plans
+    /// would rename, and how many they deliberately would not.
+    @ViewBuilder
+    private func renameBacklogSummary(_ plans: [RenamePlan]) -> some View {
+        let steps = plans.reduce(0) { $0 + $1.steps.count }
+        let skips = plans.reduce(0) { $0 + $1.skips.count }
+        StatPill(count: steps, label: steps == 1 ? "rename" : "renames",
+                 color: SemanticColor.info, systemImage: "pencil")
+        if skips > 0 {
+            StatPill(count: skips, label: "left alone",
+                     color: SemanticColor.caution, systemImage: "minus.circle")
+                .help("Files the pass will not rename — a name already taken, or a year this folder "
+                      + "does not hold. Open a folder to read why.")
+        }
+    }
+
     /// What each chip promises. Written to read correctly whether or not it is the selected one —
     /// the selected state is carried by the ring and by `.isSelected`, not by swapping the words.
     private func focusHelp(_ focus: OrganizeFocus, count: Int) -> String {
@@ -872,6 +931,9 @@ public struct TidyView: View {
         case .names:
             return "\(count) name\(count == 1 ? "" : "s") this provider will not accept, found on "
                 + "the same scan. Shows the proposed fixes."
+        case .renames:
+            return "\(count) folder\(count == 1 ? "" : "s") that drifted from its own naming "
+                + "convention. Shows what renaming them back would do."
         }
     }
 
@@ -1437,6 +1499,27 @@ public struct TidyView: View {
         }
     }
 
+    /// "Rename all N", over every planned folder.
+    ///
+    /// Unscoped by any query on purpose, and the label says **folders** rather than files: the unit
+    /// of apply is the folder plan, and there is no rename-backlog search grammar for a filtered
+    /// count to disagree with. `plans` is the same value the label counts and the action applies —
+    /// the property `applyAllButton` above exists to preserve.
+    @ViewBuilder
+    private func renameAllButton(_ plans: [RenamePlan]) -> some View {
+        let files = plans.reduce(0) { $0 + $1.steps.count }
+        Button { onApplyRenames(plans) } label: {
+            Label("Rename \(files) file\(files == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
+        }
+        .buttonStyle(.borderedProminent)
+        .chromeHover()
+        .controlSize(.small)
+        .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+        .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
+              + "folder\(plans.count == 1 ? "" : "s") to match each folder's own convention. "
+              + "One undoable change — ⌘Z puts every name back.")
+    }
+
     /// "Fix all N", scoped to the FILTERED risky names. `onNormalize` has always taken its rows
     /// explicitly, so this one was safe by construction — it just needs the filtered array.
     @ViewBuilder
@@ -1515,7 +1598,18 @@ public struct TidyView: View {
             switch effectiveLens {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates)
             case .rename: renameContent(risky: rows.risky)
-            case .filing: filingContent(filing: rows.filing)
+            case .filing:
+                if showingRenameBacklog {
+                    RenamePassLens(syncManager: syncManager, plans: syncManager.renamePlans,
+                                   accent: glassHue.accentColor,
+                                   onApply: onApplyRenames,
+                                   onReveal: { path in
+                                       NSWorkspace.shared.activateFileViewerSelecting(
+                                           [URL(fileURLWithPath: path)])
+                                   })
+                } else {
+                    filingContent(filing: rows.filing)
+                }
             case .automations: automationsContent(rules: rows.rules)
             case .storage: EmptyView()   // rendered by `body` as StorageLensView, never through here
             }
