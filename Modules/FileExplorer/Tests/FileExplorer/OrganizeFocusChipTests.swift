@@ -32,12 +32,24 @@ import Design
     /// wider than the pills on both sides so a point of layout drift cannot silently empty it —
     /// `theStripActuallyContainsTheChips` is the guard that would catch it if it did.
     private static let summaryStrip = CGRect(x: 0, y: 42, width: 900, height: 40)
+    /// The focus chips ALONE — the scope chip and both capsules, stopping short of the pills.
+    ///
+    /// Measured on the shipping render: the queue chip spans x 105-195 pt, the names chip 202-327,
+    /// and `ready` starts at 334. Cropping at 330 is what makes a queue-count assertion mean the
+    /// QUEUE CHIP: over the full row, `ready` moves with `filingSuggestions` too, so a chip printing
+    /// a constant still left the strip different and every count test passed with it (verified by
+    /// mutation — all six did).
+    private static let chipsOnlyStrip = CGRect(x: 0, y: 42, width: 330, height: 40)
 
-    private static func suggestion(_ name: String) -> FilingSuggestion {
+    /// `confident: false` gives the file no confident home, which moves it from `ready` to
+    /// `unsure` without changing the queue's length — the one knob that separates the pills from
+    /// the chips.
+    private static func suggestion(_ name: String, confident: Bool = true) -> FilingSuggestion {
         FilingSuggestion(
             filePath: "/root/Downloads/\(name)", fileName: name, size: 4_096,
             modificationDate: Date(timeIntervalSince1970: 0),
-            candidates: [FilingDestination(path: "/root/Documents/Family", confidence: .high,
+            candidates: [FilingDestination(path: "/root/Documents/Family",
+                                           confidence: confident ? .high : .low,
                                            reasons: ["test"], newSegments: [])],
             providerRoot: "/root")
     }
@@ -50,9 +62,9 @@ import Design
 
     /// A manager holding a COMPLETED Organize scan — the state the lens is in when the user is
     /// looking at results, with both of Organize's lists under caller control.
-    private static func manager(queue: Int, names: Int) -> FileSyncManager {
+    private static func manager(queue: Int, names: Int, confident: Bool = true) -> FileSyncManager {
         let m = FileSyncManager()
-        m.publishFilingSuggestions((0..<queue).map { suggestion("file\($0).pdf") })
+        m.publishFilingSuggestions((0..<queue).map { suggestion("file\($0).pdf", confident: confident) })
         m.hasSuggestedFiling = true
         m.filingScanFolder = "/root/Downloads"
         m.filingLastProviderRoot = "/root"
@@ -91,10 +103,11 @@ import Design
         return host
     }
 
-    private func strip(_ host: NSHostingView<AnyView>) -> NSBitmapImageRep? {
+    private func strip(_ host: NSHostingView<AnyView>, _ rect: CGRect? = nil) -> NSBitmapImageRep? {
+        let band = rect ?? Self.summaryStrip
         host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: Self.summaryStrip) else { return nil }
-        host.cacheDisplay(in: Self.summaryStrip, to: rep)
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: band) else { return nil }
+        host.cacheDisplay(in: band, to: rep)
         return rep
     }
 
@@ -172,12 +185,80 @@ import Design
     }
 
     @Test func theQueueCountReachesItsChip() throws {
-        // Holds the finding constant so only the queue's own number moves. Every suggestion here is
-        // `.high`, so `ready` moves with it too — this asserts the row reads the queue at all, and
-        // `theSelectedChipIsRinged` below is what proves the chip specifically is on screen.
-        let small = try #require(strip(mount(Self.manager(queue: 2, names: 17))))
-        let large = try #require(strip(mount(Self.manager(queue: 24, names: 17))))
-        #expect(differingPixels(small, large) > 20)
+        // Cropped to the chips so this means the CHIP and not the pills after it. Both fixtures use
+        // two-digit counts so the capsule is the same width in each and nothing downstream shifts —
+        // any difference inside this band is the digits the queue chip drew.
+        //
+        // The finding is held constant at 17 for the same reason. Mutation-checked: a queue chip
+        // returning a constant fails here, and passed every test in this file before this crop.
+        let twelve = try #require(strip(mount(Self.manager(queue: 12, names: 17)), Self.chipsOnlyStrip))
+        let twentyFour = try #require(strip(mount(Self.manager(queue: 24, names: 17)), Self.chipsOnlyStrip))
+        #expect(differingPixels(twelve, twentyFour) > 8,
+                "12 and 24 loose files paint the same queue chip — its count is not the queue's")
+    }
+
+    @Test func theChipsOnlyBandStopsShortOfThePills() throws {
+        // The crop above is a hard-coded rectangle, so it needs its own guard: if it ever widened
+        // to include `ready`, the test above would pass on the pills again and quietly stop meaning
+        // anything. `ready` tracks the queue, so a band that can see it differs when ONLY the
+        // pills change — which is what this pins to nothing.
+        //
+        // Same queue size, different confidence split: 6 files either way, so the queue chip and
+        // the names chip are identical, while `ready` goes 6 -> 0 and an `unsure` pill appears.
+        let allReady = try #require(strip(mount(Self.manager(queue: 6, names: 17)), Self.chipsOnlyStrip))
+        let noneReady = try #require(strip(mount(Self.manager(queue: 6, names: 17, confident: false)),
+                                           Self.chipsOnlyStrip))
+        #expect(differingPixels(allReady, noneReady) == 0,
+                "the chips-only band changed when only the pills did — it has widened onto them")
+    }
+
+    /// What the band paints with nothing in it. **Not zero** — the header card's own edge runs
+    /// through this crop, measured at ~200 px — so "empty" is this figure, and asserting `== 0`
+    /// fails on a correctly empty row. Every emptiness claim below is relative to this.
+    private func emptyRowBaseline() throws -> NSBitmapImageRep {
+        try #require(strip(mount(Self.manager(queue: 0, names: 0))))
+    }
+
+    @Test func theRowIsEmptyWhileAScanRuns() throws {
+        // The regression this suite missed first time round. Both of Organize's lists are published
+        // on COMPLETION — mid-scan `filingSuggestions`, `filingScanFolder` and `riskyNames` still
+        // hold the previous scan's answer, deliberately, so a cancelled rescan leaves the old
+        // results intact. Drawing the row from them puts last scan's "24 to file" beside a list
+        // that is still counting.
+        //
+        // Asserted as "identical to the empty row", not "has little ink": a scan-gated row that
+        // still drew one stale chip would clear any threshold this side of exact.
+        let scanning = Self.manager(queue: 24, names: 17)
+        scanning.isSuggestingFiles = true
+        let mid = try #require(strip(mount(scanning)))
+        #expect(differingPixels(mid, try emptyRowBaseline()) == 0,
+                "Organize's summary row painted during a scan — those counts are the previous scan's")
+    }
+
+    @Test func theRowIsEmptyWhenTheScanFoundNothing() throws {
+        // No queue, no finding: a lone scope chip summarises nothing, and the content card below
+        // already says the folder came back clean.
+        //
+        // Pinned by contrasting the two things that decide whether that chip can draw — a scan
+        // folder that exists, and one that does not. With the emptiness gate in place both render
+        // the same nothing; drop it and only the first draws "Downloads", so they diverge. An
+        // earlier cut compared ink against a populated row instead and let that mutation through:
+        // one extra chip is far too small to close a 400 px gap.
+        let scanned = Self.manager(queue: 0, names: 0)
+        let neverScanned = Self.manager(queue: 0, names: 0)
+        neverScanned.filingScanFolder = nil
+        #expect(differingPixels(try #require(strip(mount(scanned))),
+                                try #require(strip(mount(neverScanned)))) == 0,
+                "the scope chip drew for a scan with nothing to report — the row is not gated on having something to summarise")
+    }
+
+    @Test func theRowSurvivesAnEmptyQueueBesideAFinding() throws {
+        // …but the state after "File all" is not "nothing to report": the files are filed and the
+        // names are still wrong. Both chips must be there, or the finding has no way back to the
+        // queue and the queue no way to the finding.
+        let filedButFlagged = try #require(strip(mount(Self.manager(queue: 0, names: 17))))
+        #expect(inkedPixels(filedButFlagged) > inkedPixels(try emptyRowBaseline()) + 400,
+                "an empty queue beside 17 risky names painted no row")
     }
 
     @Test func theSelectedChipIsRinged() throws {

@@ -377,16 +377,6 @@ public struct TidyView: View {
         (lens == .filing && effectiveOrganizeFocus == .names) ? .rename : lens
     }
 
-    /// Organize's focus chips, in reading order, and whether they are controls at all.
-    ///
-    /// A lone chip is a statement, not a choice: with nothing to switch to it must not look
-    /// clickable, which is also exactly what today's un-gated "to file" pill looks like.
-    private var organizeFocusChips: (chips: [OrganizeFocus], isInteractive: Bool) {
-        let chips = OrganizeFocus.chips(queueCount: syncManager.filingSuggestions.count,
-                                        riskyNameCount: syncManager.riskyNames.count)
-        return (chips, chips.count > 1)
-    }
-
     // MARK: Search state
 
     /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
@@ -762,18 +752,12 @@ public struct TidyView: View {
         switch effectiveLens {
         case .duplicates:
             if hasResults { duplicatesSummary(rows.duplicates) }
-        // Organize's two states share a row shape: the scope this list came from, then the focus
-        // chips, then the pills that describe whichever list is on screen. The scopes genuinely
-        // differ — the queue is one folder, the names are the whole provider — so each state names
-        // its own, rather than one of them claiming the other's.
-        case .rename:
-            scannedFolderChip(syncManager.nameScanRoot?.path)
-            organizeFocusRow
-            if syncManager.hasScannedNames, !syncManager.riskyNames.isEmpty { renameSummary(rows.risky) }
-        case .filing:
-            scannedFolderChip(syncManager.filingScanFolder)
-            organizeFocusRow
-            if hasFilingResults, !syncManager.isSuggestingFiles { filingSummary(rows.filing) }
+        // Both of Organize's states, through one path. Keyed on `lens` and not on the case that
+        // matched, because `.rename` is reachable as an effective lens only FROM Organize — and a
+        // `TidyView` built directly on `.rename` would otherwise draw Organize's chips in a lens
+        // that has no queue behind them.
+        case .rename, .filing:
+            if lens == .filing { organizeSummary(rows: rows) }
         case .automations:
             if !syncManager.automationRules.isEmpty { automationsSummary(rows.rules) }
         case .storage:
@@ -781,16 +765,36 @@ public struct TidyView: View {
         }
     }
 
-    /// Organize's focus chips — the navigation between its lists, and the only way back out of one.
+    /// Organize's whole summary row: the scope the focused list was scanned from, the focus chips,
+    /// then the pills that describe whichever list is on screen.
     ///
-    /// Rendered from `lens`, never `effectiveLens`: these appear in BOTH of Organize's states, and
-    /// deriving them from the effective lens would remove the control that returns you to the queue
-    /// at exactly the moment you need it.
+    /// **Nothing here renders while a scan runs.** Both of Organize's lists are published on
+    /// *completion* — `filingSuggestions`, `filingScanFolder` and `riskyNames` all still hold the
+    /// previous scan's answer mid-scan, deliberately, so a cancelled rescan leaves the old results
+    /// intact. A row drawn from them during a scan is therefore last scan's numbers over this
+    /// scan's spinner: "24 to file" beside a list that is still counting. The old row hid the
+    /// filing pills for exactly this reason and let the risky-names chip through anyway; both are
+    /// covered now, because staleness is a property of the scan, not of one chip.
+    ///
+    /// The scopes genuinely differ — the queue is one folder, the names are the whole provider — so
+    /// each focus names its own rather than one claiming the other's.
     @ViewBuilder
-    private var organizeFocusRow: some View {
-        let (chips, isInteractive) = organizeFocusChips
-        ForEach(chips) { focus in
-            organizeFocusChip(focus, isInteractive: isInteractive)
+    private func organizeSummary(rows: FilteredRows) -> some View {
+        let chips = OrganizeFocus.chips(queueCount: syncManager.filingSuggestions.count,
+                                        riskyNameCount: syncManager.riskyNames.count)
+        if !syncManager.isSuggestingFiles, !chips.isEmpty {
+            scannedFolderChip(effectiveOrganizeFocus == .names
+                              ? syncManager.nameScanRoot?.path
+                              : syncManager.filingScanFolder)
+            ForEach(chips) { focus in
+                // A lone chip is a statement, not a choice: with nothing to switch to it must not
+                // look clickable, which is exactly what the un-gated "to file" pill always was.
+                organizeFocusChip(focus, isInteractive: chips.count > 1)
+            }
+            switch effectiveOrganizeFocus {
+            case .queue: if hasFilingResults { filingSummary(rows.filing) }
+            case .names: if syncManager.hasScannedNames { renameSummary(rows.risky) }
+            }
         }
     }
 
@@ -820,6 +824,10 @@ public struct TidyView: View {
                             systemImage: focus == .queue ? "doc" : "character.cursor.ibeam")
         if isInteractive {
             Button {
+                // A radio member, so re-picking the one already on screen is a no-op — not an
+                // animated transition from a list to itself, which is what an unconditional
+                // assignment inside `withAnimation` schedules.
+                guard effectiveOrganizeFocus != focus else { return }
                 withAnimation(listSettle) { organizeFocus = focus }
             } label: {
                 pill.overlay {

@@ -741,9 +741,15 @@ selection, and the queue joined the finding as a chip, so adding structure findi
 rather than a second Boolean that can disagree with the first. Five things this item must still do
 that the names finding does not need, each a defect if built by analogy:
 
-- **Do not gate the chip on the queue.** Organize's pills render only `if hasFilingResults`; the
-  focus chips deliberately sit outside that gate. Zero loose files beside eleven findings is the
-  state this feature exists for — a tidy queue says nothing about the shape of the tree.
+- **Do not gate the chip on the queue — but do decide what it does during a scan.** Organize's pills
+  render only `if hasFilingResults`, and the focus chips deliberately sit outside that gate: zero
+  loose files beside eleven findings is the state this feature exists for, because a tidy queue says
+  nothing about the shape of the tree. The row *is* gated on `isSuggestingFiles`, though, because
+  both existing lists are published on completion and are last scan's answer until then — and
+  **structure findings are not**. They come from the profile with no disk read, so they are not stale
+  during a filing scan and the shared gate would hide a chip that is still true. Either the gate
+  becomes per-focus, or the row keeps one rule and this item accepts it deliberately; what it must
+  not do is inherit the queue's staleness by accident.
 - **Three states, not two.** No profile → no chip and no "checked" line. Profile and clean → a quiet
   `structure checked · 2,798 folders` on the row's trailing edge. Profile and findings → the chip.
   Absence must never be ambiguous between *clean* and *cannot run*, which is a gap the names finding
