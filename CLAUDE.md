@@ -22,8 +22,10 @@ As of 2026-08-01 there are **two long-lived branches**, and they are the only tw
 **"Applies" means the code is there, not that a user would notice.** This is the bar, and it is
 deliberately low: bug fixes, minor features that need no redesign, test-only changes, flake fixes,
 docs and tooling all go to both lines when `v2.x` carries the file. A narrower reading — "only fixes
-that matter to someone running 2.8" — is what this line used to say, and under it a shared test
-helper was fixed on `main` alone while `v2.x` kept the identical defect against the same CI.
+that matter to someone running 2.8" — is what this line used to say, and under it landing a shared
+test helper's fix on both lines read as a judgement call to argue rather than the default. That is
+the failure mode: nothing announces a maintenance line quietly keeping a defect its own CI runs
+into.
 
 Two commands settle it before you start, and byte-identical files cherry-pick clean:
 
