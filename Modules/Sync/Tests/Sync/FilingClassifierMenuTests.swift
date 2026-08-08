@@ -196,17 +196,73 @@ import Testing
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
     }
 
-    /// Blindness only protects a *content-derived* home. A filename match carries no more
-    /// information than the model had, so the existing confidence rule keeps deciding those.
-    @Test func aBlindVerdictStillOverridesAFilenameMatch() throws {
+    /// **A backend that has not read the document cannot report high confidence.** It saw a
+    /// filename; that is a `.low` claim however sure the model says it is, and the badge is what
+    /// the user reads before accepting a home. So a blind verdict no longer displaces a filename
+    /// match the deterministic engine made from *the same information* and rated `.medium`.
+    @Test func aBlindVerdictIsCappedAndCannotDisplaceAFilenameMatch() {
         let path = "/root/TODO/scan.pdf"
         let dest = FilingDestination(path: "/root/Documents/Visa", confidence: .medium, reasons: ["name"],
                                      newSegments: [], fromContent: false, remembered: false, fromAI: false)
         let base = [FilingSuggestion(filePath: path, fileName: "scan.pdf", size: 10,
                                      modificationDate: nil, candidates: [dest], providerRoot: "/root")]
         let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
+        #expect(FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                           providerRoot: "/root", contentBlind: [path])
+                    .first?.best?.path == "/root/Documents/Visa")
+    }
+
+    /// The other half: with nothing better to keep, the blind verdict still leads — capped, so the
+    /// card says `.low` rather than claiming a certainty nobody has. Without this the test above
+    /// would pass for a rule that simply drops every blind verdict.
+    @Test func aBlindVerdictStillLeadsWhenThereIsNothingBetter() throws {
+        let path = "/root/TODO/scan.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "scan.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                                           providerRoot: "/root", contentBlind: [path])
+                                    .first?.best)
+        #expect(best.path == "/root/Documents/I-94")
+        #expect(best.confidence == .low, "a filename-only verdict was published as \(best.confidence)")
+    }
+
+    /// **The model re-ranks the router's shortlist; it does not answer past it.** The same visa
+    /// foil returned three different `.high` folders in three scans of one afternoon, so the
+    /// arbitration cannot be confidence against confidence. A verdict naming an existing folder the
+    /// router never shortlisted leaves the router's home on the card.
+    @Test func aVerdictOutsideTheRouterShortlistDoesNotLead() {
+        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
+        let base = [routed(path, to: "/root/Documents/Visa")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
         let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
-                                             providerRoot: "/root", contentBlind: [path])
+                                             providerRoot: "/root",
+                                             routerShortlists: [path: ["Documents/Visa", "Documents/Other"]])
+        #expect(out.first?.best?.path == "/root/Documents/Visa")
+    }
+
+    /// And inside it, the verdict leads exactly as before — otherwise the rule above would be
+    /// indistinguishable from ignoring the model altogether.
+    @Test func aVerdictInsideTheRouterShortlistStillLeads() {
+        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
+        let base = [routed(path, to: "/root/Documents/Visa")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                             providerRoot: "/root",
+                                             routerShortlists: [path: ["Documents/Visa", "Documents/I-94"]])
+        #expect(out.first?.best?.path == "/root/Documents/I-94")
+        #expect(out.first?.best?.fromAI == true)
+    }
+
+    /// With no artifacts there is no shortlist, the router never ran, and the model is the only
+    /// answer there is — the gate must not silently disable the backend on an unsurveyed tree.
+    @Test func withNoShortlistTheVerdictIsUnconstrained() {
+        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
+        let base = [routed(path, to: "/root/Documents/Visa")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                             providerRoot: "/root", routerShortlists: [:])
         #expect(out.first?.best?.path == "/root/Documents/I-94")
     }
+
 }

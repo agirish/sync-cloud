@@ -68,6 +68,15 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.proposedName = proposedName
     }
 
+    /// A copy of this destination at a different confidence — for capping a claim the evidence
+    /// behind it cannot support (see ``FilingEngine/applyVerdicts(_:to:existingRelative:providerRoot:rejectedByFile:contentBlind:routerShortlists:)``).
+    public func withConfidence(_ c: FilingConfidence) -> FilingDestination {
+        FilingDestination(path: path, confidence: c, reasons: reasons, newSegments: newSegments,
+                          fromContent: fromContent, remembered: remembered, fromAI: fromAI,
+                          evidenceToken: evidenceToken, neighborMatches: neighborMatches,
+                          proposedName: proposedName)
+    }
+
     /// A copy of this destination carrying `name` as the rename it would apply.
     public func naming(_ name: String?) -> FilingDestination {
         FilingDestination(path: path, confidence: confidence, reasons: reasons,
@@ -797,7 +806,8 @@ public enum FilingEngine {
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      taxonomy: [FileNode], providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:],
-                                     contentBlind: Set<String> = []) -> [FilingSuggestion] {
+                                     contentBlind: Set<String> = [],
+                                     routerShortlists: [String: [String]] = [:]) -> [FilingSuggestion] {
         // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
         // happens on the way in. Deriving the folder set first and letting the other one return
         // early is a full recursive walk of the provider — tens of thousands of nodes on a real
@@ -808,7 +818,7 @@ public enum FilingEngine {
         return applyVerdicts(verdicts, to: suggestions,
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
                              providerRoot: providerRoot, rejectedByFile: rejectedByFile,
-                             contentBlind: contentBlind)
+                             contentBlind: contentBlind, routerShortlists: routerShortlists)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no
@@ -829,15 +839,16 @@ public enum FilingEngine {
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      existingRelative: Set<String>, providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:],
-                                     contentBlind: Set<String> = []) -> [FilingSuggestion] {
+                                     contentBlind: Set<String> = [],
+                                     routerShortlists: [String: [String]] = [:]) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
             guard let v = verdicts[s.filePath],
-                  let dest = destination(from: v, providerRoot: providerRoot,
-                                        existingRelative: existingRelative, fileName: s.fileName)
+                  let rawDest = destination(from: v, providerRoot: providerRoot,
+                                            existingRelative: existingRelative, fileName: s.fileName)
             else { return s }
-            if rejectedByFile[s.filePath]?.contains(dest.path) == true { return s }   // model re-picked a rejected folder
+            if rejectedByFile[s.filePath]?.contains(rawDest.path) == true { return s }   // model re-picked a rejected folder
             // Strictly less information cannot override more. Not a confidence comparison — a
             // blind verdict at any confidence loses to a home that was read out of the document.
             if contentBlind.contains(s.filePath), s.best?.fromContent == true { return s }
@@ -847,7 +858,38 @@ public enum FilingEngine {
             // same evidence. `DetailedBillApr2025.pdf` came back as a High-confidence
             // `Finance/US/Accounts/DetailedBillApr2025.pdf` — two folders to create, from seven
             // characters of filename, for a file whose siblings sit in an existing folder.
-            if contentBlind.contains(s.filePath), !dest.newSegments.isEmpty { return s }
+            if contentBlind.contains(s.filePath), !rawDest.newSegments.isEmpty { return s }
+            // **The model re-ranks the router's shortlist; it does not get to answer past it.**
+            //
+            // It is handed that shortlist and told to copy a path from the list, so an existing
+            // folder that is not on it is not a re-ranking — it is a different answer, arrived at
+            // by a backend whose confidence is not a comparable quantity. Measured the hard way:
+            // the same visa foil, the same code, three scans in one afternoon returned
+            // `Visa/US/H-1B Visa/2024-2026` (right), then
+            // `Authorization/H-1B/2019-2022/Petition/Supporting Documents`, then
+            // `Authorization/H-1B/2024-2026/Petition` — all three `.high`. The router's own margin,
+            // by contrast, is calibrated: it is right 92.9% of the time when it reports high.
+            //
+            // So the arbitration is no longer confidence against confidence. A verdict inside the
+            // shortlist reorders a set the router already vouched for, and leads on the rule below.
+            // One outside it stays as an alternate, and the router's home — the measured signal —
+            // keeps the card. Gated on there BEING a shortlist: with no artifacts loaded the router
+            // never ran, there is nothing to re-rank against, and the model is the only answer
+            // there is. A proposed NEW folder is exempt for the same reason — it cannot be on a
+            // list of folders that exist — and is governed by the two rules above instead.
+            if let shortlist = routerShortlists[s.filePath], !shortlist.isEmpty,
+               rawDest.newSegments.isEmpty, s.best != nil,
+               !shortlist.contains(Self.relative(rawDest.path, under: providerRoot)) {
+                return s
+            }
+            // **A backend that has not read the document cannot report high confidence.** It saw a
+            // filename; that is a `.low` claim however sure the model says it is, and the badge on
+            // the card is what the user reads before accepting a home. Four of one real inbox's
+            // PDFs extract zero characters — they are scans with no text layer — and every one came
+            // back `.high`.
+            let dest = contentBlind.contains(s.filePath) && rawDest.confidence != .low
+                ? rawDest.withConfidence(.low)
+                : rawDest
             // A verdict only LEADS when it's at least as confident as the current best home.
             // Otherwise a low-confidence model guess would demote a strong filename/rule match —
             // and, because the promoted candidate is `fromAI`, drop the file out of the blind
@@ -859,6 +901,14 @@ public enum FilingEngine {
                                     modificationDate: s.modificationDate, candidates: [dest] + others,
                                     providerRoot: s.providerRoot)
         }
+    }
+
+    /// `path` expressed relative to `providerRoot`, or the path unchanged when it is not under it.
+    /// Boundary-safe on "/" so a sibling sharing a string prefix isn't mistaken for a child.
+    static func relative(_ path: String, under providerRoot: String) -> String {
+        let root = providerRoot.hasSuffix("/") ? String(providerRoot.dropLast()) : providerRoot
+        guard path.hasPrefix(root + "/") else { return path }
+        return String(path.dropFirst(root.count + 1))
     }
 
     /// Turns a verdict into an absolute destination, sanitizing the model's path (strip whitespace

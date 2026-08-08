@@ -188,8 +188,9 @@ extension FileSyncManager {
         // deliberate: a refine pass runs on a scoped handful of files, minutes after the scan and
         // against rejections the scan never saw, so a few milliseconds each buys a current answer.
         var preferred: [String] = []
+        var shortlists: [String: [String]] = [:]
         if let index = filingRouterIndex {
-            let shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
+            shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
                 (s.filePath, FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
                                                index: index,
                                                excluding: Set(excludedByFile[s.filePath] ?? []),
@@ -234,7 +235,11 @@ extension FileSyncManager {
         // `uniqueKeysWithValues` is safe here where it is not on `scope`: this maps the manager's
         // own published list, whose ids come from a directory walk.
         let before = Dictionary(uniqueKeysWithValues: filingSuggestions.map { ($0.id, $0.best?.path) })
-        let contentBlind = Set(eligible.map { $0.filePath }).subtracting(snippets.keys)
+        // Same rule as the scan: blindness is a fact about the document, not about whether
+        // anybody looked. See `findFilingSuggestions`.
+        let contentBlind = (filingReadsContents && filingSnippetExtractor != nil)
+            ? Set(eligible.map { $0.filePath }).subtracting(snippets.keys)
+            : []
         let refined = FilingEngine.applyVerdicts(verdicts, to: filingSuggestions,
                                                  existingRelative: existingRelative,
                                                  providerRoot: root, rejectedByFile: rejectedByFile,

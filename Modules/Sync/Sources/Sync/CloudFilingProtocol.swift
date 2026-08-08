@@ -47,7 +47,9 @@ public enum CloudFilingProtocol {
     ///
     /// **4** — the router now reads the 400-character sample it was measured on rather than the
     /// extractor's five pages, which changes its shortlist, which is the menu.
-    public static let promptVersion = 4
+    /// **5** — a verdict is now arbitrated against the router's shortlist and capped when the file
+    /// was read and yielded nothing, so a cached answer from before means something different.
+    public static let promptVersion = 5
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
