@@ -108,6 +108,10 @@ enum OnDeviceFilingClassifier {
 
     Rules:
     • Strongly prefer an existing folder from the list — copy its path exactly.
+    • When several folders on the list fit, choose the MOST SPECIFIC one — the deepest path that is \
+    still right. A parent is the answer only when none of its children fit. If the list has both \
+    "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is an H-1B \
+    visa issued in that period, the answer is the second.
     • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
     parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
     • Reason about meaning, people's names, and document type — not just matching words.

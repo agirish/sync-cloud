@@ -108,6 +108,69 @@ import Testing
                 "inherited \(child.score) against a parent at \(parent.score) — share out of scale")
     }
 
+    // MARK: - Reading the document's own years
+
+    /// **A year is not always a token.** `tokenize` splits on non-alphanumerics, so the way every US
+    /// visa foil prints its expiry — `20NOV2026` — is one token and never looks like a year. And a
+    /// long digit run is not four years: the control number `20241808200001` must yield nothing.
+    @Test func yearsAreReadOutOfTheTextRatherThanItsTokens() {
+        #expect(FilingRouter.yearsInText("Expiration Date 20NOV2026") == ["2026"])
+        #expect(FilingRouter.yearsInText("Control Number 20241808200001").isEmpty)
+        #expect(FilingRouter.yearsInText("term 2019-2020 renewed") == ["2019", "2020"])
+        #expect(FilingRouter.tokenize("20NOV2026").filter(FilingRouter.isYearToken).isEmpty,
+                "the tokenizer would have to change to see this, which the memory forbids")
+    }
+
+    /// Glyph-per-field extraction — `0 3 J U L 2 0 2 4`. Real, and the reason this document's issue
+    /// date was invisible while its expiry was not.
+    @Test func aDatePrintedOneGlyphPerFieldIsStillADate() {
+        #expect(FilingRouter.despaced("Issue Date 0 3 J U L 2 0 2 4") == "Issue Date 03JUL2024")
+        #expect(FilingRouter.yearsInText("Issue Date 0 3 J U L 2 0 2 4") == ["2024"])
+        // Three single fields are not a run — an ordinary sentence must survive untouched.
+        #expect(FilingRouter.despaced("a b c word") == "a b c word")
+    }
+
+    /// The payoff: a fiscal span matches fully only when the document names both halves, so a visa
+    /// printing an issue date of 2024 and an expiry of 2026 separates `2024-2026` from a span that
+    /// only shares its end — which the filename's single `2026` cannot do, since it half-matches
+    /// both.
+    ///
+    /// **The wrong answer is the one that sorts first**, deliberately. The first version of this
+    /// test used `2026-2029` as the decoy, and reverting the whole raw-text year reader left it
+    /// passing: with both spans scoring a half-match the ranking is a tie, ties break on the path,
+    /// and `2024-2026` sorts ahead of `2026-2029` for free. A fixture whose expected value is also
+    /// the fallback cannot fail.
+    @Test func bothYearsInTheBodySeparateTwoOverlappingSpans() throws {
+        let idx = Self.index(memoryDocs: ["Records/Visas": Self.parentVocabulary],
+                            extraFolders: ["Records/Visas", "Records/Visas/2020-2026",
+                                           "Records/Visas/2024-2026"])
+        let r = FilingRouter.rank(fileName: "foil Nov 2026.pdf",
+                                  contentSnippet: Self.parentVocabulary.joined(separator: " ")
+                                      + " Issue Date 0 3 J U L 2 0 2 4 Expiration Date 20NOV2026",
+                                  index: idx)
+        let ranked = r.candidates.map(\.relativePath)
+        let right = try #require(ranked.firstIndex(of: "Records/Visas/2024-2026"), "\(ranked)")
+        let wrong = try #require(ranked.firstIndex(of: "Records/Visas/2020-2026"), "\(ranked)")
+        #expect(right < wrong, "the two spans did not separate: \(ranked)")
+    }
+
+    /// **A folder named `H-1B Visa` has to be reachable from a file that writes it `H1B`.**
+    /// `tokenize("H-1B Visa")` is `["1b", "visa"]`, so the classification never matched and the
+    /// file's own branch scored no better than its sibling. Index-side only — widening what a
+    /// FOLDER NAME indexes cannot disagree with the builder that wrote the stored anchors.
+    @Test func aHyphenatedFolderNameIsReachableFromTheUnhyphenatedSpelling() {
+        #expect(FilingRouter.pathTokens(of: "Visa/US/H-1B Visa").contains("h1b"))
+        #expect(FilingRouter.pathTokens(of: "Visa/US/H-1B Visa").contains("1b"))   // still the old form
+        let idx = Self.index(memoryDocs: ["Visa/US/H-1B Visa": Self.parentVocabulary,
+                                          "Visa/US/H-4 Visa": Self.parentVocabulary],
+                             extraFolders: ["Visa/US/H-1B Visa", "Visa/US/H-4 Visa"])
+        let r = FilingRouter.rank(fileName: "H1B Visa - Nov 2026.pdf",
+                                  contentSnippet: Self.parentVocabulary.joined(separator: " "),
+                                  index: idx)
+        #expect(r.best?.relativePath == "Visa/US/H-1B Visa",
+                "H1B did not reach H-1B: \(r.candidates.map(\.relativePath))")
+    }
+
     /// The same fixture with the year changed must move to the sibling — otherwise the test above
     /// passes for the wrong reason (a fixture whose expected value equals the fallback cannot fail).
     @Test func theYearInTheDocumentPicksTheSibling() {

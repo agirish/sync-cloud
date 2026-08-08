@@ -135,7 +135,7 @@ public enum FilingRouter {
         var foldersByPathToken: [String: [String]] = [:]
         var foldersByYear: [String: [String]] = [:]
         for f in allowed {
-            let pt = Set(tokenize(f))
+            let pt = FilingRouter.pathTokens(of: f)
             pathTokens[f] = pt
             let entry = profile?.folders[f]
             let at = Set((entry?.anchors ?? []).flatMap { tokenize($0) })
@@ -185,7 +185,13 @@ public enum FilingRouter {
         // **Years must be read out of the document, not only the filename.** Three files all called
         // `Lease Agreement.pdf` differ only by the term printed inside them; without this the
         // scorer picks whichever sibling year folder happens to sort first.
-        let yearsInBody = contentTokens.filter(isYearToken)
+        //
+        // Read from the TEXT, not from its tokens. `tokenize` splits on non-alphanumerics, so a
+        // date printed `20NOV2026` — how every US visa foil prints its expiry — is the single token
+        // `20nov2026` and never looks like a year at all. Worse, `contentTokens` starts as a copy of
+        // `nameTokens`, so the "body" year was in practice the FILENAME's year counted a second
+        // time: a document that named no year of its own still collected the body bonus.
+        let yearsInBody = contentSnippet.map(yearsInText) ?? []
 
         // ---- content evidence -------------------------------------------------------------
         // Scoring keeps ONE number per folder. Which anchor won and how many matched are needed
@@ -381,6 +387,76 @@ public enum FilingRouter {
     /// Digit-bearing and long enough to discriminate — an account last-4, a case number, a claim id.
     static func isIdentifier(_ t: String) -> Bool {
         t.count >= 4 && t.contains(where: \.isNumber)
+    }
+
+    /// A folder's own name tokens, plus the punctuation-free form of each word in it.
+    ///
+    /// `tokenize("H-1B Visa")` is `["1b", "visa"]` — the hyphen the folder is *named* with splits
+    /// the classification off, so a file called `H1B Visa - Nov 2026.pdf` matches only `visa` and
+    /// scores its own branch no better than `H-4 Visa`. Indexing `h1b` alongside `1b` costs one
+    /// extra token per word and makes the two spellings the same folder.
+    ///
+    /// **Index-side only, and that is what keeps it safe.** These tokens come from folder names, not
+    /// from a ``FilingMemory``, so widening them cannot disagree with the builder that wrote the
+    /// stored anchors — the reason ``tokenize`` itself is left exactly as it is.
+    static func pathTokens(of folder: String) -> Set<String> {
+        var out = Set(tokenize(folder))
+        for component in folder.split(separator: "/") {
+            for word in component.split(whereSeparator: { $0.isWhitespace || $0 == "_" }) {
+                let joined = String(word.lowercased().unicodeScalars.filter {
+                    CharacterSet.alphanumerics.contains($0) && $0.isASCII
+                }.map(Character.init))
+                if joined.count >= 2, !stopWords.contains(joined) { out.insert(joined) }
+            }
+        }
+        return out
+    }
+
+    /// Every year the text itself prints, found without going through ``tokenize``.
+    ///
+    /// Deliberately a second, narrower reader rather than a change to the tokenizer. The stored
+    /// anchors in a ``FilingMemory`` were produced by the builder's tokenizer, and a token this side
+    /// splits differently simply stops matching — silently, as fewer hits and lower accuracy. So
+    /// years are read alongside the tokens and never feed anchor lookup.
+    ///
+    /// A year is a four-digit `19xx`/`20xx` run that is not part of a longer digit run: that finds
+    /// `2026` inside `20NOV2026` while refusing `2024` inside the control number `20241808200001`.
+    static func yearsInText(_ text: String) -> Set<String> {
+        var out: Set<String> = []
+        var digits = ""
+        func endRun() {
+            if digits.count == 4, let n = Int(digits), n > 1900, n < 2100 { out.insert(digits) }
+            digits.removeAll(keepingCapacity: true)
+        }
+        for ch in despaced(text) {
+            if ch.isASCII, ch.isNumber { digits.append(ch) } else { endRun() }
+        }
+        endRun()
+        return out
+    }
+
+    /// Text whose glyphs arrive one-per-field — `0 3 J U L 2 0 2 4` — put back together.
+    ///
+    /// A real extraction artifact, and the reason this document's *issue* date was invisible while
+    /// its expiry was not. Joins any run of four or more consecutive single-character fields, which
+    /// cannot damage a year that was already contiguous.
+    static func despaced(_ text: String) -> String {
+        var out: [String] = []
+        var run: [String] = []
+        func flush() {
+            if run.count >= 4 { out.append(run.joined()) } else { out.append(contentsOf: run) }
+            run.removeAll(keepingCapacity: true)
+        }
+        for field in text.split(whereSeparator: \.isWhitespace) {
+            if field.count == 1, let c = field.first, c.isLetter || c.isNumber {
+                run.append(String(field))
+            } else {
+                flush()
+                out.append(String(field))
+            }
+        }
+        flush()
+        return out.joined(separator: " ")
     }
 
     static func isYearToken(_ t: String) -> Bool {

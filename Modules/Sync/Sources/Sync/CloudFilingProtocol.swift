@@ -24,15 +24,22 @@ public enum CloudFilingProtocol {
 
     /// Just the ids, in the same order — the family-resolution and validation paths want these.
     public static let selectableModels = selectableModelOptions.map(\.id)
-    /// The version of the QUESTION this file asks — the instruction block plus the tool schema.
+    /// The version of the QUESTION asked about a file — not just the words in this file.
     ///
     /// It is part of ``FilingVerdictKey``, so bumping it invalidates every cached verdict and the
-    /// next scan re-asks. **Bump it whenever `requestBody`'s instructions or `input_schema`
-    /// change**: a cached answer to the old prompt is not an answer to the new one, and serving it
-    /// would silently keep the prompt edit from ever taking effect. Wording that cannot change a
-    /// verdict (a typo fix in a comment, reflowing a line) does not need a bump; when unsure, bump
-    /// — the cost is one scan's worth of re-asking, against an edit that never lands.
-    public static let promptVersion = 1
+    /// next scan re-asks. **Bump it whenever anything changes what the backend is shown**: the
+    /// instruction block, the `input_schema`, *which folders the menu carries*, or *whether the
+    /// file's text is included*. A cached answer to the old question is not an answer to the new
+    /// one, and serving it silently keeps the change from ever taking effect. Wording that cannot
+    /// change a verdict (a typo fix in a comment, reflowing a line) does not need a bump; when
+    /// unsure, bump — the cost is one scan's worth of re-asking, against an edit that never lands.
+    ///
+    /// **2** — the menu became the router's shortlist instead of the 250 shallowest folders, and
+    /// every excerpt already read is now sent. Caught the honest way: the scan that was supposed to
+    /// demonstrate the fix logged "reused 12 of 13 classification(s) from cache" and replayed the
+    /// wrong answer, because neither input was part of the key and the old comment only named this
+    /// file's own text. Two of the three things that shape the prompt are assembled elsewhere.
+    public static let promptVersion = 2
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
@@ -74,6 +81,10 @@ public enum CloudFilingProtocol {
 
         Rules:
         • Strongly prefer an existing folder from the list — copy its relative path exactly.
+        • When several folders on the list fit, choose the MOST SPECIFIC one — the deepest path that \
+        is still right. A parent is the answer only when none of its children fit. If the list has \
+        both "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is \
+        an H-1B visa issued in that period, the answer is the second.
         • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
         parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
         • Reason about meaning, people's names, vendors, and document type — not just matching words.
