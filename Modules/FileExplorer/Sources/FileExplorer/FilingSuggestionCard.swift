@@ -36,6 +36,14 @@ struct FilingSuggestionCard: View {
     /// nothing. The wait is seconds, which is long enough to click twice.
     var isReadScanBusy: Bool = false
 
+    /// The name typed over a PROPOSED new folder, empty while it is untouched.
+    ///
+    /// A new folder is the one destination the card offers that does not exist yet, so its name is
+    /// the model's suggestion rather than the user's own vocabulary — `Divit/eOCI.pdf` is only the
+    /// most vivid example. Editing it before accepting costs a text field; not being able to means
+    /// filing into a name you did not choose, then renaming the folder in Finder afterwards.
+    @State private var editedFolderName: String = ""
+
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
     /// File-icon side: the pre-density 26pt in comfortable, a tighter 20pt in compact.
@@ -86,6 +94,7 @@ struct FilingSuggestionCard: View {
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
                     if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
+                    if let best, best.isNew { newFolderNameField(best) }
                 }
                 Spacer(minLength: 8)
                 confidenceCluster
@@ -246,6 +255,27 @@ struct FilingSuggestionCard: View {
         }
     }
 
+    /// An editable name for the folder that would be created — shown only for a NEW destination,
+    /// because renaming an existing folder would silently propose creating a different one instead
+    /// (see ``FilingDestination/renamingNewFolder(to:)``, which refuses that).
+    @ViewBuilder
+    private func newFolderNameField(_ dest: FilingDestination) -> some View {
+        if let leaf = dest.newSegments.last {
+            HStack(spacing: 6) {
+                Image(systemName: "folder.badge.plus")
+                    .scaledFont(.system(size: 11)).foregroundStyle(hueAccent)
+                Text("Create as").scaledFont(.system(size: 12)).foregroundStyle(.secondary)
+                TextField(leaf, text: $editedFolderName)
+                    .textFieldStyle(.roundedBorder)
+                    .scaledFont(.system(size: 12))
+                    .frame(maxWidth: 220)
+                    .help("The name of the folder that will be created. Leave it to accept “\(leaf)”.")
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Create as \(editedFolderName.isEmpty ? leaf : editedFolderName)")
+        }
+    }
+
     private var rememberedBadge: some View {
         Pill(.mini, tint: hueAccent, systemImage: "memories", text: "Remembered")
     }
@@ -343,7 +373,10 @@ struct FilingSuggestionCard: View {
     private var actions: some View {
         HStack(spacing: 9) {
             if let best, suggestion.hasConfidentHome {
-                Button { onFileHere(best) } label: { Label("File here", systemImage: "arrow.right.circle") }
+                // The typed name, when the user typed one — see `newFolderNameField`.
+                Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
+                    Label("File here", systemImage: "arrow.right.circle")
+                }
                     .buttonStyle(.borderedProminent).controlSize(.small)
                     .chromeHover()
                 Button(action: onChooseFolder) { Label("Choose folder…", systemImage: "folder") }

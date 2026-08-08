@@ -38,11 +38,29 @@ public struct FilingVerdict: Sendable, Equatable {
     public let relativePath: String
     public let confidence: FilingConfidence
     public let reason: String
+    /// The backend's own statement that this path names a folder that does not exist yet.
+    ///
+    /// **Declared, not inferred.** Both schemas allow answering with a new subfolder — that is how
+    /// a genuinely new destination gets proposed — and until this existed, "a path not on the list"
+    /// was the only expression of it. So a deliberate proposal and an invented path segment were
+    /// the same signal, and nothing downstream could tell them apart. Asked where
+    /// `Divit - eOCI.pdf` belonged, the on-device model answered
+    /// `Immigration/OCI/Divit/eOCI.pdf` — splitting the FILE'S OWN NAME into a folder and a child,
+    /// while its reason called the result an "existing folder … containing the eOCI.pdf file". It
+    /// could not have known that file exists: the folder list it is shown holds directories only,
+    /// and this PDF has no text layer, so there was no excerpt either. Both halves of the sentence
+    /// were invented, and a folder called `eOCI.pdf` was created on disk.
+    ///
+    /// With the claim made explicit, an undeclared new segment is detectable — see
+    /// ``FilingEngine/applyVerdicts(_:to:existingRelative:providerRoot:rejectedByFile:contentBlind:routerShortlists:)``.
+    public let proposesNewFolder: Bool
 
-    public init(relativePath: String, confidence: FilingConfidence, reason: String) {
+    public init(relativePath: String, confidence: FilingConfidence, reason: String,
+                proposesNewFolder: Bool = false) {
         self.relativePath = relativePath
         self.confidence = confidence
         self.reason = reason
+        self.proposesNewFolder = proposesNewFolder
     }
 
     /// Confidence from a 0–100 score, the shape guided-generation models return.

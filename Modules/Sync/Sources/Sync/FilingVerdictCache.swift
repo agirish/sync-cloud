@@ -78,11 +78,42 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
     /// The staleness test compares this against the same count resolved from the live taxonomy —
     /// see ``FilingVerdictCache/verdict(for:providerRoot:existingRelative:)``.
     public let newSegmentCount: Int
+    /// Whether the backend DECLARED it was proposing a folder that does not exist — see
+    /// ``FilingVerdict/proposesNewFolder``. Stored, because the entry reconstructs the verdict and
+    /// a field dropped on the round trip comes back as "did not declare": every cached new-folder
+    /// proposal would be trimmed to its existing parent on replay, silently turning a served hit
+    /// into a different answer than the one that was cached. Decoded with a default so entries
+    /// written before this existed still load rather than discarding the whole file.
+    public let proposesNewFolder: Bool
     /// When this entry was written. Used only to decide eviction order; never to expire an entry.
     public let cachedAt: Date
 
     public var verdict: FilingVerdict {
-        FilingVerdict(relativePath: relativePath, confidence: confidence, reason: reason)
+        FilingVerdict(relativePath: relativePath, confidence: confidence, reason: reason,
+                      proposesNewFolder: proposesNewFolder)
+    }
+
+    public init(key: FilingVerdictKey, relativePath: String, confidence: FilingConfidence,
+                reason: String, newSegmentCount: Int, cachedAt: Date,
+                proposesNewFolder: Bool = false) {
+        self.key = key
+        self.relativePath = relativePath
+        self.confidence = confidence
+        self.reason = reason
+        self.newSegmentCount = newSegmentCount
+        self.cachedAt = cachedAt
+        self.proposesNewFolder = proposesNewFolder
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(FilingVerdictKey.self, forKey: .key)
+        relativePath = try c.decode(String.self, forKey: .relativePath)
+        confidence = try c.decode(FilingConfidence.self, forKey: .confidence)
+        reason = try c.decode(String.self, forKey: .reason)
+        newSegmentCount = try c.decode(Int.self, forKey: .newSegmentCount)
+        cachedAt = try c.decode(Date.self, forKey: .cachedAt)
+        proposesNewFolder = try c.decodeIfPresent(Bool.self, forKey: .proposesNewFolder) ?? false
     }
 }
 
@@ -139,6 +170,14 @@ public struct FilingVerdictCache: Sendable, Equatable {
     ///
     /// The inverse (resolving FEWER new segments, because someone created the folder in the
     /// meantime) is a hit: the answer got better, not worse.
+    ///
+    /// **And the destination it resolves to must still be the destination that was cached.** The
+    /// segment count was a proxy for "the same offer", and it stopped being one when an undeclared
+    /// new folder started being trimmed to its existing parent (see
+    /// ``FilingEngine/destination(from:providerRoot:existingRelative:fileName:)``): a verdict for
+    /// `Documents/Family/Divit` whose `Family` was deleted since now resolves to `Documents` — a
+    /// count of zero, matching the cached zero, and a completely different folder. Comparing the
+    /// path catches both that and anything else the resolver may learn to change.
     public func verdict(for key: FilingVerdictKey, providerRoot: String,
                         existingRelative: Set<String>) -> FilingVerdict? {
         guard let entry = entries[key] else { return nil }
@@ -146,6 +185,8 @@ public struct FilingVerdictCache: Sendable, Equatable {
                                                       existingRelative: existingRelative)
         else { return nil }   // no longer resolves to a usable path at all
         guard resolved.newSegments.count <= entry.newSegmentCount else { return nil }
+        guard FilingEngine.relative(resolved.path, under: providerRoot) == entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        else { return nil }
         return entry.verdict
     }
 
@@ -161,7 +202,8 @@ public struct FilingVerdictCache: Sendable, Equatable {
         else { return }
         entries[key] = FilingVerdictCacheEntry(
             key: key, relativePath: verdict.relativePath, confidence: verdict.confidence,
-            reason: verdict.reason, newSegmentCount: resolved.newSegments.count, cachedAt: now)
+            reason: verdict.reason, newSegmentCount: resolved.newSegments.count, cachedAt: now,
+            proposesNewFolder: verdict.proposesNewFolder)
     }
 
     /// Drops the oldest-written entries until at most `limit` remain.

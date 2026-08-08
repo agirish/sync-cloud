@@ -157,7 +157,8 @@ import Testing
         let base = [FilingSuggestion(filePath: path, fileName: "DetailedBillApr2025.pdf", size: 10,
                                      modificationDate: nil, candidates: [dest], providerRoot: "/root")]
         let invent = [path: FilingVerdict(relativePath: "Finance/US/Accounts", confidence: .high,
-                                          reason: "common for financial statements")]
+                                          reason: "common for financial statements",
+                                          proposesNewFolder: true)]
         #expect(FilingEngine.applyVerdicts(invent, to: base, taxonomy: Self.taxonomy,
                                            providerRoot: "/root", contentBlind: [path])
                     .first?.best?.path == "/root/Documents/Visa")
@@ -176,7 +177,7 @@ import Testing
         let base = [FilingSuggestion(filePath: path, fileName: "DetailedBillApr2025.pdf", size: 10,
                                      modificationDate: nil, candidates: [], providerRoot: "/root")]
         let v = [path: FilingVerdict(relativePath: "Finance/US/Accounts/DetailedBillApr2025.pdf",
-                                     confidence: .high, reason: "r")]
+                                     confidence: .high, reason: "r", proposesNewFolder: true)]
         let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
                                                            providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Finance/US/Accounts")
@@ -190,7 +191,8 @@ import Testing
         let path = "/root/TODO/tesla.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "tesla.pdf", size: 10,
                                      modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Vehicles/Tesla", confidence: .high, reason: "r")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Vehicles/Tesla", confidence: .high, reason: "r",
+                                     proposesNewFolder: true)]
         let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
                                                            providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
@@ -305,5 +307,74 @@ import Testing
         #expect(!FilingEngine.looksLikeAFileName("2024-2026"))
         #expect(!FilingEngine.looksLikeAFileName("Form 1099-B"))
         #expect(!FilingEngine.looksLikeAFileName(".hidden"))
+    }
+
+    // MARK: - A new folder has to be declared
+
+    /// **An undeclared new folder is an invention, not a proposal.** Both schemas let a backend
+    /// answer with a folder that does not exist — that is how a genuinely new destination gets
+    /// offered — so until it had to SAY so, a deliberate proposal and a composed path segment were
+    /// the same signal. Asked where `Divit - eOCI.pdf` belonged, the model answered
+    /// `Immigration/OCI/Divit/eOCI.pdf`, split out of the file's OWN NAME, and a folder called
+    /// `eOCI.pdf` was created on disk.
+    @Test func anUndeclaredNewSegmentIsDroppedBackToWhatExists() throws {
+        let path = "/root/TODO/Divit - eOCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Divit - eOCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Visa/Something", confidence: .high,
+                                     reason: "r", proposesNewFolder: false)]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
+                                                           providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Visa")
+        #expect(best.newSegments.isEmpty)
+    }
+
+    /// Declared, the same path creates the folder — without this half the rule above would be
+    /// indistinguishable from never proposing a new folder at all.
+    @Test func aDeclaredNewFolderIsStillProposed() throws {
+        let path = "/root/TODO/a.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "a.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Visa/Something", confidence: .high,
+                                     reason: "r", proposesNewFolder: true)]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
+                                                           providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Visa/Something")
+        #expect(best.newSegments == ["Something"])
+    }
+
+    // MARK: - Renaming a proposed folder
+
+    /// The name of a folder that does not exist yet is the model's suggestion, not the user's
+    /// vocabulary. Editing it before accepting is a text field; not being able to means filing into
+    /// a name you did not choose and renaming it in Finder afterwards.
+    @Test func aProposedNewFolderCanBeRenamed() {
+        let dest = FilingDestination(path: "/root/Documents/Visa/Suggested", confidence: .high,
+                                     reasons: [], newSegments: ["Suggested"], fromAI: true)
+        let renamed = dest.renamingNewFolder(to: "  H-1B Visa  ")
+        #expect(renamed.path == "/root/Documents/Visa/H-1B Visa")
+        #expect(renamed.newSegments == ["H-1B Visa"])
+        #expect(renamed.confidence == dest.confidence)
+        #expect(renamed.fromAI)
+    }
+
+    /// **Renaming an EXISTING folder would not rename anything** — it would name a different folder
+    /// and quietly propose creating it. So a destination that creates nothing refuses the edit, and
+    /// the card cannot turn "file into this" into "create that" by accident.
+    @Test func anExistingDestinationRefusesTheRename() {
+        let dest = FilingDestination(path: "/root/Documents/Visa", confidence: .high,
+                                     reasons: [], newSegments: [])
+        #expect(dest.renamingNewFolder(to: "Something Else") == dest)
+    }
+
+    /// A blank edit means "keep the suggestion", and a name that is not a single folder is refused
+    /// rather than silently reinterpreted as a path.
+    @Test func aBlankOrPathLikeRenameKeepsTheSuggestion() {
+        let dest = FilingDestination(path: "/root/Documents/Visa/Suggested", confidence: .high,
+                                     reasons: [], newSegments: ["Suggested"])
+        #expect(dest.renamingNewFolder(to: "") == dest)
+        #expect(dest.renamingNewFolder(to: "   ") == dest)
+        #expect(dest.renamingNewFolder(to: "a/b") == dest)
+        #expect(dest.renamingNewFolder(to: "..") == dest)
     }
 }

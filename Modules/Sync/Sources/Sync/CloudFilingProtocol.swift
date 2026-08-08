@@ -49,7 +49,10 @@ public enum CloudFilingProtocol {
     /// extractor's five pages, which changes its shortlist, which is the menu.
     /// **5** — a verdict is now arbitrated against the router's shortlist and capped when the file
     /// was read and yielded nothing, so a cached answer from before means something different.
-    public static let promptVersion = 5
+    /// **6** — both schemas gained `createsNewFolder`, so a backend must now DECLARE a folder that
+    /// does not exist instead of expressing it by typing a path that is not on the list. A cached
+    /// answer from before carries no declaration and would be read as an invention.
+    public static let promptVersion = 6
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
@@ -96,7 +99,9 @@ public enum CloudFilingProtocol {
         both "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is \
         an H-1B visa issued in that period, the answer is the second.
         • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
-        parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
+        parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla") — and say so by \
+        setting createsNewFolder to true. Copying a path from the list means createsNewFolder is \
+        false. Never append the file's own name, or any file name, as a folder.
         • Reason about meaning, people's names, vendors, and document type — not just matching words.
         • If a file lists "avoid" folders, the user already rejected those — never choose them; pick a genuinely different folder.
         • If you genuinely cannot tell, use the folder "none".
@@ -155,8 +160,9 @@ public enum CloudFilingProtocol {
                                 "folder": ["type": "string", "description": "relative folder path exactly from the list, a new subpath under an existing parent, or the word none"],
                                 "confidence": ["type": "integer", "description": "0 to 100"],
                                 "reason": ["type": "string", "description": "one short sentence"],
+                                "createsNewFolder": ["type": "boolean", "description": "true ONLY if this folder does not exist yet and you are proposing it; false when copying a path from the list"],
                             ],
-                            "required": ["index", "folder", "confidence", "reason"],
+                            "required": ["index", "folder", "confidence", "reason", "createsNewFolder"],
                             "additionalProperties": false,
                         ],
                     ],
@@ -204,7 +210,8 @@ public enum CloudFilingProtocol {
             out[files[index].filePath] = FilingVerdict(
                 relativePath: folder,
                 confidence: FilingVerdict.confidence(fromScore: score),
-                reason: (reason?.isEmpty == false ? reason! : "Chosen by Claude"))
+                reason: (reason?.isEmpty == false ? reason! : "Chosen by Claude"),
+                proposesNewFolder: placement["createsNewFolder"] as? Bool ?? false)
         }
         return out
     }

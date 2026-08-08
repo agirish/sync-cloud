@@ -490,7 +490,8 @@ import Testing
         let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
         // Model echoed the absolute path with a trailing slash — sanitize back to relative.
         let verdicts = ["/root/Downloads/tesla.pdf":
-            FilingVerdict(relativePath: "/root/Documents/Vehicles/Tesla/", confidence: .medium, reason: "Vehicle doc")]
+            FilingVerdict(relativePath: "/root/Documents/Vehicles/Tesla/", confidence: .medium, reason: "Vehicle doc",
+                          proposesNewFolder: true)]
         let best = try #require(FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: taxonomy, providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
         #expect(best.newSegments == ["Tesla"])                      // created on apply

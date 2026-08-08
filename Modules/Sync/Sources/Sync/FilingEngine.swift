@@ -68,6 +68,25 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.proposedName = proposedName
     }
 
+    /// A copy of this destination with its final folder renamed — for a NEW folder the user edits
+    /// before accepting it.
+    ///
+    /// Only meaningful when ``isNew``: renaming a folder that already exists would not rename
+    /// anything, it would name a DIFFERENT folder and quietly propose creating it. So a destination
+    /// that creates nothing returns itself, and the caller cannot turn "file into this" into
+    /// "create that" by accident.
+    public func renamingNewFolder(to name: String) -> FilingDestination {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newSegments.isEmpty, !trimmed.isEmpty, !trimmed.contains("/"),
+              trimmed != "." , trimmed != ".." else { return self }
+        let parent = (path as NSString).deletingLastPathComponent
+        return FilingDestination(path: parent + "/" + trimmed, confidence: confidence,
+                                 reasons: reasons, newSegments: newSegments.dropLast() + [trimmed],
+                                 fromContent: fromContent, remembered: remembered, fromAI: fromAI,
+                                 evidenceToken: evidenceToken, neighborMatches: neighborMatches,
+                                 proposedName: proposedName)
+    }
+
     /// A copy of this destination at a different confidence — for capping a claim the evidence
     /// behind it cannot support (see ``FilingEngine/applyVerdicts(_:to:existingRelative:providerRoot:rejectedByFile:contentBlind:routerShortlists:)``).
     public func withConfidence(_ c: FilingConfidence) -> FilingDestination {
@@ -982,6 +1001,16 @@ public enum FilingEngine {
                 creating = true
                 newSegments.append(seg)
             }
+        }
+        // **An undeclared new folder is an invention, not a proposal.** Both schemas let a backend
+        // answer with a folder that does not exist — that is how a genuinely new destination gets
+        // offered — and it now has to SAY so. When it did not, a path that turns out not to exist is
+        // a segment the model composed rather than chose, so the existing prefix is the answer and
+        // the rest is dropped. `Immigration/OCI/Divit/eOCI.pdf` becomes `Immigration/OCI/Divit`.
+        if !verdict.proposesNewFolder, !newSegments.isEmpty {
+            segments.removeLast(newSegments.count)
+            newSegments = []
+            guard !segments.isEmpty else { return nil }
         }
         let abs = providerRoot + "/" + segments.joined(separator: "/")
         return FilingDestination(path: abs, confidence: verdict.confidence, reasons: [verdict.reason],

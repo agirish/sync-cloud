@@ -113,7 +113,9 @@ enum OnDeviceFilingClassifier {
     "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is an H-1B \
     visa issued in that period, the answer is the second.
     • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
-    parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
+    parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla") — and say so by \
+    setting createsNewFolder to true. Copying a path from the list means createsNewFolder is false. \
+    Never append the file's own name, or any file name, as a folder.
     • Reason about meaning, people's names, and document type — not just matching words.
     • If you genuinely cannot tell, answer with the folder "none".
     Always answer with a path relative to the folder list — never an absolute path.
@@ -170,7 +172,8 @@ enum OnDeviceFilingClassifier {
     /// Maps a model answer (folder / 0–100 confidence / reason) to a Sync verdict, or nil when it
     /// declined ("none"/empty). `FolderPick.asVerdict()` delegates here so the mapping is testable
     /// on any OS, without constructing a @Generable value.
-    static func verdict(folder: String, confidence: Int, reason: String) -> FilingVerdict? {
+    static func verdict(folder: String, confidence: Int, reason: String,
+                        proposesNewFolder: Bool = false) -> FilingVerdict? {
         let cleaned = folder
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`"))
@@ -179,7 +182,8 @@ enum OnDeviceFilingClassifier {
         let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         return FilingVerdict(relativePath: cleaned,
                              confidence: FilingVerdict.confidence(fromScore: score),
-                             reason: why.isEmpty ? "Chosen by on-device AI" : why)
+                             reason: why.isEmpty ? "Chosen by on-device AI" : why,
+                             proposesNewFolder: proposesNewFolder)
     }
 
     /// Whether on-device classification can run right now (framework present, OS new enough, model
@@ -278,6 +282,8 @@ struct FolderPick {
     var confidence: Int
     @Guide(description: "One short sentence explaining the choice.")
     var reason: String
+    @Guide(description: "true ONLY if this folder does not exist yet and you are proposing it; false when copying a path from the list.")
+    var createsNewFolder: Bool
 }
 
 @available(macOS 26.0, *)
@@ -286,7 +292,8 @@ extension FolderPick {
     /// The mapping itself lives in `OnDeviceFilingClassifier.verdict` so it's unit-testable
     /// without FoundationModels.
     func asVerdict() -> FilingVerdict? {
-        OnDeviceFilingClassifier.verdict(folder: folder, confidence: confidence, reason: reason)
+        OnDeviceFilingClassifier.verdict(folder: folder, confidence: confidence, reason: reason,
+                                         proposesNewFolder: createsNewFolder)
     }
 }
 #endif

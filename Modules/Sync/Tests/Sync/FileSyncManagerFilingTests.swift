@@ -816,7 +816,7 @@ final class CallCounter: @unchecked Sendable {
         defer { wipeDefaultsSuite(suite) }
         manager.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"              // cache belongs to this provider
         manager.filingLastTaxonomyFolders = ["Docs"]
@@ -854,7 +854,7 @@ final class CallCounter: @unchecked Sendable {
                 manager.filingLastExistingFolders = ["Zebra"]
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
@@ -891,7 +891,7 @@ final class CallCounter: @unchecked Sendable {
                 manager.filingLastTaxonomyFolders = ["Zebra"]
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         // Both folders already exist, and only the taxonomy list knows it — the full set was
@@ -942,7 +942,7 @@ final class CallCounter: @unchecked Sendable {
                 calls.increment()
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
@@ -1021,7 +1021,7 @@ final class CallCounter: @unchecked Sendable {
             default: break
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
@@ -1094,7 +1094,7 @@ final class CallCounter: @unchecked Sendable {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
@@ -1144,7 +1144,7 @@ final class CallCounter: @unchecked Sendable {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
@@ -1199,7 +1199,7 @@ final class CallCounter: @unchecked Sendable {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
             return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
         }
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]

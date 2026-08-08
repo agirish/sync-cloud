@@ -51,7 +51,7 @@ private final class SpendProbe: @unchecked Sendable {
     }
 
     private let verdict = FilingVerdict(relativePath: "Documents/Vehicles/Tesla",
-                                        confidence: .high, reason: "Tesla paperwork")
+                                        confidence: .high, reason: "Tesla paperwork", proposesNewFolder: true)
 
     // MARK: The key
 
