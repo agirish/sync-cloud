@@ -358,13 +358,14 @@ public struct TidyView: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
 
-    /// Whether Organize is showing its risky-names finding instead of the filing queue.
-    ///
-    /// Rename is no longer a place, so this is not a lens selection — it is which of Organize's
-    /// two lists is on screen. Gated on the finding still being non-empty so fixing the last
-    /// risky name drops you back to the queue rather than stranding you on an empty list whose
-    /// only route out is a chip that no longer exists.
-    @State private var showingRiskyNames = false
+    /// Which of Organize's lists is on screen. Rename is no longer a place, so this is not a lens
+    /// selection — see ``OrganizeFocus`` for why it is a selection rather than a Bool.
+    @State private var organizeFocus: OrganizeFocus = .queue
+
+    /// The focus actually on screen: `organizeFocus`, unless its list has emptied under it.
+    private var effectiveOrganizeFocus: OrganizeFocus {
+        OrganizeFocus.effective(organizeFocus, riskyNameCount: syncManager.riskyNames.count)
+    }
 
     /// The lens whose grammar, pills, actions and content are on screen right now.
     ///
@@ -373,12 +374,18 @@ public struct TidyView: View {
     /// grammar, its "N of M", its list — because that apparatus is still correct. What it does not
     /// reuse is the title: the header keeps saying Organize, because you have not gone anywhere.
     private var effectiveLens: TidyLens {
-        (lens == .filing && showingRiskyNames && !syncManager.riskyNames.isEmpty) ? .rename : lens
+        (lens == .filing && effectiveOrganizeFocus == .names) ? .rename : lens
     }
 
-    /// The risky names Organize's scan turned up. Empty is the common case, and an empty finding
-    /// renders nothing at all — not a greyed chip, not a zero.
-    private var riskyFinding: [RiskyName] { syncManager.riskyNames }
+    /// Organize's focus chips, in reading order, and whether they are controls at all.
+    ///
+    /// A lone chip is a statement, not a choice: with nothing to switch to it must not look
+    /// clickable, which is also exactly what today's un-gated "to file" pill looks like.
+    private var organizeFocusChips: (chips: [OrganizeFocus], isInteractive: Bool) {
+        let chips = OrganizeFocus.chips(queueCount: syncManager.filingSuggestions.count,
+                                        riskyNameCount: syncManager.riskyNames.count)
+        return (chips, chips.count > 1)
+    }
 
     // MARK: Search state
 
@@ -550,7 +557,7 @@ public struct TidyView: View {
                 // The finding belongs to the scan that produced it. Staying on the names list
                 // across a rescan would show the previous scan's answer under the new scan's
                 // header, and its query would survive into a list it no longer describes.
-                showingRiskyNames = false
+                organizeFocus = .queue
                 searchQueries[.rename] = ""
             } else {
                 // Finished: a cloud call may have recorded spend, and both the spend row and the
@@ -755,48 +762,92 @@ public struct TidyView: View {
         switch effectiveLens {
         case .duplicates:
             if hasResults { duplicatesSummary(rows.duplicates) }
+        // Organize's two states share a row shape: the scope this list came from, then the focus
+        // chips, then the pills that describe whichever list is on screen. The scopes genuinely
+        // differ — the queue is one folder, the names are the whole provider — so each state names
+        // its own, rather than one of them claiming the other's.
         case .rename:
+            scannedFolderChip(syncManager.nameScanRoot?.path)
+            organizeFocusRow
             if syncManager.hasScannedNames, !syncManager.riskyNames.isEmpty { renameSummary(rows.risky) }
         case .filing:
+            scannedFolderChip(syncManager.filingScanFolder)
+            organizeFocusRow
             if hasFilingResults, !syncManager.isSuggestingFiles { filingSummary(rows.filing) }
         case .automations:
             if !syncManager.automationRules.isEmpty { automationsSummary(rows.rules) }
         case .storage:
             if let report = syncManager.storageLensReport { storageSummary(report) }
         }
-        // Rendered for BOTH of Organize's states — it is the way in and the way back out. Keyed on
-        // `lens`, not `effectiveLens`, for exactly that reason: gating it on the effective lens
-        // would remove the only control that returns you to the queue.
-        if lens == .filing, !riskyFinding.isEmpty { riskyNamesChip }
     }
 
-    /// Organize's risky-names finding.
+    /// Organize's focus chips — the navigation between its lists, and the only way back out of one.
     ///
-    /// **A finding, not a category.** It carries its own count in the label, wears caution rather
+    /// Rendered from `lens`, never `effectiveLens`: these appear in BOTH of Organize's states, and
+    /// deriving them from the effective lens would remove the control that returns you to the queue
+    /// at exactly the moment you need it.
+    @ViewBuilder
+    private var organizeFocusRow: some View {
+        let (chips, isInteractive) = organizeFocusChips
+        ForEach(chips) { focus in
+            organizeFocusChip(focus, isInteractive: isInteractive)
+        }
+    }
+
+    /// One focus chip.
+    ///
+    /// **A finding, not a category.** The names chip carries its own count, wears caution rather
     /// than the accent — it reports a condition, it does not offer a filter — and at zero it is
     /// *absent*, not greyed and not showing "0". That absence is the whole argument for folding
-    /// Rename in here: cloud-hostile names are something you hit a few times a year, so a
-    /// permanent tab spent bar width every day to serve a rare event, and — worse — a tab you have
-    /// to remember to visit is a check nobody runs. Reporting beats asking.
+    /// Rename in here rather than giving it a tab: cloud-hostile names are something you hit a few
+    /// times a year, so a permanent tab spent bar width every day to serve a rare event, and —
+    /// worse — a tab you have to remember to visit is a check nobody runs. Reporting beats asking.
+    ///
+    /// Selection is a **ring**, not a chevron. A chevron says "this expands and collapses", which is
+    /// what one Bool did; these are peers, and exactly one is always on. The ring is the same
+    /// affordance the focused pane's provider capsule wears, drawn the same way — an `.overlay`,
+    /// which takes its size from the host and gives none back, so it cannot push this row out of the
+    /// header's pinned height.
     @ViewBuilder
-    private var riskyNamesChip: some View {
-        let count = riskyFinding.count
-        Button {
-            withAnimation(listSettle) { showingRiskyNames.toggle() }
-        } label: {
-            StatPill(count: count,
-                     label: count == 1 ? "risky name" : "risky names",
-                     color: SemanticColor.caution,
-                     systemImage: "character.cursor.ibeam",
-                     trailingSystemImage: showingRiskyNames ? "chevron.up" : "chevron.down")
+    private func organizeFocusChip(_ focus: OrganizeFocus, isInteractive: Bool) -> some View {
+        let count = OrganizeFocus.count(focus,
+                                        queueCount: syncManager.filingSuggestions.count,
+                                        riskyNameCount: syncManager.riskyNames.count)
+        let isSelected = effectiveOrganizeFocus == focus
+        let pill = StatPill(count: count,
+                            label: focus.label(count: count),
+                            color: focus == .queue ? SemanticColor.info : SemanticColor.caution,
+                            systemImage: focus == .queue ? "doc" : "character.cursor.ibeam")
+        if isInteractive {
+            Button {
+                withAnimation(listSettle) { organizeFocus = focus }
+            } label: {
+                pill.overlay {
+                    if isSelected { Capsule().strokeBorder(glassHue.accentColor, lineWidth: 2) }
+                }
+            }
+            .buttonStyle(.plain)
+            .chromeHover()
+            .help(focusHelp(focus, count: count))
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        } else {
+            // Alone, the chip is what it has always been: a plain count pill, no ring and no
+            // hover, because there is nowhere else to go.
+            pill
         }
-        .buttonStyle(.plain)
-        .chromeHover()
-        .help(showingRiskyNames
-              ? "Back to the filing queue."
-              : "\(count) name\(count == 1 ? "" : "s") this provider will not accept, found on the "
-                + "same scan. Shows the proposed fixes.")
-        .accessibilityAddTraits(showingRiskyNames ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// What each chip promises. Written to read correctly whether or not it is the selected one —
+    /// the selected state is carried by the ring and by `.isSelected`, not by swapping the words.
+    private func focusHelp(_ focus: OrganizeFocus, count: Int) -> String {
+        switch focus {
+        case .queue:
+            return "The filing queue — \(count) loose file\(count == 1 ? "" : "s") this scan found, "
+                + "and where they belong."
+        case .names:
+            return "\(count) name\(count == 1 ? "" : "s") this provider will not accept, found on "
+                + "the same scan. Shows the proposed fixes."
+        }
     }
 
     /// Row 2's trailing edge: "N of M" whenever this lens's list is narrowed, so a shortened list
@@ -1115,16 +1166,20 @@ public struct TidyView: View {
         }
     }
 
-    /// Organize's pills. The counts come from the scan's summary when nothing is filtered, and
-    /// from the rows on screen once a query narrows them — the pills ARE the filter's readout.
+    /// Organize's pills — the queue's breakdown, over the rows on screen. **These are the filter's
+    /// readout**: watching 24 → 3 and `ready` fall away as you type is most of the point, which is
+    /// why the search field grows the card rather than swapping itself in over this row.
+    ///
+    /// The "to file" total and the folder chip both left this Group when the focus chips arrived:
+    /// the total is the queue chip's number now (a signpost, so it counts the whole list rather than
+    /// the filtered view — see ``OrganizeFocus/count(_:queueCount:riskyNameCount:)``), and the scope
+    /// leads the row because Organize's two states scan different ones.
     private func filingSummary(_ filing: [FilingSuggestion]) -> some View {
         let ready = filing.filter { $0.hasConfidentHome }.count
         let newFolders = filing.filter { $0.best?.isNew == true }.count
         let unsure = filing.count - ready
         return Group {
-            scannedFolderChip(syncManager.filingScanFolder)
-            // "to file" = the loose files showing; "ready" = the ones with a confident home now.
-            StatPill(count: filing.count, label: "to file", color: SemanticColor.info, systemImage: "doc")
+            // "ready" = the showing files with a confident home now.
             StatPill(count: ready, label: "ready", color: SemanticColor.success, systemImage: "checkmark.circle")
             if newFolders > 0 {
                 StatPill(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
@@ -1219,18 +1274,17 @@ public struct TidyView: View {
         }
     }
 
-    /// The risky-names pills.
+    /// The risky-names pills, over the rows on screen.
     ///
-    /// No count pill: `riskyNamesChip` sits in this same row and carries it. Two capsules reading
-    /// "17 risky names" side by side is what this row looked like the moment the chip arrived —
-    /// and the chip has to be the one that stays, because it is also the control that gets you
-    /// back to the queue. The folder chip names the PROVIDER root rather than Organize's inbox,
-    /// deliberately: the names come from the whole provider while the queue is one folder, and
-    /// that difference in scope is worth stating rather than hiding.
+    /// No count pill: the names focus chip sits in this same row and carries it. Two capsules
+    /// reading "17 risky names" side by side is what this row looked like the moment that chip
+    /// arrived — and the chip has to be the one that stays, because it is also the control that
+    /// gets you back to the queue. The scope chip ahead of the focus chips names the PROVIDER root
+    /// rather than Organize's inbox, deliberately: the names come from the whole provider while the
+    /// queue is one folder, and that difference is worth stating rather than hiding.
     private func renameSummary(_ risky: [RiskyName]) -> some View {
         let folders = risky.filter(\.isDirectory).count
         return Group {
-            scannedFolderChip(syncManager.nameScanRoot?.path)
             if folders > 0 {
                 StatPill(count: folders, label: folders == 1 ? "folder" : "folders",
                          color: .secondary, systemImage: "folder")
