@@ -1,0 +1,163 @@
+import Foundation
+import Testing
+@testable import Sync
+
+/// What the classifier is allowed to answer with, and what a verdict is allowed to override.
+///
+/// Both rules exist because of one card. A visa foil in `TODO` was suggested for
+/// `Immigration/Form I-94/Abhishek` at High confidence, with the reason "the file name clearly
+/// matches the name of the Form I-94" — a name match that does not exist. The model was not
+/// reasoning badly: the folder the file belonged in, `Immigration/Visa/US/H-1B Visa/2024-2026`, was
+/// 1,344th in the depth-ordered list that gets truncated at 250, so neither it nor any folder under
+/// `Visa/US` was in the prompt at all. And the file's page-1 text — which names the consulate, the
+/// visa class and the expiry — was withheld because its filename was "meaningful enough".
+@Suite struct FilingClassifierMenuTests {
+
+    // MARK: - classifierFolders
+
+    @Test func aDeepFolderTheRouterWantsSurvivesACapThatWouldDropItByDepth() {
+        let shallow = (0..<400).map { "Folder\(String(format: "%03d", $0))" }
+        let deep = "Immigration/Visa/US/H-1B Visa/2024-2026"
+        // The structural list alone: 250 shallowest, and the deep one is nowhere near them.
+        #expect(!Array(shallow.prefix(250)).contains(deep))
+        let menu = FilingEngine.classifierFolders(preferred: [deep], fallback: shallow)
+        #expect(menu.contains(deep))
+        #expect(menu.count == 250)
+    }
+
+    @Test func theFallbackKeepsItsReservedRoomSoTheTreeStillHasAShape() {
+        let preferred = (0..<400).map { "Deep/A/B/C/leaf\($0)" }
+        let fallback = (0..<400).map { "Top\($0)" }
+        let menu = FilingEngine.classifierFolders(preferred: preferred, fallback: fallback,
+                                                  limit: 250, reservedForFallback: 100)
+        #expect(menu.count == 250)
+        #expect(menu.filter { $0.hasPrefix("Deep/") }.count == 150)
+        #expect(menu.filter { $0.hasPrefix("Top") }.count == 100)
+        #expect(menu.first == "Deep/A/B/C/leaf0")            // most-deserving first
+    }
+
+    /// Room the fallback cannot fill goes back to `preferred` rather than shortening the menu — a
+    /// small tree must not cost the classifier its budget.
+    @Test func slackTheFallbackDoesNotUseGoesBackToPreferred() {
+        let preferred = (0..<400).map { "Deep/leaf\($0)" }
+        let menu = FilingEngine.classifierFolders(preferred: preferred, fallback: ["Top"],
+                                                  limit: 250, reservedForFallback: 100)
+        #expect(menu.count == 250)
+        #expect(menu.contains("Top"))
+        #expect(menu.filter { $0.hasPrefix("Deep/") }.count == 249)
+    }
+
+    @Test func theMenuIsDedupedAndOrderedAndNeverExceedsTheLimit() {
+        let menu = FilingEngine.classifierFolders(preferred: ["A", "B", "A"], fallback: ["B", "C"],
+                                                  limit: 3, reservedForFallback: 1)
+        #expect(menu == ["A", "B", "C"])
+        #expect(FilingEngine.classifierFolders(preferred: ["A"], fallback: ["B"], limit: 0).isEmpty)
+    }
+
+    // MARK: - preferredFolders
+
+    private func candidate(_ path: String) -> FilingDestination {
+        FilingDestination(path: path, confidence: .low, reasons: [], newSegments: [],
+                          fromContent: false, remembered: false, fromAI: false)
+    }
+
+    private func suggestion(_ path: String, candidates: [String] = []) -> FilingSuggestion {
+        FilingSuggestion(filePath: path, fileName: (path as NSString).lastPathComponent, size: 10,
+                         modificationDate: nil, candidates: candidates.map(candidate),
+                         providerRoot: "/root")
+    }
+
+    private func candidateFile(_ path: String) -> FilingCandidateFile {
+        FilingCandidateFile(filePath: path, fileName: (path as NSString).lastPathComponent,
+                            ext: "pdf", year: nil, contentSnippet: nil)
+    }
+
+    /// **Round-robin, not concatenated.** With more files than budget, taking each file's list in
+    /// turn spends the menu on every file's best guess; taking them in file order would spend the
+    /// whole thing on the first few and leave the rest a menu that says nothing about them.
+    @Test func everyFilesFirstChoiceSurvivesABudgetSmallerThanTheShortlists() {
+        let files = (0..<80).map { candidateFile("/root/TODO/f\($0).pdf") }
+        let shortlists = Dictionary(uniqueKeysWithValues: files.map { f in
+            (f.filePath, (0..<8).map { "Rank\($0)/for-\((f.fileName as NSString).deletingPathExtension)" })
+        })
+        let preferred = FileSyncManager.preferredFolders(for: files, shortlists: shortlists,
+                                                         in: [], providerRoot: "/root")
+        let menu = FilingEngine.classifierFolders(preferred: preferred, fallback: [])
+        for f in files {
+            let stem = (f.fileName as NSString).deletingPathExtension
+            #expect(menu.contains("Rank0/for-\(stem)"), "\(stem) lost its first choice to another file")
+        }
+    }
+
+    /// A file phase 2.5 skipped — it already had a confident home, so the router never ranked it —
+    /// still contributes what the earlier phases proposed for it. Otherwise the menu says nothing
+    /// about the very files the model is being asked to reconsider.
+    @Test func aFileTheRouterNeverRankedFallsBackToItsOwnCandidates() {
+        let files = [candidateFile("/root/TODO/receipt.pdf")]
+        let suggestions = [suggestion("/root/TODO/receipt.pdf",
+                                      candidates: ["/root/Finance/US/Receipts/2024"])]
+        let preferred = FileSyncManager.preferredFolders(for: files, shortlists: [:],
+                                                         in: suggestions, providerRoot: "/root")
+        #expect(preferred == ["Finance/US/Receipts/2024"])   // relative to the provider root
+    }
+
+    // MARK: - contentBlind
+
+    private static func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
+        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true,
+                 children: children)
+    }
+
+    private static let taxonomy: [FileNode] = [
+        dir("/root/Documents", [dir("/root/Documents/Visa"), dir("/root/Documents/I-94")]),
+    ]
+
+    /// A home the router read out of the document, exactly as `FileSyncManager.route` builds one.
+    private func routed(_ path: String, to folder: String) -> FilingSuggestion {
+        let dest = FilingDestination(path: folder, confidence: .medium, reasons: ["Matched “chennai”"],
+                                     newSegments: [], fromContent: true, remembered: false,
+                                     fromAI: false, evidenceToken: "Chennai", neighborMatches: 0)
+        return FilingSuggestion(filePath: path, fileName: (path as NSString).lastPathComponent,
+                                size: 10, modificationDate: nil, candidates: [dest],
+                                providerRoot: "/root")
+    }
+
+    @Test func aBlindVerdictCannotDemoteAHomeReadOutOfTheDocument() throws {
+        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
+        let base = [routed(path, to: "/root/Documents/Visa")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high,
+                                            reason: "The file name clearly matches the Form I-94")]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                             providerRoot: "/root", contentBlind: [path])
+        let best = try #require(out.first?.best)
+        #expect(best.path == "/root/Documents/Visa", "a name-only High outranked a home read from page 1")
+        #expect(best.fromContent)
+    }
+
+    /// The same verdict, from a backend that DID see the text, still leads — otherwise the test
+    /// above passes because verdicts never apply rather than because blindness is what stopped it.
+    @Test func theSameVerdictLeadsOnceTheBackendHasSeenTheText() throws {
+        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
+        let base = [routed(path, to: "/root/Documents/Visa")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high,
+                                            reason: "It is an I-94 printout")]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                             providerRoot: "/root", contentBlind: [])
+        #expect(out.first?.best?.path == "/root/Documents/I-94")
+        #expect(out.first?.best?.fromAI == true)
+    }
+
+    /// Blindness only protects a *content-derived* home. A filename match carries no more
+    /// information than the model had, so the existing confidence rule keeps deciding those.
+    @Test func aBlindVerdictStillOverridesAFilenameMatch() throws {
+        let path = "/root/TODO/scan.pdf"
+        let dest = FilingDestination(path: "/root/Documents/Visa", confidence: .medium, reasons: ["name"],
+                                     newSegments: [], fromContent: false, remembered: false, fromAI: false)
+        let base = [FilingSuggestion(filePath: path, fileName: "scan.pdf", size: 10,
+                                     modificationDate: nil, candidates: [dest], providerRoot: "/root")]
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
+                                             providerRoot: "/root", contentBlind: [path])
+        #expect(out.first?.best?.path == "/root/Documents/I-94")
+    }
+}

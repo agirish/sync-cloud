@@ -341,17 +341,18 @@ extension FileSyncManager {
         //
         // The snippets are kept: phase 3 would otherwise read the same pages again, and a PDF page
         // is the expensive part of this whole scan.
+        var routerShortlists: [String: [String]] = [:]
         if let routerIndex = filingRouterIndex {
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !unsure.isEmpty {
                 // No extraction here: phase 2 already read these pages, and phase 3 reuses the same
                 // strings below. One read per file, three consumers.
-                let (routed, count) = await applyRoutesYielding(suggestions, index: routerIndex,
-                                                                snippets: routerSnippets,
-                                                                providerRoot: providerRoot.path,
-                                                                rejectedByFile: rejectedByFile)
+                let (routed, count, shortlists) = await applyRoutesYielding(
+                    suggestions, index: routerIndex, snippets: routerSnippets,
+                    providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
                 if Task.isCancelled { return }
                 suggestions = routed
+                routerShortlists = shortlists
                 if count > 0 {
                     Logger.shared.info("Filing: the folder profile placed \(count) of \(unsure.count) "
                                        + "file(s) with no confident home, without a model call")
@@ -432,20 +433,24 @@ extension FileSyncManager {
                     }
                 }
 
+                // **Every page already read goes to the model; only the READING is rationed.**
+                // `canRemember` used to gate the snippet itself, so a file with a meaningful name
+                // reached the backend as a bare filename even when phase 2.5 had already extracted
+                // its first page and left it in `routerSnippets`. That is what reduced a visa foil
+                // to the seven words of its filename. Extraction is still limited to files whose
+                // name says nothing — that is the cost worth controlling, and it is unchanged.
                 var snippets: [String: String] = [:]
-                if filingReadsContents, let extractor = filingSnippetExtractor, !misses.isEmpty {
-                    // Only read contents for files whose NAME says nothing — a meaningful name plus
-                    // the folder tree is enough for the model, and this skips OCR/PDF work (and the
-                    // token cost) for the common named-file case.
-                    let namelessPaths = misses.filter { !FilingEngine.canRemember(fileName: $0.name) }.map { $0.id }
-                    // Phase 2.5 already read some of these. Re-reading a PDF page to get a string
-                    // that is already in hand is the most expensive no-op in the scan.
-                    let wanted = Set(namelessPaths)
-                    let needed = namelessPaths.filter { routerSnippets[$0] == nil }
-                    snippets = routerSnippets.filter { wanted.contains($0.key) }
-                    if !needed.isEmpty {
-                        snippets.merge(await Self.extractSnippets(for: needed, using: extractor)) { _, new in new }
-                        if Task.isCancelled { return }
+                if filingReadsContents, !misses.isEmpty {
+                    let missPaths = Set(misses.map { $0.id })
+                    snippets = routerSnippets.filter { missPaths.contains($0.key) }
+                    if let extractor = filingSnippetExtractor {
+                        let needed = misses.filter {
+                            !FilingEngine.canRemember(fileName: $0.name) && snippets[$0.id] == nil
+                        }.map { $0.id }
+                        if !needed.isEmpty {
+                            snippets.merge(await Self.extractSnippets(for: needed, using: extractor)) { _, new in new }
+                            if Task.isCancelled { return }
+                        }
                     }
                 }
                 let files = misses.map { f -> FilingCandidateFile in
@@ -460,10 +465,17 @@ extension FileSyncManager {
                 // guardrail moved to ``refineFilingSuggestions(_:)``, the only pass that can
                 // reach a paid backend — which is also the only pass the user explicitly asks
                 // for, so the dialog now answers a question they just posed.
+                // The folder menu: what the router already thinks is plausible for these very files,
+                // then the shallow structural list. See ``FilingEngine/classifierFolders``.
+                let menu = FilingEngine.classifierFolders(
+                    preferred: Self.preferredFolders(for: files, shortlists: routerShortlists,
+                                                     in: suggestions, providerRoot: providerRoot.path),
+                    fallback: taxonomyFolders)
+
                 var verdicts = cachedVerdicts
                 var classifiedCount = 0
                 if !files.isEmpty {
-                    let fresh = await classifier(filingContext(taxonomyFolders: taxonomyFolders), files, .free)
+                    let fresh = await classifier(filingContext(taxonomyFolders: menu), files, .free)
                     // Recorded BEFORE the cancellation check, unlike everything else in this scan.
                     // The verdicts are true regardless of what this scan goes on to do with them —
                     // cancelling abandons the SUGGESTIONS, and there is nothing to abandon about a
@@ -484,8 +496,14 @@ extension FileSyncManager {
                     Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
                         + "from cache, \(classifiedCount) sent to the backend")
                 }
+                // Files the backend judged without their text — a cache hit counts, since the
+                // verdict it replays was produced from whatever that earlier pass could see, and
+                // the key records the file, not what was read from it.
+                let contentBlind = Set(toClassify.map { $0.id }).subtracting(snippets.keys)
                 suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
-                                                         providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
+                                                         providerRoot: providerRoot.path,
+                                                         rejectedByFile: rejectedByFile,
+                                                         contentBlind: contentBlind)
             }
         }
 

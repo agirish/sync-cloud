@@ -61,6 +61,53 @@ import Testing
         #expect(r.best?.relativePath == "Home/Utilities/AT&T/2024")
     }
 
+    /// The vocabulary for the two inheritance tests below. Deliberately words that appear in **no**
+    /// folder path in the fixture, and a file name that shares nothing with any of them: inherited
+    /// content is then the only route by which a child folder can score at all. The first draft of
+    /// these tests used the real `Visa/H-1B/2024-2026` names, and both survived every mutation —
+    /// the era folders were entering the ranking on the `visa` and `2026` tokens in their own paths,
+    /// so neither test was ever exercising inheritance.
+    static let parentVocabulary = ["consulate", "foil", "annotation", "nonimmigrant", "issuance",
+                                   "reciprocity", "biometrics", "interview", "endorsement",
+                                   "duration", "petitioner", "beneficiary"]
+
+    /// **A parent that holds all the evidence must reach its own children.** The mirror image of the
+    /// sibling case, and the one the first cut missed: `Visa/US/H-1B Visa` holds every visa foil
+    /// while its per-era children hold none, so sharing only between siblings gave the era folders —
+    /// the folders the file actually belongs in — nothing whatsoever. The parent is still the top
+    /// pick here; what this pins is that its empty children are *reachable at all*.
+    @Test func anEmptyChildIsReachableThroughTheParentThatHoldsTheEvidence() throws {
+        let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary],
+                             extraFolders: ["Records/Consular", "Records/Consular/Alpha",
+                                            "Records/Consular/Beta"])
+        let r = FilingRouter.rank(fileName: "scan.pdf",
+                                  contentSnippet: Self.parentVocabulary.joined(separator: " "),
+                                  index: idx)
+        let ranked = r.candidates.map(\.relativePath)
+        #expect(ranked.first == "Records/Consular")
+        #expect(ranked.contains("Records/Consular/Alpha"),
+                "an empty child of the evidence-holding parent never entered the ranking: \(ranked)")
+    }
+
+    /// **The inherited share has to be in the same units as the score it is added to.** It used to
+    /// be divided by the peak, which pinned every share into [0, `inheritWeight`] and then added it
+    /// to raw content scores that reach the hundreds on a real memory — so inheritance moved a cold
+    /// folder by a fraction of a percent of the leader and was, in the one case it exists for,
+    /// arithmetically inert. Twelve matching anchors are enough for the constant and the fraction to
+    /// be different answers.
+    @Test func theInheritedShareScalesWithTheEvidenceBehindIt() throws {
+        let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary],
+                             extraFolders: ["Records/Consular", "Records/Consular/Alpha"])
+        let r = FilingRouter.rank(fileName: "scan.pdf",
+                                  contentSnippet: Self.parentVocabulary.joined(separator: " "),
+                                  index: idx)
+        let child = try #require(r.candidates.first { $0.relativePath == "Records/Consular/Alpha" },
+                                 "the empty child scored nothing: \(r.candidates.map(\.relativePath))")
+        let parent = try #require(r.candidates.first { $0.relativePath == "Records/Consular" })
+        #expect(child.score > parent.score * 0.2,
+                "inherited \(child.score) against a parent at \(parent.score) — share out of scale")
+    }
+
     /// The same fixture with the year changed must move to the sibling — otherwise the test above
     /// passes for the wrong reason (a fixture whose expected value equals the fallback cannot fail).
     @Test func theYearInTheDocumentPicksTheSibling() {

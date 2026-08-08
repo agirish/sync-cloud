@@ -736,13 +736,46 @@ public enum FilingEngine {
         }.prefix(limit).map { $0 }
     }
 
+    /// The folder menu a classifier is allowed to answer with — the folders the router already
+    /// thinks are plausible, then the shallow structural list to fill what's left.
+    ///
+    /// **The cap is a token budget, not a preference for shallow folders**, and spending it by depth
+    /// is how a confident wrong answer gets produced. `relativeFolderPaths` orders shallowest-first
+    /// and drops deep leaves; on a real 5,012-folder tree the cut lands at depth 3, so a visa foil
+    /// belonging in `Immigration/Visa/US/H-1B Visa/2024-2026` (1,344th by that order) was never in
+    /// the prompt at all — nor was any folder under `Visa/US`. The model picked the best of what it
+    /// could see, `Immigration/Form I-94/Abhishek` at 205th, and wrote a confident sentence about a
+    /// name match that does not exist. It was not wrong about the folders it was shown; it was
+    /// shown the wrong folders.
+    ///
+    /// `reservedForFallback` keeps room for the shallow skeleton so the model still sees the shape
+    /// of the tree — a menu of nothing but deep leaves reads as a flat list of unrelated paths, and
+    /// the "propose a new subfolder under an existing parent" rule needs parents in view. Any budget
+    /// the fallback doesn't use goes back to `preferred`.
+    public static func classifierFolders(preferred: [String], fallback: [String],
+                                         limit: Int = 250, reservedForFallback: Int = 100) -> [String] {
+        guard limit > 0 else { return [] }
+        var out: [String] = []
+        var seen = Set<String>()
+        func take(_ paths: [String], upTo cap: Int) {
+            for p in paths where out.count < cap {
+                if seen.insert(p).inserted { out.append(p) }
+            }
+        }
+        take(preferred, upTo: max(0, limit - reservedForFallback))
+        take(fallback, upTo: limit)
+        take(preferred, upTo: limit)      // fallback was short — give the slack back
+        return out
+    }
+
     /// Overlays classifier verdicts onto heuristic suggestions: for any file the classifier gave a
     /// usable home, that destination leads (heuristic candidates stay as alternates). Files without
     /// a verdict keep their heuristic suggestion untouched — so a backend that declines never makes
     /// things worse than the keyword engine alone.
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      taxonomy: [FileNode], providerRoot: String,
-                                     rejectedByFile: [String: Set<String>] = [:]) -> [FilingSuggestion] {
+                                     rejectedByFile: [String: Set<String>] = [:],
+                                     contentBlind: Set<String> = []) -> [FilingSuggestion] {
         // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
         // happens on the way in. Deriving the folder set first and letting the other one return
         // early is a full recursive walk of the provider — tens of thousands of nodes on a real
@@ -752,7 +785,8 @@ public enum FilingEngine {
         // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
         return applyVerdicts(verdicts, to: suggestions,
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
-                             providerRoot: providerRoot, rejectedByFile: rejectedByFile)
+                             providerRoot: providerRoot, rejectedByFile: rejectedByFile,
+                             contentBlind: contentBlind)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no
@@ -763,9 +797,17 @@ public enum FilingEngine {
     /// must be the **uncapped** set: passing the capped list the classifier was given would label
     /// a real folder beyond the cap as one to create, and the apply path would then be asked to
     /// create a folder that already exists.
+    ///
+    /// `contentBlind` names the files the classifier was asked about **without the file's text**. A
+    /// verdict for one of those must not demote a home the router derived from that very text: the
+    /// model answered from strictly less information, and the confidence it reports is its own
+    /// opinion of a guess. A visa foil went out as a bare filename and came back `High` for
+    /// `Immigration/Form I-94/Abhishek`, which outranked the `Medium` the router had earned by
+    /// reading `CHENNAI (MADRAS) … Visa Type/Class R H1B` off page 1.
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      existingRelative: Set<String>, providerRoot: String,
-                                     rejectedByFile: [String: Set<String>] = [:]) -> [FilingSuggestion] {
+                                     rejectedByFile: [String: Set<String>] = [:],
+                                     contentBlind: Set<String> = []) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
@@ -773,6 +815,9 @@ public enum FilingEngine {
                   let dest = destination(from: v, providerRoot: providerRoot, existingRelative: existingRelative)
             else { return s }
             if rejectedByFile[s.filePath]?.contains(dest.path) == true { return s }   // model re-picked a rejected folder
+            // Strictly less information cannot override more. Not a confidence comparison — a
+            // blind verdict at any confidence loses to a home that was read out of the document.
+            if contentBlind.contains(s.filePath), s.best?.fromContent == true { return s }
             // A verdict only LEADS when it's at least as confident as the current best home.
             // Otherwise a low-confidence model guess would demote a strong filename/rule match —
             // and, because the promoted candidate is `fromAI`, drop the file out of the blind

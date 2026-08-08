@@ -104,11 +104,12 @@ public enum CloudFilingProtocol {
             userText += "[\(i)] name: \(f.fileName) | type: \(f.ext.isEmpty ? "unknown" : f.ext)"
             if let year = f.year { userText += " | modified: \(year)" }
             userText += "\n"
-            // Spend tokens on a content excerpt ONLY when the filename says nothing (no salient
-            // tokens). A meaningful name + the folder list is enough for the model to reason, and
-            // excerpts otherwise dominate the request cost.
-            if let snippet = f.contentSnippet, !snippet.isEmpty,
-               !FilingEngine.canRemember(fileName: f.fileName) {
+            // Every excerpt the caller supplies is sent. The cost worth controlling is *reading*
+            // the file, and that decision belongs to the caller who knows what it has already read
+            // — this used to re-apply `canRemember` here and throw away a page the scan had already
+            // extracted, which is how a document with a meaningful name reached the model as a bare
+            // filename even though its text was sitting in memory.
+            if let snippet = f.contentSnippet, !snippet.isEmpty {
                 userText += "    excerpt: \(String(snippet.prefix(maxSnippetChars)).replacingOccurrences(of: "\n", with: " "))\n"
             }
             if !f.excludedRelativePaths.isEmpty {
@@ -251,8 +252,8 @@ public enum CloudFilingProtocol {
 
     /// A BEFORE-the-call token estimate for a batch, so the user can see a cost up front (the real
     /// usage is only known after the API responds). Approximates the same billable text `requestBody`
-    /// assembles — the folder taxonomy plus one line per file (name/type/year, and a content excerpt
-    /// only for the nameless files, exactly as the body decides) — at the usual ~4 chars/token. The
+    /// assembles — the folder taxonomy plus one line per file (name/type/year, and every content
+    /// excerpt the caller supplied, exactly as the body decides) — at the usual ~4 chars/token. The
     /// output estimate reuses the body's own `512 + files*80` budget (capped at 16384). Heuristic and
     /// deliberately a slight over-estimate (it ignores prompt-cache read discounts on the taxonomy),
     /// so the pre-flight figure never undersells the cost.
@@ -264,8 +265,7 @@ public enum CloudFilingProtocol {
             // "[i] name: <name> | type: <ext>\n" scaffolding.
             chars += f.fileName.count + max(f.ext.count, "unknown".count) + 24
             if let year = f.year { chars += year.count + 14 }               // " | modified: <year>"
-            if let snippet = f.contentSnippet, !snippet.isEmpty,
-               !FilingEngine.canRemember(fileName: f.fileName) {
+            if let snippet = f.contentSnippet, !snippet.isEmpty {
                 chars += min(snippet.count, maxSnippetChars) + 14           // "    excerpt: …"
             }
             if !f.excludedRelativePaths.isEmpty {

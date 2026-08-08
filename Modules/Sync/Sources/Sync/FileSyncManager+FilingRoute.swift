@@ -30,6 +30,43 @@ extension FileSyncManager {
                       profile: filingFolderProfile, memory: filingMemory)
     }
 
+    /// The folders worth spending the classifier's budget on, most-deserving first — the router's
+    /// shortlist for each file being classified, plus the homes the earlier phases already proposed
+    /// for files the router did not rank (a file with a confident home is skipped by phase 2.5, and
+    /// its heuristic candidates are the best evidence there is about it).
+    ///
+    /// **Round-robin, not concatenated.** A hundred loose files times eight candidates is eight
+    /// hundred paths for a budget of a few hundred, and taking them in file order would spend the
+    /// whole thing on the first twenty files — leaving the rest with a menu that says nothing about
+    /// them, which is the failure this list exists to prevent. Taking every file's first choice,
+    /// then every file's second, degrades evenly instead.
+    nonisolated static func preferredFolders(for files: [FilingCandidateFile],
+                                             shortlists: [String: [String]],
+                                             in suggestions: [FilingSuggestion],
+                                             providerRoot: String) -> [String] {
+        var lists: [[String]] = []
+        var candidatesByFile: [String: [String]] = [:]
+        for s in suggestions {
+            let paths = s.candidates.compactMap { relativePath($0.path, under: providerRoot) }
+            if !paths.isEmpty { candidatesByFile[s.filePath] = paths }
+        }
+        for f in files {
+            // The router's ranking when there is one; otherwise what the file already suggests.
+            let list = shortlists[f.filePath] ?? candidatesByFile[f.filePath] ?? []
+            if !list.isEmpty { lists.append(list) }
+        }
+        var out: [String] = []
+        var seen = Set<String>()
+        var round = 0
+        while lists.contains(where: { round < $0.count }) {
+            for list in lists where round < list.count {
+                if seen.insert(list[round]).inserted { out.append(list[round]) }
+            }
+            round += 1
+        }
+        return out
+    }
+
     /// Overlays router homes onto suggestions, giving the main actor a turn every `chunk` files.
     ///
     /// Ranking one file costs a few milliseconds against a real 2,979-folder tree, so a few hundred
@@ -37,28 +74,36 @@ extension FileSyncManager {
     /// window with no progress moving. Yielding between chunks keeps the scan painting, and unlike
     /// handing the work to a detached task it leaves cancellation working: what is checked here is
     /// the enclosing scan's own cancellation, which `Task.detached` would not inherit.
+    /// `shortlists` carries each ranked file's top destinations back out, keyed by file path. They
+    /// are what phase 3 builds the classifier's folder menu from, and they are free here: the
+    /// ranking that picks the winner has already ordered the whole field, so asking it for the top
+    /// few costs a wider insertion into a six-element buffer. Ranking those same files again in
+    /// phase 3 would not be free — it is milliseconds per file against a few thousand folders, and
+    /// a real root inbox holds hundreds of files.
     func applyRoutesYielding(
         _ suggestions: [FilingSuggestion], index: FilingRouter.Index,
         snippets: [String: String], providerRoot: String,
         rejectedByFile: [String: Set<String>] = [:], chunk: Int = 25
-    ) async -> (suggestions: [FilingSuggestion], routed: Int) {
+    ) async -> (suggestions: [FilingSuggestion], routed: Int, shortlists: [String: [String]]) {
         var out: [FilingSuggestion] = []
         out.reserveCapacity(suggestions.count)
         var routed = 0
+        var shortlists: [String: [String]] = [:]
         for (i, s) in suggestions.enumerated() {
             if i > 0, i.isMultiple(of: chunk) {
                 await Task.yield()
                 // A cancelled scan discards these suggestions anyway; returning the input unchanged
                 // keeps this function total rather than leaving a half-routed list behind.
-                if Task.isCancelled { return (suggestions, 0) }
+                if Task.isCancelled { return (suggestions, 0, [:]) }
             }
-            let (one, didRoute) = Self.route(s, index: index, snippets: snippets,
-                                             providerRoot: providerRoot,
-                                             rejectedByFile: rejectedByFile)
-            out.append(one)
-            if didRoute { routed += 1 }
+            let outcome = Self.route(s, index: index, snippets: snippets,
+                                     providerRoot: providerRoot,
+                                     rejectedByFile: rejectedByFile)
+            out.append(outcome.suggestion)
+            if outcome.routed { routed += 1 }
+            if !outcome.shortlist.isEmpty { shortlists[s.filePath] = outcome.shortlist }
         }
-        return (out, routed)
+        return (out, routed, shortlists)
     }
 
     /// The same overlay in one pass, for callers with a handful of files and no actor to protect.
@@ -66,15 +111,17 @@ extension FileSyncManager {
         _ suggestions: [FilingSuggestion], index: FilingRouter.Index,
         snippets: [String: String], providerRoot: String,
         rejectedByFile: [String: Set<String>] = [:]
-    ) -> (suggestions: [FilingSuggestion], routed: Int) {
+    ) -> (suggestions: [FilingSuggestion], routed: Int, shortlists: [String: [String]]) {
         var routed = 0
+        var shortlists: [String: [String]] = [:]
         let updated = suggestions.map { s -> FilingSuggestion in
-            let (one, didRoute) = route(s, index: index, snippets: snippets,
-                                        providerRoot: providerRoot, rejectedByFile: rejectedByFile)
-            if didRoute { routed += 1 }
-            return one
+            let outcome = route(s, index: index, snippets: snippets,
+                                providerRoot: providerRoot, rejectedByFile: rejectedByFile)
+            if outcome.routed { routed += 1 }
+            if !outcome.shortlist.isEmpty { shortlists[s.filePath] = outcome.shortlist }
+            return outcome.suggestion
         }
-        return (updated, routed)
+        return (updated, routed, shortlists)
     }
 
     /// One file, and the only place the rules live — so the chunked driver and the batch helper
@@ -87,26 +134,27 @@ extension FileSyncManager {
     /// and that batch moves files nobody has looked at.
     nonisolated static func route(
         _ s: FilingSuggestion, index: FilingRouter.Index, snippets: [String: String],
-        providerRoot: String, rejectedByFile: [String: Set<String>]
-    ) -> (FilingSuggestion, Bool) {
-        if s.best?.remembered == true { return (s, false) }   // an explicit user rule outranks this
+        providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8
+    ) -> (suggestion: FilingSuggestion, routed: Bool, shortlist: [String]) {
+        if s.best?.remembered == true { return (s, false, []) }   // an explicit user rule outranks this
         // **Only files with no home.** Ranking the rest was work with one possible outcome, and it
         // was the wrong one: an equally confident router home *replaces* a filename match, and
         // because the replacement is content-derived the file silently drops out of the blind
         // "File all N" batch. A file that already has a confident home is left alone.
-        guard !s.hasConfidentHome else { return (s, false) }
+        guard !s.hasConfidentHome else { return (s, false, []) }
         // Rejections are recorded as ABSOLUTE paths; the router answers in relative ones. Passing
         // the absolute set straight through made the exclusion a silent no-op — one domain,
         // converted once, at the boundary.
         let excluded = Set((rejectedByFile[s.filePath] ?? []).compactMap {
             relativePath($0, under: providerRoot)
         })
-        // Only the winner is used, and recovering display evidence is per-candidate work.
+        // The winner leads the card; the rest of the shortlist is what phase 3 shows the model.
         let ranking = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
-                                        index: index, excluding: excluded, limit: 1)
-        guard let best = ranking.best else { return (s, false) }
+                                        index: index, excluding: excluded, limit: shortlistLimit)
+        let shortlist = ranking.candidates.map(\.relativePath)
+        guard let best = ranking.best else { return (s, false, shortlist) }
         let confidence = ranking.confidence
-        guard confidence >= (s.best?.confidence ?? .low) else { return (s, false) }
+        guard confidence >= (s.best?.confidence ?? .low) else { return (s, false, shortlist) }
         let fromContent = best.evidenceToken != nil
         // **No file count.** `FilingDestination.neighborMatches` means "how many files in the
         // target contain this word", and the card prints it as "N similar files already here".
@@ -124,6 +172,6 @@ extension FileSyncManager {
         let others = s.candidates.filter { $0.path != dest.path }
         return (FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
                                  modificationDate: s.modificationDate, candidates: [dest] + others,
-                                 providerRoot: s.providerRoot), true)
+                                 providerRoot: s.providerRoot), true, shortlist)
     }
 }

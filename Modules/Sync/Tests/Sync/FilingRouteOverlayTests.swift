@@ -31,7 +31,7 @@ import Testing
 
     @Test func aFileWithNoHomeGetsTheRouterHome() {
         let s = [Self.suggestion("scan001.pdf", best: nil)]
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia note"],
             providerRoot: Self.root)
         #expect(routed == 1)
@@ -53,7 +53,7 @@ import Testing
     @Test func arememberedHomeIsNeverReplaced() {
         let taught = Self.destination("Somewhere/Else", .medium, remembered: true)
         let s = [Self.suggestion("scan001.pdf", best: taught)]
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia stoll"],
             providerRoot: Self.root)
         #expect(routed == 0)
@@ -79,7 +79,7 @@ import Testing
         #expect(ranking.confidence == .low)
 
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             [Self.suggestion("ambiguous.pdf", best: strong)], index: tied,
             snippets: snippets, providerRoot: Self.root)
         #expect(routed == 0)
@@ -90,7 +90,7 @@ import Testing
     /// guard above would be indistinguishable from never routing at all.
     @Test func anEquallyConfidentRouteDoesLead() {
         let weakExisting = Self.destination("Finance/US/Income Tax/2023", .low)
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             [Self.suggestion("op.pdf", best: weakExisting)], index: Self.index,
             snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
             providerRoot: Self.root)
@@ -106,7 +106,7 @@ import Testing
         let s = [Self.suggestion("scan001.pdf", best: nil)]
         let rejected = ["\(Self.root)/TODO/scan001.pdf":
                             Set(["\(Self.root)/Health/Medical/Kaiser/Surgery"])]
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"],
             providerRoot: Self.root, rejectedByFile: rejected)
         #expect(routed == 0)
@@ -117,7 +117,7 @@ import Testing
     @Test func anUnrelatedRejectionDoesNotBlockRouting() {
         let s = [Self.suggestion("scan001.pdf", best: nil)]
         let rejected = ["\(Self.root)/TODO/scan001.pdf": Set(["\(Self.root)/Finance/US/Income Tax/2023"])]
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"],
             providerRoot: Self.root, rejectedByFile: rejected)
         #expect(routed == 1)
@@ -128,7 +128,7 @@ import Testing
     /// nothing — this is the no-content path a machine with reading turned off takes.
     @Test func noSnippetAndNoNameMatchPlacesNothing() {
         let s = [Self.suggestion("IMG_0007.HEIC", best: nil)]
-        let (out, routed) = FileSyncManager.applyRoutes(s, index: Self.index, snippets: [:],
+        let (out, routed, _) = FileSyncManager.applyRoutes(s, index: Self.index, snippets: [:],
                                                         providerRoot: Self.root)
         #expect(routed == 0)
         #expect(out[0].best == nil)
@@ -140,7 +140,7 @@ import Testing
     @Test func aConfidentlyPlacedFileIsNotReRouted() {
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
         let s = [Self.suggestion("op.pdf", best: strong)]
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index,
             snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
             providerRoot: Self.root)
@@ -155,7 +155,7 @@ import Testing
         let empty = FilingRouter.makeIndex(destinations: [], profile: nil, memory: nil)
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
         let s = [Self.suggestion("a.pdf", best: nil), Self.suggestion("b.pdf", best: strong)]
-        let (out, routed) = FileSyncManager.applyRoutes(
+        let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: empty, snippets: ["\(Self.root)/TODO/a.pdf": "perioperative"],
             providerRoot: Self.root)
         #expect(routed == 0)
@@ -181,6 +181,8 @@ import Testing
         #expect(chunked.routed == onePass.routed)
         #expect(chunked.routed == 60)
         #expect(chunked.suggestions == onePass.suggestions)
+        #expect(chunked.shortlists == onePass.shortlists)
+        #expect(chunked.shortlists.count == 60)
     }
 
     /// A cancelled scan must get its input back untouched, not a half-routed list.

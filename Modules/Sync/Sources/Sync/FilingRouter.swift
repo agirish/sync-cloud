@@ -9,7 +9,8 @@ import Foundation
 /// |---|---|---|
 /// | name against a bare folder list | 12.6% | 19.3% |
 /// | ＋ ``FolderProfile`` | 28.9% | 40.2% |
-/// | ＋ ``FilingMemory`` | 58.2% | 77.5% |
+/// | ＋ ``FilingMemory`` | 58.2% | 77.4% |
+/// | ＋ inheritance that is actually in scale (see ``rank``) | **59.8%** | **79.6%** |
 ///
 /// Two of the rules below were found by measuring rather than by reasoning, and both are load-bearing.
 public enum FilingRouter {
@@ -68,7 +69,8 @@ public enum FilingRouter {
     // tree rather than describing it.
     static let contentWeight = 1.0
     static let nameWeight = 0.55
-    /// How much of a parent's best evidence its children inherit — see ``rank`` for why this exists.
+    /// The fraction of a scoring folder's evidence its neighbours inherit — its siblings and its own
+    /// children. A *fraction of the donor's score*, not a constant: see ``rank``.
     static let inheritWeight = 0.45
     static let yearInNameWeight = 3.0
     static let yearInBodyWeight = 2.0
@@ -207,23 +209,38 @@ public enum FilingRouter {
             content[folder] = raw / Double(n).squareRoot()
         }
 
-        // **Evidence has to be inherited from the parent, or an empty folder is unreachable.**
-        // `Home/Utilities/AT&T/2024` is empty for 2024, so it has no content of its own and can
-        // never be proposed however obviously an AT&T bill belongs there — while its siblings are
-        // full of AT&T bills. Content identifies the family; the year axis below picks the member.
+        // **Evidence has to reach the folders that hold none of their own, or an empty folder is
+        // unreachable.** `Home/Utilities/AT&T/2024` is empty for 2024, so it has no content of its
+        // own and can never be proposed however obviously an AT&T bill belongs there — while its
+        // siblings are full of AT&T bills. Content identifies the family; the year axis below picks
+        // the member.
+        //
+        // A scoring folder shares with its siblings (through the parent they share) **and with its
+        // own children**. Both directions are load-bearing, and the first cut had only the first:
+        // `Immigration/Visa/US/H-1B Visa` holds every H-1B visa foil while its per-era children hold
+        // none, so the folders the file actually belonged in inherited nothing at all.
+        //
+        // **The share is proportional to the donor's score, not normalised to `inheritWeight`.**
+        // Dividing by the peak made every share land in [0, 0.45] and then added it to RAW content
+        // scores, which on a real memory reach the hundreds — so a cold folder moved by ~0.2% of the
+        // leader and inheritance was, in the one case it exists for, arithmetically inert. Measured
+        // leave-one-out over 7,370 held-out documents against 2,956 folders, the two fixes together
+        // take top-1 from 58.2% to 59.8% and top-3 from 77.4% to 79.6%.
         if !content.isEmpty {
-            var parentBest: [String: Double] = [:]
-            for (folder, score) in content {
-                guard let slash = folder.lastIndex(of: "/") else { continue }
-                let parent = String(folder[folder.startIndex..<slash])
-                parentBest[parent] = max(parentBest[parent] ?? 0, score)
+            // Donors are read from a snapshot taken before any share lands, so evidence moves one
+            // hop and cannot cascade down a deep tree.
+            var donors: [String: Double] = [:]
+            for (folder, score) in content where score > 0 {
+                donors[folder] = max(donors[folder] ?? 0, score)
+                if let slash = folder.lastIndex(of: "/") {
+                    let parent = String(folder[folder.startIndex..<slash])
+                    donors[parent] = max(donors[parent] ?? 0, score)
+                }
             }
-            if let peak = parentBest.values.max(), peak > 0 {
-                for (parent, score) in parentBest {
-                    let share = inheritWeight * (score / peak)
-                    for child in index.children[parent] ?? [] {
-                        content[child, default: 0] += share
-                    }
+            for (donor, score) in donors {
+                let share = inheritWeight * score
+                for child in index.children[donor] ?? [] {
+                    content[child, default: 0] += share
                 }
             }
         }

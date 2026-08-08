@@ -26,13 +26,30 @@ import Testing
         let folderBlock = try #require(system.last)
         #expect((folderBlock["text"] as? String)?.contains("Documents/Vehicles") == true)
         #expect(folderBlock["cache_control"] as? [String: String] == ["type": "ephemeral"])
-        // The user turn lists the files. A named file carries NO excerpt (cost); a nameless one does.
+        // The user turn lists the files, and EVERY excerpt the caller supplied goes with them —
+        // including the meaningfully-named file's. The body used to re-apply `canRemember` and drop
+        // that one, which threw away a page the scan had already read and left the model reasoning
+        // from a filename it could only guess about.
         let messages = try #require(body["messages"] as? [[String: Any]])
         let userText = try #require(messages.first?["content"] as? String)
         #expect(userText.contains("Tesla Policy.pdf"))
-        #expect(!userText.contains("GEICO auto insurance"))              // named → excerpt skipped
-        #expect(userText.contains("Pediatric visit summary for Divit"))  // nameless → excerpt kept
+        #expect(userText.contains("GEICO auto insurance"))
+        #expect(userText.contains("Pediatric visit summary for Divit"))
         #expect(JSONSerialization.isValidJSONObject(body))
+    }
+
+    /// The excerpts the body sends are the ones the estimate priced — the two used to share a
+    /// `canRemember` gate, so they can only stay in step if both are pinned to the same input.
+    @Test func theEstimatePricesEveryExcerptTheBodyActuallySends() throws {
+        let folders = ["Documents", "Documents/Vehicles"]
+        let named = [file("/root/Downloads/Tesla Policy.pdf", snippet: String(repeating: "x", count: 800))]
+        let bare = [file("/root/Downloads/Tesla Policy.pdf")]
+        let withExcerpt = CloudFilingProtocol.estimateTokens(taxonomyFolders: folders, files: named).input
+        let without = CloudFilingProtocol.estimateTokens(taxonomyFolders: folders, files: bare).input
+        #expect(withExcerpt > without)
+        let body = CloudFilingProtocol.requestBody(taxonomyFolders: folders, files: named)
+        let userText = try #require((body["messages"] as? [[String: Any]])?.first?["content"] as? String)
+        #expect(userText.contains(String(repeating: "x", count: 800)))
     }
 
     @Test func requestBodyListsAvoidFoldersForReasks() throws {

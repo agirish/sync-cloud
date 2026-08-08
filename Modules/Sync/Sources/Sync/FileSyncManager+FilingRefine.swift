@@ -161,11 +161,12 @@ extension FileSyncManager {
 
         var snippets: [String: String] = [:]
         if filingReadsContents, let extractor = filingSnippetExtractor, !misses.isEmpty {
-            // Only files whose NAME says nothing: a meaningful name plus the folder tree is enough
-            // for the model, and this skips OCR/PDF work — and its token cost — for named files.
-            let namelessPaths = misses.filter { !FilingEngine.canRemember(fileName: $0.fileName) }
-                .map { $0.filePath }
-            snippets = await Self.extractSnippets(for: namelessPaths, using: extractor)
+            // **Every file, not only the nameless ones.** This is the pass the user explicitly asked
+            // for and the only one that can spend money, so it is the last place to hand the model
+            // less than the router already had — a name-only verdict here is one the overlay will
+            // refuse anyway (`contentBlind`), which is a paid round-trip that changes nothing. The
+            // extra excerpts are priced by the pre-flight below before anything is sent.
+            snippets = await Self.extractSnippets(for: misses.map { $0.filePath }, using: extractor)
             if Task.isCancelled { return nil }
         }
         let files = misses.map { s in
@@ -182,7 +183,24 @@ extension FileSyncManager {
         // `context.destinations`, which drops inbox folders; estimating against the unfiltered
         // taxonomy priced a longer prompt than the one that goes out, and an over-estimate does not
         // just misquote — it can trip the spend cap and refuse a pass that was within budget.
-        let context = filingContext(taxonomyFolders: taxonomyFolders)
+        // The same folder menu the scan builds — the router's shortlist for these very files ahead
+        // of the shallow structural list. Ranking here rather than reusing the scan's shortlists is
+        // deliberate: a refine pass runs on a scoped handful of files, minutes after the scan and
+        // against rejections the scan never saw, so a few milliseconds each buys a current answer.
+        var preferred: [String] = []
+        if let index = filingRouterIndex {
+            let shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
+                (s.filePath, FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
+                                               index: index,
+                                               excluding: Set(excludedByFile[s.filePath] ?? []),
+                                               limit: 8).candidates.map(\.relativePath))
+            })
+            preferred = Self.preferredFolders(for: files, shortlists: shortlists,
+                                              in: eligible, providerRoot: root)
+        }
+        let context = filingContext(
+            taxonomyFolders: FilingEngine.classifierFolders(preferred: preferred,
+                                                            fallback: taxonomyFolders))
         if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: context.destinations) {
             let fresh = await classifier(context, files, .refine)
             // Before the staleness check, deliberately — the answer is already paid for.
@@ -216,9 +234,11 @@ extension FileSyncManager {
         // `uniqueKeysWithValues` is safe here where it is not on `scope`: this maps the manager's
         // own published list, whose ids come from a directory walk.
         let before = Dictionary(uniqueKeysWithValues: filingSuggestions.map { ($0.id, $0.best?.path) })
+        let contentBlind = Set(eligible.map { $0.filePath }).subtracting(snippets.keys)
         let refined = FilingEngine.applyVerdicts(verdicts, to: filingSuggestions,
                                                  existingRelative: existingRelative,
-                                                 providerRoot: root, rejectedByFile: rejectedByFile)
+                                                 providerRoot: root, rejectedByFile: rejectedByFile,
+                                                 contentBlind: contentBlind)
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
         publishFilingSuggestions(refined)
         let summary = FilingRefineSummary(asked: eligible.count, reused: cachedVerdicts.count,

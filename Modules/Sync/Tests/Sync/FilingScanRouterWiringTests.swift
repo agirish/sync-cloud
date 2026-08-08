@@ -111,4 +111,52 @@ import Testing
         m.prepareFilingRouter(destinations: ["A/B"])
         #expect(m.filingRouterIndex == nil)
     }
+
+    /// **The whole bug, end to end.** A real tree is wider than the classifier's folder budget, and
+    /// the budget used to be spent shallowest-first — so on a 5,012-folder tree the menu stopped at
+    /// depth 3 and a document belonging five levels down was judged against a list that could not
+    /// contain its home. Here 300 shallow decoys crowd out a depth-4 destination the router has
+    /// every reason to want, and the model must be shown it anyway. Also pins the other half: the
+    /// page phase 2.5 already read is handed to the classifier rather than thrown away because the
+    /// filename looked meaningful.
+    @Test func theFolderTheRouterWantsReachesTheModelPastTheDepthCap() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingMenu")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<300 {
+            try Self.write(root.appendingPathComponent("Documents/Decoy\(String(format: "%03d", i))/.keep"),
+                           bytes: 1)
+        }
+        let target = "Documents/Records/Consular/Issuance"
+        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try Self.write(root.appendingPathComponent("Downloads/H1B Visa - Nov 2026.pdf"))
+
+        let vocabulary = "consulate foil annotation nonimmigrant issuance reciprocity"
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
+        m.filingSnippetExtractor = { _ in vocabulary }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingFolderProfile = Self.profile([target, "Documents/Records/Consular"])
+        m.filingMemory = Self.memory("Documents/Records/Consular", vocabulary.split(separator: " ").map(String.init))
+
+        final class Seen: @unchecked Sendable {
+            var menu: [String] = []
+            var snippets: [String?] = []
+        }
+        let seen = Seen()
+        m.filingClassifier = { context, files, _ in
+            seen.menu = context.taxonomyFolders
+            seen.snippets = files.map(\.contentSnippet)
+            return [:]
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        // The depth-ordered list the scan still caches, for contrast: 250 folders, and the target is
+        // not among them. Without this the test could pass on a tree small enough not to truncate.
+        #expect(m.filingLastTaxonomyFolders.count == 250)
+        #expect(!m.filingLastTaxonomyFolders.contains(target),
+                "the decoys no longer crowd out the target — the fixture has gone stale")
+        #expect(seen.menu.contains(target), "the router's own pick never reached the model: \(seen.menu.count) folders")
+        // A meaningful filename no longer costs the model the page that was already read for it.
+        #expect(seen.snippets.contains { $0 == vocabulary })
+    }
 }
