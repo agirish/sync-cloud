@@ -746,26 +746,43 @@ public struct TidyView: View {
                 rescanDuplicatesButton
                 applyAllButton(rows.duplicates)
             }
-        case .rename:
-            // Rescans through FILING: the names are a product of that scan now, so a separate
-            // "scan names" button would be a second source of truth for one list.
-            if !syncManager.riskyNames.isEmpty, !syncManager.isSuggestingFiles {
-                rescanFilingButton
-                fixAllButton(rows.risky)
-            }
-        case .filing:
-            if showingRenameBacklog {
-                if !syncManager.renamePlans.isEmpty, !syncManager.isSuggestingFiles {
+        // Both of Organize's states, through one path — see `lensSummary` for why `.rename` reaches
+        // here only as an EFFECTIVE lens.
+        case .rename, .filing:
+            if !syncManager.isSuggestingFiles {
+                // **Rescan belongs to the SCAN, not to any one of its answers.** It used to be
+                // nested inside each focus's apply gate, and so went missing in the state that
+                // wants it most: file everything in the queue and Organize is left showing
+                // "0 to file · 3 risky names · 126 folders to rename" with an empty row 1 — no
+                // Rescan, no way to look again without leaving the lens. (Not *no* way: the
+                // "All filed" empty state offers Scan again, which is why this survived. Pick the
+                // names focus and even that is gone, because its list is not empty.)
+                //
+                // Gated on the filing scan having FINISHED once rather than on any list being
+                // non-empty, which is exactly the condition under which rescanning means anything —
+                // and it covers all three focuses, because all three lists are that one scan's
+                // output. Before the first scan the intro state owns the invitation and this stays
+                // away: a "Rescan" with nothing to re-scan is a button describing something that
+                // never happened.
+                if syncManager.hasSuggestedFiling {
                     rescanFilingButton
-                    // The FILTERED plans, for the reason `applyAllButton` spells out: the label
-                    // counts what the action receives, so a query leaving 3 of 129 folders showing
-                    // must rename exactly those 3.
-                    renameAllButton(rows.renames)
                 }
-            } else if hasFilingResults, !syncManager.isSuggestingFiles {
-                rescanFilingButton
-                refineButton(rows.filing)
-                fileAllButton(rows.filing)
+                // The apply actions stay with their own list: each acts on the rows on screen, so
+                // each is gated on there being some, and each is handed the FILTERED rows for the
+                // reason `applyAllButton` spells out — the label counts what the action receives.
+                switch effectiveOrganizeFocus {
+                case .queue:
+                    if hasFilingResults {
+                        refineButton(rows.filing)
+                        fileAllButton(rows.filing)
+                    }
+                case .names:
+                    if !syncManager.riskyNames.isEmpty { fixAllButton(rows.risky) }
+                case .renames:
+                    // Gated on the backlog existing, handed what is showing: a query leaving 3 of
+                    // 129 folders on screen must rename exactly those 3.
+                    if !syncManager.renamePlans.isEmpty { renameAllButton(rows.renames) }
+                }
             }
         case .automations:
             if !syncManager.automationRules.isEmpty {
@@ -779,10 +796,14 @@ public struct TidyView: View {
         }
     }
 
-    /// Row 2's leading content: the folder these results are for, then this lens's stat pills.
-    /// While a query is live these pills are the filter's READOUT — watching 12 groups → 3 and
+    /// Row 2's leading content: the folder these results are for, then what this lens found.
+    /// While a query is live that is the filter's READOUT — watching 12 groups → 3 and
     /// 2.1 GB → 840 MB as you type is most of the point, which is why the search field grows the
     /// card rather than swapping itself in over this row.
+    ///
+    /// Organize draws its readout as text rather than as pills (``SummaryRun``), because it is the
+    /// one lens whose row also carries controls and the two had become indistinguishable. The other
+    /// three have nothing clickable on this row, so a pill there claims nothing it cannot keep.
     @ViewBuilder
     private func lensSummary(rows: FilteredRows) -> some View {
         switch effectiveLens {
@@ -831,20 +852,25 @@ public struct TidyView: View {
                 // look clickable, which is exactly what the un-gated "to file" pill always was.
                 organizeFocusChip(focus, isInteractive: chips.count > 1)
             }
-            // The scope belongs to the FOCUSED list, so it sits with that list's pills rather than
+            // The scope belongs to the FOCUSED list, so it sits with that list's readout rather than
             // leading the row. Leading, it read as qualifying whatever came next — and what comes
             // next is the other focus's chip, which it does not scope: on the names focus the row
             // said "iCloud Drive · 24 to file", and those 24 are the queue's, scoped to one folder
             // inside it. Reading order is now navigation first, then "here is what you are looking
             // at, and where it came from".
+            //
+            // The divider ahead of it is where the row changes from controls to prose. See
+            // ``SummaryRun`` for the rule it draws.
             switch effectiveOrganizeFocus {
             case .queue:
                 if hasFilingResults {
+                    SummaryZoneDivider()
                     scannedFolderChip(syncManager.filingScanFolder)
                     filingSummary(rows.filing)
                 }
             case .names:
                 if syncManager.hasScannedNames {
+                    SummaryZoneDivider()
                     scannedFolderChip(syncManager.nameScanRoot?.path)
                     renameSummary(rows.risky)
                 }
@@ -855,8 +881,13 @@ public struct TidyView: View {
                 // off that walk, and the name scan's root is only set when a provider was passed in
                 // for the names check, so borrowing it would leave this chip blank or, worse,
                 // pointing at a previous scan.
+                SummaryZoneDivider()
                 scannedFolderChip(syncManager.filingLastProviderRoot)
-                renameBacklogSummary(syncManager.renamePlans)
+                // The FILTERED plans, like the queue's readout beside it and unlike the chip that
+                // got you here: a chip is a signpost and counts its whole list, a readout describes
+                // the rows on screen. Typing `PG&E` should watch this fall from 1,192 renames to
+                // the eleven it left showing.
+                renameBacklogSummary(rows.renames)
             }
         }
     }
@@ -912,27 +943,48 @@ public struct TidyView: View {
     /// The glyph each focus wears. A `switch` rather than a ternary because there are three of
     /// them now, and a ternary that reads "queue or not-queue" would give the rename backlog the
     /// names finding's I-beam.
+    ///
+    /// **The backlog's glyph is not `textformat.123`.** That symbol draws the literal digits `123`,
+    /// so beside its own count the chip rendered as "123 126 folders to rename" and the first
+    /// question it drew was which of the two numbers was real. A glyph next to a number may not be
+    /// a number; `folder.badge.gearshape` says the same thing — a folder that needs work done to it
+    /// — without competing with the count it sits beside.
     static func focusSymbol(_ focus: OrganizeFocus) -> String {
         switch focus {
         case .queue: return "doc"
         case .names: return "character.cursor.ibeam"
-        case .renames: return "textformat.123"
+        case .renames: return "folder.badge.gearshape"
         }
     }
 
-    /// Organize's pills while the rename backlog is on screen: how many files the listed plans
-    /// would rename, and how many they deliberately would not.
+    /// Organize's readout while the rename backlog is on screen: what the listed plans would do,
+    /// **in files**, since the chip beside it counts folders and nothing renames a folder.
+    ///
+    /// This is the answer to the one question "126 folders to rename" invites and cannot answer. A
+    /// backlog that size is overwhelmingly zero-padding, and `1,192 renames · 1,134 to pad` says so
+    /// at a glance where the chip alone reads as 126 unspecified changes.
+    ///
+    /// The headline is a `SummaryRun` and the kinds behind it are prose — see
+    /// ``RenameBacklogTally/breakdown`` for why a breakdown of one total must not be four more
+    /// badges beside it.
     @ViewBuilder
     private func renameBacklogSummary(_ plans: [RenamePlan]) -> some View {
-        let steps = plans.reduce(0) { $0 + $1.steps.count }
-        let skips = plans.reduce(0) { $0 + $1.skips.count }
-        StatPill(count: steps, label: steps == 1 ? "rename" : "renames",
-                 color: SemanticColor.info, systemImage: "pencil")
-        if skips > 0 {
-            StatPill(count: skips, label: "left alone",
-                     color: SemanticColor.caution, systemImage: "minus.circle")
-                .help("Files the pass will not rename — a name already taken, or a year this folder "
-                      + "does not hold. Open a folder to read why.")
+        let tally = RenameBacklogTally(plans)
+        SummaryRun(count: tally.renames, label: tally.renames == 1 ? "rename" : "renames",
+                   color: SemanticColor.info, systemImage: "pencil")
+            .help("Every file the listed folders would rename — one undoable change per folder.")
+        if !tally.breakdown.isEmpty {
+            Text(tally.breakdown)
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+                .help("“To pad” only adds a leading zero — “4. Apr 2021.pdf” becomes "
+                      + "“04. Apr 2021.pdf”. “To name” gives a raw name a slot it did not have. "
+                      + "“To reshuffle” moves an already-correct name to make room for one of them, "
+                      + "and is the only kind here that touches a file that was already right. "
+                      + "“Left alone” is what the pass declined to rename; open a folder to read why.")
         }
     }
 
@@ -947,8 +999,12 @@ public struct TidyView: View {
             return "\(count) name\(count == 1 ? "" : "s") this provider will not accept, found on "
                 + "the same scan. Shows the proposed fixes."
         case .renames:
+            // Says "the files inside them" outright. The count is folders — the unit of review and
+            // of apply — and read alone the label invites exactly one wrong reading, that the
+            // folders themselves get renamed.
             return "\(count) folder\(count == 1 ? "" : "s") that drifted from its own naming "
-                + "convention. Shows what renaming them back would do."
+                + "convention. Shows what renaming the files inside them would do — mostly padding "
+                + "numbers out with a leading zero."
         }
     }
 
@@ -1272,9 +1328,12 @@ public struct TidyView: View {
         }
     }
 
-    /// Organize's pills — the queue's breakdown, over the rows on screen. **These are the filter's
+    /// Organize's readout — the queue's breakdown, over the rows on screen. **This is the filter's
     /// readout**: watching 24 → 3 and `ready` fall away as you type is most of the point, which is
     /// why the search field grows the card rather than swapping itself in over this row.
+    ///
+    /// Drawn as `SummaryRun`s and not as pills, because none of them is clickable and every one of
+    /// them used to look it. See ``SummaryRun``.
     ///
     /// The "to file" total and the folder chip both left this Group when the focus chips arrived:
     /// the total is the queue chip's number now (a signpost, so it counts the whole list rather than
@@ -1286,28 +1345,28 @@ public struct TidyView: View {
         let unsure = filing.count - ready
         return Group {
             // "ready" = the showing files with a confident home now.
-            StatPill(count: ready, label: "ready", color: SemanticColor.success, systemImage: "checkmark.circle")
+            SummaryRun(count: ready, label: "ready", color: SemanticColor.success, systemImage: "checkmark.circle")
             if newFolders > 0 {
-                StatPill(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
-                         color: glassHue.accentColor, systemImage: "folder.badge.plus")
+                SummaryRun(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
+                           color: glassHue.accentColor, systemImage: "folder.badge.plus")
             }
             if unsure > 0 {
-                StatPill(count: unsure, label: "unsure", color: SemanticColor.caution, systemImage: "questionmark.circle")
+                SummaryRun(count: unsure, label: "unsure", color: SemanticColor.caution, systemImage: "questionmark.circle")
             }
             // A scan-level fact, like Duplicates' `need review` / `skipped` — deliberately NOT
             // recounted over the filtered rows. It describes what the scan cost, and narrowing the
             // search does not retroactively change how many files the model was asked about.
             if let reuse = syncManager.filingLastCacheReuse, reuse.reused > 0 {
-                StatPill(count: reuse.reused, label: "reused", color: .secondary,
-                         systemImage: "clock.arrow.circlepath")
+                SummaryRun(count: reuse.reused, label: "reused", color: .secondary,
+                           systemImage: "clock.arrow.circlepath")
                     .help(reuseHelp(reuse))
             }
             // Durable evidence that the paid pass ran, and what it bought. The banner says so once
             // and goes away; this stays with the rows it describes. Pass-level like `reused` and
             // for the same reason — narrowing the search does not change how many files were sent.
             if let refine = syncManager.filingLastRefine {
-                StatPill(count: refine.changed, label: "refined", color: glassHue.accentColor,
-                         systemImage: "sparkles")
+                SummaryRun(count: refine.changed, label: "refined", color: glassHue.accentColor,
+                           systemImage: "sparkles")
                     .help(refineHelp(refine))
             }
         }
@@ -1392,8 +1451,8 @@ public struct TidyView: View {
         let folders = risky.filter(\.isDirectory).count
         return Group {
             if folders > 0 {
-                StatPill(count: folders, label: folders == 1 ? "folder" : "folders",
-                         color: .secondary, systemImage: "folder")
+                SummaryRun(count: folders, label: folders == 1 ? "folder" : "folders",
+                           color: .secondary, systemImage: "folder")
             }
         }
     }

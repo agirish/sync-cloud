@@ -90,17 +90,13 @@ struct RenamePassLens: View {
     /// Pure and static so the wording is testable without mounting anything — and it says both
     /// halves, because "8 renames" over a plan that also declined to touch two files reads as a
     /// pass that saw eight files in a folder of ten.
+    ///
+    /// The sentence itself is ``RenameBacklogTally/claim``, which the header above this list also
+    /// draws over *every* plan at once. It was written out twice for one release: the header
+    /// summarised the same plans in different words and a different order, which reads as a
+    /// different measurement of a different thing rather than as the sum of the rows below it.
     static func summary(_ plan: RenamePlan) -> String {
-        var parts: [String] = []
-        if plan.placed > 0 { parts.append("\(plan.placed) to name") }
-        // Called out separately from padding, because it is the only thing here that moves a file
-        // that was already correct. Somebody scanning this row should be able to see that a folder
-        // is about to be reshuffled without opening it.
-        if plan.renumbered > 0 { parts.append("\(plan.renumbered) to reshuffle") }
-        if plan.tidied > 0 { parts.append("\(plan.tidied) to pad") }
-        var s = parts.isEmpty ? "nothing to do" : parts.joined(separator: " · ")
-        if !plan.skips.isEmpty { s += " · \(plan.skips.count) left alone" }
-        return s
+        RenameBacklogTally([plan]).claim
     }
 
     @ViewBuilder

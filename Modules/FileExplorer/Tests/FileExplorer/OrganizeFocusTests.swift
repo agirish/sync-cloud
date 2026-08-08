@@ -131,6 +131,31 @@ import Testing
                                     renamePlanCount: 9) == 9)
         #expect(OrganizeFocus.renames.label(count: 1) == "folder to rename")
         #expect(OrganizeFocus.renames.label(count: 9) == "folders to rename")
+    }
+
+    /// **No focus chip may wear a glyph that draws digits.**
+    ///
+    /// The rename backlog shipped with `textformat.123`, whose artwork is the literal characters
+    /// `1 2 3`. Sitting immediately left of the chip's own count it rendered as
+    /// "123 126 folders to rename", and the first question the chip asked its reader was which of
+    /// the two numbers meant something. A glyph beside a number must not be readable as a number.
+    ///
+    /// A deny-list rather than an equality check on the chosen symbol: the defect is the whole
+    /// family, not the one member that happened to ship, and pinning `folder.badge.gearshape`
+    /// exactly would fail the next honest restyle while still waving `textformat.abc` through.
+    @Test("No focus glyph is a symbol that draws its own digits")
+    func noFocusGlyphDrawsDigits() {
+        // Every SF Symbol whose artwork IS numerals. `list.number` and `textformat.numbers` draw
+        // digits too; `number` is the ⌗ sign and is fine, which is why this is a list and not a
+        // substring match on "number".
+        let digitDrawing: Set<String> = ["textformat.123", "list.number", "textformat.numbers",
+                                         "01.square", "123.rectangle", "number.square"]
+        for focus in OrganizeFocus.allCases {
+            let symbol = TidyView.focusSymbol(focus)
+            #expect(!digitDrawing.contains(symbol),
+                    "the \(focus.rawValue) chip wears \(symbol), which paints digits beside its own count")
+            #expect(!symbol.isEmpty, "the \(focus.rawValue) chip has no glyph at all")
+        }
         // Each focus reads its OWN number — a chip labelled with a neighbour's count is the defect
         // this triple-argument shape exists to make impossible.
         #expect(OrganizeFocus.count(.names, queueCount: 24, riskyNameCount: 17,
