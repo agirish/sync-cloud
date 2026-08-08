@@ -718,12 +718,46 @@ Nothing there is a filing mistake — each year was filed sensibly at the time. 
 means first working out which era you are standing in. No per-file verdict can express that, because
 the defect is not in any file.
 
-**What:** A second lens inside Organize — a *Structure* tab beside *Files* — that reads the filing
-profile and reports where the tree disagrees with itself, then proposes a plan to fix it. **Not a
-sixth workspace:** the bar already carries five labelled segments, `WorkspaceBarMetrics` sheds every
-label at once at the 600 pt floor, and items 1b and 16 are both ahead of this in the queue for that
-space. Not a Tidy mode either — Tidy judges a compared pair; this judges one tree against its own
-habits.
+**What:** A finding of Organize's scan that reads the filing profile, reports where the tree
+disagrees with itself, and proposes a plan to fix it. **Not a sixth workspace, and not a *Structure*
+tab beside *Files* either** — which is what this item proposed until 2026-08-07.
+
+A sixth labelled segment costs **104 pt** of bar at the default text size (measured through
+`WorkspaceBarMetrics.fullWidth` with the real labels at `.semibold`: 779 pt → 883 pt, and 99 / 111 pt
+at the small and large sizes). Because the bar sheds every label at once, that takes the whole
+779–883 pt band to glyphs, and items 1b and 16 are both ahead of this in the queue for that space.
+
+The sub-tab was the same burial one level down: a tab you have to remember to visit, rendering
+"Structure 0" on the days there is nothing — against a detector set that returns **eleven findings
+across 2,798 folders** and, once they are acted on, nothing for months. So it takes the shape the
+app already chose for risky names, whose argument is in `TidyView.organizeFocusChip` and applies here
+more strongly: *a tab you have to remember to visit is a check nobody runs; reporting beats asking.*
+A chip is louder than a tab because it is self-announcing — absent at zero, carrying its count when
+it is not. Deliberate access is the palette (14), a Home tile (16), and a folder row's context menu.
+Not a Tidy mode either — Tidy judges a compared pair; this judges one tree against its own habits.
+
+**The groundwork has landed.** `OrganizeFocus` replaced Organize's `showingRiskyNames` Bool with a
+selection, and the queue joined the finding as a chip, so adding structure findings is a third case
+rather than a second Boolean that can disagree with the first. Five things this item must still do
+that the names finding does not need, each a defect if built by analogy:
+
+- **Do not gate the chip on the queue.** Organize's pills render only `if hasFilingResults`; the
+  focus chips deliberately sit outside that gate. Zero loose files beside eleven findings is the
+  state this feature exists for — a tidy queue says nothing about the shape of the tree.
+- **Three states, not two.** No profile → no chip and no "checked" line. Profile and clean → a quiet
+  `structure checked · 2,798 folders` on the row's trailing edge. Profile and findings → the chip.
+  Absence must never be ambiguous between *clean* and *cannot run*, which is a gap the names finding
+  has today.
+- **Scope honesty.** The queue is scoped to `filingScanFolder` and the profile is tree-wide, so
+  findings are filtered to the scanned scope's subtree and the trailing line names the folder count
+  it actually checked. Otherwise the crumb claims findings that live outside it.
+- **Finding identity survives a rescan.** *Never suggest this again* and an answered Question must
+  decrement the chip and stay decremented — keyed on detector × folder path, stored beside
+  `folderSemantics`.
+- **Answers invalidate the check that asked them.** A Question's answer writes to the profile every
+  detector reads, and an applied plan rewrites the tree. Both must bump a structure generation and
+  recompute, or the lens re-suggests what it was just told — the replay family the v3.1 review named,
+  and the same reason Refine became a generation-bumper.
 
 **The hard part is silence, and it is a detector design problem.** 247 folder names appear under
 more than one parent and 105 span different top-level areas, and **almost all of them are correct**:
