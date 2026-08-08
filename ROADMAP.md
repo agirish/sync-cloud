@@ -564,67 +564,6 @@ width note in 1b.
 
 ---
 
-## 17. A filing profile: give Organize the tree's own conventions
-
-**Why:** `FilingClassifier` takes `taxonomyFolders: [String]` — bare paths, no semantics. It cannot
-know that a folder is an inbox rather than a destination, that a tree files tax documents by IRS
-form number, or that a destination has a *filename* convention as well as a location. So the
-classifier re-derives from scratch, per file, facts that are stable properties of the tree, and the
-free on-device tier — which has the least room to reason — gets the least help.
-
-A survey of one real tree (`~/Documents`, 12,767 files, 3,082 folders, a file read from every one
-of the 2,504 folders that hold one) found conventions strong enough to route most files with no
-model call at all:
-
-- **`NN. Mon YYYY.pdf` — 2,708 files, 21% of everything.** Zero-padded ordinal, three-letter month,
-  year, so statements sort chronologically inside a year folder; `0. Summary YYYY` takes the first
-  slot. Filing a statement correctly means *renaming* it, which no verdict currently expresses.
-- **Jurisdiction is a level-2 axis** (`US` / `IN` under Finance, Legal, Purchases, School) **and it
-  changes the year format**: US tax years are one calendar year (`2023`), Indian ones span two
-  (`2013-2014`, 62 such folders). The format has to come from the branch — a classifier reading the
-  file's mtime gets every Indian one wrong.
-- **Tax documents are foldered by form number** — `Income Tax/<year>/Forms/Form W-2|1098|1099-R|5498`.
-- **Some folders must never receive a file**: 138 inbox folders (`TODO`, `EDD - TODO`,
-  `TODO - May 2025`) and an outbound document pack whose contents duplicate their real homes on
-  purpose. Nothing in a path list says so.
-
-**What:** A `FolderProfile` value and a `FolderProfileStore` in `Modules/Sync/Sources/Sync/`,
-matching `FilingVerdictCache` and `StorageLensStore` in shape and location, plus a projection of it
-passed to the classifier in place of the bare path list. Per folder: role (destination / year-bucket
-/ container / person-bucket / archive / inbox), the axes in play, the filename convention that
-folder actually uses, whether it accepts new files, and routing anchors mined from its own name and
-its files' names.
-
-**A profile is per-tree and per-person, and the store must say so.** The conventions above were
-mined from one tree; another user's Documents folder would yield a different and possibly
-contradictory set, so there is no default profile to ship and nothing here generalizes. The store is
-keyed by profile id — `profiles/<id>/folder-profile.json` plus a `profiles.json` index naming the
-active one — so a second tree is additive rather than destructive. A first profile already exists on
-this machine, generated from the survey, with its generator kept beside it.
-
-**Two constraints the profile itself should carry:**
-
-- **Page 1 only.** A statement, form, letter or bill says what it is on its first page; pages 2..n
-  are line items that lengthen the prompt, cost money at the refine tier, and do not change the
-  destination. Large files are where the temptation to read more is worst and the payoff smallest.
-- **Content extraction fails on scans, and unevenly.** 212 of 2,503 sampled folders (8.5%) held a
-  PDF with no text layer at all — but that is 21% in Immigration, 13% in Legal and Vehicles, 10% in
-  School against 7.5% in Finance. Those are exactly the folders where a wrong guess is most
-  annoying, and there `contentSnippet` is nil: the profile's per-folder anchors are the only signal
-  left short of Vision OCR.
-
-**Impact:** High. It is also the cheapest way to make the **free** tier good — most of these routes
-are decidable from filename plus conventions, so the fraction of files that ever need the paid
-refine pass drops.
-
-**Effort:** Medium. **Risk:** Low–Medium — additive, and a missing profile just restores today's
-behaviour. The sharp edge is that a profile is *learned state about the user's tree*: listing an
-inbox among "destinations" would actively teach the classifier to file into it, so the projection
-must honour `acceptsNewFiles` (a first cut of that projection leaked 105 inbox folders into its own
-destination list while the prose above it said never to use them).
-
----
-
 ## 18. A content fingerprint for PDFs — duplicates a byte hash cannot see
 
 **Why:** Providers re-generate the PDF on every download, stamping a fresh document `/ID` into the
@@ -666,8 +605,8 @@ downloads must not be called identical.
 
 ## 19. A rename pass for the filing backlog
 
-**Why:** The house convention (`NN. Mon YYYY.pdf`, item 17) is applied by hand, so it decays exactly
-where the volume is. One provider folder shows the whole failure mode:
+**Why:** The house convention (`NN. Mon YYYY.pdf`, recorded per folder by the filing profile) is
+applied by hand, so it decays exactly where the volume is. One provider folder shows the whole failure mode:
 
 | | |
 |---|---|
@@ -684,8 +623,8 @@ a month, every month, since September 2024.
 
 **What:** Extend Organize's suggestion model from *where does this go* to *what is it called once it
 lands* — the same review-and-apply path, proposing a rename alongside the move. The convention is
-inferable per destination folder (item 17 already records which convention each folder uses), and
-the month and year are usually in the raw name (`9829custbill07182023.pdf`, `20240128-statements-…`),
+inferable per destination folder (`FolderProfile` already records which convention each folder
+uses), and the month and year are usually in the raw name (`9829custbill07182023.pdf`, `20240128-statements-…`),
 so most of the backlog needs no model call. Two details the survey settled: pad to **2 digits** (the
 tree contains both, and 1-digit misorders past September), and the ordinal is position-within-folder,
 so a rename pass has to renumber the folder rather than each file alone.
@@ -876,79 +815,12 @@ and the flagship case has been accumulating for thirteen years.
 
 **Effort:** High. **Risk:** High — this is the most destructive operation the app would offer:
 dozens of moves across folders in daily use, and a wrong one is much harder to notice than a wrong
-file copy. It is gated behind the filing profile, and it should share the rename pass's
-review-and-apply path rather than growing a second one, which is the argument for building it fourth
-in that arc rather than first. The counterweight is that **the whole flow has now been run by hand on
-this tree** — the mistakes above are the ones it actually makes, not the ones it might.
-
----
-
-## 21. A filing memory: what each folder has already received
-
-**Why:** `FilingClassifier` is handed `taxonomyFolders: [String]` and, per file, a name, an extension,
-a year and 400 characters of page 1. Item 17 upgrades the folder list to a profile — role, axes,
-naming convention, routing anchors — but every one of those is mined from **names**. Nothing tells
-the classifier what a folder's existing documents actually *say*, which is the signal the manual
-filing sessions decided on almost every time: four CEAC screenshots carrying nothing but case
-numbers `AA00CVPBHP` / `AA00CVPBQZ` were attributed by extracting two **already-filed** DS-160
-confirmations; fourteen payslips named `Nov 30 Paycheck HPE.pdf` belonged with files named
-`Payslip_2025-11-28.pdf`. In both cases the name was useless and the neighbours were decisive.
-
-That is measurable, because every filed document is a labelled example. Text extracted during the
-earlier filing sessions gives 9,558 documents whose correct folder is known, so three routing
-algorithms can be run against them held-out rather than argued about. Same inputs each time — file
-name plus page 1, capped at 400 characters — choosing one of ~2,950 destination folders:
-
-| | top-1 | top-3 | right branch |
-|---|---|---|---|
-| Name against a bare taxonomy list — **today** | 12.6% | 19.3% | 16.2% |
-| ＋ the folder profile (item 17) | 28.9% | 40.2% | 31.0% |
-| ＋ a filing memory | **58.2%** | **77.5%** | **60.9%** |
-
-**What:** a `filing-memory.json` beside `folder-profile.json`, keyed the same way. Per folder, the
-tokens its filed documents actually contain, weighted by how rare they are across the tree, split
-into two kinds:
-
-- **anchors** — readable words: provider, document type, clinician, plan name. `Kaiser/Surgery`
-  earns `stoll · nancy · pcp · mrn · operative · perioperative`. These serve the paid tier as prompt
-  context as well as the free tier as a matcher.
-- **idHashes** — anything containing digits, which is where account last-4s, case numbers, member
-  and policy IDs live. Stored as salted hashes, so equality matching still works but the file is not
-  a readable list of account numbers sitting in Application Support. The salt is in the same file by
-  necessity: this is obfuscation, not a security boundary. **No raw document text is stored.**
-
-Routing then does what the sessions did by hand: content identifies the *family* — provider, account,
-person — and the profile's axes pick the *member*, which year. Two details earned by measurement.
-Evidence has to be **inherited from the parent**, or an empty `Home/Utilities/AT&T/2024` can never be
-proposed however obviously an AT&T bill belongs there. And **years must be read out of the document,
-not only the filename**: three files all called `Lease Agreement.pdf` differ only by the term printed
-inside them, and reading it is worth ~5 points on folders with real history.
-
-**A third extraction state, previously uncounted.** The survey recorded PDFs with no text layer
-(8.5% of folders). There is a worse case: a PDF whose fonts carry no `ToUnicode` map **extracts
-successfully and returns glyph codes** — PG&E's bills come back as `') ! ) ) ! A A @ A 1 < H <`. No
-error, no empty result, and because that junk is unique it takes maximum rarity weight and wins the
-anchor list outright: PG&E's top anchors were `d9`, `lm`, `g8` until it was caught. **5.3% of the
-corpus is undecodable this way and must be detected and discarded, not trusted.** Those folders fall
-back to name and axis signals, which is the honest answer.
-
-**Impact:** High, and it is the cheapest route to a good **free** tier — the whole thing is integer
-arithmetic over a 2.6 MB table, no model call, so the fraction of files that ever reach the paid
-refine pass drops sharply. It also makes Organize's confidence honest for the first time: the margin
-between the top two candidates predicts correctness well enough to act on — **94% correct on the 15%
-of files it would call high confidence**, against 42% on the 46% it would call low. That is the
-signal for what to auto-file, what to suggest, and what to send to refine.
-
-**Effort:** Low–Medium — a builder, a store matching `FolderProfileStore`, and a scorer. **Risk:**
-Low. It is additive; a missing memory restores item 17's behaviour exactly. Two sharp edges, both
-already hit: the index is a **snapshot**, so a reorganisation strands it — 116 of 9,558 paths were
-stale from one day's work, and the builder relocates by name rather than teaching the old tree. And a
-folder the memory has never seen scores **zero** on content, so it must not be ranked by content at
-all; propose its parent instead. Build it **after item 17 and before 18–20** — it needs the profile,
-nothing else needs it, and it is the largest accuracy gain per unit of work on this list.
-
-A first memory already exists on this machine: 8,999 documents across 2,096 folders, built from text
-the filing sessions had already extracted, with its generator and a held-out verifier kept beside it.
+file copy. **Its prerequisite is met** — the filing profile and the filing memory both shipped, and
+`FilingProfileStore` loads them at launch — so what remains gating it is the rename pass, whose
+review-and-apply path it should share rather than growing a second one. That is the argument for
+building it after the rename pass rather than before it. The counterweight is that **the whole flow
+has now been run by hand on this tree** — the mistakes above are the ones it actually makes, not the
+ones it might.
 
 ---
 
@@ -1157,11 +1029,9 @@ the question hundreds of keeper picks actually raise.
 | 14 | ⌘K command palette | Low–Medium | Medium–High |
 | 15 | Rules view inside Organize | Low–Medium | Medium |
 | 16 | Home workspace | Medium | Medium (after 1c) |
-| 17 | Filing profile for Organize | Medium | **High** |
 | 18 | PDF content fingerprint | Medium | High |
 | 19 | Rename pass for the backlog | Medium | Medium–High |
 | 20 | Restructure — is the shape itself right | High | **High** |
-| 21 | Filing memory (what each folder has received) | Low–Medium | **High** |
 
 ### Interface
 
