@@ -398,7 +398,8 @@ extension FileSyncManager {
                 // strings below. One read per file, three consumers.
                 let (routed, count, shortlists) = await applyRoutesYielding(
                     suggestions, index: routerIndex, snippets: routerSnippets,
-                    providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
+                    providerRoot: providerRoot.path, rejectedByFile: rejectedByFile,
+                    peerNames: peerNameLookup())
                 if Task.isCancelled { return }
                 suggestions = routed
                 routerShortlists = shortlists

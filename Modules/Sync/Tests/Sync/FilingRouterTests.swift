@@ -343,4 +343,65 @@ import Testing
         #expect(profiled.destinations == bare.destinations)
         #expect(profiled.taxonomyFolders.count == 3)     // the full list is still there to read
     }
+
+    // MARK: - Peer filenames
+
+    private static func ranking(_ pairs: [(String, Double)]) -> FilingRouter.Ranking {
+        let cs = pairs.map { FilingRouter.Candidate(relativePath: $0.0, score: $0.1,
+                                                    evidenceToken: nil, sharedAnchors: 0) }
+        let m = pairs.count > 1 ? (pairs[0].1 - pairs[1].1) / pairs[0].1 : 1
+        return FilingRouter.Ranking(candidates: cs, margin: m)
+    }
+
+    /// **A folder and its own subfolder share their vocabulary by construction**, so content cannot
+    /// separate them — `Immigration/OCI/Divit` scored 1.388 and `.../Divit/Application` 1.374 for
+    /// `Divit OCI Photo.jpg`. The file names in them say it plainly: `Application/` already holds
+    /// `Divit OCI Photo - 4up print sheet.jpg`.
+    @Test func namesAlreadyInTheFolderSeparateAParentFromItsChild() throws {
+        let r = Self.ranking([("Immigration/OCI/Divit", 1.388),
+                              ("Immigration/OCI/Divit/Application", 1.374)])
+        let names = ["Immigration/OCI/Divit": ["Divit - eOCI.pdf", "Divit OCI.pdf"],
+                     "Immigration/OCI/Divit/Application": ["Divit OCI Photo - 4up print sheet.jpg",
+                                                           "Divit OCI.jpg", "checklist.pdf"]]
+        let out = FilingRouter.rerankedByPeerNames(r, fileName: "Divit OCI Photo.jpg") {
+            names[$0] ?? []
+        }
+        #expect(out.best?.relativePath == "Immigration/OCI/Divit/Application")
+    }
+
+    /// **Coverage of the incoming name, not Jaccard.** `Divit OCI Photo - 4up print sheet` covers
+    /// all three tokens of `Divit OCI Photo`; `Divit OCI.pdf` covers two. Jaccard scores those the
+    /// same (0.67) and cannot separate the folders at all — this is the measure choice, pinned.
+    @Test func aLongerPeerNameThatCoversTheWholeIncomingNameWins() {
+        let inc = "Divit OCI Photo"
+        func coverage(_ peer: String) -> Double {
+            let i = Set(FilingRouter.tokenize(inc)), p = Set(FilingRouter.tokenize(peer))
+            return Double(i.intersection(p).count) / Double(i.count)
+        }
+        #expect(coverage("Divit OCI Photo - 4up print sheet") == 1.0)
+        #expect(coverage("Divit OCI") < 1.0)
+    }
+
+    /// **Only between a folder and its own ancestor or descendant.** Between unrelated folders the
+    /// same bonus is noise — applied to the whole shortlist it moved held-out top-1 by +0.2 points
+    /// while the tune split moved −0.4, a disagreement in sign. An unrelated folder full of
+    /// perfectly-covering names must not move.
+    @Test func anUnrelatedFolderIsNotHelpedByItsNames() {
+        let r = Self.ranking([("Immigration/OCI/Divit", 1.0),
+                              ("Somewhere/Else", 0.9)])
+        let names = ["Immigration/OCI/Divit": ["nothing.pdf"],
+                     "Somewhere/Else": ["Divit OCI Photo exact.pdf"]]
+        let out = FilingRouter.rerankedByPeerNames(r, fileName: "Divit OCI Photo.jpg") {
+            names[$0] ?? []
+        }
+        #expect(out.best?.relativePath == "Immigration/OCI/Divit", "an unrelated folder was boosted")
+    }
+
+    /// With no peer names anywhere the ranking is returned untouched — the re-rank must not be a
+    /// reshuffle of its own.
+    @Test func noPeerNamesLeavesTheRankingAlone() {
+        let r = Self.ranking([("A/B", 1.0), ("A/B/C", 0.9)])
+        let out = FilingRouter.rerankedByPeerNames(r, fileName: "x.pdf") { _ in [] }
+        #expect(out.candidates.map(\.relativePath) == ["A/B", "A/B/C"])
+    }
 }

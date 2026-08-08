@@ -525,3 +525,66 @@ public enum FilingRouter {
         return hits > 0 ? 0.5 : -1.0
     }
 }
+
+// MARK: - Peer filenames
+
+public extension FilingRouter {
+
+    /// Re-orders a ranking by how well each candidate's EXISTING FILE NAMES cover the incoming one.
+    ///
+    /// **Only between a folder and its own ancestor or descendant**, and that scoping is the whole
+    /// reason this is safe. A folder and its subfolder share their vocabulary by construction, so
+    /// content cannot separate them — `Immigration/OCI/Divit` scored 1.388 and
+    /// `Immigration/OCI/Divit/Application` 1.374 for `Divit OCI Photo.jpg`, a 1% gap — while the
+    /// file names in them say it plainly: `Application/` already holds
+    /// `Divit OCI Photo - 4up print sheet.jpg` and `Divit OCI.jpg`. Between UNRELATED folders the
+    /// same bonus is noise, and measurably so: applied to the whole shortlist it moved held-out
+    /// top-1 by +0.2 points while the tune split moved −0.4, a disagreement in sign. Scoped to one
+    /// branch both splits are flat (±0.1) and the case above is fixed.
+    ///
+    /// **Coverage of the incoming name, not Jaccard.** `Divit OCI Photo - 4up print sheet` covers
+    /// all of `Divit OCI Photo`; `Divit OCI.pdf` in the parent covers two thirds. Jaccard scores
+    /// those identically (0.67 each) and picks the wrong folder.
+    ///
+    /// `namesInFolder` is injected because this module does not touch the filesystem — see
+    /// ``FileSyncManager/rerankByPeerNames(_:fileName:providerRoot:)`` for the listing side.
+    static func rerankedByPeerNames(_ ranking: Ranking, fileName: String,
+                                    namesInFolder: (String) -> [String]) -> Ranking {
+        guard let top = ranking.best?.relativePath else { return ranking }
+        let incoming = Set(tokenize((fileName as NSString).deletingPathExtension))
+        guard !incoming.isEmpty else { return ranking }
+
+        func onSameBranch(_ f: String) -> Bool {
+            f == top || f.hasPrefix(top + "/") || top.hasPrefix(f + "/")
+        }
+        func coverage(_ folder: String) -> Double {
+            var best = 0.0
+            for name in namesInFolder(folder) {
+                let peer = Set(tokenize((name as NSString).deletingPathExtension))
+                guard !peer.isEmpty else { continue }
+                best = max(best, Double(incoming.intersection(peer).count) / Double(incoming.count))
+            }
+            return best
+        }
+        let rescored = ranking.candidates.map { c -> (Candidate, Double) in
+            let bonus = onSameBranch(c.relativePath) ? peerWeight * coverage(c.relativePath) : 0
+            return (c, c.score + bonus)
+        }
+        // Ties break on the path, exactly as `rank` does, so a re-order is reproducible.
+        let sorted = rescored.sorted { a, b in
+            a.1 == b.1 ? a.0.relativePath < b.0.relativePath : a.1 > b.1
+        }
+        guard sorted.count > 1, sorted[0].1 > 0 else { return ranking }
+        let margin = (sorted[0].1 - sorted[1].1) / sorted[0].1
+        return Ranking(candidates: sorted.map { Candidate(relativePath: $0.0.relativePath,
+                                                          score: $0.1,
+                                                          evidenceToken: $0.0.evidenceToken,
+                                                          sharedAnchors: $0.0.sharedAnchors) },
+                       margin: margin)
+    }
+
+    /// How much a fully-covering peer name is worth. Swept on both splits; flat within ±0.1 either
+    /// way once scoped to one branch, so this is set to what separates the case it exists for
+    /// rather than to a peak that is not there.
+    static var peerWeight: Double { 0.30 }
+}

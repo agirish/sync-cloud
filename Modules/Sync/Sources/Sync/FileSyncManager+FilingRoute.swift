@@ -83,7 +83,8 @@ extension FileSyncManager {
     func applyRoutesYielding(
         _ suggestions: [FilingSuggestion], index: FilingRouter.Index,
         snippets: [String: String], providerRoot: String,
-        rejectedByFile: [String: Set<String>] = [:], chunk: Int = 25
+        rejectedByFile: [String: Set<String>] = [:], chunk: Int = 25,
+        peerNames: ((String) -> [String])? = nil
     ) async -> (suggestions: [FilingSuggestion], routed: Int, shortlists: [String: [String]]) {
         var out: [FilingSuggestion] = []
         out.reserveCapacity(suggestions.count)
@@ -98,7 +99,7 @@ extension FileSyncManager {
             }
             let outcome = Self.route(s, index: index, snippets: snippets,
                                      providerRoot: providerRoot,
-                                     rejectedByFile: rejectedByFile)
+                                     rejectedByFile: rejectedByFile, peerNames: peerNames)
             out.append(outcome.suggestion)
             if outcome.routed { routed += 1 }
             if !outcome.shortlist.isEmpty { shortlists[s.filePath] = outcome.shortlist }
@@ -110,13 +111,15 @@ extension FileSyncManager {
     nonisolated static func applyRoutes(
         _ suggestions: [FilingSuggestion], index: FilingRouter.Index,
         snippets: [String: String], providerRoot: String,
-        rejectedByFile: [String: Set<String>] = [:]
+        rejectedByFile: [String: Set<String>] = [:],
+        peerNames: ((String) -> [String])? = nil
     ) -> (suggestions: [FilingSuggestion], routed: Int, shortlists: [String: [String]]) {
         var routed = 0
         var shortlists: [String: [String]] = [:]
         let updated = suggestions.map { s -> FilingSuggestion in
             let outcome = route(s, index: index, snippets: snippets,
-                                providerRoot: providerRoot, rejectedByFile: rejectedByFile)
+                                providerRoot: providerRoot, rejectedByFile: rejectedByFile,
+                                peerNames: peerNames)
             if outcome.routed { routed += 1 }
             if !outcome.shortlist.isEmpty { shortlists[s.filePath] = outcome.shortlist }
             return outcome.suggestion
@@ -134,7 +137,8 @@ extension FileSyncManager {
     /// and that batch moves files nobody has looked at.
     nonisolated static func route(
         _ s: FilingSuggestion, index: FilingRouter.Index, snippets: [String: String],
-        providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8
+        providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8,
+        peerNames: ((String) -> [String])? = nil
     ) -> (suggestion: FilingSuggestion, routed: Bool, shortlist: [String]) {
         if s.best?.remembered == true { return (s, false, []) }   // an explicit user rule outranks this
         // Rejections are recorded as ABSOLUTE paths; the router answers in relative ones. Passing
@@ -191,6 +195,48 @@ extension FileSyncManager {
         return (FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
                                  modificationDate: s.modificationDate, candidates: [dest] + others,
                                  providerRoot: s.providerRoot), true, shortlist)
+    }
+}
+
+// MARK: - Peer filenames
+
+extension FileSyncManager {
+
+    /// A per-scan cache of "what files are already in this folder", for
+    /// ``FilingRouter/rerankedByPeerNames(_:fileName:namesInFolder:)``.
+    ///
+    /// Only the handful of folders on a file's own shortlist are ever asked about, and a folder is
+    /// listed once however many files land on it — a scan of a few hundred loose files touches tens
+    /// of folders, not thousands. Rebuilt each scan rather than persisted: it describes the tree as
+    /// it is right now, and a stale answer here would quietly re-order a ranking.
+    func peerNameLookup() -> (String) -> [String] {
+        let box = PeerNameCache()
+        return { absoluteFolder in box.names(in: absoluteFolder) }
+    }
+}
+
+/// Reference box so the closure above can memoise across calls without capturing the actor.
+final class PeerNameCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: [String: [String]] = [:]
+
+    func names(in absoluteFolder: String) -> [String] {
+        lock.lock()
+        if let hit = cache[absoluteFolder] { lock.unlock(); return hit }
+        lock.unlock()
+        // Files only: a subfolder's NAME is not a peer document, and counting it as one would let
+        // `Application` cover an incoming `…Application….pdf` on the strength of the folder itself.
+        // Asked through the resource keys rather than a `fileExists` per entry — one syscall for
+        // the listing instead of one more for every name in it.
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: URL(fileURLWithPath: absoluteFolder),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])) ?? []
+        let names = urls.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
+        }.map(\.lastPathComponent)
+        lock.lock(); cache[absoluteFolder] = names; lock.unlock()
+        return names
     }
 }
 
