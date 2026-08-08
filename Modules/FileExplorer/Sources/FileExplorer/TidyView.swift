@@ -242,6 +242,10 @@ public struct TidyView: View {
     private let onFindFilingSuggestions: () -> Void
     /// The same scan, but ignoring saved suggestions — see `rescanFilingButton`.
     private let onFindFilingSuggestionsFresh: () -> Void
+    /// Re-derives the folder memory from the tree as it stands now — see `rescanFilingButton`.
+    /// nil when this machine has no filing profile to update, which withholds the item rather than
+    /// offering one that would do nothing.
+    private let onUpdateFolderMemory: (() -> Void)?
     /// Opens Settings ▸ Organize, where the cloud backend is set up. Optional so the previews and
     /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
@@ -311,6 +315,7 @@ public struct TidyView: View {
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {},
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
+        onUpdateFolderMemory: (() -> Void)? = nil,
         onConfigureCloudRefine: (() -> Void)? = nil,
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
@@ -337,6 +342,7 @@ public struct TidyView: View {
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
+        self.onUpdateFolderMemory = onUpdateFolderMemory
         self.onConfigureCloudRefine = onConfigureCloudRefine
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
@@ -765,6 +771,7 @@ public struct TidyView: View {
                 // away: a "Rescan" with nothing to re-scan is a button describing something that
                 // never happened.
                 if syncManager.hasSuggestedFiling {
+                    folderMemoryStatus
                     rescanFilingButton
                 }
                 // The apply actions stay with their own list: each acts on the rows on screen, so
@@ -1270,6 +1277,29 @@ public struct TidyView: View {
         }
     }
 
+    /// What the folder-memory re-survey is doing, or what it found.
+    ///
+    /// **The commonest outcome is that nothing changed, and that has to be visible.** A menu item
+    /// that reads only a few folder mtimes and writes nothing looks broken otherwise — the user
+    /// clicks it, the tree is already current, and there is no evidence it ran at all.
+    @ViewBuilder
+    private var folderMemoryStatus: some View {
+        if let status = syncManager.filingSurveyLifecycle.status,
+           syncManager.filingSurveyLifecycle.isRunning {
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.small).scaleEffect(0.7)
+                Text(status)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if let report = syncManager.filingSurveyReport {
+            Text(report.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help("\(report.foldersLearned) folders have learned content from the documents already filed in them.")
+        }
+    }
+
     /// Organize's rescan, with the ignore-saved-suggestions variant hung off it.
     ///
     /// A split control rather than a second button: rescanning is the common act and asking afresh
@@ -1293,6 +1323,17 @@ public struct TidyView: View {
                     Label("Ignore saved suggestions", systemImage: "arrow.clockwise.circle")
                 }
                 .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
+                if let onUpdateFolderMemory {
+                    Divider()
+                    Button {
+                        onUpdateFolderMemory()
+                    } label: {
+                        Label("Update folder memory", systemImage: "brain")
+                    }
+                    .disabled(syncManager.filingSurveyLifecycle.isRunning)
+                    .help("Learn what your folders have been given since the last survey, so folders "
+                          + "you have added recently can be suggested. Reads only the documents that changed.")
+                }
             } label: {
                 Label("Rescan", systemImage: "arrow.clockwise")
             } primaryAction: {

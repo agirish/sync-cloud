@@ -1553,6 +1553,19 @@ struct ContentView: View {
                                                ignoringCache: ignoringCache)
     }
 
+    /// Re-derives the folder memory from the provider tree as it stands now.
+    ///
+    /// Deliberately its own action rather than a step inside the scan. The scan is what the user
+    /// clicks to get suggestions and it has to stay fast; a re-survey reads documents the scan has
+    /// no interest in — every already-filed one that changed — and its payoff is the *next* scan,
+    /// not this one. Tying it to Rescan would make the common act pay for the occasional one.
+    func updateFolderMemoryAction() {
+        let root = tidyProviderRootExpanded
+        guard !root.isEmpty else { return }
+        Logger.shared.info("User requested a folder-memory re-survey of \(root)")
+        Task { await syncManager.resurveyFilingMemory(root: URL(fileURLWithPath: root)) }
+    }
+
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so
     /// the header and tree builders don't each repeat the same `isLeft ?` pairs (a copy-paste
     /// drift hazard when a side-specific argument changes on one side only).
@@ -2207,6 +2220,10 @@ struct ContentView: View {
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: { findFilingSuggestionsAction() },
                 onFindFilingSuggestionsFresh: { findFilingSuggestionsAction(ignoringCache: true) },
+                // Withheld outright when this machine has no filing profile: the re-survey rebuilds
+                // an artifact that does not exist, so offering it would be offering nothing.
+                onUpdateFolderMemory: syncManager.filingMemory == nil && syncManager.filingFolderProfile == nil
+                    ? nil : { updateFolderMemoryAction() },
                 // The way in to the paid pass for someone who has never set it up: Organize's
                 // results offer it, and the offer has to land somewhere. Deep-links the tab the
                 // same way the Sources shortcut does, so the user arrives at the cloud toggle

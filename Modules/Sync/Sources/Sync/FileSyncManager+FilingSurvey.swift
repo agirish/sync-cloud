@@ -1,0 +1,174 @@
+import Events
+import Foundation
+
+/// Re-deriving the filing memory from the tree as it stands now.
+///
+/// The scan already learns the folder *list* on every run — it walks the provider root and hands the
+/// result to the router, so a folder created five minutes ago is a candidate destination
+/// immediately. What it could not learn was what that folder is *for*: the memory was a static
+/// artifact produced offline, and a folder created after that survey ranked on its name alone.
+///
+/// This closes it, and the cost is the point. See ``FilingSurvey`` for why only extraction is
+/// expensive and how the corpus keeps it from being repeated.
+extension FileSyncManager {
+
+    /// What a re-survey did, in the terms the user cares about.
+    public struct FilingSurveyReport: Sendable, Equatable {
+        /// Folders that were new, or whose contents had moved, since the memory last learned them.
+        public let foldersChanged: Int
+        /// Documents whose page 1 was actually read.
+        public let documentsRead: Int
+        /// Documents that had only moved, so their tokens travelled with them instead.
+        public let documentsRelocated: Int
+        /// Documents that are no longer in the tree and have stopped counting.
+        public let documentsDropped: Int
+        /// Documents that needed reading but are not downloaded, so a later survey will do it.
+        public let documentsUnavailable: Int
+        /// Folders with learned content afterwards.
+        public let foldersLearned: Int
+        /// False when the rebuild came out identical — see ``FilingSurveyStore/write(corpus:memory:previousMemory:id:in:root:now:)``.
+        public let changed: Bool
+
+        public static let none = FilingSurveyReport(foldersChanged: 0, documentsRead: 0,
+                                                    documentsRelocated: 0, documentsDropped: 0,
+                                                    documentsUnavailable: 0, foldersLearned: 0,
+                                                    changed: false)
+
+        /// One line, and honest about both ends of it: the case that costs nothing says so, and the
+        /// case that left work undone says that too rather than reporting only what it managed.
+        public var summary: String {
+            guard changed || documentsRead > 0 || documentsUnavailable > 0 else {
+                return "Folder memory is up to date."
+            }
+            var parts = ["\(foldersChanged) folder\(foldersChanged == 1 ? "" : "s") changed"]
+            parts.append("\(documentsRead) document\(documentsRead == 1 ? "" : "s") read")
+            if documentsRelocated > 0 { parts.append("\(documentsRelocated) followed a move") }
+            if documentsDropped > 0 { parts.append("\(documentsDropped) left the tree") }
+            if documentsUnavailable > 0 { parts.append("\(documentsUnavailable) not downloaded yet") }
+            return parts.joined(separator: ", ") + "."
+        }
+    }
+
+    /// Re-derives the filing memory for `root`, reading only what changed since the last survey.
+    ///
+    /// `taxonomy` is the walk the caller already did — the Filing scan walks the whole provider, so
+    /// handing that array over makes the staleness pass cost **nothing at all**. Omit it and the
+    /// survey walks for itself.
+    ///
+    /// Returns ``FilingSurveyReport/none`` when the machine has no filing artifacts to update or no
+    /// extractor to read with: both are the ordinary state for anyone whose tree was never surveyed,
+    /// and neither is an error.
+    @discardableResult
+    public func resurveyFilingMemory(root: URL, taxonomy: [FileNode]? = nil) async -> FilingSurveyReport {
+        guard !filingSurveyLifecycle.isRunning else { return .none }
+        guard let directory = filingProfilesDirectory else {
+            Logger.shared.info("No filing profile directory — nothing to re-survey")
+            return .none
+        }
+        // A survey with nothing to read cannot learn anything, and reporting "0 documents read" as
+        // success would be indistinguishable from a tree that genuinely had not changed.
+        guard let extractor = filingSnippetExtractor else {
+            Logger.shared.warning("No content extractor — the folder memory cannot be re-surveyed")
+            return .none
+        }
+        guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId else {
+            Logger.shared.info("No filing profile on this machine — nothing to re-survey")
+            return .none
+        }
+
+        let epoch = beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
+        defer { endScan(\.filingSurveyLifecycle) }
+
+        let walked: [FileNode]
+        if let taxonomy {
+            walked = taxonomy
+        } else {
+            walked = await Self.buildTree(url: root, sortOption: .name,
+                                          fileManager: fileManager, maxDepth: nil)
+        }
+        if Task.isCancelled { return .none }
+        let tree = FilingSurvey.flatten(walked)
+        let previousMemory = filingMemory
+        let stale = FilingSurvey.staleFolders(tree: tree, memory: previousMemory)
+
+        // The salt binds the corpus to the memory: every stored identifier is hashed under it, so a
+        // corpus written under one salt cannot contribute to a memory written under another. Prefer
+        // what is already on disk, in that order, and mint one only for a tree that has neither.
+        let existing = FilingSurveyStore.corpus(id: profileId, in: directory)
+        let salt = existing?.salt.isEmpty == false ? existing!.salt
+            : (previousMemory?.salt.isEmpty == false ? previousMemory!.salt : Self.newSurveySalt())
+        var corpus = existing ?? FilingCorpus(profileId: profileId, salt: salt)
+        if corpus.salt != salt {
+            // A corpus whose salt disagrees with the memory's would silently contribute identifiers
+            // nothing can match. Start it again rather than mixing two hash spaces.
+            Logger.shared.warning("Filing corpus salt does not match the memory's — rebuilding it")
+            corpus = FilingCorpus(profileId: profileId, salt: salt)
+        }
+
+        let candidates = FilingSurvey.documentsToRead(tree: tree, corpus: corpus)
+        let toRead = candidates.filter { filingDocumentIsAvailable(root.appendingPathComponent($0).path) }
+        let unavailable = candidates.count - toRead.count
+        if unavailable > 0 {
+            // Named rather than folded into the "read" count: these are documents the survey chose
+            // not to learn from, and a survey that reports only what it managed to do reads as
+            // complete when it was not.
+            Logger.shared.info("\(unavailable) document(s) are not downloaded — left for a later survey")
+        }
+        let relocated = FilingSurvey.relocations(tree: tree, corpus: corpus).count
+        let dropped = corpus.documents.keys.filter { tree.documents[$0] == nil }.count - relocated
+
+        var read: [String: FilingCorpusDocument] = [:]
+        if !toRead.isEmpty {
+            updateScan(\.filingSurveyLifecycle, epoch: epoch,
+                       status: "Reading \(toRead.count) new or changed document\(toRead.count == 1 ? "" : "s")…")
+            let absolute = toRead.map { root.appendingPathComponent($0).path }
+            let text = await Self.extractSnippets(for: absolute, using: extractor)
+            if Task.isCancelled { return .none }
+            for path in toRead {
+                guard let stamp = tree.documents[path] else { continue }
+                // Absent text is a document that was opened and gave up nothing — recorded as blank
+                // so the next survey does not open it again. That is the whole reason a blank entry
+                // exists rather than the path simply being left out.
+                let page = text[root.appendingPathComponent(path).path] ?? ""
+                read[path] = FilingSurvey.document(fromPage1: page, stamp: stamp, salt: salt)
+            }
+        }
+
+        updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Rebuilding folder memory…")
+        let merged = FilingSurvey.merge(corpus: corpus, tree: tree, read: read)
+        let memory = FilingSurvey.buildMemory(corpus: merged, folderModified: tree.folders,
+                                              profileId: profileId)
+        var wrote = false
+        do {
+            wrote = try FilingSurveyStore.write(corpus: merged, memory: memory,
+                                                previousMemory: previousMemory, id: profileId,
+                                                in: directory, root: root.path)
+        } catch {
+            Logger.shared.error("Couldn't write the re-surveyed folder memory: \(error.localizedDescription)")
+            return .none
+        }
+        if wrote {
+            // Publishing the memory drops the router's prepared index, so the next scan builds it
+            // from the folders learned here. The fingerprint moves with the bytes, which is what
+            // keeps cached classifications from replaying answers composed against the old tree.
+            filingMemory = memory
+            filingArtifactFingerprint = FilingProfileStore.fingerprint(id: profileId, in: directory)
+        }
+        let report = FilingSurveyReport(foldersChanged: stale.count, documentsRead: toRead.count,
+                                        documentsRelocated: relocated,
+                                        documentsDropped: max(0, dropped),
+                                        documentsUnavailable: unavailable,
+                                        foldersLearned: memory.folders.count, changed: wrote)
+        Logger.shared.info("Folder memory re-surveyed — \(report.summary) "
+                           + "\(report.foldersLearned) folders now have learned content.")
+        filingSurveyReport = report
+        completeScan(\.filingSurveyLifecycle, root: root)
+        return report
+    }
+
+    /// A fresh salt for a tree that has never been surveyed. 16 bytes of hex, the same shape the
+    /// offline builder mints.
+    static func newSurveySalt() -> String {
+        (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+    }
+}

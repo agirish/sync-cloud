@@ -347,6 +347,9 @@ struct SyncCloudApp: App {
            let loaded = FilingProfileStore.active(in: profiles) {
             manager.filingFolderProfile = loaded.profile
             manager.filingMemory = loaded.memory
+            // Where a re-survey writes the memory back — the same directory it was just read from,
+            // for the same reason it is read here and not in `Sync`.
+            manager.filingProfilesDirectory = profiles
             // Part of the question every file is asked — a re-survey must not replay answers the
             // old tree produced. Read from the same directory the artifacts came from.
             manager.filingArtifactFingerprint =

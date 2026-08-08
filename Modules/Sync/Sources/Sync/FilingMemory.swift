@@ -62,11 +62,22 @@ public struct FilingMemoryEntry: Sendable, Equatable {
     public let anchors: [FilingMemoryToken]
     /// Digit-bearing tokens (account last-4, case, member and policy numbers), hashed.
     public let idHashes: [FilingMemoryToken]
+    /// The folder's own modification time when this entry was learned, whole seconds since 1970.
+    ///
+    /// **The staleness key, and it was being written and thrown away.** The builder has stamped this
+    /// since the memory first shipped; nothing decoded it, so every re-survey was a full one. A
+    /// directory's mtime moves when a child is added, removed or renamed — exactly the events that
+    /// make a folder's learned content wrong — so comparing it against the disk names the folders
+    /// worth re-reading without opening a single document. nil for an entry from a build that could
+    /// not stat the folder, which reads as "assume stale".
+    public let folderModified: Int?
 
-    public init(docs: Int, anchors: [FilingMemoryToken], idHashes: [FilingMemoryToken]) {
+    public init(docs: Int, anchors: [FilingMemoryToken], idHashes: [FilingMemoryToken],
+                folderModified: Int? = nil) {
         self.docs = docs
         self.anchors = anchors
         self.idHashes = idHashes
+        self.folderModified = folderModified
     }
 }
 
@@ -109,12 +120,15 @@ extension FilingMemoryToken: Decodable {
 }
 
 extension FilingMemoryEntry: Decodable {
-    private enum Key: String, CodingKey { case docs, anchors, idHashes }
+    private enum Key: String, CodingKey { case docs, anchors, idHashes, folderModified }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         docs = try c.decodeIfPresent(Int.self, forKey: .docs) ?? 0
         anchors = try c.decodeIfPresent([FilingMemoryToken].self, forKey: .anchors) ?? []
         idHashes = try c.decodeIfPresent([FilingMemoryToken].self, forKey: .idHashes) ?? []
+        // Written as a JSON null when the builder could not stat the folder, so this must tolerate
+        // an explicit null and not only an absent key — `decodeIfPresent` does both.
+        folderModified = try c.decodeIfPresent(Int.self, forKey: .folderModified)
     }
 }
 
@@ -127,5 +141,36 @@ extension FilingMemory: Decodable {
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
         salt = try c.decodeIfPresent(String.self, forKey: .salt) ?? ""
         folders = try c.decodeIfPresent([String: FilingMemoryEntry].self, forKey: .folders) ?? [:]
+    }
+}
+
+// MARK: - Writing it back
+
+extension FilingMemoryToken: Encodable {
+    /// The same positional array the reader expects — `["kaiser", 3.9, 0.85]`.
+    ///
+    /// **The third element is written whenever it is known**, and that is not a formality: it is
+    /// optional *by position*, so a writer that stops emitting it produces a file that still decodes
+    /// perfectly and quietly takes ``AutomationRuleProposer`` back to keying rules on the rarest word
+    /// rather than the recurring one. A survey that rebuilt the memory without it would undo that
+    /// work with no error anywhere.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        try c.encode(token)
+        try c.encode(weight)
+        if let docFrequency { try c.encode(docFrequency) }
+    }
+}
+
+extension FilingMemoryEntry: Encodable {
+    private enum WriteKey: String, CodingKey { case docs, anchors, idHashes, folderModified }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: WriteKey.self)
+        try c.encode(docs, forKey: .docs)
+        try c.encode(anchors, forKey: .anchors)
+        try c.encode(idHashes, forKey: .idHashes)
+        // `encode` rather than `encodeIfPresent`: a null stamp and an absent one mean the same thing
+        // to the reader, and writing the key keeps the shape identical to the Python builder's.
+        try c.encode(folderModified, forKey: .folderModified)
     }
 }

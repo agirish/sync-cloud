@@ -13,6 +13,11 @@ import Foundation
 /// app's normal operation, and a partial rewrite from a half-finished scan would be worse than no
 /// profile at all. Every failure yields nil, which restores exactly the behaviour the app had before
 /// any of this existed.
+///
+/// The memory is now also *re-derivable* in the app — see ``FilingSurveyStore``, which owns the only
+/// write path and takes the rule above as its constraint rather than an exception to it: a complete
+/// rebuild, written atomically, and only when it differs from what is there. The folder profile is
+/// still never written from here or from there.
 public enum FilingProfileStore {
 
     /// Bumped when either artifact's shape changes; a foreign schema is discarded rather than

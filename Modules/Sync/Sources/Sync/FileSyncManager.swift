@@ -512,6 +512,17 @@ public class FileSyncManager: ObservableObject {
 
     /// The Filing scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
     @Published public internal(set) var filingScanLifecycle = ScanLifecycle()
+    /// What the last folder-memory re-survey did, or nil when none has run this session.
+    ///
+    /// Published so the lens can say what happened rather than leaving a menu item that appears to
+    /// do nothing — the common outcome is "up to date", which is invisible unless it is stated.
+    @Published public internal(set) var filingSurveyReport: FilingSurveyReport?
+    /// The folder-memory re-survey lifecycle — a separate lens from the scan's on purpose.
+    ///
+    /// A re-survey is not a scan: it produces no suggestions, and flipping `isSuggestingFiles`
+    /// would swap the lens to its scanning view and blank the results the user is reading. Its own
+    /// lifecycle lets the status line say what is happening without the results moving.
+    @Published public internal(set) var filingSurveyLifecycle = ScanLifecycle()
     /// Filing suggestions from the most recent scan of a picked folder.
     @Published public internal(set) var filingSuggestions: [FilingSuggestion] = []
 
@@ -720,6 +731,18 @@ public class FileSyncManager: ObservableObject {
     /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
     /// any of this existed.
     public var filingFolderProfile: FolderProfile? { didSet { invalidateFilingRouterIndex() } }
+    /// Where those artifacts live, for the one pass that writes one back — see
+    /// ``resurveyFilingMemory(root:taxonomy:)``. Injected for the same reason they are: `Sync` does
+    /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any
+    /// machine that has never been surveyed.
+    public var filingProfilesDirectory: URL?
+    /// Whether a document is on this disk to be read, asked before a re-survey opens one.
+    ///
+    /// Defaults to the real check, so this is the production path rather than a hook something else
+    /// has to remember to install — see ``FilingSurvey/isAvailable(_:)`` for why an evicted file
+    /// must not be mistaken for an empty one. A test replaces it to make eviction reproducible,
+    /// which is otherwise impossible to stage.
+    public var filingDocumentIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
     /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
     /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
     public var filingArtifactFingerprint: String = ""
