@@ -88,4 +88,55 @@ import Foundation
     @Test func testTokenizerSplitsOnAllSeparatorsAndDropsNumbers() {
         #expect(AutomationRuleProposer.tokens(in: "T-Mobile-bill Mar_2025") == ["Mobile", "bill", "Mar"])
     }
+
+    // MARK: A year in the destination is the axis that varies
+
+    private static func date(_ y: Int, _ m: Int = 6, _ d: Int = 15) -> Date {
+        Calendar(identifier: .gregorian)
+            .date(from: DateComponents(year: y, month: m, day: d))!
+    }
+
+    /// **A literal year freezes the one axis that varies.** A rule learned from a bill filed into
+    /// `T-Mobile/2025` files every future bill into 2025, and one learned in December misfiles
+    /// everything from January. Seen in the wild as a `DetailedBill` rule pinned to
+    /// `Home/Utilities/T-Mobile/2026` that sent an April 2025 statement to an empty 2026 folder.
+    @Test func aDestinationEndingInTheExamplesYearBecomesAToken() throws {
+        let p = try #require(AutomationRuleProposer.propose(
+            fileName: "DetailedBillApr2025.pdf",
+            destinationRelativePath: "Home/Utilities/T-Mobile/2025",
+            modificationDate: Self.date(2025, 4)))
+        #expect(p.destinationTemplate == "Home/Utilities/T-Mobile/{year}")
+        #expect(p.rule.destinationTemplate == "Home/Utilities/T-Mobile/{year}")
+    }
+
+    /// **Only when the literal is the year this example resolves to.** Filing a 2025 document into
+    /// 2026 is a deliberate act, and generalising it would rewrite the user's intent rather than
+    /// extend it. Without this half the test above would pass for a rule that simply always
+    /// substitutes.
+    @Test func aDeliberatelyMismatchedYearIsKeptVerbatim() throws {
+        let p = try #require(AutomationRuleProposer.propose(
+            fileName: "DetailedBillApr2025.pdf",
+            destinationRelativePath: "Home/Utilities/T-Mobile/2026",
+            modificationDate: Self.date(2025, 4)))
+        #expect(p.destinationTemplate == "Home/Utilities/T-Mobile/2026")
+    }
+
+    /// A span is not a `{year}`: the token cannot reproduce one, so there is nothing to generalise
+    /// to and the folder is kept as it is.
+    @Test func aFiscalSpanIsLeftAlone() throws {
+        let p = try #require(AutomationRuleProposer.propose(
+            fileName: "H1B Visa - Nov 2026.pdf",
+            destinationRelativePath: "Immigration/Visa/US/H-1B Visa/2024-2026",
+            modificationDate: Self.date(2026, 11)))
+        #expect(p.destinationTemplate == "Immigration/Visa/US/H-1B Visa/2024-2026")
+    }
+
+    /// A destination that does not end in a year is untouched — the rule must not fire on the
+    /// ordinary case.
+    @Test func aNonYearDestinationIsUntouched() throws {
+        let p = try #require(AutomationRuleProposer.propose(
+            fileName: "policy.pdf", destinationRelativePath: "Home/Insurance/Auto",
+            modificationDate: Self.date(2025)))
+        #expect(p.destinationTemplate == "Home/Insurance/Auto")
+    }
 }

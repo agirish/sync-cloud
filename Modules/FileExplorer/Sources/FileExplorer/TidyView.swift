@@ -1965,9 +1965,14 @@ public struct TidyView: View {
 
     /// After the user files a loose file, propose an editable Automation rule for files like it —
     /// the deterministic, learn-by-example complement to the AI backend.
-    private func offerRule(fileName: String, destinationPath: String) {
+    private func offerRule(fileName: String, destinationPath: String, modificationDate: Date?) {
         let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: automationDestinationRoot)
-        guard let proposal = AutomationRuleProposer.propose(fileName: fileName, destinationRelativePath: rel) else { return }
+        // The file's own date is what lets a destination ending in a year generalise to `{year}`
+        // rather than freezing the year the example happened to have.
+        guard let proposal = AutomationRuleProposer.propose(fileName: fileName,
+                                                            destinationRelativePath: rel,
+                                                            modificationDate: modificationDate)
+        else { return }
         pendingRememberPrompt = nil   // the new offer supersedes the legacy override prompt
         ruleConditionChoice = proposal.defaultCondition
         pendingRuleOffer = RuleOffer(fileName: fileName, proposal: proposal)
@@ -2043,7 +2048,8 @@ public struct TidyView: View {
                     // already lives in (`.notNeeded`) is a no-op, and a rule keyed on where the file
                     // already sits is noise.
                     guard await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved else { return }
-                    offerRule(fileName: suggestion.fileName, destinationPath: dest.path)
+                    offerRule(fileName: suggestion.fileName, destinationPath: dest.path,
+                              modificationDate: suggestion.modificationDate)
                 }
             },
             onChooseFolder: { chooseFolder(for: suggestion) },
