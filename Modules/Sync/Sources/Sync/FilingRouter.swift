@@ -130,6 +130,14 @@ public enum FilingRouter {
         let foldersByYear: [String: [String]]
         /// Folder → its anchors, for recovering display evidence for the shown candidates.
         let anchorsByFolder: [String: [String: Double]]
+        /// Folder → anchor → share of that folder's documents carrying it, where the memory records
+        /// it. Read only by ``AutomationRuleProposer``: ranking a *destination* wants rarity, while
+        /// keying a *rule* wants recurrence, and they are different numbers.
+        let docFrequencyByFolder: [String: [String: Double]]
+        /// The same, for the hashed digit-bearing tokens. Separate because they are keyed by hash
+        /// and looked up by hash — folding them into the readable map would need every lookup to
+        /// know which kind of token it holds.
+        let idDocFrequencyByFolder: [String: [String: Double]]
 
         public var isEmpty: Bool { destinations.isEmpty }
     }
@@ -146,12 +154,22 @@ public enum FilingRouter {
         var byIdHash: [String: [(String, Double)]] = [:]
         var docs: [String: Int] = [:]
         var anchorsByFolder: [String: [String: Double]] = [:]
+        var docFrequencyByFolder: [String: [String: Double]] = [:]
+        var idDocFrequencyByFolder: [String: [String: Double]] = [:]
         let allowedSet = Set(allowed)
         if let memory {
             for (folder, entry) in memory.folders where allowedSet.contains(folder) {
                 docs[folder] = entry.docs
                 anchorsByFolder[folder] = Dictionary(entry.anchors.map { ($0.token, $0.weight) },
                                                      uniquingKeysWith: { a, b in max(a, b) })
+                let shares = entry.anchors.compactMap { t in t.docFrequency.map { (t.token, $0) } }
+                if !shares.isEmpty {
+                    docFrequencyByFolder[folder] = Dictionary(shares, uniquingKeysWith: { a, b in max(a, b) })
+                }
+                let idShares = entry.idHashes.compactMap { t in t.docFrequency.map { (t.token, $0) } }
+                if !idShares.isEmpty {
+                    idDocFrequencyByFolder[folder] = Dictionary(idShares, uniquingKeysWith: { a, b in max(a, b) })
+                }
                 for t in entry.anchors { byAnchor[t.token, default: []].append((folder, t.weight)) }
                 for t in entry.idHashes { byIdHash[t.token, default: []].append((folder, t.weight)) }
             }
@@ -194,7 +212,8 @@ public enum FilingRouter {
                      roleBonus: roleBonus, children: children,
                      personTokens: profile?.personTokens ?? [], salt: memory?.salt ?? "",
                      foldersByPathToken: foldersByPathToken, foldersByYear: foldersByYear,
-                     anchorsByFolder: anchorsByFolder)
+                     anchorsByFolder: anchorsByFolder, docFrequencyByFolder: docFrequencyByFolder,
+                     idDocFrequencyByFolder: idDocFrequencyByFolder)
     }
 
     /// Ranks destinations for one file.

@@ -120,7 +120,7 @@ import Foundation
     /// folder weights it. The memory's posting list is the test — not a hand-written stop-list,
     /// which cannot know that "statement" is generic in *this* tree.
     @Test func aWordCarriedByTooManyFoldersIsRefused() throws {
-        var folders: [String: [String: Double]] = ["Finance/US/Chase": ["chase": 4.0, "statement": 9.0]]
+        var folders: [String: [String: Anchor]] = ["Finance/US/Chase": ["chase": 4.0, "statement": 9.0]]
         for i in 0..<30 { folders["Filler/\(i)"] = ["statement": 9.0] }
         let index = Self.index(memory: folders)
         let p = try #require(propose("chase statement.pdf", into: "Finance/US/Chase",
@@ -306,29 +306,162 @@ import Foundation
         #expect(p.destinationTemplate == "Home/Insurance/Auto")
     }
 
+    // MARK: A rule has to fire again — recurrence, not rarity
+
+    /// **The defect this exists to prevent, in the shape it was found in.** These are
+    /// `Home/Utilities/T-Mobile/2025`'s real anchors and real document shares. Ranking by weight
+    /// picks `appreciation` (7.05, in one bill of three) and `awesome` (5.95, in two of three) —
+    /// the two words least likely to be on next month's bill — over `autopay` and `paying`, which
+    /// are on every one of them.
+    @Test func theRarestWordLosesToTheOneThatComesBack() throws {
+        let index = Self.index(memory: ["Home/Utilities/T-Mobile": [
+            "appreciation": Anchor(7.05, df: 0.33),
+            "awesome": Anchor(5.95, df: 0.67),
+            "autopay": Anchor(5.03, df: 1.0),
+            "paying": Anchor(4.97, df: 1.0),
+        ]])
+        let page = "we appreciate you paying with autopay. an awesome plan. our appreciation."
+        let p = try #require(propose("DetailedBillApr.pdf", into: "Home/Utilities/T-Mobile",
+                                     evidence: .init(pageSample: page, index: index)))
+        guard case .mentionsAll(let keys) = p.defaultVariant.conditions.first else {
+            Issue.record("expected a mentions rule, got \(p.defaultVariant.summary)"); return
+        }
+        #expect(Set(keys) == ["autopay", "paying"], "keyed on \(keys)")
+        // And the one-in-three word is nowhere in the offer, at any width.
+        for variant in p.variants { #expect(!variant.summary.contains("appreciation")) }
+    }
+
+    /// The floor is what does it: with the shares removed — an artifact built before the builder
+    /// recorded them — the same fixture falls back to the family estimate, which cannot separate
+    /// four anchors of one folder, and the rarest words win again. This is the *reason* the
+    /// generator changed, stated as a test rather than as a claim.
+    @Test func withoutRecordedSharesTheRankingIsRarityAgain() throws {
+        let index = Self.index(memory: ["Home/Utilities/T-Mobile": [
+            "appreciation": Anchor(7.05), "awesome": Anchor(5.95),
+            "autopay": Anchor(5.03), "paying": Anchor(4.97),
+        ]])
+        let page = "we appreciate you paying with autopay. an awesome plan. our appreciation."
+        let p = try #require(propose("DetailedBillApr.pdf", into: "Home/Utilities/T-Mobile",
+                                     evidence: .init(pageSample: page, index: index)))
+        guard case .mentionsAll(let keys) = p.defaultVariant.conditions.first else {
+            Issue.record("expected a mentions rule"); return
+        }
+        #expect(keys.contains("appreciation"), "the fallback should be rarity-led, got \(keys)")
+    }
+
+    /// A word in two thirds of the folder's documents is worth keying on; a word in a third is not.
+    @Test func theFloorSitsBetweenTwoThirdsAndOneThird() {
+        let index = Self.index(memory: ["Bills/Acme": [
+            "acme": Anchor(5.0, df: 1.0), "quarterly": Anchor(5.0, df: 0.67),
+            "promotion": Anchor(9.0, df: 0.33),
+        ]])
+        let p = propose("acme quarterly promotion.pdf", into: "Bills/Acme", evidence: .init(index: index))
+        let summaries = (p?.variants ?? []).map(\.summary).joined(separator: " ")
+        #expect(summaries.contains("quarterly"))
+        #expect(!summaries.contains("promotion"))
+    }
+
+    /// **Two words that name the same thing narrow nothing.** `paying` and `autopay` are anchors of
+    /// the same folders, so requiring both leaves the rule as broad as either. Given an equally
+    /// recurring alternative that shares none of those folders, the pair search must take it.
+    @Test func thePairIsChosenForWhatItExcludes() throws {
+        var memory: [String: [String: Anchor]] = [
+            "Home/Utilities/T-Mobile": ["autopay": Anchor(5.0, df: 1.0),
+                                        "paying": Anchor(5.0, df: 1.0),
+                                        "myatt": Anchor(4.0, df: 1.0)],
+        ]
+        // `autopay` and `paying` travel together across twelve other folders; `myatt` appears in
+        // none of them, so {autopay, myatt} reaches far less than {autopay, paying}.
+        for i in 0..<12 {
+            memory["Other/\(i)"] = ["autopay": Anchor(5.0, df: 1.0), "paying": Anchor(5.0, df: 1.0)]
+        }
+        let index = Self.index(memory: memory)
+        let p = try #require(propose("bill.pdf", into: "Home/Utilities/T-Mobile",
+                                     evidence: .init(pageSample: "autopay paying myatt", index: index)))
+        guard case .mentionsAll(let keys) = p.defaultVariant.conditions.first else {
+            Issue.record("expected a mentions rule"); return
+        }
+        #expect(keys.contains("myatt"), "took the redundant pair: \(keys)")
+    }
+
+    /// **Recurrence is compared in half-steps, and the rounding is the decision.** `beta` is in
+    /// 90% of the folder's documents and `gamma` in 100%, so a raw comparison always prefers
+    /// {alpha, gamma} — even though alpha and gamma travel together through twelve other folders
+    /// and requiring both narrows nothing, while {alpha, beta} appears nowhere else. Rounding to
+    /// the nearest half makes 1.9 and 2.0 the same answer and lets that difference decide.
+    ///
+    /// Written because a mutation that replaced the banded compare with a raw one changed nothing
+    /// any other test could see, while it moves the shipping numbers from 67.3/54.5 to 71.9/51.7.
+    @Test func recurrenceIsComparedInHalfStepsSoOverlapCanDecide() throws {
+        var memory: [String: [String: Anchor]] = [
+            "Bills/Acme": ["alpha": Anchor(5.0, df: 1.0), "beta": Anchor(5.0, df: 0.9),
+                           "gamma": Anchor(5.0, df: 1.0)],
+        ]
+        for i in 0..<12 {
+            memory["Other/\(i)"] = ["alpha": Anchor(5.0, df: 1.0), "gamma": Anchor(5.0, df: 1.0)]
+        }
+        let index = Self.index(memory: memory)
+        let p = try #require(propose("alpha beta gamma.pdf", into: "Bills/Acme",
+                                     evidence: .init(index: index)))
+        guard case .mentionsAll(let keys) = p.defaultVariant.conditions.first else {
+            Issue.record("expected a mentions rule"); return
+        }
+        #expect(Set(keys) == ["alpha", "beta"], "raw recurrence would have taken gamma: \(keys)")
+    }
+
+    /// An identifier is stored hashed on the OTHER list, so the readable share map says nothing
+    /// about it — and the recurrence floor would drop the single strongest key a rule can have.
+    @Test func aKnownIdentifierClearsTheFloor() throws {
+        let index = Self.index(memory: ["Immigration/Petitions": ["uscis": Anchor(4.0, df: 1.0),
+                                                                   "notice": Anchor(3.0, df: 1.0)]],
+                               ids: ["Immigration/Petitions": ["wac2190123456": Anchor(6.0, df: 1.0)]])
+        let p = try #require(propose("USCIS notice WAC2190123456.pdf", into: "Immigration/Petitions",
+                                     evidence: .init(index: index)))
+        #expect(p.defaultVariant.summary.contains("wac2190123456"), "\(p.defaultVariant.summary)")
+    }
+
+    // MARK: The artifact carries the share
+
+    @Test func aThreeElementAnchorDecodesItsShareAndATwoElementOneDoesNot() throws {
+        let json = """
+        {"profileId":"p","salt":"s","folders":{"F":{"docs":3,
+          "anchors":[["autopay",5.03,1.0],["awesome",5.95]],"idHashes":[["abc",2.0,0.5]]}}}
+        """
+        let memory = try JSONDecoder().decode(FilingMemory.self, from: Data(json.utf8))
+        let entry = try #require(memory.folders["F"])
+        #expect(entry.anchors.first(where: { $0.token == "autopay" })?.docFrequency == 1.0)
+        #expect(entry.anchors.first(where: { $0.token == "awesome" })?.docFrequency == nil)
+        #expect(entry.idHashes.first?.docFrequency == 0.5)
+    }
+
     // MARK: Fixtures
 
-    /// A router index over a memory given as folder → anchor → weight (and optionally folder →
-    /// identifier → weight). Destinations default to the memory's own folders.
-    private static func index(memory: [String: [String: Double]],
-                              ids: [String: [String: Double]] = [:],
+    /// One stored anchor: its rarity, and the share of the folder's documents carrying it.
+    struct Anchor: ExpressibleByFloatLiteral {
+        let weight: Double
+        let df: Double?
+        init(_ weight: Double, df: Double? = nil) { self.weight = weight; self.df = df }
+        init(floatLiteral value: Double) { self.init(value) }
+    }
+
+    /// A router index over a memory given as folder → anchor → weight/share (and optionally folder →
+    /// identifier → the same). Destinations default to the memory's own folders.
+    private static func index(memory: [String: [String: Anchor]],
+                              ids: [String: [String: Anchor]] = [:],
                               destinations: [String]? = nil) -> FilingRouter.Index {
         let salt = "test-salt"
+        func tokens(_ m: [String: Anchor], hashed: Bool) -> [FilingMemoryToken] {
+            m.map { FilingMemoryToken(token: hashed ? FilingMemory.hash($0.key, salt: salt) : $0.key,
+                                      weight: $0.value.weight, docFrequency: $0.value.df) }
+        }
         var entries: [String: FilingMemoryEntry] = [:]
         for (folder, anchors) in memory {
-            entries[folder] = FilingMemoryEntry(
-                docs: 4,
-                anchors: anchors.map { FilingMemoryToken(token: $0.key, weight: $0.value) },
-                idHashes: (ids[folder] ?? [:]).map {
-                    FilingMemoryToken(token: FilingMemory.hash($0.key, salt: salt), weight: $0.value)
-                })
+            entries[folder] = FilingMemoryEntry(docs: 4, anchors: tokens(anchors, hashed: false),
+                                                idHashes: tokens(ids[folder] ?? [:], hashed: true))
         }
         for (folder, identifiers) in ids where entries[folder] == nil {
-            entries[folder] = FilingMemoryEntry(
-                docs: 4, anchors: [],
-                idHashes: identifiers.map {
-                    FilingMemoryToken(token: FilingMemory.hash($0.key, salt: salt), weight: $0.value)
-                })
+            entries[folder] = FilingMemoryEntry(docs: 4, anchors: [],
+                                                idHashes: tokens(identifiers, hashed: true))
         }
         return FilingRouter.makeIndex(
             destinations: destinations ?? Array(entries.keys),

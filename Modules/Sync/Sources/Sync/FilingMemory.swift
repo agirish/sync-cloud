@@ -70,26 +70,41 @@ public struct FilingMemoryEntry: Sendable, Equatable {
     }
 }
 
-/// A token and how much it discriminates — higher means it appears in fewer folders.
+/// A token, how much it discriminates, and how often it comes back.
 public struct FilingMemoryToken: Sendable, Equatable {
     public let token: String
+    /// Rarity: higher means it appears in fewer folders.
     public let weight: Double
+    /// Share of THIS folder's documents whose first page contains the token, 0…1 — and nil for an
+    /// artifact built before the builder recorded it.
+    ///
+    /// **The two numbers answer opposite questions and a rule needs both.** Weight ranks how well a
+    /// word tells this folder from every other one, which makes the heaviest word the one least
+    /// likely to be seen again: `Home/Utilities/T-Mobile/2025` weighs `awesome` (one campaign) above
+    /// `autopay` (every bill). A rule keyed on rarity alone matched nothing else in the tree 7.8% of
+    /// the time. See ``AutomationRuleProposer/recurrenceFloor``.
+    public let docFrequency: Double?
 
-    public init(token: String, weight: Double) {
+    public init(token: String, weight: Double, docFrequency: Double? = nil) {
         self.token = token
         self.weight = weight
+        self.docFrequency = docFrequency
     }
 }
 
 // MARK: - Decoding the on-disk shape
 
 extension FilingMemoryToken: Decodable {
-    /// Stored as a two-element array `["kaiser", 3.9]` rather than an object, because at ~58,000
-    /// tokens the key names would be a third of the file.
+    /// Stored as a positional array `["kaiser", 3.9, 0.85]` rather than an object, because at
+    /// ~58,000 tokens the key names would be a third of the file. The third element is the document
+    /// share and is **optional**: an artifact written before it existed decodes with `nil` there and
+    /// keeps working, which is why the proposer has a family-agreement fallback rather than a
+    /// requirement.
     public init(from decoder: Decoder) throws {
         var c = try decoder.unkeyedContainer()
         token = try c.decode(String.self)
         weight = (try? c.decode(Double.self)) ?? 1.0
+        docFrequency = c.isAtEnd ? nil : try? c.decode(Double.self)
     }
 }
 
