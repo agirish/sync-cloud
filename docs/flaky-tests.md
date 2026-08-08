@@ -358,6 +358,44 @@ assertion instead of dying at the fixture. Then loaded full-package runs, zero o
 this fix was carried alongside an equivalent-in-spirit version of the entry above, and 5 more on the
 shipped pairing of the two (3 on `v2.x`, 2 on `main`), plus CI green on both. Before: 5 of 7.
 
+**Live instance, 2026-08-08 — five seconds bought four polls.**
+`ShortcutRevealTrackerTests.holdingOptionAlonePublishesTheReveal` (Modules/Design) failed on CI run
+`31263358127`, `main` at `5bdb9b36`, and the identical SHA passed on re-run. Its suite-local
+`waitUntil` was the plain wall-clock form: `while ContinuousClock.now < deadline`, five seconds, a
+5 ms sleep per turn, no floor.
+
+**The poll count is what settles the diagnosis, and it is worth instrumenting before choosing a
+fix.** The wait looked merely slow — 1.85s idle for a 0.2s hold, 3.6–4.4s under the CPU-spin recipe
+above — which reads as "the machine is busy, raise the timeout". Counting the polls says otherwise:
+**34 polls in 0.207s** under `--filter`, and **4 polls in 4.44s** in a full Design run. The hold had
+elapsed many times over; the loop was short of *turns to notice it*, and a bigger number of seconds
+buys those at the same terrible rate. Note also that it is the run's **first** wait that starves —
+later ones in the same run came back in 3–5 polls — so a suite whose slow wait sits early is the
+one that fails.
+
+Fixed with `pollFloor = 50` on the suite's own helper, the same number and reason as
+`LayoutPumpWait.pumpFloor`, and the count now goes in the failure message. Mutation-tested both
+ways: with the deadline set to **zero** the whole suite still passes, so the floor alone carries it;
+with `ShortcutRevealTracker.publish()` made a no-op the wait fails naming **803 polls**, which is
+what "genuinely disproved" looks like next to the starved 4.
+
+**The inventory above was built by a layout-shaped grep, and is blind to this whole family.** Its
+recipe filters `while Date() < deadline` on a following `layoutIfNeeded`, so it cannot see a
+condition wait that pumps nothing — and matching on `Date()` misses `ContinuousClock` outright. This
+one was invisible to it twice over. A sweep for the defect proper is the condition, not the pump:
+
+```sh
+grep -rn -B3 'if condition() { return }' Modules SyncCloudTests --include='*.swift' \
+  | grep -E 'while (Date\(\)|ContinuousClock\.now) <'
+```
+
+*Conditional, wall-clock-bounded, still unfixed — found by that sweep, not yet migrated:* the
+shared `waitUntil` in **`Modules/Sync/Tests/Sync/TestSupport.swift`** and its twin in
+**`SyncCloudTests/TestSupport.swift`** (10 ms sleep, five seconds, no floor). These are the widest
+blast radius of any entry here — every Sync and app-target suite waits through them, including the
+`testCreateFolder` fix recorded above, which replaced a flat sleep with exactly this helper. They
+are byte-identical to each other and already documented as needing to be kept in step.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;

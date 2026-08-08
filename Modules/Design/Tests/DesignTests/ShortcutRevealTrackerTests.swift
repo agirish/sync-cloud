@@ -28,18 +28,37 @@ import Testing
         return (ShortcutRevealTracker(now: { clock.now }), clock)
     }
 
+    /// The fewest polls this wait will make before it may give up, however little of its deadline
+    /// is left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the Dashboard
+    /// and FileExplorer test targets.
+    ///
+    /// **A deadline is in seconds; what this waits for arrives on main-actor turns, and under
+    /// full-suite load those two units come apart.** Measured here on 2026-08-08, waiting for the
+    /// same reveal: **34 polls in 0.207s** under `--filter`, and **4 polls in 4.44s** in a full
+    /// Design run. Five wall-clock seconds bought four evaluations of the condition — the 0.2s
+    /// hold had long since elapsed, and what the wait was short of was turns to notice.
+    private static let pollFloor = 50
+
     /// Bounded, and it FAILS on expiry naming the call site — an unbounded spin here would turn a
     /// regression into a hung suite.
+    ///
+    /// Bounded by **polls as well as by seconds**: it may give up only once both the deadline has
+    /// passed and `pollFloor` polls have been made. **The poll count is the diagnosis, so it goes
+    /// in the message** — a wait that gave up after 4 of them was starved and says nothing about
+    /// the tracker, while one that gave up after 50 was genuinely disproved.
     private func waitUntil(_ what: Comment,
                            timeout: TimeInterval = 5,
                            sourceLocation: SourceLocation = #_sourceLocation,
                            _ condition: () -> Bool) async {
+        var polls = 0
         let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while ContinuousClock.now < deadline {
+        while polls < Self.pollFloor || ContinuousClock.now < deadline {
+            polls += 1
             if condition() { return }
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
-        #expect(condition(), what, sourceLocation: sourceLocation)
+        #expect(condition(), "\(what.rawValue) — still false after \(polls) polls",
+                sourceLocation: sourceLocation)
     }
 
     /// End to end: ⌥ alone, the deadline arrives, the published flag flips.
