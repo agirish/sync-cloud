@@ -1,5 +1,4 @@
 import Testing
-@testable import Sync
 
 /// Pins `waitUntil`'s poll floor — the constant ~150 call sites in this target depend on, and its
 /// twin in `SyncCloudTests/TestSupport.swift` with it.
@@ -11,9 +10,10 @@ import Testing
 /// is not — a property of this loop, provable with a counter and an already-spent deadline, on an
 /// idle machine, in milliseconds.
 ///
-/// Modelled on `LayoutPumpWaitTests` in the FileExplorer target, including the trap it records:
-/// the demand below is a literal and must not be derived from the floor, or zeroing the floor also
-/// zeroes the requirement and the test passes against the exact change it exists to catch.
+/// Modelled on the pass-floor tests for `LayoutPumpWait` in the FileExplorer target on the v3 line,
+/// including the trap they record: the demand below is a literal and must not be derived from the
+/// floor, or zeroing the floor also zeroes the requirement and the test passes against the exact
+/// change it exists to catch.
 ///
 /// **There is no "a condition that never holds still gets a verdict" case here**, unlike that
 /// suite: `waitUntil` reports expiry by recording a failure rather than returning a Bool, so a test

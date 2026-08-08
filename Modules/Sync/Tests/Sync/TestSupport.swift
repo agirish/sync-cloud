@@ -85,12 +85,13 @@ final class LockedBox<Value>: @unchecked Sendable {
 /// wait needs it most. Measured across a full Sync run on 2026-08-08: nominally a poll costs its
 /// 10 ms sleep, and under the CPU-spin load in `docs/flaky-tests.md` the worst observed rate was
 /// **223 ms per poll**, 22× that. Five seconds buys ~500 evaluations at the nominal rate and ~22 at
-/// that one; the sibling helper in `ShortcutRevealTrackerTests` was measured at 4 in 4.44s on a
-/// loaded CI runner, which is the failure this floor exists to prevent.
+/// that one. A sibling helper elsewhere in the repo was measured at 4 polls in 4.44s on a loaded CI
+/// runner and failed there, which is the outcome this floor exists to prevent.
 ///
-/// No caller anywhere passes an explicit `timeout:` — all ~150 take the default — so the floor
-/// cannot collide with a deliberately short budget, and it costs a passing wait nothing: the loop
-/// still returns the moment the condition holds.
+/// Every one of the ~160 real callers takes the default `timeout:` — `WaitUntilFloorTests`, which
+/// passes 0 deliberately to leave the floor as the only thing driving the loop, is the sole
+/// exception — so the floor cannot collide with a deliberately short budget, and it costs a passing
+/// wait nothing: the loop still returns the moment the condition holds.
 ///
 /// **Keep this in step with the copy in `SyncCloudTests/TestSupport.swift`**, which the app target
 /// cannot share. The two bodies are identical on purpose.
@@ -117,7 +118,7 @@ func waitUntil(
 
 /// The fewest polls `waitUntil` will make before it may give up, however little of its deadline is
 /// left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the FileExplorer test
-/// target and `pollFloor` in `ShortcutRevealTrackerTests`.
+/// target — the one sibling that exists on both release lines.
 let waitPollFloor = 50
 
 /// Creates a fresh, uniquely named temp directory for real-filesystem tests and returns it
