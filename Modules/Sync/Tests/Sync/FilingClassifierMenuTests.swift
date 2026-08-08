@@ -265,4 +265,45 @@ import Testing
         #expect(out.first?.best?.path == "/root/Documents/I-94")
     }
 
+    /// **A path segment carrying a file extension is a file, not a folder.** Asked where
+    /// `Divit - eOCI.pdf` goes, the model answered `Immigration/OCI/Divit/eOCI.pdf` — the name of
+    /// the PEER document already filed there — and the apply path created a folder called
+    /// `eOCI.pdf` and moved the file into it. Trimming it lands on the folder the model was
+    /// reaching for, which is where the file belongs.
+    @Test func aVerdictEndingInAnotherFilesNameKeepsTheFolder() throws {
+        let path = "/root/TODO/Divit - eOCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Divit - eOCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Visa/eOCI.pdf", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
+                                                           providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Visa")
+        #expect(best.newSegments.isEmpty, "the folder already existed; nothing should be created")
+    }
+
+    /// **A folder that already exists is the user's, whatever it is called.** The trim only ever
+    /// applies to a segment that would be CREATED — otherwise a real folder named `Backup.old`
+    /// would become unreachable.
+    @Test func anExistingFolderWithAnExtensionIsLeftAlone() throws {
+        let taxonomy = [Self.dir("/root/Documents", [Self.dir("/root/Documents/Backup.old")])]
+        let path = "/root/TODO/notes.txt"
+        let base = [FilingSuggestion(filePath: path, fileName: "notes.txt", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Backup.old", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: taxonomy,
+                                                           providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Backup.old")
+    }
+
+    /// A dot is not an extension. `U.S. Passport` and `Dr. Smith` are ordinary folder names, and a
+    /// looser test would delete their last word.
+    @Test func aFolderNameWithADotIsNotAFileName() {
+        #expect(FilingEngine.looksLikeAFileName("eOCI.pdf"))
+        #expect(FilingEngine.looksLikeAFileName("415059.jpeg"))
+        #expect(!FilingEngine.looksLikeAFileName("U.S. Passport"))
+        #expect(!FilingEngine.looksLikeAFileName("Dr. Smith"))
+        #expect(!FilingEngine.looksLikeAFileName("2024-2026"))
+        #expect(!FilingEngine.looksLikeAFileName("Form 1099-B"))
+        #expect(!FilingEngine.looksLikeAFileName(".hidden"))
+    }
 }

@@ -903,6 +903,14 @@ public enum FilingEngine {
         }
     }
 
+    /// Whether a path segment is a file name rather than a folder name — 1–5 ASCII alphanumerics
+    /// after a final dot. See ``destination(from:providerRoot:existingRelative:fileName:)``.
+    static func looksLikeAFileName(_ segment: String) -> Bool {
+        guard let dot = segment.lastIndex(of: "."), dot != segment.startIndex else { return false }
+        let ext = segment[segment.index(after: dot)...]
+        return (1...5).contains(ext.count) && ext.allSatisfy { $0.isASCII && $0.isLetter || $0.isNumber }
+    }
+
     /// `path` expressed relative to `providerRoot`, or the path unchanged when it is not under it.
     /// Boundary-safe on "/" so a sibling sharing a string prefix isn't mistaken for a child.
     static func relative(_ path: String, under providerRoot: String) -> String {
@@ -943,6 +951,23 @@ public enum FilingEngine {
         // never a folder.
         if !fileName.isEmpty, let last = segments.last,
            last.compare(fileName, options: .caseInsensitive) == .orderedSame {
+            segments.removeLast()
+        }
+        // **And not any other file's name either.** The rule above matched only the incoming file,
+        // which is the case that was in front of me; the general one is that a path segment
+        // carrying a file extension is a file. Asked where `Divit - eOCI.pdf` goes, the model
+        // answered `Immigration/OCI/Divit/eOCI.pdf` — the name of the PEER document already filed
+        // there — and the apply path duly created a folder called `eOCI.pdf` and moved the file
+        // into it. Trimming it lands on `Immigration/OCI/Divit`, which is where it belongs and
+        // what the model was reaching for.
+        //
+        // Only ever applied to a segment that would be CREATED: a folder that already exists is
+        // the user's, whatever it is called. And "carries an extension" is deliberately narrow —
+        // a dot is not enough, or `U.S. Passport` and `Dr. Smith` would lose their last word. The
+        // test is 1–5 ASCII alphanumerics after the final dot, which `pdf` and `jpeg` pass and no
+        // real folder name in the surveyed tree does.
+        if let last = segments.last, looksLikeAFileName(last),
+           !existingRelative.contains(segments.joined(separator: "/")) {
             segments.removeLast()
         }
         guard !segments.isEmpty else { return nil }
