@@ -781,4 +781,62 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(prompts.prompts == 1)   // the refine is what asks
         #expect(log.count == 2)
     }
+
+    // MARK: The artifacts are part of the question
+
+    private func writeArtifacts(_ dir: URL, id: String, profileFolders: Int) throws {
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(id),
+                                                withIntermediateDirectories: true)
+        let folders = (0..<profileFolders).map { #"{"path":"F\#($0)","depth":1,"fileCount":1,"subfolderCount":0,"extensions":{},"axes":{},"anchors":[],"isLeaf":true,"role":"destination"}"# }
+        let profile = #"{"schemaVersion":1,"profileId":"\#(id)","root":"~","folders":[\#(folders.joined(separator: ","))]}"#
+        try profile.write(to: dir.appendingPathComponent("\(id)/folder-profile.json"),
+                          atomically: true, encoding: .utf8)
+    }
+
+    /// **A re-survey must not replay answers composed against the old tree.** The artifacts decide
+    /// the router's shortlist, the shortlist is the classifier's folder menu, so regenerating them
+    /// changes what every file is asked — and the key said nothing about it. Installing a freshly
+    /// generated profile logged `reused 14 of 14 classification(s) from cache, 0 sent to the
+    /// backend`; the re-survey did nothing until the cache file was deleted by hand.
+    @Test func regeneratingTheArtifactsChangesTheFingerprint() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fp-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try writeArtifacts(dir, id: "me", profileFolders: 10)
+        let before = FilingProfileStore.fingerprint(id: "me", in: dir)
+        #expect(!before.isEmpty)
+        #expect(FilingProfileStore.fingerprint(id: "me", in: dir) == before, "not stable across reads")
+
+        try writeArtifacts(dir, id: "me", profileFolders: 11)   // re-surveyed
+        #expect(FilingProfileStore.fingerprint(id: "me", in: dir) != before)
+    }
+
+    /// An unsurveyed tree has no artifacts and no fingerprint — the field must not become a reason
+    /// to miss on a machine that never had a profile.
+    @Test func noArtifactsMeansAnEmptyFingerprint() {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fp-none-\(UUID().uuidString)")
+        #expect(FilingProfileStore.fingerprint(id: "me", in: dir).isEmpty)
+    }
+
+    /// The fingerprint is key material: two otherwise identical questions asked against different
+    /// artifacts are different questions.
+    @Test func theFingerprintSeparatesOtherwiseIdenticalKeys() {
+        func key(_ fp: String) -> FilingVerdictKey {
+            FilingVerdictKey(filePath: "/r/TODO/a.pdf", modificationDate: Date(timeIntervalSince1970: 1),
+                             size: 10, model: "on-device", promptVersion: 5, artifacts: fp)
+        }
+        #expect(key("aaaa") != key("bbbb"))
+        #expect(key("aaaa") == key("aaaa"))
+    }
+
+    /// An entry written before the field existed still decodes — a shape change that throws
+    /// discards the whole cache file, and those entries are honest answers to the question a tree
+    /// with no artifacts asks.
+    @Test func aKeyWrittenBeforeTheFieldExistedStillDecodes() throws {
+        let json = #"{"filePath":"/r/a.pdf","modifiedMillis":1000,"size":10,"model":"on-device","promptVersion":4,"excludedRelativePaths":[]}"#
+        let k = try JSONDecoder().decode(FilingVerdictKey.self, from: Data(json.utf8))
+        #expect(k.artifacts.isEmpty)
+        #expect(k.filePath == "/r/a.pdf")
+    }
 }

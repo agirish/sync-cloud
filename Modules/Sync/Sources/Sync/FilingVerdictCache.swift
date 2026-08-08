@@ -35,15 +35,33 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
     public let model: String
     public let promptVersion: Int
     public let excludedRelativePaths: [String]
+    /// Digest of the profile artifacts the question was composed against — see
+    /// ``FilingProfileStore/fingerprint(id:in:)``. Empty on an unsurveyed tree, and on entries
+    /// written before this existed, which is why it decodes with a default rather than failing:
+    /// a shape change that throws discards the whole cache file, and those entries are still
+    /// answers to the question a tree with no artifacts asks.
+    public let artifacts: String
 
     public init(filePath: String, modificationDate: Date?, size: Int, model: String,
-                promptVersion: Int, excludedRelativePaths: [String] = []) {
+                promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String = "") {
         self.filePath = filePath
         self.modifiedMillis = modificationDate.map { Int(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
         self.size = size
         self.model = model
         self.promptVersion = promptVersion
         self.excludedRelativePaths = excludedRelativePaths.sorted()
+        self.artifacts = artifacts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        filePath = try c.decode(String.self, forKey: .filePath)
+        modifiedMillis = try c.decode(Int.self, forKey: .modifiedMillis)
+        size = try c.decode(Int.self, forKey: .size)
+        model = try c.decode(String.self, forKey: .model)
+        promptVersion = try c.decode(Int.self, forKey: .promptVersion)
+        excludedRelativePaths = try c.decodeIfPresent([String].self, forKey: .excludedRelativePaths) ?? []
+        artifacts = try c.decodeIfPresent(String.self, forKey: .artifacts) ?? ""
     }
 }
 

@@ -720,6 +720,9 @@ public class FileSyncManager: ObservableObject {
     /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
     /// any of this existed.
     public var filingFolderProfile: FolderProfile? { didSet { invalidateFilingRouterIndex() } }
+    /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
+    /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
+    public var filingArtifactFingerprint: String = ""
     public var filingMemory: FilingMemory? { didSet { invalidateFilingRouterIndex() } }
     /// The prepared router index, and the destination set it was built from.
     ///

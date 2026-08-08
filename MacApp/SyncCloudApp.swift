@@ -343,6 +343,10 @@ struct SyncCloudApp: App {
            let loaded = FilingProfileStore.active(in: profiles) {
             manager.filingFolderProfile = loaded.profile
             manager.filingMemory = loaded.memory
+            // Part of the question every file is asked — a re-survey must not replay answers the
+            // old tree produced. Read from the same directory the artifacts came from.
+            manager.filingArtifactFingerprint =
+                FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: profiles)
             Logger.shared.info("Filing profile '\(loaded.profile.profileId)' loaded — "
                                + "\(loaded.profile.folders.count) folders, "
                                + "\(loaded.memory?.folders.count ?? 0) with filing memory")

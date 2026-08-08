@@ -1,3 +1,4 @@
+import CryptoKit
 import Events
 import Foundation
 
@@ -67,6 +68,32 @@ public enum FilingProfileStore {
     }
 
     private struct SchemaProbe: Decodable { let schemaVersion: Int? }
+
+    /// A short digest of the artifact FILES on disk, or "" when neither is present.
+    ///
+    /// **The artifacts are part of the question the backend is asked**, and nothing in
+    /// ``FilingVerdictKey`` used to say so. They decide the router's shortlist, the shortlist is the
+    /// classifier's folder menu, and a re-survey therefore changes what every file is asked about —
+    /// while the cache, keyed on the file and the prompt version, replays the answer to the old
+    /// question. Installing a freshly generated profile logged `reused 14 of 14 classification(s)
+    /// from cache, 0 sent to the backend`: the re-survey had no effect at all until the cache file
+    /// was deleted by hand.
+    ///
+    /// Hashed from the bytes rather than derived from a field like the memory's salt, so it also
+    /// moves when a profile is regenerated without the memory being rebuilt. One SHA-256 of a few
+    /// megabytes, once per load, at launch.
+    public static func fingerprint(id: String, in directory: URL) -> String {
+        var hasher = SHA256()
+        var any = false
+        for name in ["folder-profile.json", "filing-memory.json"] {
+            guard let data = try? Data(contentsOf: directory.appendingPathComponent("\(id)/\(name)"))
+            else { continue }
+            any = true
+            hasher.update(data: data)
+        }
+        guard any else { return "" }
+        return hasher.finalize().prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
 
     private static func decode<T: Decodable>(_ type: T.Type, at url: URL, what: String) -> T? {
         guard let data = try? Data(contentsOf: url) else { return nil }

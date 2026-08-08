@@ -148,7 +148,8 @@ extension FileSyncManager {
                 let key = FilingVerdictKey(
                     filePath: s.filePath, modificationDate: s.modificationDate, size: s.size,
                     model: identity, promptVersion: CloudFilingProtocol.promptVersion,
-                    excludedRelativePaths: excludedByFile[s.filePath] ?? [])
+                    excludedRelativePaths: excludedByFile[s.filePath] ?? [],
+                    artifacts: filingArtifactFingerprint)
                 keysByFile[s.filePath] = key
                 if let hit = cache.verdict(for: key, providerRoot: root,
                                            existingRelative: existingRelative) {
