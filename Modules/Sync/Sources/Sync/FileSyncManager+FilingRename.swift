@@ -212,9 +212,17 @@ extension FileSyncManager {
                                                entry: profile?.folders[plan.relativePath])
                 // A step is applied only if the folder as it stands still asks for exactly it.
                 let stillProposed = Set(fresh.steps.map { $0.currentPath + "\u{0}" + $0.proposedName })
+                func survives(_ step: RenameStep) -> Bool {
+                    stillProposed.contains(step.currentPath + "\u{0}" + step.proposedName)
+                }
+                // A renumbering is all-or-nothing, here as well as in the planner. If the folder
+                // moved under us in a way that invalidates ONE step of a cascade, the survivors
+                // would collapse two months onto one slot — so the whole cohort stands down.
+                let brokenCohorts = Set(plan.steps.filter { $0.cohort != 0 && !survives($0) }
+                                                  .map(\.cohort))
                 var appliedHere = false
                 for step in plan.steps {
-                    guard stillProposed.contains(step.currentPath + "\u{0}" + step.proposedName) else {
+                    guard survives(step), !brokenCohorts.contains(step.cohort) else {
                         stale += 1
                         continue
                     }

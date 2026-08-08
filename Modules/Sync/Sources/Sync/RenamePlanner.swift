@@ -22,6 +22,10 @@ public struct RenameStep: Sendable, Equatable, Identifiable {
         case tidied
         /// A raw name taking a slot it did not have. `9829custbill07182023.pdf` → `07. Jul 2023.pdf`.
         case placed
+        /// An already-correct name whose **slot moved** to make room for a file inserted before it.
+        /// `02. Jul 2010.pdf` → `03. Jul 2010.pdf` when May arrives. Only ever produced under
+        /// ``OrdinalScheme/position``, and never alone — see ``RenameStep/cohort``.
+        case renumbered
     }
 
     /// Absolute path of the file as it stands **now**. Doubles as the identity.
@@ -30,15 +34,24 @@ public struct RenameStep: Sendable, Equatable, Identifiable {
     public let currentName: String
     public let proposedName: String
     public let kind: Kind
+    /// Which **all-or-nothing group** this step belongs to. `0` means the step stands alone.
+    ///
+    /// A padding fix is independent: `4. Apr` → `04. Apr` is right whether or not its neighbours
+    /// move. A renumber is not. Inserting May into `01. Apr · 02. Jul · 03. Sep` shifts Jul and Sep
+    /// up by one, and applying *some* of those leaves the folder worse numbered than it started —
+    /// two files at slot 3, or a gap where a month used to be. Steps sharing a non-zero cohort are
+    /// therefore applied together or not at all, by both the collision guard and the apply path.
+    public let cohort: Int
     /// Why, for the row subtitle.
     public let reason: String
 
     public init(currentPath: String, currentName: String, proposedName: String,
-                kind: Kind, reason: String) {
+                kind: Kind, cohort: Int = 0, reason: String) {
         self.id = currentPath
         self.currentName = currentName
         self.proposedName = proposedName
         self.kind = kind
+        self.cohort = cohort
         self.reason = reason
     }
 }
@@ -90,6 +103,8 @@ public struct RenamePlan: Sendable, Equatable, Identifiable {
     public var tidied: Int { steps.filter { $0.kind == .tidied }.count }
     /// Steps giving a raw name a slot it did not have.
     public var placed: Int { steps.filter { $0.kind == .placed }.count }
+    /// Steps whose slot moved to make room for one of the above.
+    public var renumbered: Int { steps.filter { $0.kind == .renumbered }.count }
 }
 
 /// One file as the planner sees it. Pure value — no disk handle, so a plan is unit-testable against
@@ -148,7 +163,11 @@ public enum RenamePlanner {
             let group = groups[ext]!
             let groupScheme = inferScheme(files: group)
             schemes.append((ext, group.count, groupScheme))
-            let result = planGroup(group, scheme: groupScheme, entry: entry, incoming: incoming)
+            // A cohort id unique per extension group: two extensions can each need a cascade, and
+            // one folder-wide id would tie a `.csv` renumber to a `.pdf` one that has nothing to do
+            // with it — a single stale step would then abandon both.
+            let result = planGroup(group, scheme: groupScheme, entry: entry, incoming: incoming,
+                                   cohortSeed: schemes.count + 1)
             steps.append(contentsOf: result.steps)
             skips.append(contentsOf: result.skips)
         }
@@ -192,6 +211,7 @@ public enum RenamePlanner {
         for s in steps { wanted[s.proposedName.lowercased(), default: 0] += 1 }
 
         var kept: [RenameStep] = []
+        var doomedCohorts: Set<Int> = []
         for s in steps {
             if staying.contains(s.proposedName.lowercased()) {
                 skips.append(RenameSkip(path: s.currentPath, fileName: s.currentName,
@@ -203,9 +223,20 @@ public enum RenamePlanner {
                                             + "(“\(s.proposedName)”); both were left alone."))
             } else {
                 kept.append(s)
+                continue
             }
+            // The step just refused belonged to a renumbering, so the rest of that renumbering must
+            // go too. Applying the survivors would leave two files on one slot, or a hole where a
+            // month used to be — a folder worse numbered than the one this pass was asked to fix.
+            if s.cohort != 0 { doomedCohorts.insert(s.cohort) }
         }
-        return kept
+        guard !doomedCohorts.isEmpty else { return kept }
+        for s in kept where doomedCohorts.contains(s.cohort) {
+            skips.append(RenameSkip(path: s.currentPath, fileName: s.currentName,
+                                    reason: "Part of a renumbering this folder cannot complete — "
+                                        + "another file here already holds a name it needs."))
+        }
+        return kept.filter { !doomedCohorts.contains($0.cohort) }
     }
 
     // MARK: Does this folder number its files at all?
@@ -255,7 +286,7 @@ public enum RenamePlanner {
 
     private static func planGroup(
         _ files: [FolderFile], scheme: OrdinalScheme,
-        entry: FolderProfileEntry?, incoming: FolderFile?
+        entry: FolderProfileEntry?, incoming: FolderFile?, cohortSeed: Int
     ) -> GroupResult {
         var out = GroupResult()
 
@@ -278,41 +309,40 @@ public enum RenamePlanner {
             }
         }
 
-        // Slots already spoken for, so a placement never lands on one.
-        var taken = Set(dated.map(\.parsed.ordinal)).union(summaries.map(\.parsed.ordinal))
-        // The months this group holds, GROWING as placements are decided. Both the duplicate check
-        // and the positional rank read it, so a second raw bill for a month a first raw bill just
-        // claimed is caught by the same rule that catches one clashing with a renamed sibling.
-        var claimed: [(month: Int, year: Int, by: String)] =
-            dated.map { (month: $0.month, year: $0.year, by: $0.file.name) }
-
-        // 1. Width and body fixes. The ordinal does not move, so these can never collide with
-        //    anything and are the safe bulk of the backlog — 567 one-digit ordinals tree-wide.
-        for d in dated where !d.parsed.isCanonical {
-            out.steps.append(RenameStep(
-                currentPath: d.file.path, currentName: d.file.name,
-                proposedName: d.parsed.canonicalName,
-                kind: .tidied,
-                reason: d.parsed.ordinalDigits == 1
-                    ? "Padded to two digits — a one-digit ordinal sorts after “10.”"
-                    : "Tidied to the folder’s “NN. Mon YYYY” form"))
+        // 1. Width and body fixes for names whose SLOT does not move. Independent of each other
+        //    and of everything else, so they carry no cohort — and they are the safe bulk of the
+        //    backlog, 567 one-digit ordinals tree-wide.
+        //
+        //    Emitted below only when no cascade runs: a cascade re-renders every dated file itself,
+        //    and two steps for one file is not a plan.
+        func paddingSteps() -> [RenameStep] {
+            dated.filter { !$0.parsed.isCanonical }.map { d in
+                RenameStep(currentPath: d.file.path, currentName: d.file.name,
+                           proposedName: d.parsed.canonicalName, kind: .tidied,
+                           reason: d.parsed.ordinalDigits == 1
+                               ? "Padded to two digits — a one-digit ordinal sorts after “10.”"
+                               : "Tidied to the folder’s “NN. Mon YYYY” form")
+            }
         }
-        for s in summaries where !s.parsed.isCanonical {
+        for sum in summaries where !sum.parsed.isCanonical {
             out.steps.append(RenameStep(
-                currentPath: s.file.path, currentName: s.file.name,
-                proposedName: s.parsed.canonicalName,
-                kind: .tidied,
+                currentPath: sum.file.path, currentName: sum.file.name,
+                proposedName: sum.parsed.canonicalName, kind: .tidied,
                 reason: "Padded to two digits — a one-digit ordinal sorts after “10.”"))
         }
 
-        // 2. Placements: a raw name that already carries its own date.
+        // 2. Which raw files are placeable at all — decided BEFORE any ordinal is assigned, because
+        //    under `.position` a slot is a rank over the whole group and a rank cannot be computed
+        //    one file at a time.
         //
-        // Mined FIRST and then walked in date order, because under `.position` a slot is a rank and
-        // a rank is only meaningful against everything already placed. A folder the survey found
-        // "not renamed at all" — `PG&E/2022`, eleven raw bills and no conforming sibling — is the
-        // case that makes this necessary: ranked against the *original* file list alone, all eleven
-        // compute slot 1, ten of them collide with the first, and the pass places one bill and
-        // reports ten failures for a folder it should have numbered end to end.
+        //    Walked in date order so that a folder the survey found "not renamed at all"
+        //    (`PG&E/2022`: eleven raw bills, no conforming sibling) numbers end to end rather than
+        //    placing one bill and reporting ten collisions with it.
+        var claimed: Set<MonthKey> = Set(dated.map { MonthKey(year: $0.year, month: $0.month) })
+        var claimedBy: [MonthKey: String] = [:]
+        for d in dated { claimedBy[MonthKey(year: d.year, month: d.month)] = d.file.name }
+        var placements: [(file: FolderFile, key: MonthKey, evidence: String)] = []
+
         let minedUnplaced = unplaced
             .map { (file: $0, mined: FileNameDate.mine($0.name)) }
             .sorted { a, b in
@@ -343,52 +373,139 @@ public enum RenamePlanner {
                         + "but this folder holds \(owned) — it may be filed in the wrong year."))
                 continue
             }
-            // A slot already holding this exact month is the duplicate trap: the raw original beside
-            // the copy that was already renamed. Proving they are the same document is item 18's
-            // job, so this reports the collision and never guesses.
-            if let clash = claimed.first(where: { $0.month == mined.month && $0.year == mined.year }) {
+            let key = MonthKey(year: mined.year, month: mined.month)
+            // A month this group already holds is the duplicate trap: the raw original beside the
+            // copy that was already renamed. Proving they are the same document is item 18's job,
+            // so this reports the collision and never guesses.
+            //
+            // **A cascade does not change this.** Renumbering makes room where the CONVENTION needs
+            // room; it must never make room for a second copy of a month that is already here.
+            if claimed.contains(key) {
                 out.skips.append(RenameSkip(
                     path: f.path, fileName: f.name,
-                    reason: "“\(clash.by)” already holds "
+                    reason: "“\(claimedBy[key] ?? "another file")” already holds "
                         + "\(OrdinalMonthName.body(month: mined.month, year: mined.year)) here."))
                 continue
             }
-            let slot = self.slot(forMonth: mined.month, year: mined.year, scheme: scheme,
-                                 among: claimed)
-            guard !taken.contains(slot) else {
-                out.skips.append(RenameSkip(
-                    path: f.path, fileName: f.name,
-                    reason: "Slot \(String(format: "%02d", slot)) is taken — this folder needs "
-                        + "renumbering before \(OrdinalMonthName.body(month: mined.month, year: mined.year))"
-                        + " can be placed."))
-                continue
+            claimed.insert(key)
+            claimedBy[key] = f.name
+            placements.append((f, key, mined.evidence))
+        }
+
+        // 3. Ordinals.
+        switch scheme {
+        case .monthNumber:
+            // The slot IS the month, so nothing shifts and there is nothing to cascade. A taken
+            // slot here means two files claim one month, which the check above already refused —
+            // reaching this is a summary or a stray sitting on a month's number.
+            let taken = Set(dated.map(\.parsed.ordinal)).union(summaries.map(\.parsed.ordinal))
+            out.steps.append(contentsOf: paddingSteps())
+            for p in placements {
+                guard !taken.contains(p.key.month) else {
+                    out.skips.append(RenameSkip(
+                        path: p.file.path, fileName: p.file.name,
+                        reason: "Slot \(String(format: "%02d", p.key.month)) is already in use here."))
+                    continue
+                }
+                out.steps.append(RenameStep(
+                    currentPath: p.file.path, currentName: p.file.name,
+                    proposedName: OrdinalMonthName.render(
+                        ordinal: p.key.month, month: p.key.month, year: p.key.year,
+                        ext: (p.file.name as NSString).pathExtension),
+                    kind: .placed,
+                    reason: "Renamed to the folder’s convention from \(p.evidence)."))
             }
-            taken.insert(slot)
-            claimed.append((month: mined.month, year: mined.year, by: f.name))
-            out.steps.append(RenameStep(
-                currentPath: f.path, currentName: f.name,
-                proposedName: OrdinalMonthName.render(ordinal: slot, month: mined.month,
-                                                      year: mined.year,
-                                                      ext: (f.name as NSString).pathExtension),
-                kind: .placed,
-                reason: "Renamed to the folder’s convention from \(mined.evidence)."))
+
+        case .position:
+            // The rank of every month the group will hold once the placements land.
+            let ordinals = positionalOrdinals(for: claimed)
+            // A cascade is needed only when an EXISTING file's slot moves. Appending a month after
+            // everything already there — the ordinary case, and what the incoming-file path almost
+            // always does — shifts nothing and takes the next free number.
+            //
+            // **Gated on there actually being a placement.** Without that gate this fires on any
+            // folder whose existing numbering is not already a perfect 1…N — and a great many are
+            // not, legitimately: `10. Dec 2021.pdf` sitting beside `1. Mar` and `2. Apr` is a
+            // folder somebody numbered by hand, not a folder to renumber behind their back. The
+            // cascade exists to make ROOM; with nothing arriving there is no room to make.
+            let shifts = !placements.isEmpty && dated.contains {
+                ordinals[MonthKey(year: $0.year, month: $0.month)] != $0.parsed.ordinal
+            }
+            if !shifts {
+                out.steps.append(contentsOf: paddingSteps())
+                var taken = Set(dated.map(\.parsed.ordinal)).union(summaries.map(\.parsed.ordinal))
+                for p in placements.sorted(by: { $0.key < $1.key }) {
+                    // The rank, unless the folder's own numbering has drifted past it — in which
+                    // case the honest slot is the next free one rather than a number already in
+                    // use. Reached when `dated` is not a clean 1…N but nothing needs to move.
+                    var slot = ordinals[p.key] ?? p.key.month
+                    while taken.contains(slot) { slot += 1 }
+                    taken.insert(slot)
+                    out.steps.append(RenameStep(
+                        currentPath: p.file.path, currentName: p.file.name,
+                        proposedName: OrdinalMonthName.render(
+                            ordinal: slot, month: p.key.month,
+                            year: p.key.year, ext: (p.file.name as NSString).pathExtension),
+                        kind: .placed,
+                        reason: "Renamed to the folder’s convention from \(p.evidence)."))
+                }
+                break
+            }
+            // A real renumbering. Every file whose name changes goes into ONE cohort, including the
+            // padding fixes — half a renumber is worse than none, so they travel together.
+            let cohort = cohortSeed
+            let moved = dated.filter {
+                ordinals[MonthKey(year: $0.year, month: $0.month)] != $0.parsed.ordinal
+            }.count
+            let arriving = placements
+                .map { OrdinalMonthName.body(month: $0.key.month, year: $0.key.year) }
+                .joined(separator: ", ")
+            for d in dated {
+                let target = ordinals[MonthKey(year: d.year, month: d.month)] ?? d.parsed.ordinal
+                let name = d.parsed.canonicalName(ordinal: target)
+                guard name != d.file.name else { continue }
+                out.steps.append(RenameStep(
+                    currentPath: d.file.path, currentName: d.file.name, proposedName: name,
+                    kind: target == d.parsed.ordinal ? .tidied : .renumbered, cohort: cohort,
+                    reason: target == d.parsed.ordinal
+                        ? "Padded to two digits — a one-digit ordinal sorts after “10.”"
+                        : "Moved to slot \(String(format: "%02d", target)) to make room for "
+                            + "\(arriving)."))
+            }
+            for p in placements {
+                out.steps.append(RenameStep(
+                    currentPath: p.file.path, currentName: p.file.name,
+                    proposedName: OrdinalMonthName.render(
+                        ordinal: ordinals[p.key] ?? p.key.month, month: p.key.month,
+                        year: p.key.year, ext: (p.file.name as NSString).pathExtension),
+                    kind: .placed, cohort: cohort,
+                    reason: "Renamed to the folder’s convention from \(p.evidence)"
+                        + " — \(moved) later file\(moved == 1 ? "" : "s") renumbered to make room."))
+            }
         }
         return out
     }
 
-    /// The ordinal a new month takes.
-    ///
-    /// Under `.monthNumber` it is the month. Under `.position` it is the file's rank in date order
-    /// among the folder's dated files — which for the ordinary case, a new month arriving after
-    /// every month already there, is simply the next free number.
-    static func slot(forMonth month: Int, year: Int, scheme: OrdinalScheme,
-                     among claimed: [(month: Int, year: Int, by: String)]) -> Int {
-        switch scheme {
-        case .monthNumber:
-            return month
-        case .position:
-            return claimed.filter { ($0.year, $0.month) < (year, month) }.count + 1
+    /// One month a group holds. The unit of a slot — **not** one file.
+    struct MonthKey: Hashable, Comparable {
+        let year: Int
+        let month: Int
+        static func < (a: MonthKey, b: MonthKey) -> Bool {
+            (a.year, a.month) < (b.year, b.month)
         }
+    }
+
+    /// The ordinal each month takes under ``OrdinalScheme/position``: its rank in date order.
+    ///
+    /// **Ranked over distinct MONTHS, not over files**, and that distinction is load-bearing.
+    /// `Savings NRI/2014` holds `1. Jun 2014 NRE.pdf` and `1. Jun 2014 NRO.pdf` — two statements
+    /// for one month, correctly sharing slot 1 — and the next file is `2. Jul 2014.pdf`, not `3.`.
+    /// Counting files instead would renumber that folder `1, 2, 3, …` and shift every month after
+    /// June by one, which is a corruption dressed up as a fix.
+    static func positionalOrdinals(for months: Set<MonthKey>) -> [MonthKey: Int] {
+        var out: [MonthKey: Int] = [:]
+        for (i, key) in months.sorted().enumerated() { out[key] = i + 1 }
+        return out
     }
 
     /// Whether a mined year belongs to a folder whose year key is `owned`.

@@ -161,6 +161,73 @@ import Events
         #expect(survivor == 20, "the occupant must still be there, untouched")
     }
 
+    @MainActor
+    @Test func applyPerformsAWholeCascadeAndUndoesItInOneStep() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenamePass")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bucket = root.appendingPathComponent("2021")
+        for (n, m) in [("01", "Mar"), ("02", "Apr"), ("03", "May")] {
+            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+        }
+        try write(bucket.appendingPathComponent("9829custbill02182021.pdf"))
+
+        let manager = FileSyncManager()
+        let undo = UndoManager()
+        manager.undoManager = undo
+        manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
+        let plan = RenamePlanner.plan(
+            folderPath: bucket.path, relativePath: "2021",
+            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
+            entry: manager.filingFolderProfile?.folders["2021"])
+        #expect(plan.renumbered == 3)
+
+        await manager.applyRenamePlans([plan])
+
+        // February took slot 01 and the three months after it each moved up one. Every rename in
+        // the folder happened, or the numbering would be incoherent.
+        #expect(try names(in: bucket) == ["01. Feb 2021.pdf", "02. Mar 2021.pdf",
+                                          "03. Apr 2021.pdf", "04. May 2021.pdf"])
+        #expect(undo.canUndo)
+        undo.undo()
+        await waitUntil("the whole cascade reverted in one step") {
+            ((try? names(in: bucket)) ?? []) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf",
+                                                 "03. May 2021.pdf", "9829custbill02182021.pdf"]
+        }
+    }
+
+    @MainActor
+    @Test func aCascadeIsAbandonedWholeWhenTheFolderMovedUnderIt() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenamePass")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bucket = root.appendingPathComponent("2021")
+        for (n, m) in [("01", "Mar"), ("02", "Apr"), ("03", "May")] {
+            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+        }
+        try write(bucket.appendingPathComponent("9829custbill02182021.pdf"))
+
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
+        let plan = RenamePlanner.plan(
+            folderPath: bucket.path, relativePath: "2021",
+            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
+            entry: manager.filingFolderProfile?.folders["2021"])
+        #expect(plan.steps.count == 4)
+
+        // May is renamed by hand while the plan is open — to a slot it keeps, so it does not free
+        // `03.` for anyone. Three of the four steps still describe the folder exactly and would
+        // apply; the fourth cannot. Letting the three through puts February AND May both on slot
+        // 01, which is precisely the corruption a cascade is supposed to prevent.
+        try FileManager.default.moveItem(at: bucket.appendingPathComponent("03. May 2021.pdf"),
+                                         to: bucket.appendingPathComponent("01. May 2021.pdf"))
+
+        await manager.applyRenamePlans([plan])
+
+        #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "01. May 2021.pdf",
+                                          "02. Apr 2021.pdf", "9829custbill02182021.pdf"],
+                "no partial cascade may reach the disk")
+        #expect(manager.banner?.message.contains("had already changed") == true)
+    }
+
     // MARK: The outcome sentence
 
     @MainActor

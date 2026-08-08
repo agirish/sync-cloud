@@ -92,8 +92,12 @@ struct RenamePassLens: View {
     /// pass that saw eight files in a folder of ten.
     static func summary(_ plan: RenamePlan) -> String {
         var parts: [String] = []
-        if plan.tidied > 0 { parts.append("\(plan.tidied) to renumber") }
         if plan.placed > 0 { parts.append("\(plan.placed) to name") }
+        // Called out separately from padding, because it is the only thing here that moves a file
+        // that was already correct. Somebody scanning this row should be able to see that a folder
+        // is about to be reshuffled without opening it.
+        if plan.renumbered > 0 { parts.append("\(plan.renumbered) to reshuffle") }
+        if plan.tidied > 0 { parts.append("\(plan.tidied) to pad") }
         var s = parts.isEmpty ? "nothing to do" : parts.joined(separator: " · ")
         if !plan.skips.isEmpty { s += " · \(plan.skips.count) left alone" }
         return s

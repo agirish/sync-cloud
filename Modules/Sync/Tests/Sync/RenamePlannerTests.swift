@@ -219,10 +219,13 @@ import Testing
                       "9829custbill12182021.pdf"], year: "2021")
         #expect(p.scheme == .monthNumber)
         #expect(targets(p) == ["9829custbill12182021.pdf": "12. Dec 2021.pdf"])
-        // The discriminating half: under `.position` the same file would be slot 04, so this test
-        // is reading the scheme rather than counting files.
-        #expect(RenamePlanner.slot(forMonth: 12, year: 2021, scheme: .position,
-                                   among: []) == 1)
+        // The discriminating half: the very same files under a folder whose names vouch for
+        // POSITION put December at slot 04, not 12. So this test reads the scheme rather than
+        // counting files.
+        let positional = plan(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
+                               "9829custbill12182021.pdf"], year: "2021")
+        #expect(positional.scheme == .position)
+        #expect(targets(positional) == ["9829custbill12182021.pdf": "04. Dec 2021.pdf"])
     }
 
     @Test("Numbering is per extension — a csv/pdf pair shares one slot")
@@ -294,14 +297,85 @@ import Testing
         #expect(!RenamePlanner.yearFits(2024, month: 1, ownedBy: "2023"))
     }
 
-    @Test("A slot already taken is reported rather than renumbered around")
-    func reportsTakenSlot() {
-        // A back-fill into a position-numbered folder: Feb wants slot 1, which March holds. The pass
-        // says so instead of cascading nine hand-made names.
+    // MARK: Cascade renumbering
+
+    @Test("A back-fill shifts every later file up, and arrives at slot 01")
+    func backFillCascades() throws {
+        // `HDFC Credit/2010`'s shape: position-numbered, and February arrives before March.
         let p = plan(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
                       "9829custbill02182021.pdf"], year: "2021")
-        #expect(p.steps.isEmpty)
-        #expect(p.skips.first?.reason.contains("renumbering") == true)
+        #expect(targets(p) == ["9829custbill02182021.pdf": "01. Feb 2021.pdf",
+                               "01. Mar 2021.pdf": "02. Mar 2021.pdf",
+                               "02. Apr 2021.pdf": "03. Apr 2021.pdf",
+                               "03. May 2021.pdf": "04. May 2021.pdf"])
+        #expect(p.placed == 1)
+        #expect(p.renumbered == 3)
+        #expect(p.skips.isEmpty)
+        // All four move together or not at all.
+        let cohorts = Set(p.steps.map(\.cohort))
+        #expect(cohorts.count == 1)
+        #expect(cohorts.first != 0)
+    }
+
+    @Test("Appending after everything already there shifts nothing")
+    func appendDoesNotCascade() {
+        // The ordinary case, and the one the incoming-file path almost always takes. A cascade here
+        // would be churn: nothing is in the way.
+        let p = plan(["01. Jan 2025.pdf", "02. Feb 2025.pdf", "03. Mar 2025.pdf",
+                      "DetailedBillApr2025.pdf"], year: "2025")
+        #expect(targets(p) == ["DetailedBillApr2025.pdf": "04. Apr 2025.pdf"])
+        #expect(p.renumbered == 0)
+        #expect(p.steps.allSatisfy { $0.cohort == 0 })
+    }
+
+    @Test("A folder nobody is adding to is never renumbered")
+    func noPlacementMeansNoCascade() {
+        // `10. Dec 2021.pdf` beside `1. Mar` and `2. Apr` is not a clean 1…N, and a renumbering
+        // pass that normalised it would rewrite a number somebody chose by hand for no reason at
+        // all. The cascade exists to make ROOM; with nothing arriving there is none to make.
+        let p = plan(["1. Mar 2021.pdf", "2. Apr 2021.pdf", "10. Dec 2021.pdf"], year: "2021")
+        #expect(targets(p) == ["1. Mar 2021.pdf": "01. Mar 2021.pdf",
+                               "2. Apr 2021.pdf": "02. Apr 2021.pdf"])
+        #expect(p.renumbered == 0)
+    }
+
+    @Test("A month-numbered folder never cascades — its slots do not move")
+    func monthNumberedFolderDoesNotCascade() {
+        // Under `.monthNumber` the slot IS the month, so an arriving February takes slot 02 and
+        // March keeps 03. Renumbering would be actively wrong.
+        let p = plan(["03. Mar 2021.pdf", "04. Apr 2021.pdf", "07. Jul 2021.pdf",
+                      "9829custbill02182021.pdf"], year: "2021")
+        #expect(p.scheme == .monthNumber)
+        #expect(targets(p) == ["9829custbill02182021.pdf": "02. Feb 2021.pdf"])
+        #expect(p.renumbered == 0)
+    }
+
+    @Test("A renumber ranks distinct MONTHS, not files")
+    func cascadeRanksByMonthNotFile() throws {
+        // `Savings NRI/2014` really holds two June statements sharing slot 1, with July at 2. A
+        // cascade that counted FILES would push July to 3 and every later month with it — a
+        // corruption dressed up as a fix.
+        let p = plan(["1. Jun 2014 NRE.pdf", "1. Jun 2014 NRO.pdf", "2. Jul 2014.pdf",
+                      "3. Aug 2014.pdf", "statement20140501.pdf"], year: "2014")
+        #expect(targets(p) == ["statement20140501.pdf": "01. May 2014.pdf",
+                               "1. Jun 2014 NRE.pdf": "02. Jun 2014 NRE.pdf",
+                               "1. Jun 2014 NRO.pdf": "02. Jun 2014 NRO.pdf",
+                               "2. Jul 2014.pdf": "03. Jul 2014.pdf",
+                               "3. Aug 2014.pdf": "04. Aug 2014.pdf"])
+        // Both June statements land on ONE slot, and the suffix that tells them apart survives.
+        #expect(p.skips.isEmpty)
+    }
+
+    @Test("A renumbering that cannot complete is abandoned whole, not half-applied")
+    func aBrokenCascadeStandsDown() throws {
+        // `1. Mar` and `01. Mar` both want slot 02 once February arrives — one name, two files. The
+        // collision guard refuses them, and with a cascade that has to take the rest of the cohort
+        // with it: applying the survivors would leave April on a slot March also claims.
+        let p = plan(["1. Mar 2021.pdf", "01. Mar 2021.pdf", "02. Apr 2021.pdf",
+                      "9829custbill02182021.pdf"], year: "2021")
+        #expect(p.steps.isEmpty, "no step may survive a cascade that cannot be completed")
+        #expect(!p.skips.isEmpty)
+        #expect(p.skips.contains { $0.reason.contains("renumbering this folder cannot complete") })
     }
 
     // MARK: The incoming file — Organize's move suggestion asks the same rules

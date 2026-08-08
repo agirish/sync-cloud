@@ -85,11 +85,18 @@ public enum OrdinalMonthName {
         /// distinction with it. So the month and year are only respelled when they are the *entire*
         /// body (`07. July 2016.pdf` → `07. Jul 2016.pdf`); anything else keeps its body verbatim and
         /// gets nothing but the two-digit ordinal it was missing.
-        public var canonicalName: String {
+        public var canonicalName: String { canonicalName(ordinal: ordinal) }
+
+        /// The same name at a **different slot** — what a renumbering writes.
+        ///
+        /// The body rule above is unchanged and matters more here, not less: a renumber touches
+        /// files that were already correct, so `1. Jun 2014 NRE.pdf` moving to slot 2 must become
+        /// `02. Jun 2014 NRE.pdf` and not `02. Jun 2014.pdf`.
+        public func canonicalName(ordinal newOrdinal: Int) -> String {
             guard let month, let year, bodyIsBareDate else {
-                return OrdinalMonthName.render(ordinal: ordinal, body: body, ext: ext)
+                return OrdinalMonthName.render(ordinal: newOrdinal, body: body, ext: ext)
             }
-            return OrdinalMonthName.render(ordinal: ordinal, month: month, year: year, ext: ext)
+            return OrdinalMonthName.render(ordinal: newOrdinal, month: month, year: year, ext: ext)
         }
 
         /// True when the body is a month word and a four-digit year and **nothing else**.
