@@ -22,12 +22,13 @@ import Testing
     }
 
     private func plan(_ names: [String], naming: String? = "ordinal-month",
-                      year: String? = nil, incoming: String? = nil) -> RenamePlan {
+                      year: String? = nil, incoming: String? = nil,
+                      relativePath: String = "T") -> RenamePlan {
         var axes: [String: String] = [:]
         if let year { axes["year"] = year }
         return RenamePlanner.plan(
-            folderPath: "/T", relativePath: "T", files: files(names),
-            entry: entry("T", naming: naming, axes: axes),
+            folderPath: "/T", relativePath: relativePath, files: files(names),
+            entry: entry(relativePath, naming: naming, axes: axes),
             incoming: incoming.map { FolderFile(path: "/In/" + $0, name: $0) })
     }
 
@@ -142,6 +143,42 @@ import Testing
         // emptiness above is the gate and not the miner failing.
         #expect(plan(["ATTBill_1897_Jan2022.pdf", "ATTBill_1897_Feb2022.pdf",
                       "DetailedBillApr2025.pdf"], naming: "ordinal-month").steps.count == 3)
+    }
+
+    @Test("An inbox is never renamed in — its names are still routing files")
+    func neverRenamesInsideAStagingArea() {
+        let files = ["1. Jan 2021.pdf", "2. Feb 2021.pdf", "ATTBill_1897_Mar2021.pdf"]
+        // Marked an inbox by the profile…
+        let byRole = RenamePlanner.plan(
+            folderPath: "/root/Staging", relativePath: "Staging",
+            files: files.map { FolderFile(path: "/root/Staging/" + $0, name: $0) },
+            entry: FolderProfileEntry(path: "Staging", role: .inbox, naming: "ordinal-month",
+                                      anchors: [], acceptsNewFiles: false, fileCount: 3,
+                                      subfolderCount: 0, axes: ["year": "2021"]))
+        #expect(byRole.steps.isEmpty)
+        // …and by its NAME alone, which is the case the profile's flags lag behind.
+        let byName = plan(files, year: "2021", relativePath: "Home/TODO")
+        #expect(byName.steps.isEmpty)
+        let byNameNested = plan(files, year: "2021", relativePath: "Home/EDD - TODO/2021")
+        #expect(byNameNested.steps.isEmpty)
+
+        // Non-vacuity, and the reason this matters: the very same files in an ordinary folder ARE
+        // renamed — including the AT&T bill, whose `attbill` token is what routes it. Renaming it
+        // where it still needs routing would send it nowhere.
+        let ordinary = plan(files, year: "2021")
+        #expect(ordinary.steps.count == 3)
+        #expect(FilingEngine.salientTokens(ofFileNamed: "ATTBill_1897_Mar2021.pdf").contains("attbill"))
+        #expect(!FilingEngine.salientTokens(ofFileNamed: "03. Mar 2021.pdf").contains("attbill"))
+    }
+
+    @Test("A folder merely named like a document is not a staging area")
+    func doesNotMistakeOrdinaryFoldersForInboxes() {
+        // `isInboxPath` matches whole words inside a component, so a folder called `Mastodon` — or
+        // `Todoist` — is not an inbox. Borrowing that rule rather than a `contains("todo")` is what
+        // keeps this from switching the pass off for real folders.
+        #expect(!RenamePlanner.isStagingArea("Home/Mastodon/2021", entry: nil))
+        #expect(!RenamePlanner.isStagingArea("Home/Todoist/2021", entry: nil))
+        #expect(RenamePlanner.isStagingArea("Home/New (TODO)/2021", entry: nil))
     }
 
     @Test("An unsurveyed folder needs three conforming files before it is recruited")
@@ -484,6 +521,25 @@ import Testing
         // The 2024 bill is reported as a possible misfiling and is NOT given a 2023 name.
         #expect(p.skips.count == 1)
         #expect(p.skips.first?.fileName == "9829custbill01182024.pdf")
+    }
+
+    @Test("PG&E 2022, not renamed at all, is numbered end to end")
+    func pgeTwentyTwentyTwo() {
+        // The survey's third PG&E shape and the one with no conforming sibling to anchor on:
+        // eleven raw bills, nothing else. Every one is mined and placed in date order, which is
+        // only possible because placements are ranked against each other rather than against the
+        // original file list — ranked against the list, all eleven compute slot 1.
+        let raw = (1...11).map { m in String(format: "9829custbill%02d182022.pdf", m) }
+        let p = plan(raw, year: "2022")
+        #expect(p.steps.count == 11)
+        #expect(p.placed == 11)
+        #expect(p.skips.isEmpty)
+        for m in 1...11 {
+            let expected = String(format: "%02d. %@ 2022.pdf", m, OrdinalMonthName.monthAbbreviations[m - 1])
+            #expect(p.steps.contains { $0.proposedName == expected }, "missing \(expected)")
+        }
+        // Numbered end to end with no gaps and no repeats — the whole claim of the folder.
+        #expect(Set(p.steps.map(\.proposedName)).count == 11)
     }
 
     @Test("PG&E 2021, fully renamed one-digit, is padded and not renumbered")

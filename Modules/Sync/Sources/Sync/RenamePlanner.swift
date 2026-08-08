@@ -143,7 +143,8 @@ public enum RenamePlanner {
         incoming: FolderFile? = nil
     ) -> RenamePlan {
         let all = files + (incoming.map { [$0] } ?? [])
-        guard usesOrdinalConvention(files: files, entry: entry) else {
+        guard !isStagingArea(relativePath, entry: entry),
+              usesOrdinalConvention(files: files, entry: entry) else {
             return RenamePlan(folderPath: folderPath, relativePath: relativePath,
                               scheme: .position, steps: [], skips: [])
         }
@@ -241,6 +242,28 @@ public enum RenamePlanner {
                                         + "another file here already holds a name it needs."))
         }
         return kept.filter { !doomedCohorts.contains($0.cohort) }
+    }
+
+    /// Whether this folder is a staging area, where a file's own name is still doing work.
+    ///
+    /// **An inbox is the one place a correct rename is the wrong thing to do.** The filing engine
+    /// routes on the filename, and the house convention throws away exactly the tokens it routes by:
+    /// `ATTBill_1897_Feb2022.pdf` carries `attbill`, which is what sends it to `Home/Utilities/AT&T`,
+    /// and `02. Feb 2022.pdf` carries `feb`, which sends it nowhere. Measured through
+    /// `FilingEngine.salientTokens` — `{attbill, feb2022}` becomes `{feb}`, and
+    /// `{9829custbill07182023}` becomes `{jul}`.
+    ///
+    /// So renaming inside an inbox is not merely premature cosmetics on a file that is about to
+    /// move; it destroys the evidence the move depends on, and the destination will decide the name
+    /// again anyway. The two features would be working against each other.
+    ///
+    /// No folder in the surveyed tree is both an inbox and `ordinal-month`, so this changes nothing
+    /// there. It is armor for the case ``FolderProfile/isInboxPath(_:)`` was written for: a tree
+    /// grows new inboxes, and the profile's own flags lag behind them. Asked through that shared
+    /// rule rather than re-implemented, so a fourth place cannot start disagreeing with the three.
+    static func isStagingArea(_ relativePath: String, entry: FolderProfileEntry?) -> Bool {
+        if entry?.role == .inbox { return true }
+        return FolderProfile.isInboxPath(relativePath)
     }
 
     // MARK: Does this folder number its files at all?

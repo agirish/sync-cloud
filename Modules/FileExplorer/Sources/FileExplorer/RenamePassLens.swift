@@ -79,7 +79,10 @@ struct RenamePassLens: View {
             }
             .buttonStyle(.borderless)
             .tint(accent)
-            .disabled(syncManager.isApplyingRenames)
+            // Disabled during a rescan as well as during an apply, matching the header's
+            // "Rename all". A plan is last scan's answer until the new one publishes, and a button
+            // that acts on it mid-scan is offering a claim the app is in the middle of revising.
+            .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
             .help("Apply every rename in this folder, as one undoable change")
         }
         .padding(.vertical, 2)
