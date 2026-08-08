@@ -19,7 +19,8 @@ extension FileSyncManager {
         if filingRouterIndex != nil, filingRouterIndexKey == destinations { return }
         filingRouterIndex = FilingRouter.makeIndex(destinations: Array(destinations),
                                                    profile: filingFolderProfile,
-                                                   memory: filingMemory)
+                                                   memory: filingMemory,
+                                                   registry: filingPersonRegistry)
         filingRouterIndexKey = destinations
         filingRouterIndexBuilds += 1
     }

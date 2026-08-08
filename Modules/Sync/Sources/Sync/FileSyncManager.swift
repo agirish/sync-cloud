@@ -768,6 +768,10 @@ public class FileSyncManager: ObservableObject {
     /// Files whose OCR is currently running, so a second click cannot start a second render.
     public internal(set) var filingOCRInFlight: Set<String> = []
     public var filingMemory: FilingMemory? { didSet { invalidateFilingRouterIndex() } }
+    /// The household — who documents belong to. Loaded beside the artifacts above (from
+    /// `people.json`, or seeded from the profile's person axis), and part of the router index for
+    /// the same reason they are: it decides the person-axis score and the cross-person veto.
+    public var filingPersonRegistry: PersonRegistry? { didSet { invalidateFilingRouterIndex() } }
     /// The prepared router index, and the destination set it was built from.
     ///
     /// Building it costs ~85 ms against a 2,979-folder tree, and the taxonomy is usually identical

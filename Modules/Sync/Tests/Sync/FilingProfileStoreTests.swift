@@ -60,6 +60,9 @@ import Testing
         #expect(year.anchors == ["income", "tax"])
         // Aliases are the same person under two names — `Family/Mom` is Immigration's `Muktha`.
         #expect(loaded.profile.personTokens.isSuperset(of: ["abhishek", "shweta", "mom", "muktha"]))
+        // And the PAIRING survives decode, which is the half that used to be thrown away: without
+        // it nothing downstream can tell that those are one person rather than two.
+        #expect(loaded.profile.personAliases["mom"] == "muktha")
 
         let entry = try #require(loaded.memory?.folders["Finance/US/Income Tax/2023"])
         #expect(entry.docs == 12)
@@ -136,6 +139,61 @@ import Testing
     /// **The hash format is the contract with the builder that wrote the file.** A change here does
     /// not fail — it silently stops every identifier matching — so it is pinned against a literal
     /// computed independently: `sha256("abc123" + "1892")[0..<16]`.
+    /// `people.json` is read when it is there, and it is what supplies the full names — the forms
+    /// a survey of folder names cannot know, and the only thing that makes "Aditi Abhishek"
+    /// attributable to one person.
+    @Test func aPeopleFileIsReadAndSuppliesTheFullNames() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fps-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
+        try """
+        {"schemaVersion":1,"people":[
+          {"id":"abhishek","displayName":"Abhishek","relationship":"me",
+           "fullNames":["Abhishek Girish"]},
+          {"id":"aditi","displayName":"Aditi","relationship":"daughter",
+           "fullNames":["Aditi Abhishek"]},
+          {"id":"muktha","displayName":"Muktha","relationship":"mother",
+           "fullNames":["Muktha Girish"],"aliases":["Mom","Mother"]}]}
+        """.write(to: dir.appendingPathComponent("abhishek/people.json"),
+                  atomically: true, encoding: .utf8)
+
+        let loaded = try #require(FilingProfileStore.active(in: dir))
+        #expect(loaded.registry.source == .file)
+        #expect(loaded.registry.people.count == 3)
+        #expect(loaded.registry.people.first?.relationship == "me")
+        #expect(loaded.registry.detect(in: "Aditi Abhishek - OCI.pdf") == ["aditi"])
+        #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["muktha"])
+    }
+
+    /// With no `people.json` the registry is seeded from the profile's own axis — so the alias fix
+    /// lands on a tree that has only ever been surveyed, without anyone writing a file.
+    @Test func withNoPeopleFileTheRegistryIsSeededFromTheProfile() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fps-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
+
+        let loaded = try #require(FilingProfileStore.active(in: dir))
+        #expect(loaded.registry.source == .profileAxis)
+        #expect(Set(loaded.registry.people.map(\.id)) == ["abhishek", "shweta", "muktha"])
+        #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["muktha"])
+    }
+
+    /// The fingerprint moves when the roster does — it is mixed into every verdict cache key, and
+    /// a changed roster changes the shortlist every file is asked about.
+    @Test func theFingerprintMovesWhenThePeopleFileChanges() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fps-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
+        let before = FilingProfileStore.fingerprint(id: "abhishek", in: dir)
+        try #"{"schemaVersion":1,"people":[{"id":"aditi","displayName":"Aditi"}]}"#
+            .write(to: dir.appendingPathComponent("abhishek/people.json"),
+                   atomically: true, encoding: .utf8)
+        #expect(FilingProfileStore.fingerprint(id: "abhishek", in: dir) != before)
+    }
+
     @Test func theIdentifierHashMatchesTheBuilder() {
         #expect(FilingMemory.hash("1892", salt: "abc123") == "3437e15c04d360ef")
         #expect(FilingMemory.hash("kaiser", salt: "s") == "3529b1a559fe505a")
@@ -149,6 +207,72 @@ import Testing
     FileManager.default.fileExists(atPath: $0.appendingPathComponent("profiles.json").path)
 } ?? false, "no filing profile on this machine"))
 struct RealFilingProfileTests {
+
+    /// **The claim that the registry is an improvement, measured rather than argued — and the
+    /// measurement is not the one I first reached for.**
+    ///
+    /// Every already-filed document is a labelled example: the folder it sits in *is* the right
+    /// answer. The obvious metric is therefore *false vetoes* — a rule refusing the folder the
+    /// document actually lives in — and on this corpus the two rules are **identical at 3 of
+    /// 1,375**. All three are `Family/Aditi/Events/Baby Shower/`, documents named for the parents
+    /// inside the child's event folder; no amount of name intelligence resolves that, because the
+    /// folder is Aditi's for a reason the filename cannot state.
+    ///
+    /// What the registry actually fixes is **over-attribution**: `Muktha Girish - Resume.pdf` names
+    /// one person, and the token rule reports two, because `girish` is her surname and his given
+    /// name. The token rule does that to **36** of the same 1,375. Every one is a document the veto
+    /// would let into the wrong person's folder — the protection failing open, which is exactly the
+    /// failure that is invisible in use — and, since the router penalises a folder whose person the
+    /// document does not name, 36 files scoring against a family member they have nothing to do
+    /// with. So that is the number this test holds.
+    ///
+    /// Skipped where the corpus is absent (a survey artifact, not something the app writes), and it
+    /// prints both numbers so a regression reads as a number rather than a boolean.
+    @Test func theRegistryRefusesFewerCorrectFoldersThanTheTokenRule() throws {
+        let dir = try #require(FilingProfileStore.defaultDirectory())
+        let loaded = try #require(FilingProfileStore.active(in: dir))
+        let corpusURL = dir.appendingPathComponent("\(loaded.profile.profileId)/filing-corpus.json")
+        try #require(FileManager.default.fileExists(atPath: corpusURL.path),
+                     "no filing corpus on this machine")
+        // Only the keys are needed — the paths. Each document's value carries tokens and counters
+        // of mixed shape, so it is decoded as opaque JSON rather than modelled.
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: corpusURL))
+        let documents = try #require((raw as? [String: Any])?["documents"] as? [String: Any])
+
+        var considered = 0, oldFalseVetoes = 0, newFalseVetoes = 0
+        var oldOverAttributed = 0, newOverAttributed = 0
+        for path in documents.keys {
+            guard let slash = path.lastIndex(of: "/") else { continue }
+            let folder = String(path[path.startIndex..<slash])
+            let fileName = String(path[path.index(after: slash)...])
+            guard let axis = loaded.profile.folders[folder]?.axes["person"]?.lowercased() else { continue }
+            guard let goldPerson = loaded.registry.person(forAxisValue: axis) else { continue }
+            considered += 1
+
+            // The rule as it shipped: intersect the filename's tokens with a flat bag of names.
+            let tokenPeople = FilingEngine.nameTokens(fileName)
+                .intersection(loaded.profile.personTokens)
+            if !tokenPeople.isEmpty, !tokenPeople.contains(axis) { oldFalseVetoes += 1 }
+            if tokenPeople.count > 1 { oldOverAttributed += 1 }
+
+            // The rule now: resolve through the registry, phrases first.
+            let named = loaded.registry.detect(in: (fileName as NSString).deletingPathExtension)
+            if !named.isEmpty, !named.contains(goldPerson) { newFalseVetoes += 1 }
+            if named.count > 1 { newOverAttributed += 1 }
+        }
+
+        let summary = "of \(considered) person-filed documents — false vetoes \(oldFalseVetoes) → "
+            + "\(newFalseVetoes); attributed to more than one person "
+            + "\(oldOverAttributed) → \(newOverAttributed)"
+        #expect(considered > 100, "too few person-filed documents to measure (\(considered))")
+        #expect(newFalseVetoes <= oldFalseVetoes,
+                "the registry refuses MORE correct folders than the token rule — \(summary)")
+        // The rule this change is actually for. A document naming one person must not be read as
+        // naming two; 36 of this corpus were, every one of them a shared given-name-as-surname.
+        #expect(newOverAttributed < oldOverAttributed / 2,
+                "phrase matching did not reduce over-attribution — \(summary)")
+        print("Person attribution \(summary)")
+    }
 
     @Test func theRealArtifactsDecodeAndAgreeWithEachOther() throws {
         let dir = try #require(FilingProfileStore.defaultDirectory())

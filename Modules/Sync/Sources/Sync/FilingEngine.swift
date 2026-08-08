@@ -827,7 +827,9 @@ public enum FilingEngine {
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
-                                     profile: Sync.FolderProfile? = nil) -> [FilingSuggestion] {
+                                     profile: Sync.FolderProfile? = nil,
+                                     registry: PersonRegistry? = nil,
+                                     pageSamples: [String: String] = [:]) -> [FilingSuggestion] {
         // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
         // happens on the way in. Deriving the folder set first and letting the other one return
         // early is a full recursive walk of the provider — tens of thousands of nodes on a real
@@ -839,7 +841,7 @@ public enum FilingEngine {
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
                              providerRoot: providerRoot, rejectedByFile: rejectedByFile,
                              contentBlind: contentBlind, routerShortlists: routerShortlists,
-                             profile: profile)
+                             profile: profile, registry: registry, pageSamples: pageSamples)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no
@@ -862,7 +864,9 @@ public enum FilingEngine {
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
-                                     profile: Sync.FolderProfile? = nil) -> [FilingSuggestion] {
+                                     profile: Sync.FolderProfile? = nil,
+                                     registry: PersonRegistry? = nil,
+                                     pageSamples: [String: String] = [:]) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
@@ -927,11 +931,32 @@ public enum FilingEngine {
             // folder under `Family/Aditi/Events`. Testing the path text instead would fire on 15,
             // because `Health/Medical/Travel/Girish - 2021` reads as Girish's folder while the
             // profile correctly records it as a trip with no person axis at all.
+            //
+            // Resolved through the ``PersonRegistry`` when there is one, and the difference is
+            // what the registry exists for. The token comparison below it reads `Mom -
+            // passport.pdf` against a folder whose axis says `muktha` as a CONTRADICTION — the
+            // veto fired against the correct folder, because the flattened token set knew both
+            // words but not that they are one person. The registry also matches names as phrases,
+            // so `Aditi Abhishek - OCI.pdf` names Aditi alone rather than Aditi-and-her-father.
+            //
+            // The filename outranks the page: a filename is the user's own label, a page-1
+            // mention is testimony (a sponsor's affidavit prints the sponsor, not the applicant).
+            // Only a file whose name names nobody consults the page it was read from — that is
+            // what protects `Scan 2026-08-02.pdf`, which the filename-only rule never could.
             if let profile,
-               let destPerson = profile.folders[Self.relative(rawDest.path, under: providerRoot)]?
+               let destPersonRaw = profile.folders[Self.relative(rawDest.path, under: providerRoot)]?
                    .axes["person"]?.lowercased() {
-                let filePeople = nameTokens(s.fileName).intersection(profile.personTokens)
-                if !filePeople.isEmpty, !filePeople.contains(destPerson) { return s }
+                if let registry, let destPerson = registry.person(forAxisValue: destPersonRaw) {
+                    var named = registry.detect(in: (s.fileName as NSString).deletingPathExtension)
+                    if named.isEmpty, let sample = pageSamples[s.filePath] {
+                        named = registry.detect(in: sample)
+                    }
+                    if !named.isEmpty, !named.contains(destPerson) { return s }
+                } else {
+                    // An axis person the registry cannot resolve keeps the original protection.
+                    let filePeople = nameTokens(s.fileName).intersection(profile.personTokens)
+                    if !filePeople.isEmpty, !filePeople.contains(destPersonRaw) { return s }
+                }
             }
             // A verdict only LEADS when it's at least as confident as the current best home.
             // Otherwise a low-confidence model guess would demote a strong filename/rule match —

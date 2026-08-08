@@ -350,13 +350,15 @@ struct SyncCloudApp: App {
             // Where a re-survey writes the memory back — the same directory it was just read from,
             // for the same reason it is read here and not in `Sync`.
             manager.filingProfilesDirectory = profiles
+            manager.filingPersonRegistry = loaded.registry
             // Part of the question every file is asked — a re-survey must not replay answers the
             // old tree produced. Read from the same directory the artifacts came from.
             manager.filingArtifactFingerprint =
                 FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: profiles)
             Logger.shared.info("Filing profile '\(loaded.profile.profileId)' loaded — "
                                + "\(loaded.profile.folders.count) folders, "
-                               + "\(loaded.memory?.folders.count ?? 0) with filing memory")
+                               + "\(loaded.memory?.folders.count ?? 0) with filing memory, "
+                               + "\(loaded.registry.people.count) people")
         }
         if OnDeviceFilingClassifier.isAvailable {
             manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }

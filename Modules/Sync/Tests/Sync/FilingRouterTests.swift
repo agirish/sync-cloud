@@ -281,6 +281,135 @@ import Testing
         #expect(FilingRouter.rank(fileName: "x.pdf", contentSnippet: "x", index: idx).best == nil)
     }
 
+    // MARK: - Routing between folders that differ only by person
+
+    /// Two sibling person buckets holding the same kind of document, and the household that tells
+    /// them apart. The folders carry identical memory on purpose: content cannot separate them, so
+    /// the person axis is the only thing that can.
+    static func siblingPersonIndex() -> FilingRouter.Index {
+        let folders = ["School/Aditi", "School/Divit"]
+        let entries = [
+            FolderProfileEntry(path: "School/Aditi", role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
+                               axes: ["person": "Aditi"]),
+            FolderProfileEntry(path: "School/Divit", role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
+                               axes: ["person": "Divit"]),
+        ]
+        let profile = FolderProfile(profileId: "t", root: "~",
+                                    folders: Dictionary(entries.map { ($0.path, $0) },
+                                                        uniquingKeysWith: { a, _ in a }),
+                                    personTokens: ["aditi", "divit", "abhishek"])
+        let shared = ["report", "card", "trimester", "attendance"]
+            .map { FilingMemoryToken(token: $0, weight: 3.0) }
+        let memory = FilingMemory(profileId: "t", salt: "s", folders: [
+            "School/Aditi": FilingMemoryEntry(docs: 6, anchors: shared, idHashes: []),
+            "School/Divit": FilingMemoryEntry(docs: 6, anchors: shared, idHashes: []),
+        ])
+        let registry = PersonRegistry(people: [
+            Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        ])
+        return FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory,
+                                      registry: registry)
+    }
+
+    /// **The person axis picks the sibling.** Everything else about these two folders is identical,
+    /// so without it the winner is decided by the tie-break on the path — `School/Aditi` for every
+    /// child in the household, including Divit's report card.
+    @Test func thePersonAxisPicksBetweenSiblingPersonBuckets() {
+        let idx = Self.siblingPersonIndex()
+        let divit = FilingRouter.rank(fileName: "Divit Abhishek - Report Card.pdf",
+                                      contentSnippet: "Trimester report card, attendance", index: idx)
+        #expect(divit.best?.relativePath == "School/Divit")
+        let aditi = FilingRouter.rank(fileName: "Aditi Abhishek - Report Card.pdf",
+                                      contentSnippet: "Trimester report card, attendance", index: idx)
+        #expect(aditi.best?.relativePath == "School/Aditi")
+    }
+
+    /// The father's name appears in both children's full names, and a document that is *his* must
+    /// not be attributed to either child by that shared word. Naming nobody in the household these
+    /// folders belong to leaves both unpenalised — the tie stands rather than resolving wrongly.
+    @Test func aSharedSurnameDoesNotAttributeAChildsFolder() {
+        let idx = Self.siblingPersonIndex()
+        let r = FilingRouter.rank(fileName: "Abhishek Girish - Report Card.pdf",
+                                  contentSnippet: "Trimester report card, attendance", index: idx)
+        // Neither child is named, so neither bucket is confirmed OR contradicted: the two stay
+        // level and the margin says the router cannot tell them apart.
+        #expect(r.margin < 0.2)
+    }
+
+    /// **A contradiction has to demote, not merely fail to promote.** Confirmation alone is enough
+    /// when two sibling buckets are otherwise identical, so the penalty only shows itself where the
+    /// wrong person's folder is *winning on content* — which is the shape the real error had:
+    /// `Family/Aditi/Events` holds a pile of shower documents, and a shower invitation naming
+    /// Muktha matches all of them.
+    @Test func aFolderContentRanksFirstIsDemotedWhenItIsTheWrongPersons() {
+        let folders = ["Family/Aditi/Events", "Family/Muktha/Events"]
+        func entry(_ path: String, person: String) -> FolderProfileEntry {
+            FolderProfileEntry(path: path, role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 4, subfolderCount: 0,
+                               axes: ["person": person])
+        }
+        let entries = [entry("Family/Aditi/Events", person: "Aditi"),
+                       entry("Family/Muktha/Events", person: "Muktha")]
+        let profile = FolderProfile(profileId: "t", root: "~",
+                                    folders: Dictionary(entries.map { ($0.path, $0) },
+                                                        uniquingKeysWith: { a, _ in a }),
+                                    personTokens: ["aditi", "muktha", "girish"])
+        // Aditi's folder knows every word in this document; Muktha's knows one.
+        let memory = FilingMemory(profileId: "t", salt: "s", folders: [
+            "Family/Aditi/Events": FilingMemoryEntry(
+                docs: 4,
+                anchors: ["shower", "invitation", "venue", "catering"]
+                    .map { FilingMemoryToken(token: $0, weight: 3.0) }, idHashes: []),
+            "Family/Muktha/Events": FilingMemoryEntry(
+                docs: 4, anchors: [FilingMemoryToken(token: "shower", weight: 3.0)], idHashes: []),
+        ])
+        let registry = PersonRegistry(people: [
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"]),
+        ])
+        let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory,
+                                         registry: registry)
+        let r = FilingRouter.rank(fileName: "Muktha Girish - Shower Invitation.pdf",
+                                  contentSnippet: "Shower invitation — venue and catering details",
+                                  index: idx)
+        #expect(r.best?.relativePath == "Family/Muktha/Events",
+                "the document names Muktha and went to Aditi's folder on content alone")
+    }
+
+    /// A page that names the person routes a file whose name does not — the same channel the veto
+    /// gained, on the scoring side.
+    @Test func aPageNamingThePersonRoutesANamelessFile() {
+        let idx = Self.siblingPersonIndex()
+        let r = FilingRouter.rank(fileName: "Scan 2026-08-02.pdf",
+                                  contentSnippet: "Trimester report card for Divit Abhishek, attendance",
+                                  index: idx)
+        #expect(r.best?.relativePath == "School/Divit")
+    }
+
+    /// With no registry the axis is inert and the router behaves exactly as it did before — the
+    /// "never been surveyed for people" machine, and the guard that this feature is additive.
+    @Test func withNoRegistryThePersonAxisIsInert() {
+        let folders = ["School/Aditi", "School/Divit"]
+        let entries = [
+            FolderProfileEntry(path: "School/Aditi", role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
+                               axes: ["person": "Aditi"]),
+            FolderProfileEntry(path: "School/Divit", role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
+                               axes: ["person": "Divit"]),
+        ]
+        let profile = FolderProfile(profileId: "t", root: "~",
+                                    folders: Dictionary(entries.map { ($0.path, $0) },
+                                                        uniquingKeysWith: { a, _ in a }),
+                                    personTokens: ["aditi", "divit"])
+        let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil)
+        #expect(idx.folderPerson.isEmpty)
+    }
+
     // MARK: - Tokenizing, which must agree with the builder that wrote the memory
 
     @Test func tokenizingMatchesTheBuildersRules() {

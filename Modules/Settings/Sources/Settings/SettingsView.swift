@@ -410,6 +410,13 @@ enum SettingsSearchIndex {
               keywords: ["kept name", "keep name", "allow name", "always allow", "stop allowing",
                          "allowed names", "risky name", "risky names", "badge", "name badge",
                          "trailing space", "forbidden character", "rename", "exceptions"]),
+        // Indexed by what it is *about* as much as by its label: someone looking for this is more
+        // likely to type a relationship or the thing it prevents ("wrong person") than "people".
+        .init(tab: .filing, title: "People",
+              keywords: ["people", "person", "family", "household", "names", "full name",
+                         "wife", "husband", "son", "daughter", "mother", "father", "kids",
+                         "wrong person", "whose document", "who", "aliases", "privacy",
+                         "what is stored", "data"]),
 
         // Duplicates
         .init(tab: .duplicates, title: "Ignore files smaller than",
@@ -1912,6 +1919,14 @@ struct FilingSettingsTab: View {
                     KeptNamesList.nothingKeptNote
                 }
             }
+
+            SettingsSection(
+                "People",
+                caption: "Who your documents belong to. Organize uses this to keep one person’s document out of another’s folder, and to pick between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters here because several of these names are shared. Everything shown below is everything held: names, and which of their words are theirs alone. No document text is stored, and nothing is sent anywhere — this is read at launch and used on your Mac. Editing is not wired up yet; the roster comes from people.json in your profile folder, or from the folder names a survey found."
+            ) {
+                PeopleList(registry: syncManager?.filingPersonRegistry,
+                           profile: syncManager?.filingFolderProfile)
+            }
         }
         .onAppear(perform: refreshSpend)
         // The store's change signal — the Organize lens's history sheet (main window) can Clear
@@ -1994,6 +2009,116 @@ struct KeptNamesList: View {
         Text("No kept names. Right-click a file with a flagged name and choose Always Allow This Name to keep it.")
             .scaledFont(.callout)
             .foregroundStyle(.secondary)
+    }
+}
+
+/// The household Organize files for, one row per person — **read-only, and deliberately complete**.
+///
+/// The point of showing it is not configuration (there is nothing to change here yet) but
+/// disclosure: a rule that can refuse a suggestion, silently, on the grounds that a document names
+/// the wrong person is a rule the user is entitled to inspect. So each row prints everything the
+/// registry actually holds about that person — the names it matches on, which of those words
+/// identify them on their own, which are shared with somebody else — plus how many folders in the
+/// surveyed tree are recorded as theirs, which is the only number here derived from the tree rather
+/// than from the roster.
+///
+/// A plain `View` over a value, not an `@ObservedObject`: the registry is replaced wholesale at
+/// launch and never mutated, so there is nothing to observe.
+struct PeopleList: View {
+    let registry: PersonRegistry?
+    let profile: FolderProfile?
+
+    var body: some View {
+        if let registry, !registry.isEmpty {
+            ForEach(registry.people, id: \.id) { person in
+                PersonRow(person: person, registry: registry, folderCount: folderCount(for: person.id))
+            }
+            SettingsRow("Source") {
+                Text(registry.source == .file
+                     ? "people.json in your profile folder"
+                     : "the person folders a survey found")
+                    .foregroundStyle(.secondary)
+            }
+            .help(registry.source == .file
+                  ? "Read from people.json. Full names come from there — they are what makes “Aditi Abhishek” attributable to one person."
+                  : "Seeded from the survey’s person folders and their aliases. No full names, so only single distinctive words match; add people.json to teach it the full forms documents print.")
+        } else {
+            Self.noPeopleNote
+        }
+    }
+
+    /// Folders whose `axes.person` resolves to this person. Counted through the registry rather
+    /// than by string equality, so `Family/Mom` counts toward Muktha — which is the whole point of
+    /// keeping the alias map.
+    private func folderCount(for id: String) -> Int {
+        guard let profile, let registry else { return 0 }
+        return profile.folders.values.filter { entry in
+            guard let axis = entry.axes["person"] else { return false }
+            return registry.person(forAxisValue: axis) == id
+        }.count
+    }
+
+    /// Shown when no tree has been surveyed — the ordinary state for anyone who has not had a
+    /// profile built, and the same state in tests and previews.
+    static var noPeopleNote: some View {
+        Text("No people yet. Organize learns these from a survey of your tree, or from a people.json in your profile folder.")
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+    }
+}
+
+/// One person: what they are called, the forms matched against a document, and the words that are
+/// theirs alone.
+private struct PersonRow: View {
+    let person: Person
+    let registry: PersonRegistry
+    let folderCount: Int
+
+    var body: some View {
+        let breakdown = registry.tokenBreakdown(for: person.id)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(person.displayName.capitalized).scaledFont(.callout).fontWeight(.medium)
+                if let relationship = person.relationship {
+                    Text(relationship).scaledFont(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if folderCount > 0 {
+                    Text(folderCount == 1 ? "1 folder" : "\(folderCount) folders")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            if !matchedNames.isEmpty {
+                Text(matchedNames.joined(separator: " · "))
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            // The shared words are the interesting half — they are why matching is phrase-first —
+            // so they are the ones tinted. A row with none says so by having no second line.
+            if !breakdown.shared.isEmpty {
+                Text(sharedSummary(breakdown.shared))
+                    .scaledFont(.caption)
+                    .foregroundStyle(SemanticColor.caution)
+            }
+        }
+        .help("Matched on: \(matchedNames.isEmpty ? person.displayName : matchedNames.joined(separator: ", ")). "
+              + (breakdown.unique.isEmpty
+                 ? "No word here is theirs alone."
+                 : "Theirs alone: \(breakdown.unique.joined(separator: ", "))."))
+    }
+
+    private var matchedNames: [String] {
+        person.fullNames + person.aliases
+    }
+
+    private func sharedSummary(_ shared: [String]) -> String {
+        let described = shared.map { token -> String in
+            let others = registry.othersSharing(token, with: person.id)
+            return others == 1 ? "“\(token)” (also 1 other)" : "“\(token)” (also \(others) others)"
+        }
+        return "Shared: " + described.joined(separator: ", ")
     }
 }
 

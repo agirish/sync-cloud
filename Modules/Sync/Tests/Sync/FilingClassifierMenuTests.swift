@@ -456,4 +456,154 @@ import Testing
                                                            profile: Self.peopleProfile()).first?.best)
         #expect(best.path == "/root/Documents/OCI/Divit")
     }
+
+    // MARK: - The veto, resolved through the person registry
+
+    /// The roster, with the aliases and full names a survey cannot know.
+    private static func registry() -> PersonRegistry {
+        PersonRegistry(people: [
+            Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+            Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"],
+                   aliases: ["Mom"]),
+        ])
+    }
+
+    /// A profile whose person folders include Mom's, recorded under her legal name — which is how
+    /// the real tree records it, and where the misfire lived.
+    private static func aliasProfile() -> Sync.FolderProfile {
+        func entry(_ path: String, person: String) -> FolderProfileEntry {
+            FolderProfileEntry(path: path, role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 2, subfolderCount: 0,
+                               axes: ["person": person])
+        }
+        let entries = [entry("Documents/Family/Mom/Passport", person: "Muktha"),
+                       entry("Documents/OCI/Aditi", person: "Aditi"),
+                       entry("Documents/OCI/Divit", person: "Divit")]
+        return Sync.FolderProfile(profileId: "t", root: "~",
+                                  folders: Dictionary(entries.map { ($0.path, $0) },
+                                                      uniquingKeysWith: { a, _ in a }),
+                                  personTokens: ["aditi", "divit", "muktha", "mom", "abhishek"],
+                                  personAliases: ["mom": "muktha"])
+    }
+
+    private static let aliasTaxonomy: [FileNode] = [
+        dir("/root/Documents", [
+            dir("/root/Documents/Family", [dir("/root/Documents/Family/Mom",
+                                               [dir("/root/Documents/Family/Mom/Passport")])]),
+            dir("/root/Documents/OCI", [dir("/root/Documents/OCI/Aditi"),
+                                        dir("/root/Documents/OCI/Divit")]),
+        ]),
+    ]
+
+    /// **The veto used to fire against the CORRECT folder.** `Mom - passport.pdf` names Muktha,
+    /// and the folder's axis says `Muktha` — but with the alias map flattened away, `mom` was just
+    /// a token that failed to equal `muktha`, so the suggestion read as a cross-person mistake and
+    /// was refused. The registry resolves both to one person.
+    @Test func anAliasResolvesToThePersonItNames() throws {
+        let path = "/root/TODO/Mom - passport.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Mom - passport.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Family/Mom/Passport",
+                                     confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                                           providerRoot: "/root",
+                                                           profile: Self.aliasProfile(),
+                                                           registry: Self.registry()).first?.best)
+        #expect(best.path == "/root/Documents/Family/Mom/Passport",
+                "Muktha's passport was refused by her own folder because Mom read as someone else")
+    }
+
+    /// The same fixture without a registry keeps the old token comparison — and the old bug. Pinned
+    /// deliberately: it is what proves the test above is measuring the registry rather than some
+    /// incidental change to the fixture.
+    @Test func withoutARegistryTheAliasStillReadsAsAContradiction() {
+        let path = "/root/TODO/Mom - passport.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Mom - passport.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Family/Mom/Passport",
+                                     confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                             providerRoot: "/root", profile: Self.aliasProfile())
+        #expect(out.first?.best == nil)
+    }
+
+    /// **A full name is not two people.** `Aditi Abhishek - OCI.pdf` names the daughter; the token
+    /// comparison reads it as naming her father as well, so her own folder — whose axis is `Aditi`
+    /// — contains a person the file "names" that is not the destination's, and the correct
+    /// suggestion is refused.
+    @Test func aFullNameDoesNotVetoTheOwnersOwnFolder() throws {
+        let path = "/root/TODO/Aditi Abhishek - OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Aditi Abhishek - OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Aditi", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                                           providerRoot: "/root",
+                                                           profile: Self.aliasProfile(),
+                                                           registry: Self.registry()).first?.best)
+        #expect(best.path == "/root/Documents/OCI/Aditi")
+    }
+
+    /// And the veto still refuses the wrong person when the name is a full one — the protection is
+    /// not simply switched off by phrase matching.
+    @Test func aFullNameStillVetoesADifferentPersonsFolder() {
+        let path = "/root/TODO/Aditi Abhishek - OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Aditi Abhishek - OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Divit", confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                             providerRoot: "/root", profile: Self.aliasProfile(),
+                                             registry: Self.registry())
+        #expect(out.first?.best == nil)
+    }
+
+    /// **A scan gets the protection its filename could never earn.** `Scan 2026-08-02.pdf` names
+    /// nobody, so the filename-only rule left it unguarded; the page the scan already read names
+    /// Aditi, and that is enough to refuse Divit's folder.
+    @Test func aNamelessFileIsProtectedByThePageItWasReadFrom() {
+        let path = "/root/TODO/Scan 2026-08-02.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Scan 2026-08-02.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Divit", confidence: .high, reason: "r")]
+        let samples = [path: "OVERSEAS CITIZEN OF INDIA — Aditi Abhishek, date of birth 2016"]
+        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                             providerRoot: "/root", profile: Self.aliasProfile(),
+                                             registry: Self.registry(), pageSamples: samples)
+        #expect(out.first?.best == nil, "the page named Aditi and the file went to Divit anyway")
+    }
+
+    /// **The filename outranks the page — it does not merely add to it.** A page-1 mention is
+    /// testimony: an application prints the sponsor, a sibling, a witness. A file the user has
+    /// *labelled* `Aditi` is Aditi's, so a verdict sending it to Divit's folder must be refused
+    /// even though the page names Divit — which is exactly what folding the two sets together
+    /// would permit, since Divit would then be "named".
+    ///
+    /// The second half is the same rule read the other way: a supporting name on the page cannot
+    /// veto the person the filename declares.
+    @Test func theFilenameOutranksThePageWhenBothNamePeople() throws {
+        let contested = "/root/TODO/Aditi - OCI.pdf"
+        let contestedBase = [FilingSuggestion(filePath: contested, fileName: "Aditi - OCI.pdf", size: 10,
+                                              modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let toDivit = [contested: FilingVerdict(relativePath: "Documents/OCI/Divit",
+                                                confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(toDivit, to: contestedBase, taxonomy: Self.aliasTaxonomy,
+                                             providerRoot: "/root", profile: Self.aliasProfile(),
+                                             registry: Self.registry(),
+                                             pageSamples: [contested: "Sibling of Divit Abhishek, same application"])
+        #expect(out.first?.best == nil,
+                "the filename says Aditi; a mention of Divit on the page let it into his folder")
+
+        let path = "/root/TODO/Divit - OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Divit - OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Divit", confidence: .high, reason: "r")]
+        let samples = [path: "Sponsored by Abhishek Girish, father, in support of this application"]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                                           providerRoot: "/root",
+                                                           profile: Self.aliasProfile(),
+                                                           registry: Self.registry(),
+                                                           pageSamples: samples).first?.best)
+        #expect(best.path == "/root/Documents/OCI/Divit")
+    }
 }

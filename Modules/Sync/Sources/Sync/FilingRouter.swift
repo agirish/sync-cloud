@@ -118,6 +118,11 @@ public enum FilingRouter {
         let roleBonus: [String: Double]
         let children: [String: [String]]
         let personTokens: Set<String>
+        /// Folder → the registry person its `axes.person` resolves to. Only folders the registry
+        /// can actually resolve appear; an axis value naming someone outside the registry is left
+        /// to the token fallback rather than half-resolved.
+        let folderPerson: [String: String]
+        let registry: PersonRegistry?
         let salt: String
         /// Name-token → folders, and year → folders.
         ///
@@ -147,7 +152,7 @@ public enum FilingRouter {
     /// `destinations` is the taxonomy the caller already computed; folders the profile forbids are
     /// dropped here rather than at the call site so no consumer can forget.
     public static func makeIndex(destinations: [String], profile: FolderProfile?,
-                                 memory: FilingMemory?) -> Index {
+                                 memory: FilingMemory?, registry: PersonRegistry? = nil) -> Index {
         // One rule, asked the same way everywhere — see ``FolderProfile/isInboxPath(_:)``.
         let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
         var byAnchor: [String: [(String, Double)]] = [:]
@@ -181,6 +186,7 @@ public enum FilingRouter {
         var children: [String: [String]] = [:]
         var foldersByPathToken: [String: [String]] = [:]
         var foldersByYear: [String: [String]] = [:]
+        var folderPerson: [String: String] = [:]
         for f in allowed {
             let pt = FilingRouter.pathTokens(of: f)
             pathTokens[f] = pt
@@ -206,11 +212,16 @@ public enum FilingRouter {
             if let slash = f.lastIndex(of: "/") {
                 children[String(f[f.startIndex..<slash]), default: []].append(f)
             }
+            if let registry, let axis = entry?.axes["person"],
+               let id = registry.person(forAxisValue: axis) {
+                folderPerson[f] = id
+            }
         }
         return Index(byAnchor: byAnchor, byIdHash: byIdHash, docs: docs, destinations: allowed,
                      pathTokens: pathTokens, anchorTokens: anchorTokens, yearKey: yearKey,
                      roleBonus: roleBonus, children: children,
-                     personTokens: profile?.personTokens ?? [], salt: memory?.salt ?? "",
+                     personTokens: profile?.personTokens ?? [], folderPerson: folderPerson,
+                     registry: registry, salt: memory?.salt ?? "",
                      foldersByPathToken: foldersByPathToken, foldersByYear: foldersByYear,
                      anchorsByFolder: anchorsByFolder, docFrequencyByFolder: docFrequencyByFolder,
                      idDocFrequencyByFolder: idDocFrequencyByFolder)
@@ -318,6 +329,17 @@ public enum FilingRouter {
         reachable.formUnion(content.keys)          // a wrong year must still penalise a live folder
 
         let people = nameTokens.intersection(index.personTokens)
+        // Person identity, phrase-first — asked of the raw strings, not the token sets, because
+        // "Aditi Abhishek" must spend its surname on Aditi and a Set has already lost the order
+        // that makes that possible. Detected once per file; the body is included so a scan whose
+        // *page* names its person routes between sibling person buckets the same way a well-named
+        // file does.
+        let detectedPeople: Set<String>
+        if let registry = index.registry, !index.folderPerson.isEmpty {
+            detectedPeople = registry.detect(in: sample.map { stem + " " + $0 } ?? stem)
+        } else {
+            detectedPeople = []
+        }
         var name: [String: Double] = [:]
         for folder in reachable {
             var s = 0.0
@@ -327,16 +349,32 @@ public enum FilingRouter {
                 overlap += 1
             }
             s += Double(overlap) * 2.0
+            // The axis, where the registry resolves it: a match is confirmation, and a
+            // *contradiction* — the document names people and this folder's person is not among
+            // them — is the strongest negative signal name evidence has. Sibling person buckets
+            // differ by exactly this, so it is what routes `Divit … Report Card.pdf` to
+            // `School/Divit` over a sibling holding identical documents. Multi-person documents
+            // are safe by construction: no penalty for anyone the document actually names.
+            //
+            // **Computed before the early-outs below, and counted as a reason to score the folder
+            // at all.** Those guards drop any folder the file name does not touch, which is
+            // precisely the case this signal exists for: `Scan 2026-08-02.pdf` shares no token
+            // with `School/Divit`, so the folder was dropped before the person was ever consulted
+            // and a page naming Divit routed to his sister.
+            var personDelta = 0.0
+            if let fp = index.folderPerson[folder], !detectedPeople.isEmpty {
+                personDelta = detectedPeople.contains(fp) ? 1.0 : -3.0
+            }
             if let year = index.yearKey[folder] {
                 if !yearsInName.isEmpty { s += yearInNameWeight * yearFit(year, yearsInName) }
                 if !yearsInBody.isEmpty { s += yearInBodyWeight * yearFit(year, yearsInBody) }
-            } else if s == 0 {
+            } else if s == 0, personDelta == 0 {
                 continue
             }
-            if s == 0 { continue }
+            if s == 0, personDelta == 0 { continue }
             s += index.roleBonus[folder] ?? 0
             if !people.isEmpty, !people.isDisjoint(with: pathToks) { s += 2.0 }
-            name[folder] = s
+            name[folder] = s + personDelta
         }
 
         // ---- blend --------------------------------------------------------------------------

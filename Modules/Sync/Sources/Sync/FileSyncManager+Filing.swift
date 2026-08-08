@@ -567,7 +567,9 @@ extension FileSyncManager {
                                                          rejectedByFile: rejectedByFile,
                                                          contentBlind: contentBlind,
                                                          routerShortlists: routerShortlists,
-                                                         profile: filingFolderProfile)
+                                                         profile: filingFolderProfile,
+                                                         registry: filingPersonRegistry,
+                                                         pageSamples: routerSnippets)
             }
         }
 

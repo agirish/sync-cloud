@@ -790,6 +790,73 @@ ones it might.
 
 ---
 
+## 22. People: file by *whose* document it is
+
+**Why:** Six people file into this tree — Abhishek, Shweta, their children Aditi and Divit, and
+his parents Muktha and Girish — and each files the same way: a folder named for them under
+whatever the category is. The engine has known *that* people exist since the filing profile
+shipped, but only as `personTokens`, a flat lowercased bag in which `Mom` and `Muktha` were
+unrelated strings. Three defects followed from that, and **phase 1 (below) has shipped**:
+
+- The alias map (`Mom` → `Muktha`) was read from `folder-profile.json` and **discarded at decode**,
+  so the cross-person veto read `Mom - passport.pdf` against a folder whose axis says `Muktha` as a
+  *contradiction* and refused the correct folder.
+- A token intersection reads **`Aditi Abhishek`** — the daughter's full name — as naming her father
+  too, because `abhishek` is his given name and her surname. `girish` is worse: Dad's given name,
+  Mom's surname, and Abhishek's surname all at once.
+- The veto read the **filename only**, so a scan named `Scan 2026-08-02.pdf` had no protection at
+  all, and the refine pass — the one that reaches the cloud model — never applied the veto.
+
+**What shipped (phase 1).** `PersonRegistry` holds a roster of `Person` records and matches
+**phrase-first, longest wins, consuming the span**: in "Aditi Abhishek" the surname is spent on
+Aditi and never doubles as evidence for Abhishek. Strong (unique) versus shared tokens are
+**computed from the roster**, so adding a seventh person re-derives the split. The registry loads
+from `profiles/<id>/people.json`, or is seeded from the profile's person axis when that file is
+absent — the seed alone fixes the alias misfire. Both the veto and the router's person-axis score
+now resolve through it, ending the two-tokenizer disagreement between `FilingEngine.nameTokens` and
+`FilingRouter.tokenize`. The router treats a person match as confirmation (+1.0) and a
+contradiction as a penalty (−3.0), which is what picks between sibling person buckets that hold
+identical documents; Settings ▸ Organize shows the roster read-only, including which words are
+shared with whom.
+
+**What remains.**
+
+- **Editing in the app** — add, rename, merge and delete people, and correct a full-name variant.
+  The Settings section is deliberately read-only until then rather than half-writable.
+- **Learning from filing** — a recurring name-shaped phrase in documents filed to one person's
+  folders becomes a *suggestion* ("add *Shweta Ravindra Dani* as another name for Shweta?"), never
+  an automatic write. Likewise an identifier a person's folders have received (a passport or member
+  number) becomes evidence for scans carrying no readable name.
+- **`personIs(<person>)` as a rule condition**, resolved through the registry so a rule keeps
+  working when a variant is added later, and exempt from the breadth veto that rightly refuses
+  `abhishek` as a plain word (his folders appear in fourteen places). The payoff is the
+  generalisation: file into two sibling person buckets and the offer becomes *each person's OCI
+  card to their own folder* — one rule, six people.
+- **Person buckets that do not exist yet** — a *create the sibling* proposal, from the parent's
+  evidence, the way a cold year bucket is already handled.
+- **A person block in the classifier brief**, so a backend reads "Shweta R Dani" as Shweta too.
+
+**Measured, and not where I expected.** Every filed document is a labelled example, so both rules
+were replayed over the 1,375 corpus documents whose folder carries a person axis. The obvious
+metric — *false vetoes*, refusing the folder a document actually lives in — is **unchanged at 3**,
+and all three are `Family/Aditi/Events/Baby Shower/`: documents named for the parents inside the
+child's event folder, which no name intelligence resolves because the folder is Aditi's for a
+reason the filename cannot state. What the registry fixes is **over-attribution: 36 → 0**.
+`Muktha Girish - Resume.pdf` names one person and the token rule reported two, because `girish` is
+her surname and his given name. Each of those 36 is a document the veto would have let into the
+wrong person's folder — the protection failing *open*, which is the failure invisible in use — and
+36 files scoring against a family member they have nothing to do with. `RealFilingProfileTests`
+holds both numbers.
+
+**Impact:** High. Misfiling one family member's document into another's is the error least likely
+to be noticed and most annoying to undo, and person is the *only* signal that separates sibling
+folders holding identical kinds of document.
+
+**Effort:** Medium, staged. **Risk:** Low — every part is additive and gated on a registry being
+loaded; with none, the engine behaves exactly as it did.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
@@ -997,6 +1064,7 @@ the question hundreds of keeper picks actually raise.
 | 16 | Home workspace | Medium | Medium (after 1c) |
 | 18 | PDF content fingerprint | Medium | High |
 | 20 | Restructure — is the shape itself right | High | **High** |
+| 22 | People — editing, learning, and `personIs` rules (phase 1 shipped) | Medium, staged | **High** |
 
 ### Interface
 

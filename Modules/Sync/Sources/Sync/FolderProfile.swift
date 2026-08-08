@@ -20,13 +20,19 @@ public struct FolderProfile: Sendable, Equatable {
     /// Values of the person axis, lowercased — `abhishek`, `shweta`, … plus the aliases the tree
     /// uses for the same people (`Family/Mom` is Immigration's `Muktha`).
     public let personTokens: Set<String>
+    /// Which of those tokens are the *same person*, lowercased alias → canonical (`mom` →
+    /// `muktha`). This used to be flattened into ``personTokens`` and discarded, after which
+    /// nothing could answer "is `mom` the same person as `muktha`?" — only "is this token some
+    /// person?". ``PersonRegistry/seeded(from:)`` is what reads it.
+    public let personAliases: [String: String]
 
     public init(profileId: String, root: String, folders: [String: FolderProfileEntry],
-                personTokens: Set<String>) {
+                personTokens: Set<String>, personAliases: [String: String] = [:]) {
         self.profileId = profileId
         self.root = root
         self.folders = folders
         self.personTokens = personTokens
+        self.personAliases = personAliases
     }
 
     public var isEmpty: Bool { folders.isEmpty }
@@ -139,16 +145,20 @@ extension FolderProfile: Decodable {
         folders = Dictionary(list.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
 
         var people: Set<String> = []
+        var aliasMap: [String: String] = [:]
         if let axes = try? c.decodeIfPresent([String: AxisBox].self, forKey: .axes),
            let person = axes["person"] {
             for v in person.values ?? [] { people.insert(v.lowercased()) }
             // `Family/Mom` and Immigration's `Muktha` are the same person; the tree names her both
-            // ways, so both tokens have to route.
+            // ways, so both tokens have to route — and the *pairing* has to survive, or a file
+            // named `Mom` reads as a contradiction against a folder whose axis says `muktha`.
             for (alias, canonical) in person.aliases ?? [:] {
                 people.insert(alias.lowercased())
                 people.insert(canonical.lowercased())
+                aliasMap[alias.lowercased()] = canonical.lowercased()
             }
         }
         personTokens = people
+        personAliases = aliasMap
     }
 }

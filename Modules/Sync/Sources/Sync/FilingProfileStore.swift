@@ -64,12 +64,34 @@ public enum FilingProfileStore {
                what: "filing memory")
     }
 
-    /// Both artifacts for the active profile, when there is one.
-    public static func active(in directory: URL) -> (profile: FolderProfile, memory: FilingMemory?)? {
+    private struct PeopleFile: Decodable {
+        let schemaVersion: Int?
+        let people: [Person]
+    }
+
+    /// The household for `id` — `people.json` when it exists, else a registry seeded from the
+    /// profile's own person axis.
+    ///
+    /// The seed is not a degraded mode: it carries the alias map the profile already records, so
+    /// even a tree with no `people.json` gets `Mom` and `Muktha` resolved to one person. What the
+    /// file adds is what a survey cannot know — the *full names* documents print, which is what
+    /// makes "Aditi Abhishek" attributable to Aditi rather than to two people.
+    public static func personRegistry(id: String, profile: FolderProfile, in directory: URL) -> PersonRegistry {
+        if let file = decode(PeopleFile.self, at: directory.appendingPathComponent("\(id)/people.json"),
+                             what: "people registry") {
+            return PersonRegistry(people: file.people)
+        }
+        return PersonRegistry.seeded(from: profile)
+    }
+
+    /// All artifacts for the active profile, when there is one.
+    public static func active(in directory: URL)
+        -> (profile: FolderProfile, memory: FilingMemory?, registry: PersonRegistry)? {
         guard let id = activeProfileId(in: directory), let profile = profile(id: id, in: directory) else {
             return nil
         }
-        return (profile, memory(id: id, in: directory))
+        return (profile, memory(id: id, in: directory),
+                personRegistry(id: id, profile: profile, in: directory))
     }
 
     private struct SchemaProbe: Decodable { let schemaVersion: Int? }
@@ -90,7 +112,9 @@ public enum FilingProfileStore {
     public static func fingerprint(id: String, in directory: URL) -> String {
         var hasher = SHA256()
         var any = false
-        for name in ["folder-profile.json", "filing-memory.json"] {
+        // `people.json` is part of the question too: the registry decides the person veto and the
+        // person axis bonus, both of which move the shortlist the classifier is handed.
+        for name in ["folder-profile.json", "filing-memory.json", "people.json"] {
             guard let data = try? Data(contentsOf: directory.appendingPathComponent("\(id)/\(name)"))
             else { continue }
             any = true

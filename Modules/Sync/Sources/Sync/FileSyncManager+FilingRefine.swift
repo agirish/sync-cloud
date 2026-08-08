@@ -241,10 +241,17 @@ extension FileSyncManager {
         let contentBlind = (filingReadsContents && filingSnippetExtractor != nil)
             ? Set(eligible.map { $0.filePath }).subtracting(snippets.keys)
             : []
+        // The profile and the registry are passed here as well as on the scan, and the omission
+        // was a real hole: the cross-person veto lived only on the scan path, so *Refine* — the
+        // pass that reaches the cloud model, the one most likely to produce a confident wrong
+        // person — could file one family member's document into another's with nothing to stop it.
         let refined = FilingEngine.applyVerdicts(verdicts, to: filingSuggestions,
                                                  existingRelative: existingRelative,
                                                  providerRoot: root, rejectedByFile: rejectedByFile,
-                                                 contentBlind: contentBlind)
+                                                 contentBlind: contentBlind,
+                                                 profile: filingFolderProfile,
+                                                 registry: filingPersonRegistry,
+                                                 pageSamples: filingPageSamples)
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
         publishFilingSuggestions(refined)
         let summary = FilingRefineSummary(asked: eligible.count, reused: cachedVerdicts.count,
