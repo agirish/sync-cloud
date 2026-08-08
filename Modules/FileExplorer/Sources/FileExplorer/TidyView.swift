@@ -427,6 +427,8 @@ public struct TidyView: View {
             return items(DuplicateSearch.chips(query), label: \.label, word: \.raw)
         case .rename:
             return items(RiskyNameSearch.chips(query), label: \.label, word: \.raw)
+        case .filing where showingRenameBacklog:
+            return []      // free text only — see `RenameBacklogSearch`
         case .filing:
             return items(FilingSearch.chips(query), label: \.label, word: \.raw)
         case .automations:
@@ -455,6 +457,7 @@ public struct TidyView: View {
         var risky: [RiskyName] = []
         var filing: [FilingSuggestion] = []
         var rules: [AutomationRule] = []
+        var renames: [RenamePlan] = []
     }
 
     /// Resolves only the ACTIVE lens's rows — the other four aren't on screen, and each of these
@@ -468,6 +471,8 @@ public struct TidyView: View {
         case .rename:
             let q = RiskyNameSearch.parse(query)
             rows.risky = syncManager.riskyNames.filter { q.matches($0) }
+        case .filing where showingRenameBacklog:
+            rows.renames = syncManager.renamePlans.filter { RenameBacklogSearch.matches(query, $0) }
         case .filing:
             let q = FilingSearch.parse(query)
             // Filtered UPSTREAM of FilingSuggestionGrouping: the sections are derived from these
@@ -625,8 +630,15 @@ public struct TidyView: View {
         LensHeaderCard(
             searchText: searchText,
             isSearchExpanded: isSearchExpanded,
-            searchPlaceholder: TidyLensSearch.placeholder(for: effectiveLens),
-            searchHelp: TidyLensSearch.help(for: effectiveLens),
+            // The backlog borrows `.filing`'s lens but not its grammar, so it cannot borrow its
+            // placeholder either — that one advertises `confidence:` and `to:` tokens this list
+            // does not bind, on a field that would then silently do nothing with them.
+            searchPlaceholder: showingRenameBacklog
+                ? "Search folders and names — PG&E, 2021…"
+                : TidyLensSearch.placeholder(for: effectiveLens),
+            searchHelp: showingRenameBacklog
+                ? "Search the rename backlog by folder or by file name"
+                : TidyLensSearch.help(for: effectiveLens),
             chips: searchChips,
             onRemoveChip: removeSearchChip,
             accent: glassHue.accentColor,
@@ -745,7 +757,10 @@ public struct TidyView: View {
             if showingRenameBacklog {
                 if !syncManager.renamePlans.isEmpty, !syncManager.isSuggestingFiles {
                     rescanFilingButton
-                    renameAllButton(syncManager.renamePlans)
+                    // The FILTERED plans, for the reason `applyAllButton` spells out: the label
+                    // counts what the action receives, so a query leaving 3 of 129 folders showing
+                    // must rename exactly those 3.
+                    renameAllButton(rows.renames)
                 }
             } else if hasFilingResults, !syncManager.isSuggestingFiles {
                 rescanFilingButton
@@ -945,6 +960,10 @@ public struct TidyView: View {
             switch effectiveLens {
             case .duplicates: ofMLabel(rows.duplicates.count, syncManager.duplicateGroups.count)
             case .rename: ofMLabel(rows.risky.count, syncManager.riskyNames.count)
+            case .filing where showingRenameBacklog:
+                // The backlog's own numbers. Left as the queue's, this said "3 of 24" about a list
+                // that is not on screen while the backlog sat under it unfiltered.
+                ofMLabel(rows.renames.count, syncManager.renamePlans.count)
             case .filing: ofMLabel(rows.filing.count, syncManager.filingSuggestions.count)
             case .automations: ofMLabel(rows.rules.count, syncManager.automationRules.count)
             case .storage:
@@ -1599,8 +1618,10 @@ public struct TidyView: View {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates)
             case .rename: renameContent(risky: rows.risky)
             case .filing:
-                if showingRenameBacklog {
-                    RenamePassLens(syncManager: syncManager, plans: syncManager.renamePlans,
+                if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
+                    noMatchesState(total: syncManager.renamePlans.count, noun: "folder")
+                } else if showingRenameBacklog {
+                    RenamePassLens(syncManager: syncManager, plans: rows.renames,
                                    accent: glassHue.accentColor,
                                    onApply: onApplyRenames,
                                    onReveal: { path in

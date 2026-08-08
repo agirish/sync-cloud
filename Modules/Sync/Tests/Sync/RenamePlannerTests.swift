@@ -384,13 +384,15 @@ import Testing
         // two months and so has no single date to sort by. A cascade cannot reason about those, and
         // ranking around them silently put a shifted file on a slot one of them already held: the
         // two NAMES differ, so the collision guard never saw it.
-        let p = plan(["01. Feb 2021.pdf", "02. Mar 2021.pdf", "3. Jan 2008 to Mar 2008.pdf",
+        let p = plan(["1. Feb 2021.pdf", "02. Mar 2021.pdf", "3. Jan 2008 to Mar 2008.pdf",
                       "custbill01182021.pdf"])
         #expect(p.renumbered == 0, "no file may be shifted around a slot the pass cannot rank")
         // The arriving file is reported rather than dropped or appended to the end.
         #expect(p.skips.contains { $0.fileName == "custbill01182021.pdf" })
-        // The unrankable row is still safe to widen — that changes no slot.
-        #expect(targets(p) == ["3. Jan 2008 to Mar 2008.pdf": "03. Jan 2008 to Mar 2008.pdf"])
+        // Every widening still stands: refusing the renumbering is a statement about SLOTS, and
+        // padding moves none. Withholding it would punish the folder twice.
+        #expect(targets(p) == ["3. Jan 2008 to Mar 2008.pdf": "03. Jan 2008 to Mar 2008.pdf",
+                               "1. Feb 2021.pdf": "01. Feb 2021.pdf"])
     }
 
     @Test("A padding fix survives a renumbering that has to stand down")

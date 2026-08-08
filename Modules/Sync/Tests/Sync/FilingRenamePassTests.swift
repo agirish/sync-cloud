@@ -228,6 +228,31 @@ import Events
         #expect(manager.banner?.message.contains("had already changed") == true)
     }
 
+    @MainActor
+    @Test func clearingTheFilingScanClearsTheBacklogItProduced() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenamePass")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bucket = root.appendingPathComponent("Utilities/PGE/2021")
+        for (n, m) in [(1, "Mar"), (2, "Apr")] {
+            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+        }
+        try write(root.appendingPathComponent("Inbox/.keep"))
+
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Inbox"),
+                                            providerRoot: root)
+        #expect(!manager.renamePlans.isEmpty)
+
+        manager.clearFiling()
+
+        // The backlog is that scan's finding and shares its scope: `clearFiling` also drops
+        // `filingLastProviderRoot`, which is what the backlog's chip names. Kept, the finding
+        // outlived the only thing that said which tree it was about.
+        #expect(manager.renamePlans.isEmpty)
+        #expect(manager.filingLastProviderRoot == nil)
+    }
+
     // MARK: The outcome sentence
 
     @MainActor

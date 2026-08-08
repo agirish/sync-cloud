@@ -453,6 +453,10 @@ public enum RenamePlanner {
             // at the end of a folder whose numbering means something else.
             if !unrankable.isEmpty, !placements.isEmpty,
                dated.contains(where: { ordinals[MonthKey(year: $0.year, month: $0.month)] != $0.parsed.ordinal }) {
+                // The widenings still stand. Refusing the renumbering is a statement about SLOTS,
+                // and padding moves none — withholding it here would punish the folder twice for a
+                // shape the pass merely declined to reorder.
+                out.steps.append(contentsOf: paddingSteps())
                 for p in placements {
                     out.skips.append(RenameSkip(
                         path: p.file.path, fileName: p.file.name,

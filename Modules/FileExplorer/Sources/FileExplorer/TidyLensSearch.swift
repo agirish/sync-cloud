@@ -68,6 +68,32 @@ enum TidyLensSearch {
     }
 }
 
+// MARK: - Rename backlog
+
+/// Organize ▸ the rename backlog. Filters `renamePlans`.
+///
+/// **The thinnest one, and for a different reason than `RiskyNameSearch`.** A row here is a
+/// *folder*, and what you look for is a folder — "PG&E", "2021", "HDFC". There is no confidence to
+/// filter by, no kind (a plan spans whatever extensions the folder holds), and no size. So this is
+/// free text over the folder path and the names inside it, with no token grammar at all, and the
+/// placeholder never suggests one.
+///
+/// Matching the file names too is what makes it useful rather than decorative: 129 folders is a lot
+/// to scroll, and the file you are actually looking for is `9829custbill…`.
+enum RenameBacklogSearch {
+
+    static func matches(_ query: String, _ plan: RenamePlan) -> Bool {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return true }
+        if plan.relativePath.range(of: text, options: .caseInsensitive) != nil { return true }
+        if plan.steps.contains(where: {
+            $0.currentName.range(of: text, options: .caseInsensitive) != nil
+                || $0.proposedName.range(of: text, options: .caseInsensitive) != nil
+        }) { return true }
+        return plan.skips.contains { $0.fileName.range(of: text, options: .caseInsensitive) != nil }
+    }
+}
+
 // MARK: - Rename
 
 /// Tidy ▸ Rename. Filters `riskyNames`.

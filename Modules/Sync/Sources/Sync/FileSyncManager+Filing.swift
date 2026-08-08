@@ -573,9 +573,19 @@ extension FileSyncManager {
         // What each file would be CALLED once it lands — computed against the taxonomy this scan
         // already walked, so the queue answers "where does this go" and "what is it called there"
         // in one pass. See `namingSuggestions`.
-        suggestions = Self.namingSuggestions(suggestions, taxonomy: taxonomy,
-                                             rootPath: providerRoot.path,
-                                             profile: filingFolderProfile)
+        // DETACHED, for the reason `detectRiskyNames` and `detectRenamePlans` beside it are: this
+        // indexes every file in the provider and then plans one folder per candidate, and measured
+        // at real-tree scale (3,000 folders, 12,000 files, 14 files × 3 candidates) it holds the
+        // main actor for **21 ms** — small, but spent at exactly the moment the results publish and
+        // the list rebuilds. Nothing here touches the manager, so there is nothing to hop back for.
+        let namingInput = suggestions
+        let namingProfile = filingFolderProfile
+        let namingRoot = providerRoot.path
+        suggestions = await Task.detached(priority: .userInitiated) {
+            Self.namingSuggestions(namingInput, taxonomy: taxonomy, rootPath: namingRoot,
+                                   profile: namingProfile)
+        }.value
+        if Task.isCancelled { return }
         self.publishFilingSuggestions(suggestions)   // single publish
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -1244,6 +1254,11 @@ extension FileSyncManager {
     public func clearFiling() {
         filingScanTask?.cancel()
         publishFilingSuggestions([])
+        // The rename backlog is a product of THIS scan, so it goes with it. Left behind it outlived
+        // its own scope chip: `filingLastProviderRoot` is cleared four lines down, and that is what
+        // the backlog's chip names — so the finding stayed on screen, still claiming N folders,
+        // with nothing left to say which tree they were in.
+        clearRenamePlans()
         filingScanFolder = nil
         filingLastCacheReuse = nil
         filingLastRefine = nil
