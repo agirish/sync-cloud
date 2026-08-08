@@ -78,6 +78,22 @@ final class LockedBox<Value>: @unchecked Sendable {
 /// below, so a full-suite run with several timeouts names this one line several times and no test
 /// file at all. That is expensive precisely when it is least affordable — a run whose failures you
 /// cannot place is the problem mechanism 8 exists for.
+///
+/// **Bounded by POLLS as well as by seconds**, and the seconds are the weaker of the two.
+/// Everything this waits for arrives on main-actor turns, and a congested run has fewer of them
+/// per second, not more — so the deadline shrinks, in the only unit that matters, exactly when the
+/// wait needs it most. Measured across a full Sync run on 2026-08-08: nominally a poll costs its
+/// 10 ms sleep, and under the CPU-spin load in `docs/flaky-tests.md` the worst observed rate was
+/// **223 ms per poll**, 22× that. Five seconds buys ~500 evaluations at the nominal rate and ~22 at
+/// that one; the sibling helper in `ShortcutRevealTrackerTests` was measured at 4 in 4.44s on a
+/// loaded CI runner, which is the failure this floor exists to prevent.
+///
+/// No caller anywhere passes an explicit `timeout:` — all ~150 take the default — so the floor
+/// cannot collide with a deliberately short budget, and it costs a passing wait nothing: the loop
+/// still returns the moment the condition holds.
+///
+/// **Keep this in step with the copy in `SyncCloudTests/TestSupport.swift`**, which the app target
+/// cannot share. The two bodies are identical on purpose.
 @MainActor
 func waitUntil(
     _ what: Comment,
@@ -85,13 +101,24 @@ func waitUntil(
     sourceLocation: SourceLocation = #_sourceLocation,
     _ condition: () -> Bool
 ) async {
+    var polls = 0
     let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-    while ContinuousClock.now < deadline {
+    while polls < waitPollFloor || ContinuousClock.now < deadline {
+        polls += 1
         if condition() { return }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    #expect(condition(), what, sourceLocation: sourceLocation)
+    // The poll count IS the diagnosis, so it goes in the message: a wait that gave up after a
+    // handful was starved and says nothing about the code, while one that gave up after hundreds
+    // was genuinely disproved.
+    #expect(condition(), "\(what.rawValue) — still false after \(polls) polls",
+            sourceLocation: sourceLocation)
 }
+
+/// The fewest polls `waitUntil` will make before it may give up, however little of its deadline is
+/// left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the FileExplorer test
+/// target and `pollFloor` in `ShortcutRevealTrackerTests`.
+let waitPollFloor = 50
 
 /// Creates a fresh, uniquely named temp directory for real-filesystem tests and returns it
 /// CANONICALIZED — macOS's temporaryDirectory lives behind the /var -> /private/var symlink,

@@ -10,6 +10,13 @@ import Foundation
 ///
 /// Reports its timeout at the CALL SITE; keep the forwarded `sourceLocation` in step with the Sync
 /// copy. Without it every caller's failure anchors here instead of naming a test file.
+///
+/// **Bounded by POLLS as well as by seconds**, and the seconds are the weaker of the two: what this
+/// waits for arrives on main-actor turns, and a congested run has fewer of them per second, not
+/// more. The Sync copy carries the measurements; the short version is that a poll's nominal cost is
+/// its 10 ms sleep and the worst rate measured under load was 223 ms, so the deadline shrinks — in
+/// the only unit that matters — exactly when the wait needs it most. Keep the floor in step with
+/// that copy along with everything else here.
 @MainActor
 func waitUntil(
     _ what: Comment,
@@ -17,13 +24,22 @@ func waitUntil(
     sourceLocation: SourceLocation = #_sourceLocation,
     _ condition: () -> Bool
 ) async {
+    var polls = 0
     let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-    while ContinuousClock.now < deadline {
+    while polls < waitPollFloor || ContinuousClock.now < deadline {
+        polls += 1
         if condition() { return }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    #expect(condition(), what, sourceLocation: sourceLocation)
+    // The poll count IS the diagnosis: a handful means starved, hundreds means disproved.
+    #expect(condition(), "\(what.rawValue) — still false after \(polls) polls",
+            sourceLocation: sourceLocation)
 }
+
+/// The fewest polls `waitUntil` will make before it may give up, however little of its deadline is
+/// left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the FileExplorer test
+/// target and `pollFloor` in `ShortcutRevealTrackerTests`.
+let waitPollFloor = 50
 
 /// A throwaway `UserDefaults` suite, so a test can pin a defaults-driven decision without writing
 /// into the app's real domain — which, when the test host IS the app, is the user's live settings.
