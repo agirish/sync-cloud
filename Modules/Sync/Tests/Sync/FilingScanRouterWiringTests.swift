@@ -252,4 +252,96 @@ import Testing
         #expect(seen.snippets.contains { $0 == vocabulary },
                 "its page was never read, so the model judged it on the filename alone")
     }
+
+    // MARK: Reading a scan on request
+
+    /// The scan must NOTICE a PDF it read and got nothing from — that is what puts the offer on the
+    /// card — and must not spend the 0.5–2.1 s of rendering and Vision it would take to fix it.
+    @Test func aPdfThatYieldsNoTextIsRecordedButNotRead() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = "Documents/Home/Leases"
+        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+        try Self.write(root.appendingPathComponent("Downloads/readable.pdf"))
+
+        final class Calls: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var ocr: [String] = []
+            func ocr(_ p: String) { lock.lock(); ocr.append(p); lock.unlock() }
+        }
+        let calls = Calls()
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in [] }
+        // The scanned one reads as nothing; the other has a text layer.
+        m.filingSnippetExtractor = { p in p.hasSuffix("scanned.pdf") ? nil : "lease tenancy landlord" }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingOCRExtractor = { p in calls.ocr(p); return "WILSON PROPERTY MANAGEMENT lease tenancy" }
+        m.filingFolderProfile = Self.profile([target])
+        m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        #expect(m.filingUnreadableScans.contains(root.appendingPathComponent("Downloads/scanned.pdf").path))
+        #expect(!m.filingUnreadableScans.contains(root.appendingPathComponent("Downloads/readable.pdf").path))
+        #expect(calls.ocr.isEmpty, "the scan spent OCR it was supposed to only offer")
+    }
+
+    /// And the offer, taken: OCR runs once, its text routes the file, and the card stops offering.
+    @Test func readingAScanRoutesItAndRetiresTheOffer() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingScanRead")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = "Documents/Home/Leases"
+        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+
+        final class Calls: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var count = 0
+            func hit() { lock.lock(); count += 1; lock.unlock() }
+        }
+        let calls = Calls()
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { _ in nil }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingOCRExtractor = { _ in calls.hit(); return "lease tenancy landlord rent" }
+        m.filingFolderProfile = Self.profile([target])
+        m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        let s = try #require(m.filingSuggestions.first)
+        #expect(s.best == nil, "the fixture needs a file with no home before the read")
+        #expect(m.filingUnreadableScans.contains(s.filePath))
+
+        let routed = await m.readScan(for: s)
+        #expect(routed)
+        #expect(calls.count == 1)
+        let after = try #require(m.filingSuggestions.first?.best)
+        #expect(after.path == root.appendingPathComponent(target).path)
+        #expect(after.fromContent, "the home must be marked as read from the document")
+        #expect(!m.filingUnreadableScans.contains(s.filePath), "the offer stayed up after being taken")
+    }
+
+    /// OCR that finds nothing retires the offer too — otherwise the button invites the same
+    /// multi-second wait again, for the same nothing.
+    @Test func aScanThatOcrsToNothingStopsBeingOffered() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingScanEmpty")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.write(root.appendingPathComponent("Documents/Home/Leases/.keep"), bytes: 1)
+        try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { _ in nil }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingOCRExtractor = { _ in nil }
+        m.filingFolderProfile = Self.profile(["Documents/Home/Leases"])
+        m.filingMemory = Self.memory("Documents/Home/Leases", ["lease"])
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let s = try #require(m.filingSuggestions.first)
+        #expect(await m.readScan(for: s) == false)
+        #expect(!m.filingUnreadableScans.contains(s.filePath))
+    }
 }

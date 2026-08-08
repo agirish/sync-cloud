@@ -193,3 +193,65 @@ extension FileSyncManager {
                                  providerRoot: s.providerRoot), true, shortlist)
     }
 }
+
+// MARK: - Reading a scan on request
+
+extension FileSyncManager {
+
+    /// Recovers a scanned PDF's text with OCR and re-routes that one file.
+    ///
+    /// **Offered, never spent.** Rendering a page and running Vision over it measured 0.5–2.1 s per
+    /// file on a real tree (a lease at 1.39 s, an amenity agreement at 2.14 s, an eOCI card at
+    /// 0.70 s). For the file in front of the user that is a click; for the 500-file inbox this app
+    /// is built for it is ten minutes of fans, spent on files the user may not care about. So the
+    /// scan records which files would benefit (``filingUnreadableScans``) and this runs on request.
+    ///
+    /// Re-routes through the router alone — no model call, so the answer costs nothing beyond the
+    /// OCR and comes from the measured path rather than an uncalibrated one. The recovered text is
+    /// exactly what that path was missing: `Divit - eOCI.pdf` extracts nothing and OCRs to
+    /// "eOCI Card | Government of India | Bureau of Immigration | OVERSEAS CITIZEN OF INDIA".
+    @discardableResult
+    public func readScan(for suggestion: FilingSuggestion) async -> Bool {
+        guard let ocr = filingOCRExtractor, let index = filingRouterIndex,
+              let root = filingLastProviderRoot else { return false }
+        // One render per file at a time — a second click while Vision is out would start a second.
+        guard !filingOCRInFlight.contains(suggestion.filePath) else { return false }
+        filingOCRInFlight.insert(suggestion.filePath)
+        defer { filingOCRInFlight.remove(suggestion.filePath) }
+
+        let generation = filingSuggestionsGeneration
+        guard let text = await ocr(suggestion.filePath), !text.isEmpty else {
+            // Nothing came back: stop offering, or the button invites the same wait again.
+            filingUnreadableScans.remove(suggestion.filePath)
+            Logger.shared.info("Filing: OCR found no text in “\(suggestion.fileName)”")
+            return false
+        }
+        // The list this is about must still be the list on screen — same rule as the refine pass.
+        guard filingSuggestionsGeneration == generation,
+              let live = filingSuggestions.first(where: { $0.id == suggestion.id })
+        else { return false }
+
+        let rejected = filingRejections(under: URL(fileURLWithPath: root))
+        var rejectedByFile: [String: Set<String>] = [:]
+        let paths = Self.rejectedPaths(forFileNamed: live.fileName, in: rejected)
+            .union(filingSessionRejections[live.id] ?? [])
+        if !paths.isEmpty { rejectedByFile[live.id] = paths }
+
+        // Routed as a homeless file whatever the card currently shows: the point of the click is
+        // that the home on it was decided without the document's text.
+        let blank = FilingSuggestion(filePath: live.filePath, fileName: live.fileName, size: live.size,
+                                     modificationDate: live.modificationDate, candidates: [],
+                                     providerRoot: live.providerRoot)
+        let outcome = Self.route(blank, index: index, snippets: [live.filePath: text],
+                                 providerRoot: root, rejectedByFile: rejectedByFile)
+        filingUnreadableScans.remove(suggestion.filePath)
+        guard outcome.routed, let best = outcome.suggestion.best else {
+            Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — no home matched it")
+            return false
+        }
+        replaceFilingSuggestion(live.id, candidates: [best])
+        Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
+                           + "\((best.path as NSString).lastPathComponent)")
+        return true
+    }
+}

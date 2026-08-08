@@ -341,6 +341,12 @@ extension FileSyncManager {
                     routerSnippets = await Self.extractSnippets(for: readSet.map { $0.filePath },
                                                                using: snippetExtractor)
                     if Task.isCancelled { return }
+                    // A PDF that was read and gave up nothing is a scan with no text layer. Noted
+                    // now, while it is known which files were actually read; the expensive part —
+                    // rendering and OCR — is offered, not spent. See `filingUnreadableScans`.
+                    filingUnreadableScans = Set(readSet.map { $0.filePath }.filter {
+                        routerSnippets[$0] == nil && ($0 as NSString).pathExtension.lowercased() == "pdf"
+                    })
                     // **Tokenize only what the keyword pass will use.** `filingTokensFromText` is
                     // NaturalLanguage named-entity recognition over up to 20,000 characters — the
                     // most expensive thing in the scan after extraction — and its only consumer is
@@ -1187,7 +1193,10 @@ extension FileSyncManager {
     }
 
     /// Replaces a suggestion's candidates in place (keeps the card, updates its shown home).
-    private func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination]) {
+    // `internal`, not `private`: `readScan(for:)` updates one card the same way "Try another"
+    // does, and it lives in the router extension. Still not `public` — the generation bump above
+    // is what every staleness guard reads, so wholesale replacement stays the only outside door.
+    func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination]) {
         guard let i = filingSuggestions.firstIndex(where: { $0.id == id }) else { return }
         let s = filingSuggestions[i]
         // **Named here too, or "Try another" answers differently from the scan.** The scan enriches

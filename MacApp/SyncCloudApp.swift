@@ -331,6 +331,10 @@ struct SyncCloudApp: App {
         manager.filingSnippetExtractor = { path in
             await ContentSignalExtractor.snippet(forFileAt: path)
         }
+        // Offered per file, never spent by a scan — see `FileSyncManager.readScan(for:)`.
+        manager.filingOCRExtractor = { path in
+            await ContentSignalExtractor.ocrPDFFirstPage(atPath: path)
+        }
         // The second half of `filingContentExtractor`, on its own. `tokens(forFileAt:)` reads the
         // file and then derives tokens from what it read; handing the manager the derivation lets
         // the scan read a page once and share it with the router and the classifier.

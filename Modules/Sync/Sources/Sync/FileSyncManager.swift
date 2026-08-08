@@ -723,6 +723,17 @@ public class FileSyncManager: ObservableObject {
     /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
     /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
     public var filingArtifactFingerprint: String = ""
+    /// Loose PDFs that were READ and gave up nothing — scans with no text layer.
+    ///
+    /// Recorded rather than acted on: recovering their text means rendering a page and running it
+    /// through Vision, measured at 0.5–2.1 s each on a real tree. That is nothing for one file and
+    /// ten minutes for a 500-file inbox, so it is offered (``readScan(for:)``) instead of spent.
+    public internal(set) var filingUnreadableScans: Set<String> = []
+    /// Renders a PDF's first page and reads it with OCR — injected by the app, because Vision has no
+    /// place in a framework-free module. nil ⇒ the offer is never made.
+    public var filingOCRExtractor: (@Sendable (String) async -> String?)?
+    /// Files whose OCR is currently running, so a second click cannot start a second render.
+    public internal(set) var filingOCRInFlight: Set<String> = []
     public var filingMemory: FilingMemory? { didSet { invalidateFilingRouterIndex() } }
     /// The prepared router index, and the destination set it was built from.
     ///

@@ -23,6 +23,18 @@ struct FilingSuggestionCard: View {
     /// "Try another" for the same card, so without this the second click is silently inert — the
     /// button must look busy rather than look ready and do nothing.
     var isTryAnotherBusy: Bool = false
+    /// Read this file with OCR — offered only for a PDF the scan read and got nothing from, i.e. a
+    /// scan with no text layer. nil hides the button.
+    ///
+    /// **An offer, not something the scan does.** Rendering a page and running Vision over it
+    /// measured 0.5–2.1 s per file; for the card in front of you that is a click, for a 500-file
+    /// inbox it is ten minutes of fans spent on files you may not care about. So the suggestion on
+    /// such a card was reached without the document, and this is how you say "actually read it".
+    var onReadScan: (() -> Void)? = nil
+    /// True while this card's OCR is running — same reason as `isTryAnotherBusy`: the manager
+    /// ignores a re-entrant click, so the button must look busy rather than look ready and do
+    /// nothing. The wait is seconds, which is long enough to click twice.
+    var isReadScanBusy: Bool = false
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -346,6 +358,16 @@ struct FilingSuggestionCard: View {
                     .controlSize(.small)
                     .disabled(isTryAnotherBusy)
                     .help("Reject this folder and suggest a different one — remembered for next time")
+            }
+            if let onReadScan {
+                Button(action: onReadScan) {
+                    Label(isReadScanBusy ? "Reading…" : "Read scan",
+                          systemImage: "text.viewfinder")
+                }
+                .controlSize(.small)
+                .disabled(isReadScanBusy)
+                .help("This PDF has no text layer, so the suggestion was made from its name alone. "
+                      + "Read it with OCR and suggest again — a second or two.")
             }
             if let onPreview {
                 Button(action: onPreview) { Label("Preview", systemImage: "eye") }

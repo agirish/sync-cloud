@@ -32,6 +32,47 @@ enum ContentSignalExtractor {
         }
     }
 
+    /// Renders a PDF's first page and reads it with OCR — for scans with no text layer.
+    ///
+    /// **Deliberately not part of `snippet(forFileAt:)`.** Rendering plus Vision measured 0.5–2.1 s
+    /// per file on a real tree, against a few milliseconds for pulling an existing text layer. That
+    /// is a click for one file and ten minutes for a 500-file inbox, so the scan records which files
+    /// would benefit and the user spends it — see `FileSyncManager.readScan(for:)`.
+    ///
+    /// 2× is the smallest scale that read a real lease reliably; at 1× Vision missed body text on
+    /// the scans measured.
+    static func ocrPDFFirstPage(atPath path: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            workQueue.async {
+                let url = URL(fileURLWithPath: path)
+                guard !isEvictediCloudFile(url),
+                      let doc = PDFDocument(url: url), !doc.isLocked, let page = doc.page(at: 0)
+                else { return continuation.resume(returning: nil) }
+                let bounds = page.bounds(for: .mediaBox)
+                let scale: CGFloat = 2
+                let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+                guard size.width > 1, size.height > 1,
+                      let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height),
+                                          bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+                else { return continuation.resume(returning: nil) }
+                ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+                ctx.fill(CGRect(origin: .zero, size: size))
+                ctx.scaleBy(x: scale, y: scale)
+                page.draw(with: .mediaBox, to: ctx)
+                guard let image = ctx.makeImage() else { return continuation.resume(returning: nil) }
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+                let text = (request.results ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                    .joined(separator: "\n")
+                continuation.resume(returning: text.isEmpty ? nil : String(text.prefix(maxTextChars)))
+            }
+        }
+    }
+
     /// The seam the manager injects for the AI classifier: a bounded plain-text excerpt of the file
     /// (PDF text / OCR / plain), or nil when there's nothing readable. Same evicted-iCloud guard and
     /// bounds as the token path — nothing leaves the device.

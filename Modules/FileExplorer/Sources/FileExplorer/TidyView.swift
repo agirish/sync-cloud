@@ -2060,7 +2060,13 @@ public struct TidyView: View {
             },
             onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
-            isTryAnotherBusy: syncManager.filingTryAnotherInFlight.keys.contains(suggestion.id)
+            isTryAnotherBusy: syncManager.filingTryAnotherInFlight.keys.contains(suggestion.id),
+            // Offered only for the files the scan read and got nothing from — see
+            // `FileSyncManager.readScan(for:)` for why it is an offer and not a scan step.
+            onReadScan: syncManager.filingUnreadableScans.contains(suggestion.filePath)
+                ? { Task { await syncManager.readScan(for: suggestion) } }
+                : nil,
+            isReadScanBusy: syncManager.filingOCRInFlight.contains(suggestion.filePath)
         )
     }
 
