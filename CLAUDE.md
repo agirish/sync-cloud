@@ -13,9 +13,24 @@ As of 2026-08-01 there are **two long-lived branches**, and they are the only tw
 
 - **Anything that breaks behaviour, removes a feature, or restructures** → `main` only. That is
   what the v3 line is for; do not put it on `v2.x`.
-- **A bug fix that matters to someone running 2.8** → land it on **`v2.x` first**, then cherry-pick
-  it onto `main`. Fixing on `main` and intending to backport later is how a fix gets lost.
-- **Everything else** (new non-breaking work, docs, tooling) → `main`.
+- **Everything else that *applies* to `v2.x`** → land it on **`v2.x` first**, then cherry-pick it
+  onto `main` in the same session. Fixing on `main` and intending to backport later is how a fix
+  gets lost.
+- **Work on code that exists only on the v3 line** → `main`, because there is nowhere else for it
+  to go.
+
+**"Applies" means the code is there, not that a user would notice.** This is the bar, and it is
+deliberately low: bug fixes, minor features that need no redesign, test-only changes, flake fixes,
+docs and tooling all go to both lines when `v2.x` carries the file. A narrower reading — "only fixes
+that matter to someone running 2.8" — is what this line used to say, and under it a shared test
+helper was fixed on `main` alone while `v2.x` kept the identical defect against the same CI.
+
+Two commands settle it before you start, and byte-identical files cherry-pick clean:
+
+```sh
+git ls-tree -r --name-only origin/v2.x -- <path>          # does that line carry it at all?
+diff <(git show origin/main:<f>) <(git show origin/v2.x:<f>)
+```
 
 **Never merge one line into the other.** Both stay linear; move individual commits with
 `git cherry-pick`. A merge commit between the lines defeats the split.
