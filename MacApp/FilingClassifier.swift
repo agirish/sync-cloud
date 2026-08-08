@@ -119,19 +119,45 @@ enum OnDeviceFilingClassifier {
     Always answer with a path relative to the folder list — never an absolute path.
     """
 
+    /// How much of each input a prompt attempt is allowed. The on-device model's context window is
+    /// small and shared with its output, so an attempt that does not fit is not an error to report —
+    /// it is a budget to shrink.
+    ///
+    /// **A skip is the worst outcome, and it used to be the only one.** Once excerpts started being
+    /// sent for files whose text was already in hand, a 244-folder menu plus a 1,200-character
+    /// excerpt tipped a real T-Mobile bill over the window; the session threw, `pick` logged at
+    /// debug and returned nil, and the file silently kept the filename-derived home the whole change
+    /// existed to replace. Nothing above that line could tell "the model declined" from "the model
+    /// was never asked".
+    ///
+    /// The folder list is ordered most-deserving-first by ``FilingEngine/classifierFolders``, so
+    /// truncating it drops the least plausible destinations and keeps every router shortlist.
+    struct PromptBudget: Sendable, Equatable {
+        let folders: Int
+        let snippetChars: Int
+
+        /// Tried in order; the first that fits wins.
+        static let ladder = [PromptBudget(folders: 160, snippetChars: 1_200),
+                             PromptBudget(folders: 80, snippetChars: 400),
+                             PromptBudget(folders: 40, snippetChars: 0)]
+    }
+
     /// The per-file prompt `pick` sends to the model — pure string shaping (folder list, file
     /// facts, bounded content excerpt, rejected folders), extracted so it's unit-testable.
-    static func promptText(for file: FilingCandidateFile, folderList: String) -> String {
+    static func promptText(for file: FilingCandidateFile, folderList: String,
+                           budget: PromptBudget = PromptBudget.ladder[0]) -> String {
+        let folders = folderList.split(separator: "\n", omittingEmptySubsequences: false)
+            .prefix(budget.folders).joined(separator: "\n")
         var prompt = """
         Existing folders (relative paths):
-        \(folderList)
+        \(folders)
 
         File name: \(file.fileName)
         Type: \(file.ext.isEmpty ? "unknown" : file.ext)
         """
         if let year = file.year { prompt += "\nModified: \(year)" }
-        if let snippet = file.contentSnippet, !snippet.isEmpty {
-            prompt += "\n\nContent excerpt:\n\(String(snippet.prefix(maxSnippetChars)))"
+        if budget.snippetChars > 0, let snippet = file.contentSnippet, !snippet.isEmpty {
+            prompt += "\n\nContent excerpt:\n\(String(snippet.prefix(min(budget.snippetChars, maxSnippetChars))))"
         }
         if !file.excludedRelativePaths.isEmpty {
             prompt += "\n\nThe user already rejected these folders — do NOT choose them, pick a different one: "
@@ -202,19 +228,41 @@ enum OnDeviceFilingClassifier {
 
     @available(macOS 26.0, *)
     private static func pick(file: FilingCandidateFile, folderList: String, instructions: String) async -> FilingVerdict? {
-        let prompt = promptText(for: file, folderList: folderList)
-
-        do {
-            // A fresh session per file keeps each decision independent (no transcript bleed).
-            let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: prompt, generating: FolderPick.self)
-            return response.content.asVerdict()
-        } catch {
-            // Per-file, benign, and routine (the model declines some files) — a diagnostic detail,
-            // not an operational event. Debug keeps it out of the default log during every scan.
-            Logger.shared.debug("On-device Filing skipped “\(file.fileName)”: \(error.localizedDescription)")
-            return nil
+        // Walk the budget ladder: a prompt that does not fit the context window is retried smaller
+        // rather than abandoned. See ``PromptBudget`` for why abandoning it is the worst outcome.
+        for (attempt, budget) in PromptBudget.ladder.enumerated() {
+            do {
+                // A fresh session per file keeps each decision independent (no transcript bleed).
+                let session = LanguageModelSession(instructions: instructions)
+                let prompt = promptText(for: file, folderList: folderList, budget: budget)
+                let response = try await session.respond(to: prompt, generating: FolderPick.self)
+                if attempt > 0 {
+                    Logger.shared.info("On-device Filing: “\(file.fileName)” needed a smaller prompt "
+                                       + "(\(budget.folders) folders, \(budget.snippetChars) excerpt chars)")
+                }
+                return response.content.asVerdict()
+            } catch {
+                guard isContextOverflow(error), attempt < PromptBudget.ladder.count - 1 else {
+                    // Per-file, benign, and routine (the model declines some files) — a diagnostic
+                    // detail, not an operational event. Debug keeps it out of the default log.
+                    Logger.shared.debug("On-device Filing skipped “\(file.fileName)”: \(error.localizedDescription)")
+                    return nil
+                }
+            }
         }
+        return nil
+    }
+
+    /// Whether an error means "the prompt was too long" rather than "the model declined".
+    ///
+    /// Matched on the message rather than a typed case: the two are reported differently across
+    /// OS updates, and the cost of being wrong in either direction is one retry with a smaller
+    /// prompt — against silently keeping a wrong home, which is what the typed-case-only version
+    /// did the day the window was first exceeded.
+    static func isContextOverflow(_ error: Error) -> Bool {
+        let text = "\(error) \(error.localizedDescription)".lowercased()
+        return text.contains("context window") || text.contains("context length")
+            || text.contains("too many tokens")
     }
     #endif
 }

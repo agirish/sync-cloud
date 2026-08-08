@@ -167,6 +167,41 @@ import Testing
 /// window, and it must agree with the one-pass helper exactly.
 @Suite @MainActor struct FilingRouteYieldingTests {
 
+    /// **An existing folder full of the same documents beats inventing one from a filename word.**
+    /// The keyword engine returns `.high` for rules as generic as "receipt or invoice — filed by
+    /// year": a T-Mobile bill was headed for a NEW `Purchases/2025` while five siblings sat in an
+    /// existing folder the router ranks first. Confidence cannot arbitrate between those two claims,
+    /// so `newSegments` does.
+    @Test func aRouterHomeReplacesAHighConfidenceProposalToCreateAFolder() {
+        let creating = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
+                                         reasons: ["Receipt or invoice — filed by year"],
+                                         newSegments: ["2025"], fromContent: false,
+                                         remembered: false, fromAI: false)
+        let s = FilingRouteOverlayTests.suggestion("bill.pdf", best: creating)
+        let (out, routed, _) = FileSyncManager.applyRoutes(
+            [s], index: FilingRouteOverlayTests.index, snippets: ["/prov/TODO/bill.pdf": "perioperative anesthesia stoll"],
+            providerRoot: "/prov")
+        #expect(routed == 1)
+        #expect(out.first?.best?.newSegments.isEmpty == true, "swapped one new folder for another")
+        #expect(out.first?.best?.path != "/prov/Purchases/2025")
+    }
+
+    /// The other half: a confident home that names a folder that already EXISTS is left alone, which
+    /// is the rule this carve-out must not swallow.
+    @Test func aRouterHomeStillLeavesAnExistingConfidentHomeAlone() {
+        let existing = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
+                                         reasons: ["Receipt or invoice — filed by year"],
+                                         newSegments: [], fromContent: false,
+                                         remembered: false, fromAI: false)
+        let s = FilingRouteOverlayTests.suggestion("bill.pdf", best: existing)
+        let (out, routed, shortlist) = FileSyncManager.applyRoutes(
+            [s], index: FilingRouteOverlayTests.index, snippets: ["/prov/TODO/bill.pdf": "perioperative anesthesia stoll"],
+            providerRoot: "/prov")
+        #expect(routed == 0)
+        #expect(out.first?.best?.path == "/prov/Purchases/2025")
+        #expect(shortlist["/prov/TODO/bill.pdf"]?.isEmpty == false, "it must still be ranked for the menu")
+    }
+
     @Test func yieldingAgreesWithTheOnePassHelper() async {
         let index = FilingRouteOverlayTests.index
         let snippets = (0..<60).reduce(into: [String: String]()) {

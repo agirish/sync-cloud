@@ -206,4 +206,47 @@ import Sync
         #expect(message.contains("on-device"))
         #expect(message.contains("Settings → Organize"))
     }
+
+    // MARK: Prompt budget
+
+    /// **A prompt that does not fit is a budget to shrink, not a file to skip.** The on-device
+    /// model's context window is small and shared with its output; once excerpts started being sent
+    /// for files whose text was already in hand, a 244-folder menu plus a 1,200-character excerpt
+    /// tipped a real T-Mobile bill over it. The session threw, the file was skipped, and it silently
+    /// kept the filename-derived home the whole change existed to replace.
+    @Test func eachRungOfTheLadderShrinksBothInputs() {
+        let folders = (0..<400).map { "Folder\($0)" }.joined(separator: "\n")
+        let file = Self.candidate(name: "DetailedBillApr2025.pdf", ext: "pdf",
+                                  snippet: String(repeating: "x", count: 4_000))
+        var lastFolderCount = Int.max
+        for budget in OnDeviceFilingClassifier.PromptBudget.ladder {
+            let prompt = OnDeviceFilingClassifier.promptText(for: file, folderList: folders, budget: budget)
+            let listed = prompt.components(separatedBy: "Folder").count - 1
+            #expect(listed == budget.folders, "listed \(listed) folders for a budget of \(budget.folders)")
+            #expect(listed < lastFolderCount, "a rung must be smaller than the one before it")
+            lastFolderCount = listed
+            if budget.snippetChars > 0 {
+                let excerpt = prompt.components(separatedBy: "Content excerpt:\n").last ?? ""
+                let xs = excerpt.filter { $0 == "x" }.count
+                #expect(xs == budget.snippetChars, "excerpt was \(xs) chars for a budget of \(budget.snippetChars)")
+            } else {
+                #expect(!prompt.contains("Content excerpt"))
+            }
+        }
+        // The last rung drops the excerpt entirely — the folder list is what a verdict must answer in.
+        #expect(!OnDeviceFilingClassifier.promptText(
+            for: file, folderList: folders,
+            budget: OnDeviceFilingClassifier.PromptBudget.ladder.last!).contains("Content excerpt"))
+    }
+
+    /// The real message, verbatim from `~/sync-cloud.log`. Matched on text rather than a typed case
+    /// because the two are reported differently across OS updates, and the cost of a false positive
+    /// is one retry with a smaller prompt — against silently keeping a wrong home.
+    @Test func aContextOverflowIsToldApartFromAModelDeclining() {
+        struct Fake: LocalizedError { let errorDescription: String? }
+        #expect(OnDeviceFilingClassifier.isContextOverflow(
+            Fake(errorDescription: "Exceeded model context window size")))
+        #expect(!OnDeviceFilingClassifier.isContextOverflow(
+            Fake(errorDescription: "The model was unable to produce a valid response")))
+    }
 }

@@ -152,13 +152,27 @@ extension FileSyncManager {
         let ranking = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
                                         index: index, excluding: excluded, limit: shortlistLimit)
         let shortlist = ranking.candidates.map(\.relativePath)
-        // The overlay rule itself is unchanged, and still deliberate: an equally confident router
-        // home *replaces* a filename match, and because the replacement is content-derived the file
-        // silently drops out of the blind "File all N" batch.
-        guard !s.hasConfidentHome else { return (s, false, shortlist) }
         guard let best = ranking.best else { return (s, false, shortlist) }
         let confidence = ranking.confidence
-        guard confidence >= (s.best?.confidence ?? .low) else { return (s, false, shortlist) }
+        // **A home that has to CREATE a folder is a weaker claim than one that names a folder the
+        // documents are already in.** The keyword engine hands out `.high` for rules as generic as
+        // "receipt or invoice — filed by year", which reads the word `bill` out of a filename and
+        // proposes a new `Purchases/2025`. A T-Mobile bill got exactly that while five siblings
+        // named `DetailedBill{Jan,Feb,Mar,May,Jun}2025.pdf` sat in an existing
+        // `Home/Utilities/T-Mobile/2025` that the router ranks first out of 4,967 folders. Confidence
+        // is not comparable across those two claims, so it is not what decides between them.
+        //
+        // The router only ever names folders from the taxonomy, so this trade is always
+        // existing-for-new, never the reverse.
+        let wouldCreateAFolder = s.best?.newSegments.isEmpty == false
+        if s.hasConfidentHome, !wouldCreateAFolder { return (s, false, shortlist) }
+        if wouldCreateAFolder {
+            // Still needs real evidence — an unsure ranking must not evict a home either.
+            guard confidence >= .medium else { return (s, false, shortlist) }
+        } else {
+            // The original rule, unchanged for the homeless case: only upgrades, never demotes.
+            guard confidence >= (s.best?.confidence ?? .low) else { return (s, false, shortlist) }
+        }
         let fromContent = best.evidenceToken != nil
         // **No file count.** `FilingDestination.neighborMatches` means "how many files in the
         // target contain this word", and the card prints it as "N similar files already here".
