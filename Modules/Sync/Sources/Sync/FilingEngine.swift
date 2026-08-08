@@ -826,7 +826,8 @@ public enum FilingEngine {
                                      taxonomy: [FileNode], providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
-                                     routerShortlists: [String: [String]] = [:]) -> [FilingSuggestion] {
+                                     routerShortlists: [String: [String]] = [:],
+                                     profile: Sync.FolderProfile? = nil) -> [FilingSuggestion] {
         // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
         // happens on the way in. Deriving the folder set first and letting the other one return
         // early is a full recursive walk of the provider — tens of thousands of nodes on a real
@@ -837,7 +838,8 @@ public enum FilingEngine {
         return applyVerdicts(verdicts, to: suggestions,
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
                              providerRoot: providerRoot, rejectedByFile: rejectedByFile,
-                             contentBlind: contentBlind, routerShortlists: routerShortlists)
+                             contentBlind: contentBlind, routerShortlists: routerShortlists,
+                             profile: profile)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no
@@ -859,7 +861,8 @@ public enum FilingEngine {
                                      existingRelative: Set<String>, providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
-                                     routerShortlists: [String: [String]] = [:]) -> [FilingSuggestion] {
+                                     routerShortlists: [String: [String]] = [:],
+                                     profile: Sync.FolderProfile? = nil) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
@@ -909,6 +912,27 @@ public enum FilingEngine {
             let dest = contentBlind.contains(s.filePath) && rawDest.confidence != .low
                 ? rawDest.withConfidence(.low)
                 : rawDest
+            // **A document that names a person does not go in a different person's folder.**
+            //
+            // Opus, asked where `Aditi OCI.pdf` belonged, answered
+            // `Immigration/OCI/Divit/Application` — the wrong child, in the wrong person's folder,
+            // while `Immigration/OCI/Aditi` exists, holds `Aditi - eOCI.pdf`, and is what the
+            // router ranked first. Of every error this arc produced, filing one family member's
+            // document into another's is the one worth a hard rule: it is the least likely to be
+            // noticed and the most annoying to undo.
+            //
+            // Asked of the profile's PERSON AXIS, not of the words in the path. Measured over the
+            // 756 corpus documents whose filename names a known person, the gold folder's
+            // `axes.person` is a different person for **3** of them (0.40%) — all one baby-shower
+            // folder under `Family/Aditi/Events`. Testing the path text instead would fire on 15,
+            // because `Health/Medical/Travel/Girish - 2021` reads as Girish's folder while the
+            // profile correctly records it as a trip with no person axis at all.
+            if let profile,
+               let destPerson = profile.folders[Self.relative(rawDest.path, under: providerRoot)]?
+                   .axes["person"]?.lowercased() {
+                let filePeople = nameTokens(s.fileName).intersection(profile.personTokens)
+                if !filePeople.isEmpty, !filePeople.contains(destPerson) { return s }
+            }
             // A verdict only LEADS when it's at least as confident as the current best home.
             // Otherwise a low-confidence model guess would demote a strong filename/rule match —
             // and, because the promoted candidate is `fromAI`, drop the file out of the blind

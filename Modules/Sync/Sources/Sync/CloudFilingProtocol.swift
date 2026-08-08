@@ -52,7 +52,9 @@ public enum CloudFilingProtocol {
     /// **6** — both schemas gained `createsNewFolder`, so a backend must now DECLARE a folder that
     /// does not exist instead of expressing it by typing a path that is not on the list. A cached
     /// answer from before carries no declaration and would be read as an invention.
-    public static let promptVersion = 6
+    /// **7** — a verdict naming a different person than the file is refused, so a cached one from
+    /// before was arbitrated under a different rule.
+    public static let promptVersion = 7
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"

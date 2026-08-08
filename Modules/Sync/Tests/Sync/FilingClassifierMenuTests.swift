@@ -377,4 +377,83 @@ import Testing
         #expect(dest.renamingNewFolder(to: "a/b") == dest)
         #expect(dest.renamingNewFolder(to: "..") == dest)
     }
+
+    // MARK: - One person's documents do not go in another's folder
+
+    private static func peopleProfile() -> Sync.FolderProfile {
+        func entry(_ path: String, person: String?) -> FolderProfileEntry {
+            FolderProfileEntry(path: path, role: .personBucket, naming: nil, anchors: [],
+                               acceptsNewFiles: nil, fileCount: 2, subfolderCount: 0,
+                               axes: person.map { ["person": $0] } ?? [:])
+        }
+        let entries = [entry("Documents/OCI/Aditi", person: "Aditi"),
+                       entry("Documents/OCI/Divit", person: "Divit"),
+                       entry("Documents/Travel/Girish - 2021", person: nil)]
+        return Sync.FolderProfile(profileId: "t", root: "~",
+                                  folders: Dictionary(entries.map { ($0.path, $0) },
+                                                      uniquingKeysWith: { a, _ in a }),
+                                  personTokens: ["aditi", "divit", "girish", "muktha"])
+    }
+
+    private static let peopleTaxonomy: [FileNode] = [
+        dir("/root/Documents", [dir("/root/Documents/OCI", [dir("/root/Documents/OCI/Aditi"),
+                                                            dir("/root/Documents/OCI/Divit")]),
+                                dir("/root/Documents/Travel", [dir("/root/Documents/Travel/Girish - 2021")])]),
+    ]
+
+    /// **Of every error this arc produced, filing one family member's document into another's is
+    /// the one worth a hard rule** — least likely to be noticed, most annoying to undo. Asked where
+    /// `Aditi OCI.pdf` belonged, the on-device model answered `Immigration/OCI/Divit/Application`
+    /// while `Immigration/OCI/Aditi` exists, holds `Aditi - eOCI.pdf`, and was the router's top pick.
+    @Test func aVerdictNamingADifferentPersonDoesNotLead() {
+        let path = "/root/TODO/Aditi OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Aditi OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Divit", confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
+                                             providerRoot: "/root", profile: Self.peopleProfile())
+        #expect(out.first?.best == nil, "Aditi's document was filed into Divit's folder")
+    }
+
+    /// The same verdict for the RIGHT person leads — without this the rule above is
+    /// indistinguishable from refusing every person folder.
+    @Test func aVerdictNamingTheSamePersonStillLeads() throws {
+        let path = "/root/TODO/Aditi OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Aditi OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Aditi", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
+                                                           providerRoot: "/root",
+                                                           profile: Self.peopleProfile()).first?.best)
+        #expect(best.path == "/root/Documents/OCI/Aditi")
+    }
+
+    /// **Asked of the profile's person AXIS, not of the words in the path.** A trip folder called
+    /// `Girish - 2021` holds the whole family's travel documents, and the profile records it with no
+    /// person axis at all. Testing the path text would refuse those — measured, it would fire on 15
+    /// of the corpus's 756 person-named documents instead of 3.
+    @Test func aFolderWithNoPersonAxisIsNotAPersonFolder() throws {
+        let path = "/root/TODO/Muktha Travel Letter.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Muktha Travel Letter.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Travel/Girish - 2021",
+                                     confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
+                                                           providerRoot: "/root",
+                                                           profile: Self.peopleProfile()).first?.best)
+        #expect(best.path == "/root/Documents/Travel/Girish - 2021")
+    }
+
+    /// A file naming nobody is unconstrained — the rule is about a contradiction, not about
+    /// requiring every file to declare a person.
+    @Test func aFileNamingNoPersonIsUnconstrained() throws {
+        let path = "/root/TODO/scan001.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "scan001.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Divit", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
+                                                           providerRoot: "/root",
+                                                           profile: Self.peopleProfile()).first?.best)
+        #expect(best.path == "/root/Documents/OCI/Divit")
+    }
 }

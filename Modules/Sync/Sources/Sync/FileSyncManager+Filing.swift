@@ -565,7 +565,8 @@ extension FileSyncManager {
                                                          providerRoot: providerRoot.path,
                                                          rejectedByFile: rejectedByFile,
                                                          contentBlind: contentBlind,
-                                                         routerShortlists: routerShortlists)
+                                                         routerShortlists: routerShortlists,
+                                                         profile: filingFolderProfile)
             }
         }
 
