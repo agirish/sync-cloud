@@ -245,6 +245,10 @@ extension FileSyncManager {
         let outcome = Self.route(blank, index: index, snippets: [live.filePath: text],
                                  providerRoot: root, rejectedByFile: rejectedByFile)
         filingUnreadableScans.remove(suggestion.filePath)
+        // The scan recorded nothing for this file — it had no text to record. Now it has, and a
+        // rule offered after filing it should key on what the OCR found rather than on a filename
+        // that says `Divit - eOCI.pdf`.
+        filingPageSamples[suggestion.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
         guard outcome.routed, let best = outcome.suggestion.best else {
             Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — no home matched it")
             return false

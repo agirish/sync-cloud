@@ -729,6 +729,16 @@ public class FileSyncManager: ObservableObject {
     /// through Vision, measured at 0.5–2.1 s each on a real tree. That is nothing for one file and
     /// ten minutes for a 500-file inbox, so it is offered (``readScan(for:)``) instead of spent.
     public internal(set) var filingUnreadableScans: Set<String> = []
+    /// Page 1 of each file the scan read, bounded to ``FilingRouter/contentSampleChars``.
+    ///
+    /// Kept because the *rule offered after a filing move* wants the same evidence the router had:
+    /// a file called `Scan 2026-03-02.pdf` says nothing in its name, and without the page it read
+    /// two minutes ago the offer falls back to the extension. Re-reading the PDF at click time to
+    /// recover text already in hand is the one thing that would make the offer expensive.
+    ///
+    /// Bounded, not the whole excerpt: 400 characters is the sample the memory's weights were
+    /// measured under, and 500 files of full extraction is megabytes held for one click.
+    public internal(set) var filingPageSamples: [String: String] = [:]
     /// Renders a PDF's first page and reads it with OCR — injected by the app, because Vision has no
     /// place in a framework-free module. nil ⇒ the offer is never made.
     public var filingOCRExtractor: (@Sendable (String) async -> String?)?

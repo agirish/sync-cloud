@@ -590,6 +590,11 @@ extension FileSyncManager {
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
+        // The pages this scan read, kept for the rule offered after a filing move — same publish
+        // discipline, and replaced rather than merged so a sample can never outlive the list of
+        // files it describes. Truncated to what the scorer was measured on, not to what the
+        // extractor returned (see `filingPageSamples`).
+        filingPageSamples = routerSnippets.mapValues { String($0.prefix(FilingRouter.contentSampleChars)) }
         filingLastCacheReuse = cacheReuse
         // These results have not been refined — whatever the previous list's refine pass did, it
         // was about files that are no longer on screen. Cleared in the same publish so the summary
@@ -956,6 +961,29 @@ extension FileSyncManager {
                                   matchMode: .all, conditions: [condition], destinationTemplate: destinationPath)
         upsertAutomationRule(rule)
         return rule
+    }
+
+    /// Proposes an automation for "this file went into that folder", with everything this scan
+    /// already learned about the tree behind it.
+    ///
+    /// The seam exists so the offer is assembled in one place: the pages the scan read
+    /// (``filingPageSamples``), the prepared profile/memory index, and the rules already saved.
+    /// `destinationRelativePath` is provider-relative — the domain a rule's template lives in.
+    /// Nothing is saved here; the caller shows the proposal and saves only if the user says so.
+    public func proposeAutomationRule(fileName: String,
+                                      filePath: String,
+                                      destinationRelativePath: String,
+                                      modificationDate: Date?,
+                                      now: Date = Date()) -> AutomationRuleProposer.Proposal? {
+        ensureAutomationRulesLoaded()
+        let evidence = AutomationRuleProposer.Evidence(pageSample: filingPageSamples[filePath],
+                                                       index: filingRouterIndex,
+                                                       existingRules: automationRules)
+        return AutomationRuleProposer.propose(fileName: fileName,
+                                              destinationRelativePath: destinationRelativePath,
+                                              evidence: evidence,
+                                              modificationDate: modificationDate,
+                                              now: now)
     }
 
     /// One-time migration: every legacy remembered rule (F3) becomes an automation with a single

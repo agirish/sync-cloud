@@ -87,19 +87,26 @@ struct RememberOverridePromptView: View {
 
 // MARK: - Rule offer prompt
 
-/// The inline "Save a rule?" offer after a filing move: the proposed match condition with a
-/// compact picker (name / content / kind) and the destination; Save creates an Automation.
+/// The inline "Save a rule?" offer after a filing move: the proposed rule with a compact picker
+/// for how tightly to draw it, and the destination; Save creates an Automation.
+///
+/// **The picker offers phrasings, not condition types.** It used to be name / content / kind — three
+/// unrelated single conditions, because that was all the proposer could produce. A proposal is now a
+/// conjunction ("mentions *tmobile* and *autopay*"), and the choice worth offering is narrower
+/// versus broader. The chips stay short (the row is three-across in a one-line prompt) and the
+/// selected phrasing is spelled out in full underneath, so what Save will store is on screen.
 struct RuleOfferPromptView: View {
     let offer: RuleOffer
     let accent: Color
-    /// Which of the offered conditions (name / content / kind) is selected — owned by the host so
-    /// the choice survives this view being rebuilt and is readable at save time.
-    @Binding var conditionChoice: AutomationCondition?
+    /// Which phrasing is selected — owned by the host so the choice survives this view being
+    /// rebuilt and is readable at save time.
+    @Binding var variantChoice: AutomationRuleProposer.Variant?
     let onSave: () -> Void
     let onNotNow: () -> Void
 
     var body: some View {
-        let conditions = [offer.proposal.defaultCondition] + offer.proposal.alternatives
+        let variants = offer.proposal.variants
+        let selected = variantChoice ?? offer.proposal.defaultVariant
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "wand.and.stars")
                 .scaledFont(.system(size: 14, weight: .semibold))
@@ -110,11 +117,12 @@ struct RuleOfferPromptView: View {
                     .lineLimit(2).truncationMode(.middle)
                 HStack(spacing: 6) {
                     Text("Match:").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
-                    ForEach(conditions, id: \.self) { condition in
-                        let on = (conditionChoice == condition)
-                        Button { conditionChoice = condition } label: {
-                            Text(condition.summary)
+                    ForEach(variants) { variant in
+                        let on = (selected == variant)
+                        Button { variantChoice = variant } label: {
+                            Text(variant.chipLabel)
                                 .scaledFont(.system(size: 11, weight: on ? .semibold : .regular))
+                                .lineLimit(1)
                                 .padding(.horizontal, 8).padding(.vertical, 2)
                                 // 0.06 matches ConditionChip's quiet-chip wash (the app's one
                                 // unselected-chip treatment).
@@ -125,6 +133,12 @@ struct RuleOfferPromptView: View {
                         .buttonStyle(.hoverAffordance(on ? .filled : .segment, tint: accent))
                     }
                 }
+                // The sentence the chips abbreviate. A chip reading `“tmobile” + “autopay”` does not
+                // say whether both words are required or either will do; this does.
+                Text(selected.summary)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2).truncationMode(.tail)
             }
             Spacer(minLength: 8)
             VStack(spacing: 5) {

@@ -222,8 +222,8 @@ public struct TidyView: View {
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
     @State private var pendingRuleOffer: RuleOffer?
-    /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
-    @State private var ruleConditionChoice: AutomationCondition?
+    /// Which phrasing of the offered rule (narrower / balanced / broader) the user has selected.
+    @State private var ruleVariantChoice: AutomationRuleProposer.Variant?
     /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
     /// review pass (Cancel keeps it as created; it stays editable under Automations). Also backs
     /// the header card's "New rule", so a blank rule and a taught one share one editor.
@@ -1946,7 +1946,7 @@ public struct TidyView: View {
                 RuleOfferPromptView(
                     offer: offer,
                     accent: glassHue.accentColor,
-                    conditionChoice: $ruleConditionChoice,
+                    variantChoice: $ruleVariantChoice,
                     onSave: { saveProposedRule(offer) },
                     onNotNow: { pendingRuleOffer = nil }
                 )
@@ -2045,24 +2045,29 @@ public struct TidyView: View {
 
     /// After the user files a loose file, propose an editable Automation rule for files like it —
     /// the deterministic, learn-by-example complement to the AI backend.
-    private func offerRule(fileName: String, destinationPath: String, modificationDate: Date?) {
+    ///
+    /// Assembled by the manager, not here: the proposal keys on the page this scan already read and
+    /// on the tree's own filing memory, and both live there (see `proposeAutomationRule`).
+    private func offerRule(fileName: String, filePath: String, destinationPath: String,
+                           modificationDate: Date?) {
         let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: automationDestinationRoot)
         // The file's own date is what lets a destination ending in a year generalise to `{year}`
         // rather than freezing the year the example happened to have.
-        guard let proposal = AutomationRuleProposer.propose(fileName: fileName,
-                                                            destinationRelativePath: rel,
-                                                            modificationDate: modificationDate)
+        guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
+                                                               filePath: filePath,
+                                                               destinationRelativePath: rel,
+                                                               modificationDate: modificationDate)
         else { return }
         pendingRememberPrompt = nil   // the new offer supersedes the legacy override prompt
-        ruleConditionChoice = proposal.defaultCondition
+        ruleVariantChoice = proposal.defaultVariant
         pendingRuleOffer = RuleOffer(fileName: fileName, proposal: proposal)
     }
 
-    /// Saves the offered rule (with the chosen condition) as an Automation, dismisses the offer,
+    /// Saves the offered rule (with the chosen phrasing) as an Automation, dismisses the offer,
     /// and opens the saved rule for review so it can be adjusted while it's fresh.
     private func saveProposedRule(_ offer: RuleOffer) {
         var rule = offer.proposal.rule
-        if let condition = ruleConditionChoice { rule.conditions = [condition] }
+        rule.conditions = (ruleVariantChoice ?? offer.proposal.defaultVariant).conditions
         syncManager.upsertAutomationRule(rule)
         syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
         pendingRuleOffer = nil
@@ -2128,7 +2133,8 @@ public struct TidyView: View {
                     // already lives in (`.notNeeded`) is a no-op, and a rule keyed on where the file
                     // already sits is noise.
                     guard await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved else { return }
-                    offerRule(fileName: suggestion.fileName, destinationPath: dest.path,
+                    offerRule(fileName: suggestion.fileName, filePath: suggestion.filePath,
+                              destinationPath: dest.path,
                               modificationDate: suggestion.modificationDate)
                 }
             },
