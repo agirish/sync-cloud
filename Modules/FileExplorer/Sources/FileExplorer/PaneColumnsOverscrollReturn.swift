@@ -388,6 +388,27 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// The gesture-axis lock the snap consults. `.shared` in the app; tests inject their own
         /// and drive it directly.
         var axisLock: WheelGestureTracker = .shared
+
+        /// How long the pull home takes. Injectable for the same reason `axisLock` is, and for the
+        /// reason `docs/flaky-tests.md` mechanism 1 gives: the pull is an implicit CoreAnimation
+        /// animation, and the tests mount an offscreen, never-key window. When CoreAnimation is
+        /// starved — display asleep, Low Power Mode, or simply a full parallel test run — that
+        /// animation never advances, so `clip.bounds.origin` never reaches home and a test waiting
+        /// on it burns its whole timeout and reports the START state. Measured: this suite failed
+        /// three times in one afternoon under load (22.8 s to give up) and passed 3/3 isolated in
+        /// 1.4 s, twice locally and once in CI.
+        ///
+        /// Zero means "no animation at all", not "a very fast one" — a zero-duration group still
+        /// defers through CoreAnimation and can be starved exactly the same way.
+        ///
+        /// **The default is pinned by a test** (`thePullHomeShipsAnimated`), because once every
+        /// test in the suite injects zero, nothing reads the value the app actually ships and a
+        /// default that drifted to zero would delete the bounce for real users in silence.
+        var pullDuration: TimeInterval = WatchdogView.defaultPullDuration
+
+        /// What the app ships: long enough to read as a bounce, short enough not to feel like a
+        /// correction.
+        static let defaultPullDuration: TimeInterval = 0.25
         /// The pane's handle on this watchdog, so `PaneColumnsView.revealDeepestColumn` can ask
         /// the scoped hold question before it scrolls. Assigned by the representable.
         var holdGate: PaneColumnHoldGate? {
@@ -571,9 +592,14 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
                 origin.x, origin.y, home.x, home.y,
                 clip.documentView?.frame.width ?? -1, clip.documentView?.frame.height ?? -1,
                 clip.bounds.width, clip.bounds.height))
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.25
-                context.allowsImplicitAnimation = true
+            if pullDuration > 0 {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = pullDuration
+                    context.allowsImplicitAnimation = true
+                    clip.setBoundsOrigin(home)
+                }
+            } else {
+                // Straight to the answer, with no animation to be starved of ticks.
                 clip.setBoundsOrigin(home)
             }
             scroller.reflectScrolledClipView(clip)

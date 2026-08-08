@@ -415,7 +415,12 @@ import Sync
         scroller.contentView = clip
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
         scroller.documentView = document
-        document.addSubview(PaneColumnsOverscrollReturn.WatchdogView())
+        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        // The pull home is decided by the code under test; how long it takes to PAINT is decided by
+        // whether CoreAnimation is ticking, which on an offscreen never-key window under parallel
+        // load it may not be. See `pullDuration` and `docs/flaky-tests.md` mechanism 1.
+        watchdog.pullDuration = 0
+        document.addSubview(watchdog)
         window.contentView?.addSubview(scroller)
         return (window, scroller, clip)
     }
@@ -438,6 +443,19 @@ import Sync
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
         return clip.bounds.origin == expected
+    }
+
+    /// **The value nothing else reads.**
+    ///
+    /// Every mount in this file now injects `pullDuration = 0`, which is what stops CoreAnimation
+    /// starvation from deciding the verdict — and also means no test exercises the number the app
+    /// actually ships. A default that drifted to zero would delete the bounce for real users while
+    /// this whole suite stayed green, which is the trap `docs/flaky-tests.md` mechanism 1 names
+    /// after the fix: *pin the default, or the fix quietly costs you the coverage it bought.*
+    @Test func thePullHomeShipsAnimated() {
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.defaultPullDuration == 0.25)
+        // A freshly built watchdog takes it — the injection is a test affordance, not the default.
+        #expect(PaneColumnsOverscrollReturn.WatchdogView().pullDuration == 0.25)
     }
 
     @Test func testAStrandedClipIsPulledHomeOnceAtRest() async {
@@ -553,7 +571,9 @@ import Sync
         scroller.contentView = clip
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 100))
         scroller.documentView = document
-        document.addSubview(PaneColumnsOverscrollReturn.WatchdogView())
+        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        watchdog.pullDuration = 0        // see `pullDuration` — CoreAnimation may not be ticking here
+        document.addSubview(watchdog)
         window.contentView?.addSubview(scroller)
         defer { _ = window }
         await pump(seconds: 0.3)
@@ -1057,6 +1077,7 @@ import Sync
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
         scroller.documentView = document
         let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        watchdog.pullDuration = 0        // see `pullDuration`
         let lock = WheelGestureTracker()
         watchdog.axisLock = lock
         document.addSubview(watchdog)
@@ -1131,6 +1152,7 @@ import Sync
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
         scroller.documentView = document
         let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        watchdog.pullDuration = 0        // see `pullDuration`
         let lock = WheelGestureTracker()
         watchdog.axisLock = lock
         document.addSubview(watchdog)
@@ -1193,6 +1215,7 @@ import Sync
             let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
             scroller.documentView = document
             let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+            watchdog.pullDuration = 0    // see `pullDuration`
             watchdog.axisLock = lock
             document.addSubview(watchdog)
             window.contentView?.addSubview(scroller)
@@ -1254,6 +1277,7 @@ import Sync
             scroller.contentView = clip
             scroller.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
             let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+            watchdog.pullDuration = 0    // see `pullDuration`
             watchdog.axisLock = lock
             let gate = PaneColumnHoldGate()
             watchdog.holdGate = gate
@@ -1293,6 +1317,7 @@ import Sync
         #expect(!gate.isStackHeld, "a gate with no watchdog reported held — every reveal would wait")
 
         let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        watchdog.pullDuration = 0        // see `pullDuration`
         let lock = WheelGestureTracker()
         watchdog.axisLock = lock
         watchdog.holdGate = gate
