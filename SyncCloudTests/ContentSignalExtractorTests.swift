@@ -44,16 +44,26 @@ import UniformTypeIdentifiers
 
     /// Writes a real one-or-more-page PDF whose pages each draw one line of genuine text ops
     /// (so PDFKit's text extraction sees it), and returns its path.
+    /// One line per page — the shape most of these tests want.
     private static func writePDF(lines: [String], to path: String) throws {
+        try writePDF(pages: lines.map { [$0] }, to: path)
+    }
+
+    /// Pages of lines. A single `CTLine` is clipped at the page edge, so a "long" string drawn as
+    /// one line extracts as about fifty characters however long it is — which is why a test about
+    /// a first page that says PLENTY has to draw many lines rather than one long one.
+    private static func writePDF(pages: [[String]], to path: String) throws {
         let data = NSMutableData()
         var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
         let consumer = try #require(CGDataConsumer(data: data as CFMutableData))
         let context = try #require(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
-        for line in lines {
+        for page in pages {
             context.beginPDFPage(nil)
-            let attributed = NSAttributedString(string: line, attributes: [.font: NSFont.systemFont(ofSize: 24)])
-            context.textPosition = CGPoint(x: 72, y: 400)
-            CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+            for (i, line) in page.enumerated() {
+                let attributed = NSAttributedString(string: line, attributes: [.font: NSFont.systemFont(ofSize: 12)])
+                context.textPosition = CGPoint(x: 36, y: 720 - CGFloat(i) * 16)
+                CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+            }
             context.endPDFPage()
         }
         context.closePDF()
@@ -132,6 +142,20 @@ import UniformTypeIdentifiers
         #expect(snippet.contains("MARKERPAGE5"))
         #expect(!snippet.contains("MARKERPAGE6"))
         #expect(!snippet.contains("MARKERPAGE7"))
+    }
+
+    /// **Five pages is a fallback for a thin first page, not a target.** Nothing downstream reads
+    /// that much — the router scores 400 characters, the on-device prompt carries 1,200, the cloud
+    /// one 800 — so a 14-page phone bill was parsed five pages deep to produce 16,910 characters of
+    /// which every consumer used the first few hundred, on every classifiable file in the scan.
+    @Test func aPageThatSaysPlentyStopsTheRead() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("bill.pdf")
+        let fatFirstPage = (0..<20).map { "AutoPay is scheduled for this account, line \($0)." }
+        try Self.writePDF(pages: [fatFirstPage, ["MARKERPAGE2"], ["MARKERPAGE3"]], to: path)
+        let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
+        #expect(snippet.contains("AutoPay"))
+        #expect(!snippet.contains("MARKERPAGE2"), "read past a first page that already said plenty")
     }
 
     @Test func corruptPDFYieldsNothing() async {

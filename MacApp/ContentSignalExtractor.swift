@@ -73,12 +73,28 @@ enum ContentSignalExtractor {
         return status != .current
     }
 
+    /// Page 1, and further pages only while page 1 has not produced enough to work with.
+    ///
+    /// **`maxPDFPages` is a fallback for a thin first page, not a target.** Nothing downstream reads
+    /// five pages: the router scores 400 characters (its measured sample), the on-device prompt
+    /// carries at most 1,200 and the cloud one 800. Only the keyword engine's entity pass looks
+    /// further, and it now runs for files with no confident home. So a 14-page phone bill was being
+    /// parsed five pages deep to produce 16,910 characters of which every consumer used the first
+    /// few hundred — on every classifiable file in the scan, extraction being the most expensive
+    /// thing in it.
+    ///
+    /// A cover page, a fax header or a scanned first sheet still reads short, and those keep pulling
+    /// pages until there is something to work with. That was the reason for reading past page 1, and
+    /// it is preserved exactly; what stops is reading past a page that already said plenty.
+    private static let enoughFromOnePage = 600
+
     private static func pdfText(_ url: URL) -> String {
         guard let doc = PDFDocument(url: url) else { return "" }
         var out = ""
         for i in 0..<min(doc.pageCount, maxPDFPages) {
             if let s = doc.page(at: i)?.string { out += s + "\n" }
             if out.count >= maxTextChars { break }
+            if out.count >= enoughFromOnePage { break }
         }
         return String(out.prefix(maxTextChars))
     }
