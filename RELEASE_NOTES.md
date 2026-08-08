@@ -5,6 +5,126 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v3.2 — DRAFT, not released
+
+> **This section is a draft.** v3.2 has not been cut and this is not final copy.
+> Work is still landing — the Restructure lens is in progress — so entries will be
+> added and existing ones may change or be withdrawn. Nothing here has been through
+> the release audit yet: before this ships, every claim below must be re-checked
+> against `v3.1` (`git grep -l "<symbol>" v3.1 -- Modules SyncCloudCLI MacApp`), and
+> the fixes made to features that landed *within* this range must stay out — no user
+> of v3.1 was ever exposed to them. Covers `v3.1..0dc45725`.
+
+On the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0
+section first.
+
+The theme so far is that looking should be free. Organize's scan no longer reaches
+a paid model at all — that moved to a Refine button you press deliberately — and
+Compare, Duplicates and Organize all open on something instead of on an empty
+panel. Around that: a Stop button for the longest operation in the app, twelve new
+keyboard shortcuts, and a table that finally tells you where a file is.
+
+### Organize: the scan is free, refining is the choice
+
+- **"Suggest homes" no longer spends money.** It used to do everything in one
+  click — filename heuristics, an on-device content read, and a classification
+  pass that reached Claude whenever the cloud toggle was on. So the only button
+  that produced results was also the button that billed you, and you could not ask
+  for one without the other. The scan now runs entirely on-device. **Refine**, on
+  the results, is what re-asks the model named in Settings about the suggestions
+  already on screen.
+- **This reverses what v3.1 said about the price.** v3.1 put the estimated cost on
+  the setup card because the button beneath it could spend; that button is free
+  now, so the card no longer quotes a price. The estimate you approve is the
+  Refine pre-flight, which prices a batch it actually has in hand rather than one
+  it is predicting.
+- **Refining twice on one model costs nothing.** Saved verdicts key on the backend
+  that answered, so the free pass and the refine pass cannot serve each other's
+  answers, and a second refine on the same model is free.
+- **Duplicates and Organize re-scan when you open them, when that cannot cost
+  anything.** Both used to show the intro card even for a folder scanned minutes
+  earlier. Results are still never restored from disk — every row carries an action
+  that writes files — so the scan re-runs against the live filesystem instead.
+  An automatic scan can never raise a payment dialog.
+
+### Filing that learns from what you have already filed
+
+- **Loose files can be routed by what a folder already contains.** Organize's
+  classifier only ever saw bare folder paths, so it re-derived per file what are
+  stable properties of the tree. It can now be given two things about each
+  destination — what the folder *is* (its role, naming convention and whether it
+  may receive a file at all) and what it has *received* (the distinguishing words
+  of documents already filed there) — and rank destinations from those with no
+  model call.
+- **Measured on 9,558 real filed documents** choosing among ~2,950 folders, from a
+  filename plus 400 characters of page 1: a bare folder list gets 12.6% right on
+  the first guess, adding what the folder is takes it to 28.9%, and adding what it
+  has received takes it to **58.2%** (77.5% within the top three). The gap between
+  the top two candidates gives Organize its first honest confidence signal — the
+  15% of files it calls high-confidence are 94% correct.
+- **This needs a survey of your own tree, and there is no default to ship.** On a
+  machine without one, filing behaves exactly as it did in v3.1 — the ranking phase
+  is skipped entirely. *(Draft note: the survey is not yet something the app can
+  produce for you. This entry should not ship as written until it is, or it
+  describes a capability most users cannot reach.)*
+
+### Compare
+
+- **You can stop a scan.** Every lens has had a Cancel since it shipped; the
+  Compare scan — which walks two entire trees and is the longest thing the app
+  does — had none, so starting one against the wrong pair of roots meant waiting it
+  out or quitting. The pane rung becomes **Stop** while a scan runs, and the busy
+  card grows one under its title.
+- **It says how long it has been running.** Not a percentage: counting the total
+  first would mean instrumenting the walk's hottest loop, and a fraction that isn't
+  measured is worse than a number that is. Elapsed seconds are padded so the label
+  keeps one width instead of nudging its neighbours twice a minute.
+- **Compare opens on what the last scan found.** It was the default workspace and
+  the only one that still said "Nothing scanned yet" on every launch. It now
+  restores the **summary** — a count and a date, in the past tense — and never the
+  rows, because every action Compare offers against a row writes files and a
+  three-day-old "Copy 412 to →" is exactly the stale-world apply the caches exist
+  to prevent. The only button stays **Scan**. The summary appears only for the
+  exact comparison the panes are pointed at now, both providers and both paths;
+  navigate away and the old cold copy comes back.
+- **A partial transfer shows you which rows failed.** The alert used to read
+  "Couldn't sync 12 items. The first failure was X; the rest are in the Activity
+  Log" — so finding the other eleven of four hundred meant opening a second window
+  and reading a text log. The failed rows were in the table the whole time. A
+  **Failed to transfer** filter now selects them, the alert names it, and the table
+  lands on it when a run fails. The filter appears only while there are failures,
+  and a clean run or a rescan clears it.
+- **A Path column, and the selection matches the panes.** A file sitting directly
+  in the compared root was unplaceable — the Name cell's dimmed parent prefix is
+  empty there, and the only remaining location signal was a hover tooltip. The
+  table is now Name · Change · Path · Size, with the path anchored at the compared
+  folder's name. The **"Copy to" column is gone** — it restated what Change already
+  said — and the location moved out of the Name cell, so long names no longer
+  truncate their own location away. Selected rows now draw the app accent like
+  every pane row, instead of the system's blue bar.
+
+### Keyboard and focus
+
+- **Twelve new menu-bar shortcuts**, all of them showing up as keycaps during the
+  ⌥-hold reveal: ⌘1–⌘5 switch workspaces, ⌘[ / ⌘] walk the focused pane's history,
+  ⌘R rescans, ⇧⌘N creates a folder, ⇧⌘. and ⇧⌘P toggle hidden files and the
+  Columns preview, ⌘⌫ deletes the selection (after the same confirmation as a
+  click), ⇧⌘R and ⇧⌘V start Review and Verify, ⌘D shows and hides the differences
+  list, ⌥⌘F folds every folder, and ⌘I / ⌘L open the inspector and the Activity
+  Log. Chords follow Finder wherever Finder has one.
+- **⌃⇥ moves keyboard focus between the panes.** Six shortcuts — ⌘F, ⌘[, ⌘],
+  ⇧⌘N, ⇧⌘P and the Columns preview toggle — resolved through whichever pane held
+  the selection, which is nothing on a cold window, where the rule fell back to the
+  left pane. So the only way to aim any of them at the right-hand pane was to click
+  a row in it first: there was no keyboard path to the right pane at all.
+- **The focused pane's provider capsule is ringed.** ⌃⇥ shipped changing no pixel —
+  the panes' only "which one is active" cue modulates *selected rows*, so it says
+  nothing in exactly the case ⌃⇥ exists for, a pane with nothing selected. The ring
+  lands on the capsule because that is already the chip saying which pane this is.
+  Compare only: on a single-source workspace there is nothing to distinguish.
+
+---
+
 ## v3.1
 
 Two questions this release answers that the app used to leave to you: *where is
