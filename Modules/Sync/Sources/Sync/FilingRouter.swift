@@ -10,7 +10,8 @@ import Foundation
 /// | name against a bare folder list | 12.6% | 19.3% |
 /// | ＋ ``FolderProfile`` | 28.9% | 40.2% |
 /// | ＋ ``FilingMemory`` | 58.2% | 77.4% |
-/// | ＋ inheritance that is actually in scale (see ``rank``) | **59.8%** | **79.6%** |
+/// | ＋ inheritance that is actually in scale (see ``rank``) | 59.8% | 79.6% |
+/// | ＋ the document's own years, and `inheritWeight` re-swept | **61.9%** | **81.8%** |
 ///
 /// Two of the rules below were found by measuring rather than by reasoning, and both are load-bearing.
 public enum FilingRouter {
@@ -69,9 +70,23 @@ public enum FilingRouter {
     // tree rather than describing it.
     static let contentWeight = 1.0
     static let nameWeight = 0.55
-    /// The fraction of a scoring folder's evidence its neighbours inherit — its siblings and its own
-    /// children. A *fraction of the donor's score*, not a constant: see ``rank``.
-    static let inheritWeight = 0.45
+    /// How much of a scoring folder's evidence its neighbours inherit — its siblings and its own
+    /// children. A multiple of the donor's score, not a constant: see ``rank``.
+    ///
+    /// **Above 1: a cold folder is worth more than a fraction of its family.** The value was 0.45
+    /// from when the share was normalised into [0, 0.45] and could not mean anything else. Once the
+    /// share became proportional it was never re-swept, and 0.45 turned out to be far too timid for
+    /// the case inheritance exists for: the *current year's* bucket. `Home/Utilities/AT&T/2026` has
+    /// no documents in it yet — January's bill is the first — so it can only inherit, and at 0.45 it
+    /// lost to `Finance/US/Credit Accounts/Apple Card/2026`, a different family whose 2026 folder
+    /// had both its own content and the same exact year match. The AT&T folder's own siblings hold
+    /// twelve bills a year each and their anchors are `myat, snap, myatt, att, autopay, managing,
+    /// bills` — every one of them on the page.
+    ///
+    /// Re-swept on the 2,000-document tune split, which is flat from 0.9 upward (64.6% → 64.9%), and
+    /// reported on the 7,370 held out: 60.0% → **61.9%** top-1, 80.0% → **81.8%** top-3. The class it
+    /// is for moves most — a gold folder with no documents of its own goes from 1.0% to 6.9%.
+    static let inheritWeight = 1.4
     static let yearInNameWeight = 3.0
     static let yearInBodyWeight = 2.0
     static let identifierBoost = 4.0
