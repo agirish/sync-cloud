@@ -332,6 +332,32 @@ assertion instead of dying at the fixture. Then loaded full-package runs, zero o
 this fix was carried alongside an equivalent-in-spirit version of the entry above, and 5 more on the
 shipped pairing of the two (3 on `v2.x`, 2 on `main`), plus CI green on both. Before: 5 of 7.
 
+**The shared `waitUntil` had the same defect as every helper above, and the widest reach of any of
+them — floored 2026-08-08.** `Modules/Sync/Tests/Sync/TestSupport.swift` and its byte-identical twin
+in `SyncCloudTests/TestSupport.swift` were `while ContinuousClock.now < deadline`, five seconds, a
+10 ms sleep, no floor. Every Sync and app-target suite waits through them — ~150 call sites, none of
+which passes an explicit `timeout:`, so the default was the whole budget and a floor could not
+collide with a deliberately short one.
+
+**Reproduced here before porting the fix, rather than assumed from the suite next door.** Poll
+counts logged across a full Sync run: most waits return on the *first* poll, and the tail is where
+the shape shows — 4 polls in 0.523s idle, and under the CPU-spin recipe above a worst rate of
+**223 ms per poll** against a nominal 10 ms. Five seconds buys ~500 evaluations at the nominal rate
+and ~22 at that one. No Sync wait has been *seen* to fail; the margin is what was gone.
+
+`waitPollFloor = 50` on both copies, and the poll count now goes in the failure message. Mutation:
+with the deadline set to **zero**, all 1167 Sync tests still pass — the floor alone carries all 135
+waits a full run makes.
+
+**The floor is tested this time** (`WaitUntilFloorTests`), rather than left as the untested constant
+`pumpFloor` was. Same shape as `LayoutPumpWaitTests`, and it reproduces that suite's two results
+exactly: `waitPollFloor = 0` fails the floor test twice (the helper's own labeled expiry at 0 polls,
+then the count at 1 against 25), while `waitPollFloor = 24` — one under the demand — fails **only**
+the premise guard, because the post-deadline re-check buys a 25th evaluation. The real guarantee is
+`waitPollFloor + 1`. Note what cannot be tested here: `waitUntil` reports expiry by *recording a
+failure* rather than returning a Bool, so there is no passing test for the never-holds case; that
+half was checked by hand.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*;
