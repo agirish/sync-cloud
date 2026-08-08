@@ -389,12 +389,34 @@ grep -rn -B3 'if condition() { return }' Modules SyncCloudTests --include='*.swi
   | grep -E 'while (Date\(\)|ContinuousClock\.now) <'
 ```
 
-*Conditional, wall-clock-bounded, still unfixed — found by that sweep, not yet migrated:* the
-shared `waitUntil` in **`Modules/Sync/Tests/Sync/TestSupport.swift`** and its twin in
-**`SyncCloudTests/TestSupport.swift`** (10 ms sleep, five seconds, no floor). These are the widest
-blast radius of any entry here — every Sync and app-target suite waits through them, including the
-`testCreateFolder` fix recorded above, which replaced a flat sleep with exactly this helper. They
-are byte-identical to each other and already documented as needing to be kept in step.
+What that sweep found — the shared `waitUntil` in **`Modules/Sync/Tests/Sync/TestSupport.swift`**
+and its twin in **`SyncCloudTests/TestSupport.swift`** — was the widest blast radius of any entry
+here: every Sync and app-target suite waits through them, including the `testCreateFolder` fix
+recorded above, which replaced a flat sleep with exactly this helper. Both are floored as of the
+entry below.
+
+**Both copies floored, 2026-08-08.** They were `while ContinuousClock.now < deadline`, five seconds,
+a 10 ms sleep, no floor. ~150 call sites, none of which passes an explicit `timeout:`, so the
+default was the whole budget and a floor could not collide with a deliberately short one.
+
+**Reproduced here before porting the fix, rather than assumed from the suite next door.** Poll
+counts logged across a full Sync run: most waits return on the *first* poll, and the tail is where
+the shape shows — 4 polls in 0.523s idle, and under the CPU-spin recipe above a worst rate of
+**223 ms per poll** against a nominal 10 ms. Five seconds buys ~500 evaluations at the nominal rate
+and ~22 at that one. No Sync wait has been *seen* to fail; the margin is what was gone.
+
+`waitPollFloor = 50` on both copies, and the poll count now goes in the failure message. Mutation:
+with the deadline set to **zero**, all 1167 Sync tests still pass — the floor alone carries all 135
+waits a full run makes.
+
+**The floor is tested this time** (`WaitUntilFloorTests`), rather than left as the untested constant
+`pumpFloor` was. Same shape as `LayoutPumpWaitTests`, and it reproduces that suite's two results
+exactly: `waitPollFloor = 0` fails the floor test twice (the helper's own labeled expiry at 0 polls,
+then the count at 1 against 25), while `waitPollFloor = 24` — one under the demand — fails **only**
+the premise guard, because the post-deadline re-check buys a 25th evaluation. The real guarantee is
+`waitPollFloor + 1`. Note what cannot be tested here: `waitUntil` reports expiry by *recording a
+failure* rather than returning a Bool, so there is no passing test for the never-holds case; that
+half was checked by hand.
 
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
