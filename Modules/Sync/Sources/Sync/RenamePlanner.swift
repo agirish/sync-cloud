@@ -173,7 +173,11 @@ public enum RenamePlanner {
         }
         // Reported as the folder's scheme: the one the largest group uses. Display only — every
         // decision above was made with its own group's reading.
-        let scheme = schemes.max { ($0.count, $1.ext) < ($1.count, $0.ext) }?.scheme ?? .position
+        // Largest group wins; ties break on the extension name so the answer is deterministic
+        // rather than dictionary-ordered.
+        let scheme = schemes.sorted {
+            $0.count != $1.count ? $0.count > $1.count : $0.ext < $1.ext
+        }.first?.scheme ?? .position
         let guarded = withoutCollisions(steps, among: all, skips: &skips)
         return RenamePlan(folderPath: folderPath, relativePath: relativePath, scheme: scheme,
                           steps: guarded, skips: skips)
@@ -398,15 +402,18 @@ public enum RenamePlanner {
             // The slot IS the month, so nothing shifts and there is nothing to cascade. A taken
             // slot here means two files claim one month, which the check above already refused —
             // reaching this is a summary or a stray sitting on a month's number.
-            let taken = Set(dated.map(\.parsed.ordinal)).union(summaries.map(\.parsed.ordinal))
+            // MUTABLE: a folder with no year of its own (`HDFC Forex 9055`) can take January of
+            // two different years in one pass, and both would read slot 01 off an immutable set.
+            var taken = Set(dated.map(\.parsed.ordinal)).union(summaries.map(\.parsed.ordinal))
             out.steps.append(contentsOf: paddingSteps())
-            for p in placements {
+            for p in placements.sorted(by: { $0.key < $1.key }) {
                 guard !taken.contains(p.key.month) else {
                     out.skips.append(RenameSkip(
                         path: p.file.path, fileName: p.file.name,
                         reason: "Slot \(String(format: "%02d", p.key.month)) is already in use here."))
                     continue
                 }
+                taken.insert(p.key.month)
                 out.steps.append(RenameStep(
                     currentPath: p.file.path, currentName: p.file.name,
                     proposedName: OrdinalMonthName.render(
@@ -428,8 +435,32 @@ public enum RenamePlanner {
             // not, legitimately: `10. Dec 2021.pdf` sitting beside `1. Mar` and `2. Apr` is a
             // folder somebody numbered by hand, not a folder to renumber behind their back. The
             // cascade exists to make ROOM; with nothing arriving there is no room to make.
-            let shifts = !placements.isEmpty && dated.contains {
+            // Rows this grammar can parse but cannot RANK — a fiscal-span body like
+            // `1. Apr 2007 to Aug 2007.pdf`, which names two months and so has no single date to
+            // sort by. `SBI Savings/2007 - 2008` is three of them at slots 1, 2 and 3.
+            //
+            // A renumbering cannot reason about those: `positionalOrdinals` ranks only the months it
+            // can see, so a shifted file is free to land on a slot one of them is already holding —
+            // and `withoutCollisions` does not catch it, because the two NAMES differ even though
+            // the slots collide. Measured: a cascade put `03. Mar 2021.pdf` beside
+            // `03. Jan 2008 to Mar 2008.pdf`. Slot 0 is exempt; it is the summary slot and sits
+            // outside the ranking by design.
+            let unrankable = summaries.filter { $0.parsed.ordinal != 0 }
+            let shifts = !placements.isEmpty && unrankable.isEmpty && dated.contains {
                 ordinals[MonthKey(year: $0.year, month: $0.month)] != $0.parsed.ordinal
+            }
+            // Say so rather than quietly falling back to the append path, which would put the file
+            // at the end of a folder whose numbering means something else.
+            if !unrankable.isEmpty, !placements.isEmpty,
+               dated.contains(where: { ordinals[MonthKey(year: $0.year, month: $0.month)] != $0.parsed.ordinal }) {
+                for p in placements {
+                    out.skips.append(RenameSkip(
+                        path: p.file.path, fileName: p.file.name,
+                        reason: "Placing \(OrdinalMonthName.body(month: p.key.month, year: p.key.year)) "
+                            + "here needs a renumbering, and “\(unrankable[0].file.name)” holds a slot "
+                            + "this pass cannot rank."))
+                }
+                break
             }
             if !shifts {
                 out.steps.append(contentsOf: paddingSteps())
@@ -464,9 +495,13 @@ public enum RenamePlanner {
                 let target = ordinals[MonthKey(year: d.year, month: d.month)] ?? d.parsed.ordinal
                 let name = d.parsed.canonicalName(ordinal: target)
                 guard name != d.file.name else { continue }
+                // A file whose slot does NOT move is only being widened, which is right whether or
+                // not the renumbering around it goes through — so it keeps cohort 0 and survives a
+                // cascade that has to stand down.
                 out.steps.append(RenameStep(
                     currentPath: d.file.path, currentName: d.file.name, proposedName: name,
-                    kind: target == d.parsed.ordinal ? .tidied : .renumbered, cohort: cohort,
+                    kind: target == d.parsed.ordinal ? .tidied : .renumbered,
+                    cohort: target == d.parsed.ordinal ? 0 : cohort,
                     reason: target == d.parsed.ordinal
                         ? "Padded to two digits — a one-digit ordinal sorts after “10.”"
                         : "Moved to slot \(String(format: "%02d", target)) to make room for "

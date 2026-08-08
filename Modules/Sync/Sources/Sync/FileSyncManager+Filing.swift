@@ -1189,8 +1189,23 @@ extension FileSyncManager {
     private func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination]) {
         guard let i = filingSuggestions.firstIndex(where: { $0.id == id }) else { return }
         let s = filingSuggestions[i]
+        // **Named here too, or "Try another" answers differently from the scan.** The scan enriches
+        // every candidate with the name the file would take there; a destination minted afterwards
+        // would carry none, and since the apply path is gated on that name, the same folder reached
+        // by rejecting a first suggestion would file the raw name while reaching it directly filed
+        // `04. Apr 2025.pdf`. One folder, one answer.
+        //
+        // Read from disk rather than from the scan's taxonomy: this runs long after the walk, on
+        // one folder the user just chose, and a single directory listing is cheaper than being
+        // wrong about a tree that has moved on.
+        let named = candidates.map { dest -> FilingDestination in
+            guard dest.newSegments.isEmpty else { return dest }
+            return dest.naming(Self.liveIncomingName(
+                for: s.fileName, destination: dest.path, providerRoot: s.providerRoot,
+                profile: filingFolderProfile, fileManager: fileManager))
+        }
         filingSuggestions[i] = FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
-                                                modificationDate: s.modificationDate, candidates: candidates,
+                                                modificationDate: s.modificationDate, candidates: named,
                                                 providerRoot: s.providerRoot)
     }
 
@@ -1395,12 +1410,19 @@ extension FileSyncManager {
                     throw FileOperationError.destinationRootUnavailable
                 }
                 try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
-                // The rename the card offered, re-derived against the destination as it stands now
-                // rather than as the scan found it. Falls back to the file's own name.
-                let landingName = Self.liveIncomingName(
-                    for: suggestion.fileName, destination: destFolder.path,
-                    providerRoot: suggestion.providerRoot, profile: profile,
-                    fileManager: fm) ?? suggestion.fileName
+                // **Gated on the card having offered a rename.** The scan's proposal is what the
+                // user saw and agreed to; without this the file is renamed whenever the destination
+                // happens to number its files, including on paths that never displayed a name at
+                // all — a move the user asked for silently becoming a move-and-rename.
+                //
+                // Given that consent, the SLOT is re-derived against the destination as it stands
+                // now rather than as the scan found it, because a folder gains files while a queue
+                // is open. So the card's promise decides *whether*, and the disk decides *which*.
+                let landingName = destination.proposedName == nil ? suggestion.fileName
+                    : (Self.liveIncomingName(
+                        for: suggestion.fileName, destination: destFolder.path,
+                        providerRoot: suggestion.providerRoot, profile: profile,
+                        fileManager: fm) ?? suggestion.fileName)
                 var dst = destFolder.appendingPathComponent(landingName)
                 if fm.fileExists(atPath: dst.path) {
                     dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)

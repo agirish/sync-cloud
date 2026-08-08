@@ -378,6 +378,43 @@ import Testing
         #expect(p.skips.contains { $0.reason.contains("renumbering this folder cannot complete") })
     }
 
+    @Test("A renumbering stands down when the folder holds a slot it cannot rank")
+    func cascadeRefusesUnrankableSlots() throws {
+        // `SBI Savings/2007 - 2008` numbers fiscal-span files — `1. Apr 2007 to Aug 2007.pdf` names
+        // two months and so has no single date to sort by. A cascade cannot reason about those, and
+        // ranking around them silently put a shifted file on a slot one of them already held: the
+        // two NAMES differ, so the collision guard never saw it.
+        let p = plan(["01. Feb 2021.pdf", "02. Mar 2021.pdf", "3. Jan 2008 to Mar 2008.pdf",
+                      "custbill01182021.pdf"])
+        #expect(p.renumbered == 0, "no file may be shifted around a slot the pass cannot rank")
+        // The arriving file is reported rather than dropped or appended to the end.
+        #expect(p.skips.contains { $0.fileName == "custbill01182021.pdf" })
+        // The unrankable row is still safe to widen — that changes no slot.
+        #expect(targets(p) == ["3. Jan 2008 to Mar 2008.pdf": "03. Jan 2008 to Mar 2008.pdf"])
+    }
+
+    @Test("A padding fix survives a renumbering that has to stand down")
+    func paddingOutlivesADoomedCascade() {
+        // `2. Feb` only needs widening — right whether or not the shift around it happens — so it
+        // must not be swept into the cohort and lost with it. `1. Mar`/`01. Mar` doom the cascade.
+        let p = plan(["1. Mar 2021.pdf", "01. Mar 2021.pdf", "2. Feb 2021.pdf",
+                      "9829custbill01182021.pdf"], year: "2021")
+        #expect(targets(p) == ["2. Feb 2021.pdf": "02. Feb 2021.pdf"])
+        #expect(p.renumbered == 0)
+    }
+
+    @Test("Two placements under month numbering cannot claim one slot")
+    func monthNumberedPlacementsDoNotShareASlot() {
+        // A folder with no year of its own — `HDFC Forex 9055` — can take January of two years in
+        // one pass. Read off an immutable `taken`, both would be told slot 01 is free.
+        let p = plan(["03. Mar 2020.pdf", "05. May 2020.pdf", "07. Jul 2020.pdf",
+                      "bill01152020.pdf", "bill01152021.pdf"])
+        #expect(p.scheme == .monthNumber)
+        let placed = p.steps.filter { $0.kind == .placed }
+        #expect(placed.count == 1, "the second January is reported, not given a slot already used")
+        #expect(p.skips.contains { $0.reason.contains("already in use") })
+    }
+
     // MARK: The incoming file — Organize's move suggestion asks the same rules
 
     @Test("A file being filed in is named against the folder it is landing in")
@@ -385,6 +422,34 @@ import Testing
         let p = plan(["01. Jan 2025.pdf", "02. Feb 2025.pdf", "03. Mar 2025.pdf"],
                      year: "2025", incoming: "DetailedBillApr2025.pdf")
         #expect(targets(p) == ["DetailedBillApr2025.pdf": "04. Apr 2025.pdf"])
+    }
+
+    @Test("A file whose slot needs its neighbours moved is not renamed on the way in")
+    func incomingNeedingACascadeKeepsItsName() {
+        // The plan for this folder is a real four-step cohort: February takes 01 and Mar/Apr/May
+        // each move up. Taking the placement out of that cohort and dropping the rest is a
+        // half-applied cascade — measured, it left TWO files on slot 01.
+        let p = plan(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"],
+                     year: "2021", incoming: "9829custbill02182021.pdf")
+        let step = p.steps.first { $0.currentName == "9829custbill02182021.pdf" }
+        #expect(step?.proposedName == "01. Feb 2021.pdf")
+        #expect(step?.cohort != 0, "the planner still describes the whole renumbering")
+        // …and the manager's one-file door declines it precisely because of that cohort.
+        #expect(FileSyncManager.incomingName(
+            for: "9829custbill02182021.pdf", into: "/T", relativePath: "T",
+            folderFiles: files(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"]),
+            profile: FolderProfile(profileId: "t", root: "/",
+                                   folders: ["T": entry("T", naming: "ordinal-month",
+                                                        axes: ["year": "2021"])],
+                                   personTokens: [])) == nil)
+        // The discriminating half: an APPEND needs no cascade and is still offered.
+        #expect(FileSyncManager.incomingName(
+            for: "9829custbill06182021.pdf", into: "/T", relativePath: "T",
+            folderFiles: files(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"]),
+            profile: FolderProfile(profileId: "t", root: "/",
+                                   folders: ["T": entry("T", naming: "ordinal-month",
+                                                        axes: ["year": "2021"])],
+                                   personTokens: [])) == "04. Jun 2021.pdf")
     }
 
     @Test("An incoming file with no date in its name says so, rather than going quiet")

@@ -300,6 +300,75 @@ import Events
     }
 
     @MainActor
+    @Test func filingDoesNotRenameWhenTheCardOfferedNoName() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenamePass")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bucket = root.appendingPathComponent("PGE/2025")
+        for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
+            try write(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"))
+        }
+        let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
+        try write(loose)
+
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
+        // A destination carrying NO proposal — what every path that mints a candidate outside the
+        // scan produces. The move was the only thing the user was shown, so the move is all they get.
+        let suggestion = FilingSuggestion(
+            filePath: loose.path, fileName: loose.lastPathComponent, size: 8, modificationDate: nil,
+            candidates: [FilingDestination(path: bucket.path, confidence: .high, reasons: [],
+                                           newSegments: [])],
+            providerRoot: root.path)
+        manager.publishFilingSuggestions([suggestion])
+
+        _ = await manager.applyFilingSuggestion(suggestion, to: try #require(suggestion.best))
+
+        #expect(try names(in: bucket).contains("DetailedBillApr2025.pdf"))
+        #expect(!(try names(in: bucket).contains("04. Apr 2025.pdf")),
+                "a move the user asked for must not silently become a move-and-rename")
+    }
+
+    @MainActor
+    @Test func aFolderTheWalkCouldNotListProposesNoName() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenamePass")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bucket = root.appendingPathComponent("PGE/2025")
+        try FileManager.default.createDirectory(at: bucket, withIntermediateDirectories: true)
+
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
+        let suggestion = FilingSuggestion(
+            filePath: root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf").path,
+            fileName: "DetailedBillApr2025.pdf", size: 8, modificationDate: nil,
+            candidates: [FilingDestination(path: bucket.path, confidence: .high, reasons: [],
+                                           newSegments: [])],
+            providerRoot: root.path)
+
+        // The walk reports a permission-denied or depth-capped folder as `children: []` WITH
+        // `isUnexplored` — identical in shape to an empty one. Read as empty it proposes slot 01
+        // for a folder that may already hold twelve months.
+        let unexplored = [FileNode(id: root.appendingPathComponent("PGE").path, name: "PGE",
+                                   isDirectory: true,
+                                   children: [FileNode(id: bucket.path, name: "2025",
+                                                       isDirectory: true, children: [],
+                                                       isUnexplored: true)])]
+        let named = FileSyncManager.namingSuggestions([suggestion], taxonomy: unexplored,
+                                                      rootPath: root.path,
+                                                      profile: manager.filingFolderProfile)
+        #expect(named.first?.best?.proposedName == nil)
+
+        // The discriminating half: the same folder walked properly and genuinely empty DOES propose.
+        let listed = [FileNode(id: root.appendingPathComponent("PGE").path, name: "PGE",
+                               isDirectory: true,
+                               children: [FileNode(id: bucket.path, name: "2025",
+                                                   isDirectory: true, children: [])])]
+        #expect(FileSyncManager.namingSuggestions([suggestion], taxonomy: listed,
+                                                  rootPath: root.path,
+                                                  profile: manager.filingFolderProfile)
+                    .first?.best?.proposedName == "01. Apr 2025.pdf")
+    }
+
+    @MainActor
     @Test func aDestinationWithNoConventionLeavesTheNameAlone() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }

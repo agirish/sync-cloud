@@ -112,6 +112,15 @@ environment's default closes it, and mutation-check that it is the *only* test t
 default changes; if others fail too, they are reading the shipped value by accident and the
 injection is not doing what you think.
 
+**Observed again, 2026-08-08 — `PaneColumnsOverscrollReturnCycleTests`.**
+`testAStrandedClipIsPulledHomeOnceAtRest` failed in a full-package FileExplorer run while two other
+Swift test processes and an `xcodebuild` were live, then passed 3/3 under `--filter`. The tell is
+the *duration*: **25.6 s under load against 1.4 s isolated** — it burned its entire wait rather than
+settling on a wrong value, which is starvation and not a bad answer. This suite waits on a
+watchdog-driven `withAnimation` scroll-back to the origin, so it is squarely this mechanism; it is
+listed under mechanism 2 only for its unconditional pumps, which is why a grep for that shape does
+not surface it here. **Do not blame a commit for this one without checking the isolated duration.**
+
 **See.** `92e2bdf` — *Decide the column reveal's tests by the code, not the machine's power state*;
 `bd3a1e96` — *Pin the reveal animation the app ships* (the default nothing was reading);
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift`.

@@ -103,9 +103,21 @@ extension FileSyncManager {
         let plan = RenamePlanner.plan(folderPath: folderPath, relativePath: relativePath,
                                       files: folderFiles, entry: profile?.folders[relativePath],
                                       incoming: incoming)
-        // Only this file's own step. The plan may also propose padding for the folder's existing
-        // names, and filing one file is not the moment to renumber its new neighbours.
-        return plan.steps.first { $0.currentPath == incoming.path }?.proposedName
+        guard let step = plan.steps.first(where: { $0.currentPath == incoming.path }) else { return nil }
+        // **A name that only works if its neighbours move is not a name this path may offer.**
+        //
+        // Under position numbering a file arriving before the months already there takes slot 01
+        // and pushes every one of them up — the planner says so by putting all four steps in one
+        // cohort. Taking the placement out of that cohort and dropping the rest is exactly the
+        // half-applied cascade the cohort exists to prevent: measured, filing a February bill into
+        // `01. Mar · 02. Apr · 03. May` returned `01. Feb 2021.pdf` and would have left TWO files
+        // on slot 01.
+        //
+        // Filing one file is not the moment to renumber a folder, so this declines and the file
+        // keeps its own name. The backlog pass proposes the renumbering separately, where it is
+        // reviewed as the folder-wide change it is.
+        guard step.cohort == 0 else { return nil }
+        return step.proposedName
     }
 
     /// Fills in ``FilingDestination/proposedName`` for every candidate of every suggestion, using
@@ -118,10 +130,20 @@ extension FileSyncManager {
                                               taxonomy: [FileNode], rootPath: String,
                                               profile: FolderProfile?) -> [FilingSuggestion] {
         var filesByFolder: [String: [FolderFile]] = [:]
+        // Folders the walk could not list. `buildTree` reports a permission-denied or depth-capped
+        // directory as `children: []` with `isUnexplored`, which is indistinguishable from a
+        // genuinely empty folder unless the flag is carried — and reading one as empty proposes
+        // slot 01 for a folder that already holds twelve months. The apply path re-derives from the
+        // disk and would land the file correctly, so the damage is a card promising a name the user
+        // does not get; this keeps the card silent instead.
+        var unlisted: Set<String> = []
         func index(_ nodes: [FileNode], folderPath: String) {
             filesByFolder[folderPath] = nodes.filter { !$0.isDirectory }
                 .map { FolderFile(path: $0.id, name: $0.name) }
-            for dir in nodes where dir.isDirectory { index(dir.children ?? [], folderPath: dir.id) }
+            for dir in nodes where dir.isDirectory {
+                if dir.isUnexplored == true { unlisted.insert(dir.id) }
+                index(dir.children ?? [], folderPath: dir.id)
+            }
         }
         index(taxonomy, folderPath: rootPath)
 
@@ -129,7 +151,7 @@ extension FileSyncManager {
             let named = suggestion.candidates.map { dest -> FilingDestination in
                 // A destination whose folders do not exist yet has no files and no convention to
                 // read, so it never proposes a rename.
-                guard dest.newSegments.isEmpty,
+                guard dest.newSegments.isEmpty, !unlisted.contains(dest.path),
                       let rel = FileSyncManager.relativePath(dest.path, under: rootPath)
                 else { return dest }
                 return dest.naming(incomingName(for: suggestion.fileName, into: dest.path,
@@ -174,9 +196,11 @@ extension FileSyncManager {
     /// exactly the same file. A folder that changed underneath simply contributes fewer steps, and
     /// says so.
     ///
-    /// The unit of apply is the **folder**, matching the unit of review: a plan's steps are decided
-    /// against each other, so applying an arbitrary subset of one is not a smaller version of the
-    /// same change.
+    /// The unit of apply is the **cohort**, not the whole plan. A padding fix is right on its own,
+    /// so a folder that moved under one of them still gets the rest; a renumbering is not, so if any
+    /// one of its steps no longer describes the folder the whole cohort stands down. That is the
+    /// same rule RenamePlanner/withoutCollisions(_:among:skips:) applies at plan time, enforced
+    /// again here because the disk gets its own chance to invalidate a step.
     public func applyRenamePlans(_ plans: [RenamePlan]) async {
         // Verify All's write-exclusion guard, mirrored from `normalizeNames` for the same reason: a
         // rename moves a file Verify All may be hashing.

@@ -65,6 +65,12 @@ struct FilingSuggestionCard: View {
                             destinationRow(best)
                         }
                     }
+                    // The rename, whenever one is coming. **Never hidden by density**: every other
+                    // secondary line here describes the move, and this one describes a SECOND thing
+                    // that happens to the file. A card that showed only "→ PG&E › 2025" while the
+                    // apply also renamed the file would be under-reporting what the button does,
+                    // and compact mode is exactly where that would go unnoticed.
+                    if let renamed = best?.proposedName { renameRow(renamed) }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
                     if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
@@ -103,6 +109,31 @@ struct FilingSuggestionCard: View {
             }
         }
         .task(id: dest.path) { await loadDestinationCount(for: dest) }
+    }
+
+    /// "also renamed 04. Apr 2025.pdf" — what the file will be called once it lands.
+    ///
+    /// It is on the card because the apply path is gated on it: a destination that proposes a name
+    /// gets one applied, and one that does not leaves the filename alone. So this line is not a
+    /// decoration but the disclosure of the second half of what "File here" does.
+    private func renameRow(_ proposed: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "character.cursor.ibeam")
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            Text("also renamed")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .fixedSize()
+            Text(proposed)
+                .scaledFont(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .accessibilityElement(children: .combine)
+        .help("This folder names its files by a convention, so filing this one also renames it to "
+              + "“\(proposed)”.")
     }
 
     // MARK: G6 — destination "peek" (existing contents)
