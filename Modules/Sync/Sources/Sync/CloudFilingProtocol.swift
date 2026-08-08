@@ -39,7 +39,12 @@ public enum CloudFilingProtocol {
     /// demonstrate the fix logged "reused 12 of 13 classification(s) from cache" and replayed the
     /// wrong answer, because neither input was part of the key and the old comment only named this
     /// file's own text. Two of the three things that shape the prompt are assembled elsewhere.
-    public static let promptVersion = 2
+    ///
+    /// **3** — both of those inputs now cover the files that already have a home, which is most of
+    /// them. Version 2 only changed the question for files the router had ranked, and the router
+    /// only ranked the homeless ones; eleven of thirteen files in a real scan still went out as a
+    /// bare filename against a menu describing everything except them.
+    public static let promptVersion = 3
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"

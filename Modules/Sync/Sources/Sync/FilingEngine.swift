@@ -812,12 +812,20 @@ public enum FilingEngine {
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
             guard let v = verdicts[s.filePath],
-                  let dest = destination(from: v, providerRoot: providerRoot, existingRelative: existingRelative)
+                  let dest = destination(from: v, providerRoot: providerRoot,
+                                        existingRelative: existingRelative, fileName: s.fileName)
             else { return s }
             if rejectedByFile[s.filePath]?.contains(dest.path) == true { return s }   // model re-picked a rejected folder
             // Strictly less information cannot override more. Not a confidence comparison — a
             // blind verdict at any confidence loses to a home that was read out of the document.
             if contentBlind.contains(s.filePath), s.best?.fromContent == true { return s }
+            // **A backend that has not seen the document may not invent a folder for it.** Naming
+            // an existing folder from a filename is a guess the user can check at a glance; naming
+            // one that does not exist yet asks them to accept a new shape for their tree on the
+            // same evidence. `DetailedBillApr2025.pdf` came back as a High-confidence
+            // `Finance/US/Accounts/DetailedBillApr2025.pdf` — two folders to create, from seven
+            // characters of filename, for a file whose siblings sit in an existing folder.
+            if contentBlind.contains(s.filePath), !dest.newSegments.isEmpty { return s }
             // A verdict only LEADS when it's at least as confident as the current best home.
             // Otherwise a low-confidence model guess would demote a strong filename/rule match —
             // and, because the promoted candidate is `fromAI`, drop the file out of the blind
@@ -835,7 +843,8 @@ public enum FilingEngine {
     /// and slashes, drop any provider-root prefix it echoed back, reject empties, absolute escapes,
     /// and `..`/`.` traversal) and marking which trailing folders are new. nil ⇒ nothing usable.
     static func destination(from verdict: FilingVerdict, providerRoot: String,
-                            existingRelative: Set<String>) -> FilingDestination? {
+                            existingRelative: Set<String>,
+                            fileName: String = "") -> FilingDestination? {
         var rel = verdict.relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         // Strip an echoed provider-root prefix only on a PATH-COMPONENT boundary, so a sibling that
         // merely shares a string prefix (root "/Users/x/Docs", verdict "/Users/x/DocsArchive/Foo")
@@ -846,8 +855,25 @@ public enum FilingEngine {
             rel = String(rel.dropFirst(providerRoot.count))
         }
         rel = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let segments = rel.split(separator: "/").map(String.init)
+        var segments = rel.split(separator: "/").map(String.init)
         guard !segments.isEmpty, !segments.contains(".."), !segments.contains(".") else { return nil }
+
+        // **A folder is never the file itself, extension and all.** Models answer "where does this
+        // go?" with the full path *including the file* often enough to matter, and the result is a
+        // proposal to create a folder called `DetailedBillApr2025.pdf` and put
+        // `DetailedBillApr2025.pdf` inside it — which the card renders as an ordinary destination.
+        // Drop that segment and keep the parent, which is what the answer meant.
+        //
+        // Matched against the WHOLE file name, never its stem. `tesla.pdf` → `Vehicles/Tesla` is a
+        // perfectly good new folder named for the vendor, and a stem test would quietly delete it;
+        // that case is a shipped test, and it is what caught this the first time it was written too
+        // broadly. A trailing segment carrying the file's own extension is the narrow case that is
+        // never a folder.
+        if !fileName.isEmpty, let last = segments.last,
+           last.compare(fileName, options: .caseInsensitive) == .orderedSame {
+            segments.removeLast()
+        }
+        guard !segments.isEmpty else { return nil }
 
         // Walk the relative path; any segment whose cumulative path isn't already a folder is new.
         var newSegments: [String] = []

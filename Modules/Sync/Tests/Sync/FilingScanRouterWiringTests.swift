@@ -159,4 +159,54 @@ import Testing
         // A meaningful filename no longer costs the model the page that was already read for it.
         #expect(seen.snippets.contains { $0 == vocabulary })
     }
+
+    /// **The file that already has a home is the one the model gets most wrong.** Phase 2.5 used to
+    /// skip it — no ranking, so no shortlist and no page read — and phase 3 then asked about it
+    /// from its filename alone, against a menu describing every file except that one. A T-Mobile
+    /// bill named `DetailedBillApr2025.pdf` came back as a new `Finance/US/Accounts`, while the
+    /// router, given page 1, ranks its real home first out of thousands of folders.
+    ///
+    /// The fixture's loose file carries a name the keyword engine CAN place, so it arrives at phase
+    /// 2.5 with a confident home — which is the whole condition under test.
+    @Test func aFileThatAlreadyHasAHomeStillGetsRankedAndRead() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingHomed")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = "Documents/Home/Utilities/T-Mobile/2025"
+        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try Self.write(root.appendingPathComponent("Documents/Finance/US/.keep"), bytes: 1)
+        try Self.write(root.appendingPathComponent("Downloads/Tax Statement 2025.pdf"))
+        // The target must be out of reach of the structural fallback, or `menu.contains(target)`
+        // passes on a tree small enough to list whole — which is how the first version of this test
+        // survived reverting the very change it is about.
+        for i in 0..<300 {
+            try Self.write(root.appendingPathComponent("Documents/Decoy\(String(format: "%03d", i))/.keep"),
+                           bytes: 1)
+        }
+
+        let vocabulary = "autopay unlimited talk voice appreciation paperless"
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
+        m.filingSnippetExtractor = { _ in vocabulary }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingFolderProfile = Self.profile([target])
+        m.filingMemory = Self.memory(target, vocabulary.split(separator: " ").map(String.init))
+
+        final class Seen: @unchecked Sendable {
+            var menu: [String] = []
+            var snippets: [String?] = []
+        }
+        let seen = Seen()
+        m.filingClassifier = { context, files, _ in
+            seen.menu = context.taxonomyFolders
+            seen.snippets = files.map(\.contentSnippet)
+            return [:]
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        let s = try #require(m.filingSuggestions.first)
+        #expect(s.hasConfidentHome, "the fixture no longer exercises the confident-home path")
+        #expect(seen.menu.contains(target), "the router never ranked a file that already had a home")
+        #expect(seen.snippets.contains { $0 == vocabulary },
+                "its page was never read, so the model judged it on the filename alone")
+    }
 }

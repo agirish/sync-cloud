@@ -137,21 +137,25 @@ extension FileSyncManager {
         providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8
     ) -> (suggestion: FilingSuggestion, routed: Bool, shortlist: [String]) {
         if s.best?.remembered == true { return (s, false, []) }   // an explicit user rule outranks this
-        // **Only files with no home.** Ranking the rest was work with one possible outcome, and it
-        // was the wrong one: an equally confident router home *replaces* a filename match, and
-        // because the replacement is content-derived the file silently drops out of the blind
-        // "File all N" batch. A file that already has a confident home is left alone.
-        guard !s.hasConfidentHome else { return (s, false, []) }
         // Rejections are recorded as ABSOLUTE paths; the router answers in relative ones. Passing
         // the absolute set straight through made the exclusion a silent no-op — one domain,
         // converted once, at the boundary.
         let excluded = Set((rejectedByFile[s.filePath] ?? []).compactMap {
             relativePath($0, under: providerRoot)
         })
-        // The winner leads the card; the rest of the shortlist is what phase 3 shows the model.
+        // **Every file is RANKED; only the homeless ones are OVERLAID.** These were one decision
+        // and should never have been: the ranking is also what tells phase 3 which folders to put
+        // in front of the model, and skipping it for a file that already had a home meant the model
+        // was asked about that file against a menu describing every file except it. That is how a
+        // T-Mobile bill the router ranks first out of 4,967 folders came back as a new
+        // `Finance/US/Accounts` — the router had simply never been asked.
         let ranking = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
                                         index: index, excluding: excluded, limit: shortlistLimit)
         let shortlist = ranking.candidates.map(\.relativePath)
+        // The overlay rule itself is unchanged, and still deliberate: an equally confident router
+        // home *replaces* a filename match, and because the replacement is content-derived the file
+        // silently drops out of the blind "File all N" batch.
+        guard !s.hasConfidentHome else { return (s, false, shortlist) }
         guard let best = ranking.best else { return (s, false, shortlist) }
         let confidence = ranking.confidence
         guard confidence >= (s.best?.confidence ?? .low) else { return (s, false, shortlist) }

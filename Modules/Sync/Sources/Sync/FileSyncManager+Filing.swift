@@ -304,14 +304,35 @@ extension FileSyncManager {
         // router — doubled the most expensive work in the scan, and PDF extraction is that work.
         var routerSnippets: [String: String] = [:]
         if filingReadsContents, let extractor = filingContentExtractor {
+            // **Every file a backend will be asked about, not only the homeless ones.**
+            //
+            // The old set was `!hasConfidentHome`, which made sense when a page was read only to
+            // improve a suggestion that had nothing. It stopped making sense once that page also
+            // feeds the router and the classifier's folder menu: a file the keyword engine placed
+            // confidently was then classified from its filename alone, against a menu that
+            // described everything except it. A T-Mobile bill named `DetailedBillApr2025.pdf` came
+            // back as a NEW `Finance/US/Accounts` — while the router, given the page, ranks
+            // `Home/Utilities/T-Mobile/2025` first out of 4,967 folders. Eleven of that scan's
+            // thirteen files were in the confident-home set and none of them were ever read.
+            //
+            // The extra reads are bounded by what is actually being classified, and a file that
+            // was going to be read anyway is read once — see `extractSnippets` reuse below.
             let unsure = suggestions.filter { !$0.hasConfidentHome }
-            if !unsure.isEmpty {
+            let willClassify = filingUsesAI && filingClassifier != nil && !freePassWouldReachAPaidBackend
+            let readSet = willClassify
+                ? suggestions.filter { s in
+                    !s.hasConfidentHome || (s.best?.remembered != true
+                        && !options.ignoredNames.contains(s.fileName)
+                        && s.size >= options.minFileSize)
+                  }
+                : unsure
+            if !readSet.isEmpty {
                 updateScan(\.filingScanLifecycle, epoch: epoch,
-                           status: FilingScanPhase.readingContent(unsure.count).status)
+                           status: FilingScanPhase.readingContent(readSet.count).status)
                 let content: [String: Set<String>]
                 if filingRouterIndex != nil, let snippetExtractor = filingSnippetExtractor,
                    let tokenize = filingTokensFromText {
-                    routerSnippets = await Self.extractSnippets(for: unsure.map { $0.filePath },
+                    routerSnippets = await Self.extractSnippets(for: readSet.map { $0.filePath },
                                                                using: snippetExtractor)
                     if Task.isCancelled { return }
                     content = routerSnippets.compactMapValues { text in
@@ -319,6 +340,8 @@ extension FileSyncManager {
                         return t.isEmpty ? nil : t
                     }
                 } else {
+                    // No router: the keyword pass only ever wanted tokens for the homeless files,
+                    // and reading the rest would buy nothing.
                     content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
                 }
                 if Task.isCancelled { return }
@@ -343,8 +366,12 @@ extension FileSyncManager {
         // is the expensive part of this whole scan.
         var routerShortlists: [String: [String]] = [:]
         if let routerIndex = filingRouterIndex {
+            // Gated on there being anything to rank at all, not on anything being homeless: the
+            // ranking now also produces the shortlists phase 3's folder menu is built from, and a
+            // scan where every file already has a home is exactly the one where the model was being
+            // handed a menu with nothing to do with it.
             let unsure = suggestions.filter { !$0.hasConfidentHome }
-            if !unsure.isEmpty {
+            if !suggestions.isEmpty {
                 // No extraction here: phase 2 already read these pages, and phase 3 reuses the same
                 // strings below. One read per file, three consumers.
                 let (routed, count, shortlists) = await applyRoutesYielding(

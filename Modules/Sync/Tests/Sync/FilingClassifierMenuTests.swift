@@ -147,6 +147,55 @@ import Testing
         #expect(out.first?.best?.fromAI == true)
     }
 
+    /// **A backend that has not read the document may not invent folders for it.** Naming an
+    /// existing folder from a filename is a guess the user checks at a glance; naming one that does
+    /// not exist yet asks them to accept a new shape for their tree on the same evidence.
+    @Test func aBlindVerdictMayNotProposeANewFolder() throws {
+        let path = "/root/TODO/DetailedBillApr2025.pdf"
+        let dest = FilingDestination(path: "/root/Documents/Visa", confidence: .low, reasons: ["name"],
+                                     newSegments: [], fromContent: false, remembered: false, fromAI: false)
+        let base = [FilingSuggestion(filePath: path, fileName: "DetailedBillApr2025.pdf", size: 10,
+                                     modificationDate: nil, candidates: [dest], providerRoot: "/root")]
+        let invent = [path: FilingVerdict(relativePath: "Finance/US/Accounts", confidence: .high,
+                                          reason: "common for financial statements")]
+        #expect(FilingEngine.applyVerdicts(invent, to: base, taxonomy: Self.taxonomy,
+                                           providerRoot: "/root", contentBlind: [path])
+                    .first?.best?.path == "/root/Documents/Visa")
+        // Sighted, the same verdict is allowed to create it — otherwise this passes because new
+        // folders never apply rather than because blindness stopped it.
+        #expect(FilingEngine.applyVerdicts(invent, to: base, taxonomy: Self.taxonomy,
+                                           providerRoot: "/root", contentBlind: [])
+                    .first?.best?.path == "/root/Finance/US/Accounts")
+    }
+
+    /// **A folder is never the file itself.** The model answered with the full path *including the
+    /// file*, so the card offered to create a folder called `DetailedBillApr2025.pdf` and put
+    /// `DetailedBillApr2025.pdf` in it.
+    @Test func aVerdictEndingInTheFilesOwnNameKeepsTheParent() throws {
+        let path = "/root/TODO/DetailedBillApr2025.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "DetailedBillApr2025.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Finance/US/Accounts/DetailedBillApr2025.pdf",
+                                     confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
+                                                           providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Finance/US/Accounts")
+        #expect(best.newSegments == ["Finance", "US", "Accounts"])
+    }
+
+    /// The narrow half of that rule. `tesla.pdf` → `Vehicles/Tesla` is a perfectly good new folder
+    /// named for the vendor; matching the file's STEM rather than its whole name deletes it. This
+    /// is the pair that caught the first version of the rule being too broad.
+    @Test func aFolderNamedLikeTheFilesStemIsStillAFolder() throws {
+        let path = "/root/TODO/tesla.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "tesla.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/Vehicles/Tesla", confidence: .high, reason: "r")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
+                                                           providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Vehicles/Tesla")
+    }
+
     /// Blindness only protects a *content-derived* home. A filename match carries no more
     /// information than the model had, so the existing confidence rule keeps deciding those.
     @Test func aBlindVerdictStillOverridesAFilenameMatch() throws {
