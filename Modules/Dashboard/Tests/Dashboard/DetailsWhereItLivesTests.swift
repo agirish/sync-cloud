@@ -11,9 +11,9 @@ import Sync
 /// exhaustively — including the states a real filesystem cannot be made to produce. What the card
 /// actually LAYS OUT is pinned by mounting it over real files, so the plumbing between the stat,
 /// the state and the row has to work.
-/// `.serialized` because the layout cases order a real window front to make SwiftUI render their
-/// async-loaded state (see `mount`). Two suites doing that at once trade focus and repaint each
-/// other's windows, which no amount of settling can wait out.
+/// `.serialized` because the layout cases order a real window in — off every display, but really
+/// rendering — to make SwiftUI commit their async-loaded state (see `mount`). Two suites driving
+/// window renders at once repaint each other, which no amount of settling can wait out.
 @MainActor
 @Suite(.serialized) struct DetailsWhereItLivesTests {
 
@@ -114,6 +114,13 @@ import Sync
             .environment(\.colorScheme, .light))
     }
 
+    /// A point far enough below-left of every attached display that the card cannot intersect one.
+    static func offscreenOrigin() -> CGPoint {
+        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        let bounds = union.isNull ? CGRect(x: 0, y: 0, width: 4000, height: 4000) : union
+        return CGPoint(x: bounds.minX - canvas.width - 2000, y: bounds.minY - canvas.height - 2000)
+    }
+
     private func mount(path: String, coverage: FileLocation.Coverage?) -> Inspector {
         let host = NSHostingView(rootView: body(path: path, coverage: coverage))
         host.frame = CGRect(origin: .zero, size: Self.canvas)
@@ -123,12 +130,26 @@ import Sync
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = .sRGB
         window.contentView = host
-        // On screen, but at the BACK. This card fills itself from two `.task`s that land after the
-        // first render, and SwiftUI does not render those state changes into the backing store of
-        // a window that was never ordered in at all — measured here, a real file's card came back
-        // pixel-identical to a nonexistent path's empty state. `orderBack` is enough to get the
-        // rendering; `orderFrontRegardless` would also take focus from whatever else is running,
-        // which is a poor thing for a test to do to the machine.
+        // Ordered in, but parked past the edge of every display.
+        //
+        // This card fills itself from two `.task`s that land after the first render, and ordering
+        // the window in was the original remedy for those never reaching the backing store — a real
+        // file's card came back pixel-identical to a nonexistent path's empty state.
+        //
+        // **Being ON A DISPLAY is no part of that, measured.** How much lands between the first
+        // frame and the settled one is the same three ways: 19,863 differing sampled pixels with
+        // the window ordered in on screen, 19,620 ordered in off screen, 19,719 never ordered in at
+        // all — one number's worth of run-to-run noise, not three behaviours. What actually gets the
+        // tasks committed is `settled`'s pump, which yields to the runloop on every pass; the
+        // ordering that was measured to matter predates it.
+        //
+        // So the window keeps the `orderBack` — it costs nothing and the fixture was built around
+        // it — and stops being somewhere the user can see. On screen this was a 320×1400 inspector
+        // card standing over an uncovered desktop for the length of the suite, which it has no
+        // business doing; off screen the same suite is also ~3× faster, with nothing to composite.
+        // `theCardFillsItselfWithTheWindowOffScreen` guards both halves: that the card still fills,
+        // and that the frame is still off every display.
+        window.setFrameOrigin(Self.offscreenOrigin())
         window.orderBack(nil)
         host.layoutSubtreeIfNeeded()
         return Inspector(host: host, window: window, path: path)
@@ -212,6 +233,37 @@ import Sync
         inspector.host.rootView = body(path: inspector.path, coverage: coverage)
         inspector.host.layoutSubtreeIfNeeded()
         return await settled(inspector, what, sourceLocation: sourceLocation)
+    }
+
+    /// **The card still fills itself with its window off every display — and the window stays off
+    /// them.** The premise the other three cases rest on, asserted rather than assumed.
+    ///
+    /// Every case here needs SwiftUI to commit state that lands *after* the first render, and
+    /// `mount` says why that survives being off screen. This is the half that keeps saying so: the
+    /// first frame is the empty, still-loading card, so anything standing between it and the
+    /// settled one arrived through the `.task`s. A card that had stopped rendering reads zero —
+    /// verified by mutation, with `LayoutPumpWait.pump` returning without pumping.
+    ///
+    /// The second half is the other direction, and it is the one a well-meant edit trips: it would
+    /// be easy to read "the window must be ordered in" as "the window must be visible" and put the
+    /// card back over the user's desktop. A frame that intersects any display — parked wrongly, or
+    /// pulled back by AppKit — fails here rather than quietly painting a 320×1400 inspector over
+    /// whatever the user is doing. Also mutation-verified, by restoring the plain `orderBack`.
+    @Test func theCardFillsItselfWithTheWindowOffScreen() async throws {
+        let root = try fixture("WhereItLivesOffScreen")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("notes.md")
+        try Data("x".utf8).write(to: file)
+
+        let inspector = mount(path: file.path, coverage: .empty)
+        let first = try #require(snapshot(inspector))
+        let landed = try #require(await settled(inspector, "the card never settled"))
+
+        #expect(pixelsDiffering(first, landed) > 0,
+                "nothing arrived after the first frame — the offscreen window is not rendering the card's async state")
+        let frame = inspector.window.frame
+        #expect(NSScreen.screens.allSatisfy { !$0.frame.intersects(frame) },
+                "the card's window is sitting on a display at \(frame) — it would cover the user's screen")
     }
 
     /// **A file inside a cloud folder and one outside it lay out differently.** One card, one file,
