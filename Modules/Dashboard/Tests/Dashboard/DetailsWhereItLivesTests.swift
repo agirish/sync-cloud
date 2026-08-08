@@ -114,10 +114,21 @@ import Sync
             .environment(\.colorScheme, .light))
     }
 
+    /// Everything the card must stay clear of: the union of every attached display.
+    ///
+    /// **Never empty, and that is deliberate.** With no displays attached `NSScreen.screens` is
+    /// itself empty, and a guard written only as "intersects no screen" would then be true of every
+    /// frame including one sitting at the origin — an assertion that cannot fail is not a guard.
+    /// The fallback rectangle keeps the check honest on such a host: it still contains the origin,
+    /// so a mount that forgot to park its window is still caught.
+    static func displayBounds() -> CGRect {
+        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        return union.isNull ? CGRect(x: 0, y: 0, width: 4000, height: 4000) : union
+    }
+
     /// A point far enough below-left of every attached display that the card cannot intersect one.
     static func offscreenOrigin() -> CGPoint {
-        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
-        let bounds = union.isNull ? CGRect(x: 0, y: 0, width: 4000, height: 4000) : union
+        let bounds = displayBounds()
         return CGPoint(x: bounds.minX - canvas.width - 2000, y: bounds.minY - canvas.height - 2000)
     }
 
@@ -264,6 +275,10 @@ import Sync
         let frame = inspector.window.frame
         #expect(NSScreen.screens.allSatisfy { !$0.frame.intersects(frame) },
                 "the card's window is sitting on a display at \(frame) — it would cover the user's screen")
+        // The half that still bites on a host with no displays, where `allSatisfy` above is true of
+        // anything at all. `displayBounds()` is never empty, so this cannot pass vacuously.
+        #expect(!Self.displayBounds().intersects(frame),
+                "the card's window at \(frame) is inside \(Self.displayBounds()) — it was not parked off the displays")
     }
 
     /// **A file inside a cloud folder and one outside it lay out differently.** One card, one file,
