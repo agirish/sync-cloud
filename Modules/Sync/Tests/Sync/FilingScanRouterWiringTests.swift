@@ -160,6 +160,49 @@ import Testing
         #expect(seen.snippets.contains { $0 == vocabulary })
     }
 
+    /// **Widening a read set must not widen the expensive derivation hanging off it.**
+    ///
+    /// `filingTokensFromText` is NaturalLanguage entity recognition over up to 20,000 characters,
+    /// and its only consumer is the keyword pass's re-suggest, which acts on files with no confident
+    /// home. Deriving it for every file now being read spent minutes of CPU on tokens nothing would
+    /// look at — a real scan sat at 189% CPU for eleven minutes — and would have silently changed
+    /// the suggestions for files that already had a home. A counter, because the tokens themselves
+    /// are indistinguishable either way: this is exactly the shape where an equality check passes
+    /// vacuously.
+    @Test func onlyTheHomelessFilesPayForEntityTokenization() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingCost")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = "Documents/Home/Utilities/T-Mobile/2025"
+        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        // One file the keyword engine can place, one it cannot.
+        try Self.write(root.appendingPathComponent("Downloads/Tax Statement 2025.pdf"))
+        try Self.write(root.appendingPathComponent("Downloads/9f2a1c.pdf"))
+
+        let vocabulary = "autopay unlimited talk voice appreciation paperless"
+        final class Counts: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var snippets = 0, tokenized = 0
+            func snippet() { lock.lock(); snippets += 1; lock.unlock() }
+            func token() { lock.lock(); tokenized += 1; lock.unlock() }
+        }
+        let counts = Counts()
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
+        m.filingSnippetExtractor = { _ in counts.snippet(); return vocabulary }
+        m.filingTokensFromText = { counts.token(); return Set(FilingRouter.tokenize($0)) }
+        m.filingFolderProfile = Self.profile([target])
+        m.filingMemory = Self.memory(target, vocabulary.split(separator: " ").map(String.init))
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        // Counted at phase 2, which is why the post-scan state is not the yardstick: phase 2.5 goes
+        // on to place the homeless file, so by the end both have homes and the distinction under
+        // test has disappeared from `filingSuggestions`.
+        #expect(counts.snippets == 2, "both files must be READ — that is what the menu needs")
+        #expect(counts.tokenized == 1,
+                "only the file the keyword engine could not place has a consumer for these tokens")
+    }
+
     /// **The file that already has a home is the one the model gets most wrong.** Phase 2.5 used to
     /// skip it — no ranking, so no shortlist and no page read — and phase 3 then asked about it
     /// from its filename alone, against a menu describing every file except that one. A T-Mobile

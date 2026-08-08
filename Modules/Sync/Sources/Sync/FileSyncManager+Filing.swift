@@ -335,10 +335,20 @@ extension FileSyncManager {
                     routerSnippets = await Self.extractSnippets(for: readSet.map { $0.filePath },
                                                                using: snippetExtractor)
                     if Task.isCancelled { return }
-                    content = routerSnippets.compactMapValues { text in
-                        let t = tokenize(text)
-                        return t.isEmpty ? nil : t
-                    }
+                    // **Tokenize only what the keyword pass will use.** `filingTokensFromText` is
+                    // NaturalLanguage named-entity recognition over up to 20,000 characters — the
+                    // most expensive thing in the scan after extraction — and its only consumer is
+                    // the re-suggest below, which acts on files with no confident home. Deriving it
+                    // for the whole widened read set spent minutes of CPU producing tokens for
+                    // files nothing would read, and would have quietly changed the suggestions for
+                    // files that already had a home. The snippets stay wide; this stays narrow.
+                    let unsurePaths = Set(unsure.map { $0.filePath })
+                    content = routerSnippets
+                        .filter { unsurePaths.contains($0.key) }
+                        .compactMapValues { text in
+                            let t = tokenize(text)
+                            return t.isEmpty ? nil : t
+                        }
                 } else {
                     // No router: the keyword pass only ever wanted tokens for the homeless files,
                     // and reading the rest would buy nothing.
