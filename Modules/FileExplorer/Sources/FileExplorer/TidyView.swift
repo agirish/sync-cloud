@@ -752,12 +752,14 @@ public struct TidyView: View {
         switch effectiveLens {
         case .duplicates:
             if hasResults { duplicatesSummary(rows.duplicates) }
-        // Both of Organize's states, through one path. Keyed on `lens` and not on the case that
-        // matched, because `.rename` is reachable as an effective lens only FROM Organize — and a
-        // `TidyView` built directly on `.rename` would otherwise draw Organize's chips in a lens
-        // that has no queue behind them.
+        // Both of Organize's states, through one path. `.rename` reaches here only as an EFFECTIVE
+        // lens, from Organize: no workspace claims it, which `WorkspaceTests` pins directly
+        // (`Workspace.allCases.compactMap(\.lens)` excludes `.rename`), so `lens` is never `.rename`
+        // to begin with. The other four sites in this file switch on `effectiveLens` on exactly that
+        // understanding — a `lens == .filing` guard on this one alone would not make the invariant
+        // any truer, it would just make this the one place that disagrees about who enforces it.
         case .rename, .filing:
-            if lens == .filing { organizeSummary(rows: rows) }
+            organizeSummary(rows: rows)
         case .automations:
             if !syncManager.automationRules.isEmpty { automationsSummary(rows.rules) }
         case .storage:
@@ -782,18 +784,33 @@ public struct TidyView: View {
     private func organizeSummary(rows: FilteredRows) -> some View {
         let chips = OrganizeFocus.chips(queueCount: syncManager.filingSuggestions.count,
                                         riskyNameCount: syncManager.riskyNames.count)
-        if !syncManager.isSuggestingFiles, !chips.isEmpty {
-            scannedFolderChip(effectiveOrganizeFocus == .names
-                              ? syncManager.nameScanRoot?.path
-                              : syncManager.filingScanFolder)
+        // No second `chips.isEmpty` gate: with the scope chip moved inside the branches below,
+        // "nothing to report" already renders nothing — an empty `chips` draws no capsules, and
+        // both branches are gated on having a list to describe. A guard that cannot change the
+        // output is the same kind of thing as a test that cannot fail.
+        if !syncManager.isSuggestingFiles {
             ForEach(chips) { focus in
                 // A lone chip is a statement, not a choice: with nothing to switch to it must not
                 // look clickable, which is exactly what the un-gated "to file" pill always was.
                 organizeFocusChip(focus, isInteractive: chips.count > 1)
             }
+            // The scope belongs to the FOCUSED list, so it sits with that list's pills rather than
+            // leading the row. Leading, it read as qualifying whatever came next — and what comes
+            // next is the other focus's chip, which it does not scope: on the names focus the row
+            // said "iCloud Drive · 24 to file", and those 24 are the queue's, scoped to one folder
+            // inside it. Reading order is now navigation first, then "here is what you are looking
+            // at, and where it came from".
             switch effectiveOrganizeFocus {
-            case .queue: if hasFilingResults { filingSummary(rows.filing) }
-            case .names: if syncManager.hasScannedNames { renameSummary(rows.risky) }
+            case .queue:
+                if hasFilingResults {
+                    scannedFolderChip(syncManager.filingScanFolder)
+                    filingSummary(rows.filing)
+                }
+            case .names:
+                if syncManager.hasScannedNames {
+                    scannedFolderChip(syncManager.nameScanRoot?.path)
+                    renameSummary(rows.risky)
+                }
             }
         }
     }

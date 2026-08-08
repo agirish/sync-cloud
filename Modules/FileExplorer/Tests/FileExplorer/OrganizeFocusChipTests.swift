@@ -32,14 +32,19 @@ import Design
     /// wider than the pills on both sides so a point of layout drift cannot silently empty it —
     /// `theStripActuallyContainsTheChips` is the guard that would catch it if it did.
     private static let summaryStrip = CGRect(x: 0, y: 42, width: 900, height: 40)
-    /// The focus chips ALONE — the scope chip and both capsules, stopping short of the pills.
+    /// The focus chips ALONE — both capsules, stopping short of everything that follows them.
     ///
-    /// Measured on the shipping render: the queue chip spans x 105-195 pt, the names chip 202-327,
-    /// and `ready` starts at 334. Cropping at 330 is what makes a queue-count assertion mean the
-    /// QUEUE CHIP: over the full row, `ready` moves with `filingSuggestions` too, so a chip printing
-    /// a constant still left the strip different and every count test passed with it (verified by
-    /// mutation — all six did).
-    private static let chipsOnlyStrip = CGRect(x: 0, y: 42, width: 330, height: 40)
+    /// Measured on the shipping render at a two-digit queue count: the queue chip spans x 14-104 pt,
+    /// the names chip 112-236, the scope chip 245-298 and `ready` 308-396. 240 clears the chips by
+    /// 4 pt and excludes the rest.
+    ///
+    /// This constant has been wrong once already. It was 330 when the scope chip led the row; moving
+    /// the scope to sit with the pills it describes slid everything left, and 330 quietly swallowed
+    /// both the scope chip and part of `ready` — with `theQueueCountReachesItsChip` still passing,
+    /// on the pills, exactly as it had before the crop existed. Hence
+    /// `theChipsOnlyBandStopsShortOfTheScope` below, which pins the boundary against the element
+    /// that is now nearest to it rather than against a pill two positions away.
+    private static let chipsOnlyStrip = CGRect(x: 0, y: 42, width: 240, height: 40)
 
     /// `confident: false` gives the file no confident home, which moves it from `ready` to
     /// `unsure` without changing the queue's length — the one knob that separates the pills from
@@ -197,19 +202,25 @@ import Design
                 "12 and 24 loose files paint the same queue chip — its count is not the queue's")
     }
 
-    @Test func theChipsOnlyBandStopsShortOfThePills() throws {
-        // The crop above is a hard-coded rectangle, so it needs its own guard: if it ever widened
-        // to include `ready`, the test above would pass on the pills again and quietly stop meaning
-        // anything. `ready` tracks the queue, so a band that can see it differs when ONLY the
-        // pills change — which is what this pins to nothing.
+    @Test func theChipsOnlyBandStopsShortOfTheScope() throws {
+        // `chipsOnlyStrip` is a hard-coded rectangle over a laid-out row, so it needs a guard that
+        // fails when the layout moves under it — the failure mode is silent, and it has happened.
         //
-        // Same queue size, different confidence split: 6 files either way, so the queue chip and
-        // the names chip are identical, while `ready` goes 6 -> 0 and an `unsure` pill appears.
-        let allReady = try #require(strip(mount(Self.manager(queue: 6, names: 17)), Self.chipsOnlyStrip))
-        let noneReady = try #require(strip(mount(Self.manager(queue: 6, names: 17, confident: false)),
-                                           Self.chipsOnlyStrip))
-        #expect(differingPixels(allReady, noneReady) == 0,
-                "the chips-only band changed when only the pills did — it has widened onto them")
+        // Pinned against the SCOPE chip, the element immediately right of the chips: two fixtures
+        // identical but for the scanned folder's name, so the only thing that can move is that chip
+        // and the pills after it. The band must not see any of it.
+        let shortName = Self.manager(queue: 24, names: 17)
+        let longName = Self.manager(queue: 24, names: 17)
+        longName.filingScanFolder = "/root/AnArchiveFolderWithAMuchLongerName"
+
+        // Non-vacuity first: `== 0` is also what two identical renders produce, so prove the change
+        // is real over the whole row before claiming the narrow band cannot see it.
+        #expect(differingPixels(try #require(strip(mount(shortName))),
+                                try #require(strip(mount(longName)))) > 20,
+                "renaming the scanned folder changed no pixels anywhere — this guard tests nothing")
+        #expect(differingPixels(try #require(strip(mount(shortName), Self.chipsOnlyStrip)),
+                                try #require(strip(mount(longName), Self.chipsOnlyStrip))) == 0,
+                "the chips-only band moved with the scope chip — it has widened past the chips")
     }
 
     /// What the band paints with nothing in it. **Not zero** — the header card's own edge runs
@@ -284,6 +295,20 @@ import Design
     }
 
     // MARK: - What is deliberately NOT tested here
+    //
+    // **The fallback's WIRING.** `OrganizeFocus.effective` — a focus whose list emptied falls back
+    // to `.queue` — is asserted in `OrganizeFocusTests`, but that it is the function
+    // `effectiveOrganizeFocus` calls is not asserted anywhere, and cannot be from here. `organizeFocus`
+    // is `@State`: a test can neither set it nor click the chip that would (a SwiftUI `Button` is not
+    // an `NSControl`), so every fixture in this file renders with the focus on its `.queue` default —
+    // where `effective(.queue, …)` and a raw `organizeFocus` return the same answer for every input.
+    // A mutation replacing the call with the stored value changes no pixel in any of these tests.
+    //
+    // Not closed with an `initialFocus` parameter on purpose: it would exist only for this suite, and
+    // a seam with no production caller is the thing that gets deleted as dead and takes its coverage
+    // with it. When the palette entry and the Home tile land (ROADMAP 14/16) they will route to
+    // Organize with a focus, and that parameter becomes real — that is the point to test this
+    // properly, not before.
     //
     // **"The ring costs the row no space."** It is true, it is why the ring is an `.overlay` rather
     // than a border or padding, and there is no honest automated assertion for it in this suite.
