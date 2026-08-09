@@ -98,6 +98,20 @@ import Foundation
         #expect(set.herFolders.first?.files.count == 1)
     }
 
+    @Test func foldersAreOrderedBySizeThenByNameForStability() {
+        // The ordering had no test at all, and the expression implementing it looked like the
+        // classic swapped-operands bug (it was not — but a sort nobody asserts is a sort nobody
+        // can safely rewrite). Equal counts are the half that was invisible: without a tie the
+        // name comparison never runs.
+        let p = Self.profile([("F", nil), ("F/Beta", "Aditi"), ("F/Alpha", "Aditi"),
+                              ("F/Big", "Aditi")])
+        let c = Self.corpus(["F/Big/1.pdf", "F/Big/2.pdf", "F/Beta/1.pdf", "F/Alpha/1.pdf"])
+        let set = PersonFiles.gather(personId: "aditi", corpus: c, profile: p,
+                                     registry: Self.registry)
+        #expect(set.herFolders.map(\.folder) == ["F/Big", "F/Alpha", "F/Beta"],
+                "largest first, then ties by name — got \(set.herFolders.map(\.folder))")
+    }
+
     // MARK: The discipline — a shared word never attributes on its own
 
     @Test func aSharedSurnameDoesNotMakeAFileDads() {

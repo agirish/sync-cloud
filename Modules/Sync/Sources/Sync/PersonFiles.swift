@@ -176,9 +176,24 @@ public enum PersonFiles {
             elsewhere.append(PersonFile(path: path, evidence: .namedInFile, matchedForm: match.form))
         }
 
-        let groups = byFolder
-            .map { (folder: $0.key, files: $0.value.sorted { $0.path < $1.path }) }
-            .sorted { ($0.files.count, $1.folder) > ($1.files.count, $0.folder) }
+        // Largest folder first, ties broken by name so the order is stable across runs.
+        //
+        // Written out rather than as one tuple comparison: the tuple form that does this reads
+        // `($0.count, $1.folder) > ($1.count, $0.folder)`, with the folder operands deliberately
+        // swapped to flip that half back to ascending. It was correct and looked exactly like the
+        // bug where someone mixed up the operands, which is a bad thing for a sort nobody had a
+        // test for.
+        // Split across two statements with the element type spelled out: chaining `map` into
+        // `sorted` with a ternary inside the predicate defeats the type checker outright ("unable
+        // to type-check this expression in reasonable time"), which is the other reason the
+        // original was a one-line tuple comparison.
+        var groups: [(folder: String, files: [PersonFile])] = byFolder.map {
+            (folder: $0.key, files: $0.value.sorted { $0.path < $1.path })
+        }
+        groups.sort { a, b in
+            if a.files.count != b.files.count { return a.files.count > b.files.count }
+            return a.folder < b.folder
+        }
         return PersonFileSet(personId: personId, herFolders: groups,
                              elsewhere: elsewhere.sorted { $0.path < $1.path })
     }

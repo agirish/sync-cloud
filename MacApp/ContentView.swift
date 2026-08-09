@@ -2323,6 +2323,16 @@ struct ContentView: View {
                 // the loose-files inbox and the rest want the provider root, so carrying one lens's
                 // folder into the next would scan the wrong place.
                 if newWorkspace != previous {
+                    // **A person gather does not survive leaving the workspace it was opened
+                    // from.** It takes the lens slot in every workspace, so without this,
+                    // switching to Compare showed a list of someone's files where the differences
+                    // table belongs — nothing on screen explaining why, and the only way out a ✕
+                    // on a view you would not connect to Compare at all.
+                    //
+                    // Inside the `newWorkspace != previous` guard deliberately: re-selecting the
+                    // workspace you are already on is not leaving it, and should not throw the
+                    // gather away.
+                    personScope = nil
                     presentTidyRail(for: newWorkspace)
                 }
             }
@@ -2382,6 +2392,10 @@ struct ContentView: View {
                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                        },
                        onClear: { personScope = nil })
+                // **Esc clears it, which the ✕'s own tooltip has been promising.** Nothing was
+                // wired to the key: the help text said "(Esc)" and the only way out was the ✕ —
+                // a control describing a shortcut that does not exist.
+                .onExitCommand { personScope = nil }
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         } else if let lens = selectedLens {
             // The lens workspaces' right-hand slot. ONE construction site for all of them, and

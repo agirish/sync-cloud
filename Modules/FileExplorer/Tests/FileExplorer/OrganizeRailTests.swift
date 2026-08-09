@@ -64,6 +64,24 @@ import Design
                   reason: "colon", isDirectory: false)
     }
 
+    /// Two eras of two, which is the minimum `StructureDivergence` reports on — the shape of the
+    /// real `Income Tax` family cut to size.
+    private static var divergentProfile: FolderProfile {
+        var folders: [String: FolderProfileEntry] = [:]
+        func add(_ path: String) {
+            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                               acceptsNewFiles: true, fileCount: 1,
+                                               subfolderCount: 0, axes: [:])
+        }
+        for year in ["2013", "2014"] {
+            add("Tax/\(year)"); add("Tax/\(year)/Federal"); add("Tax/\(year)/State")
+        }
+        for year in ["2016", "2017"] {
+            add("Tax/\(year)"); add("Tax/\(year)/Forms"); add("Tax/\(year)/Refund")
+        }
+        return FolderProfile(profileId: "t", root: "/root", folders: folders, personTokens: [])
+    }
+
     private static func manager(queue: Int, names: Int, hasScanned: Bool = true) -> FileSyncManager {
         let m = FileSyncManager()
         m.publishFilingSuggestions((0..<queue).map { suggestion("f\($0).pdf", confident: $0 % 3 != 0) })
@@ -327,6 +345,31 @@ import Design
                                            Self.railZone))
         #expect(differingPixels(three, seventeen) > 50,
                 "3 and 17 risky names painted the same badge — it is not carrying the count")
+    }
+
+    @Test("The Restructure badge reports the findings the overview reports")
+    func theRestructureBadgeTracksTheDetector() throws {
+        // **The defect this pins.** `railCount` returned a literal `0` for restructure, under a
+        // comment saying there were no detectors — written before the detector landed in the same
+        // change and never revisited. The overview said "1 finding" while the rail item beside it
+        // stayed bare, so the one lens built that session could not announce itself, which is the
+        // whole job of a badge.
+        let withFindings = Self.manager(queue: 24, names: 17)
+        withFindings.filingFolderProfile = Self.divergentProfile
+        let none = Self.manager(queue: 24, names: 17)   // no profile ⇒ nothing to detect
+
+        // **A band wide enough for the WHOLE rail.** `railZone` stops at x 588 so the trailing
+        // controls cannot be mistaken for rail items, and a third badge pushes the rail past that
+        // edge — so the crop lost more of "Rules" than the badge added, and the render WITH a
+        // finding measured *fewer* inked pixels than the one without. The difference was real; the
+        // direction was an artefact of the crop.
+        let whole = CGRect(x: 8, y: 12, width: 700, height: 30)
+        let a = try #require(strip(mount(withFindings, lens: .toFile), whole))
+        let b = try #require(strip(mount(none, lens: .toFile), whole))
+        #expect(differingPixels(a, b) > 50,
+                "a tree with a divergent family painted the same rail as one with none — the badge is not reading the detector")
+        #expect(counts(a).ink > counts(b).ink,
+                "the badge added no ink — restructure is still reporting a hard-coded zero")
     }
 
     // MARK: Shedding — the rail yields width to the controls
