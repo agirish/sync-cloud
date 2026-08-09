@@ -84,6 +84,12 @@ public struct PaneHeader: View {
     public var searchSummary: String?
     /// Walks to the next (`false`) or previous (`true`) hit — ↩ and ⇧↩.
     public var onSearchAdvance: ((Bool) -> Void)?
+    /// The person this query names, if it names exactly one — see `PersonSearchOffer`. Supplied as
+    /// a closure rather than a registry so this view keeps knowing nothing about how the roster is
+    /// loaded, and so a host with no roster simply passes nothing and the offer never appears.
+    public var personOffer: ((String) -> Person?)?
+    /// Accepts the offer: the find becomes a gather.
+    public var onAcceptPerson: ((Person) -> Void)?
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint. It does read the level back, though — the nav
     // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
@@ -145,7 +151,9 @@ public struct PaneHeader: View {
         searchText: Binding<String>? = nil,
         searchIsExpanded: Binding<Bool>? = nil,
         searchSummary: String? = nil,
-        onSearchAdvance: ((Bool) -> Void)? = nil
+        onSearchAdvance: ((Bool) -> Void)? = nil,
+        personOffer: ((String) -> Person?)? = nil,
+        onAcceptPerson: ((Person) -> Void)? = nil
     ) {
         self.title = title
         self.provider = provider
@@ -174,6 +182,8 @@ public struct PaneHeader: View {
         self.searchIsExpanded = searchIsExpanded
         self.searchSummary = searchSummary
         self.onSearchAdvance = onSearchAdvance
+        self.personOffer = personOffer
+        self.onAcceptPerson = onAcceptPerson
     }
 
     public var body: some View {
@@ -911,11 +921,45 @@ public struct PaneHeader: View {
                 .buttonStyle(.hoverAffordance(.inline))
                 .help("Close search (Esc)")
                 .accessibilityLabel("Close search")
+            },
+            accessories: { _ in
+                // **The find is unchanged; this only ever adds a row beneath it.** The substring
+                // search runs on this query exactly as before, and ⇧↩ keeps it — so a query that
+                // names nobody behaves the way it always has, which is what makes an offer safe to
+                // put on a control people already use.
+                if let person = personOffer?(text.wrappedValue) {
+                    Button {
+                        onAcceptPerson?(person)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.crop.circle")
+                                .scaledFont(.system(size: 11, weight: .semibold))
+                            Text("\(person.displayName) — everything that is theirs")
+                                .scaledFont(.system(size: 11.5, weight: .medium))
+                            Spacer(minLength: 6)
+                            Text("↩")
+                                .scaledFont(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .chromeHover()
+                    .help("Gather everything filed under \(person.displayName), and everything named for them")
+                    .accessibilityLabel("Show everything that is \(person.displayName)'s")
+                }
             }
         )
         .onSubmit {
             let modifiers = pinnedSubmitModifiers ?? NSEvent.modifierFlags
-            onSearchAdvance?(modifiers.contains(.shift))
+            // ⇧↩ is the plain find, always. ↩ takes the offer when there is one, and otherwise is
+            // the plain find too — so the key never stops doing what it did before, it only gains
+            // a meaning on the queries that have one.
+            let wantsPlainSearch = modifiers.contains(.shift)
+            if !wantsPlainSearch, let person = personOffer?(text.wrappedValue) {
+                onAcceptPerson?(person)
+                return
+            }
+            onSearchAdvance?(wantsPlainSearch)
         }
     }
 

@@ -141,6 +141,9 @@ struct ContentView: View {
     /// one rail item inside Organize rather than a workspace of its own. `TidyView` reads the same
     /// key through its own `@AppStorage`, so the two cannot disagree.
     @AppStorage(OrganizeLens.defaultsKey) var selectedOrganizeLens: OrganizeLens?
+    /// Set while a ⌘F query has been turned into a person gather. Clearing it returns the pane to
+    /// whatever it was showing — the gather is a lens over the source, not a place you navigate to.
+    @State var personScope: PersonScope?
 
     /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
     /// one selection now, and a second copy of it would be a second thing to keep in step.
@@ -1450,6 +1453,45 @@ struct ContentView: View {
         }
     }
 
+    /// The person the find was turned into a gather for, and the answer.
+    ///
+    /// Held here rather than in the pane because the answer is not about one pane: it collects
+    /// across the whole source, which is the difference between a find and a gather.
+    struct PersonScope: Equatable {
+        let person: Person
+        let files: PersonFileSet
+    }
+
+    /// Accepts the ⌘F offer: compute what is theirs and show it.
+    ///
+    /// **Computed on accept, never per keystroke.** The gather walks every surveyed document —
+    /// 10,171 of them on the real tree — so doing it as the query changes would put that sweep
+    /// between a key and its character. The offer row itself is cheap (one tokenize) and is what
+    /// runs per keystroke.
+    ///
+    /// The corpus is read off the main actor because it is a 4.9 MB file and nothing else in the
+    /// app holds it: the profile and the registry load at launch, the corpus does not.
+    func acceptPersonScope(_ person: Person) {
+        guard let profile = syncManager.filingFolderProfile,
+              let registry = syncManager.filingPersonRegistry,
+              let directory = syncManager.filingProfilesDirectory else { return }
+        Logger.shared.info("User asked for everything that is \(person.displayName)'s")
+        Task {
+            let id = profile.profileId
+            let corpus = await Task.detached(priority: .userInitiated) {
+                FilingSurveyStore.corpus(id: id, in: directory)
+            }.value
+            guard let corpus else {
+                syncManager.banner = .warning(
+                    "The survey of this tree has not been read yet, so there is nothing to gather.")
+                return
+            }
+            let files = PersonFiles.gather(personId: person.id, corpus: corpus,
+                                           profile: profile, registry: registry)
+            personScope = PersonScope(person: person, files: files)
+        }
+    }
+
     /// Point Organize at one folder: select the filing queue and scan **that** folder.
     ///
     /// The whole reason Organize's lenses became permanent rail items rather than chips. A chip
@@ -1753,7 +1795,12 @@ struct ContentView: View {
                 searchIsExpanded: paneSearchState(isLeft: isLeft).isExpanded,
                 searchSummary: paneSearchResults(isLeft: isLeft)
                     .summary(at: paneSearchState(isLeft: isLeft).wrappedValue.hitIndex),
-                onSearchAdvance: { reverse in advancePaneSearch(isLeft: isLeft, reverse: reverse) }
+                onSearchAdvance: { reverse in advancePaneSearch(isLeft: isLeft, reverse: reverse) },
+                personOffer: { query in
+                    guard let registry = syncManager.filingPersonRegistry else { return nil }
+                    return PersonSearchOffer.person(matching: query, registry: registry)
+                },
+                onAcceptPerson: { person in acceptPersonScope(person) }
             )
             // Cards gives the provider header its own card, so the chrome reads as a separate
             // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace
@@ -2259,9 +2306,27 @@ struct ContentView: View {
             reviewCoordinator.duplicateReviewBanner(review)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
-        // An active review keeps the view mounted through an empty live list: an external
-        // change resolving the last live difference mid-review must not vanish the session.
-        if let lens = selectedLens {
+        // **A person gather takes the slot from whatever was in it**, in every workspace. It is
+        // an answer about the whole source rather than about one lens, so showing it beside a lens
+        // would invite reading it as that lens's output; and it is temporary, so it takes the slot
+        // rather than replacing anything. Clearing gives the slot straight back.
+        if let scope = personScope {
+            PersonView(displayName: scope.person.displayName,
+                       files: scope.files,
+                       accent: glassHue.accentColor,
+                       onOpenFolder: { relative in
+                           guard let root = syncManager.filingFolderProfile?.root else { return }
+                           let full = (root as NSString).appendingPathComponent(relative)
+                           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                       },
+                       onReveal: { relative in
+                           guard let root = syncManager.filingFolderProfile?.root else { return }
+                           let full = (root as NSString).appendingPathComponent(relative)
+                           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                       },
+                       onClear: { personScope = nil })
+                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        } else if let lens = selectedLens {
             // The lens workspaces' right-hand slot. ONE construction site for all of them, and
             // deliberately so: a `switch` with a branch per lens would give each its own view
             // identity, and TidyView's @State — the per-lens parked queries, the expanded search,

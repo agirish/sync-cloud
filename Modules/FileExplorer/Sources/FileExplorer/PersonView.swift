@@ -16,7 +16,7 @@ import Sync
 ///
 /// Read-only. Nothing here writes a tag, and a row's action is Reveal — confirming a person and
 /// moving a file are separate verbs, and only the second one exists yet.
-struct PersonView: View {
+public struct PersonView: View {
     let displayName: String
     let files: PersonFileSet
     let accent: Color
@@ -25,6 +25,18 @@ struct PersonView: View {
     /// Reveals one file in Finder.
     let onReveal: (String) -> Void
     let onClear: () -> Void
+
+    public init(displayName: String, files: PersonFileSet, accent: Color,
+                onOpenFolder: @escaping (String) -> Void,
+                onReveal: @escaping (String) -> Void,
+                onClear: @escaping () -> Void) {
+        self.displayName = displayName
+        self.files = files
+        self.accent = accent
+        self.onOpenFolder = onOpenFolder
+        self.onReveal = onReveal
+        self.onClear = onClear
+    }
 
     /// How many folders are listed before the rest collapse into a count.
     ///
@@ -36,7 +48,7 @@ struct PersonView: View {
 
     private var inFolders: Int { files.herFolders.reduce(0) { $0 + $1.files.count } }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
