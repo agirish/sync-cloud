@@ -360,10 +360,36 @@ struct SettingsRail: View {
             // Losing the bottom of a fixed rail is silent — the rows are not clipped mid-glyph,
             // they are absent, and nothing says a tab exists below the fold. Scrolling is the
             // only option here that fails visibly.
-            ScrollView {
-                TabList(selection: $selection, query: $query, hue: hue)
+            ScrollViewReader { rail in
+                ScrollView {
+                    TabList(selection: $selection, query: $query, hue: hue)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                // Bring the selected row into view when the rail cannot show every row at once.
+                //
+                // Without this the scroller fixes the clipping and leaves a subtler version of the
+                // same defect: the rail opens at the top, so a selection further down is off-screen
+                // with nothing saying which tab is showing. The case that makes it worth handling
+                // is not the user scrolling — it is the DEEP LINK. `cloudRefineSetup` opens
+                // Intelligence, the eighth of nine rows, for someone who just accepted an offer to
+                // set cloud refining up; landing them on a rail that appears to have Advanced
+                // selected, or nothing, is worse than the clip was.
+                //
+                // Unanimated on purpose: this is a jump to a destination, not a movement worth
+                // watching, and `withAnimation { scrollTo }` does nothing at all when the display
+                // is asleep. Costless when the row is already visible — a `scrollTo` that lands
+                // where the stack already sits moves zero points.
+                //
+                // **Not covered by a test, and it cannot be from here.** `onAppear` does not fire
+                // in an offscreen `NSHostingView` driven by `layoutSubtreeIfNeeded` — the same
+                // reason `appearanceFitsItsOpeningWithoutScrolling` can measure General's `.task`
+                // -free layout at all — so a render would show the unscrolled rail whether this
+                // works or not, and a fixture that cannot distinguish the two measures nothing.
+                // The failure mode if it silently does nothing is today's behaviour, not a
+                // regression, which is what makes shipping it unverified acceptable here.
+                .onAppear { rail.scrollTo(selection, anchor: .center) }
+                .onChange(of: selection) { _, tab in rail.scrollTo(tab, anchor: .center) }
             }
-            .scrollBounceBehavior(.basedOnSize)
 
             if let version = versionText {
                 Text("SyncCloud \(version)")
@@ -407,7 +433,10 @@ struct SettingsRail: View {
                             .padding(.vertical, Rhythm.groupGap)
                     }
                     ForEach(group, id: \.self) { tab in
-                        railRow(tab)
+                        // `.id` as well as the `ForEach` id: `scrollTo` resolves against the
+                        // explicit id, and a row inside a nested `ForEach` does not get one from
+                        // the outer loop.
+                        railRow(tab).id(tab)
                     }
                 }
             }

@@ -447,8 +447,8 @@ grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Mod
   | grep -v '/\.build/' | grep -v Floor
 ```
 
-Run on this line 2026-08-09: **41 unfloored clock-bounded loops**, against 7 floored ones correctly
-excluded. Most of the 41 are fixed pumps with no condition to starve — the separate problem this
+Run on this line 2026-08-09: **38 unfloored clock-bounded loops**, against 7 floored ones correctly
+excluded. Most of the 38 are fixed pumps with no condition to starve — the separate problem this
 section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
 are the real residual, and there are more of them than the list above says:
 `ExpandingSearchFieldTests`, `CloudDownloadWatchTests`, `CloudDownloadWiringTests`,

@@ -73,10 +73,11 @@ public struct SettingsView: View {
     /// lighter. Renaming it would have made every stored "filing" resolve to a tab that no longer
     /// holds what the user was last looking at.
     ///
-    /// Adding cases is safe in the other direction too: `SettingsTab(rawValue:)` is only ever
-    /// read through a `??` fallback (see `ContentView`'s launch read and
-    /// `theStoredTabFallsBackWhenUnrecognised`), so a build that predates these two resolves
-    /// their raw values to `.general` rather than trapping.
+    /// Adding cases is safe in the other direction too: the stored value is resolved through
+    /// `resolvingStored(_:)`, which falls back rather than trapping, so a build that predates
+    /// these two resolves their raw values to **Appearance** — the tab that depends on nothing.
+    /// `StoredTabResolutionTests` is what checks that; this paragraph previously named the wrong
+    /// tab and cited a test that did not exist, which is the reason the seam is there at all.
     public enum SettingsTab: String, CaseIterable, Sendable {
         case general
         case appearance
@@ -335,10 +336,13 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 }
 
 /// The catalog of settings the header search can jump to: one entry per control that *changes*
-/// something, across every tab. Two kinds of on-screen label deliberately get no entry of their
-/// own, because neither is a setting — the `SettingsSection` headers that only group other
-/// controls ("Conflicts", "Logging"), and the read-only readouts in Organize's Cloud spend
-/// section ("Total spent", "Tokens"). Both are reached through the control they belong to.
+/// something, across every tab. One kind of on-screen label deliberately gets no entry of its own,
+/// because it is not a setting: the `SettingsSection` headers that only group other controls
+/// ("Conflicts", "Logging", "Filing"). Each is reached through a control it belongs to.
+///
+/// It used to say "and the read-only readouts in Organize's Cloud spend section" as well. Those
+/// four rows are gone — `FilingSpendReadout` draws the figures now, and the section is Cost and
+/// limits on Intelligence — so the sentence described neither a tab nor a control that exists.
 ///
 /// Titles mirror the on-screen label, or extend it where the label alone would be ambiguous in a
 /// results list that shows nothing but the title and its tab ("Surface tint" for the section
