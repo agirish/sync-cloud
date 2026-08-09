@@ -3,7 +3,7 @@ import AppKit
 import CoreGraphics
 
 /// Whether Organize's rail can afford to spell its items out.
-public enum OrganizeRailStyle: Equatable, Sendable {
+enum OrganizeRailStyle: Equatable, Sendable {
     /// Glyph, label, and the badge when there is one.
     case full
     /// Glyph and badge only; the label moves into the tooltip and the accessibility label.
@@ -58,16 +58,16 @@ public enum OrganizeRailStyle: Equatable, Sendable {
 /// correct**. Measured against the render, the required reserve came out at 449.6 with three
 /// badges and 458.6 with four; with the leading side measured properly it is 394.8 and 395.3 —
 /// the same number twice, which is what makes a constant legitimate here at all.
-public enum OrganizeRailMetrics {
+enum OrganizeRailMetrics {
 
     /// Between an item's glyph and its label.
-    public static let glyphGap: CGFloat = 5
+    static let glyphGap: CGFloat = 5
     /// An item's own horizontal padding, 2×9pt.
-    public static let itemPadding: CGFloat = 18
+    static let itemPadding: CGFloat = 18
     /// Between items.
-    public static let itemGap: CGFloat = 6
+    static let itemGap: CGFloat = 6
     /// Between a label and the badge after it.
-    public static let badgeGap: CGFloat = 5
+    static let badgeGap: CGFloat = 5
 
     /// Row 1 width the rail can never have: the lens's own controls and the search toggle.
     ///
@@ -100,7 +100,7 @@ public enum OrganizeRailMetrics {
     ///
     /// - Parameter lens: the rail's selection; nil is the overview, which draws Rescan and the
     ///   search toggle alone (129pt measured) and so is covered by the shared figure.
-    public static func reservedTrailing(for lens: OrganizeLens?) -> CGFloat {
+    static func reservedTrailing(for lens: OrganizeLens?) -> CGFloat {
         switch lens {
         // Rescan · Refine N with <model> · File all N confident · search.
         case .toFile: return 490
@@ -125,7 +125,9 @@ public enum OrganizeRailMetrics {
     /// Scaled linearly, which **over**-estimates slightly at large text (24.0 against a measured
     /// 23.0 for `doc` at 2×) — the safe direction, since it sheds a shade early rather than a
     /// shade late.
-    public static func glyphWidth(_ item: OrganizeLens, scale: CGFloat = 1) -> CGFloat {
+    /// No default for `scale`: every other width here is scale-correct, and a defaulted one lets a
+    /// call site silently take the 1× answer at 1.3 — an under-count, the direction that truncates.
+    static func glyphWidth(_ item: OrganizeLens, scale: CGFloat) -> CGFloat {
         let base: CGFloat
         switch item {
         case .toFile:      base = 12
@@ -142,7 +144,7 @@ public enum OrganizeRailMetrics {
     ///
     /// `.semibold` because that is the selected item's weight and the widest — sizing on `.medium`
     /// would under-measure the one item that is always bold, which is the direction that truncates.
-    public static func labelWidth(_ item: OrganizeLens, scale: CGFloat) -> CGFloat {
+    static func labelWidth(_ item: OrganizeLens, scale: CGFloat) -> CGFloat {
         let font = NSFont.systemFont(ofSize: 11.5 * scale, weight: .semibold)
         return (item.title as NSString).size(withAttributes: [.font: font]).width
     }
@@ -152,13 +154,13 @@ public enum OrganizeRailMetrics {
     /// **The digits are measured, not assumed.** A flat two-digit figure is what let `410` and
     /// `126` cost 8pt more apiece than the model believed, and a tree with a thousand duplicate
     /// groups would have widened the gap again. `.monospacedDigit()`, matching `RailItemLabel`.
-    public static func badgeWidth(_ count: Int, scale: CGFloat) -> CGFloat {
+    static func badgeWidth(_ count: Int, scale: CGFloat) -> CGFloat {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 10 * scale, weight: .bold)
         return (count.formatted() as NSString).size(withAttributes: [.font: font]).width + 10
     }
 
     /// One item, spelled out, with the badge it is carrying.
-    public static func itemWidth(_ item: OrganizeLens, badge: Int?, scale: CGFloat) -> CGFloat {
+    static func itemWidth(_ item: OrganizeLens, badge: Int?, scale: CGFloat) -> CGFloat {
         labelWidth(item, scale: scale) + glyphWidth(item, scale: scale) + glyphGap + itemPadding
             + (badge.map { badgeGap + badgeWidth($0, scale: scale) } ?? 0)
     }
@@ -173,7 +175,7 @@ public enum OrganizeRailMetrics {
     ///     `OrganizeLens.allCases` — and so a new lens is counted the day it is added. Counted
     ///     rather than assumed: the rail is at its widest on the day every finding has something to
     ///     report, which is precisely the day it must still fit.
-    public static func fullWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+    static func fullWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
         let items = OrganizeLens.allCases.reduce(CGFloat.zero) {
             $0 + itemWidth($1, badge: badge($1), scale: scale)
         }
@@ -181,7 +183,7 @@ public enum OrganizeRailMetrics {
     }
 
     /// Width of the rail with every label shed. Badges stay — they are the reason to look.
-    public static func iconOnlyWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+    static func iconOnlyWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
         let items = OrganizeLens.allCases.reduce(CGFloat.zero) {
             $0 + glyphWidth($1, scale: scale) + itemPadding
                 + (badge($1).map { badgeGap + badgeWidth($0, scale: scale) } ?? 0)
@@ -195,12 +197,12 @@ public enum OrganizeRailMetrics {
     /// beside it is gone. The seam stays named because the *requirement* is what ``style(contentWidth:leadingWidth:lens:)``
     /// takes, and anything ever added to this half of the row is added here, where it is counted,
     /// rather than beside the rail where the first cut of this type left it uncounted.
-    public static func leadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+    static func leadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
         fullWidth(scale: scale, badge: badge)
     }
 
     /// The same, with the rail shed — what the row falls back to.
-    public static func shedLeadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+    static func shedLeadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
         iconOnlyWidth(scale: scale, badge: badge)
     }
 
@@ -216,7 +218,7 @@ public enum OrganizeRailMetrics {
     ///
     /// `lens` is taken here rather than folded into `leadingWidth` because it selects the
     /// *trailing* reserve — see ``reservedTrailing(for:)``, which is the half that differs by lens.
-    public static func style(contentWidth: CGFloat, leadingWidth: CGFloat,
+    static func style(contentWidth: CGFloat, leadingWidth: CGFloat,
                              lens: OrganizeLens?) -> OrganizeRailStyle {
         contentWidth - reservedTrailing(for: lens) >= leadingWidth ? .full : .iconOnly
     }

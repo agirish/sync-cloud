@@ -1148,7 +1148,12 @@ public struct TidyView: View {
     /// One rail item.
     @ViewBuilder
     private func organizeRailItem(_ item: OrganizeLens, _ counts: RailCounts) -> some View {
-        let badge = item.badge(count: counts[item])
+        // `counts.badge(_:)`, not the rule restated — the same answer today, and deliberately the
+        // same *call* the width model makes. The model measures the badge it is told this item
+        // wears; if the two reach that answer down separate paths, a later rule (suppress a badge
+        // past four digits, say) moves one and not the other, and the arithmetic starts sizing a
+        // rail nobody draws. That divergence is this type's whole failure mode.
+        let badge = counts.badge(item)
         let isSelected = organizeLens == item
         Button {
             // Clicking the selected item widens back out to the overview, which is what makes the

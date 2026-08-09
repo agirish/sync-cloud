@@ -166,8 +166,12 @@ import Design
     /// resolves to `nil`, which is the *overview*, where no lens's actions are drawn at all. A
     /// suite that forgot this measured the overview and reported that a full queue and an empty
     /// one inked the action band identically. The innermost `defaultAppStorage` wins.
+    ///
+    /// `scale` is the app's own text-size multiplier (`FontSize.scale`). It defaults to 1 so the
+    /// behavioural tests read as before, but it is a real parameter because the width model claims
+    /// to be right at *every* size while only some of its parts actually scale.
     private func mount(_ manager: FileSyncManager, lens: OrganizeLens?,
-                       width: CGFloat? = nil) -> NSHostingView<AnyView> {
+                       width: CGFloat? = nil, scale: CGFloat = 1) -> NSHostingView<AnyView> {
         let canvas = CGSize(width: width ?? Self.canvas.width, height: Self.canvas.height)
         let defaults = ScratchDefaults("OrganizeRailTests")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
@@ -183,6 +187,7 @@ import Design
                                scanTargetFolder: "/root/Downloads", onFindDuplicates: {},
                                onUpdateFolderMemory: {}, onConfigureCloudRefine: {})
             .defaultAppStorage(defaults)
+            .environment(\.appFontScale, scale)
             .frame(width: canvas.width, height: canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
@@ -550,8 +555,9 @@ import Design
                                                    badge: Self.badges([.duplicates: 24])))
     }
 
-    @Test("The leading model matches what row 1 actually draws")
-    func theLeadingModelMatchesWhatTheRowDraws() throws {
+    @Test("The leading model matches what row 1 draws at every text size the app ships",
+          arguments: FontSize.allCases)
+    func theLeadingModelMatchesWhatTheRowDraws(size: FontSize) throws {
         // **The test the arithmetic was missing, and the reason the truncation shipped.** Every
         // other assertion about the width model compared it against itself, so an estimate could be
         // 63pt short of the row it claimed to describe and still be perfectly self-consistent.
@@ -561,24 +567,34 @@ import Design
         // out of the model — the failure that put a 21pt intro button on this side of the row and
         // never charged for it. Every *behavioural* assertion here kept passing through that,
         // because each compared the arithmetic against itself.
+        //
+        // **Every text size, not just the default**, because the model is a mixture: labels and
+        // badges are measured at `11.5 * scale`, glyphs are a table scaled linearly, and the
+        // paddings and gaps are flat. Whether that mixture stays honest at 1.3 is a question no
+        // arithmetic here can answer. Mutation-checked and worth knowing: a `glyphWidth` that
+        // ignores `scale` entirely passes at 0.9, 1.0 and 1.15 and fails **only** at
+        // `.extraLarge`, so a single-scale version of this test misses it outright.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
-        let host = mount(manager, lens: .duplicates, width: 1400)
+        let host = mount(manager, lens: .duplicates, width: 1400, scale: size.scale)
         let drawn = try #require(leadingExtent(host, width: 1400),
-                                 "row 1 drew no leading cluster — the rail is not on screen at all")
+                                 "row 1 drew no leading cluster at \(size.scale)× — the rail is not on screen at all")
         let model = OrganizeRailMetrics.leadingWidth(
-            scale: 1,
+            scale: size.scale,
             badge: Self.badges([.toFile: 24, .duplicates: 410, .names: 17]))
 
-        // Measured: 632.2 modelled against 627.0 drawn. Both fell by exactly 21pt when the intro
-        // button came off the row, which is the check that the model dropped it along with the
-        // render rather than keeping a phantom control in the budget. Over, never under — a model
-        // that under-states the leading side is one that lets the row overrun, which is this whole
+        // Measured, model against drawn: 593.6/586.0 at 0.9, 632.2/627.0 at 1.0, 688.5/682.0 at
+        // 1.15, 744.2/733.5 at 1.3. Both numbers fell by exactly 21pt at 1.0 when the intro button
+        // came off the row, which is the check that the model dropped it along with the render
+        // rather than keeping a phantom control in the budget. Over, never under — a model that
+        // under-states the leading side is one that lets the row overrun, which is this whole
         // type's failure mode.
         #expect(model >= drawn,
-                "the rail draws \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
+                "at \(size.scale)× the rail draws \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
         // And not wildly over, or the rail sheds its labels on headers that would have seated them.
+        // The widest measured slack is 10.7pt, at 1.3, where the glyph table's linear scaling is
+        // furthest from the renderer.
         #expect(model - drawn < 12,
-                "the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
+                "at \(size.scale)× the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
     }
 
     @Test("The glyph table still matches the renderer")
@@ -593,8 +609,8 @@ import Design
                 NSImage(systemSymbolName: lens.symbol, accessibilityDescription: nil)?
                     .withSymbolConfiguration(configuration)?.size.width,
                 "\(lens.symbol) did not resolve — the rail's glyph is missing, not just mis-sized")
-            #expect(abs(OrganizeRailMetrics.glyphWidth(lens) - live) < 0.5,
-                    "\(lens.symbol) renders \(live)pt but the table says \(OrganizeRailMetrics.glyphWidth(lens)) — the rail is mis-measured by \(live - OrganizeRailMetrics.glyphWidth(lens))pt on this item")
+            #expect(abs(OrganizeRailMetrics.glyphWidth(lens, scale: 1) - live) < 0.5,
+                    "\(lens.symbol) renders \(live)pt but the table says \(OrganizeRailMetrics.glyphWidth(lens, scale: 1)) — the rail is mis-measured by \(live - OrganizeRailMetrics.glyphWidth(lens, scale: 1))pt on this item")
         }
     }
 
@@ -812,6 +828,53 @@ import Design
                                                      width: 1400))
         #expect(tight < roomy - 20,
                 "the report painted \(tight)pt wide at 800 and \(roomy)pt at 1400 — it is not being compressed at all, so nothing here is under pressure and the claim above is untested")
+    }
+
+    @Test("The shed rung — the fallback — seats the actions at the width the model claims")
+    func theShedRungIsItselfHonest() throws {
+        // **The rail has two rungs and no third.** Everything above pins the upper one: at the
+        // width the model starts spelling labels out, the actions must still fit. Nothing pinned
+        // the LOWER one, and "shed" is not automatically "fits" — glyphs and badges still occupy
+        // the leading side, so there is a width below which even the shed rail leaves the trailing
+        // set short and the row truncates with nothing left to give up.
+        //
+        // The claim is that `shedLeadingWidth` plus this lens's reserve is a width the render can
+        // actually honour. Measured on Duplicates: the trailing set first differs from a roomy
+        // header between 720 and 740pt, and the model's own figure is 756.8 — conservative, which
+        // is the right direction. This fails if that ever inverts.
+        let manager = Self.duplicatesManager(groups: 410, names: 17)
+        let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
+        let floor = (OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: badge)
+                     + OrganizeRailMetrics.reservedTrailing(for: .duplicates)).rounded(.up)
+
+        let reference = try #require(strip(mount(manager, lens: .duplicates, width: 2400),
+                                           Self.trailingZone(2400)))
+        let host = mount(manager, lens: .duplicates, width: floor)
+        // The rail really is shed here — otherwise this is re-testing the spelled-out rung.
+        //
+        // Measured off the leading cluster, **not `railZone`**: that band is x 8–588, and at a
+        // header this narrow the trailing controls start around x 404 and sit inside it, so its
+        // ink count answers a question about the actions rather than about the rail. Holding the
+        // drawn cluster to `shedLeadingWidth` proves both at once — that the shed rung is what is
+        // on screen, and that the model of it is accurate rather than merely conservative.
+        let drawn = try #require(leadingExtent(host, width: floor),
+                                 "row 1 drew no leading cluster at \(floor)pt")
+        let shedModel = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: badge)
+        let spelledOut = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
+
+        // **Anchored to the spelled-out width, not only to `shedLeadingWidth`.** This probe takes
+        // its own canvas from the function under test, so a `shedLeadingWidth` that returned the
+        // *full* width would simply move the probe to a roomy header where every assertion below
+        // holds trivially — mutation-checked, and the first version of this test passed that
+        // mutation. Requiring the drawn cluster to be dramatically narrower than the spelled-out
+        // rail (315 measured against 632) is a claim `shedLeadingWidth` cannot satisfy by inflating
+        // itself.
+        #expect(drawn < spelledOut - 100,
+                "at \(floor)pt the leading side draws \(drawn)pt against \(spelledOut)pt spelled out — the rail is not shed here, so this is measuring the upper rung on a canvas where nothing has to fit")
+        #expect(shedModel >= drawn && shedModel - drawn < 12,
+                "at \(floor)pt the leading side draws \(drawn)pt against a shed model of \(shedModel)pt — the shed model does not describe the shed rail")
+        #expect(differingPixels(try #require(strip(host, Self.trailingZone(floor))), reference) == 0,
+                "at \(floor)pt — the width the model says the SHED rail needs — the actions already render differently from a roomy header, so the fallback the shed rule falls back to does not itself fit")
     }
 
     // MARK: The control — Rescan outlives the queue

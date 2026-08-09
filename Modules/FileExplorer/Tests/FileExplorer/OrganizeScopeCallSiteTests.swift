@@ -133,6 +133,21 @@ import Foundation
         #expect(tidy.contains("let counts = railCounts"))
         #expect(tidy.contains("badge: counts.badge"),
                 "the width arithmetic is recomputing the badges instead of reading the resolved counts")
+        // **And the RENDER reads the same accessor as the model.** Both said the same thing by
+        // restating the rule — `counts.badge(_:)` in the arithmetic, the rule spelled out again at
+        // the rail item — which agrees only for as long as nobody changes one of them. A rule that
+        // suppressed a badge past four digits would move the model and not the label, and the
+        // arithmetic would start sizing a rail that is not drawn: exactly the divergence
+        // `OrganizeRailMetrics` exists to stop.
+        //
+        // Both halves match the **assignment**, not the bare call. A scan for the restated form
+        // anywhere in the file trips on the comment at the call site that explains why it is
+        // wrong — a source scan that cannot tell code from the prose describing it, which is this
+        // suite's standing hazard.
+        #expect(tidy.contains("let badge = counts.badge(item)"),
+                "the rail item is restating the badge rule instead of calling the accessor the width model uses")
+        #expect(!tidy.contains("let badge = item.badge("),
+                "the rail item is back to deriving its badge independently of the width model")
         #expect(!tidy.contains("private var railBadgeCount"),
                 "railBadgeCount is back — that is the second independent pass over all six lists")
         // And the per-render profile walk behind the chip's folder count is resolved with them.
