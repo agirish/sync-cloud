@@ -21,7 +21,12 @@ enum ShortcutsReference {
             // shortcuts below appear on the controls themselves. A reference nobody opens can't
             // do that, which is the whole reason the reveal exists.
             Item(keys: "Hold ⌥", action: "Show every on-screen shortcut as a key badge"),
-            Item(keys: "⌘ 1 – ⌘ 5", action: "Switch workspace, in the bar's order"),
+            // Derived from the bar rather than typed, because the bar has changed length three
+            // times and this row is the kind of thing that stays behind: it read "⌘ 1 – ⌘ 5" for a
+            // whole commit after the bar dropped to three segments, promising two chords that do
+            // nothing. `ShortcutsReferenceTests` pins the derived string against the enum.
+            Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)",
+                 action: "Switch workspace, in the bar's order"),
             Item(keys: "⌘ I", action: "Show or hide the Info inspector"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),
             Item(keys: "⌘ ,", action: "Open Settings"),

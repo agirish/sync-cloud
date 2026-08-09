@@ -22,12 +22,41 @@ import Design
         }
     }
 
-    @Test func testTheFullBarDoesNotFitTheWindowsMinimumWidth() {
-        // The premise of the whole shedding rule, asserted rather than assumed. Six labelled
-        // segments plus the traffic lights and the utility pill exceed the 600pt `minWidth`
-        // ContentView pins. If this ever stops being true the icon-only rung is dead code —
-        // which is worth finding out from a failing test, not by deleting it on a hunch.
-        #expect(WorkspaceBarMetrics.style(contentWidth: 600, labelWidths: labelWidths()) == .iconOnly)
+    @Test func testTheThreeSegmentBarKeepsItsLabelsAtTheWindowsMinimumWidth() {
+        // **This assertion used to say the opposite, and the flip is the point of the fold.** Five
+        // labelled segments plus the traffic lights and the utility pill exceeded the 600pt
+        // `minWidth` ContentView pins, so the bar went to glyphs at the floor. Three fit, and the
+        // whole window's narrowest state now keeps its words.
+        #expect(WorkspaceBarMetrics.style(contentWidth: 600, labelWidths: labelWidths()) == .full)
+    }
+
+    @Test func testThreeSegmentsKeepTheirLabelsAtEveryTextSize() {
+        // Not just at the default: the app scales its own type, and the floor has to hold at the
+        // largest setting too or the win is only true for some people.
+        for scale in [FontSize.small.scale, 1, FontSize.large.scale] {
+            #expect(WorkspaceBarMetrics.style(contentWidth: 600,
+                                              labelWidths: labelWidths(scale: scale)) == .full,
+                    "three labels must fit the 600pt floor at text scale \(scale)")
+        }
+    }
+
+    @Test func testTheIconOnlyRungIsDormantButStillCorrect() {
+        // **Honest about the consequence of the fold: nothing sheds labels today.** Three segments
+        // fit the floor at every text size (above), so `iconOnly` is currently unreachable in the
+        // shipping app. That is worth stating rather than discovering later, and it is NOT a
+        // reason to delete the rung: the Backup lens and Home are both queued for the bar, and the
+        // fifth segment brings the shedding back.
+        //
+        // So the rung stays under test against the bar it will have, not the bar it has. Five
+        // labels at the largest text size is the state this arithmetic existed to catch, and it
+        // still catches it.
+        let queued = ["Compare", "Organize", "Storage", "Backup", "Home"]
+        let font = NSFont.systemFont(ofSize: 12 * FontSize.large.scale, weight: .semibold)
+        let widths = queued.map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+        #expect(WorkspaceBarMetrics.style(contentWidth: 600, labelWidths: widths) == .iconOnly)
+        // And the fallback still solves it, or shedding buys nothing.
+        let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: queued.count)
+        #expect(iconOnly <= 600 - WorkspaceBarMetrics.reservedChrome)
     }
 
     @Test func testTheIconOnlyBarDoesFitTheWindowsMinimumWidth() {

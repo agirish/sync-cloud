@@ -369,34 +369,49 @@ public struct TidyView: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
 
-    /// Which of Organize's lists is on screen. Rename is no longer a place, so this is not a lens
-    /// selection — see ``OrganizeFocus`` for why it is a selection rather than a Bool.
-    @State private var organizeFocus: OrganizeFocus = .queue
+    /// Which of Organize's lenses is on screen — `nil` for the overview.
+    ///
+    /// Persisted, because a rail item is a *place* and closing the app standing in Duplicates and
+    /// reopening on the overview would lose a deliberate choice. See ``OrganizeLens`` for why the
+    /// items are permanent while their badges are not, and why there is no longer an `effective`
+    /// fallback bouncing you off a list that emptied.
+    @AppStorage(OrganizeLens.defaultsKey) private var railLens: OrganizeLens?
 
-    /// The focus actually on screen: `organizeFocus`, unless its list has emptied under it.
-    private var effectiveOrganizeFocus: OrganizeFocus {
-        OrganizeFocus.effective(organizeFocus, riskyNameCount: syncManager.riskyNames.count,
-                                renamePlanCount: syncManager.renamePlans.count)
+    /// The rail selection, but only while Organize is the workspace.
+    ///
+    /// Storage is still a workspace of its own, and its `@AppStorage` neighbour keeps whatever
+    /// rail item Organize was last left on. Reading `railLens` unguarded would let that parked
+    /// value pick Storage's apparatus — a lens selection leaking across a workspace boundary.
+    private var organizeLens: OrganizeLens? {
+        lens == .storage ? nil : railLens
+    }
+
+    /// Whether Organize is showing its overview: every lens's answer for the scope, one page.
+    ///
+    /// The rail's *unselected* state rather than a seventh rail item, so it has no name of its own
+    /// and cannot be a tab you forget to visit — it is what you land on.
+    private var showingOverview: Bool {
+        lens != .storage && railLens == nil
     }
 
     /// The lens whose grammar, pills, actions and content are on screen right now.
     ///
-    /// `lens` is where you ARE; this is what you are LOOKING AT. They differ in exactly one case:
-    /// Organize showing its risky names, which reuses `.rename`'s whole apparatus — its search
-    /// grammar, its "N of M", its list — because that apparatus is still correct. What it does not
-    /// reuse is the title: the header keeps saying Organize, because you have not gone anywhere.
+    /// `lens` is where you ARE (which workspace); this is what you are LOOKING AT (which rail
+    /// item). The rail is the vocabulary and `TidyLens` is the machinery — search grammars, parked
+    /// queries, scroll state all key on the apparatus, and three rail items share `.filing`'s
+    /// because their rows are filing rows. What none of them reuse is the title: the header keeps
+    /// saying Organize, because you have not gone anywhere.
     private var effectiveLens: TidyLens {
-        (lens == .filing && effectiveOrganizeFocus == .names) ? .rename : lens
+        organizeLens?.searchLens ?? lens
     }
 
     /// True when Organize is showing the rename backlog rather than the queue.
     ///
-    /// Deliberately NOT a sixth `TidyLens`. The names focus borrows `.rename`'s apparatus because
-    /// that apparatus already fits its rows; the rename backlog's rows are folder plans, which no
-    /// existing lens describes — and a lens of its own would cost a bar segment for a finding that
-    /// is absent most days. So it stays inside Organize and the content card branches on it.
+    /// Still not a `TidyLens` of its own: the backlog's rows are folder plans, which no existing
+    /// apparatus describes, so it borrows `.filing`'s query slot and the content card branches on
+    /// it. It IS a rail item now, which is the part that changed.
     private var showingRenameBacklog: Bool {
-        lens == .filing && effectiveOrganizeFocus == .renames
+        organizeLens == .renames
     }
 
     // MARK: Search state
@@ -575,7 +590,12 @@ public struct TidyView: View {
                 // The finding belongs to the scan that produced it. Staying on the names list
                 // across a rescan would show the previous scan's answer under the new scan's
                 // header, and its query would survive into a list it no longer describes.
-                organizeFocus = .queue
+                //
+                // **Only the lenses this scan republishes move.** Duplicates and Rules are not its
+                // output and go nowhere — the old Bool could not express that distinction, and a
+                // blanket reset would have yanked someone out of the rule list because a filing
+                // scan started somewhere else.
+                if let railLens, railLens.goesStaleDuringFilingScan { self.railLens = .toFile }
                 searchQueries[.rename] = ""
             } else {
                 // Finished: a cloud call may have recorded spend, and both the spend row and the
@@ -778,8 +798,8 @@ public struct TidyView: View {
                 // The apply actions stay with their own list: each acts on the rows on screen, so
                 // each is gated on there being some, and each is handed the FILTERED rows for the
                 // reason `applyAllButton` spells out — the label counts what the action receives.
-                switch effectiveOrganizeFocus {
-                case .queue:
+                switch organizeLens {
+                case .toFile:
                     if hasFilingResults {
                         refineButton(rows.filing)
                         fileAllButton(rows.filing)
@@ -790,6 +810,11 @@ public struct TidyView: View {
                     // Gated on the backlog existing, handed what is showing: a query leaving 3 of
                     // 129 folders on screen must rename exactly those 3.
                     if !syncManager.renamePlans.isEmpty { renameAllButton(rows.renames) }
+                // The overview offers no apply-all of its own, deliberately: an "apply" up here
+                // would have to mean one of six different things, and the one it picked would be
+                // the one nobody meant. Each section's own button is one click away.
+                case .none, .duplicates, .restructure, .rules:
+                    EmptyView()
                 }
             }
         case .automations:
@@ -847,30 +872,21 @@ public struct TidyView: View {
     /// each focus names its own rather than one claiming the other's.
     @ViewBuilder
     private func organizeSummary(rows: FilteredRows) -> some View {
-        let chips = OrganizeFocus.chips(queueCount: syncManager.filingSuggestions.count,
-                                        riskyNameCount: syncManager.riskyNames.count,
-                                        renamePlanCount: syncManager.renamePlans.count)
-        // No second `chips.isEmpty` gate: with the scope chip moved inside the branches below,
-        // "nothing to report" already renders nothing — an empty `chips` draws no capsules, and
-        // both branches are gated on having a list to describe. A guard that cannot change the
-        // output is the same kind of thing as a test that cannot fail.
-        if !syncManager.isSuggestingFiles {
-            ForEach(chips) { focus in
-                // A lone chip is a statement, not a choice: with nothing to switch to it must not
-                // look clickable, which is exactly what the un-gated "to file" pill always was.
-                organizeFocusChip(focus, isInteractive: chips.count > 1)
-            }
-            // The scope belongs to the FOCUSED list, so it sits with that list's readout rather than
-            // leading the row. Leading, it read as qualifying whatever came next — and what comes
-            // next is the other focus's chip, which it does not scope: on the names focus the row
-            // said "iCloud Drive · 24 to file", and those 24 are the queue's, scoped to one folder
-            // inside it. Reading order is now navigation first, then "here is what you are looking
-            // at, and where it came from".
-            //
-            // The divider ahead of it is where the row changes from controls to prose. See
-            // ``SummaryRun`` for the rule it draws.
-            switch effectiveOrganizeFocus {
-            case .queue:
+        // The rail draws unconditionally — that is the difference between a place and a chip.
+        // `isSuggestingFiles` no longer gates navigation, only the *readouts* below, because a
+        // rail item you cannot click while a scan runs is a destination that disappears exactly
+        // when you might want to go somewhere else.
+        organizeRail()
+        // The scope and the readout belong to the SELECTED lens, so they sit after the rail rather
+        // than leading the row: leading, the scope read as qualifying whatever came next, and what
+        // comes next is another lens's item, which it does not scope.
+        //
+        // Nothing here renders mid-scan for the three lenses whose lists the filing scan
+        // republishes — see ``OrganizeLens/goesStaleDuringFilingScan``. The divider ahead of it is
+        // where the row changes from controls to prose; see ``SummaryRun`` for the rule it draws.
+        if let organizeLens, !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
+            switch organizeLens {
+            case .toFile:
                 if hasFilingResults {
                     SummaryZoneDivider()
                     scannedFolderChip(syncManager.filingScanFolder)
@@ -891,77 +907,100 @@ public struct TidyView: View {
                 // pointing at a previous scan.
                 SummaryZoneDivider()
                 scannedFolderChip(syncManager.filingLastProviderRoot)
-                // The FILTERED plans, like the queue's readout beside it and unlike the chip that
-                // got you here: a chip is a signpost and counts its whole list, a readout describes
-                // the rows on screen. Typing `PG&E` should watch this fall from 1,192 renames to
-                // the eleven it left showing.
+                // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
+                // that got you here: a badge is a signpost and counts its whole list, a readout
+                // describes the rows on screen. Typing `PG&E` should watch this fall from 1,192
+                // renames to the eleven it left showing.
                 renameBacklogSummary(rows.renames)
+            // Duplicates and rules reach `lensSummary` through their own apparatus arms, so they
+            // never arrive here; restructure has no readout until its detectors land.
+            case .duplicates, .restructure, .rules:
+                EmptyView()
             }
         }
     }
 
-    /// One focus chip.
+    /// Organize's lens rail: six permanent places, each carrying a badge only when it has
+    /// something to report.
     ///
-    /// **A finding, not a category.** The names chip carries its own count, wears caution rather
-    /// than the accent — it reports a condition, it does not offer a filter — and at zero it is
-    /// *absent*, not greyed and not showing "0". That absence is the whole argument for folding
-    /// Rename in here rather than giving it a tab: cloud-hostile names are something you hit a few
-    /// times a year, so a permanent tab spent bar width every day to serve a rare event, and —
-    /// worse — a tab you have to remember to visit is a check nobody runs. Reporting beats asking.
+    /// **The rail is the chips row made persistent.** The chips were absent at zero on the
+    /// argument that a rare finding should announce itself and cost nothing otherwise. That is
+    /// still right about the *badge*, and ``OrganizeLens/badge(count:)`` keeps it. It is wrong
+    /// about the *place*: "Organize this folder" has to land somewhere before any scan has run,
+    /// and you cannot point at a chip that does not exist yet.
     ///
-    /// Selection is a **ring**, not a chevron. A chevron says "this expands and collapses", which is
-    /// what one Bool did; these are peers, and exactly one is always on. The ring is the same
-    /// affordance the focused pane's provider capsule wears, drawn the same way — an `.overlay`,
-    /// which takes its size from the host and gives none back, so it cannot push this row out of the
-    /// header's pinned height.
+    /// Selection is a **ring**, the same affordance the focused pane's provider capsule wears —
+    /// an `.overlay`, which takes its size from the host and gives none back, so it cannot push
+    /// this row out of the header's pinned height. The overview is the state where no ring is
+    /// drawn at all.
     @ViewBuilder
-    private func organizeFocusChip(_ focus: OrganizeFocus, isInteractive: Bool) -> some View {
-        let count = OrganizeFocus.count(focus,
-                                        queueCount: syncManager.filingSuggestions.count,
-                                        riskyNameCount: syncManager.riskyNames.count,
-                                        renamePlanCount: syncManager.renamePlans.count)
-        let isSelected = effectiveOrganizeFocus == focus
-        let pill = StatPill(count: count,
-                            label: focus.label(count: count),
-                            color: focus == .queue ? SemanticColor.info : SemanticColor.caution,
-                            systemImage: Self.focusSymbol(focus))
-        if isInteractive {
-            Button {
-                // A radio member, so re-picking the one already on screen is a no-op — not an
-                // animated transition from a list to itself, which is what an unconditional
-                // assignment inside `withAnimation` schedules.
-                guard effectiveOrganizeFocus != focus else { return }
-                withAnimation(listSettle) { organizeFocus = focus }
-            } label: {
-                pill.overlay {
-                    if isSelected { Capsule().strokeBorder(glassHue.accentColor, lineWidth: 2) }
-                }
-            }
-            .buttonStyle(.plain)
-            .chromeHover()
-            .help(focusHelp(focus, count: count))
-            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        } else {
-            // Alone, the chip is what it has always been: a plain count pill, no ring and no
-            // hover, because there is nowhere else to go.
-            pill
+    private func organizeRail() -> some View {
+        ForEach(OrganizeLens.allCases) { item in
+            organizeRailItem(item)
         }
     }
 
-    /// The glyph each focus wears. A `switch` rather than a ternary because there are three of
-    /// them now, and a ternary that reads "queue or not-queue" would give the rename backlog the
-    /// names finding's I-beam.
-    ///
-    /// **The backlog's glyph is not `textformat.123`.** That symbol draws the literal digits `123`,
-    /// so beside its own count the chip rendered as "123 126 folders to rename" and the first
-    /// question it drew was which of the two numbers was real. A glyph next to a number may not be
-    /// a number; `folder.badge.gearshape` says the same thing — a folder that needs work done to it
-    /// — without competing with the count it sits beside.
-    static func focusSymbol(_ focus: OrganizeFocus) -> String {
-        switch focus {
-        case .queue: return "doc"
-        case .names: return "character.cursor.ibeam"
-        case .renames: return "folder.badge.gearshape"
+    /// One rail item.
+    @ViewBuilder
+    private func organizeRailItem(_ item: OrganizeLens) -> some View {
+        let badge = item.badge(count: railCount(item))
+        let isSelected = organizeLens == item
+        Button {
+            // Clicking the selected item widens back out to the overview, which is what makes the
+            // overview reachable without a rail item of its own. A radio group with no "off" would
+            // have needed a seventh item to say "show me everything".
+            withAnimation(listSettle) { railLens = isSelected ? nil : item }
+        } label: {
+            RailItemLabel(title: item.title, systemImage: item.symbol, badge: badge,
+                          isSelected: isSelected, accent: glassHue.accentColor)
+        }
+        .buttonStyle(.plain)
+        .chromeHover()
+        .help(railHelp(item, badge: badge))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// The number a rail item's badge would carry — **the whole list it names, never the filtered
+    /// view of it.** A badge is a signpost and its number is that destination's size; one that
+    /// renumbered as you typed would be a moving target, and the badge for the list you are *not*
+    /// looking at would be filtered by a query you cannot see.
+    private func railCount(_ item: OrganizeLens) -> Int {
+        switch item {
+        case .toFile: return syncManager.filingSuggestions.count
+        case .duplicates: return syncManager.duplicateGroups.count
+        case .names: return syncManager.riskyNames.count
+        case .renames: return syncManager.renamePlans.count
+        // No detectors yet (ROADMAP 20), so it reports nothing rather than zero — which is the
+        // "cannot run" state, and is exactly why the badge is `Int?` and not `Int`.
+        case .restructure: return 0
+        case .rules: return syncManager.automationRules.count
+        }
+    }
+
+    /// What each rail item promises. Written to read correctly whether or not it is the selected
+    /// one — selection is carried by the ring and by `.isSelected`, not by swapping the words.
+    private func railHelp(_ item: OrganizeLens, badge: Int?) -> String {
+        switch item {
+        case .toFile:
+            let n = badge ?? 0
+            return "The filing queue — \(n) loose file\(n == 1 ? "" : "s") this scan found, and "
+                + "where they belong."
+        case .duplicates:
+            return "Identical content under different names or folders."
+        case .names:
+            let n = badge ?? 0
+            return "\(n) name\(n == 1 ? "" : "s") this provider will not accept, found on the same "
+                + "scan. Shows the proposed fixes."
+        case .renames:
+            let n = badge ?? 0
+            return "\(n) folder\(n == 1 ? "" : "s") that have drifted from their own numbering, and "
+                + "the files inside them the rename would touch."
+        case .restructure:
+            return "Where the tree disagrees with its own habits — recurring folders that were "
+                + "shaped differently in different years."
+        case .rules:
+            return "The rules that file things without asking. Configuration, so this one never "
+                + "carries a count."
         }
     }
 
@@ -996,25 +1035,6 @@ public struct TidyView: View {
         }
     }
 
-    /// What each chip promises. Written to read correctly whether or not it is the selected one —
-    /// the selected state is carried by the ring and by `.isSelected`, not by swapping the words.
-    private func focusHelp(_ focus: OrganizeFocus, count: Int) -> String {
-        switch focus {
-        case .queue:
-            return "The filing queue — \(count) loose file\(count == 1 ? "" : "s") this scan found, "
-                + "and where they belong."
-        case .names:
-            return "\(count) name\(count == 1 ? "" : "s") this provider will not accept, found on "
-                + "the same scan. Shows the proposed fixes."
-        case .renames:
-            // Says "the files inside them" outright. The count is folders — the unit of review and
-            // of apply — and read alone the label invites exactly one wrong reading, that the
-            // folders themselves get renamed.
-            return "\(count) folder\(count == 1 ? "" : "s") that drifted from its own naming "
-                + "convention. Shows what renaming the files inside them would do — mostly padding "
-                + "numbers out with a leading zero."
-        }
-    }
 
     /// Row 2's trailing edge: "N of M" whenever this lens's list is narrowed, so a shortened list
     /// always reads as a filtered view rather than as the whole result.
@@ -1379,7 +1399,7 @@ public struct TidyView: View {
     ///
     /// The "to file" total and the folder chip both left this Group when the focus chips arrived:
     /// the total is the queue chip's number now (a signpost, so it counts the whole list rather than
-    /// the filtered view — see ``OrganizeFocus/count(_:queueCount:riskyNameCount:)``), and the scope
+    /// the filtered view — see `railCount(_:)`), and the scope
     /// leads the row because Organize's two states scan different ones.
     private func filingSummary(_ filing: [FilingSuggestion]) -> some View {
         let ready = filing.filter { $0.hasConfidentHome }.count
@@ -1718,8 +1738,14 @@ public struct TidyView: View {
             switch effectiveLens {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates)
             case .rename: renameContent(risky: rows.risky)
+            // Four rail items share `.filing`'s apparatus, so this arm is where the rail actually
+            // decides what you see. The overview leads, because it is what you land on.
             case .filing:
-                if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
+                if showingOverview {
+                    organizeOverview(rows: rows)
+                } else if organizeLens == .restructure {
+                    restructureContent()
+                } else if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
                     noMatchesState(total: syncManager.renamePlans.count, noun: "folder")
                 } else if showingRenameBacklog {
                     RenamePassLens(syncManager: syncManager, plans: rows.renames,
@@ -1738,6 +1764,119 @@ public struct TidyView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+    }
+
+    // MARK: Restructure
+
+    /// Where the tree disagrees with its own habits. Cached on the manager — see
+    /// ``FileSyncManager/structureFindings`` for why a view body must not run the detector.
+    private var structureFindings: [StructureFinding] { syncManager.structureFindings }
+
+    @ViewBuilder
+    private func restructureContent() -> some View {
+        RestructureLens(findings: structureFindings,
+                        hasProfile: syncManager.filingFolderProfile != nil,
+                        folderCount: syncManager.filingFolderProfile?.folders.count ?? 0,
+                        accent: glassHue.accentColor,
+                        onReveal: { relative in
+                            guard let root = syncManager.filingFolderProfile?.root else { return }
+                            let full = (root as NSString).appendingPathComponent(relative)
+                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                        })
+    }
+
+    // MARK: Overview
+
+    /// Organize's landing — every lens's answer for the current scope.
+    @ViewBuilder
+    private func organizeOverview(rows: FilteredRows) -> some View {
+        OrganizeOverview(
+            sections: overviewSections,
+            scopeLabel: syncManager.filingScanFolder.map { ($0 as NSString).lastPathComponent },
+            accent: glassHue.accentColor,
+            onOpen: { item in withAnimation(listSettle) { railLens = item } },
+            // Every "Scan…" routes to the lens rather than starting the scan from here. The lens
+            // owns its own intro state, which is where that scan's cost is stated — one button up
+            // here could not honestly price five different scans.
+            onScan: { item in withAnimation(listSettle) { railLens = item } }
+        )
+    }
+
+    /// What each lens has to say, in rail order.
+    ///
+    /// **The three states are the point** (ROADMAP 20): a lens that has never run says so, a lens
+    /// that ran clean says *that*, and only a lens with findings takes a section. Absence must
+    /// never be ambiguous between "clean" and "cannot run".
+    private var overviewSections: [OrganizeOverviewSection] {
+        OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
+            switch item {
+            case .toFile:
+                let n = syncManager.filingSuggestions.count
+                let ready = syncManager.filingSuggestions.filter(\.hasConfidentHome).count
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: n > 0
+                        ? "Loose files and where they belong — \(ready) ready, \(n - ready) unsure."
+                        : "Loose files and where they belong.",
+                    state: !syncManager.hasSuggestedFiling ? .notScanned
+                        : n == 0 ? .clean
+                        : .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
+                                    example: syncManager.filingSuggestions.first.flatMap { s in
+                                        s.best.map { "\(s.fileName) → \(($0.path as NSString).lastPathComponent)" }
+                                    }),
+                    isScanning: syncManager.isSuggestingFiles)
+            case .duplicates:
+                let n = syncManager.duplicateGroups.count
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: "Identical content under different names or folders.",
+                    state: !syncManager.hasFoundDuplicates ? .notScanned
+                        : n == 0 ? .clean
+                        : .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
+                                    example: syncManager.duplicateGroups.first.map {
+                                        "\($0.name) — \($0.copies.count) copies"
+                                    }),
+                    isScanning: syncManager.isFindingDuplicates)
+            case .names:
+                let n = syncManager.riskyNames.count
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: "Names this provider will not accept.",
+                    state: !syncManager.hasScannedNames ? .notScanned
+                        : n == 0 ? .clean
+                        : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
+                                    example: syncManager.riskyNames.first.map(\.currentName)),
+                    isScanning: syncManager.isScanningNames)
+            case .renames:
+                let n = syncManager.renamePlans.count
+                let tally = RenameBacklogTally(syncManager.renamePlans)
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: "Folders that have drifted from their own numbering.",
+                    state: !syncManager.hasSuggestedFiling ? .notScanned
+                        : n == 0 ? .clean
+                        : .findings(count: n, headline: "\(n) folder\(n == 1 ? "" : "s")",
+                                    example: tally.breakdown.isEmpty ? nil : tally.breakdown),
+                    isScanning: syncManager.isSuggestingFiles)
+            case .restructure:
+                let findings = structureFindings
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: "Where the tree disagrees with its own habits.",
+                    // No profile means the detectors have nothing to read — "cannot run", which is
+                    // a different sentence from "clean" and must not borrow its words.
+                    state: syncManager.filingFolderProfile == nil ? .notScanned
+                        : findings.isEmpty ? .clean
+                        : .findings(count: findings.count,
+                                    headline: "\(findings.count) finding\(findings.count == 1 ? "" : "s")",
+                                    example: findings.first?.headline),
+                    isScanning: false)
+            // Configuration, not a result: it has nothing to report and no scan to run, so it
+            // takes no section and no footer line either.
+            case .rules:
+                return nil
+            }
+        }
     }
 
     @ViewBuilder

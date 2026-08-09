@@ -81,18 +81,32 @@ import Sync
     private func handoff(
         node: FileNode, isLeft: Bool = true, manager: FileSyncManager,
         paneRoot: String = "/Users/u/Projects"
-    ) -> (workspace: Workspace, request: DuplicateRevealRequest?, scanned: [URL]) {
+    ) -> (workspace: Workspace, lens: OrganizeLens?, request: DuplicateRevealRequest?,
+          scanned: [URL]) {
         var workspace = Workspace.compare
+        // Starts on a DIFFERENT lens than the one the handoff must select, so a coordinator that
+        // set only the workspace would leave this reading `.toFile` and fail rather than
+        // accidentally passing on a value that was already correct.
+        var lens: OrganizeLens? = .toFile
         var request: DuplicateRevealRequest?
         var scanned: [URL] = []
         let coordinator = DuplicateRevealCoordinator(
             syncManager: manager,
             selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
+            organizeLens: Binding(get: { lens }, set: { lens = $0 }),
             revealRequest: Binding(get: { request }, set: { request = $0 }),
             paneRoot: { _ in paneRoot },
             startScan: { scanned.append($0) })
         coordinator.findDuplicates(of: node, isLeft: isLeft)
-        return (workspace, request, scanned)
+        return (workspace, lens, request, scanned)
+    }
+
+    /// Both halves of the destination, since Duplicates stopped being a workspace of its own.
+    private func expectLandsOnDuplicates(_ result: (workspace: Workspace, lens: OrganizeLens?,
+                                                    request: DuplicateRevealRequest?, scanned: [URL]),
+                                         sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(result.workspace == .filing, sourceLocation: sourceLocation)
+        #expect(result.lens == .duplicates, sourceLocation: sourceLocation)
     }
 
     private static func file(_ path: String) -> FileNode {
@@ -107,7 +121,7 @@ import Sync
         let manager = FileSyncManager()
         manager.duplicateScanRoot = "/Users/u/Projects"
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
-        #expect(result.workspace == .duplicates)
+        expectLandsOnDuplicates(result)
         #expect(result.request?.path == "/Users/u/Projects/a.txt")
         #expect(result.scanned.isEmpty, "rescanned results that already covered the file")
     }
@@ -118,7 +132,7 @@ import Sync
     @Test func aScanIsStartedAndTheRequestStillStands() {
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"),
                              manager: FileSyncManager())
-        #expect(result.workspace == .duplicates)
+        expectLandsOnDuplicates(result)
         #expect(result.request?.path == "/Users/u/Projects/a.txt")
         #expect(result.scanned.map(\.path) == ["/Users/u/Projects"])
         // …and it remembers the completed-scan root as it stood (none here), so the lens keeps
@@ -154,11 +168,13 @@ import Sync
     /// looped its own failure.
     @Test func theRecoveryEntryScansTheFilesOwnFolder() {
         var workspace = Workspace.compare
+        var lens: OrganizeLens? = .toFile
         var request: DuplicateRevealRequest?
         var scanned: [URL] = []
         let coordinator = DuplicateRevealCoordinator(
             syncManager: FileSyncManager(),
             selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
+            organizeLens: Binding(get: { lens }, set: { lens = $0 }),
             revealRequest: Binding(get: { request }, set: { request = $0 }),
             paneRoot: { _ in "/Users/u/UnrelatedPaneRoot" },
             startScan: { scanned.append($0) })
@@ -185,10 +201,12 @@ import Sync
     @Test func theScanIsAimedAtTheRowsOwnSide() {
         var sides: [Bool] = []
         var workspace = Workspace.compare
+        var lens: OrganizeLens? = .toFile
         var request: DuplicateRevealRequest?
         let coordinator = DuplicateRevealCoordinator(
             syncManager: FileSyncManager(),
             selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
+            organizeLens: Binding(get: { lens }, set: { lens = $0 }),
             revealRequest: Binding(get: { request }, set: { request = $0 }),
             paneRoot: { isLeft in
                 sides.append(isLeft)

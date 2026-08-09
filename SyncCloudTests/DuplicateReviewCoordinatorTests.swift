@@ -31,7 +31,11 @@ private final class Harness {
     var leftId = "icloud"
     var rightId = "dropbox"
     var pendingSwapProviderChanges = 0
-    var workspace: Workspace = .duplicates
+    var workspace: Workspace = .filing
+    /// The rail item inside Organize. Starts on a DIFFERENT lens than the one the coordinator has
+    /// to select, so a coordinator that sets only the workspace fails here rather than passing on
+    /// a value that happened to be right already.
+    var organizeLens: OrganizeLens? = .toFile
 
     // Live-context stand-ins (ContentView resolves these from providers + pane state).
     var currentLeftPath = ""
@@ -59,6 +63,7 @@ private final class Harness {
             pendingSwapProviderChanges: Binding(get: { self.pendingSwapProviderChanges },
                                                 set: { self.pendingSwapProviderChanges = $0 }),
             selectedWorkspace: Binding(get: { self.workspace }, set: { self.workspace = $0 }),
+            organizeLens: Binding(get: { self.organizeLens }, set: { self.organizeLens = $0 }),
             accentColor: .blue,
             glassLevel: .frosted,
             currentLeftPath: { self.currentLeftPath },
@@ -261,7 +266,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == nil)
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
-        #expect(harness.workspace == .duplicates)
+        #expect(harness.workspace == .filing)
+        // Unchanged from where the harness started: this path refuses, so it must not
+        // navigate. (Asserted against `.toFile` rather than the destination, so a
+        // coordinator that DID navigate here fails instead of passing by coincidence.)
+        #expect(harness.organizeLens == .toFile)
         #expect(harness.refreshCount == 0)
     }
 
@@ -387,7 +396,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         #expect(harness.trashConfirmedFor == [review.deletePath])
         #expect(harness.duplicateReview == review)   // still up for a retry
-        #expect(harness.workspace == .duplicates)
+        #expect(harness.workspace == .filing)
+        // Unchanged from where the harness started: this path refuses, so it must not
+        // navigate. (Asserted against `.toFile` rather than the destination, so a
+        // coordinator that DID navigate here fails instead of passing by coincidence.)
+        #expect(harness.organizeLens == .toFile)
         #expect(harness.appliedPlans.isEmpty)        // no restore ran
         #expect(harness.refreshCount == 0)
     }
@@ -409,7 +422,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.banner?.message.contains("no longer what the scan saw") == true)
         #expect(harness.duplicateReview == review)   // kept, not torn down
         #expect(harness.appliedPlans.isEmpty)
-        #expect(harness.workspace == .duplicates)
+        #expect(harness.workspace == .filing)
+        // Unchanged from where the harness started: this path refuses, so it must not
+        // navigate. (Asserted against `.toFile` rather than the destination, so a
+        // coordinator that DID navigate here fails instead of passing by coincidence.)
+        #expect(harness.organizeLens == .toFile)
     }
 
     /// The success path, end to end on a real temp tree: the confirmed trash actually removes the
@@ -454,7 +471,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // Back to the Duplicates list, with that copy dropped from its group (the group had two
         // copies, so removing one leaves only the keeper and the group disappears).
         await waitUntil("the review is torn down") { harness.duplicateReview == nil }
-        #expect(harness.workspace == .duplicates)
+        #expect(harness.workspace == .filing)
+        #expect(harness.organizeLens == .duplicates)
         #expect(harness.syncManager.duplicateGroups.isEmpty)
         // And the pre-review Compare setup came back (the pinned right pane released).
         #expect(harness.rightId == "dropbox")

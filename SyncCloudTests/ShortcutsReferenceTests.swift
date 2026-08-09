@@ -36,7 +36,7 @@ import Testing
     /// the point.
     @Test func testEveryMenuChordHasAReferenceRow() {
         let allKeys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
-        let chords = ["⌘ 1 – ⌘ 5", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫", "⌃ ⇥",
+        let chords = ["⌘ 1 – ⌘ 3", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫", "⌃ ⇥",
                       "⇧⌘ R", "⇧⌘ V", "⌘ D", "⇧⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /"]
         for chord in chords {
             #expect(allKeys.contains(chord), "no reference row lists “\(chord)”")
@@ -50,7 +50,7 @@ import Testing
     }
 
     /// ...and the reference's workspace row must count the same list: a sixth workspace would
-    /// otherwise ship with a row still reading "⌘ 1 – ⌘ 5" and every shape test green.
+    /// otherwise ship with a row still reading "⌘ 1 – ⌘ 3" and every shape test green.
     @Test func testTheWorkspaceRowCountsEveryWorkspace() {
         let expected = "⌘ 1 – ⌘ \(Workspace.allCases.count)"
         let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)

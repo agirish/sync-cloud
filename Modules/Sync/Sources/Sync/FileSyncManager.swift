@@ -731,8 +731,35 @@ public class FileSyncManager: ObservableObject {
     /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
     /// any of this existed.
     public var filingFolderProfile: FolderProfile? {
-        didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
+        didSet {
+            invalidateFilingRouterIndex()
+            rebuildPersonIdentityIndex()
+            cachedStructureFindings = nil
+        }
     }
+
+    /// Where the tree disagrees with its own habits — the structure findings, computed once per
+    /// profile.
+    ///
+    /// **Cached, because the caller is a view body.** The detector walks every folder in the
+    /// profile (3,013 of them on the real tree) to build each family's vocabulary, and Organize's
+    /// overview asks for this on every render. Recomputing there would put an O(folders²)-ish sweep
+    /// on the main actor behind a scroll.
+    ///
+    /// The cache is keyed on nothing but the profile's own identity: `filingFolderProfile`'s
+    /// `didSet` drops it, which is the only way the answer can change — the detector reads the
+    /// profile and nothing else, no disk, no clock. That is also why this is not `@Published`: it
+    /// is a pure function of a stored property, and republishing it would be a second source of
+    /// truth for the same fact.
+    public var structureFindings: [StructureFinding] {
+        if let cachedStructureFindings { return cachedStructureFindings }
+        guard let profile = filingFolderProfile else { return [] }
+        let findings = StructureDivergence.findings(in: profile)
+        cachedStructureFindings = findings
+        return findings
+    }
+
+    private var cachedStructureFindings: [StructureFinding]?
     /// Where those artifacts live, for the one pass that writes one back — see
     /// ``resurveyFilingMemory(root:taxonomy:)``. Injected for the same reason they are: `Sync` does
     /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any

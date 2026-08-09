@@ -18,6 +18,8 @@ import FileExplorer
 struct DuplicateRevealCoordinator {
     let syncManager: FileSyncManager
     @Binding var selectedWorkspace: Workspace
+    /// See ``DuplicateReviewCoordinator/organizeLens`` — a lens inside Organize needs both halves.
+    @Binding var organizeLens: OrganizeLens?
     /// The request the Duplicates lens is showing. App-level state so it survives the workspace
     /// switch that is about to happen.
     @Binding var revealRequest: DuplicateRevealRequest?
@@ -100,7 +102,8 @@ struct DuplicateRevealCoordinator {
 
     private func apply(decision: Decision, path: String) {
         Logger.shared.info("User requested duplicates of \(path) — \(decision)")
-        selectedWorkspace = .duplicates
+        selectedWorkspace = .filing
+        organizeLens = .duplicates
         if case .scanThenReveal(let root) = decision, !root.isEmpty {
             // The request remembers the completed-scan root as it stands NOW, so the lens keeps
             // waiting until the scan started below has actually published — `isScanning` alone

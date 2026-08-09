@@ -35,6 +35,10 @@ struct DuplicateReviewCoordinator {
     /// writes any id, so each suppressed onChange finds a positive counter to decrement.
     @Binding var pendingSwapProviderChanges: Int
     @Binding var selectedWorkspace: Workspace
+    /// The rail item to select when returning to a lens inside Organize. Duplicates stopped being
+    /// a workspace of its own, so naming the workspace alone would land on Organize's overview and
+    /// quietly lose the "back to the duplicates list" half of the request.
+    @Binding var organizeLens: OrganizeLens?
 
     /// The banner icon's tint (the host's glass accent).
     let accentColor: Color
@@ -338,7 +342,8 @@ struct DuplicateReviewCoordinator {
             let removed = await syncManager.deleteItems(at: [review.deletePath])
             guard removed > 0 else { return }
             Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
-            selectedWorkspace = .duplicates
+            selectedWorkspace = .filing
+            organizeLens = .duplicates
             syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
             // End the guided review, drop the duplicate review, and restore the pre-review Compare
             // setup — all via the reducer (it reads review.restore before clearing duplicateReview).

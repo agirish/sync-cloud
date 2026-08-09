@@ -134,6 +134,13 @@ struct ContentView: View {
     /// Internal, not private: the workspace bar it drives lives in the window toolbar
     /// (ContentView+Toolbar.swift), which `private` would put out of reach.
     @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .compare
+    /// Which lens is showing inside Organize, or `nil` for its overview.
+    ///
+    /// Lives beside the workspace rather than inside `TidyView` because programmatic navigation
+    /// needs to write it: "Find duplicates of this" names a lens, and since the fold that lens is
+    /// one rail item inside Organize rather than a workspace of its own. `TidyView` reads the same
+    /// key through its own `@AppStorage`, so the two cannot disagree.
+    @AppStorage(OrganizeLens.defaultsKey) var selectedOrganizeLens: OrganizeLens?
 
     /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
     /// one selection now, and a second copy of it would be a second thing to keep in step.
@@ -1365,6 +1372,7 @@ struct ContentView: View {
         DuplicateRevealCoordinator(
             syncManager: syncManager,
             selectedWorkspace: $selectedWorkspace,
+            organizeLens: $selectedOrganizeLens,
             revealRequest: $duplicateRevealRequest,
             paneRoot: { isLeft in
                 ((isLeft ? currentLeftPath : currentRightPath) as NSString).expandingTildeInPath
@@ -1388,7 +1396,7 @@ struct ContentView: View {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Find Duplicates in \(root)")
-        selectedWorkspace = .duplicates
+        show(.duplicates)
         let options = DuplicateFinderOptions.fromDefaults()
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
@@ -1416,21 +1424,39 @@ struct ContentView: View {
     /// the scan, which stops before it walks anything expensive — so this stays a plain
     /// synchronous call that cannot race a scan the user starts a moment later.
     func autoRescanTidyLensIfShowing() {
-        switch selectedWorkspace {
+        // Keyed on the LENS now, not the workspace: duplicates and filing are two rail items
+        // inside one workspace, so `selectedWorkspace` can no longer tell them apart. The overview
+        // deliberately rescans nothing — it reports what each lens already knows, and starting two
+        // scans because a folder changed under a summary page is not "if showing".
+        guard selectedWorkspace == .filing, let lens = selectedOrganizeLens else { return }
+        switch lens {
         case .duplicates:
             let root = tidyScanRootExpanded
             guard !root.isEmpty else { return }
             syncManager.autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: root),
                                                        options: DuplicateFinderOptions.fromDefaults())
-        case .filing:
+        // The one filing scan publishes all three of these lists, so any of them showing is a
+        // reason to refresh it.
+        case .toFile, .names, .renames:
             let root = tidyProviderRootExpanded
             guard let folder = filingScanTargetFolder else { return }
             syncManager.autoRescanFilingIfEligible(
                 folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: root),
                 providerName: tidyProviderName, nameProvider: tidyProviderType)
-        default:
+        // Restructure reads the profile rather than the disk, and rules are configuration —
+        // neither goes stale because a folder changed.
+        case .restructure, .rules:
             break
         }
+    }
+
+    /// Navigate to a lens inside Organize — both halves, always.
+    ///
+    /// The single place programmatic navigation names a rail item, so a caller cannot set the
+    /// workspace and forget the lens and land on the overview having silently dropped the request.
+    func show(_ lens: OrganizeLens) {
+        selectedWorkspace = .filing
+        selectedOrganizeLens = lens
     }
 
     func buildStorageLensAction() {
@@ -1455,6 +1481,7 @@ struct ContentView: View {
             rightProviderId: $rightProviderId,
             pendingSwapProviderChanges: $pendingSwapProviderChanges,
             selectedWorkspace: $selectedWorkspace,
+            organizeLens: $selectedOrganizeLens,
             accentColor: glassHue.accentColor,
             glassLevel: glassLevel,
             currentLeftPath: { currentLeftPath },
@@ -1513,7 +1540,7 @@ struct ContentView: View {
         let providerRoot = tidyProviderRootExpanded
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
-        selectedWorkspace = .automations
+        show(.rules)
         syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
                                           destinationRoot: URL(fileURLWithPath: providerRoot),
                                           providerName: tidyProviderName, only: only)

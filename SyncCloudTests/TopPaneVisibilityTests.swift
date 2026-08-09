@@ -46,7 +46,7 @@ import AppKit
 
     @Test func testOverrideEncodeDecodeRoundTrips() {
         let map: [String: Bool] = [
-            Workspace.duplicates.rawValue: false,
+            Workspace.filing.rawValue: false,
             Workspace.compare.rawValue: true,
         ]
         let decoded = TopPaneVisibility.decodeOverrides(TopPaneVisibility.encodeOverrides(map))
@@ -61,12 +61,15 @@ import AppKit
     }
 
     @Test func testUnknownKeysAreIgnoredNotFatal() {
-        // A retired entry (e.g. the old "Storage Lens") stays in the map but is never looked up,
-        // so it can't affect any current workspace.
+        // A retired entry stays in the map but is never looked up, so it can't affect any
+        // current workspace. Both examples here are real retirements: "Storage Lens" was a tab,
+        // and "Duplicates" was a workspace until it folded into Organize as a rail item.
         let raw = TopPaneVisibility.encodeOverrides(["Storage Lens": true, "Duplicates": false])
         let decoded = TopPaneVisibility.decodeOverrides(raw)
         #expect(decoded["Storage Lens"] == true)
-        #expect(!TopPaneVisibility.panesHidden(for: .duplicates, override: decoded["Duplicates"]))
+        #expect(decoded["Duplicates"] == false)
+        // The live workspaces are unaffected by either.
+        #expect(!TopPaneVisibility.panesHidden(for: .filing, override: decoded[Workspace.filing.rawValue]))
     }
 
     @Test func testMalformedAndEmptyOverridesDecodeToEmptyMap() {
@@ -77,18 +80,20 @@ import AppKit
 
     @Test func testSettingOverrideAddsAndReplaces() {
         var overrides: [String: Bool] = [:]
-        overrides = TopPaneVisibility.settingOverride(overrides, workspace: .duplicates, hidden: false)
-        #expect(overrides[Workspace.duplicates.rawValue] == false)
-        overrides = TopPaneVisibility.settingOverride(overrides, workspace: .duplicates, hidden: true)
-        #expect(overrides[Workspace.duplicates.rawValue] == true)
+        overrides = TopPaneVisibility.settingOverride(overrides, workspace: .filing, hidden: false)
+        #expect(overrides[Workspace.filing.rawValue] == false)
+        overrides = TopPaneVisibility.settingOverride(overrides, workspace: .filing, hidden: true)
+        #expect(overrides[Workspace.filing.rawValue] == true)
         #expect(overrides.count == 1)
     }
 
     // MARK: Migrating the single `Tidy` entry
 
     @Test func testTidysOverrideFansOutToEveryLensWorkspace() {
-        // One key covered all five lenses. Leaving it alone would silently discard a deliberate
+        // One key covered every lens. Leaving it alone would silently discard a deliberate
         // "keep the rail up in Tidy" the moment the lenses became peers with their own keys.
+        // Fewer keys than there once were — duplicates and automations are rail items inside
+        // Organize now and share its entry — but the fan-out still has to reach each survivor.
         let migrated = TopPaneVisibility.migratingOverrides(["Tidy": true])
         for workspace in Workspace.lensWorkspaces {
             #expect(migrated[workspace.rawValue] == true, "\(workspace.rawValue) lost Tidy's choice")
@@ -104,7 +109,7 @@ import AppKit
         // the legacy one.
         let migrated = TopPaneVisibility.migratingOverrides(["Tidy": true, "Storage": false])
         #expect(migrated["Storage"] == false)
-        #expect(migrated["Duplicates"] == true)
+        #expect(migrated["Filing"] == true)
     }
 
     @Test func testAMapWithNoTidyEntryIsLeftExactlyAlone() {
