@@ -157,6 +157,11 @@ struct SyncCloudApp: App {
             ) {
                 UserDefaults.standard.set(migrated, forKey: TopPaneVisibility.overridesKey)
             }
+            // Organize's scope is persisted, so it is stamped like every other stored user
+            // arrangement. At stamp 0 — where every existing install sits — nothing has ever
+            // written the key, so anything found there came from somewhere this code does not know
+            // about and is cleared rather than trusted. Idempotent, like its neighbours above.
+            OrganizeScopeDefaults.migrate(defaults: .standard)
 
             // Main-thread hitch reporting, when the diagnostic flag is set. Installed here rather
             // than from a view so it covers the whole session — including launch, which is where a

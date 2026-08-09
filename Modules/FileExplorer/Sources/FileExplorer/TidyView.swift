@@ -260,9 +260,22 @@ public struct TidyView: View {
     /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
     /// nil = all enabled rules; a rule id = just that rule.
     private let onPreviewAutomations: (UUID?) -> Void
-    /// The provider root automation destinations resolve against — passed to the lens so its Browse…
-    /// button anchors at the provider root (matching the preview), not the scanned subfolder.
-    private let automationDestinationRoot: String?
+    /// The provider root everything in this workspace anchors at.
+    ///
+    /// Two consumers, one value, and they must not drift apart. Automations resolve destinations
+    /// against it, so the Browse… button anchors where the preview does rather than at whatever
+    /// subfolder happened to be scanned; and ``scope`` normalizes against it, which is what makes
+    /// "pointing at the provider root clears the scope" a fact about this exact root rather than
+    /// about some other notion of the top of the tree.
+    ///
+    /// Named for what it *is* rather than for one of its uses — it was `automationDestinationRoot`,
+    /// and a second parameter carrying the identical value would have been two roots to keep in
+    /// step. A pure rename: every call site already passed `tidyProviderRootExpanded`.
+    private let providerRoot: String?
+    /// The loose-files inbox's absolute path, when the folder exists — the offer on Organize's
+    /// overview that replaced the hidden root-swap. nil hides the offer entirely rather than
+    /// showing one that points nowhere.
+    private let filingInboxFolder: String?
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
@@ -320,7 +333,8 @@ public struct TidyView: View {
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
-        automationDestinationRoot: String? = nil,
+        providerRoot: String? = nil,
+        filingInboxFolder: String? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
         onBuildStorage: @escaping () -> Void = {},
         showSourcePicker: Bool = false,
@@ -347,7 +361,8 @@ public struct TidyView: View {
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
-        self.automationDestinationRoot = automationDestinationRoot
+        self.providerRoot = providerRoot
+        self.filingInboxFolder = filingInboxFolder
         self.onQuickLook = onQuickLook
         self.onBuildStorage = onBuildStorage
         self.showSourcePicker = showSourcePicker
@@ -376,6 +391,44 @@ public struct TidyView: View {
     /// items are permanent while their badges are not, and why there is no longer an `effective`
     /// fallback bouncing you off a list that emptied.
     @AppStorage(OrganizeLens.defaultsKey) private var railLens: OrganizeLens?
+
+    /// The scope's stored path — **empty is the global view**, and the global view is the default.
+    ///
+    /// Persisted for the same reason the rail lens is: scope is a place the user chose, and it is
+    /// the thing the daily flow depends on. Scoping to the `TODO` inbox once and having it survive
+    /// the next launch is what replaces the hidden root-swap that used to retarget To File whenever
+    /// the pane happened to sit at the provider root.
+    ///
+    /// Stored as a bare path rather than as an encoded ``OrganizeScope`` because the provider root
+    /// it must be validated against is not knowable at decode time — the pane can be on a different
+    /// provider by the time this is read. ``scope`` re-resolves on every access, so a stale path
+    /// from another provider degrades to the global view instead of filtering every lens to empty.
+    @AppStorage(OrganizeScopeDefaults.pathKey) private var scopePathRaw: String = ""
+
+    /// The subtree Organize is answering about, or nil for the global view.
+    ///
+    /// Re-resolved rather than stored: `init?` rejects the provider root and anything outside it,
+    /// so this is also where a scope left over from a provider that is no longer showing quietly
+    /// becomes nil.
+    private var scope: OrganizeScope? {
+        guard let providerRoot, !providerRoot.isEmpty, !scopePathRaw.isEmpty else { return nil }
+        return OrganizeScope(path: scopePathRaw, providerRoot: providerRoot)
+    }
+
+    /// Points Organize at a folder, or clears the scope.
+    ///
+    /// **Normalizing lives here, at the one write.** Every entry point — the folder context menu,
+    /// ⌘K, the "Scan '<folder>'" affordance, the inbox shortcut, the chip's ✕ — routes through
+    /// this, so none of them can mint the second encoding of the global view that
+    /// ``OrganizeScope/init(path:providerRoot:)`` exists to prevent.
+    private func setScope(_ path: String?) {
+        guard let path, let providerRoot,
+              let resolved = OrganizeScope(path: path, providerRoot: providerRoot) else {
+            scopePathRaw = ""
+            return
+        }
+        scopePathRaw = resolved.path
+    }
 
     /// The rail selection, but only while Organize is the workspace.
     ///
@@ -485,29 +538,67 @@ public struct TidyView: View {
         var filing: [FilingSuggestion] = []
         var rules: [AutomationRule] = []
         var renames: [RenamePlan] = []
+        /// Restructure's findings, split by how they relate to the scope.
+        ///
+        /// **`.restructure` did not route through here at all** — `restructureContent()` read
+        /// `syncManager.structureFindings` straight off the manager, which is exactly why it was
+        /// the one lens no filter could reach. Two arrays rather than one because its rows have
+        /// two honest kinds and the second must not be silently dropped: see ``ScopeRelation``.
+        var structure: [StructureFinding] = []
+        var structureAboutAncestor: [StructureFinding] = []
     }
 
     /// Resolves only the ACTIVE lens's rows — the other four aren't on screen, and each of these
     /// parses a query and walks a collection.
+    ///
+    /// **The scope is applied here, ahead of the search**, so every consumer of these rows —
+    /// header counts, destructive button labels, the action that iterates them — sees one
+    /// consistently narrowed set. Applying it downstream in the content card instead would put the
+    /// count and the list back out of step, which is the failure `FilteredRows` exists to prevent.
     private var filteredRows: FilteredRows {
         var rows = FilteredRows()
+        let scope = scope
         switch effectiveLens {
         case .duplicates:
             let q = DuplicateSearch.parse(query)
-            rows.duplicates = syncManager.duplicateGroups.filter { filter.matches($0) && q.matches($0) }
+            rows.duplicates = syncManager.duplicateGroups.filter {
+                OrganizeScopeFilter.matches($0, scope: scope) && filter.matches($0) && q.matches($0)
+            }
         case .rename:
             let q = RiskyNameSearch.parse(query)
-            rows.risky = syncManager.riskyNames.filter { q.matches($0) }
+            rows.risky = syncManager.riskyNames.filter {
+                OrganizeScopeFilter.matches($0, scope: scope) && q.matches($0)
+            }
         case .filing where showingRenameBacklog:
-            rows.renames = syncManager.renamePlans.filter { RenameBacklogSearch.matches(query, $0) }
+            rows.renames = syncManager.renamePlans.filter {
+                OrganizeScopeFilter.matches($0, scope: scope)
+                    && RenameBacklogSearch.matches(query, $0)
+            }
+        case .filing where organizeLens == .restructure:
+            // Restructure carries no search grammar of its own (it parks in `.filing`'s query
+            // slot — see `OrganizeLens.searchLens`), so the scope is the only narrowing here.
+            let root = syncManager.filingFolderProfile?.root ?? ""
+            for finding in structureFindings {
+                switch OrganizeScopeFilter.relation(of: finding, profileRoot: root, scope: scope) {
+                case .inside: rows.structure.append(finding)
+                case .aboutAncestor: rows.structureAboutAncestor.append(finding)
+                case .outside: break
+                }
+            }
         case .filing:
             let q = FilingSearch.parse(query)
             // Filtered UPSTREAM of FilingSuggestionGrouping: the sections are derived from these
             // rows, so an emptied tier's header falls away with it instead of heading nothing.
-            rows.filing = syncManager.filingSuggestions.filter { q.matches($0) }
+            rows.filing = syncManager.filingSuggestions.filter {
+                OrganizeScopeFilter.matches($0, scope: scope) && q.matches($0)
+            }
         case .automations:
             let q = AutomationSearch.parse(query)
-            rows.rules = syncManager.automationRules.filter { q.matches($0) }
+            // Filtered for DISPLAY only — every edit still writes the one global list. Rules are
+            // configuration, not findings, which is why this lens is the honest non-scoper.
+            rows.rules = syncManager.automationRules.filter {
+                OrganizeScopeFilter.matches($0, scope: scope) && q.matches($0)
+            }
         case .storage:
             break   // StorageLensView filters its own three lists from `storageQuery`
         }
@@ -574,7 +665,7 @@ public struct TidyView: View {
             AutomationRuleEditor(
                 rule: rule,
                 accent: glassHue.accentColor,
-                browseRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                browseRoot: providerRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
                 people: syncManager.filingPeopleStore?.people ?? [],
                 onSave: { saved in
                     syncManager.upsertAutomationRule(saved)
@@ -877,6 +968,16 @@ public struct TidyView: View {
         // at its head separates prose from the left edge of the card. `SummaryZoneDivider` marks
         // the boundary between controls and prose, and with the controls a row above there is no
         // boundary on this row to mark.
+        //
+        // **The scope chip draws for EVERY Organize lens, for the same reason the rail does** — and
+        // it very nearly repeated the rail's exact bug. It was first written inside
+        // `organizeSummary`, which is reached only from the `.rename`/`.filing` arms below, so
+        // Duplicates and Rules would have shown no scope at all: two of the six lenses silently
+        // claiming to answer about the whole tree while the other four named a subtree. One subject
+        // for all six is the entire premise, so it is hoisted here, ahead of the switch.
+        //
+        // Storage is excluded because it is a workspace of its own, not a lens inside Organize.
+        if lens != .storage { scopeChip }
         switch effectiveLens {
         case .duplicates:
             if hasResults {
@@ -921,36 +1022,65 @@ public struct TidyView: View {
         //
         // Nothing here renders mid-scan for the three lenses whose lists the filing scan
         // republishes — see ``OrganizeLens/goesStaleDuringFilingScan``.
+        // The three `scannedFolderChip` roots that used to lead these arms — `filingScanFolder` for
+        // the queue, `nameScanRoot` for names, `filingLastProviderRoot` for renames — are gone,
+        // replaced by the ONE scope chip `lensSummary` draws above every lens. Three chips naming
+        // three different territories is what made six rail items look like peers answering about
+        // one subject when they answered about four.
         if let organizeLens, !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
             switch organizeLens {
             case .toFile:
-                if hasFilingResults {
-                    scannedFolderChip(syncManager.filingScanFolder)
-                    filingSummary(rows.filing)
-                }
+                if hasFilingResults { filingSummary(rows.filing) }
             case .names:
-                if syncManager.hasScannedNames {
-                    scannedFolderChip(syncManager.nameScanRoot?.path)
-                    renameSummary(rows.risky)
-                }
+                if syncManager.hasScannedNames { renameSummary(rows.risky) }
             case .renames:
-                // Scoped to the whole provider, like the names finding and unlike the queue — the
-                // planner reads the folder profile, which describes the tree rather than one folder.
-                // Named from the FILING scan's own root rather than the name scan's: the plans come
-                // off that walk, and the name scan's root is only set when a provider was passed in
-                // for the names check, so borrowing it would leave this chip blank or, worse,
-                // pointing at a previous scan.
-                scannedFolderChip(syncManager.filingLastProviderRoot)
                 // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
                 // that got you here: a badge is a signpost and counts its whole list, a readout
                 // describes the rows on screen. Typing `PG&E` should watch this fall from 1,192
                 // renames to the eleven it left showing.
                 renameBacklogSummary(rows.renames)
             // Duplicates and rules reach `lensSummary` through their own apparatus arms, so they
-            // never arrive here; restructure has no readout until its detectors land.
+            // never arrive here; restructure has no readout of its own.
             case .duplicates, .restructure, .rules:
                 EmptyView()
             }
+        }
+    }
+
+    /// The one chip naming what Organize is answering about.
+    ///
+    /// **Absent in the global view.** Global is the absence of a scope, not a chip reading
+    /// "Everything" — a chip that is always present would make the scoped and unscoped states look
+    /// like two flavours of the same thing rather than a narrowing and its absence.
+    ///
+    /// It names the subtree **and its folder count**, because scope honesty was the original
+    /// requirement: "Legal" alone says which folder but not how much of the tree that is, and the
+    /// count is what makes "0 findings" legible as a real answer rather than a broken lens.
+    ///
+    /// The ✕ is the global view. There is no seventh rail place and no "Everything" item.
+    @ViewBuilder
+    private var scopeChip: some View {
+        if let scope {
+            ScopeChipLabel(name: scope.name,
+                           folderCount: scopeFolderCount,
+                           accent: glassHue.accentColor,
+                           onClear: { withAnimation(listSettle) { setScope(nil) } })
+                .help("Every lens below is answering about “\(scope.relativePath)”. "
+                      + "✕ goes back to the whole tree.")
+        }
+    }
+
+    /// How many of the profile's folders sit inside the scope, or nil when there is no profile to
+    /// count against.
+    ///
+    /// Counted from the folder profile rather than by walking the disk — the profile is already in
+    /// memory, and a chip in a header must not touch the filesystem on every render.
+    private var scopeFolderCount: Int? {
+        guard let scope, let profile = syncManager.filingFolderProfile else { return nil }
+        let root = (profile.root as NSString).expandingTildeInPath
+        return profile.folders.keys.count {
+            let absolute = $0 == "." ? root : (root as NSString).appendingPathComponent($0)
+            return scope.contains(absolute)
         }
     }
 
@@ -1003,16 +1133,38 @@ public struct TidyView: View {
     /// view of it.** A badge is a signpost and its number is that destination's size; one that
     /// renumbered as you typed would be a moving target, and the badge for the list you are *not*
     /// looking at would be filtered by a query you cannot see.
+    /// ...and **counted within the scope**, which is the one narrowing a badge must respect.
+    ///
+    /// A badge is a claim about the list behind it, and under a scope that list is the scoped one.
+    /// Leaving these global would put "126" on Renames next to a list showing three — the precise
+    /// dishonesty this whole change exists to remove. It is not the same thing as filtering by the
+    /// search query, which stays out (see above): a query is a transient view of a list you are
+    /// already looking at, while the scope defines *which list this is*.
     private func railCount(_ item: OrganizeLens) -> Int {
+        let scope = scope
         switch item {
-        case .toFile: return syncManager.filingSuggestions.count
-        case .duplicates: return syncManager.duplicateGroups.count
-        case .names: return syncManager.riskyNames.count
-        case .renames: return syncManager.renamePlans.count
-        // No detectors yet (ROADMAP 20), so it reports nothing rather than zero — which is the
-        // "cannot run" state, and is exactly why the badge is `Int?` and not `Int`.
-        case .restructure: return 0
-        case .rules: return syncManager.automationRules.count
+        case .toFile:
+            return syncManager.filingSuggestions.count { OrganizeScopeFilter.matches($0, scope: scope) }
+        case .duplicates:
+            return syncManager.duplicateGroups.count { OrganizeScopeFilter.matches($0, scope: scope) }
+        case .names:
+            return syncManager.riskyNames.count { OrganizeScopeFilter.matches($0, scope: scope) }
+        case .renames:
+            return syncManager.renamePlans.count { OrganizeScopeFilter.matches($0, scope: scope) }
+        case .restructure:
+            // **This used to return a hard 0 with a comment saying the detectors had not landed.**
+            // They had — `structureFindings` has been feeding the overview and the lens for some
+            // time — so the one lens whose badge could have announced a finding never did. Counted
+            // properly now, and scoped like the rest.
+            //
+            // `inside` only: an ancestor finding is shown in the lens (labelled as being about the
+            // folder above) but must not swell the badge, which promises work *here*.
+            let root = syncManager.filingFolderProfile?.root ?? ""
+            return structureFindings.count {
+                OrganizeScopeFilter.relation(of: $0, profileRoot: root, scope: scope) == .inside
+            }
+        case .rules:
+            return syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) }
         }
     }
 
@@ -1313,19 +1465,42 @@ public struct TidyView: View {
         URL(fileURLWithPath: p).standardizedFileURL.path
     }
 
-    /// True once the focused pane has moved to a different folder than the one `scannedRoot` was
-    /// walked from — the cue to offer scanning the new folder.
+    /// True once the focused pane has moved away from **the subject** — the cue to offer re-aiming
+    /// at the new folder.
+    ///
+    /// Measured against the scope when there is one, and against the lens's own scanned root when
+    /// there is not. That swap is the point: with a scope set, the scan root is an implementation
+    /// detail of how the answer was computed, while the scope is what the answer is *about*, so
+    /// "have you wandered off?" is a question about the scope.
+    ///
+    /// **Browsing never moves the scope on its own** — this only decides whether to *offer*. It is
+    /// the offer that `targetMoved` always was; what changed is that accepting it now re-aims
+    /// everything rather than quietly re-rooting one lens.
+    /// Storage is excluded from the scope for the same reason it has no rail: it is a workspace of
+    /// its own, and Organize's subject is not its subject. Reading `scope` unguarded here would let
+    /// an Organize scope decide when Storage offers to re-analyze — the cross-workspace leak
+    /// `organizeLens` already guards against on the lens selection.
     private func targetMoved(from scannedRoot: String?) -> Bool {
-        guard let target = scanTargetFolder, !target.isEmpty, let scanned = scannedRoot else { return false }
-        return standardizedPath(target) != standardizedPath(scanned)
+        guard let target = scanTargetFolder, !target.isEmpty else { return false }
+        let organizeSubject = lens == .storage ? nil : scope?.path
+        guard let subject = organizeSubject ?? scannedRoot else { return false }
+        return standardizedPath(target) != standardizedPath(subject)
     }
 
-    /// A rescan button that becomes a prominent "Scan '<folder>'" once the user has navigated
-    /// away, so navigate-then-rescan is one obvious click. Shared shape for both lenses.
+    /// A rescan button that becomes a prominent "Organize '<folder>'" once the user has navigated
+    /// away, so navigate-then-re-aim is one obvious click. Shared shape for both lenses.
+    ///
+    /// **The two branches are different verbs now, and they take different actions.** Rescan
+    /// re-runs the current subject's scan and must leave the scope exactly where it is. The moved
+    /// branch is the user pointing somewhere new, so it goes through `reaim`, which sets the scope
+    /// first. Sharing one action between them — which is how this started — meant a plain Rescan
+    /// while scoped to `Legal` from a pane sitting elsewhere would silently drag the scope along.
     @ViewBuilder
-    private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool, action: @escaping () -> Void, movedHelp: String) -> some View {
+    private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool,
+                              action: @escaping () -> Void, reaim: @escaping () -> Void,
+                              movedHelp: String) -> some View {
         if moved {
-            Button(action: action) { Label("Scan “\(scanTargetName)”", systemImage: movedIcon) }
+            Button(action: reaim) { Label("Organize “\(scanTargetName)”", systemImage: movedIcon) }
                 .buttonStyle(.borderedProminent).controlSize(.small)
                 .chromeHover()
                 .disabled(disabled).help(movedHelp)
@@ -1335,6 +1510,16 @@ public struct TidyView: View {
                 .chromeHover()
                 .disabled(disabled).help("Scan this folder again")
         }
+    }
+
+    /// Re-aims Organize at the focused pane's folder: set the scope, then scan.
+    ///
+    /// Routed through ``setScope(_:)``, so pointing at the provider root clears the scope instead
+    /// of setting one — the "Organize '<provider>'" button is therefore also how you get back to
+    /// the global view by navigating.
+    private func reaimAtScanTarget(then scan: @escaping () -> Void) {
+        setScope(scanTargetFolder)
+        scan()
     }
 
     /// What the folder-memory re-survey is doing, or what it found.
@@ -1374,7 +1559,9 @@ public struct TidyView: View {
             rescanButton(moved: true, movedIcon: FilingGlyph.lens,
                          disabled: syncManager.isSuggestingFiles,
                          action: onFindFilingSuggestions,
-                         movedHelp: "Suggest homes for “\(scanTargetName)” — the folder now focused above")
+                         reaim: { reaimAtScanTarget(then: onFindFilingSuggestions) },
+                         movedHelp: "Point Organize at “\(scanTargetName)” — the folder now focused "
+                             + "above. Every lens narrows to it.")
         } else {
             Menu {
                 Button {
@@ -1413,19 +1600,51 @@ public struct TidyView: View {
         rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot),
                      movedIcon: "wand.and.stars", disabled: syncManager.isFindingDuplicates,
                      action: onFindDuplicates,
-                     movedHelp: "Find duplicates in “\(scanTargetName)” — the folder now focused above")
+                     reaim: { reaimAtScanTarget(then: onFindDuplicates) },
+                     movedHelp: "Point Organize at “\(scanTargetName)” and hash it — the folder now "
+                         + "focused above. Every lens narrows to it.")
     }
 
-    /// A leading chip naming the folder a lens's current results were scanned from.
+    /// A leading chip naming the folder a lens's current results were **scanned from**.
+    ///
+    /// Distinct from the scope chip and it must stay distinct: the scope is the subject the user
+    /// chose, this is the root a particular scan actually walked. They coincide most of the time
+    /// and the sites below draw this one only when they do not, or when it means something the
+    /// scope cannot say. `help` is required rather than defaulted so no call site can leave two
+    /// folder chips on one row explaining nothing.
     @ViewBuilder
-    private func scannedFolderChip(_ root: String?) -> some View {
+    private func scannedFolderChip(_ root: String?, help: String) -> some View {
         if let root {
             let name = (root as NSString).lastPathComponent
             Label(name, systemImage: "folder")
                 .scaledFont(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .help("These results are for “\(name)”")
+                .help(help)
+        }
+    }
+
+    /// Duplicates' scanned root, shown **only when it is not the scope**.
+    ///
+    /// Duplicates is the one lens whose answer needs a scan of its own, so its root can genuinely
+    /// disagree with the subject: scoping to `Legal` after hashing `Documents` filters real results,
+    /// while scoping to `Legal` after hashing only `Finance` means this lens has never looked where
+    /// you are pointing. Saying so is the honest half; restating the scope when the two agree would
+    /// just be two chips reading the same folder name.
+    @ViewBuilder
+    private var duplicateScanRootChip: some View {
+        if let root = syncManager.duplicateScanRoot {
+            let name = (root as NSString).lastPathComponent
+            // No scope: the chip is the only thing naming what was hashed, so it always draws.
+            // With a scope: only when the two genuinely differ.
+            if let scope {
+                if standardizedPath(root) != standardizedPath(scope.path) {
+                    scannedFolderChip(root, help: "Scanned from “\(name)”, which is not the folder "
+                        + "Organize is scoped to — these results may not cover all of “\(scope.name)”.")
+                }
+            } else {
+                scannedFolderChip(root, help: "These duplicate results were scanned from “\(name)”")
+            }
         }
     }
 
@@ -1517,7 +1736,7 @@ public struct TidyView: View {
         let redundant = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
         let needsReview = groups.filter { $0.matchType.kind == .nameOnly }.count
         return Group {
-            scannedFolderChip(syncManager.duplicateScanRoot)
+            duplicateScanRootChip
             StatPill(count: groups.count, label: "groups", color: SemanticColor.info, systemImage: "square.on.square")
             ReclaimPill(reclaimableBytes: reclaimable,
                         freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
@@ -1542,12 +1761,14 @@ public struct TidyView: View {
 
     /// The risky-names pills, over the rows on screen.
     ///
-    /// No count pill: the names focus chip sits in this same row and carries it. Two capsules
-    /// reading "17 risky names" side by side is what this row looked like the moment that chip
-    /// arrived — and the chip has to be the one that stays, because it is also the control that
-    /// gets you back to the queue. The scope chip ahead of the focus chips names the PROVIDER root
-    /// rather than Organize's inbox, deliberately: the names come from the whole provider while the
-    /// queue is one folder, and that difference is worth stating rather than hiding.
+    /// No count pill: the Names rail badge carries it. Two capsules reading "17 risky names" side
+    /// by side is what this row looked like the moment that badge arrived.
+    ///
+    /// It no longer names a root of its own. It used to lead with `nameScanRoot` — the whole
+    /// provider — on the argument that the names check and the queue genuinely covered different
+    /// territories and the difference was worth stating. That difference is exactly what this
+    /// change removed: all six lenses answer about the one scope now, and the scope chip above says
+    /// so once instead of each lens saying something different.
     private func renameSummary(_ risky: [RiskyName]) -> some View {
         let folders = risky.filter(\.isDirectory).count
         return Group {
@@ -1563,7 +1784,11 @@ public struct TidyView: View {
     private func automationsSummary(_ rules: [AutomationRule]) -> some View {
         let enabled = rules.filter(\.enabled).count
         return Group {
-            scannedFolderChip(scanTargetFolder)
+            // NOT the scope: rules are the one genuine non-scoper, and this names the
+            // folder a PREVIEW would run over. The scope chip beside it says which rules
+            // are listed; this says where trying them would look.
+            scannedFolderChip(scanTargetFolder,
+                              help: "A preview would run these rules over “\(scanTargetName)”")
             StatPill(count: rules.count, label: rules.count == 1 ? "automation" : "automations",
                      color: glassHue.accentColor, systemImage: AutomationsGlyph.lens)
             StatPill(count: enabled, label: "enabled", color: SemanticColor.success, systemImage: "checkmark.circle")
@@ -1574,7 +1799,8 @@ public struct TidyView: View {
     /// never the tree's size, so this figure must not move when you type.
     private func storageSummary(_ report: StorageLensReport) -> some View {
         Group {
-            scannedFolderChip(syncManager.storageLensRoot?.path)
+            scannedFolderChip(syncManager.storageLensRoot?.path,
+                              help: "This storage picture is for “\(((syncManager.storageLensRoot?.path ?? "") as NSString).lastPathComponent)”")
             Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
                  text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
             StatPill(count: report.largest.count, label: "largest", color: SemanticColor.info, systemImage: "arrow.up.circle")
@@ -1727,9 +1953,12 @@ public struct TidyView: View {
     private var hasStorageReport: Bool { syncManager.storageLensReport != nil }
 
     private var reanalyzeStorageButton: some View {
+        // `reaim` is the plain action here: Storage is a workspace of its own and sets no Organize
+        // scope. Re-analyzing it must not re-aim the six lenses in the workspace next door.
         rescanButton(moved: targetMoved(from: syncManager.storageLensRoot?.path),
                      movedIcon: "chart.pie.fill", disabled: syncManager.isBuildingStorageLens,
                      action: onBuildStorage,
+                     reaim: onBuildStorage,
                      movedHelp: "Analyze “\(scanTargetName)” — the folder now focused above")
     }
 
@@ -1759,10 +1988,10 @@ public struct TidyView: View {
         .buttonStyle(.borderedProminent)
         .chromeHover()
         .controlSize(.small)
-        .disabled(runnableRuleCount == 0 || automationDestinationRoot == nil)
+        .disabled(runnableRuleCount == 0 || providerRoot == nil)
         // Name the ACTUAL blocker: with no provider root there is nothing to preview over, and
         // telling the user to add conditions to already-complete rules is a dead end.
-        .help(automationDestinationRoot == nil
+        .help(providerRoot == nil
               ? "Focus a provider folder first — the preview runs over the focused folder."
               : runnableRuleCount == 0
               ? "Add a rule with a condition and a destination to preview it."
@@ -1783,7 +2012,7 @@ public struct TidyView: View {
                 if showingOverview {
                     organizeOverview(rows: rows)
                 } else if organizeLens == .restructure {
-                    restructureContent()
+                    restructureContent(rows: rows)
                 } else if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
                     noMatchesState(total: syncManager.renamePlans.count, noun: "folder")
                 } else if showingRenameBacklog {
@@ -1811,9 +2040,16 @@ public struct TidyView: View {
     /// ``FileSyncManager/structureFindings`` for why a view body must not run the detector.
     private var structureFindings: [StructureFinding] { syncManager.structureFindings }
 
+    /// Restructure's rows — **from `FilteredRows` now, not straight off the manager.**
+    ///
+    /// This lens was the one that bypassed the shared filter entirely, reading
+    /// `syncManager.structureFindings` directly, which is precisely why no narrowing could reach
+    /// it. It routes through the same value as every other lens now, so its count and its list
+    /// cannot disagree.
     @ViewBuilder
-    private func restructureContent() -> some View {
-        RestructureLens(findings: structureFindings,
+    private func restructureContent(rows: FilteredRows) -> some View {
+        RestructureLens(findings: rows.structure,
+                        aboutAncestor: rows.structureAboutAncestor,
                         hasProfile: syncManager.filingFolderProfile != nil,
                         folderCount: syncManager.filingFolderProfile?.folders.count ?? 0,
                         accent: glassHue.accentColor,
@@ -1831,8 +2067,13 @@ public struct TidyView: View {
     private func organizeOverview(rows: FilteredRows) -> some View {
         OrganizeOverview(
             sections: overviewSections,
-            scopeLabel: syncManager.filingScanFolder.map { ($0 as NSString).lastPathComponent },
+            // **The SCOPE, not the last scan's folder.** It read `filingScanFolder` before, which
+            // is the root one lens happened to walk — so the overview's "Nothing to do in X" named
+            // a folder that had nothing to do with the other five lenses' answers, and named
+            // something even when no scope was set at all.
+            scopeLabel: scope?.name,
             accent: glassHue.accentColor,
+            inboxShortcut: inboxShortcut,
             onOpen: { item in withAnimation(listSettle) { railLens = item } },
             // Every "Scan…" routes to the lens rather than starting the scan from here. The lens
             // owns its own intro state, which is where that scan's cost is stated — one button up
@@ -1841,17 +2082,45 @@ public struct TidyView: View {
         )
     }
 
+    /// The inbox offered as a scope, or nil when there is no inbox — or when it is already the
+    /// scope, where the offer would be a button that changes nothing.
+    private var inboxShortcut: OrganizeOverview.InboxShortcut? {
+        guard let inbox = filingInboxFolder, !inbox.isEmpty else { return nil }
+        if let scope, standardizedPath(scope.path) == standardizedPath(inbox) { return nil }
+        // Counted from the queue rather than from disk: a header must not walk the filesystem on
+        // every render, and the number this offer wants is "how many loose files are waiting there"
+        // — which is exactly what the scan already published.
+        let loose = syncManager.filingSuggestions.count {
+            PathBoundary.contains($0.filePath, under: inbox)
+        }
+        return .init(name: (inbox as NSString).lastPathComponent,
+                     looseFileCount: loose,
+                     apply: { withAnimation(listSettle) { setScope(inbox) } })
+    }
+
     /// What each lens has to say, in rail order.
     ///
     /// **The three states are the point** (ROADMAP 20): a lens that has never run says so, a lens
     /// that ran clean says *that*, and only a lens with findings takes a section. Absence must
     /// never be ambiguous between "clean" and "cannot run".
+    /// Every lens's answer **for the current scope**.
+    ///
+    /// The three states stay exactly as they were and are now resolved per scope, which is the
+    /// whole point: *"0 under Legal" must never render as "0 anywhere"*. `notScanned` still means
+    /// the scan has not run at all — that is a fact about the provider-wide pass, not about the
+    /// subtree — while `clean` under a scope means this subtree is clean, and `OrganizeOverview`
+    /// names the scope in the words it wraps around them.
     private var overviewSections: [OrganizeOverviewSection] {
-        OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
+        let scope = scope
+        let profileRoot = syncManager.filingFolderProfile?.root ?? ""
+        return OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
             switch item {
             case .toFile:
-                let n = syncManager.filingSuggestions.count
-                let ready = syncManager.filingSuggestions.filter(\.hasConfidentHome).count
+                let scoped = syncManager.filingSuggestions.filter {
+                    OrganizeScopeFilter.matches($0, scope: scope)
+                }
+                let n = scoped.count
+                let ready = scoped.filter(\.hasConfidentHome).count
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: n > 0
@@ -1860,35 +2129,47 @@ public struct TidyView: View {
                     state: !syncManager.hasSuggestedFiling ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
-                                    example: syncManager.filingSuggestions.first.flatMap { s in
+                                    example: scoped.first.flatMap { s in
                                         s.best.map { "\(s.fileName) → \(($0.path as NSString).lastPathComponent)" }
                                     }),
                     isScanning: syncManager.isSuggestingFiles)
             case .duplicates:
-                let n = syncManager.duplicateGroups.count
+                let scoped = syncManager.duplicateGroups.filter {
+                    OrganizeScopeFilter.matches($0, scope: scope)
+                }
+                let n = scoped.count
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Identical content under different names or folders.",
                     state: !syncManager.hasFoundDuplicates ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
-                                    example: syncManager.duplicateGroups.first.map {
+                                    example: scoped.first.map {
                                         "\($0.name) — \($0.copies.count) copies"
                                     }),
                     isScanning: syncManager.isFindingDuplicates)
             case .names:
-                let n = syncManager.riskyNames.count
+                let scoped = syncManager.riskyNames.filter {
+                    OrganizeScopeFilter.matches($0, scope: scope)
+                }
+                let n = scoped.count
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Names this provider will not accept.",
                     state: !syncManager.hasScannedNames ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
-                                    example: syncManager.riskyNames.first.map(\.currentName)),
+                                    example: scoped.first.map(\.currentName)),
                     isScanning: syncManager.isScanningNames)
             case .renames:
-                let n = syncManager.renamePlans.count
-                let tally = RenameBacklogTally(syncManager.renamePlans)
+                let scoped = syncManager.renamePlans.filter {
+                    OrganizeScopeFilter.matches($0, scope: scope)
+                }
+                let n = scoped.count
+                // The tally is rebuilt from the SCOPED plans, not the whole backlog — its breakdown
+                // is the section's example line, and quoting the global one under a narrow scope is
+                // the same lie the badge used to tell.
+                let tally = RenameBacklogTally(scoped)
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Folders that have drifted from their own numbering.",
@@ -1898,17 +2179,23 @@ public struct TidyView: View {
                                     example: tally.breakdown.isEmpty ? nil : tally.breakdown),
                     isScanning: syncManager.isSuggestingFiles)
             case .restructure:
-                let findings = structureFindings
+                // `inside` only, matching the badge: a finding about the folder ABOVE the scope is
+                // shown inside the lens and labelled there, but it is not work in this subtree and
+                // must not be counted as though it were.
+                let scoped = structureFindings.filter {
+                    OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
+                                                 scope: scope) == .inside
+                }
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Where the tree disagrees with its own habits.",
                     // No profile means the detectors have nothing to read — "cannot run", which is
                     // a different sentence from "clean" and must not borrow its words.
                     state: syncManager.filingFolderProfile == nil ? .notScanned
-                        : findings.isEmpty ? .clean
-                        : .findings(count: findings.count,
-                                    headline: "\(findings.count) finding\(findings.count == 1 ? "" : "s")",
-                                    example: findings.first?.headline),
+                        : scoped.isEmpty ? .clean
+                        : .findings(count: scoped.count,
+                                    headline: "\(scoped.count) finding\(scoped.count == 1 ? "" : "s")",
+                                    example: scoped.first?.headline),
                     isScanning: false)
             // Configuration, not a result: it has nothing to report and no scan to run, so it
             // takes no section and no footer line either.
@@ -2233,7 +2520,7 @@ public struct TidyView: View {
                 state: automationsState,
                 rules: rules,
                 providerName: providerName,
-                destinationRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                destinationRoot: providerRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
                 onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
                 onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
                 onPreview: onPreviewAutomations
@@ -2270,7 +2557,7 @@ public struct TidyView: View {
     /// on the tree's own filing memory, and both live there (see `proposeAutomationRule`).
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
                            modificationDate: Date?) {
-        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: automationDestinationRoot)
+        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerRoot)
         // The file's own date is what lets a destination ending in a year generalise to `{year}`
         // rather than freezing the year the example happened to have.
         guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
@@ -2460,10 +2747,10 @@ public struct TidyView: View {
     /// certainly leaving. The picker browses the provider the rail is already showing. The panel
     /// survives as `Other…`, for a destination genuinely outside it.
     private func chooseFolder(for suggestion: FilingSuggestion) {
-        // Both fallbacks have to test for EMPTY, not just nil. `automationDestinationRoot` is handed
+        // Both fallbacks have to test for EMPTY, not just nil. `providerRoot` is handed
         // down as a non-optional String that is "" for an unconfigured provider, so `??` alone never
         // reached the suggestion's own root — the chain read as three options and behaved as one.
-        let root = [automationDestinationRoot, suggestion.providerRoot]
+        let root = [providerRoot, suggestion.providerRoot]
             .compactMap { $0 }
             .first { !$0.isEmpty } ?? ""
         let panel = { Self.runSystemFolderPanel(for: suggestion.fileName,

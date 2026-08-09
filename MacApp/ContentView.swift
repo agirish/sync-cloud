@@ -145,6 +145,18 @@ struct ContentView: View {
     /// whatever it was showing — the gather is a lens over the source, not a place you navigate to.
     @State var personScope: PersonScope?
 
+    /// The subtree Organize is answering about — **empty is the global view, and it is the
+    /// default.**
+    ///
+    /// Beside the lens selection and for the same reason: programmatic callers set it. "Organize
+    /// This Folder…" from a folder's context menu and the ⌘K command both name a folder, and both
+    /// have to be able to re-aim Organize before any scan has run. `TidyView` reads the same key
+    /// through its own `@AppStorage`, so the two cannot disagree.
+    ///
+    /// Never written directly — see ``setOrganizeScope(_:)``, which is where the provider root is
+    /// normalized to the empty string so the global view has exactly one representation.
+    @AppStorage(OrganizeScopeDefaults.pathKey) var organizeScopePath: String = ""
+
     /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
     /// one selection now, and a second copy of it would be a second thing to keep in step.
     var selectedLens: TidyLens? { selectedWorkspace.lens }
@@ -1499,19 +1511,41 @@ struct ContentView: View {
     /// a rail item exists at zero, which is exactly the state a folder you have just pointed at is
     /// in.
     ///
-    /// Deliberately bypasses `filingScanTargetFolder`, which resolves the provider's inbox — the
-    /// point here is the folder that was clicked. The provider root stays the scan's root so a
-    /// destination still anchors where every other filing scan anchors it, and the scanned-folder
-    /// chip in Organize's header already names the scope this sets.
+    /// **Sets the scope**, then scans. The scope is the lasting half — the scan is just what makes
+    /// the queue current.
+    ///
+    /// Every other lens narrows to this folder for free, because filing, names and renames all come
+    /// off this one walk and restructure reads the profile. That is the point of scope-filters-does
+    /// -not-rescan: one click here re-aims all six lenses and pays for one scan.
+    ///
+    /// Pointing at the provider root **clears** the scope rather than setting it — see
+    /// ``setOrganizeScope(_:)``.
     func organizeFolderAction(_ node: FileNode) {
         let folder = (node.id as NSString).expandingTildeInPath
         let providerRoot = tidyProviderRootExpanded
         guard !folder.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Organize for \(folder)")
+        setOrganizeScope(folder)
         show(.toFile)
         syncManager.startFindFilingSuggestions(
             folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerRoot),
             providerName: tidyProviderName, nameProvider: tidyProviderType)
+    }
+
+    /// The one write of Organize's scope, and the one place the root is normalized away.
+    ///
+    /// **`nil`, an empty path, and the provider root all mean the same thing: the global view.**
+    /// Keeping that collapse here rather than at each caller is what stops `scope = provider root`
+    /// and `scope = cleared` becoming two encodings of one state — identical in every result and
+    /// different only in whether a chip is drawn.
+    func setOrganizeScope(_ path: String?) {
+        let providerRoot = tidyProviderRootExpanded
+        guard let path,
+              let scope = OrganizeScope(path: path, providerRoot: providerRoot) else {
+            organizeScopePath = ""
+            return
+        }
+        organizeScopePath = scope.path
     }
 
     /// Navigate to a lens inside Organize — both halves, always.
@@ -1610,27 +1644,50 @@ struct ContentView: View {
                                           providerName: tidyProviderName, only: only)
     }
 
-    /// The folder a Filing scan targets right now — the loose-files inbox (Settings ▸ Organize,
-    /// default "TODO") when the rail sits at the provider root and the inbox exists, else the
-    /// focused folder. One resolver shared by the manual action and the auto-rescan, so the two
-    /// can never scan different places.
+    /// The folder a Filing scan targets right now — **the focused folder, always.**
     ///
-    /// The inbox is used only when we're at the provider root AND the inbox folder actually
-    /// exists. This mirrors `tidyRailRelativePath`'s existence check, so the rail and the scan
-    /// never disagree about a missing inbox (before, the rail fell back to the root but the scan
-    /// blindly targeted a non-existent root/TODO).
+    /// ## The inbox root-swap is gone
+    ///
+    /// This used to silently retarget the scan to the loose-files inbox (Settings ▸ Organize,
+    /// default `TODO`) whenever the pane happened to be sitting at the provider root. That is a
+    /// *browsing accident deciding a subject*: the user navigated to the top of the tree, and the
+    /// scan quietly answered about one folder three levels down without ever saying so. It is the
+    /// same class of defect as scope-follows-the-last-scan, and the fix is the same — the subject
+    /// is something the user sets, not something the pane's position implies.
+    ///
+    /// The inbox has not been dropped, it has been **promoted**: ``filingInboxFolder`` still
+    /// resolves the path, and Organize's overview offers it as a visible one-click scope shortcut
+    /// ("Inbox (TODO) — N loose files"). Because the scope is sticky across launches, the inbox is
+    /// clicked once and stays, which is what the hidden special case was clumsily approximating.
+    ///
+    /// **Deleted rather than narrowed.** Narrowing it — say, only when no scope is set — would
+    /// leave a rule that fires on a condition the user cannot see, which is the whole complaint.
+    ///
+    /// It is emphatically not the right default either: scoped to `TODO`, Renames falls from 126
+    /// folders to 0 and five of the six lenses go dark on launch. The inbox is the right subject
+    /// for To File and the wrong one for everything else.
     var filingScanTargetFolder: String? {
         let focused = tidyScanRootExpanded
+        guard !focused.isEmpty, !tidyProviderRootExpanded.isEmpty else { return nil }
+        return focused
+    }
+
+    /// The loose-files inbox, when it exists — the path only, with no opinion about when to use it.
+    ///
+    /// Kept from the resolver above (whose existence check this preserves verbatim, so the rail and
+    /// the shortcut never disagree about a missing inbox) and handed to Organize's overview, which
+    /// offers it as a scope. nil when the setting is blank or the folder is not there.
+    var filingInboxFolder: String? {
         let root = tidyProviderRootExpanded
-        guard !focused.isEmpty, !root.isEmpty else { return nil }
+        guard !root.isEmpty else { return nil }
         let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
             .trimmingCharacters(in: .whitespaces)
-        let atRoot = (focused as NSString).standardizingPath == (root as NSString).standardizingPath
+        guard !inbox.isEmpty else { return nil }
         let inboxPath = (root as NSString).appendingPathComponent(inbox)
         var isDir: ObjCBool = false
-        let inboxExists = !inbox.isEmpty
-            && FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
-        return (atRoot && inboxExists) ? inboxPath : focused
+        guard FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir),
+              isDir.boolValue else { return nil }
+        return inboxPath
     }
 
     /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy.
@@ -2355,7 +2412,8 @@ struct ContentView: View {
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
-                automationDestinationRoot: tidyProviderRootExpanded,
+                providerRoot: tidyProviderRootExpanded,
+                filingInboxFolder: filingInboxFolder,
                 onQuickLook: { toggleQuickLook($0) },
                 onBuildStorage: buildStorageLensAction,
                 // The single Tidy source is the left provider; its picker shows in the workspace only

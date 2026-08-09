@@ -62,6 +62,66 @@ struct RailItemLabel: View {
     }
 }
 
+// MARK: - The scope chip
+
+/// The one chip naming what Organize is answering about.
+///
+/// **A view of its own rather than a `@ViewBuilder` inside `TidyView`, so it can be rendered and
+/// read back.** That is not a stylistic preference: this row has already truncated its contents to
+/// identical stubs once, and four tests compared those stubs and saw no difference — the header's
+/// trailing controls clipped, nothing logged, and a probe that only asked whether the band was
+/// *inked* saw nothing wrong. Ink presence is not label fidelity. Rendering this in isolation is
+/// what lets `OrganizeScopeChipTests` assert the label really says what it claims.
+///
+/// It names the subtree **and its folder count**, because scope honesty was the original
+/// requirement: "Legal" says which folder but not how much of the tree that is, and the count is
+/// what makes a lens reporting zero legible as a real answer rather than a broken lens.
+struct ScopeChipLabel: View {
+    let name: String
+    /// Folders inside the scope, or nil when there is no profile to count against.
+    let folderCount: Int?
+    let accent: Color
+    let onClear: () -> Void
+
+    /// The count's words, factored out so a test can assert the string without reading pixels for
+    /// the parts that pixels are a poor instrument for.
+    static func folderCountText(_ count: Int) -> String {
+        "\(count) folder\(count == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "scope")
+                .scaledFont(.system(size: 9.5, weight: .semibold))
+            Text(name)
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+            if let folderCount {
+                Text(Self.folderCountText(folderCount))
+                    .scaledFont(.system(size: 10.5))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Button(action: onClear) {
+                Image(systemName: "xmark")
+                    .scaledFont(.system(size: 8.5, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .chromeHover()
+            .help("Organize everything again")
+            .accessibilityLabel("Clear scope")
+        }
+        .foregroundStyle(accent)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(accent.opacity(0.14)))
+        // `fixedSize` so the chip keeps its natural width rather than being compressed into an
+        // ellipsis by whatever shares its row — a truncated scope name is a scope claim you cannot
+        // read, which is worse than one that pushes the readout beside it.
+        .fixedSize()
+    }
+}
+
 // MARK: - The overview
 
 /// What one lens has to say for the current scope.
@@ -104,6 +164,27 @@ struct OrganizeOverview: View {
     let sections: [OrganizeOverviewSection]
     let scopeLabel: String?
     let accent: Color
+    /// The loose-files inbox offered as a **visible scope shortcut**, or nil when there is no inbox
+    /// folder (or it is already the scope).
+    ///
+    /// This is what replaced the hidden root-swap. `filingScanTargetFolder` used to retarget To
+    /// File to the inbox silently whenever the pane happened to sit at the provider root — a
+    /// browsing accident deciding the subject. Now it is a thing you can see and click, and because
+    /// the scope is sticky across launches it is clicked once rather than re-implied every session.
+    ///
+    /// **Not the default scope.** Scoped to `TODO`, Renames falls from 126 folders to 0 and five of
+    /// the six lenses go dark on launch: the inbox is the right subject for To File and the wrong
+    /// one for everything else.
+    var inboxShortcut: InboxShortcut?
+
+    struct InboxShortcut {
+        /// The inbox's leaf name — "TODO" unless the setting was changed.
+        let name: String
+        /// Loose files sitting in it, for the offer's second half.
+        let looseFileCount: Int
+        let apply: () -> Void
+    }
+
     let onOpen: (OrganizeLens) -> Void
     let onScan: (OrganizeLens) -> Void
 
@@ -128,6 +209,7 @@ struct OrganizeOverview: View {
                 if reporting.isEmpty {
                     allClearState
                 }
+                if let inboxShortcut { inboxOffer(inboxShortcut) }
                 if !unscanned.isEmpty || !clean.isEmpty {
                     footer
                 }
@@ -135,6 +217,44 @@ struct OrganizeOverview: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// "Inbox (TODO) — N loose files", one click to scope there.
+    ///
+    /// Placed after the findings and before the quiet footer: it is an offer about where to look
+    /// next, not a finding, and putting it above the sections would give the inbox the prominence
+    /// the old hidden default gave it — which is the thing being undone.
+    private func inboxOffer(_ shortcut: InboxShortcut) -> some View {
+        Button(action: shortcut.apply) {
+            HStack(spacing: 8) {
+                Image(systemName: "tray")
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .frame(width: 21, height: 21)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.14)))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Inbox (\(shortcut.name))")
+                        .scaledFont(.system(size: 12.5, weight: .semibold))
+                    Text(shortcut.looseFileCount == 1
+                         ? "1 loose file — organize just this folder"
+                         : "\(shortcut.looseFileCount) loose files — organize just this folder")
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .scaledFont(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(accent)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.35)))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .chromeHover()
+        .help("Point Organize at the inbox. Every lens narrows to it, and it stays until you "
+              + "change it.")
     }
 
     @ViewBuilder

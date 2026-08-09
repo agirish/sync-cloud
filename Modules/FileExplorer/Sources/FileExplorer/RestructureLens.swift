@@ -16,15 +16,27 @@ import Sync
 /// agrees with itself, and a list means it does not.
 struct RestructureLens: View {
     let findings: [StructureFinding]
+    /// Findings about a folder the scope sits *inside* — see ``ScopeRelation/aboutAncestor``.
+    ///
+    /// **Surfaced rather than dropped, and that is a design requirement rather than a nicety.**
+    /// Restructure compares sibling *families*, so under a scope pointed at a leaf the `inside`
+    /// list is frequently empty — that is the honest answer, not a bug. Dropping the ancestor
+    /// findings on top of it would leave the lens looking permanently broken at exactly the depth
+    /// people scope to, which is one of the three reasons live-binding scope to the pane was
+    /// rejected. They are kept visually subordinate: this is context about the surroundings, not
+    /// work in the scope, and the rail badge deliberately does not count them.
+    var aboutAncestor: [StructureFinding] = []
     let hasProfile: Bool
     let folderCount: Int
     let accent: Color
     let onReveal: (String) -> Void
 
+    private var isEmpty: Bool { findings.isEmpty && aboutAncestor.isEmpty }
+
     var body: some View {
         if !hasProfile {
             noProfileState
-        } else if findings.isEmpty {
+        } else if isEmpty {
             cleanState
         } else {
             ScrollView {
@@ -32,10 +44,31 @@ struct RestructureLens: View {
                     ForEach(findings) { finding in
                         findingCard(finding)
                     }
+                    if !aboutAncestor.isEmpty {
+                        ancestorHeader
+                        ForEach(aboutAncestor) { finding in
+                            findingCard(finding).opacity(0.72)
+                        }
+                    }
                 }
                 .padding(12)
             }
         }
+    }
+
+    /// Names what the section below it is, in the words the design asked for: these findings are
+    /// about the folder above the one you scoped to.
+    private var ancestorHeader: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.left.up")
+                .scaledFont(.system(size: 10, weight: .semibold))
+            Text(findings.isEmpty
+                 ? "Nothing about this folder itself — but about the folder above it:"
+                 : "About the folder above this one:")
+                .scaledFont(.system(size: 11, weight: .medium))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.top, findings.isEmpty ? 0 : 6)
     }
 
     private func findingCard(_ finding: StructureFinding) -> some View {
