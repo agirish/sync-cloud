@@ -67,13 +67,3 @@ struct SummaryRun: View {
 /// Load-bearing, not decoration. Dropping the readout's capsules separates the two groups by weight,
 /// but weight alone is a gradient — the rule is categorical ("left of this line is clickable"), and
 /// a line is how you say a categorical thing. It is also what stops the scope from reading as a
-/// disabled chip: on the far side of a divider it is plainly a different kind of thing.
-struct SummaryZoneDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.28))
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, 2)
-            .accessibilityHidden(true)
-    }
-}

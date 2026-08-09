@@ -65,16 +65,27 @@ import Sync
         m.filingLastTaxonomyFolders = ["Documents", "Documents/Family"]
         m.filingLastExistingFolders = ["Documents", "Documents/Family"]
         m.filingClassifier = { _, _, _ in [:] }
+        // **Organize opens on its overview, so a filing fixture has to name its lens.** With the
+        // rail key unset the selection is nil, which is the overview — where no lens's own
+        // controls are drawn at all, so every assertion here would fail as "painted nothing",
+        // indistinguishable from the Refine control being broken.
+        //
+        // It goes to `.standard` with the other two rather than through a scratch store:
+        // `.defaultAppStorage` redirects EVERY `@AppStorage` beneath it, so a scratch store put
+        // here would shadow the two cloud settings this suite exists to vary — which it did, and
+        // four tests then compared two renders of the same button.
+        UserDefaults.standard.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         UserDefaults.standard.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
         if let model { UserDefaults.standard.set(model, forKey: FileSyncManager.cloudModelDefaultsKey) }
         else { UserDefaults.standard.removeObject(forKey: FileSyncManager.cloudModelDefaultsKey) }
         return m
     }
 
-    /// Removes both keys this suite writes. Every test defers this.
+    /// Removes every key this suite writes. Every test defers this.
     private static func resetDefaults() {
         UserDefaults.standard.removeObject(forKey: FileSyncManager.cloudModelDefaultsKey)
         UserDefaults.standard.removeObject(forKey: FileSyncManager.usesCloudDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: OrganizeLens.defaultsKey)
     }
 
     private final class Mounted {

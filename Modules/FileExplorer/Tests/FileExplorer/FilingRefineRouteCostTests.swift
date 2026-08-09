@@ -61,9 +61,17 @@ import Sync
         m.filingClassifier = { _, _, _ in [:] }
 
         let size = CGSize(width: 900, height: 620)
+        // **Organize opens on its overview, so a filing fixture has to name its lens.** The
+        // rail selection lives in defaults, and with the key unset `railLens` is nil — which is
+        // the overview, where no lens's own controls are drawn at all. Without this the mount
+        // renders a summary page and every assertion about a filing control fails as "painted
+        // nothing", which is indistinguishable from the control being broken.
+        let defaults = ScratchDefaults("FilingRefineRouteCostTests")
+        defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         let host = NSHostingView(rootView: AnyView(
             TidyView(syncManager: m, lens: .filing, providerName: "Projects",
                      scanTargetFolder: "/root/Downloads", onFindDuplicates: {})
+                .defaultAppStorage(defaults)
                 .frame(width: size.width, height: size.height)))
         host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
