@@ -79,12 +79,26 @@ enum LayoutPumpWait {
     /// that is the same unit whether or not a turn also runs layout.
     ///
     /// See `docs/flaky-tests.md`, mechanism 2.
+    /// `now` is injectable for ONE reason: it is the only way to test the deadline at all.
+    ///
+    /// The floor is deterministic — spend the deadline, count the passes — but the deadline itself
+    /// is not, because asserting it does anything means asserting that N wall seconds buy more than
+    /// `pumpFloor` passes, and that is a throughput bet against the very congestion this file
+    /// exists to survive. **Measured, on the same 50 passes: ~5 seconds in the `v2.x` FileExplorer
+    /// run and over 60 in `main`'s larger one — a 12× spread between two runs of the same kind of
+    /// suite.** A test written against either number is a flake against the other; that is not a
+    /// tuning problem, it is the absence of a fixed unit.
+    ///
+    /// With a frozen clock the deadline never expires, so the CONDITION decides when the loop ends
+    /// and the assertion is about the loop's shape rather than the machine's speed. Nothing outside
+    /// the tests passes this.
     @MainActor
     static func poll(upTo seconds: Double,
+                     now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, passes: Int) {
         var passes = 0
-        let deadline = Date().addingTimeInterval(seconds)
-        while passes < pumpFloor || Date() < deadline {
+        let deadline = now().addingTimeInterval(seconds)
+        while passes < pumpFloor || now() < deadline {
             passes += 1
             if condition() { return (true, passes) }
             try? await Task.sleep(nanoseconds: 8_000_000)

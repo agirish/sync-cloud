@@ -402,6 +402,17 @@ removed and two comment lines took their place, so the total stayed at 44 and *l
 change that had done nothing. Prose in this repo is inside the grep's haystack: quote a defective
 loop by describing it, not by reproducing it.
 
+**And the fix's own deadline test was this exact defect, twice.** It first asked for `pumpFloor +
+20` passes inside a 5-second deadline: green under `--filter`, red in the full FileExplorer run at
+51 passes against the 70 it wanted. Retuned to `pumpFloor + 2` inside *sixty* seconds it still got
+only 51 — because 50 passes cost over a minute in `main`'s FileExplorer run against ~5 seconds in
+`v2.x`'s, a 12× spread between two runs of the same kind of suite. **There is no deadline generous
+enough to be safe: seconds do not convert to passes at any fixed rate, which is this whole mechanism
+in one sentence.** So `poll` takes an injectable `now`, and the test freezes it — the deadline is
+then permanently live and the CONDITION decides when the loop ends, which is a property of the loop
+rather than of the machine. Anything asserting that N seconds buys more than the floor is a
+throughput bet; write the discriminator instead.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*;
