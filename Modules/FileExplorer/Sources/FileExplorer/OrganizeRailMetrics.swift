@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 import CoreGraphics
+// For `FontSize.scaledPointSize` — the text-size ramp's own curve, so this model asks the type
+// that owns it rather than keeping a second copy of the arithmetic.
+import Design
 
 /// Whether Organize's rail can afford to spell its items out.
 enum OrganizeRailStyle: Equatable, Sendable {
@@ -159,8 +162,19 @@ enum OrganizeRailMetrics {
     ///
     /// `.semibold` because that is the selected item's weight and the widest — sizing on `.medium`
     /// would under-measure the one item that is always bold, which is the direction that truncates.
+    ///
+    /// **`scaledPointSize`, not `11.5 * scale`, and the difference only exists above 11pt.** The
+    /// text-size setting stopped being a flat multiplier when it gained its knee curve: at or below
+    /// the 11pt knee the full multiplier still applies, and above it each extra base point
+    /// contributes only `surplusSlope`. 11.5 is above the knee, so the renderer draws 12.9pt at
+    /// 1.15× where a linear model says 13.2 — small per item, 16.9pt across six of them, which is
+    /// what `theLeadingModelMatchesWhatTheRowDraws` measured and failed on at `.large` and
+    /// `.extraLarge` while passing at 0.9 and 1.0. **Ask the type that owns the curve rather than
+    /// re-deriving it**: a second copy of this arithmetic is a second thing to update the next time
+    /// the ramp is retuned, which is exactly how this broke.
     static func labelWidth(_ item: OrganizeLens, scale: CGFloat) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 11.5 * scale, weight: .semibold)
+        let font = NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale: scale),
+                                     weight: .semibold)
         return (item.title as NSString).size(withAttributes: [.font: font]).width
     }
 
@@ -169,8 +183,13 @@ enum OrganizeRailMetrics {
     /// **The digits are measured, not assumed.** A flat two-digit figure is what let `410` and
     /// `126` cost 8pt more apiece than the model believed, and a tree with a thousand duplicate
     /// groups would have widened the gap again. `.monospacedDigit()`, matching `RailItemLabel`.
+    ///
+    /// Through the curve like the label above, though at 10pt it is currently the identity: 10 sits
+    /// **below** the 11pt knee, where the full multiplier still applies. Routed through it anyway
+    /// so the badge does not silently start lying if the knee is ever lowered.
     static func badgeWidth(_ count: Int, scale: CGFloat) -> CGFloat {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 10 * scale, weight: .bold)
+        let font = NSFont.monospacedDigitSystemFont(
+            ofSize: FontSize.scaledPointSize(10, scale: scale), weight: .bold)
         return (count.formatted() as NSString).size(withAttributes: [.font: font]).width + 10
     }
 
