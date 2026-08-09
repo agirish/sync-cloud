@@ -1599,19 +1599,31 @@ public struct TidyView: View {
     /// branch is the user pointing somewhere new, so it goes through `reaim`, which sets the scope
     /// first. Sharing one action between them — which is how this started — meant a plain Rescan
     /// while scoped to `Legal` from a pane sitting elsewhere would silently drag the scope along.
+    ///
+    /// `movedTitle` overrides the moved branch's Organize wording — and with it the
+    /// ``reaimClearsScope`` swap, whose label and help both describe *scope* semantics. Storage
+    /// passes one because it participates in none of that: it is a workspace of its own, its
+    /// `reaim` is a plain re-analyze, and the shared wording had it promising `Organize "X"` —
+    /// or, at the provider root, "clears the scope" — for a click that touches no scope at all.
+    /// The action was right and the words lied, and browsing (which now moves the target on every
+    /// column click) surfaced that label constantly.
     @ViewBuilder
     private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool,
                               action: @escaping () -> Void, reaim: @escaping () -> Void,
-                              movedHelp: String) -> some View {
+                              movedHelp: String, movedTitle: String? = nil) -> some View {
         if moved {
             Button(action: reaim) {
-                Label(reaimClearsScope ? "Organize everything" : "Organize “\(scanTargetName)”",
-                      systemImage: reaimClearsScope ? "square.stack.3d.up.slash" : movedIcon)
+                if let movedTitle {
+                    Label(movedTitle, systemImage: movedIcon)
+                } else {
+                    Label(reaimClearsScope ? "Organize everything" : "Organize “\(scanTargetName)”",
+                          systemImage: reaimClearsScope ? "square.stack.3d.up.slash" : movedIcon)
+                }
             }
                 .buttonStyle(.borderedProminent).controlSize(.small)
                 .chromeHover()
                 .disabled(disabled)
-                .help(reaimClearsScope
+                .help(movedTitle == nil && reaimClearsScope
                       ? "The pane is at the top of the tree, so this clears the scope and answers "
                         + "about everything again."
                       : movedHelp)
@@ -2153,12 +2165,15 @@ public struct TidyView: View {
 
     private var reanalyzeStorageButton: some View {
         // `reaim` is the plain action here: Storage is a workspace of its own and sets no Organize
-        // scope. Re-analyzing it must not re-aim the six lenses in the workspace next door.
+        // scope. Re-analyzing it must not re-aim the six lenses in the workspace next door — and
+        // `movedTitle` keeps the words in step with that: the shared Organize wording (and its
+        // clears-the-scope variant at the provider root) describes a scope this click never moves.
         rescanButton(moved: targetMoved(from: syncManager.storageLensRoot?.path),
                      movedIcon: "chart.pie.fill", disabled: syncManager.isBuildingStorageLens,
                      action: onBuildStorage,
                      reaim: onBuildStorage,
-                     movedHelp: "Analyze “\(scanTargetName)” — the folder now focused above")
+                     movedHelp: "Analyze “\(scanTargetName)” — the folder now focused above",
+                     movedTitle: "Analyze “\(scanTargetName)”")
     }
 
     private var newRuleButton: some View {

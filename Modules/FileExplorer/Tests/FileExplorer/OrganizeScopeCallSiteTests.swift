@@ -172,8 +172,27 @@ import Foundation
         let tidy = try Self.source("TidyView.swift")
         #expect(tidy.contains("private var reaimClearsScope: Bool"))
         #expect(tidy.contains("reaimClearsScope ? \"Organize everything\""))
-        // And the promise must be swapped with the label, not left behind on it.
-        #expect(tidy.contains(".help(reaimClearsScope"))
+        // And the promise must be swapped with the label, not left behind on it. (`movedTitle`
+        // short-circuits both — see the Storage test below — so the swap is gated on its absence.)
+        #expect(tidy.contains(".help(movedTitle == nil && reaimClearsScope"))
+    }
+
+    @Test func storagesMovedButtonSaysAnalyzeNotOrganize() throws {
+        // Same words-lie shape, third instance: Storage shares `rescanButton` but none of the
+        // scope semantics — its `reaim` is a plain re-analyze. The shared wording had its moved
+        // button promising `Organize "X"`, or "clears the scope" at the provider root, for a
+        // click that touches no scope at all. The browse-aware scan target surfaces the moved
+        // state on every column click, so the words must match the verb.
+        let tidy = try Self.source("TidyView.swift")
+        let storage = try Self.body(of: "private var reanalyzeStorageButton: some View {",
+                                    in: tidy)
+        #expect(storage.contains("movedTitle: \"Analyze"),
+                "Storage's moved button is back on the shared Organize wording")
+        // And the override must actually win in the shared button — label and help both, since
+        // an ignored movedTitle would leave the call site looking fixed while the render lies.
+        let button = try Self.body(of: "private func rescanButton(", in: tidy)
+        #expect(button.contains("if let movedTitle {"))
+        #expect(button.contains(".help(movedTitle == nil && reaimClearsScope"))
     }
 
     @Test func anEmptyScopedListBlamesTheScopeAndNotTheSearch() throws {

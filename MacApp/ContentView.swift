@@ -1454,7 +1454,10 @@ struct ContentView: View {
         guard selectedWorkspace == .filing, let lens = selectedOrganizeLens else { return }
         // **A scope makes the auto-rescan refresh THE SUBJECT, not the pane.**
         //
-        // This fires on every pane-folder change, and it targeted `tidyScanRootExpanded`. With a
+        // This fires on every pane-folder change — and, now that the scan target is browse-aware,
+        // on every column click too, which the eligibility gates absorb: the manager declines once
+        // anything has run this session, so browsing can only ever refresh the remembered subject
+        // on a fresh lens, never replace a queue. It targeted `tidyScanRootExpanded`. With a
         // scope set that is the queue-destroying failure the design rejects live-binding to
         // prevent, arriving through a different door: browse from a scoped `Legal` into some other
         // previously-scanned folder and the rescan silently replaces `filingSuggestions` with that
