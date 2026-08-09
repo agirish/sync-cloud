@@ -31,22 +31,28 @@ import Foundation
         #expect(Set(OrganizeLens.allCases.map { c[$0] }).count == OrganizeLens.allCases.count)
     }
 
-    @Test func badgedCountsTheItemsThatWouldDrawOne() {
-        // This number is what `OrganizeRailMetrics.style` reserves width for, so an off-by-one
-        // here mis-sizes the rail and truncates the lens's own controls — the failure
-        // `OrganizeRailMetrics` exists to prevent.
+    @Test func badgeAnswersForTheItemsThatWouldDrawOne() {
+        // These are what `OrganizeRailMetrics` sizes the rail from, so a wrong answer here
+        // mis-measures it and truncates the lens's own controls — the failure
+        // `OrganizeRailMetrics` exists to prevent. **The VALUE, not a count of them**: a badge is
+        // as wide as its digits, and charging a flat figure per badge is what let row 1 overrun.
         //
         // Five, not six: `.rules` never carries a badge (`carriesBadge` is false), because eight
         // rules is a configuration you keep rather than a result a scan turned up.
-        #expect(Self.counts.badged == 5)
+        #expect(OrganizeLens.allCases.count { Self.counts.badge($0) != nil } == 5)
+        // And each one carries its own list's size rather than some shared truthy marker.
+        for lens in OrganizeLens.allCases where lens.carriesBadge {
+            #expect(Self.counts.badge(lens) == Self.counts[lens])
+        }
     }
 
     @Test func aZeroDrawsNoBadge() {
         // The surviving half of the chips' argument: absent at zero, never a greyed "0".
         let none = TidyView.RailCounts()
-        #expect(none.badged == 0)
+        #expect(OrganizeLens.allCases.allSatisfy { none.badge($0) == nil })
         let one = TidyView.RailCounts(toFile: 1)
-        #expect(one.badged == 1)
+        #expect(one.badge(.toFile) == 1)
+        #expect(OrganizeLens.allCases.count { one.badge($0) != nil } == 1)
     }
 
     @Test func rulesNeverBadgesEvenWhenItHasRules() {
@@ -54,7 +60,7 @@ import Foundation
         // rather than by re-reading `carriesBadge`.
         let rulesOnly = TidyView.RailCounts(rules: 8)
         #expect(rulesOnly[.rules] == 8)
-        #expect(rulesOnly.badged == 0)
+        #expect(rulesOnly.badge(.rules) == nil)
     }
 
     @Test func theDefaultIsAllZeros() {

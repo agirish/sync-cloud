@@ -46,6 +46,12 @@ import Design
     /// Row 1's trailing controls, **excluding the search toggle** at x≈860–890, which is drawn in
     /// every state and would make this band non-empty no matter what the actions did.
     private static let actionsZone = CGRect(x: 1000, y: 12, width: 330, height: 30)
+    /// Row 1's trailing set, **anchored to the right edge** so it tracks the controls at any width.
+    /// 300pt: wide enough to hold the whole `Apply N recommended` label, narrow enough that the
+    /// rail's own tail cannot wander into it on a header near the shed threshold.
+    private static func trailingZone(_ width: CGFloat) -> CGRect {
+        CGRect(x: width - 300, y: 12, width: 300, height: 30)
+    }
 
     // MARK: Fixtures
 
@@ -80,6 +86,35 @@ import Design
             add("Tax/\(year)"); add("Tax/\(year)/Forms"); add("Tax/\(year)/Refund")
         }
         return FolderProfile(profileId: "t", root: "/root", folders: folders, personTokens: [])
+    }
+
+    /// The badge accessor ``OrganizeRailMetrics`` takes, from the counts that matter to a case.
+    /// Anything unlisted reports nothing, which is what `badge(count:)` turns into "no badge".
+    private static func badges(_ counts: [OrganizeLens: Int]) -> (OrganizeLens) -> Int? {
+        { $0.badge(count: counts[$0] ?? 0) }
+    }
+
+    /// Duplicates with real groups — the lens whose trailing set is the widest in Organize
+    /// (`All ⌄`, `Rescan`, `Apply N recommended`, search), measured at 353.5pt against the filing
+    /// queue's 281.
+    private static func duplicatesManager(groups: Int, names: Int) -> FileSyncManager {
+        let m = manager(queue: 24, names: names)
+        m.duplicateGroups = (0..<groups).map { i in
+            DuplicateGroup(
+                matchType: .identical, name: "dup\(i).pdf", isDirectory: false,
+                copies: [
+                    DuplicateCopy(id: "/root/A/dup\(i).pdf", name: "dup\(i).pdf",
+                                  isDirectory: false, size: 4_096, itemCount: 1,
+                                  modificationDate: Date(timeIntervalSince1970: 0),
+                                  uniqueItemCount: 0, depth: 2, isRecommendedKeeper: true),
+                    DuplicateCopy(id: "/root/B/dup\(i).pdf", name: "dup\(i).pdf",
+                                  isDirectory: false, size: 4_096, itemCount: 1,
+                                  modificationDate: Date(timeIntervalSince1970: 0),
+                                  uniqueItemCount: 0, depth: 2, isRecommendedKeeper: false)],
+                reclaimableBytes: 4_096)
+        }
+        m.hasFoundDuplicates = true
+        return m
     }
 
     private static func manager(queue: Int, names: Int, hasScanned: Bool = true) -> FileSyncManager {
@@ -192,6 +227,55 @@ import Design
             }
         }
         return n
+    }
+
+    /// The x-extent of row 1's **leading cluster** — the rail plus the intro button — read off the
+    /// render, so the width model can be held to something other than itself.
+    ///
+    /// A 30pt run of background ends the cluster: inside it the widest gap is the 9.5pt before the
+    /// intro button, while the reach across to the trailing controls is hundreds of points.
+    ///
+    /// **The band starts at x 8, not 0** — the same reason `railZone` does. The card paints a 1pt
+    /// border at x≈2.5, and it is only 11pt clear of the first rail item, so a band that includes
+    /// it merges the border into the cluster and reports the card's own padding as rail width
+    /// (660 against a true 648). Dropping short runs does not help: the border is not a separate
+    /// run once it has merged.
+    private func leadingExtent(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
+        let origin: CGFloat = 8
+        guard let rep = strip(host, CGRect(x: origin, y: 12, width: width - origin, height: 30)),
+              let background = rep.colorAt(x: 2, y: 2) else { return nil }
+        let scale = CGFloat(rep.pixelsWide) / (width - origin)
+        var inked: [Bool] = []
+        for x in 0..<rep.pixelsWide {
+            var n = 0
+            for y in 0..<rep.pixelsHigh {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let delta = max(abs(c.redComponent - background.redComponent),
+                                max(abs(c.greenComponent - background.greenComponent),
+                                    abs(c.blueComponent - background.blueComponent)))
+                if delta > 0.03 { n += 1 }
+            }
+            inked.append(n >= 2)
+        }
+        var runs: [(CGFloat, CGFloat)] = []
+        var start: Int?
+        var blank = 0
+        let gap = Int(30 * scale)
+        for (i, on) in inked.enumerated() {
+            if on {
+                if start == nil { start = i }
+                blank = 0
+            } else if let s = start {
+                blank += 1
+                if blank >= gap {
+                    runs.append((CGFloat(s) / scale, CGFloat(i - blank) / scale))
+                    start = nil
+                }
+            }
+        }
+        if let s = start { runs.append((CGFloat(s) / scale, CGFloat(inked.count - 1) / scale)) }
+        guard let cluster = runs.first(where: { $0.1 - $0.0 > 3 }) else { return nil }
+        return cluster.1 - cluster.0
     }
 
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
@@ -404,18 +488,119 @@ import Design
 
     @Test("Shedding is arithmetic, and it answers both ways")
     func theShedRuleIsComputed() {
-        let labels = OrganizeRailMetrics.labelWidths(scale: 1)
-        #expect(labels.count == OrganizeLens.allCases.count)
+        let twoBadges = Self.badges([.toFile: 24, .names: 17])
+        let lead = { (b: @escaping (OrganizeLens) -> Int?) in
+            OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: b)
+        }
         // The real header widths this app produces, either side of the threshold.
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, labelWidths: labels, badges: 2) == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, labelWidths: labels, badges: 2) == .iconOnly)
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges)) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges)) == .iconOnly)
         // The shed rung has to actually solve it, or shedding buys nothing.
-        let shed = OrganizeRailMetrics.iconOnlyWidth(itemCount: OrganizeLens.allCases.count, badges: 2)
+        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, hasIntro: true, badge: twoBadges)
         #expect(shed <= 900 - OrganizeRailMetrics.reservedTrailing)
         // Badges widen the rail, so the day every finding reports is the day it is tightest —
         // a rule measured without them would shed too late.
-        #expect(OrganizeRailMetrics.fullWidth(labelWidths: labels, badges: 5)
-                > OrganizeRailMetrics.fullWidth(labelWidths: labels, badges: 0))
+        #expect(lead(twoBadges) > lead(Self.badges([:])))
+    }
+
+    @Test("A wider badge costs more than a narrower one")
+    func theBadgeIsMeasuredByItsDigits() {
+        // **`410` is not `24`.** The model charged a flat two-digit figure per badge, and the
+        // ~8pt-per-badge shortfall that opened up on a three-digit count is part of why the
+        // Duplicates row truncated while the arithmetic reported room.
+        #expect(OrganizeRailMetrics.badgeWidth(410, scale: 1)
+                > OrganizeRailMetrics.badgeWidth(24, scale: 1))
+        #expect(OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true,
+                                                 badge: Self.badges([.duplicates: 410]))
+                > OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true,
+                                                   badge: Self.badges([.duplicates: 24])))
+    }
+
+    @Test("The leading model matches what row 1 actually draws")
+    func theLeadingModelMatchesWhatTheRowDraws() throws {
+        // **The test the arithmetic was missing, and the reason the truncation shipped.** Every
+        // other assertion about the width model compared it against itself, so an estimate could be
+        // 63pt short of the row it claimed to describe and still be perfectly self-consistent.
+        // This one measures the leading cluster OFF THE RENDER and holds the model to it.
+        //
+        // It is also what makes ``OrganizeRailMetrics/introCompanion`` load-bearing. Zeroing that
+        // constant leaves every *behavioural* assertion here passing — the glyph and badge
+        // corrections alone happen to keep the row honest, with 4pt to spare instead of 25 — so
+        // only a claim about the model's own accuracy can catch it.
+        let manager = Self.duplicatesManager(groups: 410, names: 17)
+        let host = mount(manager, lens: .duplicates, width: 1400)
+        let drawn = try #require(leadingExtent(host, width: 1400),
+                                 "row 1 drew no leading cluster — the rail is not on screen at all")
+        let model = OrganizeRailMetrics.leadingWidth(
+            scale: 1, hasIntro: true,
+            badge: Self.badges([.toFile: 24, .duplicates: 410, .names: 17]))
+
+        // Measured: 653.2 modelled against 648.0 drawn. Over, never under — a model that
+        // under-states the leading side is one that lets the row overrun, which is this whole
+        // type's failure mode.
+        #expect(model >= drawn,
+                "the rail and the intro button draw \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
+        // And not wildly over, or the rail sheds its labels on headers that would have seated them.
+        #expect(model - drawn < 12,
+                "the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
+    }
+
+    @Test("The glyph table still matches the renderer")
+    func theGlyphTableMatchesTheRenderer() throws {
+        // ``OrganizeRailMetrics/glyphWidth(_:scale:)`` is tabulated because measuring costs ~812µs
+        // for the six and the caller runs per `body`. Tabulated numbers rot; this is what stops
+        // them rotting silently. A glyph is NOT its point size — the estimate this replaced charged
+        // 10.5 for all six, and `folder.badge.gearshape` is 17.
+        for lens in OrganizeLens.allCases {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 10.5, weight: .semibold)
+            let live = try #require(
+                NSImage(systemSymbolName: lens.symbol, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(configuration)?.size.width,
+                "\(lens.symbol) did not resolve — the rail's glyph is missing, not just mis-sized")
+            #expect(abs(OrganizeRailMetrics.glyphWidth(lens) - live) < 0.5,
+                    "\(lens.symbol) renders \(live)pt but the table says \(OrganizeRailMetrics.glyphWidth(lens)) — the rail is mis-measured by \(live - OrganizeRailMetrics.glyphWidth(lens))pt on this item")
+        }
+    }
+
+    // MARK: The moment the labels appear, the actions must still have their words
+
+    @Test("At the width the rail first spells itself out, the actions are not truncated")
+    func theShedThresholdIsNotOneCharacterTooLate() throws {
+        // **The defect this pins, and the one the suite above could not see.** Every render here
+        // was at 900 (shed) or 1400 (roomy); nothing rendered at the threshold itself. Between
+        // them lay a ~29pt band where the model said the labels fitted and the row disagreed —
+        // Duplicates drew `Apply 410 recomme…` while `theShedRuleIsComputed` passed, because that
+        // test only ever compared the arithmetic against itself.
+        //
+        // The invariant, stated where it can fail: **the first width at which the model spells the
+        // rail out must already seat the actions.** Asserted at the model's own flip point, so it
+        // re-derives if the constants move.
+        let manager = Self.duplicatesManager(groups: 410, names: 17)
+        let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
+        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: badge)
+            + OrganizeRailMetrics.reservedTrailing
+
+        // Right-anchored: the trailing set is right-aligned and fixed-size, so at every width that
+        // seats it these bands are pixel-identical. 300pt, because a band wide enough to reach back
+        // past the actions catches the RAIL's tail on a narrow canvas and reads that motion as
+        // truncation.
+        let roomy = mount(manager, lens: .duplicates, width: 2400)
+        let reference = try #require(strip(roomy, Self.trailingZone(2400)))
+
+        // A **band**, not the single threshold point: a reserve that is short by a few points puts
+        // the truncation just above the flip rather than at it, and one probe would step straight
+        // over it. Measured pre-fix, the bad band ran 29pt.
+        for offset in stride(from: 0.0, through: 30.0, by: 6.0) {
+            let width = (threshold + offset).rounded(.up)
+            let host = mount(manager, lens: .duplicates, width: width)
+            // The rail really is spelled out here — otherwise "not truncated" is satisfied by the
+            // shed state, which fits trivially and is not what this is asking about.
+            #expect(counts(try #require(strip(host, Self.railZone))).ink > 600,
+                    "at \(width)pt the rail is not spelled out — this probe is measuring the shed state, where nothing has to fit")
+            let tight = try #require(strip(host, Self.trailingZone(width)))
+            #expect(differingPixels(tight, reference) == 0,
+                    "at \(width)pt — \(offset)pt above the width the model starts spelling the rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
+        }
     }
 
     // MARK: The control — Rescan outlives the queue

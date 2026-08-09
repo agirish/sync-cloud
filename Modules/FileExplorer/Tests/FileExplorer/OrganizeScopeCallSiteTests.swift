@@ -117,8 +117,8 @@ import Foundation
     @Test func theRailCountsAreResolvedOncePerRender() throws {
         let tidy = try Self.source("TidyView.swift")
         #expect(tidy.contains("let counts = railCounts"))
-        #expect(tidy.contains("badges: counts.badged"),
-                "the width arithmetic is recomputing the badge count instead of reading the resolved one")
+        #expect(tidy.contains("badge: counts.badge"),
+                "the width arithmetic is recomputing the badges instead of reading the resolved counts")
         #expect(!tidy.contains("private var railBadgeCount"),
                 "railBadgeCount is back — that is the second independent pass over all six lists")
         // And the per-render profile walk behind the chip's folder count is resolved with them.

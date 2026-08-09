@@ -634,14 +634,19 @@ public struct TidyView: View {
         // Resolve this lens's rows ONCE and hand the same value to the header and the content —
         // see `FilteredRows`.
         let rows = filteredRows
-        let railLabels = OrganizeRailMetrics.labelWidths(scale: appFontScale)
         // The rail's six counts, resolved ONCE — see `RailCounts`. Both consumers read this same
-        // value: the width arithmetic below (how many badges to reserve for) and each rail item's
+        // value: the width arithmetic below (which badge each item is carrying) and each rail item's
         // own badge. They used to ask independently, which was twelve scoped passes per render.
         let counts = railCounts
         // Resolved here too rather than inside the chip, so the header's per-render cost is a
         // single walk of the profile's folder list instead of one on every redraw of row 2.
         let scopeFolders = scopeFolderCount
+        // Measured ONCE per body: this reads type metrics, while the geometry transform below runs
+        // on every width the card is handed. It carries the intro button too — that sits beside the
+        // rail on this same half of the row (see `lensTitle`), and a model that measured only the
+        // rail was short by it on every Organize lens.
+        let railLeading = OrganizeRailMetrics.leadingWidth(
+            scale: appFontScale, hasIntro: currentLensIntro != nil, badge: counts.badge)
         return VStack(spacing: 0) {
             // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
@@ -654,7 +659,7 @@ public struct TidyView: View {
                 // shedding inside the transform.
                 .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
                     OrganizeRailMetrics.style(contentWidth: proxy.size.width,
-                                              labelWidths: railLabels, badges: counts.badged)
+                                              leadingWidth: railLeading)
                 } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows)
@@ -1171,9 +1176,16 @@ public struct TidyView: View {
             }
         }
 
-        /// How many items would draw a badge — what `OrganizeRailMetrics` reserves width for.
-        var badged: Int {
-            OrganizeLens.allCases.count { $0.badge(count: self[$0]) != nil }
+        /// The badge an item is carrying, or nil — **the value, not merely the fact of one**, which
+        /// is what `OrganizeRailMetrics` reserves width for.
+        ///
+        /// This replaces a `badged` *count*. The width arithmetic charged a flat two-digit figure
+        /// per badge, and Duplicates wears `410` while Renames wears `126`; those cost ~8pt more
+        /// apiece than the flat figure allowed, which is part of why row 1 truncated its actions
+        /// while the model still reported room. ``OrganizeRailMetrics/badgeWidth(_:scale:)``
+        /// measures the digits it is handed.
+        func badge(_ item: OrganizeLens) -> Int? {
+            item.badge(count: self[item])
         }
     }
 

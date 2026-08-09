@@ -174,12 +174,13 @@ struct OrganizeScopeChipTests {
     @Test func theRailsWidthArithmeticIsUnchangedByTheChip() {
         #expect(OrganizeRailMetrics.reservedTrailing == 420)
         // The shed threshold at the default text size is where it was: the rail still spells its
-        // items out on a wide canvas and sheds on a narrow one.
-        let labels = OrganizeRailMetrics.labelWidths(scale: 1)
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, labelWidths: labels, badges: 5)
-                == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, labelWidths: labels, badges: 5)
-                == .iconOnly)
+        // items out on a wide canvas and sheds on a narrow one. **Every lens badged**, which is now
+        // reachable — `railCount(.restructure)` stopped returning a hard 0 in this same change, so
+        // five is the real ceiling rather than a hypothetical one.
+        let everyBadge: (OrganizeLens) -> Int? = { $0.badge(count: 7) }
+        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: everyBadge)
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading) == .iconOnly)
     }
 
     // MARK: The COUNT is real
