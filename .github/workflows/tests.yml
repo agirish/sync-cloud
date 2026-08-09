@@ -42,39 +42,41 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# One concurrency group per (ref, commit), and nothing is ever cancelled.
+# Branch pushes are TIP-ONLY; tags and manual dispatches are never cancelled.
 #
-# The SHA has to be in the key. `cancel-in-progress: false` protects only a run
-# that has already dispatched a job; GitHub Actions separately holds at most
-# ONE *pending* run per group. So under a ref-wide group, with one run in
-# progress and one pending, the next push evicts the pending one before it ever
-# creates a job — no verdict, and the branch still reads green because a later
-# SHA passed. Observed 2026-08-01 during a burst of landings, on both lines:
-# v2.x 389b38fb (run 30718845541) and 234e4312 (run 30718896990), and main
-# 957e173d (run 30718657891), all ended `cancelled` with ZERO jobs created,
-# each one second after the next push into its group. `gh run rerun` could not
-# rescue them — over ~40 min every re-queued attempt lost the single pending
-# slot to the next push again.
+# A burst of landings on main or v2.x tests only the newest SHA: all branch
+# pushes to one ref share a concurrency group, and `cancel-in-progress: true`
+# makes each new push cancel the group's older runs — the one executing on the
+# runner as well as any still queued. (Those are two separate mechanisms:
+# `cancel-in-progress` governs runs that have dispatched a job, while GitHub
+# separately holds at most ONE *pending* run per group and evicts the older
+# pending one on the next push, unconditionally. Under this ref-wide group both
+# now pull in the same direction.) A superseded run shows `cancelled`; if it was
+# evicted while pending it has ZERO jobs
+# (`gh api .../actions/runs/<id>/jobs --jq .total_count` → 0). Either way that
+# is supersession, not a failure.
 #
-# With a per-commit group no run can evict another, so every commit gets its own
-# verdict and a break is bisectable to the exact SHA — which matters because
-# commits here get audited. Bursts still run one at a time, but that is the
-# RUNNER serializing them, not this group: there is one self-hosted runner, so a
-# dispatched run's job simply sits `queued` until it frees up (run 30718745600
-# waited 8 min that day). A run is ~4-7 min of runner time, so per-commit cost
-# stays acceptable on our own hardware, though wall-clock during a burst is much
-# longer. (If a long burst backs the queue up, cancel stale runs with
-# `gh run cancel <id>` — deliberately, per SHA.)
+# This deliberately reverses the per-(ref, SHA) groups introduced 2026-08-01
+# (v2.x 91248cd / main 8abb0b2). That design bought a bisectable verdict for
+# every SHA at 4-7 min of runner time per commit — and the runner is the
+# developer's own Mac, so during a burst stale runs starved both the machine
+# and the tip's verdict. Decided 2026-08-09: the tip's verdict arriving fast is
+# worth more than intermediate SHAs having their own. The cost is real, though:
+# a commit superseded mid-burst has NO verdict of its own, so a break found at
+# the tip may need old SHAs re-run by hand to bisect. Do that in a quiet
+# moment: `gh run rerun` re-enters this same group, so a rerun of a stale SHA
+# and a live tip run will cancel each other.
 #
-# The ref stays in the key so a release tag never shares a group with the branch
-# push at the same commit: cutting v2.9 or v3.0 must get its own verdict. No
-# event here wants cancellation, so `cancel-in-progress` is false for all of
-# them, stated explicitly rather than left to the default. The only requests
-# that can still evict one another are repeats of an identical (ref, SHA) — same
-# checkout, same verdict — so nothing is lost.
+# Tags and workflow_dispatch keep per-commit groups (the SHA suffix below) and
+# are never cancelled: cutting v2.9 or v3.0 must get its own verdict even if
+# the branch moves during the run, and a deliberate manual re-run must not be
+# killable by an unrelated push. The ref stays in the key so a tag never shares
+# a group with the branch push at the same commit. The only requests that can
+# still evict one another are repeated dispatches of an identical (ref, SHA) —
+# same checkout, same verdict — so nothing is lost.
 concurrency:
-  group: tests-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: tests-${{ github.ref }}-${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) && 'branch-tip' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') }}
 
 jobs:
   package-tests:
