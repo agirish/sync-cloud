@@ -72,61 +72,33 @@ enum OrganizeRailMetrics {
     /// Between a label and the badge after it.
     static let badgeGap: CGFloat = 5
 
-    /// Row 1 width the rail can never have: the lens's own controls and the search toggle.
+    /// Row 1 width the rail can never have: **the search toggle, and nothing else.**
     ///
-    /// **Per lens, because one number for six of them was wrong for one of them.** It was a single
-    /// 420 — sized on Duplicates, the widest lens whose trailing set is fixed controls (353.5pt of
-    /// ink for `All ⌄`, `Rescan`, `Apply 410 recommended` and the search toggle) against a measured
-    /// requirement of 395. That held for five lenses and not for **To File**, whose trailing set
-    /// measures **436.5–468** once the refine offer is showing: `Rescan`, `Refine N with <model>`,
-    /// `File all N confident`, search. So the row truncated its own buttons *at the very width the
-    /// model started spelling the rail out* — the defect
-    /// `theShedThresholdIsNotOneCharacterTooLate` was written for, on the one lens it did not
-    /// sweep. Nothing about the caption below was needed to produce it: an empty
-    /// `filingSurveyReport` truncates just the same.
+    /// This was a per-lens number — 490 for To File, 420 for the other five — because the lens's
+    /// own controls sat opposite the rail. They are on row 2 now (see `TidyView.lensTrailing`),
+    /// and this constant is the reason they moved: the rail spells out at 693pt, so a 490pt
+    /// reserve meant row 1 wanted **1,183pt of card** before it would show six names. Most windows
+    /// are narrower than that, so most windows got the glyph-only rail — the shed was the normal
+    /// state rather than the exception it was designed to be.
     ///
-    /// Splitting the number costs nothing the shared one was buying. Sizing the shared constant at
-    /// To File's 468 instead would have shed the labels ~70pt early on the five lenses that never
-    /// needed it, which is the trade the old doc's "single number shared by all six lenses" was
-    /// silently making in the other direction.
+    /// The measured trailing sets are kept here because they are what justified the move and would
+    /// have to be re-measured to undo it: To File **436.5–468** with the refine offer showing,
+    /// Duplicates **354**, Names 240, Renames and Restructure 129, Rules and the overview less
+    /// again. Nothing reads them now.
     ///
-    /// Deliberately generous within each lens: being one item too cautious costs six labels that
-    /// would have fitted, while being one too optimistic costs the *actions* their words.
+    /// What remains is the toggle `LensHeaderCard` appends itself: a 22pt square plus the 8pt gap
+    /// before it, with 6pt of margin on top — 30 measured, 36 budgeted. Flat across text sizes for
+    /// the same reason the per-lens number was: it is an AppKit control at
+    /// `.controlSize(.small)`, which follows the system control font rather than the app's
+    /// `appFontScale`, while the rail's labels take `scaledFont` and do scale. So the row gets
+    /// tighter at large text on the leading side only, which the scaled ``leadingWidth(scale:badge:)``
+    /// already expresses.
     ///
-    /// **The margin absorbs the counts, and that is the part worth checking when this moves.** The
-    /// two To File labels carry numbers, so its requirement drifts with the queue — 437.5 at 24
-    /// files, 468 at 1,204, 460.5 at 99,999 (a digit is worth ~9pt and the peak is inside that
-    /// range, since a longer count buys a shorter model name no room). 490 clears the peak by 22.
-    /// A reserve whose *requirement* drifted further than its margin would be a broken model rather
-    /// than a mis-tuned number, and would want the trailing side measured per control the way
-    /// ``itemWidth(_:badge:scale:)`` measures the leading one.
-    ///
-    /// **No `scale:`, and that is measured rather than overlooked.** Every other width in this type
-    /// takes one — `glyphWidth` now *refuses* a default because a 1× answer at 1.3 under-counts —
-    /// so a reserve that ignores the setting looks like the same omission. It is not: the trailing
-    /// set is AppKit controls at `.controlSize(.small)`, which follow the system control font and
-    /// not the app's own `appFontScale`, while the rail's labels take `scaledFont` and do. Measured
-    /// across every size the app ships, To File's trailing set moves **435.5 / 436.5 / 438.5 /
-    /// 441.5** at 0.9 / 1.0 / 1.15 / 1.3 — six points over the whole range, against a leading side
-    /// that moves 642 → 800. So the row gets *tighter* at large text on the leading side only,
-    /// which is exactly what the scaled `leadingWidth` already expresses, and 490 keeps ~48pt of
-    /// margin at the largest size.
-    ///
-    /// The hazard this leaves is a *future* one worth naming: give those buttons `scaledFont` and
-    /// the reserve silently under-counts at 1.3 while passing at 1.0.
-    /// `theToFileThresholdSeatsItsOwnActions` sweeps every size for that reason.
-    ///
-    /// - Parameter lens: the rail's selection; nil is the overview, which draws Rescan and the
-    ///   search toggle alone (129pt measured) and so is covered by the shared figure.
-    static func reservedTrailing(for lens: OrganizeLens?) -> CGFloat {
-        switch lens {
-        // Rescan · Refine N with <model> · File all N confident · search.
-        case .toFile: return 490
-        // Duplicates (354) is the widest of these; Names 240, Renames and Restructure 129,
-        // Rules and the overview less again.
-        case .duplicates, .names, .renames, .restructure, .rules, .none: return 420
-        }
-    }
+    /// `theRowOneReserveSeatsWhatRowOneDraws` measures the trailing cluster off the render and
+    /// holds this number to it, at every text size — the assertion that would catch a control put
+    /// back on this side of the row and left out of the budget, which is exactly how a 21pt intro
+    /// button once rode here uncharged.
+    static let searchToggleWidth: CGFloat = 36
 
     /// A rail glyph's rendered width at the ambient text size.
     ///
@@ -250,10 +222,11 @@ enum OrganizeRailMetrics {
     /// inside the geometry transform — on every width the view is handed — while
     /// ``leadingWidth(scale:badge:)`` measures type and belongs once per `body`.
     ///
-    /// `lens` is taken here rather than folded into `leadingWidth` because it selects the
-    /// *trailing* reserve — see ``reservedTrailing(for:)``, which is the half that differs by lens.
-    static func style(contentWidth: CGFloat, leadingWidth: CGFloat,
-                             lens: OrganizeLens?) -> OrganizeRailStyle {
-        contentWidth - reservedTrailing(for: lens) >= leadingWidth ? .full : .iconOnly
+    /// **No `lens` parameter any more.** It used to select the trailing reserve, which differed by
+    /// lens because each lens's own controls sat on this row. They are on row 2 now, so what row 1
+    /// reserves is the search toggle — the same for all six — and a parameter that no longer
+    /// changes the answer would only invite the belief that it does.
+    static func style(contentWidth: CGFloat, leadingWidth: CGFloat) -> OrganizeRailStyle {
+        contentWidth - searchToggleWidth >= leadingWidth ? .full : .iconOnly
     }
 }

@@ -43,14 +43,23 @@ import Design
     private static let railZone = CGRect(x: 8, y: 12, width: 580, height: 30)
     /// Row 2 — the readout. Same left edge, so the two densities compare over the same width.
     private static let readoutZone = CGRect(x: 8, y: 50, width: 580, height: 22)
-    /// Row 1's trailing controls, **excluding the search toggle** at x≈860–890, which is drawn in
-    /// every state and would make this band non-empty no matter what the actions did.
-    private static let actionsZone = CGRect(x: 1000, y: 12, width: 330, height: 30)
+    /// The lens's trailing controls — **row 2 now**, which is where they moved. Excludes the search
+    /// toggle: that one stayed on row 1, and it draws in every state, so a band containing it would
+    /// be non-empty no matter what the actions did.
+    private static let actionsZone = CGRect(x: 1000, y: 48, width: 330, height: 26)
     /// Row 1's trailing set, **anchored to the right edge** so it tracks the controls at any width.
     /// 300pt: wide enough to hold the whole `Apply N recommended` label, narrow enough that the
     /// rail's own tail cannot wander into it on a header near the shed threshold.
+    /// Row **2**'s trailing controls, anchored to the right edge so they track at any width.
+    ///
+    /// **170pt, where row 1's band was 300.** The controls moved to row 2, and on that row they
+    /// share the trailing side with the folder-memory caption — a band wide enough to reach back
+    /// past the buttons catches the caption appearing and disappearing and reads that as
+    /// truncation. Measured: a 300pt band reported a flat 222-pixel difference at every width below
+    /// the caption's floor, which is the caption's own absence and not a clipped label. 170 is
+    /// inside the narrowest trailing set this suite measures (Duplicates, 354pt).
     private static func trailingZone(_ width: CGFloat) -> CGRect {
-        CGRect(x: width - 300, y: 12, width: 300, height: 30)
+        CGRect(x: width - 170, y: 48, width: 170, height: 26)
     }
 
     // MARK: Fixtures
@@ -201,6 +210,12 @@ import Design
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = NSColorSpace.sRGB
         window.contentView = host
+        // **Twice.** `.onGeometryChange` writes `railStyle` *after* a pass, so a single
+        // `layoutSubtreeIfNeeded` renders the initial `.full` and never the width-dependent answer.
+        // This was invisible while the threshold sat above every width the suite used — the initial
+        // value and the resolved one agreed — and became visible the moment a probe asked for a
+        // width on the shed side of it.
+        host.layoutSubtreeIfNeeded()
         host.layoutSubtreeIfNeeded()
         return host
     }
@@ -506,23 +521,36 @@ import Design
         #expect(counts(wide).ink > 600, "the rail is not drawing its labels at 1400pt")
     }
 
-    @Test("The rail sheds its labels rather than truncating the controls")
-    func theRailShedsWhenTheRowIsTight() throws {
-        // **The defect this rule exists for.** At 900pt the spelled-out rail and the filing
-        // queue's three controls overran row 1, and SwiftUI truncated the flexible side: `Refine
-        // with Opus` and `Refine with Haiku` both rendered as `Refin…`, so four tests comparing
-        // those renders saw identical pixels and nothing anywhere reported a problem.
+    @Test("At 900pt the rail spells itself out, and the controls are on row 2")
+    func theRailKeepsItsNamesAtNineHundred() throws {
+        // **This is change A, stated where it can fail.** The controls used to share row 1 with the
+        // rail, so the reserve was 490 for To File and the rail wanted 1,183pt of card before it
+        // would spell six names — at 900 it drew six anonymous glyphs. They are on row 2 now and
+        // row 1 reserves only the search toggle, so 900 is comfortably above the threshold.
+        //
+        // Run against this suite's own 1400pt reference: at both widths the rail is spelled out, so
+        // the ink is within a few per cent. Before A the 900pt render inked less than half of the
+        // 1400pt one, which is what the assertion below would catch if the reserve ever went back.
         let wide = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
                                       Self.railZone))
-        let narrowHost = mount(Self.manager(queue: 24, names: 17), lens: .toFile, width: 900)
-        let narrow = try #require(strip(narrowHost, Self.railZone))
+        let atNineHundred = try #require(strip(mount(Self.manager(queue: 24, names: 17),
+                                                     lens: .toFile, width: 900),
+                                               Self.railZone))
+        #expect(counts(atNineHundred).ink > counts(wide).ink * 3 / 4,
+                "at 900pt the rail inked \(counts(atNineHundred).ink) against \(counts(wide).ink) at 1400 — it is shedding its labels again, so row 1 has picked up a tenant the reserve does not know about")
 
-        // The labels are gone…
-        #expect(counts(narrow).ink < counts(wide).ink / 2,
-                "the narrow rail inked \(counts(narrow).ink) against \(counts(wide).ink) wide — it is not shedding, so the controls beside it are being truncated instead")
-        // …and the six places are not. A rail that shed items rather than words would strand
-        // pointed invocation, which is the one thing the permanent item exists for.
-        #expect(counts(narrow).ink > 120, "the narrow rail drew nothing — it shed its items, not its labels")
+        // And row 1's trailing half really is empty now, bar the search toggle `LensHeaderCard`
+        // appends itself. Measured to the LEFT of that toggle, which draws in every state and would
+        // make this band non-empty no matter what the actions did.
+        let host = mount(Self.manager(queue: 24, names: 17, refine: true), lens: .toFile, width: 1400)
+        let rowOneTrailing = try #require(strip(host, CGRect(x: 1000, y: 12, width: 330, height: 30)))
+        #expect(counts(rowOneTrailing).ink < 200,
+                "row 1's trailing band inked \(counts(rowOneTrailing).ink) — a control is still drawing up there, and the reserve is sized for none")
+        // …and they are drawing on row 2, or the assertion above passes by the actions having
+        // vanished entirely.
+        let rowTwoTrailing = try #require(strip(host, Self.trailingZone(1400)))
+        #expect(counts(rowTwoTrailing).ink > 400,
+                "row 2's trailing band inked \(counts(rowTwoTrailing).ink) — the controls did not arrive where they were moved to")
     }
 
     @Test("Shedding is arithmetic, and it answers both ways")
@@ -532,11 +560,19 @@ import Design
             OrganizeRailMetrics.leadingWidth(scale: 1, badge: b)
         }
         // The real header widths this app produces, either side of the threshold.
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges), lens: .toFile) == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges), lens: .toFile) == .iconOnly)
+        //
+        // **900 is now `.full`, and that is the whole of change A.** It used to be `.iconOnly`:
+        // the reserve was 490 for To File, so the rail wanted 1,183pt before it would spell six
+        // names and every ordinary window got glyphs. With the controls on row 2 the reserve is the
+        // search toggle alone and the threshold is ~668, so the shed belongs to widths a window
+        // does not reach. 640 is below it and still answers the other way, which is what keeps this
+        // an assertion about arithmetic rather than a restatement of a constant.
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges)) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges)) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 600, leadingWidth: lead(twoBadges)) == .iconOnly)
         // The shed rung has to actually solve it, or shedding buys nothing.
         let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: twoBadges)
-        #expect(shed <= 900 - OrganizeRailMetrics.reservedTrailing(for: .toFile))
+        #expect(shed <= 600 - OrganizeRailMetrics.searchToggleWidth)
         // Badges widen the rail, so the day every finding reports is the day it is tightest —
         // a rule measured without them would shed too late.
         #expect(lead(twoBadges) > lead(Self.badges([:])))
@@ -629,8 +665,16 @@ import Design
         // re-derives if the constants move.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
         let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
-        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
-            + OrganizeRailMetrics.reservedTrailing(for: .duplicates)
+        // **Swept from 900, not from the rail's own flip point, and the reason is change A.**
+        // The two constraints used to be one: the controls shared row 1 with the rail, so the width
+        // that first spelled the rail out was exactly the width that had to seat them, and this
+        // swept upward from it. They are on row 2 now and the constraints have come apart — row 1
+        // spells the rail out from ~633pt, while row 2 needs ~800 for this lens. Sweeping from the
+        // rail's threshold would assert something row 2 cannot deliver and never claimed to.
+        //
+        // 900 is the narrowest card an ordinary window produces, and the truncation this test was
+        // written for ran 600–925 and 1050–1225 — squarely inside the band swept here.
+        let threshold: CGFloat = 900
 
         // Right-anchored: the trailing set is right-aligned and fixed-size, so at every width that
         // seats it these bands are pixel-identical. 300pt, because a band wide enough to reach back
@@ -642,7 +686,7 @@ import Design
         // A **band**, not the single threshold point: a reserve that is short by a few points puts
         // the truncation just above the flip rather than at it, and one probe would step straight
         // over it. Measured pre-fix, the bad band ran 29pt.
-        for offset in stride(from: 0.0, through: 30.0, by: 6.0) {
+        for offset in stride(from: 0.0, through: 480.0, by: 60.0) {
             let width = (threshold + offset).rounded(.up)
             let host = mount(manager, lens: .duplicates, width: width)
             // The rail really is spelled out here — otherwise "not truncated" is satisfied by the
@@ -678,15 +722,16 @@ import Design
         // alone, which is precisely the scale this sweep adds.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
         let badge = Self.badges([.toFile: 24, .names: 17])
-        let threshold = OrganizeRailMetrics.leadingWidth(scale: size.scale, badge: badge)
-            + OrganizeRailMetrics.reservedTrailing(for: .toFile)
+        // From 900 for the reason the neighbour above gives: row 1 and row 2 no longer shed
+        // against the same width, and 900 is where real windows start.
+        let threshold: CGFloat = 900
 
         // The reference is taken at the SAME scale: the question is whether a header at the flip
         // point renders its actions like a roomy one, and a 1× reference would answer a different
         // one at every other size.
         let reference = try #require(strip(mount(manager, lens: .toFile, width: 2400, scale: size.scale),
                                            Self.trailingZone(2400)))
-        for offset in stride(from: 0.0, through: 48.0, by: 6.0) {
+        for offset in stride(from: 0.0, through: 480.0, by: 60.0) {
             let width = (threshold + offset).rounded(.up)
             let host = mount(manager, lens: .toFile, width: width, scale: size.scale)
             // Scaled with the text, because the rail's ink is: the flat 600 that suited 1.0 is a
@@ -702,12 +747,22 @@ import Design
 
     // MARK: The folder-memory report is prose, and prose is not on row 1
 
-    /// Row 2's status zone, right-anchored, and **kept clear of the readout it shares the row
-    /// with**. 452pt: the heaviest readout below ends at x 324, so at the 800pt canvas this band
-    /// starts 24pt clear of it. A wider band reads the pills as if they were the sentence, which is
-    /// how the first cut of `theReadoutOutranksTheSurveyReport` compared a number against itself.
+    /// The survey sentence's band on row 2 — **kept clear of the readout on one side and of the
+    /// controls on the other**, which is what makes it about the sentence and nothing else.
+    ///
+    /// It used to run to the row's right edge, because the right edge was where the sentence ended.
+    /// The lens's controls are on this row now and occupy the rightmost ~455pt (To File's set with
+    /// the refine offer, plus "N of M" and the divider), so a band anchored at `width - 452` is
+    /// almost entirely buttons: measured, it reported the actions' ink and moved with them, which
+    /// is how three tests here started answering a question about controls while claiming to be
+    /// about prose. This band stops 470pt short of the edge and is 470 wide — the sentence's own
+    /// worst case is 485 — so it is a slice of the sentence rather than the whole of it, taken
+    /// where nothing else can reach: 190pt ending 470 short of the row's right edge. At the 1400pt
+    /// canvas this suite pins these tests to, that is x 740–930 — clear of the controls on one side
+    /// and of the leading summary on the other, which on Duplicates runs out to x≈720 and was what
+    /// a wider band picked up and reported as the sentence.
     private static func statusZone(_ width: CGFloat) -> CGRect {
-        CGRect(x: width - 452, y: 50, width: 444, height: 22)
+        CGRect(x: width - 660, y: 48, width: 190, height: 26)
     }
     /// The width of the **last inked run** on row 2 — the survey sentence, measured rather than
     /// inferred from how much ink a fixed band happens to contain.
@@ -752,7 +807,7 @@ import Design
         return CGFloat(last.1 - last.0) / scale
     }
 
-    @Test("A long survey report leaves row 1's actions untouched")
+    @Test("A long survey report leaves the actions untouched")
     func theSurveyReportDoesNotTakeTheActionsWords() throws {
         // The reported defect. `FilingSurveyReport.summary` is prose whose length is a property of
         // the last survey — "12 folders changed, 340 documents read, 8 followed a move, 3 left the
@@ -762,7 +817,7 @@ import Design
         // Stated as: the report changes nothing about row 1. Same width, same everything else.
         let withReport = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
         let without = Self.manager(queue: 24, names: 17, refine: true)
-        let width: CGFloat = 1200
+        let width: CGFloat = 1400
 
         let reported = mount(withReport, lens: .toFile, width: width)
         let quiet = mount(without, lens: .toFile, width: width)
@@ -779,7 +834,7 @@ import Design
 
         #expect(differingPixels(try #require(strip(reported, Self.trailingZone(width))),
                                 try #require(strip(quiet, Self.trailingZone(width)))) == 0,
-                "row 1's actions render differently with a folder-memory report present — the report is back on row 1, taking the buttons' words to make room for itself")
+                "the actions render differently with a folder-memory report present — the caption is taking the buttons' words to make room for itself, which is the defect that moved it off row 1 in the first place")
     }
 
     @Test("The report still says what the survey found, and is not a stub")
@@ -791,9 +846,16 @@ import Design
         // founding failure is exactly that: two different labels clipped to identical images while
         // four tests compared them and passed.
         //
-        // At 800, where the sentence is under pressure and truncating: two surveys that differ in
+        // At 1000, where the sentence is under pressure and truncating: two surveys that differ in
         // their FIRST clause must still render differently.
-        let width: CGFloat = 800
+        //
+        // **1000 rather than 800, because the controls moved onto this row.** At 800 the trailing
+        // half is the heaviest readout (out to x≈324) and this lens's own controls (455pt back from
+        // the edge), which between them leave the sentence nothing — it is squeezed out entirely
+        // rather than truncated, and a test asking whether a truncated sentence stays legible has
+        // no sentence to ask about. At 1000 it gets ~209pt of the 485 it wants: compressed, drawn,
+        // and still carrying its first clause, which is the state this is about.
+        let width: CGFloat = 1000
         let other = FileSyncManager.FilingSurveyReport(
             foldersChanged: 7, documentsRead: 91, documentsRelocated: 8, documentsDropped: 3,
             documentsUnavailable: 5, foldersLearned: 96, changed: true)
@@ -821,7 +883,7 @@ import Design
         _ = running.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
         let idle = Self.manager(queue: 24, names: 17, refine: true)
 
-        let width: CGFloat = 1200
+        let width: CGFloat = 1400
         let busy = try #require(strip(mount(running, lens: .toFile, width: width),
                                       Self.statusZone(width)))
         let quiet = try #require(strip(mount(idle, lens: .toFile, width: width),
@@ -829,13 +891,13 @@ import Design
         #expect(counts(busy).ink > counts(quiet).ink + 200,
                 "row 2's status zone painted \(counts(busy).ink) inked pixels while a survey was running and \(counts(quiet).ink) with nothing to say — the in-flight branch is not drawing, so the menu item goes back to looking like it did nothing")
 
-        // And it stays on row 1's terms: the actions are untouched by a survey being in flight,
-        // which is the same claim the finished report has to satisfy.
+        // And the actions are untouched by a survey being in flight, which is the same claim the
+        // finished report has to satisfy — they share this row with it now.
         #expect(differingPixels(try #require(strip(mount(running, lens: .toFile, width: width),
                                                    Self.trailingZone(width))),
                                 try #require(strip(mount(idle, lens: .toFile, width: width),
                                                    Self.trailingZone(width)))) == 0,
-                "row 1's actions render differently while the folder-memory survey is running — the progress line is back on row 1")
+                "the actions render differently while the folder-memory survey is running — the progress line is taking their words")
     }
 
     @Test("The report stays inside the filing apparatus it describes")
@@ -852,7 +914,7 @@ import Design
         let manager = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
         manager.duplicateGroups = Self.duplicatesManager(groups: 3, names: 17).duplicateGroups
         manager.hasFoundDuplicates = true
-        let width: CGFloat = 1200
+        let width: CGFloat = 1400
 
         let onDuplicates = counts(try #require(strip(mount(manager, lens: .duplicates, width: width),
                                                      Self.statusZone(width)))).ink
@@ -923,63 +985,44 @@ import Design
                 "the report painted \(tight)pt wide at 800 and \(roomy)pt at 1400 — it is not being compressed at all, so nothing here is under pressure and the claim above is untested")
     }
 
-    @Test("The shed rung — the fallback — seats the actions at the width the model claims")
-    func theShedRungIsItselfHonest() throws {
-        // **The rail has two rungs and no third.** Everything above pins the upper one: at the
-        // width the model starts spelling labels out, the actions must still fit. Nothing pinned
-        // the LOWER one, and "shed" is not automatically "fits" — glyphs and badges still occupy
-        // the leading side, so there is a width below which even the shed rail leaves the trailing
-        // set short and the row truncates with nothing left to give up.
+    @Test("The shed rung is narrower than the rail it replaces, by enough to be worth having")
+    func theShedRungIsAFallbackWorthFallingBackTo() {
+        // **This test used to render the shed rail. It cannot any more, and the reason is worth
+        // recording rather than quietly dropping.**
         //
-        // The claim is that `shedLeadingWidth` plus this lens's reserve is a width the render can
-        // actually honour. Measured on Duplicates: the trailing set first differs from a roomy
-        // header between 720 and 740pt, and the model's own figure is 756.8 — conservative, which
-        // is the right direction. This fails if that ever inverts.
-        let manager = Self.duplicatesManager(groups: 410, names: 17)
+        // Row 1 reserves only the search toggle now, so the rail sheds below ~668pt of card. The
+        // harness cannot get there: `TidyView` lays its header out at roughly 750pt however narrow
+        // the canvas, and below that the leading cluster is *clipped* rather than shed. Measured by
+        // sweeping `leadingExtent` down the canvas — 627pt drawn at every width from 1100 to 750,
+        // then 685 / 642 / 592 / 542 / 492 at 700 / 650 / 600 / 550 / 500, which is a fixed cluster
+        // running off the edge and not a rail that has swapped rungs. A render assertion here would
+        // measure clipping and call it shedding.
+        //
+        // So the rung is asserted where it is still observable — in the arithmetic — and the claim
+        // is the one that matters: **the fallback has to be dramatically narrower than what it
+        // replaces, or shedding buys nothing.** 315pt against 632 measured. `theShedRuleIsComputed`
+        // covers the rule that chooses between them, at 900 and at 600.
         let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
-        let floor = (OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: badge)
-                     + OrganizeRailMetrics.reservedTrailing(for: .duplicates)).rounded(.up)
-
-        let reference = try #require(strip(mount(manager, lens: .duplicates, width: 2400),
-                                           Self.trailingZone(2400)))
-        let host = mount(manager, lens: .duplicates, width: floor)
-        // The rail really is shed here — otherwise this is re-testing the spelled-out rung.
-        //
-        // Measured off the leading cluster, **not `railZone`**: that band is x 8–588, and at a
-        // header this narrow the trailing controls start around x 404 and sit inside it, so its
-        // ink count answers a question about the actions rather than about the rail. Holding the
-        // drawn cluster to `shedLeadingWidth` proves both at once — that the shed rung is what is
-        // on screen, and that the model of it is accurate rather than merely conservative.
-        let drawn = try #require(leadingExtent(host, width: floor),
-                                 "row 1 drew no leading cluster at \(floor)pt")
         let shedModel = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: badge)
         let spelledOut = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
-
-        // **Anchored to the spelled-out width, not only to `shedLeadingWidth`.** This probe takes
-        // its own canvas from the function under test, so a `shedLeadingWidth` that returned the
-        // *full* width would simply move the probe to a roomy header where every assertion below
-        // holds trivially — mutation-checked, and the first version of this test passed that
-        // mutation. Requiring the drawn cluster to be dramatically narrower than the spelled-out
-        // rail (315 measured against 632) is a claim `shedLeadingWidth` cannot satisfy by inflating
-        // itself.
-        #expect(drawn < spelledOut - 100,
-                "at \(floor)pt the leading side draws \(drawn)pt against \(spelledOut)pt spelled out — the rail is not shed here, so this is measuring the upper rung on a canvas where nothing has to fit")
-        #expect(shedModel >= drawn && shedModel - drawn < 12,
-                "at \(floor)pt the leading side draws \(drawn)pt against a shed model of \(shedModel)pt — the shed model does not describe the shed rail")
-        #expect(differingPixels(try #require(strip(host, Self.trailingZone(floor))), reference) == 0,
-                "at \(floor)pt — the width the model says the SHED rail needs — the actions already render differently from a roomy header, so the fallback the shed rule falls back to does not itself fit")
+        #expect(shedModel < spelledOut - 100,
+                "the shed rung models \(shedModel)pt against \(spelledOut)pt spelled out — falling back to it saves too little to be a fallback")
+        // And it keeps the badges, which are the reason to look at a shed rail at all.
+        let unbadged = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: { _ in nil })
+        #expect(shedModel > unbadged,
+                "the shed rung costs the same with badges as without — it is dropping the counts along with the labels")
     }
 
     // MARK: The control — Rescan outlives the queue
 
     @Test("Rescan is there once a scan has run, even with nothing left to file")
     func rescanSurvivesAnEmptyQueue() throws {
-        // The reported state: everything filed, findings still standing. Row 1's trailing half used
-        // to be empty here, because Rescan sat inside the gate that draws "File all".
+        // The reported state: everything filed, findings still standing. The trailing half used to be
+        // empty here, because Rescan sat inside the gate that draws "File all".
         let filed = try #require(strip(mount(Self.manager(queue: 0, names: 17), lens: .toFile),
                                        Self.actionsZone))
         #expect(counts(filed).ink > 100,
-                "row 1 painted no controls with an empty queue beside 17 risky names — Rescan is gated on the queue again")
+                "the action band painted nothing with an empty queue beside 17 risky names — Rescan is gated on the queue again")
     }
 
     @Test("…and is absent before the first scan, where the intro owns the invitation")
@@ -989,7 +1032,7 @@ import Design
         let never = try #require(strip(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
                                              lens: .toFile), Self.actionsZone))
         #expect(counts(never).ink < 20,
-                "row 1's action band is inked before any scan has completed — Rescan is ungated")
+                "the action band is inked before any scan has completed — Rescan is ungated")
     }
 
     @Test("The actions band is over the actions")

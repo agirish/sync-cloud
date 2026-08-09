@@ -167,30 +167,27 @@ struct OrganizeScopeChipTests {
 
     /// Row **1** is the rail's row, and the chip is not on it.
     ///
-    /// `OrganizeRailMetrics.reservedTrailing(for:)` is measured against row 1's trailing controls —
-    /// Rescan, Refine, File all N, the search toggle. The scope chip lives on row 2, so that
-    /// arithmetic is untouched by this change; this test states that as a fact rather than leaving
-    /// it as an assumption, and `OrganizeScopeCallSiteTests` pins the chip's actual draw site.
+    /// `OrganizeRailMetrics.searchToggleWidth` is what row 1 reserves, and the chip is not on row 1.
+    /// The scope chip lives on row 2, so that arithmetic is untouched by this change; this test
+    /// states that as a fact rather than leaving it as an assumption, and
+    /// `OrganizeScopeCallSiteTests` pins the chip's actual draw site.
     ///
-    /// **Row 2 has since gained a second tenant and this still holds** — the folder-memory survey
-    /// status moved off row 1 (`TidyView.folderMemoryStatus`), and the five lenses' reserve did not
-    /// move with it. To File's did, from 420 to 490, and for an unrelated reason the pixels name:
-    /// its own buttons need 468 with a refine offer showing.
+    /// **Row 2 carries most of the header now and this still holds.** The folder-memory caption
+    /// moved off row 1, and then so did the lens's own controls — which is why the reserve is no
+    /// longer per lens at all: what row 1 keeps is the rail and the search toggle. The chip has
+    /// been on row 2 through all of it and has never been in this budget.
     @Test func theRailsWidthArithmeticIsUnchangedByTheChip() {
-        for lens in OrganizeLens.allCases where lens != .toFile {
-            #expect(OrganizeRailMetrics.reservedTrailing(for: lens) == 420)
-        }
-        #expect(OrganizeRailMetrics.reservedTrailing(for: nil) == 420)
-        // The shed threshold at the default text size is where it was: the rail still spells its
-        // items out on a wide canvas and sheds on a narrow one. **Every lens badged**, which is now
-        // reachable — `railCount(.restructure)` stopped returning a hard 0 in this same change, so
-        // five is the real ceiling rather than a hypothetical one.
+        #expect(OrganizeRailMetrics.searchToggleWidth == 36)
+        // The rail still spells its items out on a wide canvas and sheds on a narrow one — the
+        // narrow one is just much narrower than it was. **Every lens badged**, which is the widest
+        // the rail ever gets and so the case that sheds soonest.
         let everyBadge: (OrganizeLens) -> Int? = { $0.badge(count: 7) }
         let leading = OrganizeRailMetrics.leadingWidth(scale: 1, badge: everyBadge)
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading,
-                                          lens: .duplicates) == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading,
-                                          lens: .duplicates) == .iconOnly)
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading) == .full)
+        // 900 is `.full` now where it was `.iconOnly`: that flip IS change A, measured here rather
+        // than asserted in prose.
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 600, leadingWidth: leading) == .iconOnly)
     }
 
     // MARK: The COUNT is real

@@ -445,6 +445,7 @@ public struct TidyView: View {
     /// fires when the ANSWER flips rather than on every point of a live resize.
     @State private var railStyle: OrganizeRailStyle = .full
 
+
     /// Whether Organize is showing its overview: every lens's answer for the scope, one page.
     ///
     /// The rail's *unselected* state rather than a seventh rail item, so it has no name of its own
@@ -688,7 +689,7 @@ public struct TidyView: View {
                 // shedding inside the transform.
                 .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
                     OrganizeRailMetrics.style(contentWidth: proxy.size.width,
-                                              leadingWidth: railLeading, lens: organizeLens)
+                                              leadingWidth: railLeading)
                 } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
@@ -823,7 +824,10 @@ public struct TidyView: View {
             hue: glassHue,
             tint: surfaceTint,
             title: { lensTitle(counts) },
-            actions: { lensActions(rows: rows) },
+            // **Row 1's trailing half is empty now, and that is the point.** The lens's controls
+            // moved to row 2 — see ``lensTrailing``. What is left up here is the search toggle,
+            // which `LensHeaderCard` appends itself, so row 1 is the rail and one 30pt button.
+            actions: { EmptyView() },
             summary: { lensSummary(rows: rows, scopeFolders: scopeFolders) },
             trailing: { lensTrailing(rows: rows, counts: counts) }
         )
@@ -1350,6 +1354,64 @@ public struct TidyView: View {
                 ofMLabel(storage.filtered, storage.total)
             }
         }
+        // **This lens's controls, at the end of row 2.** They were row 1's trailing half, opposite
+        // the rail, and the two could not both have it: the rail spells out at 693pt and To File's
+        // controls need 490, so row 1 wanted 1,183pt of card before it would show six names. Every
+        // window narrower than that got the glyph-only rail instead — which is most of them.
+        //
+        // Down here they cost the row nothing that competes with navigation, because what they sit
+        // beside is prose that can shorten (see ``folderMemoryStatus``) rather than six
+        // destinations that cannot. Row 1's reserve collapses to the search toggle alone, and the
+        // shed threshold with it — see ``OrganizeRailMetrics/searchToggleWidth``.
+        //
+        // The divider is what keeps the old objection answered. Controls were pulled OFF this row
+        // once because the readout and the buttons had become indistinguishable; the rule that
+        // settled it is prose on the leading side, controls on the trailing side, one hairline
+        // between. That rule is intact — the boundary is just back on this row rather than being a
+        // row break.
+        if hasRowTwoActions {
+            summaryZoneDivider
+            lensActions(rows: rows)
+        }
+    }
+
+    /// Whether this lens draws any control on row 2 — the gate on the divider, so a lens with no
+    /// actions does not draw a rule against nothing.
+    ///
+    /// Deliberately mirrors ``lensActions``'s own gates rather than asking whether it produced a
+    /// view: a `@ViewBuilder` cannot be asked whether it is empty, and a divider that appears
+    /// beside an empty band is exactly the "rule separating prose from the card edge" this file
+    /// already rejected once.
+    private var hasRowTwoActions: Bool {
+        switch effectiveLens {
+        case .duplicates:
+            return hasResults && !syncManager.isFindingDuplicates
+        case .rename, .filing:
+            guard !syncManager.isSuggestingFiles else { return false }
+            if syncManager.hasSuggestedFiling { return true }
+            switch organizeLens {
+            case .toFile: return hasFilingResults
+            case .names: return !syncManager.riskyNames.isEmpty
+            case .renames: return !syncManager.renamePlans.isEmpty
+            case .none, .duplicates, .restructure, .rules: return false
+            }
+        case .automations:
+            return !syncManager.automationRules.isEmpty
+        case .storage:
+            return hasStorageReport && !syncManager.isBuildingStorageLens
+        }
+    }
+
+    /// The hairline between row 2's prose and row 2's controls.
+    ///
+    /// Named for the type that used to do this job before the controls moved up to row 1 and it was
+    /// deleted; it marks the same boundary for the same reason.
+    private var summaryZoneDivider: some View {
+        Rectangle()
+            .fill(.quaternary)
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, 2)
+            .accessibilityHidden(true)
     }
 
     private func ofMLabel(_ shown: Int, _ total: Int) -> some View {
