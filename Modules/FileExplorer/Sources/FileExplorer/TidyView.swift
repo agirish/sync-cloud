@@ -681,24 +681,32 @@ public struct TidyView: View {
         )
     }
 
-    /// The lens's name — row 1 of the header card.
+    /// Row 1 of the header card: **navigation, not a name.**
     ///
-    /// This replaces the lens tabs, which moved to the window's workspace bar. Removing them
-    /// would have left the column with no statement of what it is showing: the counts beneath say
-    /// how many, never of what. So the row keeps its height and says the name instead.
+    /// It used to say the workspace's own title, because the lens tabs had just moved to the
+    /// window's workspace bar and the column would otherwise have had no statement of what it was
+    /// showing. The bar says it — the selected segment reads "Organize" or "Storage" three
+    /// centimetres above this — so the card repeated it, and repetition is the one thing a fixed
+    /// 81pt header cannot afford: it spent the most prominent row in the lens saying a word the
+    /// chrome already said.
+    ///
+    /// So Organize gives the row to its rail, which names where you are *more* precisely than the
+    /// title did (the ringed item is the lens, not just the workspace). Storage has no rail and
+    /// gives the row to the readout it used to keep on row 2 — same principle, the row says
+    /// something only this surface knows.
+    @ViewBuilder
     private var lensTitle: some View {
-        // `lens`, deliberately, NOT `effectiveLens`: Organize showing its risky names is still
-        // Organize. A title that flipped to "Rename" would re-announce the place this change
-        // removed, and would make a filter look like a navigation.
-        HStack(spacing: 4) {
-            Text(lens.title)
-                .scaledFont(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.primary)
-                .accessibilityAddTraits(.isHeader)
+        HStack(spacing: 6) {
+            // Storage has no rail, and promoting its readout here was worse than the title it
+            // replaced: row 1's leading half competes with the actions, so "Documents" truncated
+            // away to a bare folder glyph, and row 2 — a fixed row on a fixed-height card — went
+            // empty. Its readout stays on row 2 and row 1 is simply its controls, which is the
+            // shape Compare's header already has.
+            if lens != .storage { organizeRail() }
             // The lens's explanation and safety contract, one click away in EVERY state — not just
-            // before the first scan, which is the only moment the empty state exists. On the
-            // LEADING side because row 1's trailing half is already spoken for by the lens actions
-            // and the search toggle.
+            // before the first scan, which is the only moment the empty state exists. It keeps the
+            // LEADING side, after the rail: row 1's trailing half is already spoken for by the
+            // lens actions and the search toggle.
             if let intro = currentLensIntro {
                 LensIntroButton(intro: intro, tint: glassHue.accentColor)
             }
@@ -845,17 +853,17 @@ public struct TidyView: View {
         // only on the filing apparatus, so standing on Duplicates or Rules rendered the lens's own
         // pills and no rail at all: the six places you navigate by, gone, on two of the six lenses
         // they navigate to. Caught by installing the build and looking at it, not by any test here.
-        if lens != .storage { organizeRail() }
-        // **The divider belongs to the readout, not to the rail.** Drawn after the rail
-        // unconditionally it hangs off the end of the row with nothing behind it — which is
-        // exactly what the overview looked like, a rule separating six controls from empty space.
-        // So each arm draws its own, inside the same gate that decides whether it has anything to
-        // say. A divider that can outlive its content is the same class of thing as a chip that
-        // counts a list nobody can see.
+        // **The rail lives on row 1 now** (see `lensTitle`) — it is not drawn here. It was, for
+        // one build, and row 1 got a copy without row 2 losing its own: six capsules over six
+        // identical capsules. Moving a slot means swapping it, not adding it.
+        //
+        // And no arm draws a leading divider any more: row 2 is purely the readout now, so a rule
+        // at its head separates prose from the left edge of the card. `SummaryZoneDivider` marks
+        // the boundary between controls and prose, and with the controls a row above there is no
+        // boundary on this row to mark.
         switch effectiveLens {
         case .duplicates:
             if hasResults {
-                SummaryZoneDivider()
                 duplicatesSummary(rows.duplicates)
             }
         // Both of Organize's states, through one path. `.rename` reaches here only as an EFFECTIVE
@@ -868,7 +876,6 @@ public struct TidyView: View {
             organizeSummary(rows: rows)
         case .automations:
             if !syncManager.automationRules.isEmpty {
-                SummaryZoneDivider()
                 automationsSummary(rows.rules)
             }
         case .storage:
@@ -902,13 +909,11 @@ public struct TidyView: View {
             switch organizeLens {
             case .toFile:
                 if hasFilingResults {
-                    SummaryZoneDivider()
                     scannedFolderChip(syncManager.filingScanFolder)
                     filingSummary(rows.filing)
                 }
             case .names:
                 if syncManager.hasScannedNames {
-                    SummaryZoneDivider()
                     scannedFolderChip(syncManager.nameScanRoot?.path)
                     renameSummary(rows.risky)
                 }
@@ -919,7 +924,6 @@ public struct TidyView: View {
                 // off that walk, and the name scan's root is only set when a provider was passed in
                 // for the names check, so borrowing it would leave this chip blank or, worse,
                 // pointing at a previous scan.
-                SummaryZoneDivider()
                 scannedFolderChip(syncManager.filingLastProviderRoot)
                 // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
                 // that got you here: a badge is a signpost and counts its whole list, a readout
