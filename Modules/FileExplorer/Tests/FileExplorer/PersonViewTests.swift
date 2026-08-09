@@ -1,0 +1,165 @@
+import Testing
+import AppKit
+import SwiftUI
+import Design
+@testable import Sync
+@testable import FileExplorer
+
+/// The person view paints both groups, and paints them differently.
+///
+/// **Pixels, because the interesting claims are all about what is on screen** and a caption
+/// assertion passes vacuously with no assistive client attached to the test process. Rendered and
+/// read back in light and dark before this suite existed — the two-theme check is what catches a
+/// foreground that vanishes into its own background.
+@MainActor
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PersonViewTests {
+
+    private static let canvas = CGSize(width: 760, height: 480)
+    /// The header, above the divider.
+    private static let headerZone = CGRect(x: 0, y: 0, width: 760, height: 36)
+    /// The two groups. **Measured, and corrected once**: a 20pt sweep comparing a render with the
+    /// elsewhere group against one without put the first difference at y=140, not the y=180 the
+    /// first cut assumed — so a 44–164 folder band overlapped the group below it and reported 660
+    /// ink of "difference" in a region that is identical in both. Folders occupy 44–134;
+    /// "Hers, filed elsewhere" heads y≈155.
+    private static let foldersZone = CGRect(x: 0, y: 44, width: 760, height: 90)
+    private static let elsewhereZone = CGRect(x: 0, y: 155, width: 760, height: 180)
+
+    private static func folder(_ path: String, _ n: Int) -> (folder: String, files: [PersonFile]) {
+        (folder: path, files: (0..<n).map { PersonFile(path: "\(path)/f\($0).pdf", evidence: .herFolder) })
+    }
+
+    private static var aditi: PersonFileSet {
+        PersonFileSet(personId: "aditi",
+                      herFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
+                      elsewhere: [
+                        PersonFile(path: "Shared/Inbox/Aditi Abhishek - OCI Card.pdf",
+                                   evidence: .namedInFile, matchedForm: "Aditi Abhishek")])
+    }
+
+    private func mount(_ set: PersonFileSet, name: String = "Aditi",
+                       scheme: ColorScheme = .light) -> NSHostingView<AnyView> {
+        let subject = PersonView(displayName: name, files: set, accent: .accentColor,
+                                 onOpenFolder: { _ in }, onReveal: { _ in }, onClear: {})
+            .frame(width: Self.canvas.width, height: Self.canvas.height)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, scheme)
+        let host = NSHostingView(rootView: AnyView(subject))
+        host.frame = CGRect(origin: .zero, size: Self.canvas)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.colorSpace = NSColorSpace.sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
+
+    private func ink(_ host: NSHostingView<AnyView>, _ band: CGRect) -> Int {
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: band) else { return 0 }
+        host.cacheDisplay(in: band, to: rep)
+        guard let bg = rep.colorAt(x: 2, y: 2) else { return 0 }
+        var n = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let d = max(abs(c.redComponent - bg.redComponent),
+                            max(abs(c.greenComponent - bg.greenComponent),
+                                abs(c.blueComponent - bg.blueComponent)))
+                if d > 0.35 { n += 1 }
+            }
+        }
+        return n
+    }
+
+    /// Pixels that differ between two renders of the same band.
+    ///
+    /// **An ink count cannot answer "did this number change".** `80` and `85` have almost the same
+    /// glyph density, so both headers inked 1,831 pixels and an equality-of-counts assertion read
+    /// them as identical. Counting *differing* pixels asks the question that was meant.
+    private func differingPixels(_ a: NSHostingView<AnyView>, _ b: NSHostingView<AnyView>,
+                                 _ band: CGRect) -> Int {
+        a.layoutSubtreeIfNeeded(); b.layoutSubtreeIfNeeded()
+        guard let ra = a.bitmapImageRepForCachingDisplay(in: band),
+              let rb = b.bitmapImageRepForCachingDisplay(in: band) else { return 0 }
+        a.cacheDisplay(in: band, to: ra)
+        b.cacheDisplay(in: band, to: rb)
+        guard ra.pixelsWide == rb.pixelsWide, ra.pixelsHigh == rb.pixelsHigh else { return .max }
+        var n = 0
+        for y in 0..<ra.pixelsHigh {
+            for x in 0..<ra.pixelsWide where ra.colorAt(x: x, y: y) != rb.colorAt(x: x, y: y) { n += 1 }
+        }
+        return n
+    }
+
+    @Test("Both groups reach the screen, in both themes")
+    func bothGroupsPaint() {
+        // Both themes, because a foreground that vanishes into its own background is invisible to
+        // every geometry assertion and to a light-only render.
+        for scheme in [ColorScheme.light, .dark] {
+            let host = mount(Self.aditi, scheme: scheme)
+            #expect(ink(host, Self.headerZone) > 200, "the header is empty in \(scheme)")
+            #expect(ink(host, Self.foldersZone) > 600, "the folder group is empty in \(scheme)")
+            #expect(ink(host, Self.elsewhereZone) > 400, "the elsewhere group is empty in \(scheme)")
+        }
+    }
+
+    @Test("The elsewhere group is what disappears when there is nothing misfiled")
+    func theElsewhereGroupIsConditional() {
+        // The payoff group is the reason to open this view, so its absence has to be real absence
+        // rather than an empty heading — and its presence has to be what changes, not the folders
+        // above it, which are identical in both fixtures.
+        let withNone = PersonFileSet(personId: "aditi", herFolders: Self.aditi.herFolders,
+                                     elsewhere: [])
+        let bare = mount(withNone)
+        let full = mount(Self.aditi)
+        #expect(ink(bare, Self.elsewhereZone) < 100,
+                "the elsewhere group painted with nothing in it — an empty heading is a claim")
+        #expect(ink(full, Self.elsewhereZone) > 400)
+        // …and the folder group above is untouched, or the comparison is measuring the wrong thing.
+        #expect(ink(bare, Self.foldersZone) == ink(full, Self.foldersZone),
+                "the folder group changed too — the elsewhere band is measuring the wrong region")
+    }
+
+    @Test("A person with nothing gets an answer, not a blank panel")
+    func theEmptyStateSaysSo() {
+        let empty = PersonFileSet(personId: "divit", herFolders: [], elsewhere: [])
+        let host = mount(empty, name: "Divit")
+        // Something is said — "Nothing filed under Divit." — and the groups are gone.
+        #expect(ink(host, Self.foldersZone) > 150, "an empty result painted nothing at all")
+        #expect(ink(host, Self.headerZone) > 200, "the header lost its name and count")
+    }
+
+    @Test("The count in the header is the whole set, not the rows on screen")
+    func theHeaderCountsEverything() {
+        // The folder list truncates at 8; the header must still answer the question that was asked.
+        //
+        // **The two fixtures share their VISIBLE rows exactly** — the same eight folders, in the
+        // same order — and differ only past the cut. A first version added folders that changed
+        // both the total and the visible prefix, so the header differed either way and a mutation
+        // counting only the visible rows passed it. Making the visible half identical is what
+        // leaves the total as the only thing that can move the pixels.
+        let visible = (0..<8).map { Self.folder("Area/\($0)", 10) }
+        let short = PersonFileSet(personId: "aditi", herFolders: visible, elsewhere: [])
+        let long = PersonFileSet(personId: "aditi",
+                                 herFolders: visible + (0..<5).map { Self.folder("Extra/\($0)", 1) },
+                                 elsewhere: [])
+        #expect(differingPixels(mount(long), mount(short), Self.headerZone) > 20,
+                "the header painted the same count for 80 files and 85 — it is counting the visible rows")
+        // And the remainder is STATED rather than dropped: past the cut the folder group grows a
+        // "5 more folders…" line. **Measured over the whole group, not `foldersZone`** — that band
+        // stops at y=134 and holds only the group header and two rows, so it saw the header's own
+        // count change and reported a difference while the line it names sits 180pt below. Deleting
+        // the line failed nothing until this band reached it.
+        // **NOT covered here: the "5 more folders…" line itself.** Three attempts failed to
+        // isolate it and each failed in a way worth recording. A band over the whole group differs
+        // between these fixtures whether or not the line draws, because the group header carries
+        // its own "85 files · 13 folders"; a band below the header still contains it; and a band
+        // placed where eight rows were estimated to end (y≈296) lands *on* the rows, which ink
+        // 1,049 pixels there. Deleting the line fails none of those. Rather than keep guessing at
+        // a rectangle, the claim is left uncovered and said so: the remainder line is asserted by
+        // no test, and locating it wants the row pitch measured rather than assumed.
+    }
+}
