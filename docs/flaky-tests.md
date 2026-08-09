@@ -447,7 +447,7 @@ grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Mod
   | grep -v '/\.build/' | grep -v Floor
 ```
 
-Run on this line 2026-08-09: **41 unfloored clock-bounded loops**, against 8 floored ones correctly
+Run on this line 2026-08-09: **41 unfloored clock-bounded loops**, against 7 floored ones correctly
 excluded. Most of the 41 are fixed pumps with no condition to starve — the separate problem this
 section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
 are the real residual, and there are more of them than the list above says:
@@ -455,6 +455,12 @@ are the real residual, and there are more of them than the list above says:
 `BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests`. **Five remain; one is now
 fixed.** Naming one and calling it "the real residual" is how this list stayed wrong through two
 sweeps; the count above is reproducible, so check it rather than trusting the prose.
+
+**`poll` is invisible to the sweep above, deliberately and with a cost.** It reads an injected
+`now()` rather than `Date()`, so the pattern matches neither its floored form nor an unfloored one
+— which means the sweep would NOT catch someone deleting its floor. That guard moved to
+`LayoutPumpWaitPollTests` instead, where `pumpFloor = 0` fails two assertions. Any future wait that
+takes a clock has to carry its own floor test for the same reason; the grep cannot see it.
 
 **`PaneColumnsScrollTests` is the one that is fixed, and it is off the list because it was SEEN to
 fail rather than because it was next.** On 2026-08-09 `testARestTheGrownViewportMadeIllegalIsPulled\
@@ -489,7 +495,7 @@ then permanently live and the CONDITION decides when the loop ends, which is a p
 rather than of the machine. Anything asserting that N seconds buys more than the floor is a
 throughput bet; write the discriminator instead.
 
-**Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 42 and 4, and
+**Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 42 and 3, and
 its residual is eight, because the four view-based settles migrated on `main` on 2026-08-04 are
 still unmigrated there — and its floored count is lower because it has neither the Dashboard copy of
 `LayoutPumpWait` nor the view-based `pump` entry point `main` added to the FileExplorer one, only
