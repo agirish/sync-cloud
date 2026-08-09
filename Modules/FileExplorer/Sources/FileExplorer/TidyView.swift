@@ -1997,6 +1997,17 @@ public struct TidyView: View {
 
     /// Storage's pills. The total is the whole scanned tree's — a query filters the ranked lists,
     /// never the tree's size, so this figure must not move when you type.
+    ///
+    /// **One pill per section the body draws.** `StorageLensView` lists three — largest, stale,
+    /// reclaim — and this row counted two of them: `stale` had no pill at all, so "Untouched for a
+    /// long time" was a full section with its own list that nothing in the header ever announced.
+    /// Its glyph and colour are the section's own (`StorageSection.stale`), so the pill and the
+    /// heading it stands for read as the same thing rather than as two unrelated warnings.
+    ///
+    /// Absent at zero, like the reclaim pill beside it: "0 untouched" is a claim, and the section's
+    /// own empty state ("Nothing has been sitting untouched") already says it in words. `largest`
+    /// keeps its unconditional pill — it is the ranking every report has, not a finding that may or
+    /// may not turn up.
     private func storageSummary(_ report: StorageLensReport) -> some View {
         Group {
             scannedFolderChip(syncManager.storageLensRoot?.path,
@@ -2004,6 +2015,10 @@ public struct TidyView: View {
             Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
                  text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
             StatPill(count: report.largest.count, label: "largest", color: SemanticColor.info, systemImage: "arrow.up.circle")
+            if !report.stale.isEmpty {
+                StatPill(count: report.stale.count, label: "untouched",
+                         color: SemanticColor.warning, systemImage: "clock.badge.exclamationmark")
+            }
             if !report.reclaimCandidates.isEmpty {
                 StatPill(count: report.reclaimCandidates.count, label: "to reclaim",
                          color: SemanticColor.success, systemImage: "internaldrive")
