@@ -587,15 +587,16 @@ public struct TidyView: View {
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
                 pendingRuleOffer = nil
                 searchQueries[.filing] = ""
-                // The finding belongs to the scan that produced it. Staying on the names list
-                // across a rescan would show the previous scan's answer under the new scan's
-                // header, and its query would survive into a list it no longer describes.
+                // **The selection is NOT moved, and that is a deliberate reversal.** The chips
+                // bounced you back to the queue here, because a finding chip could vanish under a
+                // rescan and strand you on a list with no way back. A rail item cannot vanish, so
+                // standing on Names while its scan re-runs is a legitimate place to be — the list
+                // says it is scanning and then refills.
                 //
-                // **Only the lenses this scan republishes move.** Duplicates and Rules are not its
-                // output and go nowhere — the old Bool could not express that distinction, and a
-                // blanket reset would have yanked someone out of the rule list because a filing
-                // scan started somewhere else.
-                if let railLens, railLens.goesStaleDuringFilingScan { self.railLens = .toFile }
+                // Moving it was actively wrong: the auto-rescan fires as Organize appears, so a
+                // launch that restored Names started a scan and immediately yanked the selection
+                // to To File. Names and Renames could not survive a relaunch at all. Only the
+                // parked query goes, because it described the previous scan's rows.
                 searchQueries[.rename] = ""
             } else {
                 // Finished: a cloud call may have recorded spend, and both the spend row and the
@@ -839,9 +840,24 @@ public struct TidyView: View {
     /// three have nothing clickable on this row, so a pill there claims nothing it cannot keep.
     @ViewBuilder
     private func lensSummary(rows: FilteredRows) -> some View {
+        // **The rail draws for EVERY Organize lens, which is why it cannot live inside one arm of
+        // the switch below.** It did, briefly, inside `organizeSummary` — and that arm is reached
+        // only on the filing apparatus, so standing on Duplicates or Rules rendered the lens's own
+        // pills and no rail at all: the six places you navigate by, gone, on two of the six lenses
+        // they navigate to. Caught by installing the build and looking at it, not by any test here.
+        if lens != .storage { organizeRail() }
+        // **The divider belongs to the readout, not to the rail.** Drawn after the rail
+        // unconditionally it hangs off the end of the row with nothing behind it — which is
+        // exactly what the overview looked like, a rule separating six controls from empty space.
+        // So each arm draws its own, inside the same gate that decides whether it has anything to
+        // say. A divider that can outlive its content is the same class of thing as a chip that
+        // counts a list nobody can see.
         switch effectiveLens {
         case .duplicates:
-            if hasResults { duplicatesSummary(rows.duplicates) }
+            if hasResults {
+                SummaryZoneDivider()
+                duplicatesSummary(rows.duplicates)
+            }
         // Both of Organize's states, through one path. `.rename` reaches here only as an EFFECTIVE
         // lens, from Organize: no workspace claims it, which `WorkspaceTests` pins directly
         // (`Workspace.allCases.compactMap(\.lens)` excludes `.rename`), so `lens` is never `.rename`
@@ -851,7 +867,10 @@ public struct TidyView: View {
         case .rename, .filing:
             organizeSummary(rows: rows)
         case .automations:
-            if !syncManager.automationRules.isEmpty { automationsSummary(rows.rules) }
+            if !syncManager.automationRules.isEmpty {
+                SummaryZoneDivider()
+                automationsSummary(rows.rules)
+            }
         case .storage:
             if let report = syncManager.storageLensReport { storageSummary(report) }
         }
@@ -872,18 +891,13 @@ public struct TidyView: View {
     /// each focus names its own rather than one claiming the other's.
     @ViewBuilder
     private func organizeSummary(rows: FilteredRows) -> some View {
-        // The rail draws unconditionally — that is the difference between a place and a chip.
-        // `isSuggestingFiles` no longer gates navigation, only the *readouts* below, because a
-        // rail item you cannot click while a scan runs is a destination that disappears exactly
-        // when you might want to go somewhere else.
-        organizeRail()
-        // The scope and the readout belong to the SELECTED lens, so they sit after the rail rather
-        // than leading the row: leading, the scope read as qualifying whatever came next, and what
-        // comes next is another lens's item, which it does not scope.
+        // Readout only — ``lensSummary`` draws the rail above every lens, and the divider that
+        // separates navigation from prose with it. What is left here is the scope and the numbers,
+        // which belong to the SELECTED lens: leading the row, the scope read as qualifying
+        // whatever came next, and what comes next is another lens's item, which it does not scope.
         //
         // Nothing here renders mid-scan for the three lenses whose lists the filing scan
-        // republishes — see ``OrganizeLens/goesStaleDuringFilingScan``. The divider ahead of it is
-        // where the row changes from controls to prose; see ``SummaryRun`` for the rule it draws.
+        // republishes — see ``OrganizeLens/goesStaleDuringFilingScan``.
         if let organizeLens, !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
             switch organizeLens {
             case .toFile:
