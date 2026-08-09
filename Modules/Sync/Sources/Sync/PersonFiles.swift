@@ -110,6 +110,17 @@ public enum PersonFiles {
     /// wrong, it is *unreviewed*, and the review queue that will hold it is the next stage. Until
     /// that exists a weak match is simply not shown, which is the honest half — it never claims
     /// something is hers on evidence four people could satisfy.
+    ///
+    /// ## Why this sits beside `attribute(fileName:pageSample:)` rather than inside it
+    ///
+    /// That function owns **precedence** — filename outranks page — and is shared with the filing
+    /// engine and the cross-person veto. It applies no strength filter, and it is right not to:
+    /// there, a shared word is checked against the destination folder's own person axis, so the
+    /// veto has counter-evidence and a weak match is safe to consider. **Browsing has no
+    /// destination to check against.** "Is this hers?" asked with nothing on the other side makes
+    /// a shared word genuinely ambiguous, which is why the same input needs a stricter answer here
+    /// — 204 rows against 3 real ones, measured. Changing `attribute` itself would tighten the
+    /// filing path, which the corpus says is already correct.
     static func isStrong(_ match: PersonMatch, unique: Set<String>) -> Bool {
         if match.isPhrase { return true }
         return !match.words.isEmpty && match.words.allSatisfy { unique.contains($0) }
@@ -146,9 +157,19 @@ public enum PersonFiles {
                 continue
             }
             // Not her folder — so her NAME on the file is the only thing that can claim it, and
-            // that claim is the interesting one. The shipped phrase matcher answers, so
-            // "Aditi Abhishek" never counts for Abhishek.
-            let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            // that claim is the interesting one.
+            //
+            // **Membership comes from the shipped `attribute(fileName:pageSample:)`**, which owns
+            // the precedence rule the filing engine and the cross-person veto both use: the
+            // filename outranks the page, and the page is consulted only when the name names
+            // nobody. Stage 1 has no page channel, so `nil` — but it is called rather than
+            // reimplemented so that when the page channel lands, precedence is already right here.
+            let name = (path as NSString).lastPathComponent
+            guard registry.attribute(fileName: name, pageSample: nil).contains(personId) else {
+                continue
+            }
+            // …and then the strength gate, which `attribute` deliberately does not apply.
+            let stem = (name as NSString).deletingPathExtension
             let report = registry.explain(in: stem)
             guard let match = report.matches.first(where: { $0.personId == personId }),
                   isStrong(match, unique: uniqueWords) else { continue }
