@@ -2,7 +2,7 @@ import Design
 import Testing
 @testable import FileExplorer
 
-/// The point of extracting ``LensIntros`` is that the empty state and the header's ⓘ show the SAME
+/// The point of extracting ``LensIntros`` is that every surface naming a lens shows the SAME
 /// explanation, and that every lens which can touch files says what it will and won't do. Both are
 /// claims about content, so they are testable without rendering anything.
 @Suite struct LensIntroTests {
@@ -15,8 +15,7 @@ import Testing
 
     @Test func everyLensStatesASafetyContract() {
         // `EmptyStateView` documents its caption slot as the safety contract. A lens that cannot
-        // fill it is a lens whose blast radius nobody has written down — which is precisely the
-        // sentence that used to vanish the moment the lens had results.
+        // fill it is a lens whose blast radius nobody has written down.
         for (name, intro) in all {
             #expect(!intro.safety.isEmpty, "\(name) has no safety contract")
             #expect(!intro.title.isEmpty, "\(name) has no title")

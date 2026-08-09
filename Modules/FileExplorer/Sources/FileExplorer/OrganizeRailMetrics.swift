@@ -45,8 +45,11 @@ public enum OrganizeRailStyle: Equatable, Sendable {
 /// - **A badge is as wide as its digits.** 27pt was measured on two digits. The Duplicates badge
 ///   reads `410` and the Renames badge `126`; each costs ~35.5. ``badgeWidth(_:scale:)`` measures
 ///   the digits it is actually given.
-/// - **The intro button was not counted at all.** It sits beside the rail on row 1's leading side
-///   (`TidyView.lensTitle`), and the model only ever measured the rail — see ``introCompanion``.
+/// - **A companion control was not counted at all.** An intro button (i) sat beside the rail on
+///   row 1's leading side and the model only ever measured the rail, so it was short by 21pt on
+///   every Organize lens. That button has since been removed and the leading half is the rail
+///   alone — but the lesson outlives it: anything put back on this side of the row belongs in
+///   ``leadingWidth(scale:badge:)``, not merely in `TidyView.lensTitle`.
 ///
 /// Together those came to ~63pt at four badges, which is why the row truncated while the
 /// arithmetic reported room. The failure mode worth remembering is not the size of the error but
@@ -65,15 +68,6 @@ public enum OrganizeRailMetrics {
     public static let itemGap: CGFloat = 6
     /// Between a label and the badge after it.
     public static let badgeGap: CGFloat = 5
-
-    /// The intro button and the 6pt gap `TidyView.lensTitle` puts before it.
-    ///
-    /// **Leading-side, and it is the piece the first cut of this type forgot.** The (i) keeps the
-    /// leading half deliberately — row 1's trailing half is spoken for by the lens actions — so it
-    /// competes with the rail for exactly the width this type is rationing, and a model that
-    /// measured only the rail was short by this much on every Organize lens. Measured off the
-    /// render at 9.5pt of gap and 11.5pt of glyph.
-    public static let introCompanion: CGFloat = 21
 
     /// Row 1 width the rail can never have: the lens's own controls and the search toggle.
     ///
@@ -195,17 +189,19 @@ public enum OrganizeRailMetrics {
         return items + CGFloat(max(0, OrganizeLens.allCases.count - 1)) * itemGap
     }
 
-    /// Everything row 1's leading half must seat: the spelled-out rail, and the intro button when
-    /// this lens has one.
-    public static func leadingWidth(scale: CGFloat, hasIntro: Bool,
-                                    badge: (OrganizeLens) -> Int?) -> CGFloat {
-        fullWidth(scale: scale, badge: badge) + (hasIntro ? introCompanion : 0)
+    /// Everything row 1's leading half must seat.
+    ///
+    /// That is the spelled-out rail and nothing else today — the intro button that used to ride
+    /// beside it is gone. The seam stays named because the *requirement* is what ``style(contentWidth:leadingWidth:lens:)``
+    /// takes, and anything ever added to this half of the row is added here, where it is counted,
+    /// rather than beside the rail where the first cut of this type left it uncounted.
+    public static func leadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+        fullWidth(scale: scale, badge: badge)
     }
 
     /// The same, with the rail shed — what the row falls back to.
-    public static func shedLeadingWidth(scale: CGFloat, hasIntro: Bool,
-                                        badge: (OrganizeLens) -> Int?) -> CGFloat {
-        iconOnlyWidth(scale: scale, badge: badge) + (hasIntro ? introCompanion : 0)
+    public static func shedLeadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+        iconOnlyWidth(scale: scale, badge: badge)
     }
 
     /// The style a header of this width can seat.
@@ -216,7 +212,7 @@ public enum OrganizeRailMetrics {
     ///
     /// Takes the leading width already resolved rather than the ingredients, because this runs
     /// inside the geometry transform — on every width the view is handed — while
-    /// ``leadingWidth(scale:hasIntro:badge:)`` measures type and belongs once per `body`.
+    /// ``leadingWidth(scale:badge:)`` measures type and belongs once per `body`.
     ///
     /// `lens` is taken here rather than folded into `leadingWidth` because it selects the
     /// *trailing* reserve — see ``reservedTrailing(for:)``, which is the half that differs by lens.

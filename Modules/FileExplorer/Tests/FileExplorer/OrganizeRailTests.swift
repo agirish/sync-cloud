@@ -524,13 +524,13 @@ import Design
     func theShedRuleIsComputed() {
         let twoBadges = Self.badges([.toFile: 24, .names: 17])
         let lead = { (b: @escaping (OrganizeLens) -> Int?) in
-            OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: b)
+            OrganizeRailMetrics.leadingWidth(scale: 1, badge: b)
         }
         // The real header widths this app produces, either side of the threshold.
         #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges), lens: .toFile) == .full)
         #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges), lens: .toFile) == .iconOnly)
         // The shed rung has to actually solve it, or shedding buys nothing.
-        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, hasIntro: true, badge: twoBadges)
+        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: twoBadges)
         #expect(shed <= 900 - OrganizeRailMetrics.reservedTrailing(for: .toFile))
         // Badges widen the rail, so the day every finding reports is the day it is tightest —
         // a rule measured without them would shed too late.
@@ -544,9 +544,9 @@ import Design
         // Duplicates row truncated while the arithmetic reported room.
         #expect(OrganizeRailMetrics.badgeWidth(410, scale: 1)
                 > OrganizeRailMetrics.badgeWidth(24, scale: 1))
-        #expect(OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true,
+        #expect(OrganizeRailMetrics.leadingWidth(scale: 1,
                                                  badge: Self.badges([.duplicates: 410]))
-                > OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true,
+                > OrganizeRailMetrics.leadingWidth(scale: 1,
                                                    badge: Self.badges([.duplicates: 24])))
     }
 
@@ -557,23 +557,25 @@ import Design
         // 63pt short of the row it claimed to describe and still be perfectly self-consistent.
         // This one measures the leading cluster OFF THE RENDER and holds the model to it.
         //
-        // It is also what makes ``OrganizeRailMetrics/introCompanion`` load-bearing. Zeroing that
-        // constant leaves every *behavioural* assertion here passing — the glyph and badge
-        // corrections alone happen to keep the row honest, with 4pt to spare instead of 25 — so
-        // only a claim about the model's own accuracy can catch it.
+        // It is also the only assertion that would catch a control added beside the rail and left
+        // out of the model — the failure that put a 21pt intro button on this side of the row and
+        // never charged for it. Every *behavioural* assertion here kept passing through that,
+        // because each compared the arithmetic against itself.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
         let host = mount(manager, lens: .duplicates, width: 1400)
         let drawn = try #require(leadingExtent(host, width: 1400),
                                  "row 1 drew no leading cluster — the rail is not on screen at all")
         let model = OrganizeRailMetrics.leadingWidth(
-            scale: 1, hasIntro: true,
+            scale: 1,
             badge: Self.badges([.toFile: 24, .duplicates: 410, .names: 17]))
 
-        // Measured: 653.2 modelled against 648.0 drawn. Over, never under — a model that
-        // under-states the leading side is one that lets the row overrun, which is this whole
+        // Measured: 632.2 modelled against 627.0 drawn. Both fell by exactly 21pt when the intro
+        // button came off the row, which is the check that the model dropped it along with the
+        // render rather than keeping a phantom control in the budget. Over, never under — a model
+        // that under-states the leading side is one that lets the row overrun, which is this whole
         // type's failure mode.
         #expect(model >= drawn,
-                "the rail and the intro button draw \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
+                "the rail draws \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
         // And not wildly over, or the rail sheds its labels on headers that would have seated them.
         #expect(model - drawn < 12,
                 "the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
@@ -611,7 +613,7 @@ import Design
         // re-derives if the constants move.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
         let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
-        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: badge)
+        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
             + OrganizeRailMetrics.reservedTrailing(for: .duplicates)
 
         // Right-anchored: the trailing set is right-aligned and fixed-size, so at every width that
@@ -650,7 +652,7 @@ import Design
         // This is what ``OrganizeRailMetrics/reservedTrailing(for:)`` being per-lens is for.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
         let badge = Self.badges([.toFile: 24, .names: 17])
-        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: badge)
+        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
             + OrganizeRailMetrics.reservedTrailing(for: .toFile)
 
         let reference = try #require(strip(mount(manager, lens: .toFile, width: 2400),

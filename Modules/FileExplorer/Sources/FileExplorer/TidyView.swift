@@ -671,11 +671,11 @@ public struct TidyView: View {
         // single walk of the profile's folder list instead of one on every redraw of row 2.
         let scopeFolders = scopeFolderCount
         // Measured ONCE per body: this reads type metrics, while the geometry transform below runs
-        // on every width the card is handed. It carries the intro button too — that sits beside the
-        // rail on this same half of the row (see `lensTitle`), and a model that measured only the
-        // rail was short by it on every Organize lens.
+        // on every width the card is handed. It is everything row 1's leading half must seat — the
+        // rail alone today; anything put back beside it goes through `leadingWidth` too, which is
+        // where an uncounted companion control cost the model 21pt once already.
         let railLeading = OrganizeRailMetrics.leadingWidth(
-            scale: appFontScale, hasIntro: currentLensIntro != nil, badge: counts.badge)
+            scale: appFontScale, badge: counts.badge)
         return VStack(spacing: 0) {
             // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
@@ -839,9 +839,8 @@ public struct TidyView: View {
     /// chrome already said.
     ///
     /// So Organize gives the row to its rail, which names where you are *more* precisely than the
-    /// title did (the ringed item is the lens, not just the workspace). Storage has no rail and
-    /// gives the row to the readout it used to keep on row 2 — same principle, the row says
-    /// something only this surface knows.
+    /// title did (the ringed item is the lens, not just the workspace). Storage has no rail, and
+    /// nothing else earns row 1's leading half, so it leaves it empty: its readout stays on row 2.
     @ViewBuilder
     private func lensTitle(_ counts: RailCounts) -> some View {
         HStack(spacing: 6) {
@@ -851,25 +850,6 @@ public struct TidyView: View {
             // empty. Its readout stays on row 2 and row 1 is simply its controls, which is the
             // shape Compare's header already has.
             if lens != .storage { organizeRail(counts) }
-            // The lens's explanation and safety contract, one click away in EVERY state — not just
-            // before the first scan, which is the only moment the empty state exists. It keeps the
-            // LEADING side, after the rail: row 1's trailing half is already spoken for by the
-            // lens actions and the search toggle.
-            if let intro = currentLensIntro {
-                LensIntroButton(intro: intro, tint: glassHue.accentColor)
-            }
-        }
-    }
-
-    /// The explanation for whichever lens is showing, or nil for the ones that do not have a
-    /// pre-scan intro of their own (Automations authors rules rather than scanning; Rename is a
-    /// facet of Organize's scan and shares its contract).
-    private var currentLensIntro: LensIntro? {
-        switch lens {
-        case .duplicates: return LensIntros.duplicates(providerName: providerName)
-        case .filing:     return LensIntros.organize(scanTargetName: scanTargetName)
-        case .storage:    return LensIntros.storage(providerName: providerName)
-        case .rename, .automations: return nil
         }
     }
 
@@ -2660,8 +2640,7 @@ public struct TidyView: View {
     private var introState: some View {
         // The L4 gold-standard template (EmptyStateView): provider named in the title, the job
         // in the message, the safety contract in the caption, one primary button. The words come
-        // from `LensIntros` so the header's ⓘ shows the same explanation once results exist and
-        // this state is gone.
+        // from `LensIntros`, the one place each lens's explanation is written.
         let intro = LensIntros.duplicates(providerName: providerName)
         return EmptyStateView(
             icon: intro.icon,

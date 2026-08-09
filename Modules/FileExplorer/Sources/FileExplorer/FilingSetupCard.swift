@@ -18,8 +18,8 @@ import SwiftUI
 /// suggestion about a real file, and the third row exists so "no confident home" is a familiar
 /// outcome rather than a surprise.
 ///
-/// The words come from ``LensIntros/organize(scanTargetName:)``, the same value the header's ⓘ
-/// renders, so the card cannot drift from the explanation shown everywhere else.
+/// The words come from ``LensIntros/organize(scanTargetName:)``, the same value the pre-scan empty
+/// state renders, so the card cannot drift from the explanation shown everywhere else.
 struct FilingSetupCard: View {
     let intro: LensIntro
     let accent: Color

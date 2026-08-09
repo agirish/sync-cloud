@@ -186,7 +186,7 @@ struct OrganizeScopeChipTests {
         // reachable — `railCount(.restructure)` stopped returning a hard 0 in this same change, so
         // five is the real ceiling rather than a hypothetical one.
         let everyBadge: (OrganizeLens) -> Int? = { $0.badge(count: 7) }
-        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: everyBadge)
+        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, badge: everyBadge)
         #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading,
                                           lens: .duplicates) == .full)
         #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading,

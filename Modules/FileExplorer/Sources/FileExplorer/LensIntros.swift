@@ -3,15 +3,14 @@ import Foundation
 
 /// The one place each lens's explanation and safety contract is written.
 ///
-/// Both surfaces that show it read from here — the pre-scan `EmptyStateView` and the header's ⓘ
-/// (``LensIntroButton``). That is the whole point of extracting them: the two are the same
+/// Both surfaces that show it read from here — the pre-scan `EmptyStateView` and, for Organize,
+/// ``FilingSetupCard``. That is the whole point of extracting them: the two are the same
 /// explanation shown at different moments, and prose duplicated across two call sites drifts in
 /// one of them. The safety line especially, which is the sentence that tells someone whether a
 /// lens can move or delete their files.
 ///
-/// Provider- and folder-specific wording is passed in rather than baked in, so the empty state
-/// keeps saying "in iCloud" while the popover — which can be opened from anywhere — says the same
-/// thing about the same lens.
+/// Provider- and folder-specific wording is passed in rather than baked in, so every surface
+/// naming the lens says "in iCloud" about the same folder rather than something more generic.
 enum LensIntros {
 
     static func duplicates(providerName: String?) -> LensIntro {
