@@ -131,8 +131,8 @@ import Foundation
     @Test func theRailCountsAreResolvedOncePerRender() throws {
         let tidy = try Self.source("TidyView.swift")
         #expect(tidy.contains("let counts = railCounts"))
-        #expect(tidy.contains("badge: counts.badge"),
-                "the width arithmetic is recomputing the badges instead of reading the resolved counts")
+        #expect(tidy.contains("state: counts.state"),
+                "the width arithmetic is recomputing the rail's states instead of reading the resolved counts")
         // **And the RENDER reads the same accessor as the model.** Both said the same thing by
         // restating the rule — `counts.badge(_:)` in the arithmetic, the rule spelled out again at
         // the rail item — which agrees only for as long as nobody changes one of them. A rule that
@@ -144,8 +144,11 @@ import Foundation
         // anywhere in the file trips on the comment at the call site that explains why it is
         // wrong — a source scan that cannot tell code from the prose describing it, which is this
         // suite's standing hazard.
-        #expect(tidy.contains("let badge = counts.badge(item)"),
-                "the rail item is restating the badge rule instead of calling the accessor the width model uses")
+        // The accessor is `state(_:)` now rather than `badge(_:)`: a rail item's dress is three
+        // states, not a number or its absence, and the width model charges a different width for
+        // each — a badge, a 4pt dot, or nothing. Both sides read the same one.
+        #expect(tidy.contains("state: counts.state(item)"),
+                "the rail item is restating the state rule instead of calling the accessor the width model uses")
         #expect(!tidy.contains("let badge = item.badge("),
                 "the rail item is back to deriving its badge independently of the width model")
         #expect(!tidy.contains("private var railBadgeCount"),

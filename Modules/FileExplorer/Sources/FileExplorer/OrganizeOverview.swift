@@ -17,10 +17,51 @@ import Design
 /// row with them after the divider — so dropping the capsule here would recreate the same
 /// ambiguity from the other side, with live controls dressed as prose. The selected item deepens
 /// its fill and adds the ring; the wash is what says "clickable" before you know which is current.
+/// What a rail item has to say about its lens, and therefore how it is dressed.
+///
+/// **The same three states ``OrganizeOverviewState`` models, deliberately.** The overview is
+/// careful never to conflate *ran and found nothing* with *never looked* — a zero would be a claim
+/// a lens that has not scanned cannot make — and the rail used to throw that distinction away,
+/// drawing both as an item with no badge. Two surfaces describing one set of facts had two
+/// vocabularies; now they have one, and `TidyView` derives both from the same counts.
+enum RailItemState: Equatable {
+    /// This lens has findings here. The count is the whole scoped list, never the filtered view.
+    case reporting(Int)
+    /// It ran and found nothing. Says so by going quiet, not by drawing a `0`.
+    case clean
+    /// It has not run here at all. Never a zero — that would be a claim it cannot support.
+    case notScanned
+    /// Not a finding at all: Rules is configuration you keep. It never reports and never goes
+    /// quiet, so it is neither `clean` nor `notScanned` — those both describe a scan.
+    case configuration
+}
+
+/// One item on Organize's lens rail: glyph, name, and a badge **only when there is something to
+/// report**.
+///
+/// The two halves of the chips' argument are split here on purpose. The *place* is unconditional —
+/// it is what pointed invocation ("Organize this folder") lands on, and what a badge cannot be
+/// because a badge does not exist before a scan. The *claim* is conditional: nothing to report
+/// draws no number at all, not a greyed one and not a `0`.
+///
+/// **It wears a capsule because a capsule is a control.** That rule came out of this very row: it
+/// once carried six tinted capsules of which only three were buttons, and the only way to learn
+/// which half was live was to click. Every rail item IS a button, so dropping the capsule on the
+/// quiet ones would recreate that ambiguity from the other side, with live controls dressed as
+/// prose.
+///
+/// ## The tint says "has work", not "is clickable"
+///
+/// Every item used to wear the same `accent.opacity(0.14)` whether it had found 722 things or
+/// nothing at all, so the only signal was a small badge at the item's tail and the row read as six
+/// identical capsules. The capsule still carries the control claim; the *wash* now carries the
+/// finding. A reporting item is accent-tinted with an accent glyph; a quiet one takes a neutral
+/// wash and a secondary glyph. Both are plainly buttons, and which two of the six want you is
+/// legible before you read a single number.
 struct RailItemLabel: View {
     let title: String
     let systemImage: String
-    let badge: Int?
+    let state: RailItemState
     let isSelected: Bool
     let accent: Color
     /// Whether the row can afford this item's label — see ``OrganizeRailMetrics``. At `.iconOnly`
@@ -28,18 +69,46 @@ struct RailItemLabel: View {
     /// bar's segments do when they shed.
     var style: OrganizeRailStyle = .full
 
+    /// Findings — the one state that colours the item.
+    private var isReporting: Bool {
+        if case .reporting = state { return true }
+        return false
+    }
+
+    /// The badge's digits, abbreviated past three of them.
+    ///
+    /// `count.formatted()` puts the separator in, so the rename backlog's badge reads `1,192` and
+    /// measures 40.9pt against 16.8 for a single digit. The rail is widest on the day every finding
+    /// reports, which is the day it most needs to fit — and a four-digit badge also shouts over a
+    /// `3` on Names that may matter far more, because a badge encodes list size and never urgency.
+    /// Abbreviating buys back 7.5pt, which is small; the reason to do it is the shouting. The exact
+    /// figure stays in the tooltip and in row 2's readout.
+    /// `nonisolated` because ``OrganizeRailMetrics`` measures this string, and that model is a pure
+    /// type the width arithmetic calls off the main actor. A `View`'s static members inherit
+    /// `@MainActor`, so without this the one caller that must agree with the drawn text cannot
+    /// reach it — and the tempting fix, restating the rule in the model, is exactly the divergence
+    /// this whole type exists to prevent.
+    nonisolated static func badgeText(_ count: Int) -> String {
+        guard count >= 1000 else { return count.formatted() }
+        let thousands = Double(count) / 1000
+        return thousands >= 10
+            ? "\(Int(thousands.rounded(.down)))k"
+            : String(format: "%.1fk", (thousands * 10).rounded(.down) / 10)
+    }
+
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
                 .scaledFont(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(isSelected ? accent : Color.secondary)
+                .foregroundStyle(isSelected || isReporting ? accent : Color.secondary)
             if style == .full {
                 Text(title)
                     .scaledFont(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                     .fixedSize()
             }
-            if let badge {
-                Text(badge, format: .number)
+            switch state {
+            case .reporting(let count):
+                Text(Self.badgeText(count))
                     .scaledFont(.system(size: 10, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(accent)
@@ -47,14 +116,31 @@ struct RailItemLabel: View {
                     .padding(.vertical, 1)
                     .background(Capsule().fill(accent.opacity(0.16)))
                     .fixedSize()
+            case .notScanned:
+                // Not a zero, and not nothing either: a lens that has never run here is a different
+                // fact from one that ran and came back clean, and the row is the only place that
+                // difference is visible without opening the lens. The tooltip says it in words.
+                Circle()
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(width: 4, height: 4)
+            case .clean, .configuration:
+                EmptyView()
             }
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 3)
         .accessibilityLabel(title)
-        // 0.14 is the `Pill` wash this row's other capsules use — matched deliberately, so the
-        // rail reads as the same kind of thing rather than as a second, competing idiom.
-        .background(Capsule().fill(accent.opacity(isSelected ? 0.22 : 0.14)))
+        // 0.14 is the `Pill` wash this row's other capsules use — matched deliberately, so a
+        // reporting item reads as the same kind of thing rather than as a second, competing idiom.
+        // The quiet rungs drop to a neutral fill of the same weight, which keeps the capsule (and
+        // so the control claim) while spending no colour on a lens with nothing to say.
+        .background {
+            if isReporting || isSelected {
+                Capsule().fill(accent.opacity(isSelected ? 0.22 : 0.14))
+            } else {
+                Capsule().fill(Color.secondary.opacity(0.10))
+            }
+        }
         .overlay {
             if isSelected { Capsule().strokeBorder(accent, lineWidth: 2) }
         }

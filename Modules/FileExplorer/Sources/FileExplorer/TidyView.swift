@@ -676,7 +676,7 @@ public struct TidyView: View {
         // rail alone today; anything put back beside it goes through `leadingWidth` too, which is
         // where an uncounted companion control cost the model 21pt once already.
         let railLeading = OrganizeRailMetrics.leadingWidth(
-            scale: appFontScale, badge: counts.badge)
+            scale: appFontScale, state: counts.state)
         return VStack(spacing: 0) {
             // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
@@ -828,7 +828,7 @@ public struct TidyView: View {
             // moved to row 2 — see ``lensTrailing``. What is left up here is the search toggle,
             // which `LensHeaderCard` appends itself, so row 1 is the rail and one 30pt button.
             actions: { EmptyView() },
-            summary: { lensSummary(rows: rows, scopeFolders: scopeFolders) },
+            summary: { lensSummary(rows: rows, counts: counts, scopeFolders: scopeFolders) },
             trailing: { lensTrailing(rows: rows, counts: counts) }
         )
     }
@@ -983,7 +983,7 @@ public struct TidyView: View {
     /// one lens whose row also carries controls and the two had become indistinguishable. The other
     /// three have nothing clickable on this row, so a pill there claims nothing it cannot keep.
     @ViewBuilder
-    private func lensSummary(rows: FilteredRows, scopeFolders: Int?) -> some View {
+    private func lensSummary(rows: FilteredRows, counts: RailCounts, scopeFolders: Int?) -> some View {
         // **The rail draws for EVERY Organize lens, which is why it cannot live inside one arm of
         // the switch below.** It did, briefly, inside `organizeSummary` — and that arm is reached
         // only on the filing apparatus, so standing on Duplicates or Rules rendered the lens's own
@@ -1019,7 +1019,7 @@ public struct TidyView: View {
         // understanding — a `lens == .filing` guard on this one alone would not make the invariant
         // any truer, it would just make this the one place that disagrees about who enforces it.
         case .rename, .filing:
-            organizeSummary(rows: rows)
+            organizeSummary(rows: rows, counts: counts)
         case .automations:
             if !syncManager.automationRules.isEmpty {
                 automationsSummary(rows.rules)
@@ -1043,7 +1043,7 @@ public struct TidyView: View {
     /// The scopes genuinely differ — the queue is one folder, the names are the whole provider — so
     /// each focus names its own rather than one claiming the other's.
     @ViewBuilder
-    private func organizeSummary(rows: FilteredRows) -> some View {
+    private func organizeSummary(rows: FilteredRows, counts: RailCounts) -> some View {
         // Readout only — ``lensSummary`` draws the rail above every lens, and the divider that
         // separates navigation from prose with it. What is left here is the scope and the numbers,
         // which belong to the SELECTED lens: leading the row, the scope read as qualifying
@@ -1073,6 +1073,40 @@ public struct TidyView: View {
             case .duplicates, .restructure, .rules:
                 EmptyView()
             }
+        } else {
+            // **The overview's own readout.** Row 2 was blank here — the switch above is keyed on a
+            // selected lens and the overview has none — which was tolerable while the overview was
+            // a state you fell into, and is not now that "All" is a place you can point at. A
+            // destination with an empty readout row looks like one that failed to load.
+            //
+            // It says what the rail says, in words: how many lenses have something, how many came
+            // back clean, how many have not run. The third number is the one no other surface on
+            // this row can state, and the reason `RailItemState` keeps clean and unscanned apart.
+            overviewSummary(counts)
+        }
+    }
+
+    /// "3 reporting · 2 clean · 1 not scanned" — the rail, said in prose.
+    ///
+    /// Absent parts rather than zeroes, the same rule the badge follows: "0 not scanned" is noise,
+    /// and a row of three zeroes says nothing at all.
+    @ViewBuilder
+    private func overviewSummary(_ counts: RailCounts) -> some View {
+        let states = OrganizeLens.allCases.map(counts.state)
+        let reporting = states.count { if case .reporting = $0 { return true } else { return false } }
+        let clean = states.count { $0 == .clean }
+        let unscanned = states.count { $0 == .notScanned }
+        let parts = [
+            reporting > 0 ? "\(reporting) reporting" : nil,
+            clean > 0 ? "\(clean) clean" : nil,
+            unscanned > 0 ? "\(unscanned) not scanned" : nil,
+        ].compactMap { $0 }
+        if !parts.isEmpty {
+            Text(parts.joined(separator: " · "))
+                .scaledFont(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .fixedSize()
         }
     }
 
@@ -1144,9 +1178,54 @@ public struct TidyView: View {
     /// drawn at all.
     @ViewBuilder
     private func organizeRail(_ counts: RailCounts) -> some View {
-        ForEach(OrganizeLens.allCases) { item in
+        // **"All" first, because the overview needs a place that exists at zero.** That is the
+        // rail's own founding argument, turned on the one state it had not applied it to: the
+        // overview is what you land on and what every lens's answer is summarised on, and the only
+        // way back to it was clicking the selected item a second time — a gesture nothing on screen
+        // describes. The item does not add a state; it names one that was already there.
+        organizeOverviewRailItem(counts)
+        railSeparator
+        ForEach(OrganizeLens.allCases.filter(\.carriesBadge)) { item in
             organizeRailItem(item, counts)
         }
+        // **Rules behind a second rule, because it is not a finding.** Five lenses report what a
+        // scan turned up; this one is configuration you keep. It has always been the one item that
+        // cannot wear a badge, and in a row of peers that read as "a lens that found nothing" —
+        // the separator says *different kind of thing* structurally instead of leaving it to be
+        // inferred from an absence.
+        railSeparator
+        ForEach(OrganizeLens.allCases.filter { !$0.carriesBadge }) { item in
+            organizeRailItem(item, counts)
+        }
+    }
+
+    /// The hairline between the rail's three groups.
+    private var railSeparator: some View {
+        Rectangle()
+            .fill(.quaternary)
+            .frame(width: 1, height: 14)
+            .accessibilityHidden(true)
+    }
+
+    /// The overview's own rail item.
+    ///
+    /// Selected exactly when no lens is — it *is* the unselected state, given somewhere to live —
+    /// and it carries no count of its own: a number here would have to mean the sum of six
+    /// different kinds of thing, which is not a quantity anyone wants.
+    private func organizeOverviewRailItem(_ counts: RailCounts) -> some View {
+        let isSelected = organizeLens == nil
+        return Button {
+            withAnimation(listSettle) { railLens = nil }
+        } label: {
+            RailItemLabel(title: OrganizeRailMetrics.overviewTitle,
+                          systemImage: OrganizeRailMetrics.overviewSymbol,
+                          state: .configuration, isSelected: isSelected,
+                          accent: glassHue.accentColor, style: railStyle)
+        }
+        .buttonStyle(.plain)
+        .chromeHover()
+        .help("Every lens's answer for what Organize is pointed at, on one page.")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     /// One rail item.
@@ -1160,12 +1239,12 @@ public struct TidyView: View {
         let badge = counts.badge(item)
         let isSelected = organizeLens == item
         Button {
-            // Clicking the selected item widens back out to the overview, which is what makes the
-            // overview reachable without a rail item of its own. A radio group with no "off" would
-            // have needed a seventh item to say "show me everything".
+            // Clicking the selected item widens back out to the overview. That still works and is
+            // still the quickest way back — "All" gives the same state a place you can point at
+            // rather than replacing the gesture.
             withAnimation(listSettle) { railLens = isSelected ? nil : item }
         } label: {
-            RailItemLabel(title: item.title, systemImage: item.symbol, badge: badge,
+            RailItemLabel(title: item.title, systemImage: item.symbol, state: counts.state(item),
                           isSelected: isSelected, accent: glassHue.accentColor, style: railStyle)
         }
         .buttonStyle(.plain)
@@ -1202,6 +1281,10 @@ public struct TidyView: View {
     /// value to both consumers.
     struct RailCounts: Equatable {
         var toFile = 0, duplicates = 0, names = 0, renames = 0, restructure = 0, rules = 0
+        /// Which lenses have actually run here. **A zero means two different things without this**
+        /// — ran and found nothing, or never looked — and the rail used to draw both the same way
+        /// while the overview was careful to keep them apart. Same facts, one vocabulary.
+        var scanned: Set<OrganizeLens> = []
 
         subscript(item: OrganizeLens) -> Int {
             switch item {
@@ -1225,6 +1308,19 @@ public struct TidyView: View {
         func badge(_ item: OrganizeLens) -> Int? {
             item.badge(count: self[item])
         }
+
+        /// What this item has to say, in the vocabulary ``RailItemState`` and
+        /// ``OrganizeOverviewState`` share.
+        ///
+        /// Rules answers `.configuration` ahead of everything else: it is a set of rules you keep,
+        /// so it neither reports nor goes quiet — both of those describe a scan it never runs.
+        /// That is the same distinction ``OrganizeLens/carriesBadge`` already draws, said in the
+        /// one place the item's whole dress is decided.
+        func state(_ item: OrganizeLens) -> RailItemState {
+            guard item.carriesBadge else { return .configuration }
+            if let badge = badge(item) { return .reporting(badge) }
+            return scanned.contains(item) ? .clean : .notScanned
+        }
     }
 
     private var railCounts: RailCounts {
@@ -1244,7 +1340,17 @@ public struct TidyView: View {
             restructure: structureFindings.count {
                 OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot, scope: scope) == .inside
             },
-            rules: syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) })
+            rules: syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            // The same conditions ``overviewSections`` uses, so the rail and the overview cannot
+            // disagree about whether a lens has run. Rules is absent because it never scans.
+            scanned: {
+                var ran: Set<OrganizeLens> = []
+                if syncManager.hasSuggestedFiling { ran.insert(.toFile); ran.insert(.renames) }
+                if syncManager.hasFoundDuplicates { ran.insert(.duplicates) }
+                if syncManager.hasScannedNames { ran.insert(.names) }
+                if syncManager.filingFolderProfile != nil { ran.insert(.restructure) }
+                return ran
+            }())
     }
 
     /// What each rail item promises. Written to read correctly whether or not it is the selected

@@ -71,6 +71,30 @@ enum OrganizeRailMetrics {
     static let itemGap: CGFloat = 6
     /// Between a label and the badge after it.
     static let badgeGap: CGFloat = 5
+    /// The overview item's label and glyph — it is not an ``OrganizeLens``, so the rail's own
+    /// `allCases` walk cannot find it and this model would otherwise draw a control it never
+    /// charged for. That is precisely how a 21pt intro button once rode this row uncounted.
+    static let overviewTitle = "All"
+    static let overviewSymbol = "square.grid.2x2"
+    /// `square.grid.2x2` at 10.5pt semibold, measured off `NSImage(systemSymbolName:)` exactly as
+    /// ``glyphWidth(_:scale:)``'s table was — a glyph is not its point size, and this one is 13.
+    static let overviewGlyphWidth: CGFloat = 13
+    /// Margin on the overview item, because its label is the one that changes weight with
+    /// selection: `RailItemLabel` draws the current item `.semibold` and the rest `.medium`, and
+    /// "All" is unselected in every state except the overview itself. Measured against the render,
+    /// 8pt puts the model 4–6pt over at all four text sizes — over, never under, for the reason
+    /// `theLeadingModelMatchesWhatTheRowDraws` states: a model short of the row it describes lets
+    /// the row overrun before it sheds.
+    static let overviewMargin: CGFloat = 8
+    /// A group separator: the 1pt rule, plus the ONE `itemGap` adding an element to the row costs.
+    ///
+    /// Not two. The rail is an `HStack(spacing: itemGap)`, so N elements carry N−1 gaps and each
+    /// element added contributes exactly one more — charging a separator for the gap on both sides
+    /// counts every interior gap twice. Measured: it put the model 12pt over the render across all
+    /// four text sizes, which is the same 12pt for two separators.
+    static var separatorWidth: CGFloat { 1 + itemGap }
+    /// The dot an unscanned item draws where a badge would go — 4pt and the gap before it.
+    static let notScannedDotWidth: CGFloat = 4 + badgeGap
 
     /// Row 1 width the rail can never have: **the search toggle, and nothing else.**
     ///
@@ -159,16 +183,37 @@ enum OrganizeRailMetrics {
     /// Through the curve like the label above, though at 10pt it is currently the identity: 10 sits
     /// **below** the 11pt knee, where the full multiplier still applies. Routed through it anyway
     /// so the badge does not silently start lying if the knee is ever lowered.
+    ///
+    /// **It measures the string the badge draws, which past three digits is abbreviated** — see
+    /// ``RailItemLabel/badgeText(_:)``. Formatting the raw count here would size the rail for
+    /// `1,192` while the row painted `1.1k`, and a model measuring a different string from the one
+    /// on screen is this type's whole failure mode.
     static func badgeWidth(_ count: Int, scale: CGFloat) -> CGFloat {
         let font = NSFont.monospacedDigitSystemFont(
             ofSize: FontSize.scaledPointSize(10, scale: scale), weight: .bold)
-        return (count.formatted() as NSString).size(withAttributes: [.font: font]).width + 10
+        return (RailItemLabel.badgeText(count) as NSString)
+            .size(withAttributes: [.font: font]).width + 10
     }
 
-    /// One item, spelled out, with the badge it is carrying.
-    static func itemWidth(_ item: OrganizeLens, badge: Int?, scale: CGFloat) -> CGFloat {
+    /// What an item's state costs it on the right of its label: a badge, a dot, or nothing.
+    ///
+    /// **The three states are three different widths, which is why this model takes the state and
+    /// not the badge.** `clean` and `notScanned` both answer "no badge", and they draw differently
+    /// — the unscanned one carries a 4pt dot. A model working from a badge alone can only guess,
+    /// and either guess is wrong somewhere: charging every quiet item for the dot over-counted a
+    /// clean rail by 30pt, which `theLeadingModelMatchesWhatTheRowDraws` caught at once.
+    static func stateWidth(_ state: RailItemState, scale: CGFloat) -> CGFloat {
+        switch state {
+        case .reporting(let count): return badgeGap + badgeWidth(count, scale: scale)
+        case .notScanned: return notScannedDotWidth
+        case .clean, .configuration: return 0
+        }
+    }
+
+    /// One item, spelled out, in the state it is in.
+    static func itemWidth(_ item: OrganizeLens, state: RailItemState, scale: CGFloat) -> CGFloat {
         labelWidth(item, scale: scale) + glyphWidth(item, scale: scale) + glyphGap + itemPadding
-            + (badge.map { badgeGap + badgeWidth($0, scale: scale) } ?? 0)
+            + stateWidth(state, scale: scale)
     }
 
     /// Width of the rail with every label spelled out.
@@ -181,20 +226,29 @@ enum OrganizeRailMetrics {
     ///     `OrganizeLens.allCases` — and so a new lens is counted the day it is added. Counted
     ///     rather than assumed: the rail is at its widest on the day every finding has something to
     ///     report, which is precisely the day it must still fit.
-    static func fullWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+    static func fullWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         let items = OrganizeLens.allCases.reduce(CGFloat.zero) {
-            $0 + itemWidth($1, badge: badge($1), scale: scale)
+            $0 + itemWidth($1, state: state($1), scale: scale)
         }
         return items + CGFloat(max(0, OrganizeLens.allCases.count - 1)) * itemGap
+            + overviewItemWidth(scale: scale) + 2 * separatorWidth
+    }
+
+    /// The overview item, spelled out. No badge ever — a count here would have to be the sum of six
+    /// different kinds of thing.
+    static func overviewItemWidth(scale: CGFloat) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 11.5 * scale, weight: .semibold)
+        return (overviewTitle as NSString).size(withAttributes: [.font: font]).width
+            + overviewGlyphWidth * scale + glyphGap + itemPadding + itemGap + overviewMargin
     }
 
     /// Width of the rail with every label shed. Badges stay — they are the reason to look.
-    static func iconOnlyWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
+    static func iconOnlyWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         let items = OrganizeLens.allCases.reduce(CGFloat.zero) {
-            $0 + glyphWidth($1, scale: scale) + itemPadding
-                + (badge($1).map { badgeGap + badgeWidth($0, scale: scale) } ?? 0)
+            $0 + glyphWidth($1, scale: scale) + itemPadding + stateWidth(state($1), scale: scale)
         }
         return items + CGFloat(max(0, OrganizeLens.allCases.count - 1)) * itemGap
+            + overviewGlyphWidth * scale + itemPadding + itemGap + 2 * separatorWidth
     }
 
     /// Everything row 1's leading half must seat.
@@ -203,13 +257,13 @@ enum OrganizeRailMetrics {
     /// beside it is gone. The seam stays named because the *requirement* is what ``style(contentWidth:leadingWidth:lens:)``
     /// takes, and anything ever added to this half of the row is added here, where it is counted,
     /// rather than beside the rail where the first cut of this type left it uncounted.
-    static func leadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
-        fullWidth(scale: scale, badge: badge)
+    static func leadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
+        fullWidth(scale: scale, state: state)
     }
 
     /// The same, with the rail shed — what the row falls back to.
-    static func shedLeadingWidth(scale: CGFloat, badge: (OrganizeLens) -> Int?) -> CGFloat {
-        iconOnlyWidth(scale: scale, badge: badge)
+    static func shedLeadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
+        iconOnlyWidth(scale: scale, state: state)
     }
 
     /// The style a header of this width can seat.

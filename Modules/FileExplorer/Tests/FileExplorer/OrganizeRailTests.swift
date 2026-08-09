@@ -103,6 +103,20 @@ import Design
         { $0.badge(count: counts[$0] ?? 0) }
     }
 
+    /// The rail states the width model takes, from the counts that matter to a case.
+    ///
+    /// Anything unlisted is `clean` — **scanned and empty, not unscanned**, which is the state that
+    /// costs the model nothing. A fixture wanting the dot has to ask for it, so an item's width can
+    /// never grow by accident here.
+    private static func states(_ counts: [OrganizeLens: Int],
+                               unscanned: Set<OrganizeLens> = []) -> (OrganizeLens) -> RailItemState {
+        { item in
+            guard item.carriesBadge else { return .configuration }
+            if let n = counts[item], n > 0 { return .reporting(n) }
+            return unscanned.contains(item) ? .notScanned : .clean
+        }
+    }
+
     /// Duplicates with real groups — the lens whose trailing set is the widest in Organize
     /// (`All ⌄`, `Rescan`, `Apply N recommended`, search), measured at 353.5pt against the filing
     /// queue's 281.
@@ -268,6 +282,28 @@ import Design
     /// near-neutral, so requiring blue to lead red by 0.18 excludes that too. Measured: **2,476**
     /// such pixels with the ring, **632** with the ring deleted (the accent glyph and badges of the
     /// selected item), and **402** on the overview, which rings nothing.
+    /// Accent-tinted **wash** pixels — the capsule fill rather than its ring.
+    ///
+    /// `accentEdge` deliberately excludes the wash (its 0.30 floor sits above a 22% fill), because
+    /// it exists to ask about the ring. This asks the opposite question, which is the one change B
+    /// turned into a signal: a reporting item is washed in the accent and a clean one in a neutral,
+    /// so the difference is a *hue* at low delta. Blue must lead red, and the delta must be small
+    /// enough to be a wash and large enough not to be the background.
+    private func accentWash(_ rep: NSBitmapImageRep) -> Int {
+        guard let background = rep.colorAt(x: 2, y: 2) else { return 0 }
+        var n = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let delta = max(abs(c.redComponent - background.redComponent),
+                                max(abs(c.greenComponent - background.greenComponent),
+                                    abs(c.blueComponent - background.blueComponent)))
+                if delta > 0.02 && (c.blueComponent - c.redComponent) > 0.05 { n += 1 }
+            }
+        }
+        return n
+    }
+
     private func accentEdge(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 2, y: 2) else { return 0 }
         var n = 0
@@ -437,21 +473,35 @@ import Design
                 "selecting a different rail item changed almost nothing — the ring is pinned to one item")
     }
 
-    @Test("The overview rings nothing")
-    func theOverviewIsTheUnselectedState() throws {
-        // The overview is the rail's unselected state rather than a seventh item, so it must draw
-        // the same six items with no ring — fewer inked pixels than any selected state, but not
-        // zero.
+    @Test("The overview rings its own item, and no lens")
+    func theOverviewRingsAll() throws {
+        // **This assertion is inverted from what it used to be, and the inversion is change B.**
+        // The overview was the rail's unselected state with no control of its own, so this test
+        // asked that *nothing* be ringed. It has a place now — "All", at the head of the rail —
+        // and the state it names has not changed: `railLens` is still nil, the overview still
+        // renders, clicking the selected lens a second time still comes back here. What changed is
+        // that you can point at it.
         let overview = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: nil),
                                           Self.railZone))
         let selected = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
                                           Self.railZone))
         #expect(counts(overview).ink > 600, "the overview drew no rail — it is not the unselected state")
-        // Measured at 402 against 2,476 for a ringed render: the overview rings nothing. A pixel
-        // diff would pass here even with the ring deleted, so this asks the ring question directly.
+
+        // Something IS ringed now — measured 402 accent-edge pixels when nothing was, against
+        // 2,476 for a ringed lens. A pixel diff cannot ask this question: it passes with the ring
+        // deleted, which is how a ring mutation escaped this suite once before.
         let edge = accentEdge(overview)
-        #expect(edge < 900,
-                "the overview painted \(edge) full-strength accent pixels — something is ringed, so the unselected state is quietly selecting a lens")
+        #expect(edge > 900,
+                "the overview painted \(edge) full-strength accent pixels — nothing is ringed, so All is not showing as the current place")
+
+        // …and it is All that is ringed, not a lens: the ring sits in the rail's first item.
+        // Measured over the leading 120pt, which at this canvas holds All and nothing else.
+        let allItem = CGRect(x: 8, y: 12, width: 120, height: 30)
+        let overviewAll = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: nil), allItem))
+        let toFileAll = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile), allItem))
+        #expect(accentEdge(overviewAll) > accentEdge(toFileAll) + 200,
+                "All painted \(accentEdge(overviewAll)) accent-edge pixels on the overview and \(accentEdge(toFileAll)) with a lens selected — the ring is not moving to All")
+
         #expect(differingPixels(overview, selected) > 200,
                 "the overview and a selected lens rendered the same rail")
     }
@@ -553,11 +603,68 @@ import Design
                 "row 2's trailing band inked \(counts(rowTwoTrailing).ink) — the controls did not arrive where they were moved to")
     }
 
+    // MARK: The three states — reporting, clean, never looked
+
+    @Test("A lens with findings is tinted; one that ran and found nothing is not")
+    func theTintSaysHasWorkNotIsClickable() throws {
+        // **The wash used to mean "this is a control" and now means "this has work".** Every item
+        // wore `accent.opacity(0.14)` whether it had found 722 things or nothing, so the only
+        // signal was a small badge at the item's tail and six identical capsules is what the row
+        // read as. The capsule stays — it is still what says "clickable" — but the colour is spent
+        // on the lenses that want you.
+        //
+        // Measured over Duplicates' own item, with the same scan having run either way: the only
+        // difference between the two fixtures is whether it found anything.
+        let reporting = Self.duplicatesManager(groups: 12, names: 0)
+        let clean = Self.duplicatesManager(groups: 0, names: 0)
+        // The rail runs All | To File · Duplicates · …, so Duplicates' item sits second among the
+        // lenses. A 150pt band from x 150 holds it at this canvas and neither neighbour.
+        let band = CGRect(x: 150, y: 12, width: 150, height: 30)
+        let hot = try #require(strip(mount(reporting, lens: .toFile), band))
+        let cold = try #require(strip(mount(clean, lens: .toFile), band))
+        #expect(accentWash(hot) > accentWash(cold) + 300,
+                "a reporting lens washed \(accentWash(hot)) accent pixels and a clean one \(accentWash(cold)) — the tint is not carrying the finding, so the row is six identical capsules again")
+        // …and the clean one is still a capsule, or the control claim is gone with the colour.
+        #expect(counts(cold).ink > 200,
+                "the clean lens inked \(counts(cold).ink) — it has lost its capsule along with its tint, so a live button now reads as prose")
+    }
+
+    @Test("Never-scanned is not the same as clean, on the rail as in the overview")
+    func theRailKeepsCleanAndUnscannedApart() {
+        // The distinction `OrganizeOverviewState` is careful about and the rail used to throw away:
+        // both drew as "an item with no badge". Asserted on the state the width model and the label
+        // both read, so the two cannot drift.
+        var counts = TidyView.RailCounts(toFile: 0, duplicates: 0, names: 0, renames: 0,
+                                         restructure: 0, rules: 3)
+        counts.scanned = [.duplicates]
+        #expect(counts.state(.duplicates) == .clean)
+        #expect(counts.state(.names) == .notScanned)
+        #expect(counts.state(.rules) == .configuration,
+                "Rules answered a scan state — it is configuration, and neither clean nor unscanned describes it")
+        counts.toFile = 4
+        #expect(counts.state(.toFile) == .reporting(4))
+        // And the two quiet states really do cost different widths, or the model cannot tell them
+        // apart either and the dot is drawn uncharged.
+        #expect(OrganizeRailMetrics.stateWidth(.notScanned, scale: 1)
+                > OrganizeRailMetrics.stateWidth(.clean, scale: 1))
+    }
+
+    @Test("A four-digit badge abbreviates, and the model measures what it draws")
+    func theBadgeAbbreviatesPastThreeDigits() {
+        #expect(RailItemLabel.badgeText(999) == "999")
+        #expect(RailItemLabel.badgeText(1_192) == "1.1k")
+        #expect(RailItemLabel.badgeText(12_400) == "12k")
+        // The point of abbreviating is that the rail is widest on the day every finding reports.
+        #expect(OrganizeRailMetrics.badgeWidth(1_192, scale: 1)
+                < OrganizeRailMetrics.badgeWidth(999, scale: 1) + 8,
+                "the four-digit badge costs as much as it did unabbreviated — the model is measuring `1,192` while the row paints `1.1k`")
+    }
+
     @Test("Shedding is arithmetic, and it answers both ways")
     func theShedRuleIsComputed() {
-        let twoBadges = Self.badges([.toFile: 24, .names: 17])
-        let lead = { (b: @escaping (OrganizeLens) -> Int?) in
-            OrganizeRailMetrics.leadingWidth(scale: 1, badge: b)
+        let twoBadges = Self.states([.toFile: 24, .names: 17])
+        let lead = { (b: @escaping (OrganizeLens) -> RailItemState) in
+            OrganizeRailMetrics.leadingWidth(scale: 1, state: b)
         }
         // The real header widths this app produces, either side of the threshold.
         //
@@ -571,11 +678,11 @@ import Design
         #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges)) == .full)
         #expect(OrganizeRailMetrics.style(contentWidth: 600, leadingWidth: lead(twoBadges)) == .iconOnly)
         // The shed rung has to actually solve it, or shedding buys nothing.
-        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: twoBadges)
+        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: twoBadges)
         #expect(shed <= 600 - OrganizeRailMetrics.searchToggleWidth)
         // Badges widen the rail, so the day every finding reports is the day it is tightest —
         // a rule measured without them would shed too late.
-        #expect(lead(twoBadges) > lead(Self.badges([:])))
+        #expect(lead(twoBadges) > lead(Self.states([:])))
     }
 
     @Test("A wider badge costs more than a narrower one")
@@ -586,9 +693,9 @@ import Design
         #expect(OrganizeRailMetrics.badgeWidth(410, scale: 1)
                 > OrganizeRailMetrics.badgeWidth(24, scale: 1))
         #expect(OrganizeRailMetrics.leadingWidth(scale: 1,
-                                                 badge: Self.badges([.duplicates: 410]))
+                                                 state: Self.states([.duplicates: 410]))
                 > OrganizeRailMetrics.leadingWidth(scale: 1,
-                                                   badge: Self.badges([.duplicates: 24])))
+                                                   state: Self.states([.duplicates: 24])))
     }
 
     @Test("The leading model matches what row 1 draws at every text size the app ships",
@@ -616,7 +723,7 @@ import Design
                                  "row 1 drew no leading cluster at \(size.scale)× — the rail is not on screen at all")
         let model = OrganizeRailMetrics.leadingWidth(
             scale: size.scale,
-            badge: Self.badges([.toFile: 24, .duplicates: 410, .names: 17]))
+            state: Self.states([.toFile: 24, .duplicates: 410, .names: 17]))
 
         // Measured, model against drawn: 593.6/586.0 at 0.9, 632.2/627.0 at 1.0, 688.5/682.0 at
         // 1.15, 744.2/733.5 at 1.3. Both numbers fell by exactly 21pt at 1.0 when the intro button
@@ -664,7 +771,7 @@ import Design
         // rail out must already seat the actions.** Asserted at the model's own flip point, so it
         // re-derives if the constants move.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
-        let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
+        let badge = Self.states([.toFile: 24, .duplicates: 410, .names: 17])
         // **Swept from 900, not from the rail's own flip point, and the reason is change A.**
         // The two constraints used to be one: the controls shared row 1 with the rail, so the width
         // that first spelled the rail out was exactly the width that had to seat them, and this
@@ -721,7 +828,7 @@ import Design
         // themselves. Give one of them `scaledFont` and the reserve starts under-counting at 1.3
         // alone, which is precisely the scale this sweep adds.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
-        let badge = Self.badges([.toFile: 24, .names: 17])
+        let badge = Self.states([.toFile: 24, .names: 17])
         // From 900 for the reason the neighbour above gives: row 1 and row 2 no longer shed
         // against the same width, and 900 is where real windows start.
         let threshold: CGFloat = 900
@@ -1002,13 +1109,13 @@ import Design
         // is the one that matters: **the fallback has to be dramatically narrower than what it
         // replaces, or shedding buys nothing.** 315pt against 632 measured. `theShedRuleIsComputed`
         // covers the rule that chooses between them, at 900 and at 600.
-        let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
-        let shedModel = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: badge)
-        let spelledOut = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
+        let badge = Self.states([.toFile: 24, .duplicates: 410, .names: 17])
+        let shedModel = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: badge)
+        let spelledOut = OrganizeRailMetrics.leadingWidth(scale: 1, state: badge)
         #expect(shedModel < spelledOut - 100,
                 "the shed rung models \(shedModel)pt against \(spelledOut)pt spelled out — falling back to it saves too little to be a fallback")
         // And it keeps the badges, which are the reason to look at a shed rail at all.
-        let unbadged = OrganizeRailMetrics.shedLeadingWidth(scale: 1, badge: { _ in nil })
+        let unbadged = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: Self.states([:]))
         #expect(shedModel > unbadged,
                 "the shed rung costs the same with badges as without — it is dropping the counts along with the labels")
     }

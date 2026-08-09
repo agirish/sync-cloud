@@ -181,8 +181,10 @@ struct OrganizeScopeChipTests {
         // The rail still spells its items out on a wide canvas and sheds on a narrow one — the
         // narrow one is just much narrower than it was. **Every lens badged**, which is the widest
         // the rail ever gets and so the case that sheds soonest.
-        let everyBadge: (OrganizeLens) -> Int? = { $0.badge(count: 7) }
-        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, badge: everyBadge)
+        let everyBadge: (OrganizeLens) -> RailItemState = {
+            $0.carriesBadge ? .reporting(7) : .configuration
+        }
+        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, state: everyBadge)
         #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading) == .full)
         // 900 is `.full` now where it was `.iconOnly`: that flip IS change A, measured here rather
         // than asserted in prose.
