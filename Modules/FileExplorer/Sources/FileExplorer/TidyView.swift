@@ -1500,10 +1500,17 @@ public struct TidyView: View {
                               action: @escaping () -> Void, reaim: @escaping () -> Void,
                               movedHelp: String) -> some View {
         if moved {
-            Button(action: reaim) { Label("Organize “\(scanTargetName)”", systemImage: movedIcon) }
+            Button(action: reaim) {
+                Label(reaimClearsScope ? "Organize everything" : "Organize “\(scanTargetName)”",
+                      systemImage: reaimClearsScope ? "square.stack.3d.up.slash" : movedIcon)
+            }
                 .buttonStyle(.borderedProminent).controlSize(.small)
                 .chromeHover()
-                .disabled(disabled).help(movedHelp)
+                .disabled(disabled)
+                .help(reaimClearsScope
+                      ? "The pane is at the top of the tree, so this clears the scope and answers "
+                        + "about everything again."
+                      : movedHelp)
         } else {
             Button(action: action) { Label("Rescan", systemImage: "arrow.clockwise") }
                 .chromeButtonStyle(glassLevel).controlSize(.small)
@@ -1512,11 +1519,28 @@ public struct TidyView: View {
         }
     }
 
+    /// Whether re-aiming at the pane's folder would **clear** the scope rather than set one.
+    ///
+    /// True exactly when the pane sits at the provider root, because that is what
+    /// ``OrganizeScope/init(path:providerRoot:)`` normalizes to the global view.
+    ///
+    /// **Found by installing the build and looking at it**, not by any test here. Scoped to `Legal`
+    /// with the pane at the provider root, the button read `Organize "Documents"` and its tooltip
+    /// promised "Every lens narrows to it" — while clicking it widens to the whole tree. The
+    /// action was right and only the words were wrong, which is the kind of defect a green suite
+    /// is least likely to notice: nothing misbehaves, the label just lies about which direction
+    /// the click goes.
+    private var reaimClearsScope: Bool {
+        guard let target = scanTargetFolder, !target.isEmpty,
+              let providerRoot, !providerRoot.isEmpty else { return false }
+        return OrganizeScope(path: target, providerRoot: providerRoot) == nil
+    }
+
     /// Re-aims Organize at the focused pane's folder: set the scope, then scan.
     ///
     /// Routed through ``setScope(_:)``, so pointing at the provider root clears the scope instead
-    /// of setting one — the "Organize '<provider>'" button is therefore also how you get back to
-    /// the global view by navigating.
+    /// of setting one — navigating to the top of the tree and clicking is therefore also how you
+    /// get back to the global view. ``reaimClearsScope`` is what makes the button say so.
     private func reaimAtScanTarget(then scan: @escaping () -> Void) {
         setScope(scanTargetFolder)
         scan()
@@ -2300,7 +2324,27 @@ public struct TidyView: View {
     /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): rows exist,
     /// but the search hides them all — name the cause and offer one click out, instead of a blank
     /// list that reads like the lens found nothing.
+    /// The list is empty because something is *hiding* rows — and which something matters.
+    ///
+    /// **Found by installing the build and looking at it.** Scoped to `Legal`, the Rules lens read
+    /// "0 automations · 0 enabled" over a blank pane, and what little it did offer was
+    /// `noMatchesState`: "The current search hides all 3 rules. Clear it to see the results again",
+    /// with a **Clear Search** button — while no search was running. The message named the wrong
+    /// cause and the button could not fix it, on a lens whose whole complaint is that "0 here"
+    /// reads as "0 anywhere".
+    ///
+    /// So the cause is resolved before the words are chosen. A live query owns the emptiness (it is
+    /// the thing the user just typed); otherwise, if a scope is set, the scope owns it.
+    @ViewBuilder
     private func noMatchesState(total: Int, noun: String) -> some View {
+        if query.isEmpty, let scope {
+            scopeHidesAllState(total: total, noun: noun, scope: scope)
+        } else {
+            searchHidesAllState(total: total, noun: noun)
+        }
+    }
+
+    private func searchHidesAllState(total: Int, noun: String) -> some View {
         EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",
             title: "Nothing matches",
@@ -2309,6 +2353,25 @@ public struct TidyView: View {
                 searchQueries[lens] = ""
                 searchExpandedLenses.remove(lens)
                 if lens == .duplicates { filter = .all }
+            }
+        )
+    }
+
+    /// Nothing here, but there is something **elsewhere** — the sentence a scoped zero owes the
+    /// reader.
+    ///
+    /// It names the scope, states the total outside it, and offers the one action that changes the
+    /// answer. Deliberately not phrased as "clean": a lens that found nothing under `Legal` has not
+    /// established that the tree is tidy, and borrowing `cleanState`'s words would be the exact
+    /// ambiguity between *clean* and *not looked here* that Organize's three states exist to avoid.
+    private func scopeHidesAllState(total: Int, noun: String, scope: OrganizeScope) -> some View {
+        EmptyStateView(
+            icon: "scope",
+            title: "Nothing in “\(scope.name)”",
+            message: "Organize is scoped to “\(scope.relativePath)”. "
+                + "\(total) \(noun)\(total == 1 ? "" : "s") elsewhere in the tree \(total == 1 ? "is" : "are") not shown.",
+            primary: .init("Organize Everything", systemImage: "xmark.circle") {
+                withAnimation(listSettle) { setScope(nil) }
             }
         )
     }

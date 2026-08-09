@@ -95,6 +95,35 @@ import Foundation
             "scopeLabel: syncManager.filingScanFolder.map { ($0 as NSString).lastPathComponent }"))
     }
 
+    // MARK: The two defects the installed build turned up
+
+    @Test func theReaimButtonSaysItCLEARSTheScopeAtTheProviderRoot() throws {
+        // Found by installing and looking: scoped to Legal with the pane at the provider root, the
+        // button read `Organize "Documents"` and promised "Every lens narrows to it" — while
+        // clicking it widens to the whole tree. The action was always right; only the words lied,
+        // which is the shape of defect a green suite is least likely to catch.
+        let tidy = try Self.source("TidyView.swift")
+        #expect(tidy.contains("private var reaimClearsScope: Bool"))
+        #expect(tidy.contains("reaimClearsScope ? \"Organize everything\""))
+        // And the promise must be swapped with the label, not left behind on it.
+        #expect(tidy.contains(".help(reaimClearsScope"))
+    }
+
+    @Test func anEmptyScopedListBlamesTheScopeAndNotTheSearch() throws {
+        // The other one: the Rules lens under a scope offered "The current search hides all 1 rule.
+        // Clear it to see the results again" with a Clear Search button, while no search was
+        // running. Wrong cause, and an action that could not fix it.
+        let tidy = try Self.source("TidyView.swift")
+        #expect(tidy.contains("private func scopeHidesAllState"))
+        #expect(tidy.contains("private func searchHidesAllState"))
+        // The chooser: a live query owns the emptiness, otherwise the scope does.
+        #expect(tidy.contains("if query.isEmpty, let scope {"))
+        // And the scoped state must state the outside total and offer the clearing action —
+        // "0 here" reading as "0 anywhere" is the whole complaint.
+        #expect(tidy.contains("elsewhere in the tree"))
+        #expect(tidy.contains("\"Organize Everything\""))
+    }
+
     // MARK: The inbox root-swap is gone, and the path resolution is not
 
     @Test func theInboxIsOfferedAsAScopeShortcut() throws {
