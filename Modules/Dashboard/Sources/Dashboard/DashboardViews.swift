@@ -937,7 +937,7 @@ public struct PaneHeader: View {
                             Text("\(person.displayName) — everything that is theirs")
                                 .scaledFont(.system(size: 11.5, weight: .medium))
                             Spacer(minLength: 6)
-                            Text("↩")
+                            Text("⌘↩")
                                 .scaledFont(.system(size: 10.5, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
@@ -954,12 +954,15 @@ public struct PaneHeader: View {
             // ⇧↩ is the plain find, always. ↩ takes the offer when there is one, and otherwise is
             // the plain find too — so the key never stops doing what it did before, it only gains
             // a meaning on the queries that have one.
-            let wantsPlainSearch = modifiers.contains(.shift)
-            if !wantsPlainSearch, let person = personOffer?(text.wrappedValue) {
-                onAcceptPerson?(person)
-                return
+            // The routing is a pure table — see ``PaneSearchSubmit``, which is where it is
+            // tested, because `onSubmit` cannot be fired from a test.
+            let person = personOffer?(text.wrappedValue)
+            switch PaneSearchSubmit.action(modifiers: modifiers, hasOffer: person != nil) {
+            case .acceptPerson:
+                if let person { onAcceptPerson?(person) }
+            case .advance(let reverse):
+                onSearchAdvance?(reverse)
             }
-            onSearchAdvance?(wantsPlainSearch)
         }
     }
 
