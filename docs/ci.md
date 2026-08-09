@@ -134,47 +134,52 @@ the benchmark to fail there for machine reasons, not code reasons, and plan
 to re-validate (and re-record/re-calibrate) on the new machine — see the
 re-record workflow in `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`.
 
-## Per-commit verdicts
+## Tip-only verdicts on branches
 
-The concurrency group is **per (ref, commit)** — `tests-${{ github.ref }}-${{
-github.sha }}` — with `cancel-in-progress: false`. Both halves are load-bearing,
-and they cover different cases:
+Branch pushes to `main` or `v2.x` share **one concurrency group per ref** with
+`cancel-in-progress: true`, so during a burst of landings only the newest push
+keeps a run: each push cancels the group's older runs, both the one already
+executing on the runner and any still queued. Two separate mechanisms produce
+that, and it helps to know both when reading a cancelled run:
 
-- `cancel-in-progress: false` stops a newer push from killing a run that has
-  already **started**.
-- The **SHA in the group key** stops a newer push from evicting a run that has
-  **not started yet**. `cancel-in-progress` does not cover this: GitHub Actions
-  holds at most one *pending* run per group, so under a ref-wide group a third
-  push cancels the queued second one before it ever creates a job.
+- `cancel-in-progress: true` cancels runs that have already **started** (they
+  have a job with partial logs).
+- Independently, GitHub Actions holds at most one *pending* run per group and
+  evicts the older pending one on the next push — unconditionally, no setting
+  controls it. An evicted run has **no jobs at all**
+  (`gh api repos/{owner}/{repo}/actions/runs/<id>/jobs --jq .total_count` → `0`).
 
-Grouping by ref alone therefore dropped verdicts silently. During a burst of
-landings on 2026-08-01, v2.x `389b38fb` (run 30718845541) and `234e4312` (run
-30718896990), plus main `957e173d` (run 30718657891), were all cancelled with
-**zero jobs created**, each one second after the next push to the same branch —
-while the branch still read green because a later SHA passed. `gh run rerun`
-could not rescue them: for ~40 min each re-queued attempt lost the single
-pending slot to the next push again. Note the two symptoms that identify this
-rather than a `cancel-in-progress` cancellation: the run has **no jobs at all**
-(`gh api repos/{owner}/{repo}/actions/runs/<id>/jobs --jq .total_count` → `0`),
-and runs that had already started sailed through the same burst untouched.
+Either way, a `cancelled` run on a branch means **superseded by a newer push**,
+not broken.
 
-With per-commit groups no run can evict another, so a burst of close landings
-each land a green/red verdict and a break is bisectable to the exact SHA — which
-matters because commits here get audited. Serialization is the **runner's** job,
-not the concurrency group's: only one self-hosted runner exists, so a dispatched
-run's job waits `queued` until it frees up. A run is ~4-7 min of runner time
-(median ~5), so the per-commit cost is acceptable on our own hardware; wall-clock
-during a burst is much longer because of that queue. If a long burst ever backs
-the queue up, cancel stale runs with `gh run cancel <id>` — deliberately, per
-SHA, so you know which commits you gave up a verdict for.
+Tags and `workflow_dispatch` runs keep **per-commit groups** (a SHA suffix in
+the group key) and are never cancelled: cutting a release must get its own
+verdict even if the branch moves during the run, and a deliberate manual re-run
+must not be killable by an unrelated push. The ref stays in the key so a tag
+never shares a group with the branch push at the same commit.
 
-Verifying a push means checking the run for **that exact SHA**, not the branch:
+History, because this policy has now gone both ways: ref-wide grouping
+originally dropped verdicts *silently* (2026-08-01 — v2.x `389b38fb` and
+`234e4312`, main `957e173d`, all evicted with zero jobs one second after the
+next push, unrescuable by `gh run rerun` while the burst lasted), and the fix
+was per-(ref, SHA) groups so every commit stayed bisectable. On 2026-08-09 that
+was deliberately reversed: the runner is the developer's own Mac, a run costs
+4-7 min of its time, and stale runs during a burst starved both the machine and
+the tip's verdict. The trade is explicit now — a commit superseded mid-burst
+has no verdict of its own, and bisecting a break found at the tip may need old
+SHAs re-run by hand. Do that in a quiet moment: `gh run rerun` re-enters the
+shared branch group, so a stale-SHA rerun and a live tip run cancel each other.
+
+Verifying a push therefore means checking the run for the **branch tip**:
 
 ```sh
-gh run list --commit <sha> --workflow tests.yml
+gh run list --commit <tip-sha> --workflow tests.yml
 ```
 
-A SHA with no run at all is as bad as a red one.
+The tip having no run, or a cancelled one, is as bad as red — nothing newer
+superseded it, so something ate its run. For an *intermediate* SHA of a burst,
+cancelled-with-a-newer-green-descendant is the expected state, but remember its
+content passed only as part of the descendant, not on its own.
 
 ## Runner
 
