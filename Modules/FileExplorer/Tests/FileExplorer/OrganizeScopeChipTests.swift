@@ -167,20 +167,30 @@ struct OrganizeScopeChipTests {
 
     /// Row **1** is the rail's row, and the chip is not on it.
     ///
-    /// `OrganizeRailMetrics.reservedTrailing` (420) is measured against row 1's trailing controls —
+    /// `OrganizeRailMetrics.reservedTrailing(for:)` is measured against row 1's trailing controls —
     /// Rescan, Refine, File all N, the search toggle. The scope chip lives on row 2, so that
     /// arithmetic is untouched by this change; this test states that as a fact rather than leaving
     /// it as an assumption, and `OrganizeScopeCallSiteTests` pins the chip's actual draw site.
+    ///
+    /// **Row 2 has since gained a second tenant and this still holds** — the folder-memory survey
+    /// status moved off row 1 (`TidyView.folderMemoryStatus`), and the five lenses' reserve did not
+    /// move with it. To File's did, from 420 to 490, and for an unrelated reason the pixels name:
+    /// its own buttons need 468 with a refine offer showing.
     @Test func theRailsWidthArithmeticIsUnchangedByTheChip() {
-        #expect(OrganizeRailMetrics.reservedTrailing == 420)
+        for lens in OrganizeLens.allCases where lens != .toFile {
+            #expect(OrganizeRailMetrics.reservedTrailing(for: lens) == 420)
+        }
+        #expect(OrganizeRailMetrics.reservedTrailing(for: nil) == 420)
         // The shed threshold at the default text size is where it was: the rail still spells its
         // items out on a wide canvas and sheds on a narrow one. **Every lens badged**, which is now
         // reachable — `railCount(.restructure)` stopped returning a hard 0 in this same change, so
         // five is the real ceiling rather than a hypothetical one.
         let everyBadge: (OrganizeLens) -> Int? = { $0.badge(count: 7) }
         let leading = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: everyBadge)
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading) == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading) == .iconOnly)
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading,
+                                          lens: .duplicates) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading,
+                                          lens: .duplicates) == .iconOnly)
     }
 
     // MARK: The COUNT is real

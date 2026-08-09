@@ -117,7 +117,24 @@ import Design
         return m
     }
 
-    private static func manager(queue: Int, names: Int, hasScanned: Bool = true) -> FileSyncManager {
+    /// A real survey's worst case: every clause the summary can carry, with the counts his own tree
+    /// produces. 485pt of caption — the string the row 1 defect was made of.
+    private static let longSurvey = FileSyncManager.FilingSurveyReport(
+        foldersChanged: 12, documentsRead: 340, documentsRelocated: 8, documentsDropped: 3,
+        documentsUnavailable: 5, foldersLearned: 96, changed: true)
+
+    /// - Parameters:
+    ///   - survey: what the last folder-memory re-survey reported, or nil for the ordinary state
+    ///     where none has run this session.
+    ///   - refine: whether the refine offer is showing. **It needs four things, not one**, and a
+    ///     fixture that sets only the classifier draws no button at all —
+    ///     `canRefineFilingSuggestions` also wants the cached taxonomy and the provider root, so a
+    ///     suite that forgot them would measure the state without the widest control in it and
+    ///     report that the row fits.
+    private static func manager(queue: Int, names: Int, hasScanned: Bool = true,
+                                survey: FileSyncManager.FilingSurveyReport? = nil,
+                                refine: Bool = false,
+                                heavyReadout: Bool = false) -> FileSyncManager {
         let m = FileSyncManager()
         m.publishFilingSuggestions((0..<queue).map { suggestion("f\($0).pdf", confident: $0 % 3 != 0) })
         m.hasSuggestedFiling = hasScanned
@@ -126,6 +143,19 @@ import Design
         m.riskyNames = (0..<names).map { risky("bad:name\($0).pdf") }
         m.nameScanRoot = URL(fileURLWithPath: "/root")
         m.hasScannedNames = names > 0
+        m.filingSurveyReport = survey
+        if heavyReadout {
+            // Two more pills on row 2's leading side (`reused`, `refined`), which is how the row
+            // gets tight enough for anything on its trailing side to have to give.
+            m.filingLastCacheReuse = FileSyncManager.FilingCacheReuse(reused: 340, classified: 12)
+            m.filingLastRefine = FileSyncManager.FilingRefineSummary(asked: 40, reused: 8,
+                                                                     classified: 32, changed: 12)
+        }
+        if refine {
+            m.filingClassifier = { _, _, _ in [:] }
+            m.filingLastTaxonomyFolders = ["Documents", "Documents/Family"]
+            m.filingLastExistingFolders = ["Documents", "Documents/Family"]
+        }
         return m
     }
 
@@ -146,8 +176,12 @@ import Design
         } else {
             defaults.removeObject(forKey: OrganizeLens.defaultsKey)
         }
+        // Both callbacks are supplied because both gate a control this suite measures: the Rescan
+        // menu's "Update folder memory" item, and the "Refine with Claude…" invitation, which is
+        // withheld outright when there is no Settings to open.
         let subject = TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
-                               scanTargetFolder: "/root/Downloads", onFindDuplicates: {})
+                               scanTargetFolder: "/root/Downloads", onFindDuplicates: {},
+                               onUpdateFolderMemory: {}, onConfigureCloudRefine: {})
             .defaultAppStorage(defaults)
             .frame(width: canvas.width, height: canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -493,11 +527,11 @@ import Design
             OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: b)
         }
         // The real header widths this app produces, either side of the threshold.
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges)) == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges)) == .iconOnly)
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges), lens: .toFile) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges), lens: .toFile) == .iconOnly)
         // The shed rung has to actually solve it, or shedding buys nothing.
         let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, hasIntro: true, badge: twoBadges)
-        #expect(shed <= 900 - OrganizeRailMetrics.reservedTrailing)
+        #expect(shed <= 900 - OrganizeRailMetrics.reservedTrailing(for: .toFile))
         // Badges widen the rail, so the day every finding reports is the day it is tightest —
         // a rule measured without them would shed too late.
         #expect(lead(twoBadges) > lead(Self.badges([:])))
@@ -578,7 +612,7 @@ import Design
         let manager = Self.duplicatesManager(groups: 410, names: 17)
         let badge = Self.badges([.toFile: 24, .duplicates: 410, .names: 17])
         let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: badge)
-            + OrganizeRailMetrics.reservedTrailing
+            + OrganizeRailMetrics.reservedTrailing(for: .duplicates)
 
         // Right-anchored: the trailing set is right-aligned and fixed-size, so at every width that
         // seats it these bands are pixel-identical. 300pt, because a band wide enough to reach back
@@ -601,6 +635,181 @@ import Design
             #expect(differingPixels(tight, reference) == 0,
                     "at \(width)pt — \(offset)pt above the width the model starts spelling the rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
         }
+    }
+
+    @Test("To File seats its own actions at the width it starts spelling the rail out")
+    func theToFileThresholdSeatsItsOwnActions() throws {
+        // **The same invariant, on the lens the test above does not reach — and it was failing.**
+        // `theShedThresholdIsNotOneCharacterTooLate` sweeps Duplicates, whose trailing set is
+        // 354pt, and passed. To File's is 436.5–468 once the refine offer is showing (Rescan,
+        // `Refine with Claude…`, `File all N confident`, search), against a reserve that was 420
+        // for all six lenses — so from its flip point upward the row bought the rail's labels with
+        // the buttons' words, and kept doing it for a further 48pt. Nothing about the folder-memory
+        // caption was involved: `survey` is nil here.
+        //
+        // This is what ``OrganizeRailMetrics/reservedTrailing(for:)`` being per-lens is for.
+        let manager = Self.manager(queue: 24, names: 17, refine: true)
+        let badge = Self.badges([.toFile: 24, .names: 17])
+        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, hasIntro: true, badge: badge)
+            + OrganizeRailMetrics.reservedTrailing(for: .toFile)
+
+        let reference = try #require(strip(mount(manager, lens: .toFile, width: 2400),
+                                           Self.trailingZone(2400)))
+        for offset in stride(from: 0.0, through: 48.0, by: 6.0) {
+            let width = (threshold + offset).rounded(.up)
+            let host = mount(manager, lens: .toFile, width: width)
+            #expect(counts(try #require(strip(host, Self.railZone))).ink > 600,
+                    "at \(width)pt the rail is not spelled out — this probe is measuring the shed state, where nothing has to fit")
+            let tight = try #require(strip(host, Self.trailingZone(width)))
+            #expect(differingPixels(tight, reference) == 0,
+                    "at \(width)pt — \(offset)pt above the width the model starts spelling To File's rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
+        }
+    }
+
+    // MARK: The folder-memory report is prose, and prose is not on row 1
+
+    /// Row 2's status zone, right-anchored, and **kept clear of the readout it shares the row
+    /// with**. 452pt: the heaviest readout below ends at x 324, so at the 800pt canvas this band
+    /// starts 24pt clear of it. A wider band reads the pills as if they were the sentence, which is
+    /// how the first cut of `theReadoutOutranksTheSurveyReport` compared a number against itself.
+    private static func statusZone(_ width: CGFloat) -> CGRect {
+        CGRect(x: width - 452, y: 50, width: 444, height: 22)
+    }
+    /// The width of the **last inked run** on row 2 — the survey sentence, measured rather than
+    /// inferred from how much ink a fixed band happens to contain.
+    ///
+    /// Ink counts cannot answer "was this truncated": a band that catches part of the readout
+    /// reports more ink on the narrow canvas than on the wide one, which is the opposite of the
+    /// truth. A run's extent is the sentence's own painted width, and a truncated sentence is
+    /// simply shorter. Runs break on 20pt of background — wider than any inter-word gap at caption
+    /// size, narrower than the reach from the readout across to the trailing edge.
+    private func trailingRunOnRowTwo(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
+        let origin: CGFloat = 8
+        guard let rep = strip(host, CGRect(x: origin, y: 50, width: width - origin - 8, height: 22)),
+              let background = rep.colorAt(x: 2, y: 2) else { return nil }
+        let scale = CGFloat(rep.pixelsWide) / (width - origin - 8)
+        var inked: [Bool] = []
+        for x in 0..<rep.pixelsWide {
+            var n = 0
+            for y in 0..<rep.pixelsHigh {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let delta = max(abs(c.redComponent - background.redComponent),
+                                max(abs(c.greenComponent - background.greenComponent),
+                                    abs(c.blueComponent - background.blueComponent)))
+                if delta > 0.03 { n += 1 }
+            }
+            inked.append(n >= 1)
+        }
+        var runs: [(Int, Int)] = []
+        var start: Int?
+        var blank = 0
+        let gap = Int(20 * scale)
+        for (i, on) in inked.enumerated() {
+            if on {
+                if start == nil { start = i }
+                blank = 0
+            } else if let s = start {
+                blank += 1
+                if blank >= gap { runs.append((s, i - blank)); start = nil }
+            }
+        }
+        if let s = start { runs.append((s, inked.count - 1)) }
+        guard let last = runs.filter({ CGFloat($0.1 - $0.0) / scale > 3 }).last else { return nil }
+        return CGFloat(last.1 - last.0) / scale
+    }
+
+    @Test("A long survey report leaves row 1's actions untouched")
+    func theSurveyReportDoesNotTakeTheActionsWords() throws {
+        // The reported defect. `FilingSurveyReport.summary` is prose whose length is a property of
+        // the last survey — "12 folders changed, 340 documents read, 8 followed a move, 3 left the
+        // tree, 5 not downloaded yet." — and drawn on row 1 it took the trailing set from 436.5pt
+        // to **921**, so at a 1200pt card the row read `Refine with…` and `File all 24 co…`.
+        //
+        // Stated as: the report changes nothing about row 1. Same width, same everything else.
+        let withReport = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
+        let without = Self.manager(queue: 24, names: 17, refine: true)
+        let width: CGFloat = 1200
+
+        let reported = mount(withReport, lens: .toFile, width: width)
+        let quiet = mount(without, lens: .toFile, width: width)
+
+        // **Non-vacuity first, and it is the half that matters here.** The cheapest way to pass
+        // this test is to stop drawing the report at all, which would be a worse bug than the one
+        // being fixed: the menu item that produced it would go back to looking like it did nothing.
+        // So the report has to be ON SCREEN, on row 2, and it has to be the reason that band is
+        // inked — hence the comparison against the same header without it.
+        let reportedRow2 = counts(try #require(strip(reported, Self.statusZone(width)))).ink
+        let quietRow2 = counts(try #require(strip(quiet, Self.statusZone(width)))).ink
+        #expect(reportedRow2 > quietRow2 + 500,
+                "row 2's trailing zone painted \(reportedRow2) inked pixels with a survey report and \(quietRow2) without — the report is not being drawn there, so every claim below is about a sentence nobody can read")
+
+        #expect(differingPixels(try #require(strip(reported, Self.trailingZone(width))),
+                                try #require(strip(quiet, Self.trailingZone(width)))) == 0,
+                "row 1's actions render differently with a folder-memory report present — the report is back on row 1, taking the buttons' words to make room for itself")
+    }
+
+    @Test("The report still says what the survey found, and is not a stub")
+    func theSurveyReportSaysItsNumbers() throws {
+        // **The move has to carry the meaning, not just the pixels.** The whole reason this line
+        // exists is that "Update folder memory" usually changes nothing and would otherwise look
+        // like a menu item that does nothing, so a report reduced to an unreadable stub on row 2
+        // would be the original complaint back again by a different route — and this suite's
+        // founding failure is exactly that: two different labels clipped to identical images while
+        // four tests compared them and passed.
+        //
+        // At 800, where the sentence is under pressure and truncating: two surveys that differ in
+        // their FIRST clause must still render differently.
+        let width: CGFloat = 800
+        let other = FileSyncManager.FilingSurveyReport(
+            foldersChanged: 7, documentsRead: 91, documentsRelocated: 8, documentsDropped: 3,
+            documentsUnavailable: 5, foldersLearned: 96, changed: true)
+
+        let a = try #require(strip(mount(Self.manager(queue: 24, names: 17, survey: Self.longSurvey,
+                                                      refine: true, heavyReadout: true),
+                                         lens: .toFile, width: width), Self.statusZone(width)))
+        let b = try #require(strip(mount(Self.manager(queue: 24, names: 17, survey: other,
+                                                      refine: true, heavyReadout: true),
+                                         lens: .toFile, width: width), Self.statusZone(width)))
+        #expect(counts(a).ink > 500,
+                "row 2's status zone painted \(counts(a).ink) inked pixels — the report is not being drawn there at all")
+        #expect(differingPixels(a, b) > 0,
+                "12 folders changed and 7 folders changed rendered identically — the report is a stub, so moving it here bought nothing")
+    }
+
+    @Test("The report is the thing that shortens when row 2 runs out of room")
+    func theSurveyReportIsWhatGivesWay() throws {
+        // Row 2's leading readout says what the scan found and its trailing "N of M" says how much
+        // of it is showing; both describe the list on screen, while this describes a menu action.
+        // So when the row is over-subscribed — 309pt of pills against a 490pt sentence at 800 —
+        // the sentence is what shortens.
+        //
+        // **Over-determined, and worth saying so rather than claiming more than it pins.** Deleting
+        // `folderMemoryStatus`'s `layoutPriority(-1)` does not break this: `SummaryRun` is
+        // `.fixedSize()` and so is `ofMLabel`, which leaves the sentence the only compressible
+        // thing on the row whatever the priorities say. This asserts the rendered outcome, which is
+        // what the user gets; the modifier is insurance against either sibling ever becoming
+        // flexible, and no test here can hold it while they are not.
+        let width: CGFloat = 800
+        let heavy = Self.manager(queue: 24, names: 17, survey: Self.longSurvey,
+                                 refine: true, heavyReadout: true)
+        let heavyQuiet = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
+
+        // The readout occupies x 15–324 either way. A band over it must be pixel-identical with
+        // and without a sentence competing for the row.
+        let readout = CGRect(x: 8, y: 50, width: 330, height: 22)
+        #expect(differingPixels(try #require(strip(mount(heavy, lens: .toFile, width: width), readout)),
+                                try #require(strip(mount(heavyQuiet, lens: .toFile, width: width), readout))) == 0,
+                "row 2's readout renders differently once a survey report shares the row — the report is outranking the numbers it sits beside, which is backwards")
+
+        // …and it really was tight: the sentence is painted narrower here than where it has room,
+        // so the assertion above is about a row that had to give something up rather than a roomy
+        // one. Measured 447pt against 490, and the render shows the ellipsis.
+        let tight = try #require(trailingRunOnRowTwo(mount(heavy, lens: .toFile, width: width),
+                                                     width: width))
+        let roomy = try #require(trailingRunOnRowTwo(mount(heavy, lens: .toFile, width: 1400),
+                                                     width: 1400))
+        #expect(tight < roomy - 20,
+                "the report painted \(tight)pt wide at 800 and \(roomy)pt at 1400 — it is not being compressed at all, so nothing here is under pressure and the claim above is untested")
     }
 
     // MARK: The control — Rescan outlives the queue

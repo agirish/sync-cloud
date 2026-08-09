@@ -688,7 +688,7 @@ public struct TidyView: View {
                 // shedding inside the transform.
                 .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
                     OrganizeRailMetrics.style(contentWidth: proxy.size.width,
-                                              leadingWidth: railLeading)
+                                              leadingWidth: railLeading, lens: organizeLens)
                 } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts)
@@ -948,8 +948,12 @@ public struct TidyView: View {
                 // output. Before the first scan the intro state owns the invitation and this stays
                 // away: a "Rescan" with nothing to re-scan is a button describing something that
                 // never happened.
+                //
+                // The folder-memory status used to sit here, immediately before Rescan, and it is
+                // on row 2 now — see ``folderMemoryStatus``. Row 1 is fixed-width controls only,
+                // which is what lets ``OrganizeRailMetrics/reservedTrailing(for:)`` be a number at
+                // all.
                 if syncManager.hasSuggestedFiling {
-                    folderMemoryStatus
                     rescanFilingButton
                 }
                 // The apply actions stay with their own list: each acts on the rows on screen, so
@@ -1297,9 +1301,16 @@ public struct TidyView: View {
     }
 
 
-    /// Row 2's trailing edge: "N of M" whenever this lens's list is narrowed, so a shortened list
-    /// always reads as a filtered view rather than as the whole result.
-    @ViewBuilder
+    /// Row 2's trailing edge: what the last folder-memory survey did, then "N of M" whenever this
+    /// lens's list is narrowed, so a shortened list always reads as a filtered view rather than as
+    /// the whole result.
+    ///
+    /// **The survey status is here rather than on row 1 because it is prose, and row 1 is
+    /// controls.** That is the card's own division — `lensSummary` says it for the readout — and
+    /// row 1 broke it: `folderMemoryStatus` sat between the rail and Rescan, so a sentence whose
+    /// length is a property of the last survey was competing with the buttons for the row. See
+    /// ``folderMemoryStatus`` for what that cost.
+    ///
     /// **M is the SCOPED list, not the whole tree.**
     ///
     /// This read `syncManager.duplicateGroups.count` and friends — the global lists — so under a
@@ -1313,7 +1324,16 @@ public struct TidyView: View {
     /// the definition of "this list" now matches what the header claims above it.
     ///
     /// Storage is untouched: it is a workspace of its own with no Organize scope.
+    @ViewBuilder
     private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {
+        // Same gate the control had on row 1: the filing apparatus, once a scan has finished, and
+        // not while one is running. The status describes an action reachable only from the Rescan
+        // menu, which is drawn under exactly this condition — so moving the readout must not
+        // silently widen where it appears.
+        if effectiveLens == .rename || effectiveLens == .filing,
+           !syncManager.isSuggestingFiles, syncManager.hasSuggestedFiling {
+            folderMemoryStatus
+        }
         if isFiltered {
             switch effectiveLens {
             case .duplicates: ofMLabel(rows.duplicates.count, counts.duplicates)
@@ -1629,26 +1649,81 @@ public struct TidyView: View {
         scan()
     }
 
-    /// What the folder-memory re-survey is doing, or what it found.
+    /// What the folder-memory re-survey is doing, or what it found. **Row 2** — see
+    /// ``lensTrailing(rows:)``.
     ///
     /// **The commonest outcome is that nothing changed, and that has to be visible.** A menu item
     /// that reads only a few folder mtimes and writes nothing looks broken otherwise — the user
     /// clicks it, the tree is already current, and there is no evidence it ran at all.
+    ///
+    /// ## Why it is bounded, and why it is not on row 1
+    ///
+    /// `FilingSurveyReport.summary` is prose whose length is a property of the last survey rather
+    /// than of the layout — "12 folders changed, 340 documents read, 8 followed a move, 3 left the
+    /// tree, 5 not downloaded yet." is 485pt of caption. Drawn unbounded on row 1 it did two
+    /// things, both measured off the render:
+    ///
+    /// - **It took the actions' words.** With a refine offer beside it the trailing set came to
+    ///   **921pt**, against 354 for Duplicates, and SwiftUI resolved the overrun the way it always
+    ///   does — by truncating the flexible side. At a 1200pt card that is `Refine with…` and
+    ///   `File all 24 co…`: two buttons that no longer say what they do, and one of them spends
+    ///   money.
+    /// - **It wrapped the row.** Row 1 is a fixed 27pt inside a fixed 81pt card
+    ///   (``LensHeaderMetrics``), and a `Text` with no `lineLimit` takes a second line rather than
+    ///   clipping. At 1400 it did, and two caption lines only just fit 27pt at the default text
+    ///   size — at Large the card's opening has 0.4pt to give.
+    ///
+    /// No reserve fixes that, which is the point: sizing
+    /// ``OrganizeRailMetrics/reservedTrailing(for:)`` for 921 would strip the rail's labels out to
+    /// ~1316pt of card width, which is most real windows. So the prose moved to the row that is
+    /// *for* prose, where there is genuine room beside the readout. Measured after the move, row
+    /// 1's trailing set is 436.5pt with a report and 436.5 without — the report costs the row
+    /// nothing — and the actions keep their words from 800pt of card width up, against a pre-move
+    /// 600–925 and 1050–1225 where they did not.
+    ///
+    /// ## The two modifiers below are insurance, and today they are inert
+    ///
+    /// Both were added as backstops and **both were then mutation-tested and survived**, which is
+    /// worth recording rather than leaving as an implied claim:
+    ///
+    /// - **`lineLimit(1)`/`truncationMode(.tail)`** — deleting them changes no pixel. Row 2 is a
+    ///   fixed 22pt (``LensHeaderMetrics/summaryRow``), and a `Text` proposed that height has room
+    ///   for one caption line, so it truncates whatever this says. On row 1 that was *not* true —
+    ///   27pt seats two caption lines at the default text size, which is why the same string wrapped
+    ///   there and only just fitted, with 0.4pt to spare at Large. So this is the modifier that
+    ///   matters if the line ever moves back to a taller row, and it is cheap to keep saying.
+    /// - **`layoutPriority(-1)`** — deleting it changes no pixel either. The row's other tenants are
+    ///   the readout ("16 ready · 8 unsure · 340 reused") and the "N of M" filtered count, and both
+    ///   are `.fixedSize()`, so this is already the only compressible thing on the row. It is the
+    ///   right *statement* regardless — those two describe the list on screen and this describes a
+    ///   menu action, so this is what should give way — and it is what keeps that true if either
+    ///   sibling ever stops being fixed-size.
+    ///
+    /// `theSurveyReportIsWhatGivesWay` asserts the rendered outcome, which holds either way; no
+    /// test pins the modifiers themselves, because the row as it stands cannot express their
+    /// failure.
     @ViewBuilder
     private var folderMemoryStatus: some View {
         if let status = syncManager.filingSurveyLifecycle.status,
            syncManager.filingSurveyLifecycle.isRunning {
             HStack(spacing: 5) {
                 ProgressView().controlSize(.small).scaleEffect(0.7)
-                Text(status)
+                Text(status).lineLimit(1)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            .layoutPriority(-1)
         } else if let report = syncManager.filingSurveyReport {
             Text(report.summary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .help("\(report.foldersLearned) folders have learned content from the documents already filed in them.")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(-1)
+                // The truncated tail has to be recoverable, so the tooltip carries the whole
+                // sentence and not just the gloss it used to carry alone.
+                .help("\(report.summary) \(report.foldersLearned) folders have learned content from the documents already filed in them.")
+                .accessibilityLabel(report.summary)
         }
     }
 

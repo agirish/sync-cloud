@@ -77,24 +77,44 @@ public enum OrganizeRailMetrics {
 
     /// Row 1 width the rail can never have: the lens's own controls and the search toggle.
     ///
-    /// **420 against a measured requirement of 395**, so it carries about 25pt of margin. That
-    /// requirement is Duplicates', which is the widest lens whose trailing set is *fixed controls*
-    /// — measured at 353.5pt of ink for `All ⌄`, `Rescan`, `Apply 410 recommended` and the search
-    /// toggle, against 281pt for the filing queue. The doc this replaces asserted the filing queue
-    /// was the widest state Organize has; it is not, and sizing the reserve against it is part of
-    /// how Duplicates came to truncate.
+    /// **Per lens, because one number for six of them was wrong for one of them.** It was a single
+    /// 420 — sized on Duplicates, the widest lens whose trailing set is fixed controls (353.5pt of
+    /// ink for `All ⌄`, `Rescan`, `Apply 410 recommended` and the search toggle) against a measured
+    /// requirement of 395. That held for five lenses and not for **To File**, whose trailing set
+    /// measures **436.5–468** once the refine offer is showing: `Rescan`, `Refine N with <model>`,
+    /// `File all N confident`, search. So the row truncated its own buttons *at the very width the
+    /// model started spelling the rail out* — the defect
+    /// `theShedThresholdIsNotOneCharacterTooLate` was written for, on the one lens it did not
+    /// sweep. Nothing about the caption below was needed to produce it: an empty
+    /// `filingSurveyReport` truncates just the same.
     ///
-    /// Deliberately generous in the other direction: being one item too cautious costs six labels
-    /// that would have fitted, while being one too optimistic costs the *actions* their words.
+    /// Splitting the number costs nothing the shared one was buying. Sizing the shared constant at
+    /// To File's 468 instead would have shed the labels ~70pt early on the five lenses that never
+    /// needed it, which is the trade the old doc's "single number shared by all six lenses" was
+    /// silently making in the other direction.
     ///
-    /// **What this number cannot cover, and does not pretend to.** With a folder-memory report to
-    /// show *and* a refine offer, the filing queue's trailing set measures 920pt, because
-    /// `folderMemoryStatus` is prose whose length is a property of the last survey rather than of
-    /// the layout. That state still truncates its buttons below ~1316pt, and no constant fixes it:
-    /// a reserve big enough would strip the rail's labels on every other lens out to that same
-    /// width. It needs the caption bounded or moved off row 1, which is a change to the row and
-    /// not to this arithmetic.
-    public static let reservedTrailing: CGFloat = 420
+    /// Deliberately generous within each lens: being one item too cautious costs six labels that
+    /// would have fitted, while being one too optimistic costs the *actions* their words.
+    ///
+    /// **The margin absorbs the counts, and that is the part worth checking when this moves.** The
+    /// two To File labels carry numbers, so its requirement drifts with the queue — 437.5 at 24
+    /// files, 468 at 1,204, 460.5 at 99,999 (a digit is worth ~9pt and the peak is inside that
+    /// range, since a longer count buys a shorter model name no room). 490 clears the peak by 22.
+    /// A reserve whose *requirement* drifted further than its margin would be a broken model rather
+    /// than a mis-tuned number, and would want the trailing side measured per control the way
+    /// ``itemWidth(_:badge:scale:)`` measures the leading one.
+    ///
+    /// - Parameter lens: the rail's selection; nil is the overview, which draws Rescan and the
+    ///   search toggle alone (129pt measured) and so is covered by the shared figure.
+    public static func reservedTrailing(for lens: OrganizeLens?) -> CGFloat {
+        switch lens {
+        // Rescan · Refine N with <model> · File all N confident · search.
+        case .toFile: return 490
+        // Duplicates (354) is the widest of these; Names 240, Renames and Restructure 129,
+        // Rules and the overview less again.
+        case .duplicates, .names, .renames, .restructure, .rules, .none: return 420
+        }
+    }
 
     /// A rail glyph's rendered width at the ambient text size.
     ///
@@ -197,7 +217,11 @@ public enum OrganizeRailMetrics {
     /// Takes the leading width already resolved rather than the ingredients, because this runs
     /// inside the geometry transform — on every width the view is handed — while
     /// ``leadingWidth(scale:hasIntro:badge:)`` measures type and belongs once per `body`.
-    public static func style(contentWidth: CGFloat, leadingWidth: CGFloat) -> OrganizeRailStyle {
-        contentWidth - reservedTrailing >= leadingWidth ? .full : .iconOnly
+    ///
+    /// `lens` is taken here rather than folded into `leadingWidth` because it selects the
+    /// *trailing* reserve — see ``reservedTrailing(for:)``, which is the half that differs by lens.
+    public static func style(contentWidth: CGFloat, leadingWidth: CGFloat,
+                             lens: OrganizeLens?) -> OrganizeRailStyle {
+        contentWidth - reservedTrailing(for: lens) >= leadingWidth ? .full : .iconOnly
     }
 }
