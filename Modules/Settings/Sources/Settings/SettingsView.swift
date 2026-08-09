@@ -2907,3 +2907,24 @@ struct AdvancedSettingsTab: View {
         logFileSizeText = bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
     }
 }
+
+extension SettingsView.SettingsTab {
+
+    /// Where a stored `settingsSelectedTab` resolves to, including when it resolves to nothing.
+    ///
+    /// The launch read lives in `MacApp/ContentView.swift`, which belongs to no SPM package — only
+    /// the app target compiles it — so the fallback there was reachable by no test at all. It
+    /// matters more here than it looks: the stored value is written by past builds and by the
+    /// GUI-verification recipe's `defaults`
+    /// call, so it is the one input to Settings that is genuinely outside the app's control. A
+    /// force-unwrap or a `!` added there would crash on launch for anyone whose stored tab had
+    /// been retired, and nothing in the repo would have said so first.
+    ///
+    /// Falls back rather than trapping, and the fallback is Appearance because it is the tab that
+    /// depends on nothing — no engine, no provider list, no roster — so it is safe to land on
+    /// whatever state the app is in.
+    public static func resolvingStored(_ raw: String?) -> Self {
+        guard let raw, let tab = Self(rawValue: raw) else { return .appearance }
+        return tab
+    }
+}

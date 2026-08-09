@@ -582,8 +582,11 @@ struct ContentView: View {
                     // automated verification can reach it without synthesizing input. No-op
                     // unless explicitly armed; honors `settingsSelectedTab` for the initial tab.
                     if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
-                        let storedTab = UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey) ?? ""
-                        settingsTab = SettingsView.SettingsTab(rawValue: storedTab) ?? .appearance
+                        // Through `resolvingStored` rather than spelling the fallback here: this
+                        // file is in no SPM package, so a `??` written inline is reachable by no
+                        // test. See `StoredTabResolutionTests`.
+                        settingsTab = SettingsView.SettingsTab.resolvingStored(
+                            UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey))
                         showSettings = true
                     }
                 case .createActionHandler:
