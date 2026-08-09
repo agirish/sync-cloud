@@ -252,6 +252,7 @@ extension FileSyncManager {
                                                  profile: filingFolderProfile,
                                                  registry: filingPersonRegistry,
                                                  pageSamples: filingPageSamples,
+                                                 identity: filingPersonIdentity,
                                                  onVeto: { [weak self] refusal in
                                                      self?.recordPersonVeto(refusal)
                                                  })

@@ -730,7 +730,9 @@ public class FileSyncManager: ObservableObject {
     /// are: `Sync` never reaches into a real home directory. Both nil is the ordinary state for
     /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
     /// any of this existed.
-    public var filingFolderProfile: FolderProfile? { didSet { invalidateFilingRouterIndex() } }
+    public var filingFolderProfile: FolderProfile? {
+        didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
+    }
     /// Where those artifacts live, for the one pass that writes one back — see
     /// ``resurveyFilingMemory(root:taxonomy:)``. Injected for the same reason they are: `Sync` does
     /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any
@@ -767,14 +769,22 @@ public class FileSyncManager: ObservableObject {
     public var filingOCRExtractor: (@Sendable (String) async -> String?)?
     /// Files whose OCR is currently running, so a second click cannot start a second render.
     public internal(set) var filingOCRInFlight: Set<String> = []
-    public var filingMemory: FilingMemory? { didSet { invalidateFilingRouterIndex() } }
+    public var filingMemory: FilingMemory? {
+        didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
+    }
     /// The household — who documents belong to. Loaded beside the artifacts above (from
     /// `people.json`, or seeded from the profile's person axis), and part of the router index for
     /// the same reason they are: it decides the person-axis score and the cross-person veto.
     ///
     /// Kept in step with ``filingPeopleStore`` rather than set independently once the store exists:
     /// the store is the editable truth, this is the compiled copy the engine reads.
-    public var filingPersonRegistry: PersonRegistry? { didSet { invalidateFilingRouterIndex() } }
+    public var filingPersonRegistry: PersonRegistry? {
+        didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
+    }
+    /// Account and case numbers each person's folders have received — the last-resort attribution
+    /// for a scan whose name and text name nobody. Rebuilt whenever the artifacts or the roster
+    /// change, which is the same trigger the router index uses.
+    public private(set) var filingPersonIdentity: PersonIdentityIndex = .empty
     /// What the cross-person rule has refused, so the People section can report it. Injected by
     /// the app like every other store; nil (tests, CLI) simply records nothing.
     public var filingPersonVetoLog: PersonVetoLog?
@@ -822,6 +832,20 @@ public class FileSyncManager: ObservableObject {
     /// the person-axis score, both of which move the shortlist a backend is handed. Without this,
     /// editing a person would leave `FilingVerdictCache` replaying answers composed against the old
     /// household, which is the same bug the fingerprint was introduced for when a re-survey landed.
+    /// Rebuilds the identifier index from the current artifacts and roster.
+    ///
+    /// Cheap (a pass over the memory's folders) and done eagerly rather than lazily, because the
+    /// alternative is computing it inside attribution — which runs per file, per scan.
+    func rebuildPersonIdentityIndex() {
+        guard let registry = filingPersonRegistry else {
+            filingPersonIdentity = .empty
+            return
+        }
+        filingPersonIdentity = PersonIdentityIndex.make(registry: registry,
+                                                        profile: filingFolderProfile,
+                                                        memory: filingMemory)
+    }
+
     func refreshFilingArtifactFingerprint() {
         guard let dir = filingProfilesDirectory, let id = filingFolderProfile?.profileId else { return }
         filingArtifactFingerprint = FilingProfileStore.fingerprint(id: id, in: dir)

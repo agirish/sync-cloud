@@ -297,11 +297,18 @@ public struct PersonRegistry: Sendable {
     /// The cross-person veto and the `personIs` rule condition both come here. Before this existed
     /// the veto had the rule inline, and a rule condition written to match "either" would have been
     /// a second, quietly different answer to the same question.
-    public func attribute(fileName: String, pageSample: String?) -> Set<String> {
+    public func attribute(fileName: String, pageSample: String?,
+                          identity: PersonIdentityIndex? = nil) -> Set<String> {
         let named = detect(in: (fileName as NSString).deletingPathExtension)
         if !named.isEmpty { return named }
         guard let pageSample else { return [] }
-        return detect(in: pageSample)
+        let byName = detect(in: pageSample)
+        if !byName.isEmpty { return byName }
+        // **Last, and only when nothing was named.** An account number is the strongest evidence in
+        // a scan that reads as an image — but it is also the most surprising to be attributed by,
+        // so it never overrides a name anybody actually wrote. This is the tier that gives
+        // `Scan 2026-08-02.pdf` an answer at all.
+        return identity?.people(in: pageSample) ?? []
     }
 
     /// The person a profile's `axes.person` value names, or nil when the registry cannot say —

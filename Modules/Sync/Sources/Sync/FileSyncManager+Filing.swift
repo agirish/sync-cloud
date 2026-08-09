@@ -259,7 +259,8 @@ extension FileSyncManager {
            automations.contains(where: { $0.enabled && $0.isRunnable && $0.requiresContent }) {
             let contentRules = automations.filter { $0.enabled && $0.isRunnable && $0.requiresContent }
             let candidates = looseFiles.filter { file in
-                let facts = FilingEngine.automationFacts(for: file, registry: filingPersonRegistry)
+                let facts = FilingEngine.automationFacts(for: file, registry: filingPersonRegistry,
+                                                         identity: filingPersonIdentity)
                 return contentRules.contains {
                     !AutomationEvaluator.matches($0, facts, now: scanClock)
                         && AutomationEvaluator.couldMatchPendingContent($0, facts, now: scanClock)
@@ -298,6 +299,7 @@ extension FileSyncManager {
                                                providerRoot: providerRoot.path, rules: rules,
                                                automations: automations,
                                                registry: filingPersonRegistry,
+                                               identity: filingPersonIdentity,
                                                providerName: providerName,
                                                automationSnippets: automationSnippets, now: scanClock,
                                                rejectedByFile: rejectedByFile, options: options)
@@ -572,6 +574,7 @@ extension FileSyncManager {
                                                          profile: filingFolderProfile,
                                                          registry: filingPersonRegistry,
                                                          pageSamples: routerSnippets,
+                                                         identity: filingPersonIdentity,
                                                          onVeto: { [weak self] refusal in
                                                              self?.recordPersonVeto(refusal)
                                                          })

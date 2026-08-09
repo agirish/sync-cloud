@@ -50,6 +50,8 @@ public final class PeopleStore: ObservableObject {
                                                        in: directory)
         people = loaded.people
         source = loaded.source
+        dismissedSuggestions = FilingProfileStore.dismissedNameSuggestions(id: profileId,
+                                                                           in: directory)
     }
 
     /// A store with no file behind it, for tests and previews — edits stay in memory.
@@ -64,6 +66,30 @@ public final class PeopleStore: ObservableObject {
     private var isPersistent: Bool { !profileId.isEmpty }
 
     // MARK: - Editing
+
+    /// Name forms the user has said are NOT theirs, so a rejected suggestion never returns.
+    ///
+    /// Persisted with the roster rather than in defaults: it is a fact about these people, and a
+    /// roster copied to another machine should carry its refusals with it — otherwise every
+    /// suggestion the user has already dismissed comes back on the new machine.
+    @Published public private(set) var dismissedSuggestions: Set<String> = []
+
+    /// Records a name form as "not this person's". Keyed the same way the suggestion is, so the
+    /// rule that produced it filters it out next time.
+    public func dismissSuggestion(_ suggestion: PersonNameSuggestion) {
+        guard !dismissedSuggestions.contains(suggestion.id) else { return }
+        dismissedSuggestions.insert(suggestion.id)
+        save()
+        Logger.shared.info("People: “\(suggestion.form)” is not \(suggestion.personId)'s — "
+                           + "it will not be suggested again")
+    }
+
+    /// Accepts a suggested form onto the person it was found for.
+    public func acceptSuggestion(_ suggestion: PersonNameSuggestion) {
+        guard var person = person(id: suggestion.personId) else { return }
+        person.fullNames.append(suggestion.form)
+        update(person)
+    }
 
     /// Adds a person, giving them an id derived from their display name and unique within the
     /// roster. Returns the person as stored, or nil when the name is blank.
@@ -124,6 +150,8 @@ public final class PeopleStore: ObservableObject {
     private struct PeopleFileOut: Encodable {
         let schemaVersion: Int
         let people: [Person]
+        /// Omitted when empty, so an untouched file stays as short as it was.
+        let notNames: [String]?
     }
 
     private func save() {
@@ -133,8 +161,10 @@ public final class PeopleStore: ObservableObject {
                                             withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            let data = try encoder.encode(PeopleFileOut(schemaVersion: FilingProfileStore.currentSchema,
-                                                        people: people))
+            let data = try encoder.encode(
+                PeopleFileOut(schemaVersion: FilingProfileStore.currentSchema, people: people,
+                              notNames: dismissedSuggestions.isEmpty ? nil
+                                                                     : dismissedSuggestions.sorted()))
             // Atomic: the engine reads this file at launch and the fingerprint hashes it, so a
             // torn write would be a half-household that looks like a whole one.
             try data.write(to: fileURL, options: .atomic)

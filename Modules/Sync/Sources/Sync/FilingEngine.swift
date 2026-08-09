@@ -211,6 +211,7 @@ public enum FilingEngine {
         /// The household, so a `personIs` rule and a `{person}` destination can resolve. nil ⇒
         /// person rules never match, which is the behaviour before people existed.
         registry: PersonRegistry? = nil,
+        identity: PersonIdentityIndex? = nil,
         providerName: String? = nil,
         automationSnippets: [String: String] = [:],
         now: Date = Date(),
@@ -247,7 +248,7 @@ public enum FilingEngine {
                                                snippet: automationSnippets[file.id],
                                                providerRoot: providerRoot, providerName: providerName,
                                                existingPaths: existingPaths, now: now,
-                                               registry: registry)
+                                               registry: registry, identity: identity)
             candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content, profiles: profiles)
             candidates += ruleCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
                                          nameLower: file.name.lowercased(), ext: ext, year: year,
@@ -405,11 +406,11 @@ public enum FilingEngine {
     private static func automationCandidates(
         automations: [AutomationRule], file: FileNode, contentTokens: Set<String>, snippet: String?,
         providerRoot: String, providerName: String?, existingPaths: Set<String>, now: Date,
-        registry: PersonRegistry?
+        registry: PersonRegistry?, identity: PersonIdentityIndex?
     ) -> [FilingDestination] {
         guard !automations.isEmpty else { return [] }
         let facts = automationFacts(for: file, contentTokens: contentTokens, snippet: snippet,
-                                    registry: registry)
+                                    registry: registry, identity: identity)
         // The same facts with the content stripped — a rule that only matches WITH content is a
         // content-derived signal (medium confidence, "read from the file" note, no blind batch).
         var nameOnlyFacts = facts
@@ -444,7 +445,8 @@ public enum FilingEngine {
     /// Automations preview tokenizes its excerpt — one rule, one answer on both surfaces.
     static func automationFacts(for file: FileNode, contentTokens: Set<String> = [],
                                 snippet: String? = nil,
-                                registry: PersonRegistry? = nil) -> AutomationFileFacts {
+                                registry: PersonRegistry? = nil,
+                                identity: PersonIdentityIndex? = nil) -> AutomationFileFacts {
         let parentPath = (file.id as NSString).deletingLastPathComponent
         return AutomationFileFacts(
             path: file.id, name: file.name,
@@ -461,7 +463,7 @@ public enum FilingEngine {
             // the derived contentTokens are unchanged either way.
             snippet: snippet?.lowercased(),
             contentTokens: snippet.map { nameTokens($0) } ?? contentTokens)
-            .attributing(registry)
+            .attributing(registry, identity: identity)
     }
 
     /// Whether a matched rule's evidence is content-derived — which caps it to medium and keeps it
@@ -839,6 +841,7 @@ public enum FilingEngine {
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
                                      pageSamples: [String: String] = [:],
+                                     identity: PersonIdentityIndex? = nil,
                                      onVeto: ((PersonVetoRefusal) -> Void)? = nil) -> [FilingSuggestion] {
         // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
         // happens on the way in. Deriving the folder set first and letting the other one return
@@ -852,7 +855,7 @@ public enum FilingEngine {
                              providerRoot: providerRoot, rejectedByFile: rejectedByFile,
                              contentBlind: contentBlind, routerShortlists: routerShortlists,
                              profile: profile, registry: registry, pageSamples: pageSamples,
-                             onVeto: onVeto)
+                             identity: identity, onVeto: onVeto)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no
@@ -878,6 +881,7 @@ public enum FilingEngine {
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
                                      pageSamples: [String: String] = [:],
+                                     identity: PersonIdentityIndex? = nil,
                                      onVeto: ((PersonVetoRefusal) -> Void)? = nil) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
@@ -962,7 +966,8 @@ public enum FilingEngine {
                     // The precedence rule lives in `attribute` — shared with the `personIs` rule
                     // condition, so the two cannot answer "whose document is this" differently.
                     let named = registry.attribute(fileName: s.fileName,
-                                                   pageSample: pageSamples[s.filePath])
+                                                   pageSample: pageSamples[s.filePath],
+                                                   identity: identity)
                     if !named.isEmpty, !named.contains(destPerson) {
                         // Reported, not just refused. The veto's whole job is to make a wrong
                         // suggestion not happen, so it working perfectly is indistinguishable from

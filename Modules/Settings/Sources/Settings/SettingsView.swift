@@ -1936,6 +1936,10 @@ struct FilingSettingsTab: View {
                     PeopleList(store: store,
                                profile: syncManager?.filingFolderProfile,
                                memory: syncManager?.filingMemory,
+                               // The tree the profile describes. Absent until a scan has named it,
+                               // which is also when its folder paths mean anything.
+                               providerRoot: syncManager?.filingLastProviderRoot
+                                   .map { URL(fileURLWithPath: $0) },
                                vetoLog: vetoLog)
                 } else {
                     // No engine attached (tests, previews) — say so rather than leaving the caption
@@ -2046,6 +2050,9 @@ struct PeopleList: View {
     @ObservedObject var store: PeopleStore
     let profile: FolderProfile?
     let memory: FilingMemory?
+    /// The provider root the profile's relative paths hang off — needed to read the folders the
+    /// suggestions are learned from. nil hides the action rather than reading the wrong tree.
+    let providerRoot: URL?
     /// What the cross-person rule has refused. Optional: with no engine there is nothing to report,
     /// and an empty log is the ordinary state of a machine that has not filed anything yet.
     @ObservedObject var vetoLog: PersonVetoLog
@@ -2054,6 +2061,11 @@ struct PeopleList: View {
     /// "add" case, the same sheet doing both jobs.
     @State private var editing: Person?
     @State private var confirmingRemoval: Person?
+    /// Name forms found in the tree that nobody has recorded. Empty until asked for — reading a few
+    /// hundred folders is not something to do because a settings tab appeared.
+    @State private var suggestions: [PersonNameSuggestion] = []
+    @State private var isLooking = false
+    @State private var hasLooked = false
 
     var body: some View {
         if store.people.isEmpty {
@@ -2069,6 +2081,25 @@ struct PeopleList: View {
             // What the roster governs across the whole tree, and where it does not reach. Both are
             // facts about the SET, so neither belongs on a row.
             PeopleOverviewRow(overview: overview, store: store)
+            ForEach(suggestions) { suggestion in
+                PersonSuggestionRow(suggestion: suggestion,
+                                    personName: store.person(id: suggestion.personId)?.displayName
+                                        ?? suggestion.personId,
+                                    onAccept: {
+                                        store.acceptSuggestion(suggestion)
+                                        suggestions.removeAll { $0.id == suggestion.id }
+                                    },
+                                    onDismiss: {
+                                        store.dismissSuggestion(suggestion)
+                                        suggestions.removeAll { $0.id == suggestion.id }
+                                    })
+            }
+            if hasLooked, suggestions.isEmpty {
+                Label("No new names in your filed documents — every form they use is recorded.",
+                      systemImage: "checkmark.circle")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
             PeopleTester(registry: store.registry, factsById: allFacts)
         }
         HStack(spacing: 10) {
@@ -2078,6 +2109,19 @@ struct PeopleList: View {
                 Label("Add Person…", systemImage: "plus")
             }
             .controlSize(.small)
+            if profile != nil, !store.people.isEmpty {
+                Button(action: look) {
+                    if isLooking {
+                        Text("Reading…")
+                    } else {
+                        Label("Look for names", systemImage: "sparkle.magnifyingglass")
+                    }
+                }
+                .controlSize(.small)
+                .disabled(isLooking)
+                .help("Reads the file names already in each person's folders and offers any name "
+                      + "form they use that is not recorded yet. Nothing is changed without asking.")
+            }
             Spacer()
             Text(sourceNote)
                 .scaledFont(.caption)
@@ -2123,6 +2167,26 @@ struct PeopleList: View {
     private func facts(for person: Person) -> PersonFilingFacts {
         PersonFilingFacts.make(for: person, registry: store.registry,
                                profile: profile, memory: memory)
+    }
+
+    /// Reads the person folders off the main actor and publishes what it learned.
+    ///
+    /// Detached because this is a few hundred directory listings: small, but not small enough to
+    /// spend on the actor that is drawing the window.
+    private func look() {
+        guard let profile, let root = providerRoot else { return }
+        isLooking = true
+        let registry = store.registry
+        let dismissed = store.dismissedSuggestions
+        Task {
+            let found = await Task.detached(priority: .userInitiated) {
+                PeopleNameScanner.suggestions(registry: registry, profile: profile, root: root,
+                                              dismissed: dismissed)
+            }.value
+            suggestions = found
+            hasLooked = true
+            isLooking = false
+        }
     }
 
     private var allFacts: [String: PersonFilingFacts] {
@@ -2269,6 +2333,38 @@ private struct PersonRow: View {
             ? "Nothing names them yet"
             : "Nothing names them yet: " + facts.sharedSummary
         return shared + " — add a full name as documents print it"
+    }
+}
+
+/// A name form the documents keep using that nobody has recorded — offered, never applied.
+///
+/// **The evidence is the point.** "Add this?" with no reason is a request to trust the app about
+/// somebody's name; the count and a real filename let the user decide in a second, and decide
+/// correctly when the answer is no — a wedding folder naming a couple produces a form that reads
+/// exactly like a name and is not one.
+struct PersonSuggestionRow: View {
+    let suggestion: PersonNameSuggestion
+    let personName: String
+    let onAccept: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("“\(suggestion.form)” — another name for \(personName)?")
+                    .scaledFont(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(suggestion.occurrences) of their filed documents use it, "
+                     + "including “\(suggestion.exampleFile)”")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button("Add", action: onAccept).controlSize(.small)
+            Button("Not a name", action: onDismiss).controlSize(.small)
+        }
+        .padding(.vertical, 2)
     }
 }
 

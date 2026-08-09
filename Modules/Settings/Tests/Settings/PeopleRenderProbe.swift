@@ -107,10 +107,23 @@ struct PeopleRenderProbe {
                                    at: Date(timeIntervalSince1970: 1_786_000_000)))
         try write(
             VStack(alignment: .leading, spacing: 8) {
-                PeopleList(store: store, profile: profile, memory: memory, vetoLog: log)
+                PeopleList(store: store, profile: profile, memory: memory,
+                           providerRoot: nil, vetoLog: log)
             }
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section")
+
+        // The suggestion the learning sweep produces — the surface nobody has looked at yet.
+        let suggestion = PersonNameSuggestion(personId: "muktha", form: "Muktha Girish",
+                                              occurrences: 7,
+                                              exampleFile: "Muktha Girish - Resume, 2017.pdf")
+        try write(
+            VStack(alignment: .leading, spacing: 8) {
+                PersonSuggestionRow(suggestion: suggestion, personName: "Muktha",
+                                    onAccept: {}, onDismiss: {})
+            }
+            .padding(16),
+            size: CGSize(width: width, height: 0), name: "people-suggestion")
 
         // The tester WITH an answer on screen — the whole point of the surface, and unreachable
         // by typing from a probe.

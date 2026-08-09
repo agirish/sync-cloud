@@ -267,6 +267,7 @@ extension FileSyncManager {
         // Read once, outside the loop: the roster does not change mid-preview, and resolving it
         // per file would ask the manager for it a few hundred times.
         let registry = filingPersonRegistry
+        let identity = filingPersonIdentity
         var rows: [AutomationDryRunRow] = []
         for file in looseFiles {
             if Task.isCancelled { return }
@@ -278,7 +279,7 @@ extension FileSyncManager {
                 sizeBytes: file.fileSize ?? 0,
                 modificationDate: file.modificationDate,
                 isDirectory: file.isDirectory
-            ).attributing(registry)
+            ).attributing(registry, identity: identity)
 
             // Read the file's on-device text only when content could still CHANGE a rule's outcome
             // for this file: some content-reading rule doesn't match yet but could once its content
@@ -295,7 +296,7 @@ extension FileSyncManager {
                 // Re-resolved now the page is in hand: a scan whose NAME names nobody can still be
                 // attributed by what it says, which is the whole reason the precedence rule falls
                 // through to the page rather than stopping at the filename.
-                facts = facts.attributing(registry)
+                facts = facts.attributing(registry, identity: identity)
                 if Task.isCancelled { return }
             }
 

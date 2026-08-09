@@ -64,10 +64,11 @@ public struct AutomationFileFacts: Sendable, Equatable {
     /// A helper rather than three copies of the same two lines: the dry run, the Organize scan and
     /// the rule proposer all need this, and the proposer forgetting it would silently filter every
     /// person variant out of its own offer.
-    public func attributing(_ registry: PersonRegistry?) -> AutomationFileFacts {
+    public func attributing(_ registry: PersonRegistry?,
+                            identity: PersonIdentityIndex? = nil) -> AutomationFileFacts {
         guard let registry else { return self }
         var out = self
-        out.personIds = registry.attribute(fileName: name, pageSample: snippet)
+        out.personIds = registry.attribute(fileName: name, pageSample: snippet, identity: identity)
         out.personFolderName = out.personIds.count == 1
             ? registry.people.first { $0.id == out.personIds.first }?.displayName
             : nil

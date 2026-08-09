@@ -824,12 +824,21 @@ shared with whom.
 - ~~**Editing in the app**~~ — **shipped.** Settings ▸ Organize ▸ People adds, edits and removes
   people, with a live preview of what a draft would match; `PeopleStore` owns the write path and
   `people.json` is the one filing artifact the app writes.
-- **Learning from filing** — a recurring name-shaped phrase in documents filed to one person's
-  folders becomes a *suggestion* ("add *Shweta Ravindra Dani* as another name for Shweta?"), never
-  an automatic write. Likewise an identifier a person's folders have received (a passport or member
-  number) becomes evidence for scans carrying no readable name. **Half of this shipped**: a person
-  the tree files for who is not on the roster is surfaced with an Add button, from the survey's own
-  `axes.person` values.
+- ~~**Learning from filing**~~ — **shipped.** *Look for names* reads the filenames already in each
+  person's folders and offers any form they use that is not recorded, with its count and an example
+  file; *Not a name* is remembered in `people.json` so a refusal never returns. Identifiers a
+  person's folders have received now attribute a scan whose name and text name nobody — the last
+  tier of `attribute`, and never above a name anybody wrote. A person the tree files for who is not
+  on the roster is surfaced with an Add button, from the survey's own `axes.person` values.
+
+  **The suggestion rule is narrow on purpose, and the measurement is why.** Recurring word runs in
+  a person's folders are almost all noise (`Credit Report Shweta`, 9 files); vetoing broad words —
+  the rule proposer's fix — is *backwards* here, because a family surname is broad precisely because
+  the family is everywhere (`girish` is carried by 161 folders) while `oci` is narrow. So a run is
+  offered only when every word in it is already somebody's name and it leads with what the household
+  calls *this* person. Measured on the real tree: **0 suggestions** with the roster complete, and
+  "Muktha Girish" (7 files) the moment her record lacks it. Discovering an entirely new word — a
+  spouse's surname nobody has typed — still takes a person, and the section says so.
 - ~~**`personIs(<person>)` as a rule condition**~~ — **shipped**, together with the `{person}`
   destination token that was the point of it: `Immigration/OCI/{person}` files each family member's
   card into their own folder, so the household needs one rule rather than seven. The condition

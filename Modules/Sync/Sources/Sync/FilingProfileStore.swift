@@ -67,6 +67,9 @@ public enum FilingProfileStore {
     private struct PeopleFile: Decodable {
         let schemaVersion: Int?
         let people: [Person]
+        /// Suggested name forms the user has rejected. Absent in a file written before the
+        /// learning loop existed, which reads as "nothing rejected yet".
+        let notNames: [String]?
     }
 
     /// The household for `id` — `people.json` when it exists, else a registry seeded from the
@@ -85,6 +88,13 @@ public enum FilingProfileStore {
         }
         guard let profile else { return PersonRegistry(people: [], source: .profileAxis) }
         return PersonRegistry.seeded(from: profile)
+    }
+
+    /// The name suggestions this profile has already rejected.
+    public static func dismissedNameSuggestions(id: String, in directory: URL) -> Set<String> {
+        let file = decode(PeopleFile.self, at: directory.appendingPathComponent("\(id)/people.json"),
+                          what: "people registry")
+        return Set(file?.notNames ?? [])
     }
 
     /// All artifacts for the active profile, when there is one.
