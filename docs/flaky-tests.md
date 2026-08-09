@@ -478,14 +478,16 @@ removed and two comment lines took their place, so the total did not move at all
 a change that had done nothing. Prose in this repo is inside the grep's haystack: quote a defective
 loop by describing it, not by reproducing it.
 
-**And the fix's own new test was, briefly, this exact defect.** `aLiveDeadlineCarriesTheWaitPast\
-TheFloor` first asked for `pumpFloor + 20` passes inside a 5-second deadline; it passed under
-`--filter` and went red in the full FileExplorer run at 51 passes against the 70 it wanted. Five
-seconds buys roughly ten passes on a congested main actor and several hundred on an idle one, so a
-demand tuned to throughput is a flake however generous it looks. It now asks for two passes past
-the floor inside sixty seconds — `+ 2` because a floor-only loop still reaches `pumpFloor + 1` via
-the post-deadline re-check, so two is the smallest demand it cannot meet. **Write the discriminator,
-not the throughput bet.**
+**And the fix's own deadline test was this exact defect, twice.** It first asked for `pumpFloor +
+20` passes inside a 5-second deadline: green under `--filter`, red in the full FileExplorer run at
+51 passes against the 70 it wanted. Retuned to `pumpFloor + 2` inside *sixty* seconds it still got
+only 51 — because 50 passes cost over a minute in `main`'s FileExplorer run against ~5 seconds in
+`v2.x`'s, a 12× spread between two runs of the same kind of suite. **There is no deadline generous
+enough to be safe: seconds do not convert to passes at any fixed rate, which is this whole mechanism
+in one sentence.** So `poll` takes an injectable `now`, and the test freezes it — the deadline is
+then permanently live and the CONDITION decides when the loop ends, which is a property of the loop
+rather than of the machine. Anything asserting that N seconds buys more than the floor is a
+throughput bet; write the discriminator instead.
 
 **Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 42 and 4, and
 its residual is eight, because the four view-based settles migrated on `main` on 2026-08-04 are

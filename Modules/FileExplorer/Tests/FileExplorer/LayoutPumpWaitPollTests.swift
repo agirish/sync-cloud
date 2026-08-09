@@ -91,27 +91,30 @@ import Testing
                 """)
     }
 
-    /// The deadline is not decorative: a live one carries the wait PAST the floor. Without this,
-    /// deleting `|| Date() < deadline` would cap every wait at exactly `pumpFloor` passes and
-    /// nothing here would say so.
+    /// The deadline is not decorative: while it is live, the wait continues PAST the floor.
+    /// Without this, deleting `|| now() < deadline` would cap every wait at exactly `pumpFloor`
+    /// passes and nothing here would say so.
     ///
-    /// **The demand is `pumpFloor + 2`, and the two is load-bearing.** At `+ 1` the test cannot
-    /// fail: the loop re-evaluates `condition()` once after leaving, so a floor-only loop reaches
-    /// pass `pumpFloor + 1` anyway and the condition holds. Two passes past the floor is the
-    /// smallest demand a floor-only loop cannot meet.
+    /// **Driven by a frozen clock, and that is what makes it a test rather than a bet.** Two
+    /// earlier versions asserted this through real time and both went red on a loaded machine
+    /// while passing under `--filter`: `pumpFloor + 20` inside 5 seconds got 51 passes where it
+    /// wanted 70, and `pumpFloor + 2` inside *sixty* seconds still got only 51, because 50 passes
+    /// cost over a minute in `main`'s FileExplorer run against ~5 seconds in `v2.x`'s. There is no
+    /// deadline generous enough to be safe, because seconds do not convert to passes at any fixed
+    /// rate — which is mechanism 2 in one sentence.
     ///
-    /// **And the demand is small for a reason I got wrong first.** The original asked for
-    /// `pumpFloor + 20` inside a 5-second deadline, and it went red in the full FileExplorer run
-    /// while passing in isolation — 51 passes where it wanted 70. That is this file's own
-    /// mechanism, in a test written to defend against it: five seconds buys ~10 passes on a
-    /// congested main actor and ~600 on an idle one, so any demand tuned to wall-clock throughput
-    /// is a flake. Two passes inside sixty seconds is ~300× the margin the starved measurement
-    /// showed, and it is a *discriminator* rather than a throughput bet.
+    /// A clock that never advances makes the deadline permanently live, so the CONDITION decides
+    /// when the loop ends. The demand is `pumpFloor + 2`: a floor-only loop still reaches
+    /// `pumpFloor + 1` via the post-deadline re-check, so two past the floor is the smallest demand
+    /// it cannot meet. Verified by mutation — deleting the deadline clause fails this and nothing
+    /// else.
     @Test func aLiveDeadlineCarriesTheWaitPastTheFloor() async {
         var passes = 0
         let needed = LayoutPumpWait.pumpFloor + 2
+        // Frozen: every read is the same instant, so `now() < deadline` is true forever.
+        let frozen = Date(timeIntervalSince1970: 1_770_000_000)
 
-        let outcome = await LayoutPumpWait.poll(upTo: 60) {
+        let outcome = await LayoutPumpWait.poll(upTo: 60, now: { frozen }) {
             passes += 1
             return passes >= needed
         }
@@ -119,8 +122,10 @@ import Testing
         #expect(outcome.held,
                 """
                 A condition needing \(needed) passes — two past the \(LayoutPumpWait.pumpFloor) \
-                floor — was cut off at \(outcome.passes). The deadline is not carrying the wait \
-                beyond the floor.
+                floor — was cut off at \(outcome.passes) with the deadline still live. The \
+                deadline is not carrying the wait beyond the floor.
                 """)
+        #expect(outcome.passes == needed,
+                "the wait reported \(outcome.passes) passes for a condition that held at \(needed)")
     }
 }
