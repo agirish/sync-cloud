@@ -43,3 +43,37 @@ import Foundation
         #expect(makeManager().ignoreGoogleDriveNewerDateOnly == false)
     }
 }
+
+/// The stored-tab resolution, which until now no test could reach.
+///
+/// The launch read is in `MacApp/ContentView.swift`, outside every SPM package, so its `??` was
+/// invisible to the whole suite — a doc comment on `SettingsTab` asserted the fallback and named
+/// the wrong tab, which is what a claim nothing checks decays into. `resolvingStored` is the seam
+/// that makes it checkable; ContentView now calls it rather than spelling the fallback itself.
+@Suite struct StoredTabResolutionTests {
+
+    /// Every case survives a round trip. This is the half that keeps the fallback honest: without
+    /// it, `resolvingStored` could return `.appearance` unconditionally and every case below would
+    /// still pass.
+    @Test func everyTabRoundTripsThroughItsStoredValue() {
+        for tab in SettingsView.SettingsTab.allCases {
+            #expect(SettingsView.SettingsTab.resolvingStored(tab.rawValue) == tab,
+                    "\(tab.rawValue) does not survive a round trip through its own raw value")
+        }
+    }
+
+    /// Nothing stored, nothing readable, and a value no build ever wrote all land on the same tab.
+    ///
+    /// The third case is the one with teeth. A tab retired in a future release leaves its raw value
+    /// in `settingsSelectedTab` on every Mac that used it, and the app reads that string on launch
+    /// — so this is the path a *past* user takes through a *future* build, which is exactly the
+    /// path nobody runs before shipping.
+    @Test func theStoredTabFallsBackWhenUnrecognised() {
+        #expect(SettingsView.SettingsTab.resolvingStored(nil) == .appearance)
+        #expect(SettingsView.SettingsTab.resolvingStored("") == .appearance)
+        #expect(SettingsView.SettingsTab.resolvingStored("a-tab-that-was-retired") == .appearance)
+        // Case matters — raw values are exact, and a near miss must not resolve.
+        #expect(SettingsView.SettingsTab.resolvingStored("General") == .appearance,
+                "resolution is case-insensitive, so a near-miss silently lands on a real tab")
+    }
+}
