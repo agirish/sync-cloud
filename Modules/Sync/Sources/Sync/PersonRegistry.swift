@@ -68,6 +68,60 @@ extension Person: Codable {
     }
 }
 
+/// One person named by a piece of text, and what named them.
+public struct PersonMatch: Sendable, Equatable {
+    public let personId: String
+    /// The name form that matched, spelled as the roster spells it — "Aditi Abhishek", "Mom".
+    public let form: String
+    /// The words it consumed, in order.
+    public let words: [String]
+    /// Whether a multi-word form matched (which is what makes a shared surname safe), or a single
+    /// distinctive word did.
+    public let isPhrase: Bool
+
+    public init(personId: String, form: String, words: [String], isPhrase: Bool) {
+        self.personId = personId
+        self.form = form
+        self.words = words
+        self.isPhrase = isPhrase
+    }
+}
+
+/// A word that names somebody in the roster but was spent inside a longer name.
+///
+/// This is the single most useful thing an explanation can say: "Abhishek" in "Aditi Abhishek"
+/// *would* have named her father, and did not, because the phrase claimed it first.
+public struct AbsorbedWord: Sendable, Equatable {
+    public let word: String
+    /// The person it would have named on its own.
+    public let wouldHaveNamed: String
+    /// The longer form that claimed it.
+    public let absorbedInto: String
+    /// Whose form that was.
+    public let absorbedFor: String
+
+    public init(word: String, wouldHaveNamed: String, absorbedInto: String, absorbedFor: String) {
+        self.word = word
+        self.wouldHaveNamed = wouldHaveNamed
+        self.absorbedInto = absorbedInto
+        self.absorbedFor = absorbedFor
+    }
+}
+
+/// The outcome of matching one piece of text: who it names, and what it nearly named.
+public struct PersonMatchReport: Sendable, Equatable {
+    public let matches: [PersonMatch]
+    public let absorbed: [AbsorbedWord]
+
+    public init(matches: [PersonMatch], absorbed: [AbsorbedWord]) {
+        self.matches = matches
+        self.absorbed = absorbed
+    }
+
+    public static let empty = PersonMatchReport(matches: [], absorbed: [])
+    public var isEmpty: Bool { matches.isEmpty }
+}
+
 /// The household, compiled for matching.
 ///
 /// **This family's names overlap, and that is the whole problem.** "Abhishek" is one person's
@@ -101,6 +155,10 @@ public struct PersonRegistry: Sendable {
     struct Phrase: Sendable {
         let tokens: [String]
         let id: String
+        /// The form exactly as it was registered — "Shweta R Dani", not `shweta r dani`. Carried so
+        /// an explanation can quote what the user typed into the roster rather than the tokenizer's
+        /// view of it.
+        let display: String
     }
 
     /// Multi-word name forms, longest first.
@@ -125,7 +183,9 @@ public struct PersonRegistry: Sendable {
                 let words = PersonRegistry.words(name)
                 // Initials ("Shweta R Dani") stay in the phrase but are never standalone keys.
                 for w in words where w.count >= 2 { tokens.insert(w) }
-                if words.count >= 2 { phraseList.append(Phrase(tokens: words, id: p.id)) }
+                if words.count >= 2 {
+                    phraseList.append(Phrase(tokens: words, id: p.id, display: name))
+                }
             }
             tokensByPerson[p.id] = tokens
             if let first = PersonRegistry.words(p.displayName).first, first.count >= 2 {
@@ -159,37 +219,71 @@ public struct PersonRegistry: Sendable {
     /// that disagreement. Phrase matching also needs *order*, which every Set-of-tokens caller
     /// has already destroyed.
     public func detect(in text: String) -> Set<String> {
-        guard !people.isEmpty else { return [] }
+        Set(explain(in: text).matches.map(\.personId))
+    }
+
+    /// The same matching, with its reasoning kept.
+    ///
+    /// **`detect` is defined in terms of this, deliberately.** The explanation exists to be shown
+    /// to the user — "who would this file be attributed to, and why" — and an explanation produced
+    /// by a second implementation is a thing that can disagree with the engine while looking
+    /// authoritative. There is one matcher; this is it, and `detect` throws the reasons away.
+    public func explain(in text: String) -> PersonMatchReport {
+        guard !people.isEmpty else { return .empty }
         let tokens = PersonRegistry.words(text)
-        guard !tokens.isEmpty else { return [] }
-        var found: Set<String> = []
-        var consumed = [Bool](repeating: false, count: tokens.count)
+        guard !tokens.isEmpty else { return .empty }
+
+        var consumedBy = [Phrase?](repeating: nil, count: tokens.count)
+        var matches: [PersonMatch] = []
         for phrase in phrases where phrase.tokens.count <= tokens.count {
             var i = 0
             while i + phrase.tokens.count <= tokens.count {
-                var matches = true
+                var isMatch = true
                 for j in 0..<phrase.tokens.count
-                where consumed[i + j] || tokens[i + j] != phrase.tokens[j] {
-                    matches = false
+                where consumedBy[i + j] != nil || tokens[i + j] != phrase.tokens[j] {
+                    isMatch = false
                     break
                 }
-                if matches {
-                    for j in 0..<phrase.tokens.count { consumed[i + j] = true }
-                    found.insert(phrase.id)
+                if isMatch {
+                    for j in 0..<phrase.tokens.count { consumedBy[i + j] = phrase }
+                    matches.append(PersonMatch(personId: phrase.id, form: phrase.display,
+                                               words: phrase.tokens, isPhrase: true))
                     i += phrase.tokens.count
                 } else {
                     i += 1
                 }
             }
         }
-        for (i, t) in tokens.enumerated() where !consumed[i] && t.count >= 2 {
-            if let id = strong[t] {
-                found.insert(id)
-            } else if let id = given[t] {
-                found.insert(id)
-            }
+
+        // Words a longer name spent. These are the whole reason phrase matching exists: `abhishek`
+        // inside "Aditi Abhishek" would otherwise name her father as well, so reporting what was
+        // absorbed — and who it would have named — is the explanation, not a footnote.
+        var absorbed: [AbsorbedWord] = []
+        for (i, token) in tokens.enumerated() {
+            guard let phrase = consumedBy[i] else { continue }
+            guard let wouldName = strong[token] ?? given[token], wouldName != phrase.id else { continue }
+            if absorbed.contains(where: { $0.word == token && $0.absorbedInto == phrase.display }) { continue }
+            absorbed.append(AbsorbedWord(word: token, wouldHaveNamed: wouldName,
+                                         absorbedInto: phrase.display, absorbedFor: phrase.id))
         }
-        return found
+
+        for (i, t) in tokens.enumerated() where consumedBy[i] == nil && t.count >= 2 {
+            guard let id = strong[t] ?? given[t] else { continue }
+            if matches.contains(where: { $0.personId == id && !$0.isPhrase && $0.form == t }) { continue }
+            matches.append(PersonMatch(personId: id, form: displayForm(of: t, person: id),
+                                       words: [t], isPhrase: false))
+        }
+        return PersonMatchReport(matches: matches, absorbed: absorbed)
+    }
+
+    /// A single matched word, spelled the way the roster spells it — `Mom` rather than `mom`.
+    private func displayForm(of token: String, person id: String) -> String {
+        guard let p = people.first(where: { $0.id == id }) else { return token }
+        for name in [p.displayName] + p.fullNames + p.aliases
+        where PersonRegistry.words(name) == [token] {
+            return name
+        }
+        return token
     }
 
     /// The person a profile's `axes.person` value names, or nil when the registry cannot say —

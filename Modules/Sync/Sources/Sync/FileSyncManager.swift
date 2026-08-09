@@ -775,6 +775,9 @@ public class FileSyncManager: ObservableObject {
     /// Kept in step with ``filingPeopleStore`` rather than set independently once the store exists:
     /// the store is the editable truth, this is the compiled copy the engine reads.
     public var filingPersonRegistry: PersonRegistry? { didSet { invalidateFilingRouterIndex() } }
+    /// What the cross-person rule has refused, so the People section can report it. Injected by
+    /// the app like every other store; nil (tests, CLI) simply records nothing.
+    public var filingPersonVetoLog: PersonVetoLog?
     /// The editable roster, when the app has somewhere to keep one.
     ///
     /// Unlike the profile and the memory, this artifact is *written* — see ``PeopleStore``. The
@@ -798,6 +801,20 @@ public class FileSyncManager: ObservableObject {
         }
     }
     private var peopleCancellable: AnyCancellable?
+
+    /// Records a cross-person refusal, resolving the ids to the names a person would recognise.
+    ///
+    /// The engine reports registry **ids** because that is what it reasons with; nobody wants to
+    /// read `girish-2` in a sentence about their father, so the display names are looked up here,
+    /// once, at the point the event becomes something a human will see.
+    func recordPersonVeto(_ refusal: PersonVetoRefusal) {
+        guard let log = filingPersonVetoLog else { return }
+        log.record(PersonVetoEvent(namedPerson: refusal.namedPerson,
+                                   proposedPerson: refusal.proposedPerson,
+                                   fileName: refusal.fileName,
+                                   destination: refusal.destination,
+                                   at: Date()))
+    }
 
     /// Re-reads the artifact digest after one of them is written.
     ///

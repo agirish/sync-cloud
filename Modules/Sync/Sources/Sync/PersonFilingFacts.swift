@@ -1,5 +1,18 @@
 import Foundation
 
+/// One top-level area of the tree a person has folders in.
+public struct PersonArea: Sendable, Equatable {
+    public let name: String
+    public let folders: Int
+    public let documents: Int
+
+    public init(name: String, folders: Int, documents: Int) {
+        self.name = name
+        self.folders = folders
+        self.documents = documents
+    }
+}
+
 /// What the app actually knows about one person, and what that knowledge buys when filing.
 ///
 /// **This exists because a list of names is not an answer.** The People section used to print six
@@ -23,6 +36,13 @@ public struct PersonFilingFacts: Sendable, Equatable {
     public let folders: [String]
     /// Documents already filed into those folders, from the filing memory.
     public let filedDocuments: Int
+    /// Where those folders are, by the top level of the tree they sit under, busiest first —
+    /// `Family 34 · School 12 · Immigration 10`.
+    ///
+    /// **A count alone does not say what a person's record covers.** "56 folders" is a number;
+    /// "Family, School, Immigration" is what she has documents about, and it makes a thin record
+    /// (`Girish — Family 5`) visible as thin rather than merely small.
+    public let areas: [PersonArea]
 
     public var folderCount: Int { folders.count }
 
@@ -54,13 +74,14 @@ public struct PersonFilingFacts: Sendable, Equatable {
 
     public init(personId: String, matchedForms: [String], uniqueWords: [String],
                 sharedWords: [(word: String, othersSharing: Int)], folders: [String],
-                filedDocuments: Int) {
+                filedDocuments: Int, areas: [PersonArea] = []) {
         self.personId = personId
         self.matchedForms = matchedForms
         self.uniqueWords = uniqueWords
         self.sharedWords = sharedWords
         self.folders = folders
         self.filedDocuments = filedDocuments
+        self.areas = areas
     }
 
     /// Nothing known — the state a half-typed draft is in.
@@ -73,6 +94,7 @@ public struct PersonFilingFacts: Sendable, Equatable {
             && a.filedDocuments == b.filedDocuments
             && a.sharedWords.map(\.word) == b.sharedWords.map(\.word)
             && a.sharedWords.map(\.othersSharing) == b.sharedWords.map(\.othersSharing)
+            && a.areas == b.areas
     }
 
     /// Everything known about one person.
@@ -99,20 +121,39 @@ public struct PersonFilingFacts: Sendable, Equatable {
 
         var folders: [String] = []
         var docs = 0
+        var areaFolders: [String: Int] = [:]
+        var areaDocs: [String: Int] = [:]
         if let profile {
             for (path, entry) in profile.folders {
                 guard let axis = entry.axes["person"],
                       registry.person(forAxisValue: axis) == person.id else { continue }
                 folders.append(path)
-                docs += memory?.folders[path]?.docs ?? 0
+                let filed = memory?.folders[path]?.docs ?? 0
+                docs += filed
+                // The top level of the path is the area. Anything deeper would be a different
+                // answer for every person and would not group.
+                let area = String(path.split(separator: "/").first ?? "")
+                if !area.isEmpty {
+                    areaFolders[area, default: 0] += 1
+                    areaDocs[area, default: 0] += filed
+                }
             }
             folders.sort { a, b in
                 let da = a.split(separator: "/").count, db = b.split(separator: "/").count
                 return da == db ? a.localizedStandardCompare(b) == .orderedAscending : da < db
             }
         }
+        // Busiest first by documents, then by folders, then by name — a stable order, so the line
+        // does not reshuffle between two renders of the same data.
+        let areas = areaFolders.map { name, count in
+            PersonArea(name: name, folders: count, documents: areaDocs[name] ?? 0)
+        }.sorted { a, b in
+            if a.documents != b.documents { return a.documents > b.documents }
+            if a.folders != b.folders { return a.folders > b.folders }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
         return PersonFilingFacts(personId: person.id, matchedForms: forms,
                                  uniqueWords: breakdown.unique, sharedWords: shared,
-                                 folders: folders, filedDocuments: docs)
+                                 folders: folders, filedDocuments: docs, areas: areas)
     }
 }

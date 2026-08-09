@@ -251,7 +251,10 @@ extension FileSyncManager {
                                                  contentBlind: contentBlind,
                                                  profile: filingFolderProfile,
                                                  registry: filingPersonRegistry,
-                                                 pageSamples: filingPageSamples)
+                                                 pageSamples: filingPageSamples,
+                                                 onVeto: { [weak self] refusal in
+                                                     self?.recordPersonVeto(refusal)
+                                                 })
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
         publishFilingSuggestions(refined)
         let summary = FilingRefineSummary(asked: eligible.count, reused: cachedVerdicts.count,

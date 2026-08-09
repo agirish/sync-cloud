@@ -50,6 +50,10 @@ struct PeopleRenderProbe {
             ("Family/Mom", "Mom", 12), ("Immigration/Passport/Muktha", "Muktha", 4),
             ("Family/Dad", "Dad", 9), ("Family/Anuraag", "Anuraag", 25),
             ("Work/Shweta", "Shweta", 31), ("Finance/US/Credit Accounts/Abhishek", "Abhishek", 88),
+            // Somebody the tree files for who is NOT on the roster — the gap the overview exists
+            // to surface. Included so the render proves that path draws; on the real tree there
+            // are none, so a fixture without one could never show it.
+            ("Family/Ravi", "Ravi", 7), ("Immigration/Passport/Ravi", "Ravi", 2),
         ]
         for (path, person, docs) in plan {
             folders[path] = FolderProfileEntry(path: path, role: .personBucket, naming: nil,
@@ -62,6 +66,11 @@ struct PeopleRenderProbe {
                                                    "girish", "anuraag", "shweta", "abhishek"],
                                     personAliases: ["mom": "muktha", "dad": "girish"])
         return (profile, FilingMemory(profileId: "t", salt: "s", folders: memory))
+    }
+
+    /// A throwaway defaults suite, so the probe never touches the real log.
+    static func scratchDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "people-probe-\(UUID().uuidString)")!
     }
 
     private func write(_ view: some View, size: CGSize, name: String) throws {
@@ -91,12 +100,35 @@ struct PeopleRenderProbe {
         let store = PeopleStore(people: Self.roster())
         let width = SettingsSheetMetrics.contentWidth(textScale: 1)
 
+        let log = PersonVetoLog(userDefaults: Self.scratchDefaults())
+        log.record(PersonVetoEvent(namedPerson: "aditi", proposedPerson: "divit",
+                                   fileName: "Aditi OCI.pdf",
+                                   destination: "Immigration/OCI/Divit",
+                                   at: Date(timeIntervalSince1970: 1_786_000_000)))
         try write(
             VStack(alignment: .leading, spacing: 8) {
-                PeopleList(store: store, profile: profile, memory: memory)
+                PeopleList(store: store, profile: profile, memory: memory, vetoLog: log)
             }
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section")
+
+        // The tester WITH an answer on screen — the whole point of the surface, and unreachable
+        // by typing from a probe.
+        let facts = Dictionary(uniqueKeysWithValues: store.people.map {
+            ($0.id, PersonFilingFacts.make(for: $0, registry: store.registry,
+                                           profile: profile, memory: memory))
+        })
+        try write(
+            VStack(alignment: .leading, spacing: 14) {
+                PeopleTester(registry: store.registry, factsById: facts,
+                             initialText: "Aditi Abhishek - OCI Card.pdf")
+                PeopleTester(registry: store.registry, factsById: facts,
+                             initialText: "Mom - passport.pdf")
+                PeopleTester(registry: store.registry, factsById: facts,
+                             initialText: "Scan 2026-08-02.pdf")
+            }
+            .padding(16),
+            size: CGSize(width: width, height: 0), name: "people-tester")
 
         // The editor mid-edit: a person whose every word is shared, which is the state the sheet
         // exists to explain.

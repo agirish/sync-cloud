@@ -589,6 +589,12 @@ struct ContentView: View {
                     if syncManager.keptNamesStore == nil {
                         syncManager.keptNamesStore = KeptNamesStore()
                     }
+                    // What the cross-person rule has refused. Created here for the same reason:
+                    // it outlives this view, and it is keyed on nothing — a refusal is a fact
+                    // about a document and a person, not about the pair being compared.
+                    if syncManager.filingPersonVetoLog == nil {
+                        syncManager.filingPersonVetoLog = PersonVetoLog()
+                    }
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()

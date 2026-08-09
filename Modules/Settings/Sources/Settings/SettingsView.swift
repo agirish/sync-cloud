@@ -1931,10 +1931,12 @@ struct FilingSettingsTab: View {
                 "People",
                 caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names below."
             ) {
-                if let store = syncManager?.filingPeopleStore {
+                if let store = syncManager?.filingPeopleStore,
+                   let vetoLog = syncManager?.filingPersonVetoLog {
                     PeopleList(store: store,
                                profile: syncManager?.filingFolderProfile,
-                               memory: syncManager?.filingMemory)
+                               memory: syncManager?.filingMemory,
+                               vetoLog: vetoLog)
                 } else {
                     // No engine attached (tests, previews) — say so rather than leaving the caption
                     // over a void, and never offer an Add button that would write nowhere.
@@ -2044,6 +2046,9 @@ struct PeopleList: View {
     @ObservedObject var store: PeopleStore
     let profile: FolderProfile?
     let memory: FilingMemory?
+    /// What the cross-person rule has refused. Optional: with no engine there is nothing to report,
+    /// and an empty log is the ordinary state of a machine that has not filed anything yet.
+    @ObservedObject var vetoLog: PersonVetoLog
 
     /// Which person is open in the editor. `nil` closes it; a person with an empty id is the
     /// "add" case, the same sheet doing both jobs.
@@ -2056,9 +2061,15 @@ struct PeopleList: View {
         } else {
             ForEach(store.people) { person in
                 PersonRow(facts: facts(for: person), person: person,
+                          preventedCount: vetoLog.count(namedPerson: person.id),
+                          lastPrevented: vetoLog.mostRecent(namedPerson: person.id),
                           onEdit: { editing = person },
                           onRemove: { confirmingRemoval = person })
             }
+            // What the roster governs across the whole tree, and where it does not reach. Both are
+            // facts about the SET, so neither belongs on a row.
+            PeopleOverviewRow(overview: overview, store: store)
+            PeopleTester(registry: store.registry, factsById: allFacts)
         }
         HStack(spacing: 10) {
             Button {
@@ -2114,6 +2125,14 @@ struct PeopleList: View {
                                profile: profile, memory: memory)
     }
 
+    private var allFacts: [String: PersonFilingFacts] {
+        Dictionary(uniqueKeysWithValues: store.people.map { ($0.id, facts(for: $0)) })
+    }
+
+    private var overview: PeopleOverview {
+        PeopleOverview.make(registry: store.registry, profile: profile, memory: memory)
+    }
+
     private var sourceNote: String {
         store.source == .file
             ? "Saved in people.json"
@@ -2143,6 +2162,8 @@ struct PeopleList: View {
 private struct PersonRow: View {
     let facts: PersonFilingFacts
     let person: Person
+    let preventedCount: Int
+    let lastPrevented: PersonVetoEvent?
     let onEdit: () -> Void
     let onRemove: () -> Void
 
@@ -2161,6 +2182,12 @@ private struct PersonRow: View {
                 if !knowledgeLine.isEmpty {
                     Text(knowledgeLine).scaledFont(.caption).foregroundStyle(.secondary)
                         .monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if preventedCount > 0 {
+                    Text(preventedLine).scaledFont(.caption)
+                        .foregroundStyle(SemanticColor.success)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let caveat = caveatLine {
                     Text(caveat).scaledFont(.caption).foregroundStyle(SemanticColor.caution)
@@ -2200,14 +2227,35 @@ private struct PersonRow: View {
                                    : "Matches " + facts.matchedForms.joined(separator: " · ")
     }
 
-    /// What the record is worth in this tree. Omitted entirely when nothing has been surveyed —
-    /// "0 folders" on a machine with no profile reads as a fault rather than as an absence.
+
+    /// **The only line here that reports the rule doing something**, rather than describing what is
+    /// known. It stays absent at zero: "prevented 0" would be a boast about nothing, and this
+    /// section already has enough to read.
+    private var preventedLine: String {
+        let count = preventedCount == 1 ? "1 document" : "\(preventedCount) documents"
+        guard let last = lastPrevented else { return "Kept \(count) out of other folders" }
+        return "Kept \(count) out of other folders — last “\(last.fileName)”"
+    }
+
+    /// What the record is worth in this tree: how much, and **where**.
+    ///
+    /// One line rather than two. A separate areas line repeated the folder count back in another
+    /// form — "Finance 1" above "1 folder is theirs" — which is the same fact twice. The totals
+    /// answer "how much", the area names answer "about what", and three names is where a real
+    /// record (nine areas) stops being a summary.
+    ///
+    /// Omitted entirely when nothing has been surveyed: "0 folders" on a machine with no profile
+    /// reads as a fault rather than as an absence.
     private var knowledgeLine: String {
         guard facts.folderCount > 0 else { return "" }
-        let folders = facts.folderCount == 1 ? "1 folder is theirs" : "\(facts.folderCount) folders are theirs"
-        guard facts.filedDocuments > 0 else { return folders }
-        let docs = facts.filedDocuments == 1 ? "1 document filed" : "\(facts.filedDocuments) documents filed"
-        return "\(folders) · \(docs)"
+        var out = facts.folderCount == 1 ? "1 folder" : "\(facts.folderCount) folders"
+        if facts.filedDocuments > 0 {
+            out += facts.filedDocuments == 1 ? " · 1 document" : " · \(facts.filedDocuments) documents"
+        }
+        guard !facts.areas.isEmpty else { return out }
+        let names = facts.areas.prefix(3).map(\.name)
+        let rest = facts.areas.count - names.count
+        return out + " · " + names.joined(separator: ", ") + (rest > 0 ? " +\(rest) more" : "")
     }
 
     /// The one line that can change an outcome — and it is shown **only when there is one**.

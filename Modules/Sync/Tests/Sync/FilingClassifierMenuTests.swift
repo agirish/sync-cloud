@@ -573,6 +573,43 @@ import Testing
         #expect(out.first?.best == nil, "the page named Aditi and the file went to Divit anyway")
     }
 
+    /// **A refusal has to be reportable, or the rule working perfectly is indistinguishable from
+    /// it not existing.** The veto's entire job is to make a wrong suggestion not happen; nothing
+    /// appears on screen when it does, so the only way the user learns it acted is this callback.
+    @Test func aRefusalIsReported() throws {
+        let path = "/root/TODO/Aditi Abhishek - OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Aditi Abhishek - OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Divit", confidence: .high, reason: "r")]
+        var refusals: [PersonVetoRefusal] = []
+        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                             providerRoot: "/root", profile: Self.aliasProfile(),
+                                             registry: Self.registry(),
+                                             onVeto: { refusals.append($0) })
+        #expect(out.first?.best == nil)
+        let refusal = try #require(refusals.first)
+        #expect(refusal.namedPerson == "aditi")
+        #expect(refusal.proposedPerson == "divit")
+        #expect(refusal.fileName == "Aditi Abhishek - OCI.pdf")
+        #expect(refusal.destination == "Documents/OCI/Divit",
+                "reported in the RELATIVE domain, like every other path claim in this overlay")
+    }
+
+    /// And a suggestion that is allowed through reports nothing — a log that fills up on the happy
+    /// path would report the rule doing something on every file it never touched.
+    @Test func anAllowedSuggestionReportsNoRefusal() {
+        let path = "/root/TODO/Aditi Abhishek - OCI.pdf"
+        let base = [FilingSuggestion(filePath: path, fileName: "Aditi Abhishek - OCI.pdf", size: 10,
+                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Aditi", confidence: .high, reason: "r")]
+        var refusals: [PersonVetoRefusal] = []
+        _ = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
+                                       providerRoot: "/root", profile: Self.aliasProfile(),
+                                       registry: Self.registry(),
+                                       onVeto: { refusals.append($0) })
+        #expect(refusals.isEmpty)
+    }
+
     /// **The filename outranks the page — it does not merely add to it.** A page-1 mention is
     /// testimony: an application prints the sponsor, a sibling, a witness. A file the user has
     /// *labelled* `Aditi` is Aditi's, so a verdict sending it to Divit's folder must be refused

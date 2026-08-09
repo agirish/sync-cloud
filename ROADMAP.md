@@ -827,7 +827,9 @@ shared with whom.
 - **Learning from filing** — a recurring name-shaped phrase in documents filed to one person's
   folders becomes a *suggestion* ("add *Shweta Ravindra Dani* as another name for Shweta?"), never
   an automatic write. Likewise an identifier a person's folders have received (a passport or member
-  number) becomes evidence for scans carrying no readable name.
+  number) becomes evidence for scans carrying no readable name. **Half of this shipped**: a person
+  the tree files for who is not on the roster is surfaced with an Add button, from the survey's own
+  `axes.person` values.
 - **`personIs(<person>)` as a rule condition**, resolved through the registry so a rule keeps
   working when a variant is added later, and exempt from the breadth veto that rightly refuses
   `abhishek` as a plain word (his folders appear in fourteen places). The payoff is the

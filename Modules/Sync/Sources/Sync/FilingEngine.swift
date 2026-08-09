@@ -829,7 +829,8 @@ public enum FilingEngine {
                                      routerShortlists: [String: [String]] = [:],
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
-                                     pageSamples: [String: String] = [:]) -> [FilingSuggestion] {
+                                     pageSamples: [String: String] = [:],
+                                     onVeto: ((PersonVetoRefusal) -> Void)? = nil) -> [FilingSuggestion] {
         // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
         // happens on the way in. Deriving the folder set first and letting the other one return
         // early is a full recursive walk of the provider — tens of thousands of nodes on a real
@@ -841,7 +842,8 @@ public enum FilingEngine {
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
                              providerRoot: providerRoot, rejectedByFile: rejectedByFile,
                              contentBlind: contentBlind, routerShortlists: routerShortlists,
-                             profile: profile, registry: registry, pageSamples: pageSamples)
+                             profile: profile, registry: registry, pageSamples: pageSamples,
+                             onVeto: onVeto)
     }
 
     /// The same overlay against an already-derived folder set, for callers that have one and no
@@ -866,7 +868,8 @@ public enum FilingEngine {
                                      routerShortlists: [String: [String]] = [:],
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
-                                     pageSamples: [String: String] = [:]) -> [FilingSuggestion] {
+                                     pageSamples: [String: String] = [:],
+                                     onVeto: ((PersonVetoRefusal) -> Void)? = nil) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
@@ -951,7 +954,19 @@ public enum FilingEngine {
                     if named.isEmpty, let sample = pageSamples[s.filePath] {
                         named = registry.detect(in: sample)
                     }
-                    if !named.isEmpty, !named.contains(destPerson) { return s }
+                    if !named.isEmpty, !named.contains(destPerson) {
+                        // Reported, not just refused. The veto's whole job is to make a wrong
+                        // suggestion not happen, so it working perfectly is indistinguishable from
+                        // it not existing — this is the only way the user ever learns it did
+                        // something. A closure rather than a returned tally: `applyVerdicts` is a
+                        // pure map over suggestions and stays one, and every existing caller keeps
+                        // working without passing anything.
+                        onVeto?(PersonVetoRefusal(
+                            namedPerson: named.sorted().joined(separator: ", "),
+                            proposedPerson: destPerson, fileName: s.fileName,
+                            destination: Self.relative(rawDest.path, under: providerRoot)))
+                        return s
+                    }
                 } else {
                     // An axis person the registry cannot resolve keeps the original protection.
                     let filePeople = nameTokens(s.fileName).intersection(profile.personTokens)

@@ -569,7 +569,10 @@ extension FileSyncManager {
                                                          routerShortlists: routerShortlists,
                                                          profile: filingFolderProfile,
                                                          registry: filingPersonRegistry,
-                                                         pageSamples: routerSnippets)
+                                                         pageSamples: routerSnippets,
+                                                         onVeto: { [weak self] refusal in
+                                                             self?.recordPersonVeto(refusal)
+                                                         })
             }
         }
 
