@@ -264,6 +264,9 @@ extension FileSyncManager {
         let parentFolderName = root.lastPathComponent
         let parentPath = root.path
 
+        // Read once, outside the loop: the roster does not change mid-preview, and resolving it
+        // per file would ask the manager for it a few hundred times.
+        let registry = filingPersonRegistry
         var rows: [AutomationDryRunRow] = []
         for file in looseFiles {
             if Task.isCancelled { return }
@@ -275,7 +278,7 @@ extension FileSyncManager {
                 sizeBytes: file.fileSize ?? 0,
                 modificationDate: file.modificationDate,
                 isDirectory: file.isDirectory
-            )
+            ).attributing(registry)
 
             // Read the file's on-device text only when content could still CHANGE a rule's outcome
             // for this file: some content-reading rule doesn't match yet but could once its content
@@ -289,6 +292,10 @@ extension FileSyncManager {
                 // Tokenize the excerpt so `mentionsAll` sees the same canonical content tokens the
                 // Organize scan matches with.
                 if let snippet = facts.snippet { facts.contentTokens = FilingEngine.nameTokens(snippet) }
+                // Re-resolved now the page is in hand: a scan whose NAME names nobody can still be
+                // attributed by what it says, which is the whole reason the precedence rule falls
+                // through to the page rather than stopping at the filename.
+                facts = facts.attributing(registry)
                 if Task.isCancelled { return }
             }
 

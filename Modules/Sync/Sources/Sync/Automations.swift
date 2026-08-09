@@ -95,9 +95,30 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// are produced by ``FilingEngine/nameTokens(_:)`` (lowercased, stopwords dropped) and matching
     /// is a subset test against the file's name ∪ content tokens, exactly as F3 matched.
     case mentionsAll([String])
+    /// The document is **about this person** — the household member whose registry id this is.
+    ///
+    /// Keyed on the id rather than on a name, deliberately: `Person.id` survives a rename and the
+    /// addition of a name variant, so a rule taught today keeps working when "Shweta Ravindra Dani"
+    /// is added to her record tomorrow. A word-based rule cannot — and could not be written safely
+    /// in the first place, since `abhishek` is one person's given name and three others' surname.
+    case personIs(String)
+    /// A condition written by a **newer build** of the app, preserved verbatim.
+    ///
+    /// **Not a real condition — a survival mechanism.** Rules are persisted as one JSON blob, and
+    /// the synthesized enum decoder throws on an unknown case name, which took the *whole array*
+    /// with it: every rule vanished from the UI and the next edit wrote the empty set back over
+    /// them. Keeping the raw payload means an unknown condition round-trips through this build
+    /// untouched, and `isComplete` being false means it never silently matches anything.
+    case unrecognized(name: String, payload: Data)
 
     /// True for conditions that may need the file's text extracted. Used to defer the expensive
     /// read. `mentionsAll` counts: a token can be satisfied by content when the name alone misses.
+    ///
+    /// **`personIs` deliberately does NOT**, and that is a judgement rather than an oversight: a
+    /// document that is about someone almost always says so in its name, and making every person
+    /// rule force a text extraction over a whole inbox would spend seconds per scan to catch the
+    /// minority case. Content still counts where it has already been read — see
+    /// ``PersonRegistry/attribute(fileName:pageSample:)``.
     public var requiresContent: Bool {
         switch self {
         case .contentContains, .mentionsAll: return true
@@ -124,7 +145,25 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
             let cleaned = tokens.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             guard !cleaned.isEmpty else { return "mentions …" }
             return "mentions " + cleaned.map { "“\($0)”" }.joined(separator: " and ")
+        case .personIs(let id):
+            // The id, not a display name: this type has no roster to look one up in, and a
+            // summary that guessed would go stale the moment a person was renamed. The editor and
+            // the rule list substitute the name they know — see `summary(resolvingPeople:)`.
+            return "is \(id.isEmpty ? "…" : id)'s document"
+        case .unrecognized(let name, _):
+            return "\(name) (from a newer version)"
         }
+    }
+
+    /// The same sentence with person ids replaced by the names on the roster — "is Aditi's
+    /// document". Falls back to the id when the roster does not know them, which is what a rule
+    /// pointing at a deleted person should look like: visible, not silently blank.
+    public func summary(resolvingPeople registry: PersonRegistry?) -> String {
+        guard case .personIs(let id) = self, let registry else { return summary }
+        guard let person = registry.people.first(where: { $0.id == id }) else {
+            return "is \(id)'s document (not on your People list)"
+        }
+        return "is \(person.displayName)'s document"
     }
 
     /// Whether the condition is fully specified (a blank glob / term / zero threshold is a
@@ -138,6 +177,10 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         case .kindIs: return true
         case .mentionsAll(let tokens):
             return tokens.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        case .personIs(let id): return !id.trimmingCharacters(in: .whitespaces).isEmpty
+        // Never complete, so a rule carrying one can be seen and edited but can never quietly
+        // match a file on a condition this build does not understand.
+        case .unrecognized: return false
         }
     }
 
@@ -152,6 +195,111 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         case .untouchedForDays: return "untouchedForDays"
         case .contentContains: return "contentContains"
         case .mentionsAll: return "mentionsAll"
+        case .personIs: return "personIs"
+        case .unrecognized(let name, _): return name
+        }
+    }
+}
+
+// MARK: - Persistence that survives a version it does not know
+
+extension AutomationCondition {
+    /// The wire shape is **exactly what Swift synthesized before this existed** — a single-key
+    /// object whose key is the case name and whose value is `{"_0": <payload>}`. Written by hand
+    /// only so that decoding an unknown key can be survivable; every byte an older build wrote
+    /// still decodes here, and every byte this writes still decodes there.
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+    private enum PayloadKey: String, CodingKey { case _0 }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        guard let key = c.allKeys.first, c.allKeys.count == 1 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "Expected exactly one condition key, found \(c.allKeys.count)"))
+        }
+        let payload = try c.nestedContainer(keyedBy: PayloadKey.self, forKey: key)
+        switch key.stringValue {
+        case "folderNamed": self = .folderNamed(try payload.decode(String.self, forKey: ._0))
+        case "nameMatches": self = .nameMatches(try payload.decode(String.self, forKey: ._0))
+        case "kindIs": self = .kindIs(try payload.decode(FileKind.self, forKey: ._0))
+        case "largerThanMB": self = .largerThanMB(try payload.decode(Int.self, forKey: ._0))
+        case "untouchedForDays": self = .untouchedForDays(try payload.decode(Int.self, forKey: ._0))
+        case "contentContains": self = .contentContains(try payload.decode(String.self, forKey: ._0))
+        case "mentionsAll": self = .mentionsAll(try payload.decode([String].self, forKey: ._0))
+        case "personIs": self = .personIs(try payload.decode(String.self, forKey: ._0))
+        default:
+            // Kept as bytes so it can be written back untouched. Decoding it as `JSONValue` would
+            // mean re-encoding through this build's idea of the shape; the raw data cannot drift.
+            let raw = try c.decode(RawPayload.self, forKey: key)
+            self = .unrecognized(name: key.stringValue, payload: raw.data)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: AnyKey.self)
+        func write(_ value: some Encodable, _ name: String) throws {
+            var payload = c.nestedContainer(keyedBy: PayloadKey.self, forKey: AnyKey(stringValue: name))
+            try payload.encode(value, forKey: ._0)
+        }
+        switch self {
+        case .folderNamed(let v): try write(v, "folderNamed")
+        case .nameMatches(let v): try write(v, "nameMatches")
+        case .kindIs(let v): try write(v, "kindIs")
+        case .largerThanMB(let v): try write(v, "largerThanMB")
+        case .untouchedForDays(let v): try write(v, "untouchedForDays")
+        case .contentContains(let v): try write(v, "contentContains")
+        case .mentionsAll(let v): try write(v, "mentionsAll")
+        case .personIs(let v): try write(v, "personIs")
+        case .unrecognized(let name, let payload):
+            try c.encode(RawPayload(data: payload), forKey: AnyKey(stringValue: name))
+        }
+    }
+
+    /// Carries an arbitrary JSON value through decode and encode without interpreting it.
+    private struct RawPayload: Codable {
+        let data: Data
+        init(data: Data) { self.data = data }
+        init(from decoder: Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(JSONFragment.self)
+            data = try JSONEncoder().encode(value)
+        }
+        func encode(to encoder: Encoder) throws {
+            let value = try JSONDecoder().decode(JSONFragment.self, from: data)
+            var c = encoder.singleValueContainer()
+            try c.encode(value)
+        }
+    }
+
+    /// The smallest JSON value model that can hold anything a future case's payload might be.
+    private indirect enum JSONFragment: Codable {
+        case null, bool(Bool), number(Double), string(String)
+        case array([JSONFragment]), object([String: JSONFragment])
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if c.decodeNil() { self = .null }
+            else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+            else if let v = try? c.decode(Double.self) { self = .number(v) }
+            else if let v = try? c.decode(String.self) { self = .string(v) }
+            else if let v = try? c.decode([JSONFragment].self) { self = .array(v) }
+            else { self = .object(try c.decode([String: JSONFragment].self)) }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.singleValueContainer()
+            switch self {
+            case .null: try c.encodeNil()
+            case .bool(let v): try c.encode(v)
+            case .number(let v): try c.encode(v)
+            case .string(let v): try c.encode(v)
+            case .array(let v): try c.encode(v)
+            case .object(let v): try c.encode(v)
+            }
         }
     }
 }

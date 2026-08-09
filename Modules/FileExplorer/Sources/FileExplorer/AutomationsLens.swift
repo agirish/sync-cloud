@@ -27,6 +27,8 @@ func automationConditionIcon(_ condition: AutomationCondition) -> String {
     case .untouchedForDays: return "clock"
     case .contentContains: return "text.magnifyingglass"
     case .mentionsAll: return "memories"
+    case .personIs: return "person"
+    case .unrecognized: return "questionmark.circle"
     }
 }
 
@@ -55,7 +57,21 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
         guard !cleaned.isEmpty else { return "mentions …" }
         let shown = cleaned.prefix(3).joined(separator: " + ")
         return "mentions " + shown + (cleaned.count > 3 ? " +\(cleaned.count - 3)" : "")
+    case .personIs(let id): return id.isEmpty ? "person …" : id
+    case .unrecognized(let name, _): return name
     }
+}
+
+/// The chip text with person ids replaced by names — "Aditi" rather than the `aditi` slug.
+///
+/// A separate entry point rather than a parameter on the one above: only the two surfaces that
+/// have a roster in hand can resolve, and every other caller should keep getting a chip that needs
+/// nothing. Falls back to the plain text, so a rule pointing at a removed person still renders.
+func automationConditionChipText(_ condition: AutomationCondition, people: [Person]) -> String {
+    guard case .personIs(let id) = condition, !id.isEmpty else {
+        return automationConditionChipText(condition)
+    }
+    return people.first { $0.id == id }?.displayName ?? id
 }
 
 // MARK: - Automations lens
@@ -170,6 +186,7 @@ public struct AutomationsLens: View {
                 rule: rule,
                 accent: accent,
                 browseRoot: destinationRoot,
+                people: syncManager.filingPeopleStore?.people ?? [],
                 onSave: { saved in
                     syncManager.upsertAutomationRule(saved)
                     editingRule = nil

@@ -286,6 +286,24 @@ public struct PersonRegistry: Sendable {
         return token
     }
 
+    /// Who a document is about, from its name and — only when its name says nothing — its text.
+    ///
+    /// **One precedence rule, in one place, because two would eventually disagree.** The filename
+    /// is the user's own label; a page-1 mention is testimony, and an application prints its
+    /// sponsor, a report card names a sibling, an affidavit names a witness. So a file whose name
+    /// declares a person is judged on that alone, and the page is consulted only when the name
+    /// names nobody — which is what gives `Scan 2026-08-02.pdf` any attribution at all.
+    ///
+    /// The cross-person veto and the `personIs` rule condition both come here. Before this existed
+    /// the veto had the rule inline, and a rule condition written to match "either" would have been
+    /// a second, quietly different answer to the same question.
+    public func attribute(fileName: String, pageSample: String?) -> Set<String> {
+        let named = detect(in: (fileName as NSString).deletingPathExtension)
+        if !named.isEmpty { return named }
+        guard let pageSample else { return [] }
+        return detect(in: pageSample)
+    }
+
     /// The person a profile's `axes.person` value names, or nil when the registry cannot say —
     /// including when the value somehow names two, which must not resolve arbitrarily.
     public func person(forAxisValue value: String) -> String? {

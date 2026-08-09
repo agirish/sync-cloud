@@ -446,6 +446,95 @@ import Foundation
 
     /// A router index over a memory given as folder → anchor → weight/share (and optionally folder →
     /// identifier → the same). Destinations default to the memory's own folders.
+    // MARK: - Rules only a household can express
+
+    /// The roster and a tree where each person has their own OCI folder.
+    private static func householdIndex() -> FilingRouter.Index {
+        let registry = PersonRegistry(people: [
+            Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        ])
+        let folders = ["Immigration/OCI/Aditi", "Immigration/OCI/Divit"]
+        var entries: [String: FolderProfileEntry] = [:]
+        for f in folders {
+            entries[f] = FolderProfileEntry(path: f, role: .personBucket, naming: nil, anchors: [],
+                                            acceptsNewFiles: nil, fileCount: 2, subfolderCount: 0,
+                                            axes: ["person": (f as NSString).lastPathComponent])
+        }
+        let profile = FolderProfile(profileId: "t", root: "~", folders: entries,
+                                    personTokens: ["aditi", "divit", "abhishek"])
+        // Her name is the HEAVIEST anchor of her own folder — every document in it says it. That is
+        // what makes the "never key a person rule on their own name" guard reachable: without it
+        // the topic word chosen would be "aditi".
+        let anchors = ["aditi": 8.0, "oci": 6.0, "overseas": 5.0, "citizen": 4.5]
+            .map { FilingMemoryToken(token: $0.key, weight: $0.value, docFrequency: 0.9) }
+        let memory = FilingMemory(profileId: "t", salt: "s", folders: [
+            "Immigration/OCI/Aditi": FilingMemoryEntry(docs: 4, anchors: anchors, idHashes: []),
+            "Immigration/OCI/Divit": FilingMemoryEntry(docs: 4, anchors: anchors, idHashes: []),
+        ])
+        return FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory,
+                                      registry: registry)
+    }
+
+    /// **The rule a word cannot express.** Filing Aditi's OCI card into her own folder offers a
+    /// rule keyed on the PERSON, not on the word "aditi" — which would be wrong for most of this
+    /// household, since `abhishek` is one person's given name and three others' surname.
+    @Test func filingIntoAPersonFolderOffersAPersonRule() throws {
+        let p = try #require(propose("Aditi Abhishek - OCI Card.pdf",
+                                     into: "Immigration/OCI/Aditi",
+                                     evidence: .init(pageSample: "overseas citizen of india, oci",
+                                                     index: Self.householdIndex())))
+        #expect(p.defaultVariant.conditions.contains(.personIs("aditi")),
+                "the leading offer was \(p.defaultVariant.summary)")
+        // **A person variant must not ALSO key on their name** — that is the word-keyed rule in
+        // disguise, and it re-introduces exactly the ambiguity `personIs` exists to remove. Scoped
+        // to the person variants: the ordinary word phrasings below them may legitimately use
+        // "aditi", because for them it is just a word this folder's documents share.
+        let personVariants = p.variants.filter { variant in
+            variant.conditions.contains { if case .personIs = $0 { return true }; return false }
+        }
+        #expect(!personVariants.isEmpty)
+        for variant in personVariants {
+            for case .mentionsAll(let words) in variant.conditions {
+                #expect(!words.contains("aditi"),
+                        "a person rule also keyed on her name: \(variant.summary)")
+            }
+        }
+    }
+
+    /// **One rule, everyone — the point of the whole feature.** A second phrasing drops the person
+    /// condition and redirects to `{person}`, so the single rule files each family member's card
+    /// into their own folder.
+    @Test func aPersonFolderAlsoOffersTheWholeHouseholdInOneRule() throws {
+        let p = try #require(propose("Aditi Abhishek - OCI Card.pdf",
+                                     into: "Immigration/OCI/Aditi",
+                                     evidence: .init(pageSample: "overseas citizen of india, oci",
+                                                     index: Self.householdIndex())))
+        let fanned = try #require(p.variants.first { $0.destinationTemplate != nil },
+                                  "no fan-out offered: \(p.variants.map(\.summary))")
+        #expect(fanned.destinationTemplate == "Immigration/OCI/{person}")
+        // It must NOT carry the person condition — that would pin the "everyone" rule to one person.
+        #expect(!fanned.conditions.contains { if case .personIs = $0 { return true }; return false })
+        // Nor may it key on HER name, for the same reason wearing different clothes: a rule that
+        // says "mentions aditi → each person's folder" is a rule only Aditi can ever trigger.
+        for case .mentionsAll(let words) in fanned.conditions {
+            #expect(!words.contains("aditi"), "the household rule only fires for Aditi: \(words)")
+        }
+    }
+
+    /// A folder that is nobody's in particular gets the ordinary word rule — the person offer is
+    /// about person BUCKETS, not about any file that happens to name someone.
+    @Test func filingIntoASharedFolderOffersNoPersonRule() throws {
+        let index = Self.index(memory: ["Home/Utilities/T-Mobile": ["autopay": Anchor(5.0, df: 0.9)]])
+        let p = try #require(propose("Aditi Abhishek - bill.pdf", into: "Home/Utilities/T-Mobile",
+                                     evidence: .init(pageSample: "autopay", index: index)))
+        for variant in p.variants {
+            #expect(!variant.conditions.contains { if case .personIs = $0 { return true }; return false },
+                    "offered a person rule for a shared folder: \(variant.summary)")
+        }
+    }
+
     private static func index(memory: [String: [String: Anchor]],
                               ids: [String: [String: Anchor]] = [:],
                               destinations: [String]? = nil) -> FilingRouter.Index {

@@ -259,7 +259,7 @@ extension FileSyncManager {
            automations.contains(where: { $0.enabled && $0.isRunnable && $0.requiresContent }) {
             let contentRules = automations.filter { $0.enabled && $0.isRunnable && $0.requiresContent }
             let candidates = looseFiles.filter { file in
-                let facts = FilingEngine.automationFacts(for: file)
+                let facts = FilingEngine.automationFacts(for: file, registry: filingPersonRegistry)
                 return contentRules.contains {
                     !AutomationEvaluator.matches($0, facts, now: scanClock)
                         && AutomationEvaluator.couldMatchPendingContent($0, facts, now: scanClock)
@@ -296,7 +296,9 @@ extension FileSyncManager {
         // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                providerRoot: providerRoot.path, rules: rules,
-                                               automations: automations, providerName: providerName,
+                                               automations: automations,
+                                               registry: filingPersonRegistry,
+                                               providerName: providerName,
                                                automationSnippets: automationSnippets, now: scanClock,
                                                rejectedByFile: rejectedByFile, options: options)
         if Task.isCancelled { return }

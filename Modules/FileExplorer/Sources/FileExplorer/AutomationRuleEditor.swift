@@ -8,7 +8,10 @@ import Sync
 /// The editable *type* of a condition, decoupled from its value so the editor can offer a picker and
 /// swap the underlying ``AutomationCondition`` while keeping the row.
 private enum ConditionType: String, CaseIterable, Identifiable {
-    case folderNamed, nameMatches, kindIs, mentionsAll, largerThanMB, untouchedForDays, contentContains
+    case folderNamed, nameMatches, kindIs, mentionsAll, personIs, largerThanMB,
+         untouchedForDays, contentContains
+    /// Written by a newer build; shown so it can be seen and removed, never offered as a new row.
+    case unrecognized
     var id: String { rawValue }
 
     var label: String {
@@ -20,7 +23,15 @@ private enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: return "Not modified in"
         case .contentContains: return "Text contains"
         case .mentionsAll: return "Mentions the words"
+        case .personIs: return "Is this person's"
+        case .unrecognized: return "From a newer version"
         }
+    }
+
+    /// The types a user may ADD. `unrecognized` exists only to display what a newer build wrote,
+    /// and `personIs` needs a roster to point at.
+    static func addable(hasPeople: Bool) -> [ConditionType] {
+        allCases.filter { $0 != .unrecognized && ($0 != .personIs || hasPeople) }
     }
 
     init(_ condition: AutomationCondition) {
@@ -32,6 +43,8 @@ private enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: self = .untouchedForDays
         case .contentContains: self = .contentContains
         case .mentionsAll: self = .mentionsAll
+        case .personIs: self = .personIs
+        case .unrecognized: self = .unrecognized
         }
     }
 
@@ -45,6 +58,11 @@ private enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: return .untouchedForDays(365)
         case .contentContains: return .contentContains("invoice")
         case .mentionsAll: return .mentionsAll(["invoice"])
+        // Empty, so the row is incomplete until a person is chosen — the editor cannot know which
+        // member of a household a new rule is about, and defaulting to the first would save a rule
+        // about somebody the user never picked.
+        case .personIs: return .personIs("")
+        case .unrecognized: return .personIs("")
         }
     }
 }
@@ -65,6 +83,10 @@ struct AutomationRuleEditor: View {
     /// The folder destinations resolve against (the folder being previewed). When non-nil, a Browse…
     /// button appears and relativizes the picked folder against this root; nil hides Browse.
     let browseRoot: URL?
+    /// The household, for the "Is this person's" row. Empty hides that condition type entirely —
+    /// offering a person picker with nobody in it is a dead end, and the row could never be
+    /// completed.
+    let people: [Person]
     let onSave: (AutomationRule) -> Void
     let onCancel: () -> Void
 
@@ -77,10 +99,11 @@ struct AutomationRuleEditor: View {
     @State private var rows: [DraftCondition]
     @State private var destination: String
 
-    init(rule: AutomationRule, accent: Color, browseRoot: URL? = nil,
+    init(rule: AutomationRule, accent: Color, browseRoot: URL? = nil, people: [Person] = [],
          onSave: @escaping (AutomationRule) -> Void, onCancel: @escaping () -> Void) {
         self.accent = accent
         self.browseRoot = browseRoot
+        self.people = people
         self.onSave = onSave
         self.onCancel = onCancel
         self.ruleID = rule.id
@@ -201,7 +224,7 @@ struct AutomationRuleEditor: View {
             }
 
             Menu {
-                ForEach(ConditionType.allCases) { type in
+                ForEach(ConditionType.addable(hasPeople: !people.isEmpty)) { type in
                     Button(type.label) { rows.append(DraftCondition(condition: type.makeDefault())) }
                 }
             } label: {
@@ -217,7 +240,11 @@ struct AutomationRuleEditor: View {
     private func conditionRow(_ condition: Binding<AutomationCondition>, remove: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
             Picker("", selection: typeBinding(condition)) {
-                ForEach(ConditionType.allCases) { Text($0.label).tag($0) }
+                // The row's OWN type is always among the options, even when it is one nobody may
+                // add: a `Picker` whose selection matches no tag renders blank, so an alien row
+                // from a newer build showed an empty control that read as broken rather than as
+                // unreadable.
+                ForEach(pickerTypes(for: condition.wrappedValue)) { Text($0.label).tag($0) }
             }
             .labelsHidden()
             .frame(width: 155)
@@ -275,6 +302,21 @@ struct AutomationRuleEditor: View {
                 ForEach(FileKind.allCases) { Text($0.label).tag($0) }
             }
             .labelsHidden().controlSize(.small).frame(width: 130)
+        case .personIs:
+            // Bound to the person's ID, shown by their name: the rule survives a rename, and the
+            // user never has to see the slug that makes that work. The empty tag is what a fresh
+            // row carries, so the picker opens blank rather than silently on whoever sorts first.
+            Picker("", selection: personBinding(condition)) {
+                Text("Choose…").tag("")
+                ForEach(people) { Text($0.displayName).tag($0.id) }
+            }
+            .labelsHidden().controlSize(.small).frame(width: 150)
+        case .unrecognized(let name, _):
+            Text("“\(name)” — written by a newer version of SyncCloud. It is kept as-is and never "
+                 + "matches; remove the row to drop it.")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(SemanticColor.caution)
+                .fixedSize(horizontal: false, vertical: true)
         case .largerThanMB:
             HStack(spacing: 5) {
                 TextField("100", value: intBinding(condition), format: .number)
@@ -458,6 +500,22 @@ struct AutomationRuleEditor: View {
                 }
             }
         )
+    }
+
+    /// The types this row's picker offers: everything addable, plus the row's current type when
+    /// that is not addable (an unrecognized condition, or a person row on a machine with no roster).
+    private func pickerTypes(for condition: AutomationCondition) -> [ConditionType] {
+        var out = ConditionType.addable(hasPeople: !people.isEmpty)
+        let current = ConditionType(condition)
+        if !out.contains(current) { out.append(current) }
+        return out
+    }
+
+    /// The chosen person's id, or "" for an unmade choice.
+    private func personBinding(_ condition: Binding<AutomationCondition>) -> Binding<String> {
+        Binding(
+            get: { if case .personIs(let id) = condition.wrappedValue { return id }; return "" },
+            set: { condition.wrappedValue = .personIs($0) })
     }
 
     private func kindBinding(_ condition: Binding<AutomationCondition>) -> Binding<FileKind> {

@@ -67,15 +67,24 @@ public enum AutomationRuleProposer {
         /// Compact text for the picker chip, e.g. `“tmobile” + “autopay”`. The full sentence is
         /// ``summary``; the chip has to fit three-across in an inline prompt.
         public let chipLabel: String
+        /// A destination this phrasing needs instead of the proposal's.
+        ///
+        /// nil for every phrasing that files where the example went — which is all of them except
+        /// the `{person}` fan-out, whose whole point is that it files somewhere the example did
+        /// NOT: one rule that sends each person's copy to their own folder. A variant that changes
+        /// where files land has to say so, or picking it would silently keep the literal folder.
+        public let destinationTemplate: String?
 
         public var id: [AutomationCondition] { conditions }
 
         /// The plain-words sentence, e.g. `mentions “tmobile” and “autopay” · kind is PDF`.
         public var summary: String { conditions.map(\.summary).joined(separator: " · ") }
 
-        public init(conditions: [AutomationCondition], chipLabel: String) {
+        public init(conditions: [AutomationCondition], chipLabel: String,
+                    destinationTemplate: String? = nil) {
             self.conditions = conditions
             self.chipLabel = chipLabel
+            self.destinationTemplate = destinationTemplate
         }
     }
 
@@ -176,6 +185,10 @@ public enum AutomationRuleProposer {
         let keys = rankedKeys(dest: dest, evidence: evidence, facts: facts)
         let kind = FileKind.of(fileName: fileName)
         var variants = phrasings(keys: keys, kind: kind, fileName: fileName, index: evidence.index)
+        // Offered FIRST when they apply, because they are the better rule: a person bucket is the
+        // one destination whose defining axis a word-based rule cannot express.
+        variants = personVariants(dest: dest, template: template, facts: facts,
+                                  keys: keys, evidence: evidence) + variants
 
         // **Every variant has to match the file it was learned from.** The two tokenizers in play
         // do not agree word for word (see the type doc), and a proposal that cannot match its own
@@ -183,8 +196,16 @@ public enum AutomationRuleProposer {
         // fires.
         variants = variants.filter { variant in
             let probe = AutomationRule(name: "probe", matchMode: .all, conditions: variant.conditions,
-                                       destinationTemplate: template)
-            return AutomationEvaluator.matches(probe, facts, now: now)
+                                       destinationTemplate: variant.destinationTemplate ?? template)
+            guard AutomationEvaluator.matches(probe, facts, now: now) else { return false }
+            // A variant that redirects has to RESOLVE too, and to the folder the example actually
+            // went to. `{person}` reproducing `Immigration/OCI/Aditi` is the claim being made; if
+            // it resolved anywhere else the offer would quietly re-file the example.
+            guard let redirected = variant.destinationTemplate else { return true }
+            guard case .resolved(let path) = AutomationEvaluator.resolveDestination(
+                    redirected, for: facts, providerName: nil, now: now)
+            else { return false }
+            return path == dest
         }
         // Two phrasings can collapse to the same conditions (one key, or no kind to add); keep the
         // first, which is the better-ranked one.
@@ -195,7 +216,7 @@ public enum AutomationRuleProposer {
         let rule = AutomationRule(name: ruleName(keys: keys, dest: dest, template: template),
                                   matchMode: .all,
                                   conditions: best.conditions,
-                                  destinationTemplate: template)
+                                  destinationTemplate: best.destinationTemplate ?? template)
         return Proposal(rule: rule, variants: variants, destinationTemplate: template)
     }
 
@@ -553,6 +574,64 @@ public enum AutomationRuleProposer {
             isDirectory: false,
             snippet: sample?.lowercased(),
             contentTokens: sample.map { FilingEngine.nameTokens($0) } ?? [])
+            // **Attributed, or the self-match check below silently deletes every person variant.**
+            // The verification step asks whether the offered rule matches its own example; a
+            // `personIs` condition tested against facts with no people resolved is false for every
+            // file, so the offer would be built and then thrown away with no trace.
+            .attributing(evidence.index?.registry)
+    }
+
+    /// The rules only a household can express — offered when the folder just filed into is one
+    /// person's, and the document says so.
+    ///
+    /// **Two offers, and the second is the point of the whole feature.** The first keys the rule on
+    /// the person (`is Aditi's document` + the topic word), which is worth having because
+    /// `mentionsAll(["aditi"])` is not the same claim — `abhishek` is one person's given name and
+    /// three others' surname, so a word-keyed person rule is wrong for most of this household and
+    /// merely lucky for the rest.
+    ///
+    /// The second replaces the person's own folder with `{person}` and drops the person condition
+    /// entirely: `Immigration/OCI/Aditi` becomes `Immigration/OCI/{person}`, so one rule files
+    /// **everybody's** OCI card into their own folder. That is the generalisation the roadmap
+    /// promised — one rule, seven people — and it is only safe to offer because the token resolves
+    /// to `.unresolved` rather than guessing when a document names nobody or names two.
+    static func personVariants(dest: String, template: String, facts: AutomationFileFacts,
+                               keys: [Key], evidence: Evidence) -> [Variant] {
+        guard let index = evidence.index, let registry = index.registry,
+              // The document has to be about exactly one person — two people name no single folder.
+              facts.personIds.count == 1, let personId = facts.personIds.first,
+              let person = registry.people.first(where: { $0.id == personId }),
+              // …and the folder has to be THEIRS. Filing Aditi's document into a shared folder
+              // teaches nothing about people; it is an ordinary topic rule.
+              index.folderPerson[dest] == personId else { return [] }
+
+        // The topic, from the ranked keys — but never the person's own name, which the condition
+        // now expresses properly. Without this the offer reads "is Aditi's document and mentions
+        // 'aditi'", which is the word-keyed rule wearing a costume.
+        let personWords = Set(PersonRegistry.words(person.displayName)
+                              + person.fullNames.flatMap { PersonRegistry.words($0) }
+                              + person.aliases.flatMap { PersonRegistry.words($0) })
+        let topic = recurringKeys(keys).first { !personWords.contains($0.token) }?.token
+
+        var out: [Variant] = []
+        if let topic {
+            out.append(Variant(conditions: [.personIs(personId), .mentionsAll([topic])],
+                               chipLabel: "\(person.displayName) + “\(topic)”"))
+        } else {
+            out.append(Variant(conditions: [.personIs(personId)],
+                               chipLabel: person.displayName))
+        }
+
+        // The fan-out. Only when the folder is named for the person — `Immigration/OCI/Aditi` — so
+        // the substitution reproduces the path it was learned from rather than inventing one.
+        let last = (dest as NSString).lastPathComponent
+        if PersonRegistry.words(last) == PersonRegistry.words(person.displayName), let topic {
+            let parent = (dest as NSString).deletingLastPathComponent
+            let fanned = parent.isEmpty ? "{person}" : parent + "/{person}"
+            out.append(Variant(conditions: [.mentionsAll([topic])], chipLabel: "everyone's “\(topic)”",
+                               destinationTemplate: fanned))
+        }
+        return out
     }
 
     /// A destination ending in the example's own year becomes `{year}`.

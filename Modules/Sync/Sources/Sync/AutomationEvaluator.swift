@@ -21,6 +21,17 @@ public struct AutomationFileFacts: Sendable, Equatable {
     /// its content pass; the dry run derives them from `snippet`). Feeds `mentionsAll` and, when no
     /// raw snippet is available, `contentContains`. Empty = no content read.
     public var contentTokens: Set<String>
+    /// Which household members this document is about, as ``Person`` ids.
+    ///
+    /// Resolved by the caller rather than here, because attribution needs the roster and this type
+    /// is deliberately a plain description of a file that a pure evaluator can reason over. Empty
+    /// when there is no roster, which makes every `personIs` rule simply not match — the same
+    /// behaviour the app had before people existed.
+    public var personIds: Set<String> = []
+    /// The folder name of the one person this document is about, for the `{person}` destination
+    /// token. nil when nobody — or more than one — is named, because a document naming two people
+    /// has no single folder to go to and guessing is worse than reporting it unresolved.
+    public var personFolderName: String?
 
     public init(
         path: String,
@@ -31,7 +42,9 @@ public struct AutomationFileFacts: Sendable, Equatable {
         modificationDate: Date?,
         isDirectory: Bool,
         snippet: String? = nil,
-        contentTokens: Set<String> = []
+        contentTokens: Set<String> = [],
+        personIds: Set<String> = [],
+        personFolderName: String? = nil
     ) {
         self.path = path
         self.name = name
@@ -42,6 +55,23 @@ public struct AutomationFileFacts: Sendable, Equatable {
         self.isDirectory = isDirectory
         self.snippet = snippet
         self.contentTokens = contentTokens
+        self.personIds = personIds
+        self.personFolderName = personFolderName
+    }
+
+    /// The same facts with the household resolved onto them.
+    ///
+    /// A helper rather than three copies of the same two lines: the dry run, the Organize scan and
+    /// the rule proposer all need this, and the proposer forgetting it would silently filter every
+    /// person variant out of its own offer.
+    public func attributing(_ registry: PersonRegistry?) -> AutomationFileFacts {
+        guard let registry else { return self }
+        var out = self
+        out.personIds = registry.attribute(fileName: name, pageSample: snippet)
+        out.personFolderName = out.personIds.count == 1
+            ? registry.people.first { $0.id == out.personIds.first }?.displayName
+            : nil
+        return out
     }
 
     public var fileExtension: String { (name as NSString).pathExtension }
@@ -176,6 +206,14 @@ public enum AutomationEvaluator {
             let trigger = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
             guard !trigger.isEmpty else { return false }
             return trigger.isSubset(of: facts.nameTokens.union(facts.contentTokens))
+        case .personIs(let id):
+            // Resolved onto the facts by the caller (see `attributing`). With no roster this is
+            // empty and the rule simply never fires, rather than matching everything.
+            return facts.personIds.contains(id)
+        case .unrecognized:
+            // A condition from a newer build. Never matches — a rule this build cannot fully
+            // understand must not file anything on a partial reading of it.
+            return false
         }
     }
 
@@ -219,7 +257,8 @@ public enum AutomationEvaluator {
     // MARK: Destination templates
 
     /// The tokens a destination template understands, for the editor's insert menu.
-    public static let supportedTokens = ["{year}", "{month}", "{yyyy-mm}", "{kind}", "{ext}", "{provider}"]
+    public static let supportedTokens = ["{year}", "{month}", "{yyyy-mm}", "{kind}", "{ext}",
+                                         "{provider}", "{person}"]
 
     /// Expands a destination template against a file. Each token resolves from the file's own
     /// local metadata; an unfillable token yields ``DestinationResolution/unresolved(token:)`` so
@@ -297,7 +336,12 @@ public enum AutomationEvaluator {
             ("{month}", month()),
             ("{kind}", FileKind.of(fileName: facts.name)?.label),
             ("{ext}", facts.fileExtension.isEmpty ? nil : facts.fileExtension.lowercased()),
-            ("{provider}", providerName?.trimmingCharacters(in: .whitespaces).nilIfEmpty)
+            ("{provider}", providerName?.trimmingCharacters(in: .whitespaces).nilIfEmpty),
+            // **The token that turns seven rules into one.** `Immigration/OCI/{person}` files each
+            // person's card into their own folder, and a rule taught on one of them covers the
+            // household. nil — and therefore `.unresolved`, never a guess — when the document
+            // names nobody, or names two people and so has no single folder to go to.
+            ("{person}", facts.personFolderName?.trimmingCharacters(in: .whitespaces).nilIfEmpty)
         ]
         for (token, value) in substitutions {
             guard result.contains(token) else { continue }

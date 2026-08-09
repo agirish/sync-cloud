@@ -544,6 +544,7 @@ public struct TidyView: View {
                 rule: rule,
                 accent: glassHue.accentColor,
                 browseRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                people: syncManager.filingPeopleStore?.people ?? [],
                 onSave: { saved in
                     syncManager.upsertAutomationRule(saved)
                     reviewingAutomationRule = nil
@@ -2108,7 +2109,12 @@ public struct TidyView: View {
     /// and opens the saved rule for review so it can be adjusted while it's fresh.
     private func saveProposedRule(_ offer: RuleOffer) {
         var rule = offer.proposal.rule
-        rule.conditions = (ruleVariantChoice ?? offer.proposal.defaultVariant).conditions
+        let variant = ruleVariantChoice ?? offer.proposal.defaultVariant
+        rule.conditions = variant.conditions
+        // A phrasing can redirect — the `{person}` fan-out files each person's copy into their own
+        // folder rather than the one this example went to. Taking only the conditions would save a
+        // rule that says "everyone's OCI card" and files all of them into Aditi's folder.
+        rule.destinationTemplate = variant.destinationTemplate ?? offer.proposal.destinationTemplate
         syncManager.upsertAutomationRule(rule)
         syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
         pendingRuleOffer = nil

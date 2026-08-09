@@ -830,11 +830,13 @@ shared with whom.
   number) becomes evidence for scans carrying no readable name. **Half of this shipped**: a person
   the tree files for who is not on the roster is surfaced with an Add button, from the survey's own
   `axes.person` values.
-- **`personIs(<person>)` as a rule condition**, resolved through the registry so a rule keeps
-  working when a variant is added later, and exempt from the breadth veto that rightly refuses
-  `abhishek` as a plain word (his folders appear in fourteen places). The payoff is the
-  generalisation: file into two sibling person buckets and the offer becomes *each person's OCI
-  card to their own folder* — one rule, six people.
+- ~~**`personIs(<person>)` as a rule condition**~~ — **shipped**, together with the `{person}`
+  destination token that was the point of it: `Immigration/OCI/{person}` files each family member's
+  card into their own folder, so the household needs one rule rather than seven. The condition
+  keys on the person's id, so a rule survives a rename and picks up a name variant added later; the
+  offer made after filing into a person's folder proposes both, and never keys a person rule on
+  that person's own name. Rule persistence became tolerant of unknown conditions in the same
+  change (see below).
 - **Person buckets that do not exist yet** — a *create the sibling* proposal, from the parent's
   evidence, the way a cold year bucket is already handled.
 - **A person block in the classifier brief**, so a backend reads "Shweta R Dani" as Shweta too.
