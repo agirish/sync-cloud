@@ -43,6 +43,15 @@ import Sync
         #expect(PaneLogic.tidyScanRoot(focusRootExpanded: "", browsePath: browse) == "")
     }
 
+    @Test func theFilesystemRootJoinsToAbsoluteChildren() {
+        // "/" normalizes to "" inside the join, which is what makes "/" + "A" come out as "/A"
+        // rather than "//A" — and at rest the guard hands "/" back verbatim instead of letting
+        // that same normalization collapse it to "".
+        let browse = PaneBrowsePath(relativePath: "A")
+        #expect(PaneLogic.tidyScanRoot(focusRootExpanded: "/", browsePath: browse) == "/A")
+        #expect(PaneLogic.tidyScanRoot(focusRootExpanded: "/", browsePath: PaneBrowsePath()) == "/")
+    }
+
     // MARK: The call site
 
     /// A rule extracted for testability is one revert away from being unused: the join above stays
@@ -65,7 +74,14 @@ import Sync
         let body = String(rest[..<end.lowerBound])
         #expect(body.contains("PaneLogic.tidyScanRoot"),
                 "tidyScanRootExpanded no longer routes through the browse-aware join")
-        #expect(body.contains("leftBrowsePath") && body.contains("rightBrowsePath"),
-                "tidyScanRootExpanded no longer reads the panes' browse positions")
+        // The PAIRING, not just the ingredients: a review found that asserting the two browse
+        // paths merely appear leaves a flipped ternary — the right pane's root joined with the
+        // LEFT pane's browse trail — passing every test in this file, since the pure-function
+        // tests exercise one pane at a time. Pin each ternary whole, both sides in scan order.
+        #expect(body.contains("tidyTargetIsRight ? currentRightPath : currentLeftPath"),
+                "the focus root no longer follows the targeted pane (or the ternary flipped)")
+        #expect(body.contains(
+                    "tidyTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath"),
+                "the browse path no longer follows the targeted pane (or the ternary flipped)")
     }
 }
