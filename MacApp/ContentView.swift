@@ -1367,9 +1367,14 @@ struct ContentView: View {
     }
 
     /// The absolute (tilde-expanded) folder a Tidy scan walks: the targeted pane's current directory
-    /// (always the left rail in single-source; the focused pane in compare).
+    /// (always the left rail in single-source; the focused pane in compare) — **including where the
+    /// pane is browsing**, so clicking through columns moves the target and the "Scan '<folder>'"
+    /// offer follows in real time. See `PaneLogic.tidyScanRoot`.
     var tidyScanRootExpanded: String {
-        ((tidyTargetIsRight ? currentRightPath : currentLeftPath) as NSString).expandingTildeInPath
+        PaneLogic.tidyScanRoot(
+            focusRootExpanded: ((tidyTargetIsRight ? currentRightPath : currentLeftPath) as NSString)
+                .expandingTildeInPath,
+            browsePath: tidyTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath)
     }
 
     /// The coverage the ⌂ badge is resolved against for one pane — nil where the badge never
