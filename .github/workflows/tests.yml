@@ -4,14 +4,24 @@
 # Scope: the seven SPM packages only. Suites that only produce a trustworthy
 # verdict on the machine that recorded them are marked at the declaration with
 # `.machinePinned(_:)` and a reason, and SYNCCLOUD_SKIP_MACHINE_PINNED below
-# selects which reasons to exclude. Three reasons exist: `referenceImages`
+# selects which reasons to exclude. Four reasons exist: `referenceImages`
 # (compares against PNGs recorded on one Mac; see
 # Modules/Design/Tests/DesignTests/SNAPSHOTS.md), `pixelSampling` (reads
-# painted pixels out of a live renderer) and `calibratedTiming` (the
-# click-cost benchmark's thresholds).
+# painted pixels out of a live renderer), `calibratedTiming` (the
+# click-cost benchmark's thresholds) and `liveProfile` (reads the developer's
+# live filing profile and real document tree).
 #
-# We exclude ONLY `referenceImages`, so pixel sampling and the benchmark still
-# run — sound only while the runner IS the recording machine; see docs/ci.md.
+# We exclude `referenceImages` and `liveProfile`, so pixel sampling and the
+# benchmark still run — sound only while the runner IS the recording machine;
+# see docs/ci.md.
+#
+# `liveProfile` is excluded for a reason worth keeping attached: because the
+# runner runs as the same user on the same Mac, an `.enabled(if: profileExists)`
+# gate does NOT keep such a suite off CI — the profile is right there. It ran,
+# under Rosetta, at 10.8s against 1.05s natively, and since swift-testing runs
+# suites in parallel it starved the timing-sensitive tests beside it and took
+# ScanSupersedenceTests and DifferenceResolutionTests red on a commit that
+# touched neither.
 # Excluded suites still COMPILE, so breakage in their code is still caught, and
 # they now report as *skipped with a reason* rather than silently vanishing.
 # If the runner ever moves off this Mac, set the value to `all`.
@@ -83,9 +93,11 @@ jobs:
       - name: Run package suites (reference-image suites skipped)
         env:
           # Which machine-pinned reasons to exclude. `referenceImages` alone
-          # reproduces what `--skip SnapshotTests` used to do; `all` is the
-          # setting to use if the runner moves off the recording Mac.
-          SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages
+          # reproduces what `--skip SnapshotTests` used to do; `liveProfile`
+          # keeps the developer's own document tree out of CI (and its Rosetta
+          # cost off the shared runner); `all` is the setting to use if the
+          # runner moves off the recording Mac.
+          SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages,liveProfile
         run: |
           set -uo pipefail
           failed=()

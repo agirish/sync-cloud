@@ -20,8 +20,24 @@ import Foundation
 ///
 /// Skips (rather than fails) when the profile is absent, so a fresh checkout on another machine is
 /// not red for a reason that has nothing to do with the change.
+/// ## Why this is machine-pinned as well as gated on the profile existing
+///
+/// **`.enabled(if:)` alone was not enough, and CI proved it within the hour.** The self-hosted
+/// runner runs as the same user on this same Mac, so the profile is right there and the whole suite
+/// ran — under Rosetta, where `nestingIsMonotonic` took **10.8s against 1.05s natively**.
+/// swift-testing runs suites in parallel, so that cost was not paid alone: it starved the
+/// timing-sensitive tests beside it and took `ScanSupersedenceTests` and `DifferenceResolutionTests`
+/// red on a commit that touched neither. A wall-clock budget of 2.0s came back at 9.2s, and two
+/// `ParkGate`s reported `releasedByTimeout`.
+///
+/// A starved wait looks exactly like a slow one, which is what made it read as a flake at first
+/// glance. It was not: the previous commit was green and the only new load was this suite.
+///
+/// So it carries `.machinePinned(.liveProfile)` too, and CI's `SYNCCLOUD_SKIP_MACHINE_PINNED` names
+/// that reason. Locally — the only place these assertions mean anything — it still runs in full.
 @Suite(.enabled(if: LiveProfile.isAvailable,
-                "no live folder profile on this machine — dry run skipped"))
+                "no live folder profile on this machine — dry run skipped"),
+       .machinePinned(.liveProfile))
 struct OrganizeScopeLiveProfileTests {
 
     // MARK: The tree the profile describes

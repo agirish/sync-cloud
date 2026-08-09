@@ -24,6 +24,21 @@ enum MachinePinnedReason: String {
     case pixelSampling
     /// Asserts latency thresholds calibrated on this hardware.
     case calibratedTiming
+    /// Reads the developer's **live** filing profile and real document tree.
+    ///
+    /// Pinned for two separate reasons, and the second is the one that bit. It is *semantically*
+    /// local — the assertions are about one person's 3,013-folder corpus, which exists on exactly
+    /// one machine, so anywhere else the suite either skips or asserts about nothing. And it is
+    /// *expensive*: the CI runner is this same Mac running osx-x64 under Rosetta, where the same
+    /// walk measured **10.8s against 1.05s natively**. Because swift-testing runs suites in
+    /// parallel, that cost is not paid alone — it starves whatever timing-sensitive tests happen to
+    /// be running beside it, which is how a green local run became three CI failures in
+    /// `ScanSupersedenceTests` and `DifferenceResolutionTests` that had nothing to do with the
+    /// change.
+    ///
+    /// An `.enabled(if:)` on the profile's existence is NOT enough on its own: the runner runs as
+    /// the same user, so the profile is right there and the suite runs in full.
+    case liveProfile
 }
 
 enum MachinePinnedGate {
