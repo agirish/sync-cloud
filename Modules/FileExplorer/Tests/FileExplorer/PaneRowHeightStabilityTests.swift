@@ -176,8 +176,11 @@ import Sync
     /// integrality here is cheap and rules that cause out across the whole settings matrix, which
     /// no single mounted pane test can do.
     @Test func testRowHeightIsIntegralAtEveryDensityAndTextSize() {
+        // The shipped scales, not a hardcoded list: when `FontSize` moved to the knee curve the
+        // old literals (1.15, 1.3) stopped being sizes any user can select, and a sweep over
+        // phantom scales proves nothing about the settings matrix.
         for density in [ListDensity.compact, ListDensity.comfortable] {
-            for scale in [0.85, 1.0, 1.15, 1.3] as [CGFloat] {
+            for scale in FontSize.allCases.map(\.scale) {
                 let row = FileRowView(
                     node: FileRowInfo(FileNode(id: "/a/Some Document Name.pdf",
                                                name: "Some Document Name.pdf",

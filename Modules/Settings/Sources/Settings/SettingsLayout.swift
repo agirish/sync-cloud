@@ -63,7 +63,15 @@ enum SettingsSheetMetrics {
     /// `theSheetIsSizedAgainstTheTallestTabItMustFit` keeps it at most 30pt over. Between them
     /// "sized against a measurement" is a property a test can fail rather than a claim in a
     /// comment. If the tab is legitimately trimmed, LOWER this — do not widen the bound.
-    static let baseSize = CGSize(width: 760, height: 700)
+    ///
+    /// 700 → 704 when section captions moved from 10pt to 11pt (the Settings-prose half of the
+    /// text-size rework). The tab legitimately grew ~1pt per caption line; the two captions
+    /// that grew a whole WRAP line (List density, and the `.none` accent) were copy-edited back
+    /// instead, since a wrap line is 14pt and the clamped 1280×800 opening cannot be raised.
+    /// This is the "raise it deliberately" branch `appearanceKeepsRoomForACopyEdit` asks for:
+    /// Appearance measures ~642pt and the 704pt sheet's 659pt opening keeps the 15pt copy-edit
+    /// margin with no dead air (the upper-bound test still holds at ~17pt).
+    static let baseSize = CGSize(width: 760, height: 704)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a
@@ -90,7 +98,8 @@ enum SettingsSheetMetrics {
     static let sectionTitleAir: CGFloat = 4
 
     /// The title row's height, fixed so the content opening is arithmetic rather than a guess.
-    /// 44pt clears `.headline` at the largest text scale (13 × 1.3 = 16.9pt) with padding.
+    /// 44pt clears `.headline` at the largest text scale (15.85pt under the knee curve — 13pt is
+    /// above the 11pt knee, so it grows damped: 11 × 1.35 + 2 × 0.5) with padding.
     static let headerHeight: CGFloat = 44
 
     /// Air between a section's last control and its caption.
@@ -221,7 +230,11 @@ struct SettingsSection<Content: View, Caption: View>: View {
                 content
             }
             caption
-                .scaledFont(.caption)
+                // Subheadline (11pt), not caption (10pt): these are full sentences of
+                // explanation — the text people actually read in Settings — and 10pt was the
+                // single biggest reason the sheet read as too small at the default size. Micro
+                // labels elsewhere (slider ends, stat labels, the version line) stay caption.
+                .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 // Captions are full sentences that must wrap rather than truncate; without this
                 // a `Text` inside a horizontally-flexible stack reports a one-line ideal height

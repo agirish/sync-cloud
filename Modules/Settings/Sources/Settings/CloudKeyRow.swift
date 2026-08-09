@@ -93,7 +93,7 @@ struct CloudKeyRow: View {
 
             if state.isEntry {
                 Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                    Text("Get a key from the Anthropic Console ↗").scaledFont(.caption)
+                    Text("Get a key from the Anthropic Console ↗").scaledFont(.subheadline)
                 }
             }
         }
@@ -221,7 +221,7 @@ struct CloudKeyRow: View {
             // Keychain — a third grey sentence in the same stack is just noise.
             if isReplacingKey {
                 Text("Saving replaces the key currently in your Keychain.")
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
@@ -243,27 +243,27 @@ struct CloudKeyRow: View {
 
     @ViewBuilder private var keyStatusLine: some View {
         if testingKey {
-            Label("Testing…", systemImage: "ellipsis.circle").scaledFont(.caption).foregroundStyle(.secondary)
+            Label("Testing…", systemImage: "ellipsis.circle").scaledFont(.subheadline).foregroundStyle(.secondary)
         } else if let keyTestResult {
             switch keyTestResult {
             case .valid:
-                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").scaledFont(.caption).foregroundStyle(.green)
+                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").scaledFont(.subheadline).foregroundStyle(.green)
             case .invalid(let message):
-                Label(message, systemImage: "xmark.octagon.fill").scaledFont(.caption).foregroundStyle(.red)
+                Label(message, systemImage: "xmark.octagon.fill").scaledFont(.subheadline).foregroundStyle(.red)
             case .failed(let message):
-                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").scaledFont(.caption).foregroundStyle(.orange)
+                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").scaledFont(.subheadline).foregroundStyle(.orange)
             }
         } else if state.showsSecret {
             // The one state worth interrupting the usual reassurance for: a secret is on screen.
             Label("Visible until you hide it or leave Settings.", systemImage: "eye")
-                .scaledFont(.caption).foregroundStyle(.orange)
+                .scaledFont(.subheadline).foregroundStyle(.orange)
         } else if state == .replacing {
             EmptyView()   // the entry row carries its own caption
         } else if hasStoredKey {
-            Label("Key saved to Keychain.", systemImage: "checkmark.circle").scaledFont(.caption).foregroundStyle(.secondary)
+            Label("Key saved to Keychain.", systemImage: "checkmark.circle").scaledFont(.subheadline).foregroundStyle(.secondary)
         } else {
             Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
-                .scaledFont(.caption).foregroundStyle(.secondary)
+                .scaledFont(.subheadline).foregroundStyle(.secondary)
         }
     }
 

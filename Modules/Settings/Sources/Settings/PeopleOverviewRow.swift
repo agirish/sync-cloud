@@ -18,7 +18,7 @@ struct PeopleOverviewRow: View {
         VStack(alignment: .leading, spacing: 4) {
             if overview.claimedFolders > 0 {
                 Text(coverageLine)
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .fixedSize(horizontal: false, vertical: true)
@@ -26,7 +26,7 @@ struct PeopleOverviewRow: View {
             ForEach(overview.unclaimed, id: \.name) { person in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Label(unclaimedLine(person), systemImage: "person.badge.questionmark")
-                        .scaledFont(.caption)
+                        .scaledFont(.subheadline)
                         .foregroundStyle(SemanticColor.caution)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
@@ -39,12 +39,12 @@ struct PeopleOverviewRow: View {
             if overview.unclaimed.isEmpty, overview.claimedFolders > 0 {
                 Label("Everyone your tree files for is on this list.",
                       systemImage: "checkmark.circle")
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
             }
             if !overview.peopleWithNoFolders.isEmpty {
                 Text(noFolderLine)
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

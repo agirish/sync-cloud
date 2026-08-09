@@ -55,14 +55,14 @@ struct PeopleTester: View {
         if report.isEmpty {
             Label("Names nobody — Organize would file this without a person to go on.",
                   systemImage: "person.slash")
-                .scaledFont(.caption)
+                .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(report.matches, id: \.personId) { match in
                     Label(line(for: match), systemImage: "person.fill.checkmark")
-                        .scaledFont(.caption)
+                        .scaledFont(.subheadline)
                         .foregroundStyle(SemanticColor.success)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -70,14 +70,14 @@ struct PeopleTester: View {
                 // of what it decides.
                 if let consequence {
                     Text(consequence)
-                        .scaledFont(.caption)
+                        .scaledFont(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 // The counter-intuitive half, and the reason full names are worth entering.
                 ForEach(report.absorbed, id: \.word) { absorbed in
                     Text(absorbedLine(absorbed))
-                        .scaledFont(.caption)
+                        .scaledFont(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

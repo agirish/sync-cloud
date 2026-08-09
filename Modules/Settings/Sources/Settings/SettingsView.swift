@@ -948,7 +948,10 @@ struct AppearanceSettingsTab: View {
 
             SettingsSection(
                 "List density",
-                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists across SyncCloud — the file panes, the Compare table, every lens workspace, and the Activity Log and Sync History windows — so more fits on screen."
+                // 190 characters ≤ two lines at the 11pt caption size in the 547pt column —
+                // the 218-character long form wrapped to three when captions left 10pt, and that
+                // 14pt is Appearance's whole copy-edit margin. Measure before lengthening.
+                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists across SyncCloud — file panes, the Compare table, lens workspaces, Activity Log, Sync History — so more fits on screen."
             ) {
                 Picker("List density", selection: $listDensityRaw) {
                     ForEach(ListDensity.allCases) { density in
@@ -1310,7 +1313,7 @@ struct ProviderSettingsSection: View {
                     // Only ever set for a folder source, and cleared by the next accepted commit.
                     if let owner = refusedDuplicateOwner {
                         Text("That folder is already \(owner). One folder gets one source.")
-                            .scaledFont(.caption)
+                            .scaledFont(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityLabel(
@@ -2323,7 +2326,7 @@ struct PeopleList: View {
             if hasLooked, suggestions.isEmpty {
                 Label("No new names in your filed documents — every form they use is recorded.",
                       systemImage: "checkmark.circle")
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
             }
             PeopleTester(registry: store.registry, factsById: allFacts)
@@ -2350,7 +2353,7 @@ struct PeopleList: View {
             }
             Spacer()
             Text(sourceNote)
-                .scaledFont(.caption)
+                .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .padding(.top, 2)
@@ -2467,20 +2470,20 @@ private struct PersonRow: View {
                         Text(relationship).scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text(matchedLine).scaledFont(.caption).foregroundStyle(.secondary)
+                Text(matchedLine).scaledFont(.subheadline).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !knowledgeLine.isEmpty {
-                    Text(knowledgeLine).scaledFont(.caption).foregroundStyle(.secondary)
+                    Text(knowledgeLine).scaledFont(.subheadline).foregroundStyle(.secondary)
                         .monospacedDigit()
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if preventedCount > 0 {
-                    Text(preventedLine).scaledFont(.caption)
+                    Text(preventedLine).scaledFont(.subheadline)
                         .foregroundStyle(SemanticColor.success)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let caveat = caveatLine {
-                    Text(caveat).scaledFont(.caption).foregroundStyle(SemanticColor.caution)
+                    Text(caveat).scaledFont(.subheadline).foregroundStyle(SemanticColor.caution)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -2582,7 +2585,7 @@ struct PersonSuggestionRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Text("\(suggestion.occurrences) of their filed documents use it, "
                      + "including “\(suggestion.exampleFile)”")
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

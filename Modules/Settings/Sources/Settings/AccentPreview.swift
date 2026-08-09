@@ -59,9 +59,14 @@ struct AccentColorSection: View {
             // `.none` is not "no accent anywhere": it defers to the system accent, which is why
             // the strip below still renders a filled button. Saying so is the whole job of this
             // case — an unexplained coloured button under a swatch labelled "None" reads as a bug.
-            // "The glass is untinted" is the short form of what the doc comment above records in
-            // full: `gradientColors` are clear AND the surface tint wash opts out.
-            return "None. Your macOS accent, used for filled controls, selection, and the seam chrome; the glass is untinted."
+            // "The glass stays untinted" is the short form of what the doc comment above records
+            // in full: `gradientColors` are clear AND the surface tint wash opts out.
+            //
+            // 98 characters — ONE line at the 11pt caption size in the 547pt column. The longer
+            // form wrapped to a second line, which was exactly the worst-case 14pt that put a
+            // `.none` user's tab over a 1280×800 display's clamped opening. Measure before
+            // lengthening.
+            return "None. Filled controls, selection, and seam chrome use your macOS accent; the glass stays untinted."
         }
         return "\(hue.displayName). Used for filled controls, selection, and the seam chrome."
     }

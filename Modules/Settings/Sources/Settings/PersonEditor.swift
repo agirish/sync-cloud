@@ -102,7 +102,7 @@ struct PersonEditor: View {
                     .controlSize(.small)
             }
             Text("The first name is what your folders are called — `School/\(draft.displayName.isEmpty ? "Aditi" : draft.displayName)`. The relationship is a label for you; it changes nothing about filing.")
-                .scaledFont(.caption)
+                .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -112,7 +112,7 @@ struct PersonEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow("Full names on documents")
             Text("Every form a document might print. **This is the field that does the work**: a full name is matched before any single word, so “Aditi Abhishek” names Aditi alone even though “Abhishek” is someone else here.")
-                .scaledFont(.caption)
+                .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             chips(draft.fullNames) { name in
@@ -128,7 +128,7 @@ struct PersonEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow("Also called")
             Text("What you call them in a filename when you do not use their name — “Mom”, “Dad”. These resolve to the same person, so `Mom - passport.pdf` belongs in Muktha's folder.")
-                .scaledFont(.caption)
+                .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             chips(draft.aliases) { alias in
@@ -151,16 +151,16 @@ struct PersonEditor: View {
             eyebrow("What Organize will match")
             if facts.matchedForms.isEmpty {
                 Text("Nothing yet — give them a first name.")
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
                 Text(facts.matchedForms.joined(separator: " · "))
-                    .scaledFont(.caption)
+                    .scaledFont(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)
                 if !facts.uniqueWords.isEmpty {
                     Label("Theirs alone: " + facts.uniqueWords.joined(separator: ", "),
                           systemImage: "checkmark.circle")
-                        .scaledFont(.caption)
+                        .scaledFont(.subheadline)
                         .foregroundStyle(SemanticColor.success)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -170,7 +170,7 @@ struct PersonEditor: View {
                     // person is how a caution stops being read.
                     Label(sharedLine(facts),
                           systemImage: facts.isAttributable ? "info.circle" : "exclamationmark.triangle")
-                        .scaledFont(.caption)
+                        .scaledFont(.subheadline)
                         .foregroundStyle(facts.isAttributable ? AnyShapeStyle(.secondary)
                                                               : AnyShapeStyle(SemanticColor.caution))
                         .fixedSize(horizontal: false, vertical: true)

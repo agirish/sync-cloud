@@ -41,6 +41,23 @@ public enum FontSize: String, CaseIterable, Identifiable, Sendable {
     /// end legible no matter how small the original font was.
     public static let legibilityFloor: CGFloat = 9
 
+    /// The base point size up to which the full multiplier applies when scaling *up*.
+    ///
+    /// 11pt because that is the app's workhorse row size and everything at or below it is the
+    /// text the larger settings exist for: the 10pt captions and 9pt badges that stay hard to
+    /// read under a flat multiplier unless the whole UI balloons with them. Above the knee each
+    /// extra point of base size adds only `surplusSlope` scaled points, so titles get a token
+    /// lift while the small text gets the real one.
+    public static let knee: CGFloat = 11
+
+    /// How much of each base point above `knee` survives scaling up: 13pt body renders 1pt
+    /// closer to the captions at every enlarged size, and past the crossover (16.5pt at Large,
+    /// 18.7pt at Larger) the clamp in `scaledPointSize(_:scale:)` takes over and the font simply
+    /// keeps its default size. Below 1 on purpose — the whole point is compressing the type
+    /// ramp instead of magnifying it — and safe against hierarchy inversion because the clamp
+    /// keeps every curve monotonic in the base size.
+    public static let surplusSlope: CGFloat = 0.5
+
     /// The persisted size, defaulting to `.medium` for a fresh install and for an unrecognized
     /// stored value.
     public static func resolved(_ defaults: UserDefaults = .standard) -> FontSize {
@@ -58,20 +75,29 @@ public enum FontSize: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Multiplier applied to every font's point size.
+    /// Multiplier applied at and below the `knee`; above it growth is damped and then clamped
+    /// (see `scaledPointSize(_:scale:)`), so this is the *small-text* boost, not a uniform zoom.
     ///
-    /// The range is chosen against the type actually in the app rather than picked round: the
-    /// smallest fonts SyncCloud draws are 8–9pt badge glyphs and the workhorse sizes are 11–13pt,
-    /// so 0.9 is as far down as the body text can go before the 11pt rows start to strain (and
-    /// the floor protects the badges), while 1.3 lifts 11pt to 14.3pt and 13pt to 16.9pt — a
-    /// clearly larger UI that still fits the fixed chrome. Anything past those ends stops being
-    /// a readability setting and starts breaking layouts.
+    /// The numbers are chosen against the type actually in the app: the fonts people struggle
+    /// with are the 10pt captions and 9–11pt secondary text, so the enlarged sizes spend their
+    /// budget there — 1.25 takes a caption to 12.5pt and the 11pt rows to 13.75pt, clearly
+    /// readable, while 13pt body only reaches 14.75pt and the 17pt+ titles barely move. A flat
+    /// multiplier big enough to rescue the captions (measured: it needs ~1.25) would drag the
+    /// titles to 21pt+ and blow the fixed chrome; the knee is what lets the small end have the
+    /// boost without that. 0.9 stays flat on the way down, with `legibilityFloor` as the guard.
+    ///
+    /// The top step is 1.35, not a rounder 1.4, because of a measured cliff: a single line of
+    /// system-font text is 18pt tall through 14.85pt and 19pt from 15.0pt, and the header
+    /// chrome that carries 11pt text inside a pinned 28pt row (the differences count pill's
+    /// inset age capsule: 19 + 2×1 + 2×4 = 29) has exactly 18pt to give it. 11 × 1.35 = 14.85
+    /// sits on the safe side of the cliff; 1.4 put every such row at 29pt.
+    /// `chromeTextAtTheKneeStaysUnderThePinnedRowCliff` pins this constraint.
     public var scale: CGFloat {
         switch self {
         case .small: return 0.9
         case .medium: return 1.0
-        case .large: return 1.15
-        case .extraLarge: return 1.3
+        case .large: return 1.25
+        case .extraLarge: return 1.35
         }
     }
 
@@ -80,21 +106,32 @@ public enum FontSize: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .small: return "Slightly smaller text throughout SyncCloud, to fit more on screen."
         case .medium: return "The standard text size."
-        case .large: return "Larger text throughout SyncCloud, for easier reading."
-        case .extraLarge: return "The largest text size — noticeably bigger type everywhere."
+        case .large: return "Larger reading text — small print grows the most; titles stay put."
+        case .extraLarge: return "The largest text size, with the boost focused on small print."
         }
     }
 
     /// The point size `base` renders at under `scale`.
     ///
-    /// Scaling up is a plain multiply. Scaling *down* is floored at `legibilityFloor`, so no font
-    /// is ever shrunk into illegibility — that's the whole guarantee of the small end. The floor
-    /// is `min(base, legibilityFloor)`, not `legibilityFloor` flat, because a font that already
+    /// Scaling *down* is a plain multiply floored at `legibilityFloor`, so no font is ever
+    /// shrunk into illegibility — that's the whole guarantee of the small end. The floor is
+    /// `min(base, legibilityFloor)`, not `legibilityFloor` flat, because a font that already
     /// starts below the floor (the 8pt badge glyphs) must be left at its own size rather than
     /// *grown*: a "Small" setting that renders some text bigger than "Default" would be absurd.
+    ///
+    /// Scaling *up* is knee-shaped rather than flat, because a flat multiply spends its growth
+    /// on the text that needed it least: ×1.15 used to take a 10pt caption to a still-small
+    /// 11.5pt while pushing a 26pt title to 30pt. Instead the full multiplier applies through
+    /// `knee`, the surplus above it grows at `surplusSlope`, and the outer `max` guarantees no
+    /// font ever renders below its own default — which is what "titles barely move" means
+    /// concretely: past the crossover the damped curve dips under `base` and the clamp holds the
+    /// font at exactly its default size. The three pieces meet continuously and every branch is
+    /// nondecreasing in `base`, so the type hierarchy can never invert.
     public static func scaledPointSize(_ base: CGFloat, scale: CGFloat) -> CGFloat {
         guard scale != 1 else { return base }
-        return max(base * scale, min(base, legibilityFloor))
+        guard scale > 1 else { return max(base * scale, min(base, legibilityFloor)) }
+        guard base > knee else { return base * scale }
+        return max(base, knee * scale + (base - knee) * surplusSlope)
     }
 }
 

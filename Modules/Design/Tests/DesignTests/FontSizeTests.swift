@@ -89,9 +89,84 @@ import Testing
         }
     }
 
-    @Test func scalingUpMultipliesCleanly() {
-        #expect(FontSize.scaledPointSize(10, scale: 1.3) == 13)
-        #expect(FontSize.scaledPointSize(20, scale: 1.15) == 23)
+    @Test func scalingUpAppliesTheFullMultiplierThroughTheKnee() {
+        // At and below the 11pt knee the whole boost applies — this is the text the larger
+        // settings exist for.
+        #expect(FontSize.scaledPointSize(10, scale: 1.25) == 12.5)
+        #expect(FontSize.scaledPointSize(11, scale: 1.25) == 13.75)
+        #expect(FontSize.scaledPointSize(10, scale: 1.4) == 14)
+        #expect(FontSize.scaledPointSize(8, scale: 1.25) == 10)
+    }
+
+    @Test func scalingUpDampsAboveTheKnee() {
+        // Above the knee each base point adds only `surplusSlope` scaled points: 13pt body at
+        // Large is 11 × 1.25 + 2 × 0.5 = 14.75, not the 16.25 a flat multiply would give. These
+        // literals are the curve's pin — if `knee` or `surplusSlope` moves, this fails and the
+        // new numbers get chosen deliberately.
+        #expect(FontSize.scaledPointSize(13, scale: 1.25) == 14.75)
+        #expect(FontSize.scaledPointSize(15, scale: 1.25) == 15.75)
+        #expect(FontSize.scaledPointSize(13, scale: 1.4) == 16.4)
+    }
+
+    @Test func titlesPastTheCrossoverKeepTheirDefaultSize() {
+        // The damped curve dips below `base` past 16.5pt at Large (19.8 at Larger) and the clamp
+        // holds the font at its default size — "titles barely move" made literal. A 26pt title
+        // under the old flat 1.3 hit 33.8pt; now it does not move at all.
+        #expect(FontSize.scaledPointSize(17, scale: 1.25) == 17)
+        #expect(FontSize.scaledPointSize(22, scale: 1.25) == 22)
+        #expect(FontSize.scaledPointSize(26, scale: 1.4) == 26)
+        // Just under the crossover still grows, so the clamp is a tail, not a cliff.
+        #expect(FontSize.scaledPointSize(16, scale: 1.25) == 16.25)
+    }
+
+    @Test func chromeTextAtTheKneeStaysUnderThePinnedRowCliff() {
+        // Measured cliff: one line of system-font text is 18pt tall through 14.85pt and 19pt
+        // from 15.0pt. Header chrome carries 11pt text inside pinned 28pt rows with exactly
+        // 18pt to spare (the differences count pill's inset age capsule — 19 + 2 + 8 = 29 was
+        // the failure). Every selectable size must keep knee-sized text under 15pt, or those
+        // rows grow a pixel and `theRowIsAlwaysTheActionBarHeight` fails across the ladder.
+        for size in FontSize.allCases {
+            #expect(FontSize.scaledPointSize(FontSize.knee, scale: size.scale) < 15,
+                    "\(size.rawValue) renders 11pt chrome at \(FontSize.scaledPointSize(FontSize.knee, scale: size.scale))pt — over the 19pt line-height cliff")
+        }
+    }
+
+    @Test func scalingUpNeverShrinksAnyFont() {
+        for scale in [FontSize.large.scale, FontSize.extraLarge.scale] {
+            for base in stride(from: CGFloat(4), through: 54, by: 0.5) {
+                #expect(FontSize.scaledPointSize(base, scale: scale) >= base,
+                        "\(base)pt shrank under scale \(scale)")
+            }
+        }
+    }
+
+    @Test func theCurveIsMonotonicSoTheTypeHierarchyCannotInvert() {
+        // A bigger base font must never render smaller than a smaller one at the same setting.
+        // This is the property that killed the interpolated-scale design: lerping the multiplier
+        // between two bands makes f(b) = b·s(b) non-monotonic near the upper band. The knee
+        // model is monotone by construction; this sweep is the guard that keeps it so.
+        for size in FontSize.allCases {
+            var previous: CGFloat = 0
+            for base in stride(from: CGFloat(4), through: 54, by: 0.25) {
+                let scaled = FontSize.scaledPointSize(base, scale: size.scale)
+                #expect(scaled >= previous,
+                        "\(base)pt renders \(scaled) < \(previous) at \(size.rawValue)")
+                previous = scaled
+            }
+        }
+    }
+
+    @Test func smallTextGetsProportionallyMoreBoostThanLargeText() {
+        // The complaint the curve exists to fix: under a flat multiplier the captions stayed
+        // small while the titles ballooned. Growth ratio must never increase with base size.
+        for scale in [FontSize.large.scale, FontSize.extraLarge.scale] {
+            let ratios = [CGFloat(9), 10, 11, 13, 15, 17, 22, 26]
+                .map { FontSize.scaledPointSize($0, scale: scale) / $0 }
+            #expect(ratios == ratios.sorted(by: >),
+                    "growth ratios \(ratios) are not nonincreasing at scale \(scale)")
+            #expect(ratios.first! > ratios.last!,
+                    "the curve is flat — captions and titles grew alike at scale \(scale)")
+        }
     }
 
     @Test func scalingDownStopsAtTheLegibilityFloor() {
