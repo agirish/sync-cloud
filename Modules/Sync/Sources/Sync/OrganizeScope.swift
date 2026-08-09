@@ -258,6 +258,29 @@ public enum OrganizeScopeFilter {
         return scope.relation(of: absolute)
     }
 
+    // MARK: Handoffs — when a pointed question must clear the scope
+
+    /// Whether revealing `revealedPath` has to **clear** the scope first.
+    ///
+    /// A "Find duplicates of this" handoff names one file, and the answer is resolved against the
+    /// *whole* group list while the rows on screen come through the scope. Point at a file outside
+    /// the scope and the two disagree: the resolver says *revealed*, writes a query naming the file
+    /// and marks its group — and then the group is filtered away before it can be drawn. The user
+    /// asked "are there other copies of this?" and got a silent no.
+    ///
+    /// Three answers were available and only one is honest. *Leave the scope alone* keeps the wrong
+    /// answer. *Narrow to the file's folder* answers a question nobody asked. **Clear** matches the
+    /// rule the rest of the feature already follows — pointing at something re-aims Organize — and
+    /// it is the only one that can show what was asked about.
+    ///
+    /// Deliberately conditional: a reveal for a file already inside the scope leaves it exactly
+    /// where the user put it, so browsing a scoped list and asking about one of its own rows does
+    /// not throw the scope away.
+    public static func revealClearsScope(revealedPath: String, scope: OrganizeScope?) -> Bool {
+        guard let scope else { return false }
+        return !scope.contains(revealedPath)
+    }
+
     // MARK: Rules — the one genuine non-scoper
 
     /// Whether a rule could ever file into, or out of, the scope.

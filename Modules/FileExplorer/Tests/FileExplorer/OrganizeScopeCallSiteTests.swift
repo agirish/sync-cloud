@@ -59,9 +59,10 @@ import Foundation
         // The rail already made this mistake: drawn inside `organizeSummary`, it reached only the
         // filing apparatus, so two of the six lenses rendered without it. The chip must be hoisted
         // above the switch in `lensSummary`.
-        let summary = try #require(tidy.range(of: "private func lensSummary(rows: FilteredRows)"))
+        let summary = try #require(tidy.range(of: "private func lensSummary(rows: FilteredRows,"),
+                                   "lensSummary is gone — this scan would be vacuous")
         let organizeSummary = try #require(tidy.range(of: "private func organizeSummary(rows:"))
-        let chipDraw = try #require(tidy.range(of: "if lens != .storage { scopeChip }"),
+        let chipDraw = try #require(tidy.range(of: "if lens != .storage { scopeChip("),
                                     "the scope chip is no longer drawn from lensSummary")
         #expect(chipDraw.lowerBound > summary.lowerBound)
         #expect(chipDraw.lowerBound < organizeSummary.lowerBound,
@@ -79,12 +80,49 @@ import Foundation
 
     @Test func railCountsAreScoped() throws {
         let tidy = try Self.source("TidyView.swift")
-        let range = try #require(tidy.range(of: "private func railCount(_ item: OrganizeLens)"))
-        let body = String(tidy[range.lowerBound...].prefix(2200))
-        #expect(body.contains("OrganizeScopeFilter.matches"),
-                "rail badges are counting the global list again — 126 beside a list of 3")
+        let start = try #require(tidy.range(of: "private var railCounts: RailCounts {"),
+                                 "railCounts is gone — this scan would be vacuous")
+        let rest = tidy[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }"), "no closing brace for railCounts")
+        let body = String(rest[..<end.lowerBound])
+
+        // **Each of the six, by name.** A bare `body.contains("OrganizeScopeFilter.matches")` was
+        // the first version and it let a real mutation through: dropping the scope from `renames`
+        // alone leaves the other five calls in place, so the check still passed while the Renames
+        // badge went back to reporting 126 beside a list of three. One lens quietly un-scoping is
+        // exactly the inconsistency this whole feature exists to remove, so every lens is asserted
+        // separately.
+        let scoped: [(String, String)] = [
+            ("toFile", "syncManager.filingSuggestions.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
+            ("duplicates", "syncManager.duplicateGroups.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
+            ("names", "syncManager.riskyNames.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
+            ("renames", "syncManager.renamePlans.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
+            ("rules", "syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
+        ]
+        for (lens, call) in scoped {
+            #expect(body.contains(call),
+                    "the \(lens) badge is counting the global list again — a number beside a list it does not describe")
+        }
+        // Restructure counts through `relation` rather than `matches`, and `.inside` ONLY: an
+        // ancestor finding is shown in the lens but is not work in this subtree, so a badge that
+        // counted it would promise something here that is not here.
+        #expect(body.contains("OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot, scope: scope) == .inside"),
+                "the restructure badge is unscoped, or counting ancestor findings as work in the scope")
         #expect(!body.contains("case .restructure: return 0"),
                 "the restructure badge is hard-wired to 0 again")
+    }
+
+    /// The counts are resolved ONCE and handed to both consumers — the same property `FilteredRows`
+    /// exists for, and the reason this stopped being twelve scoped passes per render.
+    @Test func theRailCountsAreResolvedOncePerRender() throws {
+        let tidy = try Self.source("TidyView.swift")
+        #expect(tidy.contains("let counts = railCounts"))
+        #expect(tidy.contains("badges: counts.badged"),
+                "the width arithmetic is recomputing the badge count instead of reading the resolved one")
+        #expect(!tidy.contains("private var railBadgeCount"),
+                "railBadgeCount is back — that is the second independent pass over all six lists")
+        // And the per-render profile walk behind the chip's folder count is resolved with them.
+        #expect(tidy.contains("let scopeFolders = scopeFolderCount"))
     }
 
     @Test func theOverviewNamesTheScopeAndNotTheLastScannedFolder() throws {
@@ -122,6 +160,56 @@ import Foundation
         // "0 here" reading as "0 anywhere" is the whole complaint.
         #expect(tidy.contains("elsewhere in the tree"))
         #expect(tidy.contains("\"Organize Everything\""))
+    }
+
+    // MARK: No apply-all button may render a zero
+
+    /// **Every apply-all button gates on having something to apply.**
+    ///
+    /// Their callers gate on the GLOBAL list (`!syncManager.renamePlans.isEmpty`) while the rows
+    /// they are handed are the narrowed ones, so the two disagree whenever a narrowing empties a
+    /// lens the tree still has entries for. With a search that was a corner — the content card says
+    /// "nothing matches" right beside it — but a scope makes it ordinary, and `renameAllButton` was
+    /// the one of the four with no guard: it rendered a prominent, enabled **"Rename 0 files"**.
+    ///
+    /// A source scan, because these are private `@ViewBuilder`s on a view SwiftUI will not let a
+    /// test drive. It is bounded by each declaration's own closing brace rather than a character
+    /// count, and it fails if a declaration cannot be found at all — a scan that quietly matches
+    /// nothing passes just as green as one that proves something.
+    @Test func everyApplyAllButtonGuardsAgainstAnEmptyList() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let expected: [(decl: String, guardText: String)] = [
+            ("private func fixAllButton(_ risky: [RiskyName]) -> some View {", "if !risky.isEmpty {"),
+            ("private func fileAllButton(_ filing: [FilingSuggestion]) -> some View {", "if !batch.isEmpty {"),
+            ("private func applyAllButton(_ groups: [DuplicateGroup]) -> some View {", "if !batch.isEmpty {"),
+            // Counts FILES, not plans: a plan whose steps are all applied is still a plan, so
+            // `!plans.isEmpty` would leave the same zero-labelled button standing.
+            ("private func renameAllButton(_ plans: [RenamePlan]) -> some View {", "if files > 0 {"),
+        ]
+        for (decl, guardText) in expected {
+            let start = try #require(tidy.range(of: decl), "\(decl) is gone — this scan is vacuous")
+            let rest = tidy[start.upperBound...]
+            let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(decl)")
+            let body = String(rest[..<end.lowerBound])
+            #expect(body.contains(guardText),
+                    "\(decl) has no empty-list guard — it can render an apply button labelled 0")
+        }
+    }
+
+    // MARK: A pointed question is not answered through somebody else's scope
+
+    @Test func theDuplicateRevealClearsAScopeThatWouldHideIt() throws {
+        let tidy = try Self.source("TidyView.swift")
+        // The outcome is resolved against the whole group list and the rows are drawn through the
+        // scoped one; without this the two disagree and a named file comes back as "no copies".
+        #expect(tidy.contains("OrganizeScopeFilter.revealClearsScope(revealedPath: request.path"))
+        // Inside the `outcome != .waiting` branch, so a still-scanning handoff does not thrash the
+        // scope before it has an answer.
+        let start = try #require(tidy.range(of: "if outcome != .waiting {"))
+        let rest = tidy[start.upperBound...]
+        let end = try #require(rest.range(of: "\n        }"))
+        #expect(String(rest[..<end.lowerBound]).contains("revealClearsScope"),
+                "the scope clear has moved outside the answered-outcome branch")
     }
 
     // MARK: The inbox root-swap is gone, and the path resolution is not

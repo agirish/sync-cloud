@@ -210,6 +210,41 @@ import Foundation
         #expect(straddling.copies.allSatisfy { OrganizeScopeFilter.isCopyInScope($0, scope: nil) })
     }
 
+    // MARK: Handoffs
+
+    @Test func aRevealForAFileOUTSIDETheScopeClearsIt() {
+        // The defect: the reveal outcome is resolved against the WHOLE group list while the rows
+        // are drawn through the scoped one. Without this the resolver reports "revealed", writes
+        // the query, marks the group — and the group is then filtered away, so a direct question
+        // about a named file comes back as a silent no.
+        let s = Self.scope(Self.legal)
+        #expect(OrganizeScopeFilter.revealClearsScope(
+            revealedPath: "/Users/x/Documents/Medical/scan.pdf", scope: s))
+    }
+
+    @Test func aRevealForAFileINSIDETheScopeLeavesItAlone() {
+        // The discriminating half. Clearing unconditionally would throw away a scope every time
+        // the user asked about one of the rows they were already looking at.
+        let s = Self.scope(Self.legal)
+        #expect(!OrganizeScopeFilter.revealClearsScope(
+            revealedPath: "/Users/x/Documents/Legal/lease.pdf", scope: s))
+        #expect(!OrganizeScopeFilter.revealClearsScope(
+            revealedPath: "/Users/x/Documents/Legal/2024/lease.pdf", scope: s))
+    }
+
+    @Test func aRevealWithNoScopeClearsNothing() {
+        #expect(!OrganizeScopeFilter.revealClearsScope(
+            revealedPath: "/Users/x/Documents/Medical/scan.pdf", scope: nil))
+    }
+
+    @Test func aRevealForASIBLINGSHARINGAPREFIXClearsTheScope() {
+        // `Legal` must not be treated as containing `LegalArchive`, or the handoff would leave the
+        // scope in place and hide the very group it was asked about.
+        let s = Self.scope(Self.legal)
+        #expect(OrganizeScopeFilter.revealClearsScope(
+            revealedPath: "/Users/x/Documents/LegalArchive/lease.pdf", scope: s))
+    }
+
     // MARK: Restructure
 
     static func finding(_ family: String) -> StructureFinding {

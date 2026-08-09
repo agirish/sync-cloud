@@ -635,20 +635,26 @@ public struct TidyView: View {
         // see `FilteredRows`.
         let rows = filteredRows
         let railLabels = OrganizeRailMetrics.labelWidths(scale: appFontScale)
-        let badges = railBadgeCount
+        // The rail's six counts, resolved ONCE — see `RailCounts`. Both consumers read this same
+        // value: the width arithmetic below (how many badges to reserve for) and each rail item's
+        // own badge. They used to ask independently, which was twelve scoped passes per render.
+        let counts = railCounts
+        // Resolved here too rather than inside the chip, so the header's per-render cost is a
+        // single walk of the profile's folder list instead of one on every redraw of row 2.
+        let scopeFolders = scopeFolderCount
         return VStack(spacing: 0) {
             // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
             // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
             // is collapsed, i.e. when there's no pane left to line up with anyway).
-            lensHeaderCard(rows: rows)
+            lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
                 // The STYLE, not the width — `.onGeometryChange` only calls its action when the
                 // transformed value changes, so a live resize writes state twice (once each way)
                 // rather than on every point. Same reason the workspace bar resolves its own
                 // shedding inside the transform.
                 .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
                     OrganizeRailMetrics.style(contentWidth: proxy.size.width,
-                                              labelWidths: railLabels, badges: badges)
+                                              labelWidths: railLabels, badges: counts.badged)
                 } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows)
@@ -761,7 +767,8 @@ public struct TidyView: View {
     /// moment a scan landed. Ungating the card is this change's premise, so that objection no
     /// longer applies: the card is here in the intro, scanning, empty and clean states too, which
     /// is exactly what lets the tabs ride it without ever moving.
-    private func lensHeaderCard(rows: FilteredRows) -> some View {
+    private func lensHeaderCard(rows: FilteredRows, counts: RailCounts,
+                                scopeFolders: Int?) -> some View {
         LensHeaderCard(
             searchText: searchText,
             isSearchExpanded: isSearchExpanded,
@@ -781,9 +788,9 @@ public struct TidyView: View {
             level: glassLevel,
             hue: glassHue,
             tint: surfaceTint,
-            title: { lensTitle },
+            title: { lensTitle(counts) },
             actions: { lensActions(rows: rows) },
-            summary: { lensSummary(rows: rows) },
+            summary: { lensSummary(rows: rows, scopeFolders: scopeFolders) },
             trailing: { lensTrailing(rows: rows) }
         )
     }
@@ -802,14 +809,14 @@ public struct TidyView: View {
     /// gives the row to the readout it used to keep on row 2 — same principle, the row says
     /// something only this surface knows.
     @ViewBuilder
-    private var lensTitle: some View {
+    private func lensTitle(_ counts: RailCounts) -> some View {
         HStack(spacing: 6) {
             // Storage has no rail, and promoting its readout here was worse than the title it
             // replaced: row 1's leading half competes with the actions, so "Documents" truncated
             // away to a bare folder glyph, and row 2 — a fixed row on a fixed-height card — went
             // empty. Its readout stays on row 2 and row 1 is simply its controls, which is the
             // shape Compare's header already has.
-            if lens != .storage { organizeRail() }
+            if lens != .storage { organizeRail(counts) }
             // The lens's explanation and safety contract, one click away in EVERY state — not just
             // before the first scan, which is the only moment the empty state exists. It keeps the
             // LEADING side, after the rail: row 1's trailing half is already spoken for by the
@@ -954,7 +961,7 @@ public struct TidyView: View {
     /// one lens whose row also carries controls and the two had become indistinguishable. The other
     /// three have nothing clickable on this row, so a pill there claims nothing it cannot keep.
     @ViewBuilder
-    private func lensSummary(rows: FilteredRows) -> some View {
+    private func lensSummary(rows: FilteredRows, scopeFolders: Int?) -> some View {
         // **The rail draws for EVERY Organize lens, which is why it cannot live inside one arm of
         // the switch below.** It did, briefly, inside `organizeSummary` — and that arm is reached
         // only on the filing apparatus, so standing on Duplicates or Rules rendered the lens's own
@@ -977,7 +984,7 @@ public struct TidyView: View {
         // for all six is the entire premise, so it is hoisted here, ahead of the switch.
         //
         // Storage is excluded because it is a workspace of its own, not a lens inside Organize.
-        if lens != .storage { scopeChip }
+        if lens != .storage { scopeChip(folderCount: scopeFolders) }
         switch effectiveLens {
         case .duplicates:
             if hasResults {
@@ -1059,10 +1066,10 @@ public struct TidyView: View {
     ///
     /// The ✕ is the global view. There is no seventh rail place and no "Everything" item.
     @ViewBuilder
-    private var scopeChip: some View {
+    private func scopeChip(folderCount: Int?) -> some View {
         if let scope {
             ScopeChipLabel(name: scope.name,
-                           folderCount: scopeFolderCount,
+                           folderCount: folderCount,
                            accent: glassHue.accentColor,
                            onClear: { withAnimation(listSettle) { setScope(nil) } })
                 .help("Every lens below is answering about “\(scope.relativePath)”. "
@@ -1098,16 +1105,16 @@ public struct TidyView: View {
     /// this row out of the header's pinned height. The overview is the state where no ring is
     /// drawn at all.
     @ViewBuilder
-    private func organizeRail() -> some View {
+    private func organizeRail(_ counts: RailCounts) -> some View {
         ForEach(OrganizeLens.allCases) { item in
-            organizeRailItem(item)
+            organizeRailItem(item, counts)
         }
     }
 
     /// One rail item.
     @ViewBuilder
-    private func organizeRailItem(_ item: OrganizeLens) -> some View {
-        let badge = item.badge(count: railCount(item))
+    private func organizeRailItem(_ item: OrganizeLens, _ counts: RailCounts) -> some View {
+        let badge = item.badge(count: counts[item])
         let isSelected = organizeLens == item
         Button {
             // Clicking the selected item widens back out to the overview, which is what makes the
@@ -1124,11 +1131,6 @@ public struct TidyView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// How many rail items are currently carrying a badge, for the width arithmetic.
-    private var railBadgeCount: Int {
-        OrganizeLens.allCases.count { $0.badge(count: railCount($0)) != nil }
-    }
-
     /// The number a rail item's badge would carry — **the whole list it names, never the filtered
     /// view of it.** A badge is a signpost and its number is that destination's size; one that
     /// renumbered as you typed would be a moving target, and the badge for the list you are *not*
@@ -1140,32 +1142,59 @@ public struct TidyView: View {
     /// dishonesty this whole change exists to remove. It is not the same thing as filtering by the
     /// search query, which stays out (see above): a query is a transient view of a list you are
     /// already looking at, while the scope defines *which list this is*.
-    private func railCount(_ item: OrganizeLens) -> Int {
-        let scope = scope
-        switch item {
-        case .toFile:
-            return syncManager.filingSuggestions.count { OrganizeScopeFilter.matches($0, scope: scope) }
-        case .duplicates:
-            return syncManager.duplicateGroups.count { OrganizeScopeFilter.matches($0, scope: scope) }
-        case .names:
-            return syncManager.riskyNames.count { OrganizeScopeFilter.matches($0, scope: scope) }
-        case .renames:
-            return syncManager.renamePlans.count { OrganizeScopeFilter.matches($0, scope: scope) }
-        case .restructure:
-            // **This used to return a hard 0 with a comment saying the detectors had not landed.**
-            // They had — `structureFindings` has been feeding the overview and the lens for some
-            // time — so the one lens whose badge could have announced a finding never did. Counted
-            // properly now, and scoped like the rest.
-            //
-            // `inside` only: an ancestor finding is shown in the lens (labelled as being about the
-            // folder above) but must not swell the badge, which promises work *here*.
-            let root = syncManager.filingFolderProfile?.root ?? ""
-            return structureFindings.count {
-                OrganizeScopeFilter.relation(of: $0, profileRoot: root, scope: scope) == .inside
+    ///
+    /// ## Resolved ONCE per render, for the same reason `FilteredRows` is
+    ///
+    /// Scoping turned six `Array.count` reads — O(1) each — into six filtering passes with path
+    /// math in the predicate, over lists that reach 722 duplicate groups and 1,192 rename plans on
+    /// the real profile. And they were being run **twice over**: `railBadgeCount` asks all six so
+    /// the width arithmetic knows how many badges to reserve for, then `organizeRailItem` asks
+    /// again per item. Twelve full scans per render of a header that re-renders on every manager
+    /// publish, every hover and every defaults change.
+    ///
+    /// That is the rule this file already states one screen up — `structureFindings` is cached on
+    /// the manager precisely because *a view body must not run the detector* — arriving through a
+    /// cheaper-looking door. Counting is not detecting, but twelve passes over 722 groups is not
+    /// free either, and the fix is the one already in use for rows: resolve once, hand the same
+    /// value to both consumers.
+    struct RailCounts: Equatable {
+        var toFile = 0, duplicates = 0, names = 0, renames = 0, restructure = 0, rules = 0
+
+        subscript(item: OrganizeLens) -> Int {
+            switch item {
+            case .toFile: return toFile
+            case .duplicates: return duplicates
+            case .names: return names
+            case .renames: return renames
+            case .restructure: return restructure
+            case .rules: return rules
             }
-        case .rules:
-            return syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) }
         }
+
+        /// How many items would draw a badge — what `OrganizeRailMetrics` reserves width for.
+        var badged: Int {
+            OrganizeLens.allCases.count { $0.badge(count: self[$0]) != nil }
+        }
+    }
+
+    private var railCounts: RailCounts {
+        let scope = scope
+        // **`inside` only for restructure**: an ancestor finding is shown in the lens (labelled as
+        // being about the folder above) but must not swell the badge, which promises work *here*.
+        //
+        // Restructure used to return a hard 0 behind a comment saying the detectors had not landed.
+        // They had — `structureFindings` has been feeding the overview and the lens for some time —
+        // so the one lens whose badge could have announced a finding never did.
+        let profileRoot = syncManager.filingFolderProfile?.root ?? ""
+        return RailCounts(
+            toFile: syncManager.filingSuggestions.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            duplicates: syncManager.duplicateGroups.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            names: syncManager.riskyNames.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            renames: syncManager.renamePlans.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            restructure: structureFindings.count {
+                OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot, scope: scope) == .inside
+            },
+            rules: syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) })
     }
 
     /// What each rail item promises. Written to read correctly whether or not it is the selected
@@ -1928,25 +1957,35 @@ public struct TidyView: View {
         }
     }
 
-    /// "Rename all N", over every planned folder.
+    /// "Rename N files", over the plans on screen.
     ///
-    /// Unscoped by any query on purpose, and the label says **folders** rather than files: the unit
-    /// of apply is the folder plan, and there is no rename-backlog search grammar for a filtered
-    /// count to disagree with. `plans` is the same value the label counts and the action applies —
-    /// the property `applyAllButton` above exists to preserve.
+    /// `plans` is the same value the label counts and the action applies — the property
+    /// `applyAllButton` above exists to preserve.
+    ///
+    /// **Gated on there being some**, like `fixAllButton`, `fileAllButton` and `applyAllButton` —
+    /// it was the one of the four without a guard, and its caller's gate reads the GLOBAL backlog
+    /// while the rows it is handed are the narrowed ones. With a search that was a corner (the
+    /// content card shows "nothing matches" beside it); with a scope it is ordinary, because any
+    /// subtree with no drifted folders empties this list while the tree still holds 126. The button
+    /// rendered as a prominent, enabled **"Rename 0 files"** that applies nothing.
+    ///
+    /// The gate counts **files, not plans**: a plan whose steps have all been applied is still a
+    /// plan, so `!plans.isEmpty` would leave the same zero-labelled button standing.
     @ViewBuilder
     private func renameAllButton(_ plans: [RenamePlan]) -> some View {
         let files = plans.reduce(0) { $0 + $1.steps.count }
-        Button { onApplyRenames(plans) } label: {
-            Label("Rename \(files) file\(files == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
+        if files > 0 {
+            Button { onApplyRenames(plans) } label: {
+                Label("Rename \(files) file\(files == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .chromeHover()
+            .controlSize(.small)
+            .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+            .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
+                  + "folder\(plans.count == 1 ? "" : "s") to match each folder's own convention. "
+                  + "One undoable change — ⌘Z puts every name back.")
         }
-        .buttonStyle(.borderedProminent)
-        .chromeHover()
-        .controlSize(.small)
-        .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
-        .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
-              + "folder\(plans.count == 1 ? "" : "s") to match each folder's own convention. "
-              + "One undoable change — ⌘Z puts every name back.")
     }
 
     /// "Fix all N", scoped to the FILTERED risky names. `onNormalize` has always taken its rows
@@ -2944,6 +2983,15 @@ public struct TidyView: View {
             // this view, and a request that outlives its answer replays it on the next remount —
             // see `onRevealHandled`.
             onRevealHandled?(request.id)
+            // **A handoff names ONE file, and the scope must not be allowed to answer about a
+            // different subject.** The outcome above is resolved against the WHOLE group list while
+            // the rows on screen come through `filteredRows` — see
+            // ``OrganizeScopeFilter/revealClearsScope(revealedPath:scope:)`` for why those two
+            // disagreeing produces a silent "no other copies", and why clearing is the only honest
+            // resolution of the three available.
+            if OrganizeScopeFilter.revealClearsScope(revealedPath: request.path, scope: scope) {
+                setScope(nil)
+            }
         }
         applyRevealPlan(DuplicateReveal.plan(for: outcome, path: request.path))
     }
