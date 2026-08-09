@@ -1709,14 +1709,19 @@ public struct TidyView: View {
            syncManager.filingSurveyLifecycle.isRunning {
             HStack(spacing: 5) {
                 ProgressView().controlSize(.small).scaleEffect(0.7)
-                Text(status).lineLimit(1)
+                Text(status).scaledFont(.caption).lineLimit(1)
             }
-            .font(.caption)
             .foregroundStyle(.secondary)
             .layoutPriority(-1)
         } else if let report = syncManager.filingSurveyReport {
             Text(report.summary)
-                .font(.caption)
+                // **`scaledFont`, not `font`, and the move is what made it matter.** This was a
+                // plain `.font(.caption)` on row 1, where it sat among AppKit controls that ignore
+                // the app's text-size setting too, so nothing looked out of place. Row 2's tenants
+                // all scale — `SummaryRun` and `ofMLabel` both take `scaledFont` — so an unscaled
+                // caption beside them reads as a bug at `.extraLarge`: the numbers grow and the
+                // sentence explaining them does not.
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)

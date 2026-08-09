@@ -98,6 +98,21 @@ enum OrganizeRailMetrics {
     /// than a mis-tuned number, and would want the trailing side measured per control the way
     /// ``itemWidth(_:badge:scale:)`` measures the leading one.
     ///
+    /// **No `scale:`, and that is measured rather than overlooked.** Every other width in this type
+    /// takes one — `glyphWidth` now *refuses* a default because a 1× answer at 1.3 under-counts —
+    /// so a reserve that ignores the setting looks like the same omission. It is not: the trailing
+    /// set is AppKit controls at `.controlSize(.small)`, which follow the system control font and
+    /// not the app's own `appFontScale`, while the rail's labels take `scaledFont` and do. Measured
+    /// across every size the app ships, To File's trailing set moves **435.5 / 436.5 / 438.5 /
+    /// 441.5** at 0.9 / 1.0 / 1.15 / 1.3 — six points over the whole range, against a leading side
+    /// that moves 642 → 800. So the row gets *tighter* at large text on the leading side only,
+    /// which is exactly what the scaled `leadingWidth` already expresses, and 490 keeps ~48pt of
+    /// margin at the largest size.
+    ///
+    /// The hazard this leaves is a *future* one worth naming: give those buttons `scaledFont` and
+    /// the reserve silently under-counts at 1.3 while passing at 1.0.
+    /// `theToFileThresholdSeatsItsOwnActions` sweeps every size for that reason.
+    ///
     /// - Parameter lens: the rail's selection; nil is the overview, which draws Rescan and the
     ///   search toggle alone (129pt measured) and so is covered by the shared figure.
     static func reservedTrailing(for lens: OrganizeLens?) -> CGFloat {

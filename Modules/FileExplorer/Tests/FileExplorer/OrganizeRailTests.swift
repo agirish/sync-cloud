@@ -655,8 +655,9 @@ import Design
         }
     }
 
-    @Test("To File seats its own actions at the width it starts spelling the rail out")
-    func theToFileThresholdSeatsItsOwnActions() throws {
+    @Test("To File seats its own actions at the width it starts spelling the rail out, at every text size",
+          arguments: FontSize.allCases)
+    func theToFileThresholdSeatsItsOwnActions(size: FontSize) throws {
         // **The same invariant, on the lens the test above does not reach — and it was failing.**
         // `theShedThresholdIsNotOneCharacterTooLate` sweeps Duplicates, whose trailing set is
         // 354pt, and passed. To File's is 436.5–468 once the refine offer is showing (Rescan,
@@ -666,21 +667,36 @@ import Design
         // caption was involved: `survey` is nil here.
         //
         // This is what ``OrganizeRailMetrics/reservedTrailing(for:)`` being per-lens is for.
+        //
+        // **Every text size, and the neighbour above says why a single-scale version is not
+        // enough**: a `glyphWidth` that ignored `scale` passed at 0.9, 1.0 and 1.15 and failed only
+        // at `.extraLarge`. The reserve carries the same hazard from the other side.
+        // ``OrganizeRailMetrics/reservedTrailing(for:)`` is a flat number *because* the trailing
+        // controls are AppKit's and do not follow `appFontScale` — measured at 435.5/436.5/438.5/
+        // 441.5 across the four sizes — but nothing about that is enforced by the buttons
+        // themselves. Give one of them `scaledFont` and the reserve starts under-counting at 1.3
+        // alone, which is precisely the scale this sweep adds.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
         let badge = Self.badges([.toFile: 24, .names: 17])
-        let threshold = OrganizeRailMetrics.leadingWidth(scale: 1, badge: badge)
+        let threshold = OrganizeRailMetrics.leadingWidth(scale: size.scale, badge: badge)
             + OrganizeRailMetrics.reservedTrailing(for: .toFile)
 
-        let reference = try #require(strip(mount(manager, lens: .toFile, width: 2400),
+        // The reference is taken at the SAME scale: the question is whether a header at the flip
+        // point renders its actions like a roomy one, and a 1× reference would answer a different
+        // one at every other size.
+        let reference = try #require(strip(mount(manager, lens: .toFile, width: 2400, scale: size.scale),
                                            Self.trailingZone(2400)))
         for offset in stride(from: 0.0, through: 48.0, by: 6.0) {
             let width = (threshold + offset).rounded(.up)
-            let host = mount(manager, lens: .toFile, width: width)
-            #expect(counts(try #require(strip(host, Self.railZone))).ink > 600,
-                    "at \(width)pt the rail is not spelled out — this probe is measuring the shed state, where nothing has to fit")
+            let host = mount(manager, lens: .toFile, width: width, scale: size.scale)
+            // Scaled with the text, because the rail's ink is: the flat 600 that suited 1.0 is a
+            // near-miss at 0.9, where the same six spelled-out items paint less of everything.
+            let floor = 600 * size.scale * size.scale
+            #expect(Double(counts(try #require(strip(host, Self.railZone))).ink) > floor,
+                    "at \(width)pt and \(size.scale)× the rail is not spelled out — this probe is measuring the shed state, where nothing has to fit")
             let tight = try #require(strip(host, Self.trailingZone(width)))
             #expect(differingPixels(tight, reference) == 0,
-                    "at \(width)pt — \(offset)pt above the width the model starts spelling To File's rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
+                    "at \(width)pt and \(size.scale)× — \(offset)pt above the width the model starts spelling To File's rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
         }
     }
 
@@ -792,6 +808,83 @@ import Design
                 "row 2's status zone painted \(counts(a).ink) inked pixels — the report is not being drawn there at all")
         #expect(differingPixels(a, b) > 0,
                 "12 folders changed and 7 folders changed rendered identically — the report is a stub, so moving it here bought nothing")
+    }
+
+    @Test("The survey says it is working, on the same row it reports from")
+    func theRunningSurveyShowsItsProgressOnRowTwo() throws {
+        // **`folderMemoryStatus` has two branches and the move carried both; only one was tested.**
+        // The in-flight one is the whole reason the line exists — the menu item reads a few folder
+        // mtimes and usually writes nothing, so without visible evidence it ran it looks broken —
+        // and it is the branch a careless edit would drop, because the state is transient and
+        // nobody sees it while working on the other one.
+        let running = Self.manager(queue: 24, names: 17, refine: true)
+        _ = running.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
+        let idle = Self.manager(queue: 24, names: 17, refine: true)
+
+        let width: CGFloat = 1200
+        let busy = try #require(strip(mount(running, lens: .toFile, width: width),
+                                      Self.statusZone(width)))
+        let quiet = try #require(strip(mount(idle, lens: .toFile, width: width),
+                                       Self.statusZone(width)))
+        #expect(counts(busy).ink > counts(quiet).ink + 200,
+                "row 2's status zone painted \(counts(busy).ink) inked pixels while a survey was running and \(counts(quiet).ink) with nothing to say — the in-flight branch is not drawing, so the menu item goes back to looking like it did nothing")
+
+        // And it stays on row 1's terms: the actions are untouched by a survey being in flight,
+        // which is the same claim the finished report has to satisfy.
+        #expect(differingPixels(try #require(strip(mount(running, lens: .toFile, width: width),
+                                                   Self.trailingZone(width))),
+                                try #require(strip(mount(idle, lens: .toFile, width: width),
+                                                   Self.trailingZone(width)))) == 0,
+                "row 1's actions render differently while the folder-memory survey is running — the progress line is back on row 1")
+    }
+
+    @Test("The report stays inside the filing apparatus it describes")
+    func theSurveyReportDoesNotFollowYouToTheOtherLenses() throws {
+        // **The gate is the whole of what the move had to preserve, and nothing else pinned it.**
+        // On row 1 the status inherited its visibility from `lensActions`' `.rename, .filing` arm;
+        // on row 2 that condition had to be written out by hand, and a hand-written copy of an
+        // inherited condition is exactly the kind that gets "simplified" later. Folder memory
+        // belongs to Filing — a sentence about documents read has nothing to say on Duplicates, and
+        // it would be sitting where that lens's own "N of M" goes.
+        //
+        // Duplicates rather than the overview, deliberately: the overview reaches `lensTrailing`
+        // with `effectiveLens == .filing` and SHOULD show it, exactly as it did from row 1.
+        let manager = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
+        manager.duplicateGroups = Self.duplicatesManager(groups: 3, names: 17).duplicateGroups
+        manager.hasFoundDuplicates = true
+        let width: CGFloat = 1200
+
+        let onDuplicates = counts(try #require(strip(mount(manager, lens: .duplicates, width: width),
+                                                     Self.statusZone(width)))).ink
+        let onToFile = counts(try #require(strip(mount(manager, lens: .toFile, width: width),
+                                                 Self.statusZone(width)))).ink
+        #expect(onToFile > 500,
+                "the report painted \(onToFile) inked pixels on To File — the fixture is not producing it, so the comparison below proves nothing")
+        #expect(onDuplicates < 20,
+                "the folder-memory report painted \(onDuplicates) inked pixels on Duplicates — it has escaped the filing apparatus and is describing a scan this lens never ran")
+    }
+
+    @Test("The report grows with the app's text size, like everything beside it")
+    func theSurveyReportTakesTheAppsTextSize() throws {
+        // **Pins `scaledFont`, which a mutation showed nothing else did.** Reverting the report to a
+        // plain `.font(.caption)` changed no pixel any other test in this suite looks at, because
+        // every one of them renders at 1.0 where the two are identical. It only shows at the top of
+        // the range — and it shows as the readout and the "N of M" beside it growing while the
+        // sentence explaining them stays put, which is the sort of thing that reads as a rendering
+        // bug rather than as a missing modifier.
+        //
+        // 1400pt so neither render is truncated: a compressed sentence would be measuring the
+        // canvas, not the font. Measured 490pt at 1.0 against 630 at 1.3.
+        let manager = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
+        let plain = try #require(trailingRunOnRowTwo(mount(manager, lens: .toFile, width: 1400),
+                                                     width: 1400))
+        let large = try #require(trailingRunOnRowTwo(mount(manager, lens: .toFile, width: 1400,
+                                                           scale: FontSize.extraLarge.scale),
+                                                     width: 1400))
+        // A tenth of the 30% the scale asks for — enough that only a genuinely scaling font clears
+        // it, loose enough not to pin the exact metrics of a caption.
+        #expect(large > plain * 1.03,
+                "the survey report painted \(plain)pt wide at 1.0× and \(large)pt at 1.3× — it is not taking the app's text size, so it will sit at 11pt beside a readout that grew")
     }
 
     @Test("The report is the thing that shortens when row 2 runs out of room")
