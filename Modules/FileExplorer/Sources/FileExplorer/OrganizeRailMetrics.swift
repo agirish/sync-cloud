@@ -261,6 +261,41 @@ enum OrganizeRailMetrics {
         fullWidth(scale: scale, state: state)
     }
 
+    /// Everything **Storage's** row 1 must seat: All, a separator, and its three ranked lists.
+    ///
+    /// A second entry point rather than a second type, because the two rails are the same control
+    /// drawn from different vocabularies — and the one thing worse than a rail that sheds is two
+    /// rails in one header shedding by different rules.
+    ///
+    /// Measured at 417.8pt with all three lists reporting, against a trailing set of roughly 130
+    /// (Reanalyze and the search toggle), so it clears every width this app is used at with room to
+    /// spare. It is modelled anyway: Storage's leading half was empty until this rail filled it,
+    /// and an unmodelled control on this side of the row is exactly how a 21pt intro button once
+    /// rode here uncharged.
+    static func storageLeadingWidth(scale: CGFloat,
+                                    state: (StorageSection) -> RailItemState) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 11.5 * scale, weight: .semibold)
+        let items = StorageSection.allCases.reduce(CGFloat.zero) { total, section in
+            total + (section.railTitle as NSString).size(withAttributes: [.font: font]).width
+                + storageGlyphWidth(section, scale: scale) + glyphGap + itemPadding
+                + stateWidth(state(section), scale: scale)
+        }
+        return items + CGFloat(StorageSection.allCases.count) * itemGap
+            + overviewItemWidth(scale: scale) + separatorWidth
+    }
+
+    /// Storage's rail glyphs at 10.5pt semibold, tabulated like ``glyphWidth(_:scale:)`` and pinned
+    /// against the renderer by `theStorageGlyphTableMatchesTheRenderer`.
+    static func storageGlyphWidth(_ section: StorageSection, scale: CGFloat = 1) -> CGFloat {
+        let base: CGFloat
+        switch section {
+        case .largest: base = 13
+        case .stale: base = 15
+        case .reclaim: base = 16
+        }
+        return base * scale
+    }
+
     /// The same, with the rail shed — what the row falls back to.
     static func shedLeadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         iconOnlyWidth(scale: scale, state: state)

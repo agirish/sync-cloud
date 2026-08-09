@@ -445,6 +445,12 @@ public struct TidyView: View {
     /// fires when the ANSWER flips rather than on every point of a live resize.
     @State private var railStyle: OrganizeRailStyle = .full
 
+    /// Which of Storage's ranked lists the rail is showing, or **absent for all three**.
+    ///
+    /// Optional for the reason ``OrganizeLens/defaultsKey`` is: there is no value to write for "no
+    /// section picked", and a fourth case meaning that would be one more thing to migrate.
+    @AppStorage(StorageSection.defaultsKey) private var storageSection: StorageSection?
+
 
     /// Whether Organize is showing its overview: every lens's answer for the scope, one page.
     ///
@@ -675,8 +681,11 @@ public struct TidyView: View {
         // on every width the card is handed. It is everything row 1's leading half must seat — the
         // rail alone today; anything put back beside it goes through `leadingWidth` too, which is
         // where an uncounted companion control cost the model 21pt once already.
-        let railLeading = OrganizeRailMetrics.leadingWidth(
-            scale: appFontScale, state: counts.state)
+        // Whichever rail this workspace draws — Storage has its own vocabulary and its own
+        // widths, and the row it sits in is the same row with the same reserve.
+        let railLeading = lens == .storage
+            ? OrganizeRailMetrics.storageLeadingWidth(scale: appFontScale, state: storageRailState)
+            : OrganizeRailMetrics.leadingWidth(scale: appFontScale, state: counts.state)
         return VStack(spacing: 0) {
             // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
@@ -853,8 +862,69 @@ public struct TidyView: View {
             // away to a bare folder glyph, and row 2 — a fixed row on a fixed-height card — went
             // empty. Its readout stays on row 2 and row 1 is simply its controls, which is the
             // shape Compare's header already has.
-            if lens != .storage { organizeRail(counts) }
+            if lens == .storage {
+                // **Storage's own rail, in the half the intro button used to hold.** Removing that
+                // button gave Organize's rail 21pt; Storage has no rail, so it gave Storage an
+                // empty row — a 27pt band with two controls floated right and nothing on its
+                // leading two-thirds, on a card whose height is pinned whatever it holds.
+                //
+                // The page was already three ranked lists under a treemap. The rail turns each into
+                // a place, counts all three (the header used to count two — `stale` had a full
+                // section in the body and no pill above it), and gives Storage the same idiom
+                // Organize has rather than a second one.
+                storageRail
+            } else {
+                organizeRail(counts)
+            }
         }
+    }
+
+    /// What each of Storage's sections has to say — the one accessor the rail and the width model
+    /// both read, so the two cannot size and draw different rows.
+    private var storageRailState: (StorageSection) -> RailItemState {
+        let report = syncManager.storageLensReport
+        return { section in
+            guard let report else { return .notScanned }
+            let n = section.entries(in: report).count
+            return n > 0 ? .reporting(n) : .clean
+        }
+    }
+
+    /// Storage's rail: All, then its three ranked lists.
+    ///
+    /// Measured at 417.8pt against a ~130pt trailing set, so it never sheds at any width this app
+    /// is used at — but it takes ``railStyle`` anyway, because the one thing worse than a rail that
+    /// sheds is two rails in one header that shed by different rules.
+    @ViewBuilder
+    private var storageRail: some View {
+        let state = storageRailState
+        storageRailItem(nil, state: .configuration)
+        railSeparator
+        ForEach(StorageSection.allCases) { section in
+            storageRailItem(section, state: state(section))
+        }
+    }
+
+    /// One item on Storage's rail. `nil` is All.
+    ///
+    /// **The count is absent before a report, not zero** — the same rule Organize's badge follows.
+    /// A storage lens that has not run cannot claim there are no large files; it can only say it
+    /// has not looked, which is what `.notScanned` draws.
+    private func storageRailItem(_ section: StorageSection?, state: RailItemState) -> some View {
+        let isSelected = storageSection == section
+        return Button {
+            withAnimation(listSettle) { storageSection = section }
+        } label: {
+            RailItemLabel(title: section?.railTitle ?? OrganizeRailMetrics.overviewTitle,
+                          systemImage: section?.railSymbol ?? OrganizeRailMetrics.overviewSymbol,
+                          state: state, isSelected: isSelected,
+                          accent: glassHue.accentColor, style: railStyle)
+        }
+        .buttonStyle(.plain)
+        .chromeHover()
+        .help(section.map { "\($0.title) — \($0.subtitle)." }
+              ?? "Every ranked list, under the treemap.")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
@@ -1544,7 +1614,8 @@ public struct TidyView: View {
                     onReveal: { path in
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                     },
-                    onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
+                    onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
+                    section: storageSection
                 )
             } else {
                 contentCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
@@ -2182,15 +2253,10 @@ public struct TidyView: View {
                               help: "This storage picture is for “\(((syncManager.storageLensRoot?.path ?? "") as NSString).lastPathComponent)”")
             Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
                  text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
-            StatPill(count: report.largest.count, label: "largest", color: SemanticColor.info, systemImage: "arrow.up.circle")
-            if !report.stale.isEmpty {
-                StatPill(count: report.stale.count, label: "untouched",
-                         color: SemanticColor.warning, systemImage: "clock.badge.exclamationmark")
-            }
-            if !report.reclaimCandidates.isEmpty {
-                StatPill(count: report.reclaimCandidates.count, label: "to reclaim",
-                         color: SemanticColor.success, systemImage: "internaldrive")
-            }
+            // **The three counts are on the rail now**, where each sits on the place it describes
+            // and clicking it goes there. They were StatPills here, and the row could only ever say
+            // how many — never take you to them. What stays is what belongs to the whole report
+            // rather than to one list: the folder, the total, and how old the numbers are.
             storageFreshnessPill
         }
     }

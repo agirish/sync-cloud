@@ -33,6 +33,8 @@ struct StorageLensView: View {
     private let onReveal: (String) -> Void
     /// Presents a Quick Look preview for a file path. nil hides the per-row Preview button.
     private let onQuickLook: ((String) -> Void)?
+    /// Which ranked list the rail is showing, or nil for all three under the treemap.
+    private let section: StorageSection?
 
     init(
         syncManager: FileSyncManager,
@@ -40,7 +42,8 @@ struct StorageLensView: View {
         query: StorageSearch.Query = StorageSearch.parse(""),
         onBuild: @escaping () -> Void,
         onReveal: @escaping (String) -> Void,
-        onQuickLook: ((String) -> Void)? = nil
+        onQuickLook: ((String) -> Void)? = nil,
+        section: StorageSection? = nil
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
@@ -48,6 +51,7 @@ struct StorageLensView: View {
         self.onBuild = onBuild
         self.onReveal = onReveal
         self.onQuickLook = onQuickLook
+        self.section = section
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -132,10 +136,16 @@ struct StorageLensView: View {
                     // it answers "where does my space go?" for the whole scanned tree, and drawing
                     // it from a query's subset would silently change what every proportion in it
                     // means. The ranked lists below are what the query narrows.
-                    treemapSection(report)
-                    listSection(.largest, entries: report.largest.filter { query.matches($0) })
-                    listSection(.stale, entries: report.stale.filter { query.matches($0) })
-                    listSection(.reclaim, entries: report.reclaimCandidates.filter { query.matches($0) })
+                    // **The rail decides what this page is.** With no section picked it is the
+                    // page it has always been — the treemap over all three ranked lists. With one
+                    // picked it is that list alone, and the treemap goes with the others: it
+                    // answers "where does my space go?" for the whole tree, so leaving it above a
+                    // single list would put a whole-tree proportion over a filtered one and invite
+                    // the two to be read together.
+                    if section == nil { treemapSection(report) }
+                    ForEach(StorageSection.allCases.filter { section == nil || section == $0 }) { s in
+                        listSection(s, entries: s.entries(in: report).filter { query.matches($0) })
+                    }
                 }
                 .padding(densityMetrics.cardListPadding)
             }
@@ -262,8 +272,50 @@ struct StorageLensView: View {
 // MARK: - Sections
 
 /// The three ranked lists under the treemap, each with its own glyph, tint, and copy.
-private enum StorageSection: Hashable {
+///
+/// **Internal, and `CaseIterable`, because Storage has a rail now.** These were the section
+/// headings of one long scroll and nothing outside this file needed them; the rail turns each into
+/// a destination, so `TidyView` builds its items from `allCases` — a fourth section is then a rail
+/// item the day it is added rather than a heading someone has to remember to announce.
+enum StorageSection: String, Hashable, CaseIterable, Identifiable {
     case largest, stale, reclaim
+
+    var id: String { rawValue }
+
+    /// The defaults key holding the rail selection. **Absent means All**, exactly as
+    /// ``OrganizeLens/defaultsKey`` does: there is no value to write for "no section picked", and
+    /// inventing one makes the unselected state something you can fail to migrate.
+    static let defaultsKey = "selectedStorageSection"
+
+    /// The rail's label — shorter than ``title``, which is a heading over a list and can afford the
+    /// words. "Untouched for a long time" is a sentence; a rail item is a place.
+    var railTitle: String {
+        switch self {
+        case .largest: return "Largest"
+        case .stale: return "Untouched"
+        case .reclaim: return "Reclaim"
+        }
+    }
+
+    /// The rail's glyph. Unfilled, matching Organize's rail — ``icon`` keeps the filled variant for
+    /// the section heading, where it sits at 13pt against a tint.
+    var railSymbol: String {
+        switch self {
+        case .largest: return "arrow.up.circle"
+        case .stale: return "clock.badge.exclamationmark"
+        case .reclaim: return "internaldrive"
+        }
+    }
+
+    /// This section's entries in a report — the one place the mapping lives, so the rail's badge and
+    /// the list below it cannot count different things.
+    func entries(in report: StorageLensReport) -> [StorageEntry] {
+        switch self {
+        case .largest: return report.largest
+        case .stale: return report.stale
+        case .reclaim: return report.reclaimCandidates
+        }
+    }
 
     var icon: String {
         switch self {
