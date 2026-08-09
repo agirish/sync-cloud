@@ -691,7 +691,7 @@ public struct TidyView: View {
                                               leadingWidth: railLeading, lens: organizeLens)
                 } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
-            lensBody(rows: rows, counts: counts)
+            lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }
         // `onDismiss`, because the history sheet can Clear History. Without it the setup card went
         // on quoting "last run ~$0.18" from a record the user had just erased through this very
@@ -1120,13 +1120,29 @@ public struct TidyView: View {
     ///
     /// Counted from the folder profile rather than by walking the disk — the profile is already in
     /// memory, and a chip in a header must not touch the filesystem on every render.
+    /// How many of the profile's folders sit inside the scope, or **nil when that is unknown**.
+    ///
+    /// Unknown covers two cases and neither may render as a number: there is no profile at all, and
+    /// the scope is a folder the survey has never seen (created since, or outside what was
+    /// surveyed).
+    ///
+    /// **Zero is the tell, and it can only mean unsurveyed.** A scope that the profile knows about
+    /// always counts at least itself — `PathBoundary.contains(p, under: p)` is true — so a count of
+    /// zero cannot mean "an empty subtree", only "not in the survey". Rendering it as "Legal · 0
+    /// folders" would read as *empty*, which is the same zero-versus-absent confusion the rail's
+    /// badge rule exists to prevent. `ScopeChipLabel` omits the count for nil, so the chip says
+    /// "Legal" and claims nothing it cannot support.
+    ///
+    /// Counted from the profile rather than by walking the disk — the profile is already in memory,
+    /// and a chip in a header must not touch the filesystem. Resolved once per render by `body`.
     private var scopeFolderCount: Int? {
         guard let scope, let profile = syncManager.filingFolderProfile else { return nil }
         let root = (profile.root as NSString).expandingTildeInPath
-        return profile.folders.keys.count {
+        let inside = profile.folders.keys.count {
             let absolute = $0 == "." ? root : (root as NSString).appendingPathComponent($0)
             return scope.contains(absolute)
         }
+        return inside > 0 ? inside : nil
     }
 
     /// Organize's lens rail: six permanent places, each carrying a badge only when it has
@@ -1361,7 +1377,7 @@ public struct TidyView: View {
     }
 
     @ViewBuilder
-    private func lensBody(rows: FilteredRows, counts: RailCounts) -> some View {
+    private func lensBody(rows: FilteredRows, counts: RailCounts, scopeFolders: Int?) -> some View {
         Group {
             if lens == .storage {
                 // Storage, folded in as a read-only lens: it brings its own CONTENT card (its
@@ -1378,7 +1394,7 @@ public struct TidyView: View {
                     onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
                 )
             } else {
-                contentCard(rows: rows, counts: counts)
+                contentCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
             }
         }
     }
@@ -2194,7 +2210,8 @@ public struct TidyView: View {
     // MARK: Content card
 
     @ViewBuilder
-    private func contentCard(rows: FilteredRows, counts: RailCounts) -> some View {
+    private func contentCard(rows: FilteredRows, counts: RailCounts,
+                             scopeFolders: Int?) -> some View {
         VStack(spacing: 0) {
             switch effectiveLens {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates, counts: counts)
@@ -2205,7 +2222,7 @@ public struct TidyView: View {
                 if showingOverview {
                     organizeOverview(rows: rows)
                 } else if organizeLens == .restructure {
-                    restructureContent(rows: rows)
+                    restructureContent(rows: rows, scopeFolders: scopeFolders)
                 } else if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
                     noMatchesState(scopedTotal: counts.renames,
                                    globalTotal: syncManager.renamePlans.count, noun: "folder")
@@ -2241,11 +2258,17 @@ public struct TidyView: View {
     /// it. It routes through the same value as every other lens now, so its count and its list
     /// cannot disagree.
     @ViewBuilder
-    private func restructureContent(rows: FilteredRows) -> some View {
+    private func restructureContent(rows: FilteredRows, scopeFolders: Int?) -> some View {
         RestructureLens(findings: rows.structure,
                         aboutAncestor: rows.structureAboutAncestor,
                         hasProfile: syncManager.filingFolderProfile != nil,
-                        folderCount: syncManager.filingFolderProfile?.folders.count ?? 0,
+                        // The SCOPED count, not the whole survey — this lens's answer has been
+                        // narrowed, and "Checked 3,013 folders" beside it was a claim about a tree
+                        // it did not look at. nil when unknown; see `scopeFolderCount`.
+                        folderCount: scope == nil
+                            ? syncManager.filingFolderProfile?.folders.count
+                            : scopeFolders,
+                        isScoped: scope != nil,
                         accent: glassHue.accentColor,
                         onReveal: { relative in
                             guard let root = syncManager.filingFolderProfile?.root else { return }
@@ -2281,12 +2304,25 @@ public struct TidyView: View {
     private var inboxShortcut: OrganizeOverview.InboxShortcut? {
         guard let inbox = filingInboxFolder, !inbox.isEmpty else { return nil }
         if let scope, standardizedPath(scope.path) == standardizedPath(inbox) { return nil }
-        // Counted from the queue rather than from disk: a header must not walk the filesystem on
-        // every render, and the number this offer wants is "how many loose files are waiting there"
-        // — which is exactly what the scan already published.
-        let loose = syncManager.filingSuggestions.count {
-            PathBoundary.contains($0.filePath, under: inbox)
-        }
+
+        // **The count is claimed only when the last scan actually covered the inbox.**
+        //
+        // It is drawn from `filingSuggestions`, which holds ONE scan's output — so scoped to
+        // `Legal`, or having scanned any other folder, or on a launch where nothing has scanned
+        // yet, nothing in that list is under `TODO` and the offer read "Inbox (TODO) — **0 loose
+        // files**" while the inbox held fifty. That is the worst possible wording for this control:
+        // it talks the user out of the one click the inbox was promoted from a hidden default to
+        // make available.
+        //
+        // Counting from disk instead is not the fix — a header must not walk the filesystem on
+        // every render. Not claiming is: `looseFileCount` is optional and the offer falls back to
+        // naming the inbox, which is the same rule the rail badges follow. Absent beats a wrong
+        // zero.
+        let scanned = syncManager.filingScanFolder
+        let covered = scanned.map { PathBoundary.contains(inbox, under: $0) } ?? false
+        let loose = covered
+            ? syncManager.filingSuggestions.count { PathBoundary.contains($0.filePath, under: inbox) }
+            : nil
         return .init(name: (inbox as NSString).lastPathComponent,
                      looseFileCount: loose,
                      apply: { withAnimation(listSettle) { setScope(inbox) } })

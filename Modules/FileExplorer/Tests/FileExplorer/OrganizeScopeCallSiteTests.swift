@@ -226,6 +226,34 @@ import Foundation
         #expect(tidy.contains("scopeHidesAllState(total: globalTotal - scopedTotal"))
     }
 
+    // MARK: A count is claimed only where it can be supported
+
+    @Test func theScopeFolderCountTreatsZeroAsUnknown() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let body = try Self.body(of: "private var scopeFolderCount: Int? {", in: tidy)
+        // A scope the profile knows about always counts at least itself, so zero can only mean
+        // "not in the survey" — and rendering that as "Legal · 0 folders" reads as *empty*.
+        #expect(body.contains("return inside > 0 ? inside : nil"),
+                "an unsurveyed scope renders as a zero folder count again")
+    }
+
+    @Test func theInboxCountIsGatedOnTheScanHavingCoveredIt() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let body = try Self.body(of: "private var inboxShortcut: OrganizeOverview.InboxShortcut? {",
+                                 in: tidy)
+        #expect(body.contains("PathBoundary.contains(inbox, under: $0)"),
+                "the inbox offer counts a queue that may never have looked at the inbox")
+        #expect(body.contains("let loose = covered"),
+                "the count is not gated on the scan having covered the inbox")
+    }
+
+    @Test func restructuresCleanStateGetsTheScopedFolderCount() throws {
+        let tidy = try Self.source("TidyView.swift")
+        #expect(tidy.contains("folderCount: scope == nil"),
+                "restructure's clean state is quoting the whole survey under a scope")
+        #expect(tidy.contains("isScoped: scope != nil"))
+    }
+
     // MARK: The overview pays for nothing it does not read
 
     @Test func theOverviewDoesNotResolveRowsItNeverReads() throws {

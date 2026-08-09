@@ -180,8 +180,14 @@ struct OrganizeOverview: View {
     struct InboxShortcut {
         /// The inbox's leaf name — "TODO" unless the setting was changed.
         let name: String
-        /// Loose files sitting in it, for the offer's second half.
-        let looseFileCount: Int
+        /// Loose files sitting in it, or **nil when the last scan did not cover the inbox** and the
+        /// number is therefore unknown.
+        ///
+        /// Optional because the count comes from one scan's published queue: scoped elsewhere, or
+        /// before any scan, nothing in that list is under the inbox and the offer claimed "0 loose
+        /// files" while the inbox held fifty — talking the user out of the very click this control
+        /// exists to offer. Absent beats a wrong zero, exactly as the rail badges have it.
+        let looseFileCount: Int?
         let apply: () -> Void
     }
 
@@ -219,6 +225,17 @@ struct OrganizeOverview: View {
         }
     }
 
+    /// The offer's second line: the count when it is known, and the invitation alone when it is not.
+    ///
+    /// A value rather than a ternary in the body so it can be asserted without rendering — the
+    /// wrong-zero it replaces was a string, and strings are what this needs to pin.
+    static func inboxSubtitle(_ looseFileCount: Int?) -> String {
+        guard let n = looseFileCount else { return "Organize just this folder" }
+        return n == 1
+            ? "1 loose file — organize just this folder"
+            : "\(n) loose files — organize just this folder"
+    }
+
     /// "Inbox (TODO) — N loose files", one click to scope there.
     ///
     /// Placed after the findings and before the quiet footer: it is an offer about where to look
@@ -235,9 +252,7 @@ struct OrganizeOverview: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Inbox (\(shortcut.name))")
                         .scaledFont(.system(size: 12.5, weight: .semibold))
-                    Text(shortcut.looseFileCount == 1
-                         ? "1 loose file — organize just this folder"
-                         : "\(shortcut.looseFileCount) loose files — organize just this folder")
+                    Text(Self.inboxSubtitle(shortcut.looseFileCount))
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

@@ -27,7 +27,17 @@ struct RestructureLens: View {
     /// work in the scope, and the rail badge deliberately does not count them.
     var aboutAncestor: [StructureFinding] = []
     let hasProfile: Bool
-    let folderCount: Int
+    /// How many folders this lens's answer covers — **nil when that is not known**.
+    ///
+    /// Scoped, not the whole survey. It was `profile.folders.count`, so the clean state said
+    /// "Checked 3,013 folders" while the list above it had been narrowed to one subtree: a number
+    /// about the tree beside an answer about a folder. Nil when there is no profile, or when the
+    /// scope is a subtree the survey has never seen — in which case the sentence drops the count
+    /// rather than inventing a zero.
+    let folderCount: Int?
+    /// Whether Organize is narrowed to a subtree — the clean state says a different thing about a
+    /// folder than about the whole tree.
+    var isScoped: Bool = false
     let accent: Color
     let onReveal: (String) -> Void
 
@@ -123,9 +133,22 @@ struct RestructureLens: View {
 
     private var cleanState: some View {
         EmptyStateView(icon: "checkmark.seal",
-                       title: "The tree agrees with itself",
-                       message: "Checked \(folderCount) folders. No family of sibling folders is "
-                              + "using more than one internal shape.")
+                       title: Self.cleanTitle(isScoped: isScoped),
+                       message: Self.cleanMessage(folderCount: folderCount))
+    }
+
+    /// The clean state's words, as values so they can be asserted without rendering.
+    ///
+    /// The title changes with the subject because "the tree agrees with itself" is a claim about
+    /// the whole tree, and under a scope this lens has only looked at part of it.
+    static func cleanTitle(isScoped: Bool) -> String {
+        isScoped ? "This folder agrees with itself" : "The tree agrees with itself"
+    }
+
+    static func cleanMessage(folderCount: Int?) -> String {
+        let tail = "No family of sibling folders is using more than one internal shape."
+        guard let folderCount else { return tail }
+        return "Checked \(folderCount) folder\(folderCount == 1 ? "" : "s"). " + tail
     }
 
     private var noProfileState: some View {
