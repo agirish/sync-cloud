@@ -321,6 +321,13 @@ struct SettingsRail: View {
         /// Between rows. Small, but enough that the selected row's fill reads as one row and
         /// not as a band across two.
         static let rowGap: CGFloat = 2
+        /// Air above and below a group separator, *beyond* the `rowGap` the stack already pays on
+        /// both sides of it. Measured: at 3 a separator and its air cost 9pt, so the three in
+        /// `railGroups` take 27pt of the tab list's 312pt at the default text size — the same nine
+        /// rows drawn flat are 285pt (`theGroupSeparatorsAreReallyDrawn` is what measures the
+        /// difference). That is the whole price of the grouping, and it buys the divider reading
+        /// as a break rather than as a squeezed row.
+        static let groupGap: CGFloat = 3
         /// Above and below a row's label; sets the row height with the label's own line.
         static let rowInsetV: CGFloat = 7
         static let rowInsetH: CGFloat = 9
@@ -332,21 +339,38 @@ struct SettingsRail: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Rhythm.rowGap) {
+        VStack(alignment: .leading, spacing: 0) {
             SettingsSearchField(query: $query)
-                .padding(.bottom, Rhythm.searchGap - Rhythm.rowGap)
+                .padding(.bottom, Rhythm.searchGap)
 
-            ForEach(SettingsView.SettingsTab.allCases, id: \.self) { tab in
-                railRow(tab)
+            // The tabs scroll — but only when they genuinely cannot fit.
+            //
+            // This was rejected once, and the objection is worth restating because it was right
+            // at the time: "a `ScrollView` around the rail turns a seven-item list into a
+            // scrolling surface on every display to serve a window smaller than the sheet's own
+            // floor." What changed is both halves of that. `.basedOnSize` is the modifier the
+            // content column has always used, and it is what makes a scroller that FITS sit
+            // perfectly still — no rubber-banding, no indicator — so the cost on a normal display
+            // is nothing. And the case being served is no longer the corner it was: at seven rows
+            // the floor-sized sheet clipped the rail only at the largest text size, while at nine
+            // it overruns by 47–125pt at EVERY size (`theRailIsWhatTheFloorSizedSheetRunsOutOf`
+            // records the measurements). The window has a 600pt `minWidth` and no minimum HEIGHT
+            // at all, so a short window is something a user can simply drag to.
+            //
+            // Losing the bottom of a fixed rail is silent — the rows are not clipped mid-glyph,
+            // they are absent, and nothing says a tab exists below the fold. Scrolling is the
+            // only option here that fails visibly.
+            ScrollView {
+                TabList(selection: $selection, query: $query, hue: hue)
             }
-
-            Spacer(minLength: 8)
+            .scrollBounceBehavior(.basedOnSize)
 
             if let version = versionText {
                 Text("SyncCloud \(version)")
                     .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Rhythm.rowInsetH)
+                    .padding(.top, 8)
                     .padding(.bottom, 2)
                     .accessibilityLabel("SyncCloud version \(version)")
             }
@@ -357,15 +381,74 @@ struct SettingsRail: View {
         .frame(width: Self.width, alignment: .leading)
     }
 
+    /// The tab rows on their own, outside the scroller.
+    ///
+    /// Its own view so the rail's height can still be MEASURED. A `ScrollView` accepts whatever
+    /// height it is offered, so `SettingsRail`'s own `fittingSize` stopped being able to answer
+    /// "do the tabs fit?" the moment the scroller went in — every rail assertion would have
+    /// passed by construction, which is the failure mode where a fixture measures nothing at all.
+    /// The tests lay THIS out instead, and compare it against the opening less the search field
+    /// and the version line (`SettingsRail.tabListOpening(in:)`).
+    struct TabList: View {
+        @Binding var selection: SettingsView.SettingsTab
+        @Binding var query: String
+        let hue: LiquidGlassHue
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: Rhythm.rowGap) {
+                // Grouped rather than one flat run: nine rows is where a sidebar stops being a
+                // list you read and starts being a pile you scan. The separator is drawn between
+                // groups only — never above the first or below the last, where it would read as
+                // a border on the rail rather than as a break in it.
+                ForEach(Array(SettingsView.SettingsTab.railGroups.enumerated()), id: \.offset) { index, group in
+                    if index > 0 {
+                        Divider()
+                            .padding(.horizontal, Rhythm.rowInsetH)
+                            .padding(.vertical, Rhythm.groupGap)
+                    }
+                    ForEach(group, id: \.self) { tab in
+                        railRow(tab)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        private var isSearching: Bool {
+            !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        @ViewBuilder
+        private func railRow(_ tab: SettingsView.SettingsTab) -> some View {
+            SettingsRail.railRow(tab, isSelected: selection == tab && !isSearching, hue: hue) {
+                // Picking a tab is also the way out of a search: the results were standing in for
+                // the content column, and the user has just said which content they want.
+                selection = tab
+                query = ""
+            }
+        }
+    }
+
+    /// The height the tab list actually has to fit in: the rail's opening, less its own insets,
+    /// the search field and the gap under it, and the version line. Derived rather than written
+    /// down so it cannot drift from `Rhythm` — and it takes the two MEASURED heights as arguments
+    /// rather than estimating them, because a hand-estimated version-line allowance is exactly
+    /// what made the previous residual on `theRailIsWhatTheFloorSizedSheetRunsOutOf` wrong.
+    static func tabListOpening(in railHeight: CGFloat,
+                               searchFieldHeight: CGFloat,
+                               versionLineHeight: CGFloat) -> CGFloat {
+        railHeight
+            - Rhythm.top - Rhythm.bottom
+            - searchFieldHeight - Rhythm.searchGap
+            - versionLineHeight
+    }
+
     @ViewBuilder
-    private func railRow(_ tab: SettingsView.SettingsTab) -> some View {
-        let isSelected = selection == tab && !isSearching
-        Button {
-            // Picking a tab is also the way out of a search: the results were standing in for
-            // the content column, and the user has just said which content they want.
-            selection = tab
-            query = ""
-        } label: {
+    fileprivate static func railRow(_ tab: SettingsView.SettingsTab,
+                                    isSelected: Bool,
+                                    hue: LiquidGlassHue,
+                                    action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack(spacing: 9) {
                 Image(systemName: tab.symbolName)
                     .frame(width: 16)
@@ -393,10 +476,6 @@ struct SettingsRail: View {
                                       tint: isSelected ? hue.onAccentLabelColor : hue.accentColor,
                                       shape: .roundedRect(6)))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-    }
-
-    private var isSearching: Bool {
-        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

@@ -16,20 +16,23 @@ import Testing
 /// tallest one that can be made to fit (`appearanceIsTheTallestTabThatMustFit`), and it reads
 /// nothing but `@AppStorage`, so its height is a property of the layout rather than of the
 /// machine's data. But it is no longer the only tab with a fit assertion: the sheet shrank 58pt
-/// for every tab, so General, Sync, Duplicates and Advanced are checked too
+/// for every tab, so General, Sync, Organize, Duplicates and Advanced are checked too
 /// (`everyMustFitTabFitsTheClampedOpening`).
 ///
-/// Two tabs are still excluded, for reasons that are properties of those tabs: Providers grows
-/// with the Mac's provider list, and Organize is long by nature and expected to scroll — see
-/// `organizeLaysOutWithoutReachingForTheKeychain`, which is here for a different reason again.
-/// General was previously excluded as well, on the grounds that it "reaches for SMAppService on
-/// appear, which a `swift test` host can block on". Measured, that does not bite in this
-/// harness: the reads are in `.task`, which an offscreen `NSHostingView` driven only by
-/// `layoutSubtreeIfNeeded` never fires. It is measured here like the rest.
+/// Three tabs are excluded, for reasons that are properties of those tabs: Providers grows with
+/// the Mac's provider list and People with the household roster, and Intelligence is long by
+/// nature and expected to scroll — see `intelligenceLaysOutWithoutReachingForTheKeychain`, which
+/// is here for a different reason again. General was previously excluded as well, on the grounds
+/// that it "reaches for SMAppService on appear, which a `swift test` host can block on".
+/// Measured, that does not bite in this harness: the reads are in `.task`, which an offscreen
+/// `NSHostingView` driven only by `layoutSubtreeIfNeeded` never fires. It is measured here like
+/// the rest.
 ///
 /// The RAIL is measured as well (`theRailFitsItsOpening`). It shares the tabs' opening but is
 /// sized by the tab COUNT rather than by any tab's contents, so every assertion above is blind
 /// to it — which is exactly how Tidy could split into two rail rows without a single test moving.
+/// Since the rail gained a scroller, what that test measures is `SettingsRail.TabList` rather
+/// than the rail itself; the reason is on the test.
 @Suite struct SettingsLayoutTests {
 
     /// The content column: the sheet minus the rail and the divider between them.
@@ -300,17 +303,23 @@ import Testing
         }
     }
 
-    /// Organize is long by nature (Suggestions plus Cloud spend) and is expected to scroll, so
-    /// there is no fit to assert. What this pins is that it can be laid out AT ALL: it used to
-    /// read the Anthropic key out of the Keychain in `onAppear`, which blocked this host — and,
-    /// in the app, put a password prompt on screen for anyone who merely opened the tab. If that
-    /// read comes back, this test stops finishing.
+    /// Intelligence is long by nature (four sections, from the on-device toggles to the saved
+    /// suggestions) and is expected to scroll, so there is no fit to assert. What this pins is
+    /// that it can be laid out AT ALL: it used to read the Anthropic key out of the Keychain in
+    /// `onAppear`, which blocked this host — and, in the app, put a password prompt on screen for
+    /// anyone who merely opened the tab. If that read comes back, this test stops finishing.
     ///
-    /// It followed the Anthropic key when Tidy split: `CloudKeyRow` lives on this tab now, so
-    /// this is still the tab with a Keychain call one `onAppear` away.
+    /// **It follows `CloudKeyRow`, and `CloudKeyRow` has now moved twice** — onto the Organize tab
+    /// when Tidy split, and onto Intelligence when Organize did. This is still the tab with a
+    /// Keychain call one `onAppear` away, and the hazard got slightly larger with the move: the
+    /// row is drawn unconditionally here (disabled when the cloud toggles are off) rather than
+    /// only when cloud filing is switched on, so its `onAppear` now runs for every visitor to the
+    /// tab rather than only for users who had already opted in. `AnthropicKeychain.isConfigured`
+    /// is an existence check that never reads the secret, which is what makes that safe — and
+    /// this test is what would notice if it stopped being.
     @MainActor
-    @Test func organizeLaysOutWithoutReachingForTheKeychain() async throws {
-        let height = laidOutHeight(FilingSettingsTab(syncManager: nil), width: Self.contentWidth)
+    @Test func intelligenceLaysOutWithoutReachingForTheKeychain() async throws {
+        let height = laidOutHeight(IntelligenceSettingsTab(syncManager: nil), width: Self.contentWidth)
 
         #expect(height > 0)
     }
@@ -320,19 +329,27 @@ import Testing
     /// The tabs that must fit, and the height each lays out at. Appearance is measured by the
     /// tests above; these three were never measured at all.
     ///
-    /// Providers and Organize are absent for reasons that are properties of those tabs rather
-    /// than oversights: Providers grows with the Mac's provider list, so its height is a property
-    /// of the machine's data, and Organize is long by nature and is expected to scroll (see
-    /// `organizeLaysOutWithoutReachingForTheKeychain`).
+    /// Three tabs are absent for reasons that are properties of those tabs rather than oversights:
+    /// Providers grows with the Mac's provider list and People with the household roster, so both
+    /// heights are properties of the machine's data; and Intelligence is long by nature and is
+    /// expected to scroll (see `intelligenceLaysOutWithoutReachingForTheKeychain`).
     ///
     /// Duplicates joined the list when it split off Tidy: three `@AppStorage` rows and a caption,
     /// so its height is a property of the layout like Appearance's, and nothing about it excuses
     /// it from fitting.
+    ///
+    /// **Organize joined it when the engine and the roster moved out.** It was excluded as "long
+    /// by nature and expected to scroll", and that was true of the five-section tab; what is left
+    /// is an inbox path, a signpost row and the kept-names list, which with no engine attached is
+    /// a fixed note. That is a layout-shaped height, so it is measured like the rest — and the
+    /// exclusion had to be revisited rather than inherited, because a tab that gets SHORTER keeps
+    /// its exemption silently and no test ever asks again.
     @MainActor
     private func mustFitTabs(_ settings: SettingsManager) -> [(String, AnyView)] {
         [("General", AnyView(GeneralSettingsTab().environmentObject(settings))),
          ("Appearance", AnyView(AppearanceSettingsTab())),
          ("Sync", AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
+         ("Organize", AnyView(FilingSettingsTab(syncManager: nil))),
          ("Duplicates", AnyView(DuplicatesSettingsTab())),
          ("Advanced", AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
     }
@@ -435,83 +452,74 @@ import Testing
     ///
     /// Every fit assertion above measures a tab against `contentOpening`, which is the height of
     /// the column beside the rail. The rail sits in the same opening and is sized by a completely
-    /// different thing: one row per `SettingsTab`, at ~33pt each. Splitting Tidy into Organize and
-    /// Duplicates took it from six rows to seven, and no test could see that — the content column
-    /// did not change height by one point, so the whole suite stayed green while the rail grew.
-    /// A rail taller than its opening does not scroll (`SettingsRail` is a plain `VStack`, not a
-    /// `ScrollView`): the last tabs and the version line are simply not reachable.
+    /// different thing: one row per `SettingsTab` at ~33pt each, plus a hairline between each pair
+    /// of `railGroups`. Splitting Tidy into Organize and Duplicates took it from six rows to
+    /// seven, and no test could see that — the content column did not change height by one point,
+    /// so the whole suite stayed green while the rail grew.
+    ///
+    /// **What this measures changed when the rail gained a scroller.** The tabs now sit in a
+    /// `ScrollView` (`.basedOnSize`, so it sits still whenever it fits), which accepts whatever
+    /// height it is offered — so `SettingsRail`'s own `fittingSize` can no longer answer "do the
+    /// tabs fit?" and an assertion resting on it would pass by construction forever. What is
+    /// measured instead is `SettingsRail.TabList` — the rows outside the scroller — against
+    /// `SettingsRail.tabListOpening`, the space between the search field and the version line.
+    /// Both of those are laid out for real rather than allowed for; see `tabListMargin`.
+    ///
+    /// The claim is therefore no longer "the rail is not clipped" (the scroller guarantees that)
+    /// but the stronger and more useful one: **on the display the tabs are budgeted against, every
+    /// tab is reachable without scrolling at all.** A rail that has to scroll on a 1280×800 screen
+    /// is a rail that has outgrown the design, and that is what this fails on.
     ///
     /// Measured against the SMALL display's clamped opening for the same reason
     /// `appearanceFitsA1280x800Display` exists — an unclamped opening grows with `baseSize` and
     /// so can never fail. At every text size, because the rows are text and grow with it.
     ///
-    /// **The version line is now measured, not estimated.** `Bundle.main` under `swift test` is
-    /// the test host, which has no `CFBundleShortVersionString`, so the rail's own default for
-    /// `versionText` resolves to nil here and the line does not render on its own. This used to
-    /// be papered over with an allowance — a `.caption2` line plus 2pt of padding, scaled and
-    /// "generously rounded up" to 18 — which was never once checked against a rendered line.
-    /// `railHeight` now injects `versionMarker` through `SettingsRail.versionText` instead, so
-    /// the line is really laid out and its height is really in the number. (The old estimate was
-    /// indeed conservative, but only by 1–3pt: measured, the line is 15/17/18/20pt at Small /
-    /// Default / Large / Larger where the allowance claimed 16.2/18/20.7/23.4.)
-    ///
-    /// **The measured residual, so nobody mistakes this for a tight budget.** Seven rows and the
-    /// version line come to 314pt at the default text size against a 647pt opening — 333pt of
-    /// slack, room for ten more tabs. The rail is nowhere near its ceiling on the display the
-    /// tabs are budgeted against,
-    /// and the honest answer to "does the seventh row fit here" is *comfortably*. This is a floor
-    /// check on a quantity nothing else measures, not a budget like `baseSize`'s. Where the
-    /// seventh row DOES bind is the sheet's own floor — `theRailIsWhatTheFloorSizedSheetRunsOutOf`.
+    /// **The measured residual.** Nine rows and three group separators come to 312pt at the
+    /// default text size against a 559pt tab-list opening — 247pt of slack, room for roughly
+    /// seven more tabs. (Small 269pt, Large 223pt, Larger 191pt: the margin narrows with the text
+    /// size, as it should, and none of the four is close.) The rail is nowhere near its ceiling on
+    /// the display it is budgeted against; where it DOES bind is the sheet's own floor —
+    /// `theRailIsWhatTheFloorSizedSheetRunsOutOf`.
     @MainActor
     @Test(arguments: FontSize.allCases)
     func theRailFitsItsOpening(_ size: FontSize) async throws {
-        // The rail is fixed-width, so `laidOutHeight`'s width argument is only a proposal it
-        // ignores — passed for symmetry with the tab measurements.
-        let measured = railHeight(at: size.scale)
-        let opening = SettingsSheetMetrics.contentOpening(textScale: size.scale,
-                                                          available: Self.smallDisplayWindow)
+        let margin = tabListMargin(at: size.scale, available: Self.smallDisplayWindow)
 
-        #expect(measured <= opening,
+        #expect(margin >= 0,
                 """
-                The rail lays out at \(measured)pt in a 1280×800 display's \(opening)pt opening \
-                at \(size.displayName) — \(SettingsView.SettingsTab.allCases.count) tabs no \
-                longer fit, and the rail does not scroll.
+                The tab list overruns its opening by \(-margin)pt on a 1280×800 display at \
+                \(size.displayName) — \(SettingsView.SettingsTab.allCases.count) tabs in \
+                \(SettingsView.SettingsTab.railGroups.count) groups no longer fit, and the rail \
+                has to scroll on the display it is budgeted against.
                 """)
     }
 
-    /// The one place the seventh rail row genuinely binds, recorded honestly rather than trimmed
-    /// away — the same shape as `theClampedOpeningFitsTheSmallerTextSizesOnly`, and for the same
-    /// reason: a boundary that stays true in BOTH directions beats a one-sided assertion nobody
-    /// can tell is vacuous.
+    /// Where the rail genuinely binds, recorded honestly rather than trimmed away — the same shape
+    /// as `theClampedOpeningFitsTheSmallerTextSizesOnly`, and for the same reason: a boundary that
+    /// stays true in BOTH directions beats a one-sided assertion nobody can tell is vacuous.
     ///
-    /// `floorSize` is where `resolvedSize` stops shrinking (a window under ~570×428). There the
-    /// sheet is 380pt and the opening 335pt at the default text size, and the rail — which cannot
-    /// scroll — is the part that runs out first. **Measured, with the version line really laid
-    /// out: the rail clears the floor-sized opening by 40.4pt at Small, 21.0pt at Default and
-    /// 0.4pt at Large, and overruns it by 27.2pt at Larger.** So the Tidy split did cost
-    /// something, and this is the whole of it: a user who has shrunk the window below the sheet's
-    /// own floor AND set the largest text size loses the bottom of the rail.
+    /// `floorSize` is where `resolvedSize` stops shrinking (a window under ~570×428, which a user
+    /// can drag to — the window carries a 600pt `minWidth` and no minimum height at all). There
+    /// the sheet is 380pt and the opening 335pt at the default text size, and the rail is the part
+    /// that runs out first.
     ///
-    /// **Large fits by four tenths of a point, which is not a margin.** Read the set below as
-    /// "Larger is the one that overruns", not as "Large is safe" — anything that adds a point to
-    /// the rail or takes one off the opening moves Large across, and it is a coin-flip against
-    /// a future macOS rounding text differently. It is recorded as fitting because that is what
-    /// it measures; it is not something to spend.
+    /// **Measured: the tab list overruns the floor-sized opening at every text size — by 42.6pt at
+    /// Small, 65.0pt at Default, 88.6pt at Large and 121.2pt at Larger.** At seven rows it fitted
+    /// at the first three and overran only at Larger, which is what made a non-scrolling rail
+    /// defensible then. Nine rows and three separators is what took Default across, and no amount
+    /// of trimming brings it back: a row is ~32pt so the two new ones cost ~63pt, while the
+    /// separators are only 27pt of it — deleting the grouping outright would still leave Default
+    /// ~38pt short. The overrun is the tab count, not the ornament.
     ///
-    /// This is also what couples this test to `theVersionLineFitsTheRailOnOneLine`: a version
-    /// marker too wide for the fixed rail wraps to a second line and costs ~15pt of height, which
-    /// is 37× the margin Large has here. The version line wrapping would take Large down with it.
+    /// **So this is now a scroll, not a clip, and that is the whole point of the change.** The
+    /// rail's `ScrollView` is `.basedOnSize`: it sits still on any window where the tabs fit, and
+    /// in this one it lets the user reach the rows that do not. The failure mode it replaces was
+    /// silent — the bottom rows were not clipped mid-glyph, they were simply absent, with nothing
+    /// on screen saying a tab existed below the fold.
     ///
-    /// The previously recorded residual — "fit at Small and Default, ~14pt over at Large, ~31pt
-    /// over at Larger" — was wrong on both counts. It was derived from `railHeight`'s old
-    /// hand-estimated version-line allowance rather than from a rendered line; Large was never
-    /// 14pt over, it was 2.3pt over under the estimate and is 0.4pt UNDER once measured.
-    ///
-    /// Not fixed here, deliberately. The fixes on offer are all worse than the defect: a
-    /// `ScrollView` around the rail turns a seven-item list into a scrolling surface on every
-    /// display to serve a window smaller than the sheet's own floor, and raising `floorSize` moves
-    /// the overflow into the content column, which at least scrolls. If the rail ever reaches
-    /// eight rows, revisit — at that point Default stops fitting and this stops being an edge.
+    /// This test exists to keep that trade visible: if the overrun ever reaches the point where
+    /// the scroller is doing real work on an ORDINARY window rather than a deliberately tiny one,
+    /// `theRailFitsItsOpening` is the one that fails. This one only pins where the boundary is.
     @MainActor
     @Test func theRailIsWhatTheFloorSizedSheetRunsOutOf() async throws {
         // Smaller than `floorSize` in both axes, so `resolvedSize` returns the floor itself.
@@ -520,38 +528,93 @@ import Testing
                 == SettingsSheetMetrics.floorSize,
                 "this window no longer clamps to the floor — the test has lost its subject")
 
-        let fitting = FontSize.allCases.filter { size in
-            railHeight(at: size.scale)
-                <= SettingsSheetMetrics.contentOpening(textScale: size.scale, available: tinyWindow)
-        }
-
+        let fitting = FontSize.allCases.filter { tabListMargin(at: $0.scale, available: tinyWindow) >= 0 }
         let margins = FontSize.allCases.map { size in
-            let opening = SettingsSheetMetrics.contentOpening(textScale: size.scale,
-                                                             available: tinyWindow)
-            return "\(size.displayName) \(opening - railHeight(at: size.scale))pt"
+            "\(size.displayName) \(tabListMargin(at: size.scale, available: tinyWindow))pt"
         }
 
-        #expect(fitting == [.small, .medium, .large],
+        #expect(fitting.isEmpty,
                 """
-                At the sheet's floor the rail fits at \(fitting.map(\.displayName)) with \
+                At the sheet's floor the tab list now fits at \(fitting.map(\.displayName)) with \
                 \(SettingsView.SettingsTab.allCases.count) tabs — the residual recorded on this \
                 test is out of date. Margins now: \(margins.joined(separator: ", ")).
                 """)
     }
 
-    /// The premise both rail tests rest on, stated so a failure names the cause: the rail's height
-    /// is driven by the tab COUNT. Without this, deleting the `ForEach` in `SettingsRail` would
-    /// leave both of them comfortably green.
+    /// The premise both rail tests rest on, stated so a failure names the cause: the tab list's
+    /// height is driven by the tab COUNT. Without this, deleting the `ForEach` in
+    /// `SettingsRail.TabList` would leave both of them comfortably green.
     @MainActor
     @Test func theRailGrowsWithTheTabCount() async throws {
-        let measured = railHeight(at: 1)
+        let measured = tabListHeight(at: 1)
         let rows = CGFloat(SettingsView.SettingsTab.allCases.count)
 
         // A row is a `.callout` line (13pt) plus 7pt of inset above and below plus the 2pt gap —
-        // ~30pt at the floor. Seven of those is the bulk of the rail; anything much under that
+        // ~30pt at the floor. Nine of those is the bulk of the rail; anything much under that
         // means the rows have stopped being laid out as rows.
         #expect(measured >= rows * 30,
-                "the rail lays out at \(measured)pt for \(Int(rows)) tabs — its rows are not being measured.")
+                "the tab list lays out at \(measured)pt for \(Int(rows)) tabs — its rows are not being measured.")
+    }
+
+    /// Every group in `railGroups` is drawn, and every tab belongs to exactly one.
+    ///
+    /// A tab added to the enum but not to a group would simply never appear in the rail — the
+    /// `ForEach` walks the groups, not `allCases` — and nothing else here would notice: the tab
+    /// would still have a display name, a symbol, search entries and a `content` arm. It would
+    /// just be unreachable by clicking.
+    @Test func railGroupsCoverEveryTab() {
+        let grouped = SettingsView.SettingsTab.railGroups.flatMap { $0 }
+
+        #expect(Set(grouped) == Set(SettingsView.SettingsTab.allCases),
+                """
+                \(Set(SettingsView.SettingsTab.allCases).subtracting(grouped).map(\.rawValue)) are \
+                in the enum but in no rail group, so the rail never draws them.
+                """)
+        #expect(grouped.count == SettingsView.SettingsTab.allCases.count,
+                "a tab appears in more than one rail group: \(grouped.map(\.rawValue))")
+        // Rail order is the enum's order. The groups are what the rail iterates, so a group list
+        // that reordered them would silently move rows without a single other test moving.
+        #expect(grouped == SettingsView.SettingsTab.allCases,
+                "the rail's group order no longer matches `allCases` — the rail rows are reordered")
+    }
+
+    /// The separators really are drawn, and really do cost height.
+    ///
+    /// `railGroupsCoverEveryTab` passes just as well against a rail that ignores the grouping and
+    /// draws one flat run, which is the whole failure mode: the grouping is a visual claim, so
+    /// something has to measure the pixels it costs. One divider plus its air is ~7pt, so three
+    /// groups' worth is ~21pt the flat list would not pay.
+    @MainActor
+    @Test func theGroupSeparatorsAreReallyDrawn() {
+        let grouped = tabListHeight(at: 1)
+        let flat = laidOutHeight(FlatTabList(), width: SettingsRail.width, scale: 1)
+
+        #expect(grouped > flat,
+                """
+                The grouped tab list (\(grouped)pt) is no taller than the same rows drawn flat \
+                (\(flat)pt) — the separators between `railGroups` are not being drawn.
+                """)
+    }
+
+    /// The same rows the rail draws, without the group separators — the discriminator
+    /// `theGroupSeparatorsAreReallyDrawn` needs. Deliberately duplicates `TabList`'s stack rather
+    /// than taking a flag on it: a flag would let the real rail pass the test with its separators
+    /// switched off. Measured at 285pt against the grouped list's 312pt at the default text size.
+    private struct FlatTabList: View {
+        var body: some View {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(SettingsView.SettingsTab.allCases, id: \.self) { tab in
+                    HStack(spacing: 9) {
+                        Image(systemName: tab.symbolName).frame(width: 16).scaledFont(.callout)
+                        Text(tab.displayName).scaledFont(.callout)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                }
+            }
+            .frame(width: SettingsRail.width, alignment: .leading)
+        }
     }
 
     /// The version line has to fit the rail's WIDTH, which nothing measured until the marker got
@@ -662,6 +725,40 @@ import Testing
         let rail = SettingsRail(selection: .constant(.general), query: .constant(""),
                                 hue: .blue, versionText: version)
         return laidOutHeight(rail, width: SettingsRail.width, scale: scale)
+    }
+
+    /// The tab rows' own height — the quantity the rail's scroller made `railHeight` unable to
+    /// report. Laid out at the rail's real width, since the rows are fixed to it.
+    @MainActor
+    private func tabListHeight(at scale: CGFloat) -> CGFloat {
+        let list = SettingsRail.TabList(selection: .constant(.general), query: .constant(""),
+                                        hue: .blue)
+        return laidOutHeight(list, width: SettingsRail.width, scale: scale)
+    }
+
+    /// How much room the tab list has left in a given window — positive means every tab is
+    /// reachable without scrolling.
+    ///
+    /// The search field and the version line are MEASURED here rather than allowed for. That is
+    /// not fastidiousness: the previous residual recorded on `theRailIsWhatTheFloorSizedSheetRuns\
+    /// OutOf` was wrong in both directions precisely because it rested on a hand-estimated
+    /// version-line allowance that had never been checked against a rendered line.
+    @MainActor
+    private func tabListMargin(at scale: CGFloat, available: CGSize) -> CGFloat {
+        let searchField = laidOutHeight(SettingsSearchField(query: .constant("")),
+                                        width: SettingsRail.versionTextWidth, scale: scale)
+        let versionLine = laidOutHeight(Text("SyncCloud \(Self.versionMarker)").scaledFont(.caption2)
+                                            .padding(.top, 8).padding(.bottom, 2),
+                                        width: SettingsRail.versionTextWidth, scale: scale)
+        // The premise: both really laid out. A zero here would silently inflate every margin.
+        #expect(searchField > 0 && versionLine > 0,
+                "the rail's search field or version line measured 0pt — this margin is fiction")
+
+        let opening = SettingsRail.tabListOpening(
+            in: SettingsSheetMetrics.contentOpening(textScale: scale, available: available),
+            searchFieldHeight: searchField,
+            versionLineHeight: versionLine)
+        return opening - tabListHeight(at: scale)
     }
 
     @Test func everyTabHasARailSymbol() {

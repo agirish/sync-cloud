@@ -2419,8 +2419,14 @@ struct ContentView: View {
                 // results offer it, and the offer has to land somewhere. Deep-links the tab the
                 // same way the Sources shortcut does, so the user arrives at the cloud toggle
                 // rather than at whichever tab Settings last showed.
+                //
+                // `.intelligence`, not `.filing`: the cloud toggle, the key and the model left the
+                // Organize tab when the engine got one of its own. Pointing this at `.filing`
+                // still compiles and still opens Settings — it just opens the wrong tab, and the
+                // user offered "set up cloud refine" arrives at a page with no cloud anything on
+                // it. `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` is what fails on that now.
                 onConfigureCloudRefine: {
-                    settingsTab = .filing
+                    settingsTab = .cloudRefineSetup
                     showSettings = true
                 },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },

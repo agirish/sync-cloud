@@ -63,16 +63,34 @@ public struct SettingsView: View {
     /// Identifies a settings tab; raw values are the format of the `settingsSelectedTab`
     /// default read at window creation, so treat them as stable. `CaseIterable` backs both the
     /// segmented picker and the search index's "every entry points at a real tab" invariant.
+    /// The rail's rows, in rail order.
+    ///
+    /// `people` and `intelligence` are NEW CASES rather than renames of `filing`, and the
+    /// distinction matters. `providers` → "Sources" was a relabel: the same tab, reworded, so the
+    /// case kept its name and every stored `settingsSelectedTab` stayed valid. This is not that.
+    /// The household roster and the AI engine were *sections* of Organize that became tabs of
+    /// their own, so `filing` still exists and still means Organize — it is simply three sections
+    /// lighter. Renaming it would have made every stored "filing" resolve to a tab that no longer
+    /// holds what the user was last looking at.
+    ///
+    /// Adding cases is safe in the other direction too: `SettingsTab(rawValue:)` is only ever
+    /// read through a `??` fallback (see `ContentView`'s launch read and
+    /// `theStoredTabFallsBackWhenUnrecognised`), so a build that predates these two resolves
+    /// their raw values to `.general` rather than trapping.
     public enum SettingsTab: String, CaseIterable, Sendable {
         case general
         case appearance
         case providers
+        /// The household the filing rules attribute documents to. Was Organize's last section.
+        case people
         case sync
         /// Shown as "Organize". The case is named for `Workspace.filing`, not for the label, for
         /// the reason that workspace keeps its own name: the label moved and the identity didn't,
         /// and a tab whose case matches its workspace's is one grep away from the code it governs.
         case filing
         case duplicates
+        /// The suggestion engine — on-device AI, the opt-in Claude path, and what that path costs.
+        case intelligence
         case advanced
 
         /// The human-readable tab name shown in the rail and as the dim subtitle on a search
@@ -86,9 +104,16 @@ public struct SettingsView: View {
             // ~/Projects was the tell. The case keeps its name so the stable `settingsSelectedTab`
             // raw value, and every `selectedTab = .providers` deep link, are untouched.
             case .providers: return "Sources"
+            case .people: return "People"
             case .sync: return "Sync"
             case .filing: return "Organize"
             case .duplicates: return "Duplicates"
+            // Not "Claude" and not "AI & Cloud": the tab holds the free on-device pass as well as
+            // the paid one, so a vendor name would sit over a section that isn't theirs, and
+            // "Cloud" collides with Sources' cloud providers — a rail with two Clouds in it
+            // answers the wrong question first. The search index is what carries "API key" and
+            // "Anthropic" to this tab; see `SettingsSearchIndex`.
+            case .intelligence: return "Intelligence"
             case .advanced: return "Advanced"
             }
         }
@@ -105,12 +130,43 @@ public struct SettingsView: View {
             case .general: return "gearshape"
             case .appearance: return "paintbrush"
             case .providers: return "cloud"
+            case .people: return "person.2"
             case .sync: return "arrow.left.arrow.right"
             case .filing: return "folder.badge.gearshape"
             case .duplicates: return "doc.on.doc"
+            case .intelligence: return "sparkles"
             case .advanced: return "wrench.and.screwdriver"
             }
         }
+
+        /// Where the "set up cloud refine" offer on Organize's results deep-links to: the tab that
+        /// holds the Claude toggle, the key and the model.
+        ///
+        /// A named destination rather than `.intelligence` written at the call site, because the
+        /// call site is in `MacApp/` — which belongs to no SPM package, so only the app target
+        /// compiles it and no package test can reach it. A literal there that pointed at the tab
+        /// those controls used to live on would keep compiling and keep opening Settings; it would
+        /// simply open a tab with no cloud anything on it, and nothing would fail. This constant
+        /// is the seam that lets `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` check it.
+        public static let cloudRefineSetup: SettingsTab = .intelligence
+
+        /// The rail's rows in groups, separated by a hairline.
+        ///
+        /// Nine flat rows read as a pile — the reason this exists — but the grouping is not free:
+        /// the rail is FIXED-HEIGHT and does not scroll, and each separator costs its own line
+        /// plus the air around it. `theRailFitsItsOpening` measures the real thing, separators
+        /// included, so a group added here has to be paid for out of the same budget the rows are.
+        ///
+        /// The cut lines are by *question asked*, not by feature: the app itself, then the nouns
+        /// in the user's world, then what a scan does, then the engine room. Membership is spelled
+        /// out rather than derived so that adding a case has to state which group it joins —
+        /// `railGroupsCoverEveryTab` fails on a case that names none.
+        public static let railGroups: [[SettingsTab]] = [
+            [.general, .appearance],
+            [.providers, .people],
+            [.sync, .filing, .duplicates],
+            [.intelligence, .advanced],
+        ]
     }
 
     /// UserDefaults key holding the tab the Settings overlay opens on (a `SettingsTab` raw
@@ -238,12 +294,16 @@ public struct SettingsView: View {
                 AppearanceSettingsTab()
             case .providers:
                 ProvidersSettingsTab()
+            case .people:
+                PeopleSettingsTab(syncManager: syncManager)
             case .sync:
                 SyncSettingsTab(syncManager: syncManager)
             case .filing:
                 FilingSettingsTab(syncManager: syncManager)
             case .duplicates:
                 DuplicatesSettingsTab()
+            case .intelligence:
+                IntelligenceSettingsTab(syncManager: syncManager)
             case .advanced:
                 AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
             }
@@ -346,6 +406,23 @@ enum SettingsSearchIndex {
               keywords: ["enable", "disable", "show", "hide", "sidebar", "toggle provider",
                          "toggle source"]),
 
+        // People. Indexed by what it is *about* as much as by its label: someone looking for this
+        // is more likely to type a relationship or the thing it prevents ("wrong person") than
+        // "people". "organize" and "filing" stay on it because the roster was a section of that
+        // tab until this split, and someone who remembers where it was will look there first.
+        .init(tab: .people, title: "People",
+              keywords: ["people", "person", "family", "household", "names", "full name",
+                         "wife", "husband", "son", "daughter", "mother", "father", "kids",
+                         "wrong person", "whose document", "who", "aliases", "privacy",
+                         "what is stored", "data", "organize", "filing"]),
+        // The Add button is its own entry: "add person" is what someone types when the roster is
+        // missing somebody, and it would otherwise reach nothing — the section title does not
+        // contain the word they used.
+        .init(tab: .people, title: "Add Person…",
+              keywords: ["add person", "new person", "add family member", "add someone",
+                         "remove person", "delete person", "edit person", "rename person",
+                         "relationship", "brother", "sister", "roster"]),
+
         // Sync
         .init(tab: .sync, title: "When a file already exists",
               keywords: ["conflict", "conflict policy", "overwrite", "replace", "keep both", "duplicate handling"]),
@@ -364,43 +441,20 @@ enum SettingsSearchIndex {
         .init(tab: .sync, title: "Ignored name patterns",
               keywords: ["ignore patterns", "glob", "exclude", "wildcard", "ds_store", "node_modules", "patterns"]),
 
-        // Organize — the Suggestions and Cloud spend sections, in tab order.
-        // "tidy" is kept as a keyword on the two entries a Tidy-era user is most likely to hunt
-        // for by that name: the word left the product with this split, so someone who remembers
-        // it has nothing to type otherwise.
-        .init(tab: .filing, title: "Suggest folders with on-device AI",
-              keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders",
-                         "sort files", "organize", "tidy"]),
-        // "refine" is the word on the button this row enables, and the one someone who has seen
-        // that button will type; "best suggestions" is what the row used to be called.
-        .init(tab: .filing, title: "Use Claude (cloud) to refine suggestions",
-              keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai", "refine",
-                         "best suggestions"]),
-        .init(tab: .filing, title: "Anthropic API key",
-              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "token"]),
-        .init(tab: .filing, title: "Cloud model",
-              keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
-        .init(tab: .filing, title: "Read file contents on-device for better signals",
-              keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
-        // "cache" is the word an engineer reaches for and the UI deliberately never says, so it
-        // has to live here or the row is unfindable by the people most likely to look for it.
-        .init(tab: .filing, title: "Reuse suggestions for files that haven’t changed",
-              keywords: ["reuse", "cache", "cached suggestions", "rescan", "re-ask", "cost", "save money"]),
-        .init(tab: .filing, title: "Saved suggestions",
-              keywords: ["saved suggestions", "clear cache", "cache", "forget suggestions", "reset suggestions"]),
+        // Organize — what is left of it after the engine moved to Intelligence and the roster
+        // to People: the two settings that describe the JOB rather than the machinery.
+        // "tidy" is kept as a keyword on the entries a Tidy-era user is most likely to hunt for
+        // by that name: the word left the product with that split, so someone who remembers it
+        // has nothing to type otherwise.
+        //
         // "loose files" and "todo" are the two a user actually types: the title spells the first
         // hyphenated ("Loose-files"), so the spaced form matches nothing without the keyword, and
         // the second is the default value rather than anything in the label.
         .init(tab: .filing, title: "Loose-files inbox",
-              keywords: ["inbox", "loose files", "todo", "default folder", "scan folder", "organize"]),
+              keywords: ["inbox", "loose files", "todo", "default folder", "scan folder",
+                         "organize", "tidy"]),
         .init(tab: .filing, title: "Remembered rules",
               keywords: ["filing rules", "rules", "remembered rules", "manage rules", "automation", "automations"]),
-        .init(tab: .filing, title: "Cloud spend",
-              keywords: ["spend", "cost", "tokens", "billing", "usage", "money", "price"]),
-        .init(tab: .filing, title: "Monthly budget cap",
-              keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
-        .init(tab: .filing, title: "Total budget cap",
-              keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
         // Nearly every query for this one misses the label. The section is titled "Kept names",
         // but the decision is made from a menu item worded "Always Allow This Name" and withdrawn
         // from one worded "Stop Allowing This Name" — so "allow" is the word the user has actually
@@ -410,20 +464,6 @@ enum SettingsSearchIndex {
               keywords: ["kept name", "keep name", "allow name", "always allow", "stop allowing",
                          "allowed names", "risky name", "risky names", "badge", "name badge",
                          "trailing space", "forbidden character", "rename", "exceptions"]),
-        // Indexed by what it is *about* as much as by its label: someone looking for this is more
-        // likely to type a relationship or the thing it prevents ("wrong person") than "people".
-        .init(tab: .filing, title: "People",
-              keywords: ["people", "person", "family", "household", "names", "full name",
-                         "wife", "husband", "son", "daughter", "mother", "father", "kids",
-                         "wrong person", "whose document", "who", "aliases", "privacy",
-                         "what is stored", "data"]),
-        // The Add button is its own entry: "add person" is what someone types when the roster is
-        // missing somebody, and it would otherwise reach nothing — the section title does not
-        // contain the word they used.
-        .init(tab: .filing, title: "Add Person…",
-              keywords: ["add person", "new person", "add family member", "add someone",
-                         "remove person", "delete person", "edit person", "rename person",
-                         "relationship", "brother", "sister", "roster"]),
 
         // Duplicates
         .init(tab: .duplicates, title: "Ignore files smaller than",
@@ -432,6 +472,44 @@ enum SettingsSearchIndex {
               keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
         .init(tab: .duplicates, title: "Detect versions",
               keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
+
+        // Intelligence — the engine and its cost, in tab order. This block carries more of the
+        // findability load than any other: the rail says "Intelligence", and nobody hunting for
+        // where their API key goes types that word. Every entry keeps the "organize"/"filing"
+        // keywords it had before the split for the same reason the People block does.
+        .init(tab: .intelligence, title: "Suggest folders with on-device AI",
+              keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders",
+                         "sort files", "organize", "tidy", "intelligence"]),
+        .init(tab: .intelligence, title: "Read file contents on-device for better signals",
+              keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
+        // "refine" is the word on the button this row enables, and the one someone who has seen
+        // that button will type; "best suggestions" is what the row used to be called.
+        .init(tab: .intelligence, title: "Use Claude (cloud) to refine suggestions",
+              keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai", "refine",
+                         "best suggestions", "organize"]),
+        // "claude" belongs on the KEY, not only on the toggle above it. The title says Anthropic
+        // and the product says Claude, and someone pasting an `sk-ant-…` types whichever of the
+        // two they last read — which for anyone coming from the Console or the Refine button is
+        // "claude api key".
+        .init(tab: .intelligence, title: "Anthropic API key",
+              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "token",
+                         "api", "credentials", "secret", "claude", "claude key", "claude api key"]),
+        .init(tab: .intelligence, title: "Cloud model",
+              keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
+        // Titled for the section it now sits in ("Cost and limits"); "cloud spend" stays as a
+        // keyword because that is what the section was called and what the history sheet says.
+        .init(tab: .intelligence, title: "Cost and limits",
+              keywords: ["spend", "cloud spend", "cost", "tokens", "billing", "usage", "money", "price"]),
+        .init(tab: .intelligence, title: "Monthly budget cap",
+              keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
+        .init(tab: .intelligence, title: "Total budget cap",
+              keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
+        // "cache" is the word an engineer reaches for and the UI deliberately never says, so it
+        // has to live here or the row is unfindable by the people most likely to look for it.
+        .init(tab: .intelligence, title: "Reuse suggestions for files that haven’t changed",
+              keywords: ["reuse", "cache", "cached suggestions", "rescan", "re-ask", "cost", "save money"]),
+        .init(tab: .intelligence, title: "Saved suggestions",
+              keywords: ["saved suggestions", "clear cache", "cache", "forget suggestions", "reset suggestions"]),
 
         // Advanced
         .init(tab: .advanced, title: "Log level",
@@ -1761,26 +1839,90 @@ struct DuplicatesSettingsTab: View {
 
 // MARK: - Organize
 
-/// Everything that changes what Organize suggests — on-device AI, the opt-in Claude cloud path
-/// with its key and model, the loose-files inbox — plus the spend that cloud option can run up,
-/// and the inventory of names the user has told Organize to stop offering to rename.
+/// The Organize *job*: where it goes looking for loose files, and the names it has been told to
+/// stop offering to rename.
 ///
-/// Cloud spend rides here rather than getting a Billing tab of its own: the caps exist because
-/// Organize can call Claude, so they are *Organize's* money, and a second tab for one feature's
-/// opt-in API key would be a third place to look for one workflow.
+/// This tab used to be five subjects — the AI engine, the Claude key and model, the money that
+/// path costs, the kept-name inventory, and the household roster — under one rail row, and the
+/// tell was its caption: a single paragraph of nine sentences, because one caption had to explain
+/// all five. The engine and its cost are now `IntelligenceSettingsTab`, the roster is
+/// `PeopleSettingsTab`, and what is left here is the pair of settings that describe the job
+/// rather than the machinery: which folder to scan, and what not to touch.
+///
+/// The old header comment defended cloud spend living here — "the caps exist because Organize can
+/// call Claude, so they are *Organize's* money". That was true while the key was Organize's too.
+/// Once the key has a tab, the money follows the key: they are one question ("what does the cloud
+/// path cost me?") and splitting them would be the third place to look for one workflow the old
+/// comment was rightly worried about.
 struct FilingSettingsTab: View {
     /// Only the kept-names list needs it, and only to reach `keptNamesStore`. Optional for the
     /// same reason every other tab's is: tests and previews build the tab without an engine.
     let syncManager: FileSyncManager?
-    @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
-    @AppStorage(FileSyncManager.reuseVerdictsDefaultsKey) private var filingReuseVerdicts: Bool = true
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
+
+    var body: some View {
+        SettingsPage {
+            SettingsSection("Filing", content: {
+                SettingsRow("Loose-files inbox") {
+                    TextField("TODO", text: $filingInbox)
+                        .frame(maxWidth: 180)
+                        .multilineTextAlignment(.trailing)
+                }
+                .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
+                SettingsRow("Remembered rules") {
+                    Text("Now live in the Automations workspace")
+                        .foregroundStyle(.secondary)
+                }
+                .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Automations workspace.")
+            }, caption: {
+                // Names the two tabs this one hands off to. A settings tab that has had three of
+                // its five sections moved out owes the reader that much: without it, "where did
+                // the API key go?" has no answer on the page it used to be answered on.
+                Text("Organize suggests where loose files belong, starting from the inbox folder above. What it suggests, and what the cloud pass costs, now live under **Intelligence**; the household it files for lives under **People**. Corrections you ask it to remember are saved as automations.")
+            })
+
+            SettingsSection(
+                "Kept names",
+                caption: "Names you kept with “Always Allow This Name” after SyncCloud flagged them as ones a cloud provider may mishandle — a trailing space, a forbidden character, and so on. A kept name draws no badge anywhere it is listed, and Organize never offers to rename it. Kept names are matched exactly, so the decision covers every file with that name and follows it when it moves. Remove one to have it reported again; the files themselves are never touched either way."
+            ) {
+                if let store = syncManager?.keptNamesStore {
+                    KeptNamesList(store: store)
+                } else {
+                    // No engine attached (tests, previews). The list would say the same thing an
+                    // empty store does, so say it rather than leaving the caption over a void.
+                    KeptNamesList.nothingKeptNote
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Intelligence
+
+/// The suggestion engine and what it costs: the free on-device pass, the opt-in Claude pass with
+/// its key and model, the spend those calls run up, and the cache that stops them being repeated.
+///
+/// Called "Intelligence" rather than "Claude" because the free on-device pass is half of it and a
+/// vendor name would sit over a section that isn't theirs; rather than "AI & Cloud" because a
+/// second "Cloud" in a rail that already has cloud *providers* under Sources answers the wrong
+/// question first. `SettingsSearchIndex` is what carries "API key" and "Anthropic" here, and the
+/// entries below are indexed against this tab precisely so the rail's word doesn't have to be the
+/// only way in.
+///
+/// The four sections are one escalation, top to bottom: what runs for free, what runs for money,
+/// what that money has come to, and what stops it being spent twice.
+struct IntelligenceSettingsTab: View {
+    /// Reaches `filingVerdictCache*` for the saved-suggestion count. Optional for the same reason
+    /// every other tab's is: tests and previews build the tab without an engine.
+    let syncManager: FileSyncManager?
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
+    @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
     // Default from the protocol, not a repeated literal: the classifier and the spend preflight both
     // fall back to `CloudFilingProtocol.defaultModel`, and a copy here would silently disagree with
     // them the next time the default model moves.
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
+    @AppStorage(FileSyncManager.reuseVerdictsDefaultsKey) private var filingReuseVerdicts: Bool = true
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
     @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
 
@@ -1794,24 +1936,55 @@ struct FilingSettingsTab: View {
     @State private var spendLast: FilingSpendEntry?
     @State private var showSpendHistory = false
 
+    /// Whether the KEY AND MODEL rows can be operated. The cloud path rides on top of on-device
+    /// AI, so turning either flag off takes them with it.
+    ///
+    /// Static and parameterised so the rule can be tested: the view itself reads `@AppStorage`,
+    /// and the disabled-ness of a SwiftUI control is not observable from a unit test.
+    static func cloudControlsEnabled(useAI: Bool, useCloud: Bool) -> Bool { useAI && useCloud }
+
+    /// Whether the cloud TOGGLE itself can be operated — gated on on-device AI **and nothing
+    /// else**.
+    ///
+    /// Deliberately not `cloudControlsEnabled`, and the distinction is not cosmetic. Putting one
+    /// `.disabled(!cloudControlsEnabled)` over the whole section — which is how this was first
+    /// written — disabled the toggle along with the rows it gates, and since `filingUseCloud`
+    /// defaults to false the switch that turns cloud refining on could never be turned on. The
+    /// entire paid path was unreachable, and every test stayed green: 215 of them, because a
+    /// SwiftUI control's disabled state is invisible to all of them. It took rendering the tab to
+    /// a PNG and looking at it.
+    ///
+    /// The general rule, which is worth more than this instance: **a control that turns something
+    /// on must never be gated on that thing being on.**
+    static func cloudToggleEnabled(useAI: Bool) -> Bool { useAI }
+
     var body: some View {
         SettingsPage {
-            // "Filing" as a header no longer earns its keep — the tab above it is called
-            // Organize, and this is the group that decides what Organize suggests. "Suggestions"
-            // names the thing the rows change, and leaves "Cloud spend" below it reading as the
-            // other half of the tab rather than as a subsection of filing.
-            SettingsSection("Suggestions", content: {
+            SettingsSection(
+                "On-device",
+                caption: "Free, private, and always the first pass: the on-device model (Apple Intelligence, macOS 26) runs at no cost, and where it isn’t available Organize falls back to matching on names and metadata. Reading contents gives it more to go on for files whose name says nothing. Changes apply on the next scan."
+            ) {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
-                // "to refine suggestions", not "for the best suggestions": Claude is no longer
-                // something a scan uses, it is what the Refine button on the results uses. The old
-                // label described a setting that changed what every scan did — and cost.
+                Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+            }
+
+            SettingsSection(
+                "Claude (cloud)",
+                caption: "Refining is the opt-in second pass — once a scan has results, a Refine button re-asks Claude about them, billed to your API key. It is the only thing here that spends money, it never runs on its own, and you see a cost estimate before each one. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per pass. Pick Haiku for the cheapest runs (roughly a penny a pass). The key is stored in the macOS Keychain."
+            ) {
                 Toggle("Use Claude (cloud) to refine suggestions", isOn: $filingUseCloud)
-                    .disabled(!filingUseAI)
-                    .help("Lets Organize's Refine button send to Claude — with a key stored below; without one it offers to bring you back here instead. Scans stay free and on-device either way; refining is the only thing that reaches Claude, and only when you click it.")
-                // Cloud filing rides on top of on-device AI (its toggle is disabled when AI is
-                // off). Gate the key/model sub-panel on both flags so turning AI off doesn't
-                // strand a live-looking cloud panel whose own toggle can no longer dismiss it.
-                if filingUseCloud && filingUseAI {
+                    .disabled(!Self.cloudToggleEnabled(useAI: filingUseAI))
+                    .help("Lets Organize’s Refine button send to Claude — with the key below; without one it offers to bring you back here instead. Scans stay free and on-device either way; refining is the only thing that reaches Claude, and only when you click it.")
+                // Shown ALWAYS, disabled rather than absent when the toggles are off. It used to
+                // be gated on `filingUseCloud && filingUseAI`, which meant "is a key stored?" —
+                // the one question this row exists to answer — became unanswerable the moment
+                // either toggle went off, and answering it required turning cloud filing back on.
+                // A disabled row still says whether a key is there.
+                // Grouped so ONE `.disabled` covers the key and the model without also covering
+                // the toggle above them. The modifier used to sit on the whole `SettingsSection`,
+                // which swept the toggle in and made cloud refining impossible to switch on at
+                // all — see `cloudToggleEnabled`.
+                Group {
                     CloudKeyRow()
                     // Read through `currentModel(for:)` so a value stored before a model refresh
                     // (e.g. "claude-opus-4-8") still lights up its family's row instead of leaving
@@ -1833,44 +2006,21 @@ struct FilingSettingsTab: View {
                     }
                     .help("Saved suggestions are per model — switching means the next Refine asks, and pays for, every file again.")
                 }
-                Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
-                Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
-                    .disabled(!filingUseAI)
-                    .help("A file that hasn’t been edited, renamed, or moved gets the same suggestion it got last time, so scanning — or refining — the same folder again doesn’t ask the model, or pay Claude, a second time. Turning this off asks afresh every time.")
-                SettingsRow("Saved suggestions") {
-                    HStack(spacing: 8) {
-                        Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Button("Clear") {
-                            syncManager?.clearFilingVerdictCache()
-                            // The non-awaiting read: `clearFilingVerdictCache` has just written the
-                            // memo, so this cannot be the first load and cannot decode anything.
-                            savedSuggestionCount = syncManager?.filingVerdictCacheCountNow ?? 0
-                        }
-                        .disabled(savedSuggestionCount == 0)
-                    }
-                }
-                .help("Forget every saved suggestion. The next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again.")
-                SettingsRow("Loose-files inbox") {
-                    TextField("TODO", text: $filingInbox)
-                        .frame(maxWidth: 180)
-                        .multilineTextAlignment(.trailing)
-                }
-                .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
-                SettingsRow("Remembered rules") {
-                    Text("Now live in the Automations workspace")
-                        .foregroundStyle(.secondary)
-                }
-                .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Automations workspace.")
-            }, caption: {
-                Text("Organize suggests where loose files belong, in two passes. **Scanning is always free**: the on-device model (Apple Intelligence, macOS 26) runs private and at no cost, and where it isn’t available Organize falls back to name/metadata matching. **Refining is the opt-in second pass** — once a scan has results, a Refine button re-asks Claude about them, billed to your API key. It is the only thing here that spends money, it never runs on its own, and you see a cost estimate before each one. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per pass. Pick Haiku for the cheapest runs (roughly a penny a pass). The key is stored in the macOS Keychain. The corrections you ask Organize to remember are saved as automations (the Automations workspace). Changes apply on the next scan.")
-            })
+                // One modifier over both rows rather than one each: they are the same control
+                // surface (the key you use and the model you spend it on), and they enable
+                // together — but only these two.
+                .disabled(!Self.cloudControlsEnabled(useAI: filingUseAI, useCloud: filingUseCloud))
+            }
 
             SettingsSection(
-                "Cloud spend",
+                "Cost and limits",
                 caption: "Before each Refine you’ll see a cost estimate to confirm. Two caps pause cloud classification when a refine would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached leaves the free on-device suggestions in place until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); scanning is free."
             ) {
+                // What has been spent, above the caps that bound it: the numbers are what make
+                // the caps mean anything, and reading "Total spent $0.42" first is what tells you
+                // whether the $5 backstop below is close. As a readout strip rather than four
+                // more label/value rows — these report, they don't set.
+                FilingSpendReadout(totals: spendTotals, last: spendLast)
                 // A cap is the one setting where a blank picker is actively dangerous: the stored
                 // value keeps pausing (or not pausing) cloud scans regardless of what the control
                 // shows, so an unrecognized cap has to be visible. Rows via `SettingsPickerOptions`.
@@ -1892,14 +2042,6 @@ struct FilingSettingsTab: View {
                     .labelsHidden()
                     .fixedSize()
                 }
-                SettingsRow("Total spent") { Text(FilingSpendFormat.cost(spendTotals.costUSD)) }
-                SettingsRow("Tokens") { Text(FilingSpendFormat.tokens(spendTotals.tokens)) }
-                SettingsRow("Cloud scans") { Text("\(spendTotals.scans)") }
-                if let last = spendLast {
-                    SettingsRow("Last scan") {
-                        Text("\(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
-                    }
-                }
                 HStack {
                     Button("View history…") { showSpendHistory = true }
                         .disabled(spendTotals.scans == 0)
@@ -1909,42 +2051,25 @@ struct FilingSettingsTab: View {
                 .controlSize(.small)
             }
 
-            // Last, below Cloud spend, rather than between it and Suggestions: those two are one
-            // subject (what Organize suggests, and what the cloud option costs to suggest it), and
-            // the header comment above turns on them reading as the two halves of this tab. Kept
-            // names is the other lens — the rename finding — so it goes after both rather than
-            // splitting them. Being at the bottom of a long tab is what the search index answers.
             SettingsSection(
-                "Kept names",
-                caption: "Names you kept with “Always Allow This Name” after SyncCloud flagged them as ones a cloud provider may mishandle — a trailing space, a forbidden character, and so on. A kept name draws no badge anywhere it is listed, and Organize never offers to rename it. Kept names are matched exactly, so the decision covers every file with that name and follows it when it moves. Remove one to have it reported again; the files themselves are never touched either way."
+                "Saved suggestions",
+                caption: "A file that hasn’t been edited, renamed, or moved gets the same suggestion it got last time, so scanning — or refining — the same folder again doesn’t ask the model, or pay Claude, a second time. Clearing forgets every saved suggestion: the next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again."
             ) {
-                if let store = syncManager?.keptNamesStore {
-                    KeptNamesList(store: store)
-                } else {
-                    // No engine attached (tests, previews). The list would say the same thing an
-                    // empty store does, so say it rather than leaving the caption over a void.
-                    KeptNamesList.nothingKeptNote
-                }
-            }
-
-            SettingsSection(
-                "People",
-                caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names below."
-            ) {
-                if let store = syncManager?.filingPeopleStore,
-                   let vetoLog = syncManager?.filingPersonVetoLog {
-                    PeopleList(store: store,
-                               profile: syncManager?.filingFolderProfile,
-                               memory: syncManager?.filingMemory,
-                               // The tree the profile describes. Absent until a scan has named it,
-                               // which is also when its folder paths mean anything.
-                               providerRoot: syncManager?.filingLastProviderRoot
-                                   .map { URL(fileURLWithPath: $0) },
-                               vetoLog: vetoLog)
-                } else {
-                    // No engine attached (tests, previews) — say so rather than leaving the caption
-                    // over a void, and never offer an Add button that would write nowhere.
-                    PeopleList.noStoreNote
+                Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
+                    .disabled(!filingUseAI)
+                SettingsRow("Saved suggestions") {
+                    HStack(spacing: 8) {
+                        Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Button("Clear") {
+                            syncManager?.clearFilingVerdictCache()
+                            // The non-awaiting read: `clearFilingVerdictCache` has just written the
+                            // memo, so this cannot be the first load and cannot decode anything.
+                            savedSuggestionCount = syncManager?.filingVerdictCacheCountNow ?? 0
+                        }
+                        .disabled(savedSuggestionCount == 0)
+                    }
                 }
             }
         }
@@ -1969,7 +2094,101 @@ struct FilingSettingsTab: View {
         spendTotals = FilingSpendStore.totals()
         spendLast = FilingSpendStore.last()
     }
+}
 
+/// What the cloud pass has cost so far — total, tokens, scan count, and the most recent scan.
+///
+/// Four `SettingsRow`s until now, which was the wrong shape twice over: a `SettingsRow` reads as
+/// "setting: value" and these set nothing, and four of them in a row put 4 × ~20pt of stacked
+/// label/value between the caps and the buttons that act on them. As a strip the same four facts
+/// read as one readout and cost one row's height.
+///
+/// A separate view rather than inline so the "no scans yet" case has somewhere to be stated once:
+/// with `scans == 0` every figure is a zero, and four zeroes read as a broken control rather than
+/// as an untouched one.
+struct FilingSpendReadout: View {
+    let totals: FilingSpendTotals
+    let last: FilingSpendEntry?
+
+    var body: some View {
+        if totals.scans == 0 {
+            Text("No cloud refines yet — nothing has been spent.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+        } else {
+            HStack(alignment: .top, spacing: 18) {
+                figure("Total spent", FilingSpendFormat.cost(totals.costUSD))
+                figure("Tokens", FilingSpendFormat.tokens(totals.tokens))
+                figure("Cloud refines", "\(totals.scans)")
+                if let last {
+                    figure("Last refine",
+                           "\(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// A label over its value. `.monospacedDigit()` on the value so the four figures don't shift
+    /// their neighbours as they grow — the strip is refreshed live while a refine runs.
+    @ViewBuilder
+    private func figure(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .scaledFont(.callout)
+                .monospacedDigit()
+                // The last-refine figure is a sentence's worth of detail in a column sized for a
+                // number; without this it truncates to "Haiku · 88 fi…" at the narrower widths.
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - People
+
+/// The household Organize files for.
+///
+/// A tab rather than the section it was, because it is a ROSTER and not a preference: it has rows
+/// with their own facts and veto counts, an overview of what the set governs across the tree, a
+/// name-suggestion queue, a tester, and an editor sheet. That is the shape `ProvidersSettingsTab`
+/// has — a list of things the user maintains — and none of it is what a `SettingsSection` is for.
+/// It also outgrew its host: as Organize's fifth section it sat below a long tab, so the roster
+/// was the part of Settings you had to scroll furthest to reach and the part most likely to need
+/// editing.
+struct PeopleSettingsTab: View {
+    /// Reaches the people store, the folder profile, the filing memory and the veto log — four
+    /// engine-side things, which is another sign this was never a settings section. Optional for
+    /// the same reason every other tab's is.
+    let syncManager: FileSyncManager?
+
+    var body: some View {
+        SettingsPage {
+            SettingsSection(
+                caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names you add here."
+            ) {
+                if let store = syncManager?.filingPeopleStore,
+                   let vetoLog = syncManager?.filingPersonVetoLog {
+                    PeopleList(store: store,
+                               profile: syncManager?.filingFolderProfile,
+                               memory: syncManager?.filingMemory,
+                               // The tree the profile describes. Absent until a scan has named it,
+                               // which is also when its folder paths mean anything.
+                               providerRoot: syncManager?.filingLastProviderRoot
+                                   .map { URL(fileURLWithPath: $0) },
+                               vetoLog: vetoLog)
+                } else {
+                    // No engine attached (tests, previews) — say so rather than leaving the caption
+                    // over a void, and never offer an Add button that would write nowhere.
+                    PeopleList.noStoreNote
+                }
+            }
+        }
+    }
 }
 
 /// The kept-names rows inside the Organize tab: one name per entry with a remove button, plus

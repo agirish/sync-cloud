@@ -114,27 +114,95 @@ import Testing
 
     // MARK: The Tidy split
 
-    /// The twelve entries that used to say `.tidy` now have to say the right one of two things,
-    /// and `everyEntryPointsAtARealTab` cannot tell: `.filing` and `.duplicates` are both real, so
-    /// pointing all twelve at either one passes it. Search is how someone reaches a setting
-    /// without knowing which tab holds it, and landing on the wrong tab of two that look alike is
-    /// worse than landing on none — the setting isn't there, and the rail says it should be.
+    /// The entries that used to say `.tidy` now have to say the right one of FOUR things, and
+    /// `everyEntryPointsAtARealTab` cannot tell: `.filing`, `.duplicates`, `.intelligence` and
+    /// `.people` are all real, so pointing every one at any single tab passes it. Search is how
+    /// someone reaches a setting without knowing which tab holds it, and landing on the wrong tab
+    /// of four that look alike is worse than landing on none — the setting isn't there, and the
+    /// rail says it should be.
+    ///
+    /// The two-way version of this list was what the Tidy split needed. Splitting Organize again —
+    /// the engine and its cost to `.intelligence`, the roster to `.people` — is the same hazard a
+    /// second time and on more entries: eleven of the twelve moved, and `.filing` kept three. A
+    /// test that only knew about Organize and Duplicates would have passed with every one of them
+    /// still pointing at the tab they had just left.
     ///
     /// Spelled out per title rather than by counting, so the assertion says which control is
     /// misfiled instead of only that one is.
     @Test func theOldTidyEntriesLandOnTheTabThatOwnsTheirControl() {
-        let duplicates = ["Ignore files smaller than", "Folders overlap at", "Detect versions"]
-        let organize = ["Suggest folders with on-device AI", "Use Claude (cloud) to refine suggestions",
-                        "Anthropic API key", "Cloud model", "Read file contents on-device for better signals",
-                        "Remembered rules", "Cloud spend", "Monthly budget cap", "Total budget cap"]
+        let expected: [SettingsView.SettingsTab: [String]] = [
+            .duplicates: ["Ignore files smaller than", "Folders overlap at", "Detect versions"],
+            // What Organize kept: the job, not the machinery.
+            .filing: ["Loose-files inbox", "Remembered rules", "Kept names"],
+            .intelligence: ["Suggest folders with on-device AI",
+                            "Read file contents on-device for better signals",
+                            "Use Claude (cloud) to refine suggestions",
+                            "Anthropic API key", "Cloud model",
+                            "Cost and limits", "Monthly budget cap", "Total budget cap",
+                            "Reuse suggestions for files that haven’t changed", "Saved suggestions"],
+            .people: ["People", "Add Person…"],
+        ]
 
-        for title in duplicates {
-            let entry = SettingsSearchIndex.all.first { $0.title == title }
-            #expect(entry?.tab == .duplicates, "\"\(title)\" points at \(entry?.tab.displayName ?? "nothing")")
+        for (tab, titles) in expected {
+            for title in titles {
+                let entry = SettingsSearchIndex.all.first { $0.title == title }
+                #expect(entry?.tab == tab,
+                        "\"\(title)\" points at \(entry?.tab.displayName ?? "nothing"), not \(tab.displayName)")
+            }
         }
-        for title in organize {
-            let entry = SettingsSearchIndex.all.first { $0.title == title }
-            #expect(entry?.tab == .filing, "\"\(title)\" points at \(entry?.tab.displayName ?? "nothing")")
+    }
+
+    /// Someone who knew these settings as Organize's has to still find them after they moved.
+    ///
+    /// The split is invisible to a user who last looked a version ago: they remember an Organize
+    /// tab with an API key in it. The keyword lists carry "organize" and "filing" across to the
+    /// entries that left for exactly this, and nothing else checks that they do — every entry
+    /// would still be individually well-formed with those words dropped.
+    @Test func theSettingsThatLeftOrganizeAreStillFoundByItsName() {
+        for query in ["organize", "filing"] {
+            let results = filterSettings(SettingsSearchIndex.all, query: query)
+            #expect(results.contains { $0.tab == .intelligence },
+                    "'\(query)' reaches nothing on Intelligence — the engine settings left Organize silently")
+            #expect(results.contains { $0.tab == .people },
+                    "'\(query)' reaches nothing on People — the roster left Organize silently")
+        }
+    }
+
+    /// The offer that says "set up cloud refine" has to open the tab that can actually set it up.
+    ///
+    /// The link lives in `MacApp/ContentView.swift`, which is in no SPM package — only the app
+    /// target compiles it — so a stale `.filing` there would have survived every test in the
+    /// repo while sending anyone who accepted the offer to a tab with no key on it. Asserted
+    /// against the INDEX rather than against `.intelligence` spelled twice: what makes a tab the
+    /// right destination is that the key is on it, and if the key ever moves again this fails
+    /// instead of agreeing with itself.
+    @Test func theCloudRefineOfferLandsOnTheTabThatHoldsTheKey() throws {
+        let key = try #require(SettingsSearchIndex.all.first { $0.title == "Anthropic API key" })
+        let toggle = try #require(SettingsSearchIndex.all.first {
+            $0.title == "Use Claude (cloud) to refine suggestions"
+        })
+
+        #expect(SettingsView.SettingsTab.cloudRefineSetup == key.tab,
+                """
+                The cloud-refine offer opens \(SettingsView.SettingsTab.cloudRefineSetup.displayName) \
+                but the API key is on \(key.tab.displayName).
+                """)
+        #expect(SettingsView.SettingsTab.cloudRefineSetup == toggle.tab,
+                """
+                The cloud-refine offer opens \(SettingsView.SettingsTab.cloudRefineSetup.displayName) \
+                but the toggle it exists to turn on is on \(toggle.tab.displayName).
+                """)
+    }
+
+    /// The API key is the single most-hunted control in Settings and the one the rail's word does
+    /// the least for: "Intelligence" is not what anybody types when they are looking for where to
+    /// paste an `sk-ant-…`. Search is the whole of its discoverability, so the queries someone
+    /// actually uses are pinned rather than left to the keyword list's good intentions.
+    @Test func theApiKeyIsFindableByTheWordsPeopleActuallyType() {
+        for query in ["api key", "anthropic", "claude", "keychain", "sk-ant", "token", "secret"] {
+            let results = filterSettings(SettingsSearchIndex.all, query: query)
+            #expect(results.contains { $0.title == "Anthropic API key" && $0.tab == .intelligence },
+                    "'\(query)' should surface the Anthropic API key control")
         }
     }
 
@@ -204,15 +272,23 @@ import Testing
     /// Adding a line here is how you say "this label is not a setting". Adding one to silence a
     /// real control is the failure this test exists to catch, so each entry earns its line.
     ///
-    /// Ten of the eleven are load-bearing — drop one and the scan fails on it. "Suggestions" is
-    /// not, and is kept anyway: it happens to be swallowed by the *title* "Use Claude (cloud) for
-    /// the best suggestions" under the containment rule above, which is an accident of wording
-    /// rather than a decision. Stating the exemption is what keeps that header exempt if the
-    /// Claude entry is ever retitled.
+    /// The list shrank when Organize split. "Suggestions" was Organize's group header and is gone;
+    /// the four readout labels — "Total spent", "Tokens", "Cloud scans", "Last scan" — were
+    /// `SettingsRow`s and are now drawn by `FilingSpendReadout`, which the scan does not see at
+    /// all, so keeping them here would have been five lines claiming to exempt labels that no
+    /// longer exist. An exemption nobody can fail is worse than none: it reads as a decision.
+    ///
+    /// "Filing" is the one addition — the group header over Organize's inbox path and rules
+    /// pointer, both of which are indexed under their own row titles.
+    ///
+    /// Every entry is load-bearing: drop one and the scan fails on it. The other new section
+    /// headers are deliberately absent, because each is genuinely covered by a control entry
+    /// under the containment rule above — "On-device" by "Read file contents on-device…",
+    /// "Claude (cloud)" by "Use Claude (cloud) to refine suggestions", and "Cost and limits" and
+    /// "Saved suggestions" by entries of their own.
     static let unindexedByDesign: Set<String> = [
-        "Startup", "Conflicts", "Comparison", "Confirmations", "Logging", "Maintenance", "Suggestions",
-        "Saved scan data",
-        "Total spent", "Tokens", "Cloud scans", "Last scan",
+        "Startup", "Conflicts", "Comparison", "Confirmations", "Logging", "Maintenance",
+        "Filing", "Saved scan data",
     ]
 
     /// Whether some entry's title and this on-screen label name the same control. Containment runs
