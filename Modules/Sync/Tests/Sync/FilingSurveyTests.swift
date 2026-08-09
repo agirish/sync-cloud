@@ -108,52 +108,110 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: nil).isEmpty)
     }
 
+    /// Markdown is not a filed document here, and adding it would mix notes written under a
+    /// different rule into the same IDF as the corpus it extends.
+    @Test func markdownIsOutsideTheDocumentSet() {
+        #expect(!FilingSurvey.readableExtensions.contains("md"))
+        let tree = FilingSurvey.Tree(folders: ["F": 1], documents: [
+            "F/notes.md": FilingSurvey.Stamp(size: 1, modified: 1),
+            "F/bill.pdf": FilingSurvey.Stamp(size: 1, modified: 1),
+        ])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: nil) == ["F/bill.pdf"])
+    }
+
+    // MARK: - Scope
+
+    /// **A survey extends a corpus; it does not decide what the corpus should have been.** A branch
+    /// nothing was ever surveyed in stays out — on the real tree that is `Claude/`, 554 readable
+    /// files of project notes the offline survey deliberately skipped, which the app cannot tell
+    /// from a leaf destination by looking at the profile.
+    @Test func aBranchNothingWasEverSurveyedInStaysOut() {
+        let existing = Self.corpus(["Home/Utilities/PG&E/2024/jan.pdf": Self.doc(["pge"])])
+        let tree = FilingSurvey.Tree(folders: ["Home": 1, "Claude": 1], documents: [
+            "Home/Utilities/PG&E/2024/jan.pdf": FilingSurvey.Stamp(size: 1000, modified: 1_700_000_000),
+            "Claude/Projects/report.pdf": FilingSurvey.Stamp(size: 5, modified: 5),
+        ])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: existing).isEmpty)
+    }
+
+    /// The other half, and the reason scope is closed *upwards*: a folder created today under a
+    /// branch that has been surveyed is exactly what this feature exists to learn.
+    @Test func aNewFolderUnderASurveyedBranchIsInScope() {
+        let existing = Self.corpus(["Home/Utilities/PG&E/2024/jan.pdf": Self.doc(["pge"])])
+        let tree = FilingSurvey.Tree(folders: ["Home": 1], documents: [
+            "Home/Utilities/PG&E/2024/jan.pdf": FilingSurvey.Stamp(size: 1000, modified: 1_700_000_000),
+            "Home/Xfinity/2026/march.pdf": FilingSurvey.Stamp(size: 5, modified: 5),
+        ])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: existing) == ["Home/Xfinity/2026/march.pdf"])
+    }
+
+    /// A memory with no corpus still bounds the region — the state of any machine whose artifacts
+    /// were installed before this existed.
+    @Test func theMemoryAloneBoundsTheRegion() {
+        let memory = FilingMemory(profileId: "t", salt: Self.salt, folders: [
+            "Home/Utilities/PG&E/2024": FilingMemoryEntry(docs: 2, anchors: [], idHashes: []),
+        ])
+        let tree = FilingSurvey.Tree(folders: ["Home": 1, "Claude": 1], documents: [
+            "Home/new.pdf": FilingSurvey.Stamp(size: 5, modified: 5),
+            "Claude/notes.pdf": FilingSurvey.Stamp(size: 5, modified: 5),
+        ])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: nil, memory: memory) == ["Home/new.pdf"])
+    }
+
+    /// A machine with nothing to extend reads everything — the only thing a first survey could
+    /// sensibly do, and the case where an empty region must not mean an empty scope.
+    @Test func aMachineWithNoArtifactsSurveysTheWholeTree() {
+        let tree = FilingSurvey.Tree(folders: ["Anywhere": 1],
+                                     documents: ["Anywhere/a.pdf": FilingSurvey.Stamp(size: 5, modified: 5)])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: nil, memory: nil) == ["Anywhere/a.pdf"])
+    }
+
     // MARK: - Moves
 
     @Test func aMovedDocumentCarriesItsTokensInsteadOfBeingReread() {
-        let before = Self.corpus(["Inbox/bill.pdf": Self.doc(["pge", "electric"], size: 77, modified: 500)])
+        let before = Self.corpus(["Docs/Inbox/bill.pdf": Self.doc(["pge", "electric"], size: 77, modified: 500)])
         let tree = FilingSurvey.Tree(folders: ["Home": 1],
-                                     documents: ["Home/PG&E/bill.pdf": FilingSurvey.Stamp(size: 77, modified: 500)])
-        #expect(FilingSurvey.relocations(tree: tree, corpus: before) == ["Home/PG&E/bill.pdf": "Inbox/bill.pdf"])
+                                     documents: ["Docs/Home/PG&E/bill.pdf": FilingSurvey.Stamp(size: 77, modified: 500)])
+        #expect(FilingSurvey.relocations(tree: tree, corpus: before) == ["Docs/Home/PG&E/bill.pdf": "Docs/Inbox/bill.pdf"])
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before).isEmpty)
 
         let after = FilingSurvey.merge(corpus: before, tree: tree, read: [:])
-        #expect(after.documents["Home/PG&E/bill.pdf"]?.anchors == ["pge", "electric"])
-        #expect(after.documents["Inbox/bill.pdf"] == nil)
+        #expect(after.documents["Docs/Home/PG&E/bill.pdf"]?.anchors == ["pge", "electric"])
+        #expect(after.documents["Docs/Inbox/bill.pdf"] == nil)
     }
 
     /// **Two** documents left wearing the same stamp and **one** arrived: whichever of the two it
     /// is, half the time the wrong one's content lands in the new folder. Two files sharing a size
     /// to the byte and an mtime to the second cannot be told apart, so neither is guessed at.
     @Test func twoDeparturesMatchingOneArrivalAreRefused() {
-        let before = Self.corpus(["Inbox/a.pdf": Self.doc(["alpha"], size: 77, modified: 500),
-                                  "Inbox/b.pdf": Self.doc(["beta"], size: 77, modified: 500)])
+        let before = Self.corpus(["Docs/Inbox/a.pdf": Self.doc(["alpha"], size: 77, modified: 500),
+                                  "Docs/Inbox/b.pdf": Self.doc(["beta"], size: 77, modified: 500)])
         let tree = FilingSurvey.Tree(folders: ["Home": 1],
-                                     documents: ["Home/x.pdf": FilingSurvey.Stamp(size: 77, modified: 500)])
+                                     documents: ["Docs/Home/x.pdf": FilingSurvey.Stamp(size: 77, modified: 500)])
         #expect(FilingSurvey.relocations(tree: tree, corpus: before).isEmpty)
-        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before) == ["Home/x.pdf"])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before) == ["Docs/Home/x.pdf"])
     }
 
     /// The other half of ambiguity, and the half that is easy to leave untested: **one** document
     /// left, **two** arrived wearing its stamp. Matching it to either one attributes its content to
     /// a folder it may never have been in — and picks which by whichever path hashed first.
     @Test func oneDepartureMatchingTwoArrivalsIsAlsoRefused() {
-        let before = Self.corpus(["Inbox/scan.pdf": Self.doc(["kaiser"], size: 77, modified: 500)])
+        let before = Self.corpus(["Docs/Inbox/scan.pdf": Self.doc(["kaiser"], size: 77, modified: 500)])
         let tree = FilingSurvey.Tree(folders: ["Home": 1], documents: [
-            "Health/a.pdf": FilingSurvey.Stamp(size: 77, modified: 500),
-            "Finance/b.pdf": FilingSurvey.Stamp(size: 77, modified: 500),
+            "Docs/Health/a.pdf": FilingSurvey.Stamp(size: 77, modified: 500),
+            "Docs/Finance/b.pdf": FilingSurvey.Stamp(size: 77, modified: 500),
         ])
         #expect(FilingSurvey.relocations(tree: tree, corpus: before).isEmpty)
-        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before) == ["Finance/b.pdf", "Health/a.pdf"])
+        #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before) == ["Docs/Finance/b.pdf", "Docs/Health/a.pdf"])
     }
 
     /// A stamp is a coincidence, not an identity. Two documents of different types that happen to
     /// share one are not the same document — a page of tokens from a PDF has no business being
     /// attributed to an image.
     @Test func aStampMatchAcrossTypesIsNotAMove() {
-        let before = Self.corpus(["Inbox/a.pdf": Self.doc(["alpha"], size: 77, modified: 500)])
-        let tree = FilingSurvey.Tree(folders: ["Home": 1],
-                                     documents: ["Home/a.png": FilingSurvey.Stamp(size: 77, modified: 500)])
+        let before = Self.corpus(["Docs/Inbox/a.pdf": Self.doc(["alpha"], size: 77, modified: 500)])
+        let tree = FilingSurvey.Tree(folders: ["Docs": 1],
+                                     documents: ["Docs/Home/a.png": FilingSurvey.Stamp(size: 77, modified: 500)])
         #expect(FilingSurvey.relocations(tree: tree, corpus: before).isEmpty)
     }
 

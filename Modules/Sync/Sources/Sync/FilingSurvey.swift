@@ -47,18 +47,23 @@ public enum FilingSurvey {
         }
     }
 
-    /// Extensions the app's own extractor can read — PDF text layers, plain text, and images via
-    /// OCR. **Deliberately narrower than the offline generator's list**, which also reads `.docx`,
-    /// `.pptx` and `.xlsx` through a helper this app does not carry.
+    /// Extensions a re-survey will open — **the offline generator's document set, intersected with
+    /// what this app can actually read.**
     ///
-    /// The narrowness is contained rather than damaging, because it gates *reading*, not *keeping*:
-    /// an Office document already in the corpus keeps its tokens, and follows its folder when it
-    /// moves (see ``relocations(tree:corpus:)``). What the app cannot read, it leaves alone — the
-    /// alternative, reading it, failing, and recording a blank, would delete a real signal and call
-    /// it a survey.
+    /// Both halves of that sentence are load-bearing. It is narrower than the generator's because
+    /// `.docx`, `.pptx` and `.xlsx` go through a helper this app does not carry; that is contained
+    /// rather than damaging, because it gates *reading*, not *keeping* — an Office document already
+    /// in the corpus keeps its tokens and follows its folder when it moves (see
+    /// ``relocations(tree:corpus:)``). Reading one, failing, and recording a blank would delete a
+    /// real signal and call it a survey.
+    ///
+    /// And it is no *wider* than the generator's, which is the half that is easy to get wrong.
+    /// Adding `.md` looked free and would have queued **1,700 markdown files** on this tree — notes
+    /// and reports whose tokens were never part of the 10,171 documents the shipped memory was built
+    /// from, mixed into the same IDF. A survey extends an existing corpus, so it reads what that
+    /// corpus was made of.
     public static let readableExtensions: Set<String> = [
-        "pdf", "txt", "md", "markdown", "csv", "tsv", "log", "text",
-        "jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "gif", "bmp",
+        "pdf", "txt", "csv", "jpg", "jpeg", "png",
     ]
 
     /// Flattens a walked tree into stamps, relative to the walk's root.
@@ -111,17 +116,63 @@ public enum FilingSurvey {
         return out
     }
 
+    /// The part of the tree a survey belongs in — every folder on the path to something already
+    /// surveyed.
+    ///
+    /// **A survey extends a corpus; it does not decide what the corpus should have been.** The
+    /// offline survey that produced this memory chose a scope and walked it, and nothing it skipped
+    /// leaves a mark the app can read: on this tree it stopped at `Claude/`, whose 554 readable
+    /// files are project notes rather than filed documents, and the profile records that only as a
+    /// `container` entry with no descendants — which is exactly what a leaf destination folder looks
+    /// like too. So scope is taken from where documents have actually been surveyed, closed upwards:
+    /// `Home` counts because `Home/Utilities/PG&E/2024` was surveyed, which is what lets a folder
+    /// created under `Home` today be learned tomorrow, while a branch nothing was ever surveyed in
+    /// stays out.
+    ///
+    /// Empty means unscoped — a machine with no corpus and no memory has nothing to extend, so its
+    /// first survey reads the whole tree, which is the only thing it could sensibly do.
+    public static func surveyedRegion(corpus: FilingCorpus?, memory: FilingMemory?) -> Set<String> {
+        var out: Set<String> = []
+        func addAncestors(of folder: String) {
+            var current = folder
+            while !current.isEmpty, !out.contains(current) {
+                out.insert(current)
+                current = (current as NSString).deletingLastPathComponent
+            }
+        }
+        for path in corpus?.documents.keys ?? [:].keys {
+            addAncestors(of: (path as NSString).deletingLastPathComponent)
+        }
+        for folder in memory?.folders.keys ?? [:].keys { addAncestors(of: folder) }
+        return out
+    }
+
+    /// Whether a document sits inside the surveyed region — it, or any folder above it, having been
+    /// surveyed before.
+    static func isInScope(_ path: String, region: Set<String>) -> Bool {
+        guard !region.isEmpty else { return true }
+        var folder = (path as NSString).deletingLastPathComponent
+        while !folder.isEmpty {
+            if region.contains(folder) { return true }
+            folder = (folder as NSString).deletingLastPathComponent
+        }
+        return false
+    }
+
     /// Documents whose page 1 has to be read again — new, restamped, or never indexed.
     ///
     /// Ordered shallowest-first then by name so a long survey progresses through the tree in a way a
     /// person watching a counter can recognise, and so two runs over the same tree read in the same
     /// order.
-    public static func documentsToRead(tree: Tree, corpus: FilingCorpus?) -> [String] {
+    public static func documentsToRead(tree: Tree, corpus: FilingCorpus?,
+                                       memory: FilingMemory? = nil) -> [String] {
         let relocated = relocations(tree: tree, corpus: corpus)
+        let region = surveyedRegion(corpus: corpus, memory: memory)
         var out: [String] = []
         for (path, stamp) in tree.documents {
             let ext = (path as NSString).pathExtension.lowercased()
             guard readableExtensions.contains(ext) else { continue }
+            guard isInScope(path, region: region) else { continue }
             // A file that only moved is already accounted for: its tokens travel with it.
             if relocated[path] != nil { continue }
             if let known = corpus?.documents[path], known.size == stamp.size, known.modified == stamp.modified {

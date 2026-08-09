@@ -105,7 +105,24 @@ extension FileSyncManager {
             corpus = FilingCorpus(profileId: profileId, salt: salt)
         }
 
-        let candidates = FilingSurvey.documentsToRead(tree: tree, corpus: corpus)
+        // **Say what was left outside the survey's scope, by name.** A branch nothing was ever
+        // surveyed in is skipped deliberately (see ``FilingSurvey/surveyedRegion(corpus:memory:)``),
+        // and a survey that reports only what it did read is indistinguishable from one that
+        // covered the tree. Named at the top level, which is the granularity a person can act on.
+        let region = FilingSurvey.surveyedRegion(corpus: corpus, memory: previousMemory)
+        if !region.isEmpty {
+            let outside = Set(tree.documents.keys
+                .filter { FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased()) }
+                .filter { !FilingSurvey.isInScope($0, region: region) }
+                .map { $0.split(separator: "/").first.map(String.init) ?? "" })
+            if !outside.isEmpty {
+                Logger.shared.info("Outside the surveyed region, so not read: "
+                                   + outside.sorted().joined(separator: ", ")
+                                   + " — nothing has ever been surveyed there")
+            }
+        }
+        let candidates = FilingSurvey.documentsToRead(tree: tree, corpus: corpus,
+                                                      memory: previousMemory)
         let toRead = candidates.filter { filingDocumentIsAvailable(root.appendingPathComponent($0).path) }
         let unavailable = candidates.count - toRead.count
         if unavailable > 0 {
