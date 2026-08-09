@@ -435,14 +435,26 @@ import Sync
     /// Waits on the observable rather than sleeping a fixed interval and hoping: under a full
     /// parallel test run, other main-actor work can starve the watchdog's 140ms timer well past
     /// any polite fixed window — which is exactly how these tests first flaked.
+    /// Waits for the watchdog to move the clip, with a FLOOR on passes rather than on seconds.
+    ///
+    /// It used to be bounded by `Date()` against a deadline alone, with fifteen seconds and an
+    /// 8ms sleep, and it went
+    /// red on CI on 2026-08-09 after 49.6 seconds — a run in which the machine was also building
+    /// another checkout. Fifteen seconds *looks* generous, which is exactly why the shape survived
+    /// review: the pull home arrives on a main-actor turn, and a congested run has fewer turns per
+    /// second, not more. Seconds were never the unit. `LayoutPumpWait.pumpFloor` passes are
+    /// guaranteed however little of the deadline is left.
+    ///
+    /// Returns the pass count with the verdict so the caller can report it — a wait that gave up
+    /// after a handful of passes was starved and says nothing about the code, while one that gave
+    /// up after hundreds genuinely disproved the condition. Elapsed time cannot tell those apart.
+    ///
+    /// Deliberately `poll`, not `pump`: nothing here is waiting on a layout pass, and pumping would
+    /// disarm the runaway-layout guards. See `LayoutPumpWait.poll`.
+    @MainActor
     private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
-                               timeout: Double = 15) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if clip.bounds.origin == expected { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return clip.bounds.origin == expected
+                               timeout: Double = 15) async -> (held: Bool, passes: Int) {
+        await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
     }
 
     /// **The value nothing else reads.**
@@ -468,8 +480,13 @@ import Sync
         #expect(clip.bounds.origin == NSPoint(x: -40, y: 12),
                 "fixture failed to strand the clip — the pull below is vacuous")
 
-        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
-                "the watchdog left the clip stranded past the left edge, at \(clip.bounds.origin)")
+        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0))
+        #expect(settled.held,
+                """
+                the watchdog left the clip stranded past the left edge, at \(clip.bounds.origin) \
+                (gave up after \(settled.passes) passes — a handful means the run was starved, \
+                not that the watchdog is broken)
+                """)
     }
 
     @Test func testAClipStrandedPastTheEndIsPulledToTheEnd() async {
@@ -480,8 +497,13 @@ import Sync
         clip.setBoundsOrigin(NSPoint(x: 460, y: 0))  // 400 is the last legal origin
         #expect(clip.bounds.origin.x == 460, "fixture failed to strand the clip")
 
-        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 400, y: 0)),
-                "the watchdog left the clip stranded past the right edge, at \(clip.bounds.origin)")
+        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 400, y: 0))
+        #expect(settled.held,
+                """
+                the watchdog left the clip stranded past the right edge, at \(clip.bounds.origin) \
+                (gave up after \(settled.passes) passes — a handful means the run was starved, \
+                not that the watchdog is broken)
+                """)
     }
 
     /// The case the preview's un-driven FALLING edge hands to this watchdog: a rest that was
@@ -523,8 +545,13 @@ import Sync
             }.first, "the watchdog is not mounted in the document view")
         watchdog.rearm()
 
-        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 100, y: 0)),
-                "a rest the grown viewport made illegal was left stranded at \(clip.bounds.origin)")
+        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 100, y: 0))
+        #expect(settled.held,
+                """
+                a rest the grown viewport made illegal was left stranded at \(clip.bounds.origin) \
+                (gave up after \(settled.passes) passes — a handful means the run was starved, \
+                not that the watchdog is broken)
+                """)
     }
 
     /// Absence has no observable to wait on, so this one holds the fixed window — but waits
@@ -581,8 +608,13 @@ import Sync
         clip.setBoundsOrigin(NSPoint(x: -60, y: 0))
         #expect(clip.bounds.origin.x == -60, "fixture failed to strand the fitting document")
 
-        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
-                "a stranded fitting document was not pulled home, at \(clip.bounds.origin)")
+        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0))
+        #expect(settled.held,
+                """
+                a stranded fitting document was not pulled home, at \(clip.bounds.origin) \
+                (gave up after \(settled.passes) passes — a handful means the run was starved, \
+                not that the watchdog is broken)
+                """)
     }
 
     /// An inset clip legally RESTS at a negative origin (`-insets.top`); clamping it to the
@@ -646,14 +678,26 @@ import Sync
         }
     }
 
+    /// Waits for the watchdog to move the clip, with a FLOOR on passes rather than on seconds.
+    ///
+    /// It used to be bounded by `Date()` against a deadline alone, with fifteen seconds and an
+    /// 8ms sleep, and it went
+    /// red on CI on 2026-08-09 after 49.6 seconds — a run in which the machine was also building
+    /// another checkout. Fifteen seconds *looks* generous, which is exactly why the shape survived
+    /// review: the pull home arrives on a main-actor turn, and a congested run has fewer turns per
+    /// second, not more. Seconds were never the unit. `LayoutPumpWait.pumpFloor` passes are
+    /// guaranteed however little of the deadline is left.
+    ///
+    /// Returns the pass count with the verdict so the caller can report it — a wait that gave up
+    /// after a handful of passes was starved and says nothing about the code, while one that gave
+    /// up after hundreds genuinely disproved the condition. Elapsed time cannot tell those apart.
+    ///
+    /// Deliberately `poll`, not `pump`: nothing here is waiting on a layout pass, and pumping would
+    /// disarm the runaway-layout guards. See `LayoutPumpWait.poll`.
+    @MainActor
     private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
-                               timeout: Double = 15) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if clip.bounds.origin == expected { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return clip.bounds.origin == expected
+                               timeout: Double = 15) async -> (held: Bool, passes: Int) {
+        await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
     }
 
     /// The live signature: parked stretched above the top, pulled flat once at rest.
@@ -666,8 +710,13 @@ import Sync
         clip.setBoundsOrigin(NSPoint(x: 0, y: -17.5))
         #expect(clip.bounds.origin.y == -17.5, "fixture failed to park the list — the pull is vacuous")
 
-        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
-                "the list stayed parked in top overscroll, at \(clip.bounds.origin)")
+        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0))
+        #expect(settled.held,
+                """
+                the list stayed parked in top overscroll, at \(clip.bounds.origin) \
+                (gave up after \(settled.passes) passes — a handful means the run was starved, \
+                not that the watchdog is broken)
+                """)
     }
 
     /// A list parked past its bottom comes back to the last legal line.
@@ -678,8 +727,13 @@ import Sync
         try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
 
         clip.setBoundsOrigin(NSPoint(x: 0, y: 560))  // 500 is the last legal origin
-        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 500)),
-                "the list stayed parked past its bottom, at \(clip.bounds.origin)")
+        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 500))
+        #expect(settled.held,
+                """
+                the list stayed parked past its bottom, at \(clip.bounds.origin) \
+                (gave up after \(settled.passes) passes — a handful means the run was starved, \
+                not that the watchdog is broken)
+                """)
     }
 
     /// A legally scrolled rest — the position a reading user is parked at — is never touched.

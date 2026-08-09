@@ -447,20 +447,52 @@ grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Mod
   | grep -v '/\.build/' | grep -v Floor
 ```
 
-Run on this line 2026-08-08: **43 unfloored clock-bounded loops**, against 7 floored ones correctly
-excluded. Most of the 43 are fixed pumps with no condition to starve — the separate problem this
+Run on this line 2026-08-09: **41 unfloored clock-bounded loops**, against 8 floored ones correctly
+excluded. Most of the 41 are fixed pumps with no condition to starve — the separate problem this
 section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
 are the real residual, and there are more of them than the list above says:
 `ExpandingSearchFieldTests`, `CloudDownloadWatchTests`, `CloudDownloadWiringTests`,
-`PaneColumnsScrollTests`, `BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests`.
-**None is fixed.** Naming one and calling it "the real residual" is how this list stayed wrong
-through two sweeps; the count above is reproducible, so check it rather than trusting the prose.
+`BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests`. **Five remain; one is now
+fixed.** Naming one and calling it "the real residual" is how this list stayed wrong through two
+sweeps; the count above is reproducible, so check it rather than trusting the prose.
 
-**Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 44 and 3, and
-its residual is nine, because the four view-based settles migrated on `main` on 2026-08-04 are still
-unmigrated there — and its floored count is lower because it has neither the Dashboard copy of
+**`PaneColumnsScrollTests` is the one that is fixed, and it is off the list because it was SEEN to
+fail rather than because it was next.** On 2026-08-09 `testARestTheGrownViewportMadeIllegalIsPulled\
+Back` gave up after 49.6s in CI, on a runner that was simultaneously building another checkout —
+the second sighting of this mechanism in the wild after `FoldAllToggleBindingTests`, and the first
+to take a run red. Both of that file's `waitForOrigin` copies (byte-identical, in two suites) now
+delegate to `LayoutPumpWait.poll`.
+
+`poll` is a NON-pumping floored wait, and the distinction is the point: `pump` drives layout every
+turn, which is right for a layout result and wrong here — the clip's origin is moved by the
+watchdog, not by a layout pass, and `layoutIfNeeded` disarms AppKit's runaway-layout guards, so
+substituting `pump` would have been the tidy migration and would have quietly widened what a
+sibling suite tolerates. What is shared is the FLOOR, which is the part that was wrong.
+`LayoutPumpWaitPollTests` pins it, beside the existing `LayoutPumpWaitTests`, with the same
+`pumpFloor = 0` / `= 24` mutation results the `pump` floor records.
+
+**One trap this fix walked into, worth knowing before you write the next entry here.** The first
+version of the new doc comment quoted the old loop verbatim — the literal string
+`while` + `Date() < deadline` on one line — which the sweep above counts. Two real loops were
+removed and two comment lines took their place, so the total did not move at all and *looked* like
+a change that had done nothing. Prose in this repo is inside the grep's haystack: quote a defective
+loop by describing it, not by reproducing it.
+
+**And the fix's own new test was, briefly, this exact defect.** `aLiveDeadlineCarriesTheWaitPast\
+TheFloor` first asked for `pumpFloor + 20` passes inside a 5-second deadline; it passed under
+`--filter` and went red in the full FileExplorer run at 51 passes against the 70 it wanted. Five
+seconds buys roughly ten passes on a congested main actor and several hundred on an idle one, so a
+demand tuned to throughput is a flake however generous it looks. It now asks for two passes past
+the floor inside sixty seconds — `+ 2` because a floor-only loop still reaches `pumpFloor + 1` via
+the post-deadline re-check, so two is the smallest demand it cannot meet. **Write the discriminator,
+not the throughput bet.**
+
+**Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 42 and 4, and
+its residual is eight, because the four view-based settles migrated on `main` on 2026-08-04 are
+still unmigrated there — and its floored count is lower because it has neither the Dashboard copy of
 `LayoutPumpWait` nor the view-based `pump` entry point `main` added to the FileExplorer one, only
-the window-based original. Re-run the sweep on the line you are on; do not cherry-pick the count.
+the window-based original. It does now carry `poll` and `LayoutPumpWaitPollTests`, which is where
+this fix landed first. Re-run the sweep on the line you are on; do not cherry-pick the count.
 
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
