@@ -23,15 +23,21 @@ struct RailItemLabel: View {
     let badge: Int?
     let isSelected: Bool
     let accent: Color
+    /// Whether the row can afford this item's label — see ``OrganizeRailMetrics``. At `.iconOnly`
+    /// the name survives in the tooltip and the accessibility label, exactly as the workspace
+    /// bar's segments do when they shed.
+    var style: OrganizeRailStyle = .full
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
                 .scaledFont(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(isSelected ? accent : Color.secondary)
-            Text(title)
-                .scaledFont(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
-                .fixedSize()
+            if style == .full {
+                Text(title)
+                    .scaledFont(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                    .fixedSize()
+            }
             if let badge {
                 Text(badge, format: .number)
                     .scaledFont(.system(size: 10, weight: .bold))
@@ -45,6 +51,7 @@ struct RailItemLabel: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 3)
+        .accessibilityLabel(title)
         // 0.14 is the `Pill` wash this row's other capsules use — matched deliberately, so the
         // rail reads as the same kind of thing rather than as a second, competing idiom.
         .background(Capsule().fill(accent.opacity(isSelected ? 0.22 : 0.14)))

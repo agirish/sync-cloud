@@ -30,7 +30,11 @@ import Design
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct OrganizeRailTests {
 
-    private static let canvas = CGSize(width: 900, height: 620)
+    /// **1400, not 900.** At 900 the rail sheds its labels (see ``OrganizeRailMetrics``), so a
+    /// suite on that canvas would measure the glyph-only state throughout and leave the spelled-out
+    /// rail — what a real window shows — untested. The shedding itself is pinned separately below,
+    /// on both sides of the threshold.
+    private static let canvas = CGSize(width: 1400, height: 620)
 
     /// Row 1 — the rail. **Measured, not guessed**: a horizontal sweep of the rendered header in
     /// 6pt slices puts the card's first row of content at y 12–42 (wash peaking 16.4k at y 18–24),
@@ -41,7 +45,7 @@ import Design
     private static let readoutZone = CGRect(x: 8, y: 50, width: 580, height: 22)
     /// Row 1's trailing controls, **excluding the search toggle** at x≈860–890, which is drawn in
     /// every state and would make this band non-empty no matter what the actions did.
-    private static let actionsZone = CGRect(x: 640, y: 12, width: 210, height: 30)
+    private static let actionsZone = CGRect(x: 1000, y: 12, width: 330, height: 30)
 
     // MARK: Fixtures
 
@@ -79,7 +83,9 @@ import Design
     /// resolves to `nil`, which is the *overview*, where no lens's actions are drawn at all. A
     /// suite that forgot this measured the overview and reported that a full queue and an empty
     /// one inked the action band identically. The innermost `defaultAppStorage` wins.
-    private func mount(_ manager: FileSyncManager, lens: OrganizeLens?) -> NSHostingView<AnyView> {
+    private func mount(_ manager: FileSyncManager, lens: OrganizeLens?,
+                       width: CGFloat? = nil) -> NSHostingView<AnyView> {
+        let canvas = CGSize(width: width ?? Self.canvas.width, height: Self.canvas.height)
         let defaults = ScratchDefaults("OrganizeRailTests")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         if let lens {
@@ -90,11 +96,11 @@ import Design
         let subject = TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
                                scanTargetFolder: "/root/Downloads", onFindDuplicates: {})
             .defaultAppStorage(defaults)
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
+            .frame(width: canvas.width, height: canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
         let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
+        host.frame = CGRect(origin: .zero, size: canvas)
         // Without a window the content composites against the borderless window's own buffer and
         // every comparison reads as zero difference.
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
@@ -321,6 +327,52 @@ import Design
                                            Self.railZone))
         #expect(differingPixels(three, seventeen) > 50,
                 "3 and 17 risky names painted the same badge — it is not carrying the count")
+    }
+
+    // MARK: Shedding — the rail yields width to the controls
+
+    @Test("The rail spells its items out when the header is wide enough")
+    func theRailKeepsItsLabelsWhenThereIsRoom() throws {
+        let wide = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                      Self.railZone))
+        // Six labels plus six glyphs. The glyph-only rail inks far less, which is what the
+        // narrow-canvas comparison below turns into an assertion.
+        #expect(counts(wide).ink > 600, "the rail is not drawing its labels at 1400pt")
+    }
+
+    @Test("The rail sheds its labels rather than truncating the controls")
+    func theRailShedsWhenTheRowIsTight() throws {
+        // **The defect this rule exists for.** At 900pt the spelled-out rail and the filing
+        // queue's three controls overran row 1, and SwiftUI truncated the flexible side: `Refine
+        // with Opus` and `Refine with Haiku` both rendered as `Refin…`, so four tests comparing
+        // those renders saw identical pixels and nothing anywhere reported a problem.
+        let wide = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                      Self.railZone))
+        let narrowHost = mount(Self.manager(queue: 24, names: 17), lens: .toFile, width: 900)
+        let narrow = try #require(strip(narrowHost, Self.railZone))
+
+        // The labels are gone…
+        #expect(counts(narrow).ink < counts(wide).ink / 2,
+                "the narrow rail inked \(counts(narrow).ink) against \(counts(wide).ink) wide — it is not shedding, so the controls beside it are being truncated instead")
+        // …and the six places are not. A rail that shed items rather than words would strand
+        // pointed invocation, which is the one thing the permanent item exists for.
+        #expect(counts(narrow).ink > 120, "the narrow rail drew nothing — it shed its items, not its labels")
+    }
+
+    @Test("Shedding is arithmetic, and it answers both ways")
+    func theShedRuleIsComputed() {
+        let labels = OrganizeRailMetrics.labelWidths(scale: 1)
+        #expect(labels.count == OrganizeLens.allCases.count)
+        // The real header widths this app produces, either side of the threshold.
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, labelWidths: labels, badges: 2) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, labelWidths: labels, badges: 2) == .iconOnly)
+        // The shed rung has to actually solve it, or shedding buys nothing.
+        let shed = OrganizeRailMetrics.iconOnlyWidth(itemCount: OrganizeLens.allCases.count, badges: 2)
+        #expect(shed <= 900 - OrganizeRailMetrics.reservedTrailing)
+        // Badges widen the rail, so the day every finding reports is the day it is tightest —
+        // a rule measured without them would shed too late.
+        #expect(OrganizeRailMetrics.fullWidth(labelWidths: labels, badges: 5)
+                > OrganizeRailMetrics.fullWidth(labelWidths: labels, badges: 0))
     }
 
     // MARK: The control — Rescan outlives the queue

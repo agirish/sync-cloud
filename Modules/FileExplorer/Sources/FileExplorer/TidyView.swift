@@ -386,6 +386,12 @@ public struct TidyView: View {
         lens == .storage ? nil : railLens
     }
 
+    /// Whether the rail can spell its items out at this width — see ``OrganizeRailMetrics``.
+    ///
+    /// Resolved in the geometry transform rather than stored as a width, so the state write only
+    /// fires when the ANSWER flips rather than on every point of a live resize.
+    @State private var railStyle: OrganizeRailStyle = .full
+
     /// Whether Organize is showing its overview: every lens's answer for the scope, one page.
     ///
     /// The rail's *unselected* state rather than a seventh rail item, so it has no name of its own
@@ -537,12 +543,22 @@ public struct TidyView: View {
         // Resolve this lens's rows ONCE and hand the same value to the header and the content —
         // see `FilteredRows`.
         let rows = filteredRows
+        let railLabels = OrganizeRailMetrics.labelWidths(scale: appFontScale)
+        let badges = railBadgeCount
         return VStack(spacing: 0) {
             // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
             // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
             // is collapsed, i.e. when there's no pane left to line up with anyway).
             lensHeaderCard(rows: rows)
+                // The STYLE, not the width — `.onGeometryChange` only calls its action when the
+                // transformed value changes, so a live resize writes state twice (once each way)
+                // rather than on every point. Same reason the workspace bar resolves its own
+                // shedding inside the transform.
+                .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
+                    OrganizeRailMetrics.style(contentWidth: proxy.size.width,
+                                              labelWidths: railLabels, badges: badges)
+                } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows)
         }
@@ -970,12 +986,17 @@ public struct TidyView: View {
             withAnimation(listSettle) { railLens = isSelected ? nil : item }
         } label: {
             RailItemLabel(title: item.title, systemImage: item.symbol, badge: badge,
-                          isSelected: isSelected, accent: glassHue.accentColor)
+                          isSelected: isSelected, accent: glassHue.accentColor, style: railStyle)
         }
         .buttonStyle(.plain)
         .chromeHover()
         .help(railHelp(item, badge: badge))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// How many rail items are currently carrying a badge, for the width arithmetic.
+    private var railBadgeCount: Int {
+        OrganizeLens.allCases.count { $0.badge(count: railCount($0)) != nil }
     }
 
     /// The number a rail item's badge would carry — **the whole list it names, never the filtered
