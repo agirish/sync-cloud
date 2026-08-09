@@ -324,6 +324,20 @@ enum PaneLogic {
         return (expandedRoot as NSString).appendingPathComponent(relativePath)
     }
 
+    /// The folder a Tidy scan targets: the focus root, walked down to where the pane is
+    /// **browsing**. Column clicks move `PaneBrowsePath`, not the pane's comparison focus — that
+    /// split is deliberate (browsing must not rescan the comparison) but it left every Tidy scan
+    /// and the "Scan '<folder>'" offer reading only the focus root, so clicking through columns
+    /// never moved the target and the offer sat dead at the root no matter what was selected.
+    ///
+    /// At rest (no columns open) the focus root is returned **unchanged**, trailing slashes and
+    /// all — the join below normalizes them, and normalizing a root nothing was joined onto would
+    /// change paths for panes that never browsed.
+    static func tidyScanRoot(focusRootExpanded root: String, browsePath: PaneBrowsePath) -> String {
+        guard !root.isEmpty, !browsePath.isEmpty else { return root }
+        return browsePath.currentDirectory(treeRoot: root)
+    }
+
     /// The base path a pane's "Ignore in comparison" targets are measured against: that pane's
     /// OWN provider root (tilde-expanded) joined with that pane's OWN in-pane relative path.
     ///
