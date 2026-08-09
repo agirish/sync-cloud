@@ -398,6 +398,74 @@ the premise guard, because the post-deadline re-check buys a 25th evaluation. Th
 failure* rather than returning a Bool, so there is no passing test for the never-holds case; that
 half was checked by hand.
 
+**The sweep that finds this defect keys on the BOUND, not on the body — and the older recipe above
+does not.** That one filters `while Date() < deadline` by a following `layoutIfNeeded`, so it sees
+only layout pumps: it misses a condition wait that pumps nothing, misses `ContinuousClock`
+entirely, and misses any helper whose closure is not spelled `condition()`. A floored loop reads
+`while <n> < <…>Floor || <clock> < deadline`, so excluding `Floor` leaves exactly the unfloored
+ones, whatever they poll:
+
+```sh
+grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Modules SyncCloudTests \
+  | grep -v '/\.build/' | grep -v Floor
+```
+
+Run on this line 2026-08-17, when the fix below finally reached it: **42 unfloored clock-bounded
+loops**, against 7 floored ones correctly excluded. (`main` recorded 41 against 8 on 2026-08-09 —
+the numbers are per line and per date, so re-run it rather than reading either pair as current.) Most of the 41 are fixed pumps with no condition to starve — the separate problem this
+section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
+are the real residual, and there are more of them than the list above says:
+`ExpandingSearchFieldTests`, `CloudDownloadWatchTests`, `CloudDownloadWiringTests`,
+`BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests`. **Five remain; one is now
+fixed.** Naming one and calling it "the real residual" is how this list stayed wrong through two
+sweeps; the count above is reproducible, so check it rather than trusting the prose.
+
+**This section reached `v3.x` on 2026-08-17, eight days after the fix it describes.** The fix
+commit landed on `main` and was carried to `v2.x`, and nothing carried it here — so this line went
+on running the unfloored wait, and CI proved it twice within an hour: `testAListParkedInTop\
+OverscrollIsPulledHome` gave up at 46.1s and `testAListParkedPastTheBottomIsPulledToTheEnd` at
+39.9s, on two consecutive runs where `main` and `v2.x` were green on the same code. Two sightings
+on one line while the others pass is not load; it is a missing backport, and it is worth writing
+down that the flake register itself can be the thing a line is missing.
+
+**`PaneColumnsScrollTests` is the one that is fixed, and it is off the list because it was SEEN to
+fail rather than because it was next.** On 2026-08-09 `testARestTheGrownViewportMadeIllegalIsPulled\
+Back` gave up after 49.6s in CI, on a runner that was simultaneously building another checkout —
+the second sighting of this mechanism in the wild after `FoldAllToggleBindingTests`, and the first
+to take a run red. Both of that file's `waitForOrigin` copies (byte-identical, in two suites) now
+delegate to `LayoutPumpWait.poll`.
+
+`poll` is a NON-pumping floored wait, and the distinction is the point: `pump` drives layout every
+turn, which is right for a layout result and wrong here — the clip's origin is moved by the
+watchdog, not by a layout pass, and `layoutIfNeeded` disarms AppKit's runaway-layout guards, so
+substituting `pump` would have been the tidy migration and would have quietly widened what a
+sibling suite tolerates. What is shared is the FLOOR, which is the part that was wrong.
+`LayoutPumpWaitPollTests` pins it, beside the existing `LayoutPumpWaitTests`, with the same
+`pumpFloor = 0` / `= 24` mutation results the `pump` floor records.
+
+**One trap this fix walked into, worth knowing before you write the next entry here.** The first
+version of the new doc comment quoted the old loop verbatim — the literal string
+`while` + `Date() < deadline` on one line — which the sweep above counts. Two real loops were
+removed and two comment lines took their place, so the total did not move at all and *looked* like
+a change that had done nothing. Prose in this repo is inside the grep's haystack: quote a defective
+loop by describing it, not by reproducing it.
+
+**And the fix's own new test was, briefly, this exact defect.** `aLiveDeadlineCarriesTheWaitPast\
+TheFloor` first asked for `pumpFloor + 20` passes inside a 5-second deadline; it passed under
+`--filter` and went red in the full FileExplorer run at 51 passes against the 70 it wanted. Five
+seconds buys roughly ten passes on a congested main actor and several hundred on an idle one, so a
+demand tuned to throughput is a flake however generous it looks. It now asks for two passes past
+the floor inside sixty seconds — `+ 2` because a floor-only loop still reaches `pumpFloor + 1` via
+the post-deadline re-check, so two is the smallest demand it cannot meet. **Write the discriminator,
+not the throughput bet.**
+
+**Both numbers and both lists are per-line, like this file's SHA refs.** `v2.x` reads 42 and 4, and
+its residual is eight, because the four view-based settles migrated on `main` on 2026-08-04 are
+still unmigrated there — and its floored count is lower because it has neither the Dashboard copy of
+`LayoutPumpWait` nor the view-based `pump` entry point `main` added to the FileExplorer one, only
+the window-based original. It does now carry `poll` and `LayoutPumpWaitPollTests`, which is where
+this fix landed first. Re-run the sweep on the line you are on; do not cherry-pick the count.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;
