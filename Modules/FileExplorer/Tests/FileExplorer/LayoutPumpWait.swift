@@ -60,4 +60,35 @@ enum LayoutPumpWait {
         window.layoutIfNeeded()
         return (condition(), pumps + 1)
     }
+
+    /// The same floor, for a condition that must NOT be pumped.
+    ///
+    /// `pump` drives layout on every turn, which is right when the thing being waited for is a
+    /// layout result. It is wrong when the thing being waited for is an ANIMATION the code under
+    /// test is running — `PaneColumnsOverscrollReturn`'s pull home, in particular. Two reasons,
+    /// and the second is the one that bites:
+    ///
+    /// - The clip's origin is moved by the watchdog, not by a layout pass, so pumping buys nothing.
+    /// - `layoutIfNeeded` is not a neutral observer. It disarms AppKit's runaway-layout guards, so
+    ///   a wait that pumps can mask exactly the recursive-layout defect a sibling suite exists to
+    ///   catch. Substituting `pump` into these waits would have been the tidy-looking migration and
+    ///   would have quietly widened what they tolerate.
+    ///
+    /// So what is shared here is the FLOOR, which is the part that was wrong — not the pumping.
+    /// `pumpFloor` is deliberately the same number: the unit that starves is main-actor turns, and
+    /// that is the same unit whether or not a turn also runs layout.
+    ///
+    /// See `docs/flaky-tests.md`, mechanism 2.
+    @MainActor
+    static func poll(upTo seconds: Double,
+                     until condition: () -> Bool) async -> (held: Bool, passes: Int) {
+        var passes = 0
+        let deadline = Date().addingTimeInterval(seconds)
+        while passes < pumpFloor || Date() < deadline {
+            passes += 1
+            if condition() { return (true, passes) }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return (condition(), passes + 1)
+    }
 }
