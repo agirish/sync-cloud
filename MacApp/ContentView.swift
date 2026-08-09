@@ -1444,19 +1444,31 @@ struct ContentView: View {
         // deliberately rescans nothing — it reports what each lens already knows, and starting two
         // scans because a folder changed under a summary page is not "if showing".
         guard selectedWorkspace == .filing, let lens = selectedOrganizeLens else { return }
+        // **A scope makes the auto-rescan refresh THE SUBJECT, not the pane.**
+        //
+        // This fires on every pane-folder change, and it targeted `tidyScanRootExpanded`. With a
+        // scope set that is the queue-destroying failure the design rejects live-binding to
+        // prevent, arriving through a different door: browse from a scoped `Legal` into some other
+        // previously-scanned folder and the rescan silently replaces `filingSuggestions` with that
+        // folder's files, which the Legal scope then filters to nothing. To File empties, and
+        // nothing on screen says why.
+        //
+        // The subject is the scope, so that is what gets refreshed. The manager still declines
+        // unless the target is one scanned to completion before and nothing has run this session,
+        // so pointing it at a never-scanned scope is a no-op rather than a surprise scan.
+        let target = organizeScope?.path ?? tidyScanRootExpanded
         switch lens {
         case .duplicates:
-            let root = tidyScanRootExpanded
-            guard !root.isEmpty else { return }
-            syncManager.autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: root),
+            guard !target.isEmpty else { return }
+            syncManager.autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: target),
                                                        options: DuplicateFinderOptions.fromDefaults())
         // The one filing scan publishes all three of these lists, so any of them showing is a
         // reason to refresh it.
         case .toFile, .names, .renames:
             let root = tidyProviderRootExpanded
-            guard let folder = filingScanTargetFolder else { return }
+            guard !target.isEmpty, !root.isEmpty else { return }
             syncManager.autoRescanFilingIfEligible(
-                folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: root),
+                folder: URL(fileURLWithPath: target), providerRoot: URL(fileURLWithPath: root),
                 providerName: tidyProviderName, nameProvider: tidyProviderType)
         // Restructure reads the profile rather than the disk, and rules are configuration —
         // neither goes stale because a folder changed.
@@ -1539,13 +1551,22 @@ struct ContentView: View {
     /// and `scope = cleared` becoming two encodings of one state — identical in every result and
     /// different only in whether a chip is drawn.
     func setOrganizeScope(_ path: String?) {
-        let providerRoot = tidyProviderRootExpanded
-        guard let path,
-              let scope = OrganizeScope(path: path, providerRoot: providerRoot) else {
-            organizeScopePath = ""
-            return
-        }
-        organizeScopePath = scope.path
+        organizeScopePath = resolvedOrganizeScope(path)?.path ?? ""
+    }
+
+    /// The subtree Organize is answering about, or nil for the global view.
+    ///
+    /// Re-resolved on read rather than stored, exactly as `TidyView` does: the provider can change
+    /// under a persisted path, and a scope belonging to a tree that is no longer showing degrades
+    /// to the global view instead of filtering every lens to nothing.
+    var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }
+
+    /// One resolver behind both the read and the write, so the normalization cannot drift between
+    /// them — the read has to agree that a stored provider root means "no scope", or the chip and
+    /// the filter would disagree about the same string.
+    private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope? {
+        guard let path, !path.isEmpty else { return nil }
+        return OrganizeScope(path: path, providerRoot: tidyProviderRootExpanded)
     }
 
     /// Navigate to a lens inside Organize — both halves, always.

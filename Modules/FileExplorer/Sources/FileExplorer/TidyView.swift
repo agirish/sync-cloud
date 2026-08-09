@@ -558,6 +558,22 @@ public struct TidyView: View {
     private var filteredRows: FilteredRows {
         var rows = FilteredRows()
         let scope = scope
+        // The overview reads none of these — it renders `overviewSections`, which does its own
+        // per-lens tallying. Without this guard the overview still paid for a parsed query and a
+        // scoped pass over the filing queue on every render, for a value nothing downstream reads.
+        //
+        // **`showingOverview` alone is the wrong test, and the reveal suite caught it doing real
+        // damage.** It means *no rail item is selected*, which is not the same as *the overview is
+        // what renders*: the overview is drawn only from `contentCard`'s `.filing` arm, so a view
+        // whose apparatus is `.duplicates` with no rail selection still draws its group list and
+        // still needs these rows. Guarding on `showingOverview` alone handed it an empty
+        // `FilteredRows`, and `DuplicateRevealLandingTests` went from painting a revealed group to
+        // painting nothing — two pixel comparisons that had been the suite's sharpest assertions
+        // both fell to zero difference.
+        //
+        // So the condition mirrors the one the content card actually branches on. Cheap either way;
+        // the point is that it is now the same question.
+        guard !(showingOverview && effectiveLens == .filing) else { return rows }
         switch effectiveLens {
         case .duplicates:
             let q = DuplicateSearch.parse(query)
@@ -621,9 +637,22 @@ public struct TidyView: View {
 
     /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups (the menu
     /// used to run a full filter per TidyFilter case on every render).
-    private static func filterCounts(_ groups: [DuplicateGroup]) -> [TidyFilter: Int] {
+    /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups.
+    ///
+    /// **Counted within the scope**, and that is a different question from the one the search
+    /// raises. Counting all groups rather than the *search-narrowed* ones is deliberate and stays —
+    /// a badge must never read zero for a filter that would reveal rows once picked. But the scope
+    /// is not a transient narrowing of a list you are looking at; it decides *which list this is*.
+    /// Left global, the menu offered "Identical (620)" beside a lens holding 27, and picking it
+    /// revealed nothing like 620.
+    ///
+    /// The scope test folds into the existing pass rather than pre-filtering into a second array —
+    /// this builder is not lazy and runs on every render (see `filterMenu`), so the pass stays one
+    /// pass.
+    private static func filterCounts(_ groups: [DuplicateGroup],
+                                     scope: OrganizeScope?) -> [TidyFilter: Int] {
         var counts = Dictionary(uniqueKeysWithValues: TidyFilter.allCases.map { ($0, 0) })
-        for group in groups {
+        for group in groups where OrganizeScopeFilter.matches(group, scope: scope) {
             for f in TidyFilter.allCases where f.matches(group) { counts[f, default: 0] += 1 }
         }
         return counts
@@ -662,7 +691,7 @@ public struct TidyView: View {
                                               leadingWidth: railLeading)
                 } action: { railStyle = $0 }
             if showSourcePicker { sourceBar }
-            lensBody(rows: rows)
+            lensBody(rows: rows, counts: counts)
         }
         // `onDismiss`, because the history sheet can Clear History. Without it the setup card went
         // on quoting "last run ~$0.18" from a record the user had just erased through this very
@@ -796,7 +825,7 @@ public struct TidyView: View {
             title: { lensTitle(counts) },
             actions: { lensActions(rows: rows) },
             summary: { lensSummary(rows: rows, scopeFolders: scopeFolders) },
-            trailing: { lensTrailing(rows: rows) }
+            trailing: { lensTrailing(rows: rows, counts: counts) }
         )
     }
 
@@ -1271,20 +1300,33 @@ public struct TidyView: View {
     /// Row 2's trailing edge: "N of M" whenever this lens's list is narrowed, so a shortened list
     /// always reads as a filtered view rather than as the whole result.
     @ViewBuilder
-    private func lensTrailing(rows: FilteredRows) -> some View {
+    /// **M is the SCOPED list, not the whole tree.**
+    ///
+    /// This read `syncManager.duplicateGroups.count` and friends — the global lists — so under a
+    /// scope it said "3 of 722" about a lens holding 27. The denominator described a list the user
+    /// was not looking at, which is the exact dishonesty the scope exists to remove, restated in
+    /// the one readout whose whole job is to say how much the search is hiding.
+    ///
+    /// `counts` is the right denominator and costs nothing: it is the same scoped-but-unsearched
+    /// tally the rail badges use, already resolved once for this render. The relationship is
+    /// unchanged — N is the rows on screen, M is the list before the *transient* narrowing — only
+    /// the definition of "this list" now matches what the header claims above it.
+    ///
+    /// Storage is untouched: it is a workspace of its own with no Organize scope.
+    private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {
         if isFiltered {
             switch effectiveLens {
-            case .duplicates: ofMLabel(rows.duplicates.count, syncManager.duplicateGroups.count)
-            case .rename: ofMLabel(rows.risky.count, syncManager.riskyNames.count)
+            case .duplicates: ofMLabel(rows.duplicates.count, counts.duplicates)
+            case .rename: ofMLabel(rows.risky.count, counts.names)
             case .filing where showingRenameBacklog:
                 // The backlog's own numbers. Left as the queue's, this said "3 of 24" about a list
                 // that is not on screen while the backlog sat under it unfiltered.
-                ofMLabel(rows.renames.count, syncManager.renamePlans.count)
-            case .filing: ofMLabel(rows.filing.count, syncManager.filingSuggestions.count)
-            case .automations: ofMLabel(rows.rules.count, syncManager.automationRules.count)
+                ofMLabel(rows.renames.count, counts.renames)
+            case .filing: ofMLabel(rows.filing.count, counts.toFile)
+            case .automations: ofMLabel(rows.rules.count, counts.rules)
             case .storage:
-                let counts = storageCounts
-                ofMLabel(counts.filtered, counts.total)
+                let storage = storageCounts
+                ofMLabel(storage.filtered, storage.total)
             }
         }
     }
@@ -1299,7 +1341,7 @@ public struct TidyView: View {
     }
 
     @ViewBuilder
-    private func lensBody(rows: FilteredRows) -> some View {
+    private func lensBody(rows: FilteredRows, counts: RailCounts) -> some View {
         Group {
             if lens == .storage {
                 // Storage, folded in as a read-only lens: it brings its own CONTENT card (its
@@ -1316,7 +1358,7 @@ public struct TidyView: View {
                     onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
                 )
             } else {
-                contentCard(rows: rows)
+                contentCard(rows: rows, counts: counts)
             }
         }
     }
@@ -1928,9 +1970,10 @@ public struct TidyView: View {
             // number in the tens-to-hundreds and each check is a flag test, so the pass is
             // microseconds (unlike the Compare header's counts over up to ~40k differences,
             // which are memoized in DisplayRows for exactly this reason). Counts cover ALL
-            // groups, not the search-narrowed `dupGroups`, so a badge never reads zero for a
-            // filter that would reveal rows once picked.
-            let counts = Self.filterCounts(syncManager.duplicateGroups)
+            // groups IN SCOPE, not the search-narrowed `dupGroups`, so a badge never reads zero
+            // for a filter that would reveal rows once picked — see `filterCounts` for why the
+            // scope is the one narrowing it does honour.
+            let counts = Self.filterCounts(syncManager.duplicateGroups, scope: scope)
             Picker("Filter", selection: $filter) {
                 ForEach(TidyFilter.allCases) { f in
                     Text("\(f.label) (\(counts[f] ?? 0))").tag(f)
@@ -2076,11 +2119,11 @@ public struct TidyView: View {
     // MARK: Content card
 
     @ViewBuilder
-    private func contentCard(rows: FilteredRows) -> some View {
+    private func contentCard(rows: FilteredRows, counts: RailCounts) -> some View {
         VStack(spacing: 0) {
             switch effectiveLens {
-            case .duplicates: duplicatesContent(dupGroups: rows.duplicates)
-            case .rename: renameContent(risky: rows.risky)
+            case .duplicates: duplicatesContent(dupGroups: rows.duplicates, counts: counts)
+            case .rename: renameContent(risky: rows.risky, counts: counts)
             // Four rail items share `.filing`'s apparatus, so this arm is where the rail actually
             // decides what you see. The overview leads, because it is what you land on.
             case .filing:
@@ -2089,7 +2132,8 @@ public struct TidyView: View {
                 } else if organizeLens == .restructure {
                     restructureContent(rows: rows)
                 } else if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
-                    noMatchesState(total: syncManager.renamePlans.count, noun: "folder")
+                    noMatchesState(scopedTotal: counts.renames,
+                                   globalTotal: syncManager.renamePlans.count, noun: "folder")
                 } else if showingRenameBacklog {
                     RenamePassLens(syncManager: syncManager, plans: rows.renames,
                                    accent: glassHue.accentColor,
@@ -2099,9 +2143,9 @@ public struct TidyView: View {
                                            [URL(fileURLWithPath: path)])
                                    })
                 } else {
-                    filingContent(filing: rows.filing)
+                    filingContent(filing: rows.filing, counts: counts)
                 }
-            case .automations: automationsContent(rules: rows.rules)
+            case .automations: automationsContent(rules: rows.rules, counts: counts)
             case .storage: EmptyView()   // rendered by `body` as StorageLensView, never through here
             }
         }
@@ -2281,7 +2325,7 @@ public struct TidyView: View {
     }
 
     @ViewBuilder
-    private func duplicatesContent(dupGroups: [DuplicateGroup]) -> some View {
+    private func duplicatesContent(dupGroups: [DuplicateGroup], counts: RailCounts) -> some View {
         if syncManager.isFindingDuplicates {
             scanningState
         } else if !syncManager.hasFoundDuplicates {
@@ -2299,7 +2343,9 @@ public struct TidyView: View {
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
         } else if dupGroups.isEmpty {
-            noMatchesState(total: syncManager.duplicateGroups.count, noun: "duplicate group")
+            noMatchesState(scopedTotal: counts.duplicates,
+                           globalTotal: syncManager.duplicateGroups.count,
+                           noun: "duplicate group")
         } else {
             groupList(dupGroups: dupGroups)
         }
@@ -2386,12 +2432,18 @@ public struct TidyView: View {
     ///
     /// So the cause is resolved before the words are chosen. A live query owns the emptiness (it is
     /// the thing the user just typed); otherwise, if a scope is set, the scope owns it.
+    /// - Parameters:
+    ///   - scopedTotal: how many this lens holds **within the scope** — the denominator a search
+    ///     is hiding. It was the global list, so under a scope the message read "the current
+    ///     search hides all 722 duplicate groups" about a lens that held 27.
+    ///   - globalTotal: how many exist in the whole tree, for the scope's own message.
     @ViewBuilder
-    private func noMatchesState(total: Int, noun: String) -> some View {
+    private func noMatchesState(scopedTotal: Int, globalTotal: Int, noun: String) -> some View {
         if query.isEmpty, let scope {
-            scopeHidesAllState(total: total, noun: noun, scope: scope)
+            // Reached only when the scoped list is empty, so everything there is is elsewhere.
+            scopeHidesAllState(total: globalTotal - scopedTotal, noun: noun, scope: scope)
         } else {
-            searchHidesAllState(total: total, noun: noun)
+            searchHidesAllState(total: scopedTotal, noun: noun)
         }
     }
 
@@ -2549,7 +2601,7 @@ public struct TidyView: View {
     // MARK: Filing content
 
     @ViewBuilder
-    private func filingContent(filing: [FilingSuggestion]) -> some View {
+    private func filingContent(filing: [FilingSuggestion], counts: RailCounts) -> some View {
         VStack(spacing: 0) {
             // The Cloud Filing spend row lives here now, at the top of the content, rather than as
             // a third row of the header: the header is a fixed two-row ladder (that's what makes it
@@ -2587,7 +2639,9 @@ public struct TidyView: View {
                 } else if syncManager.filingSuggestions.isEmpty {
                     filingCleanState
                 } else if filing.isEmpty {
-                    noMatchesState(total: syncManager.filingSuggestions.count, noun: "loose file")
+                    noMatchesState(scopedTotal: counts.toFile,
+                                   globalTotal: syncManager.filingSuggestions.count,
+                                   noun: "loose file")
                 } else {
                     filingList(filing)
                 }
@@ -2602,10 +2656,11 @@ public struct TidyView: View {
     /// Its results header is gone — the shared card above carries its controls and counts now — so
     /// it takes the filtered rows and renders only its list and states.
     @ViewBuilder
-    private func renameContent(risky: [RiskyName]) -> some View {
+    private func renameContent(risky: [RiskyName], counts: RailCounts) -> some View {
         if syncManager.hasScannedNames, !syncManager.isScanningNames,
            !syncManager.riskyNames.isEmpty, risky.isEmpty {
-            noMatchesState(total: syncManager.riskyNames.count, noun: "risky name")
+            noMatchesState(scopedTotal: counts.names,
+                           globalTotal: syncManager.riskyNames.count, noun: "risky name")
         } else {
             RenameLens(
                 syncManager: syncManager,
@@ -2625,9 +2680,10 @@ public struct TidyView: View {
     /// Preview all), so the host threads in the filtered rules and the shared `viewingResults`
     /// state the card's Preview button has to flip.
     @ViewBuilder
-    private func automationsContent(rules: [AutomationRule]) -> some View {
+    private func automationsContent(rules: [AutomationRule], counts: RailCounts) -> some View {
         if !syncManager.automationRules.isEmpty, rules.isEmpty, !automationsState.viewingResults {
-            noMatchesState(total: syncManager.automationRules.count, noun: "rule")
+            noMatchesState(scopedTotal: counts.rules,
+                           globalTotal: syncManager.automationRules.count, noun: "rule")
         } else {
             AutomationsLens(
                 syncManager: syncManager,

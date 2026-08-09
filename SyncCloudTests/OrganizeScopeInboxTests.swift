@@ -80,8 +80,11 @@ import Foundation
         // And the one write is where the root is normalized away, so no caller can mint a second
         // encoding of the global view.
         #expect(source.contains("func setOrganizeScope(_ path: String?)"))
-        #expect(source.contains("organizeScopePath = \"\""))
-        #expect(source.contains("OrganizeScope(path: path, providerRoot: providerRoot)"))
+        // The normalization lives in ONE resolver behind both the read and the write, so the two
+        // cannot drift about what a stored provider root means.
+        #expect(source.contains("organizeScopePath = resolvedOrganizeScope(path)?.path ?? \"\""))
+        #expect(source.contains("private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope?"))
+        #expect(source.contains("OrganizeScope(path: path, providerRoot: tidyProviderRootExpanded)"))
     }
 
     @Test func theScopeIsMigratedAtLaunch() throws {

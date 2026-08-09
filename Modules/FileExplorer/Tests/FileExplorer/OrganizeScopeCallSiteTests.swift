@@ -33,6 +33,20 @@ import Foundation
         return text
     }
 
+    /// One declaration's body, bounded by its **closing brace** rather than a character count.
+    ///
+    /// A fixed-width window is a known way for a source scan to answer about the wrong text: a
+    /// sibling of this helper in `SyncCloudTests` took 400 characters after a declaration, ran past
+    /// a four-line body into the *next* member's doc comment, and failed a correct implementation.
+    /// Fails loudly when the declaration is gone, so a rename cannot silently empty the haystack.
+    static func body(of declaration: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: declaration),
+                                 "\(declaration) is gone — the scan below would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
+        return String(rest[..<end.lowerBound])
+    }
+
     // MARK: The predicate is actually called
 
     @Test func tidyViewFiltersEveryLensThroughTheScopePredicate() throws {
@@ -160,6 +174,71 @@ import Foundation
         // "0 here" reading as "0 anywhere" is the whole complaint.
         #expect(tidy.contains("elsewhere in the tree"))
         #expect(tidy.contains("\"Organize Everything\""))
+    }
+
+    // MARK: Every number beside a scoped list describes THAT list
+
+    /// The three places that still quoted a global total next to a scoped list.
+    ///
+    /// Each is the same defect the badges had, in a different readout: a number the user can see,
+    /// about a list they cannot. Under a scope of `Legal` (27 of 722 duplicate groups) they read
+    /// "3 of **722**", offered "Identical (**620**)" in the filter menu, and said the search was
+    /// hiding "all **722** duplicate groups".
+    @Test func theNofMDenominatorIsTheScopedList() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let body = try Self.body(of: "private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {",
+                                 in: tidy)
+        for global in ["syncManager.duplicateGroups.count", "syncManager.riskyNames.count",
+                       "syncManager.renamePlans.count", "syncManager.filingSuggestions.count",
+                       "syncManager.automationRules.count"] {
+            #expect(!body.contains(global),
+                    "the N-of-M readout is quoting the global \(global) beside a scoped list")
+        }
+        // Non-vacuity: it must actually be reading the resolved scoped tally.
+        #expect(body.contains("counts.duplicates"))
+        #expect(body.contains("counts.toFile"))
+    }
+
+    @Test func theDuplicateFilterMenuCountsWithinTheScope() throws {
+        let tidy = try Self.source("TidyView.swift")
+        #expect(tidy.contains("Self.filterCounts(syncManager.duplicateGroups, scope: scope)"),
+                "the filter menu is counting the whole tree beside a scoped lens")
+        let body = try Self.body(
+            of: "private static func filterCounts(_ groups: [DuplicateGroup],", in: tidy)
+        #expect(body.contains("where OrganizeScopeFilter.matches(group, scope: scope)"))
+        // The search must still NOT narrow these — a badge reading zero for a filter that would
+        // reveal rows is the reason this counts the unsearched list.
+        #expect(!body.contains("q.matches"))
+    }
+
+    @Test func theEmptyStatesQuoteTheScopedTotal() throws {
+        let tidy = try Self.source("TidyView.swift")
+        // No call site may pass a bare global count as the searched-over denominator.
+        #expect(!tidy.contains("noMatchesState(total:"),
+                "a caller still passes one undifferentiated total")
+        for scoped in ["scopedTotal: counts.duplicates", "scopedTotal: counts.names",
+                       "scopedTotal: counts.renames", "scopedTotal: counts.toFile",
+                       "scopedTotal: counts.rules"] {
+            #expect(tidy.contains(scoped), "missing \(scoped) — that lens still quotes the tree")
+        }
+        // And the scope's own message counts what is ELSEWHERE, which is the global total minus
+        // what is here — not the global total itself.
+        #expect(tidy.contains("scopeHidesAllState(total: globalTotal - scopedTotal"))
+    }
+
+    // MARK: The overview pays for nothing it does not read
+
+    @Test func theOverviewDoesNotResolveRowsItNeverReads() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let body = try Self.body(of: "private var filteredRows: FilteredRows {", in: tidy)
+        #expect(body.contains("guard !(showingOverview && effectiveLens == .filing) else { return rows }"),
+                "the overview is parsing a query and scoping the filing queue for a value nothing reads")
+        // **Not `showingOverview` alone.** That means "no rail item selected", which is not the
+        // same as "the overview renders" — the overview is drawn only from contentCard's `.filing`
+        // arm. Guarding on it alone starved the Duplicates apparatus of its rows and took
+        // DuplicateRevealLandingTests from painting a revealed group to painting nothing.
+        #expect(!body.contains("guard !showingOverview else"),
+                "the guard is back to the condition that emptied the duplicates list")
     }
 
     // MARK: No apply-all button may render a zero
