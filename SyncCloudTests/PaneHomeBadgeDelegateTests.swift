@@ -33,7 +33,7 @@ import Sync
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [],
             homeBadgeCoverage: homeBadgeCoverage, onFindDuplicatesOf: { _ in },
-            onOrganizeFolder: { _ in })
+            onOrganizeFolder: { _ in }, onOrganizeScope: { _ in })
     }
 
     // MARK: The gate, both ways
@@ -133,7 +133,7 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
-            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) })
+            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) }, onOrganizeScope: { _ in })
 
         d.handleOrganizeFolder(FileNode(id: "/Users/u/Projects/a.txt", name: "a.txt",
                                         isDirectory: false, children: nil))
@@ -157,7 +157,7 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
-            onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in })
+            onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in }, onOrganizeScope: { _ in })
 
         d.handleFindDuplicates(FileNode(id: "/Users/u/Projects", name: "Projects",
                                         isDirectory: true, children: []))

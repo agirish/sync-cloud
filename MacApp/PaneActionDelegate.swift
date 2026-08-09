@@ -81,22 +81,31 @@ struct PaneActionDelegate: FileActionDelegate {
     let onFindDuplicatesOf: (FileNode) -> Void
     /// Points Organize at a folder — see ``handleOrganizeFolder(_:)``.
     let onOrganizeFolder: (FileNode) -> Void
+    /// Moves Organize's scope to a folder **without** starting a scan — see ``handleFocus(_:)``.
+    ///
+    /// Distinct from `onOrganizeFolder`, which also scans: Open is a navigation, and making it pay
+    /// for a filing pass would put a scan behind every folder you step into. Scope filters rather
+    /// than rescans, so the other four lenses re-answer for free either way; To File keeps whatever
+    /// the last scan found until the user asks for a new one.
+    let onOrganizeScope: (FileNode) -> Void
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
     /// thing that moved was some unrelated corner of the manager.
     ///
     /// Every stored property is accounted for. The seven values are compared outright; the three
-    /// references are compared by identity; and the three closures are ignored, which is the one
-    /// claim here that needs justifying.
+    /// references are compared by identity; and the closures are ignored, which is the one claim
+    /// here that needs justifying.
     ///
     /// They are safe to ignore because none of them captures a decision. `forceRefreshAction`,
     /// `onGetInfo` and `onChooseDestination` are all built by `ContentView` and read their state
     /// back through property wrappers (`@State`, `@AppStorage`, `@ObservedObject`,
     /// `@EnvironmentObject`) whose storage outlives any single render — so a closure captured three
-    /// renders ago sees exactly what one built this instant would. What they must never do is read
-    /// a plain `let` snapshot off the captured view; if one ever does, it belongs in the comparison
-    /// below rather than outside it.
+    /// renders ago sees exactly what one built this instant would. `onFindDuplicatesOf`,
+    /// `onOrganizeFolder` and `onOrganizeScope` are the same shape — the last one writes
+    /// `organizeScopePath`, an `@AppStorage` whose storage outlives any render. What a closure here
+    /// must never do is read a plain `let` snapshot off the captured view; if one ever does, it
+    /// belongs in the comparison below rather than outside it.
     func isEquivalent(to other: FileActionDelegate) -> Bool {
         guard let other = other as? PaneActionDelegate else { return false }
         return handler === other.handler
@@ -114,7 +123,29 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleRefresh() {
         forceRefreshAction()
     }
-    func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, suppressLinkedNavigation: isSingleSource) }
+    /// Re-roots this pane at a folder — the row menu's **Open** on the single-source rail, and
+    /// "Compare only this folder" on the comparison panes.
+    ///
+    /// **Open also moves Organize's scope; browsing does not.** Those are not in tension. The rule
+    /// Organize's scope rejects is *live-binding to whatever folder the pane drifted to*, because
+    /// the left pane is how destinations get inspected while filing and a scope that followed that
+    /// would destroy the queue. Open is not drift: it is the user naming a folder and re-rooting
+    /// the pane on it, which is the same act as "Organize This Folder…" arriving through a
+    /// different door. Having the two disagree would leave the pane rooted at one subject while
+    /// every lens answered about another.
+    ///
+    /// Gated on `isSingleSource`, which is exactly when the menu item reads **Open**. On the
+    /// comparison panes the same call is "Compare only this folder" — a claim about the comparison,
+    /// not about what Organize is answering about — so it must not re-aim the lenses. That is also
+    /// why this is not hooked in `FileActionHandler.focusFolder`: that lives in Dashboard, is
+    /// shared by both surfaces, and could not tell the two verbs apart.
+    ///
+    /// Routed through `onOrganizeScope` → `ContentView.setOrganizeScope`, so opening the provider
+    /// root clears the scope rather than encoding the global view a second way.
+    func handleFocus(_ node: FileNode) {
+        handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, suppressLinkedNavigation: isSingleSource)
+        if isSingleSource, node.isDirectory { onOrganizeScope(node) }
+    }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
     func handleMove(_ nodes: [FileNode]) { 
         Task {
