@@ -1450,6 +1450,28 @@ struct ContentView: View {
         }
     }
 
+    /// Point Organize at one folder: select the filing queue and scan **that** folder.
+    ///
+    /// The whole reason Organize's lenses became permanent rail items rather than chips. A chip
+    /// materialises only after a scan has found something, so there was nowhere for this to land;
+    /// a rail item exists at zero, which is exactly the state a folder you have just pointed at is
+    /// in.
+    ///
+    /// Deliberately bypasses `filingScanTargetFolder`, which resolves the provider's inbox — the
+    /// point here is the folder that was clicked. The provider root stays the scan's root so a
+    /// destination still anchors where every other filing scan anchors it, and the scanned-folder
+    /// chip in Organize's header already names the scope this sets.
+    func organizeFolderAction(_ node: FileNode) {
+        let folder = (node.id as NSString).expandingTildeInPath
+        let providerRoot = tidyProviderRootExpanded
+        guard !folder.isEmpty, !providerRoot.isEmpty else { return }
+        Logger.shared.info("User requested Organize for \(folder)")
+        show(.toFile)
+        syncManager.startFindFilingSuggestions(
+            folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerRoot),
+            providerName: tidyProviderName, nameProvider: tidyProviderType)
+    }
+
     /// Navigate to a lens inside Organize — both halves, always.
     ///
     /// The single place programmatic navigation names a rail item, so a caller cannot set the
@@ -2103,7 +2125,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths, keptNamesToken: syncManager.keptNamesStore?.names ?? [], homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId), onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) }),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths, keptNamesToken: syncManager.keptNamesStore?.names ?? [], homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId), onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) }, onOrganizeFolder: { node in organizeFolderAction(node) }),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),

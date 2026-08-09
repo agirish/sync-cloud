@@ -1038,6 +1038,14 @@ struct FileContextMenu: View {
                 }
 
                 if singleNode.isDirectory {
+                    // Point Organize at this folder. The counterpart to "Find duplicates of this"
+                    // on the file branch above, and the reason Organize's lenses are permanent
+                    // places rather than chips: this has to land somewhere before any scan has
+                    // found anything.
+                    if delegate.canOrganizeFolder {
+                        Button("Organize This Folder…") { delegate.handleOrganizeFolder(singleNode) }
+                        Divider()
+                    }
                     SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)
                     Divider()
                     Button(action: { delegate.handleFocus(singleNode) }) {

@@ -119,6 +119,16 @@ public protocol FileActionDelegate: Sendable {
     /// Opens Duplicates on this file's source and reveals the group holding it — starting a scan
     /// first when there is no current one. Files only: a folder overlap group is a different unit.
     func handleFindDuplicates(_ node: FileNode)
+
+    /// Whether this host can point Organize at a folder. Gates the row menu item for the same
+    /// reason `canFindDuplicates` does: a conformer with no workspace behind it draws nothing
+    /// rather than a door that opens onto a no-op.
+    var canOrganizeFolder: Bool { get }
+
+    /// Opens Organize scoped to this folder and scans it. **Folders only** — the question
+    /// "where do the loose files in here belong" has no meaning aimed at a single file, which
+    /// already has a home.
+    func handleOrganizeFolder(_ node: FileNode)
 }
 
 extension FileActionDelegate {
@@ -170,4 +180,12 @@ extension FileActionDelegate {
     /// No workspace behind it, so no door. See `canFindDuplicates`.
     public var canFindDuplicates: Bool { false }
     public func handleFindDuplicates(_ node: FileNode) {}
+
+    /// Same default, same reason. **Both members are protocol REQUIREMENTS above rather than
+    /// extension-only additions**: every caller reaches this through an existential, so a member
+    /// that exists only in the extension dispatches statically to the default and a conformer's
+    /// override is never reached. That bug shipped once here and made "Fix name…" unreachable
+    /// from the day it was written.
+    public var canOrganizeFolder: Bool { false }
+    public func handleOrganizeFolder(_ node: FileNode) {}
 }

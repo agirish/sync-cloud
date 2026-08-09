@@ -79,6 +79,8 @@ struct PaneActionDelegate: FileActionDelegate {
     /// view's property wrappers, so one captured three renders ago sees what one built this
     /// instant would.
     let onFindDuplicatesOf: (FileNode) -> Void
+    /// Points Organize at a folder — see ``handleOrganizeFolder(_:)``.
+    let onOrganizeFolder: (FileNode) -> Void
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
@@ -184,6 +186,16 @@ struct PaneActionDelegate: FileActionDelegate {
         // with the handler rather than only with the one caller that happens to respect it.
         guard !node.isDirectory else { return }
         onFindDuplicatesOf(node)
+    }
+
+    /// A real window is behind this delegate, so the row menu may offer the door.
+    var canOrganizeFolder: Bool { true }
+
+    func handleOrganizeFolder(_ node: FileNode) {
+        // Folders only. The menu gates on this too; asserting it here as well keeps the guarantee
+        // with the handler rather than only with the one caller that happens to respect it.
+        guard node.isDirectory else { return }
+        onOrganizeFolder(node)
     }
 
     func handleFixName(_ node: FileNode) {

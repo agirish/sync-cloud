@@ -32,7 +32,8 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [],
-            homeBadgeCoverage: homeBadgeCoverage, onFindDuplicatesOf: { _ in })
+            homeBadgeCoverage: homeBadgeCoverage, onFindDuplicatesOf: { _ in },
+            onOrganizeFolder: { _ in })
     }
 
     // MARK: The gate, both ways
@@ -92,6 +93,8 @@ import Sync
         #expect(existential.isOnThisMacOnly(forPath: "/Users/u/Projects/notes.md") == false)
         #expect(existential.canFindDuplicates == false,
                 "a stub with no workspace behind it offered the Duplicates door")
+        #expect(existential.canOrganizeFolder == false,
+                "a stub with no workspace behind it offered the Organize door")
     }
 
     /// A real pane DOES offer the Duplicates door — otherwise the test above passes because the
@@ -100,6 +103,46 @@ import Sync
         let d = delegate(syncManager: FileSyncManager(), settings: SettingsManager(),
                          homeBadgeCoverage: nil)
         #expect(d.canFindDuplicates)
+        #expect(d.canOrganizeFolder)
+    }
+
+    /// **The dispatch trap, asserted through an existential.** Both members are protocol
+    /// requirements rather than extension-only additions, and this is the test that keeps them
+    /// that way: every caller reaches the delegate through `FileActionDelegate`, so a member
+    /// declared only in the extension dispatches statically to the default and the conformer's
+    /// override is never reached. That shipped once here and made "Fix name…" unreachable from
+    /// the day it was written — silently, because the menu simply never drew the item.
+    @Test func theOrganizeDoorSurvivesTheExistential() {
+        let concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager(),
+                                homeBadgeCoverage: nil)
+        let existential: FileActionDelegate = concrete
+        #expect(existential.canOrganizeFolder,
+                "the real pane's answer did not survive the existential — the member is extension-only and dispatching to the default")
+    }
+
+    /// Files only ever reach the badge, never the Organize handoff: "where do the loose files in
+    /// here belong" has no meaning aimed at a file, which already has a home. Asserted on the
+    /// HANDLER rather than only on the menu that gates it, so the guarantee travels with the
+    /// action — and in both directions, or the guard proves nothing.
+    @Test func theOrganizeHandoffIgnoresFiles() {
+        var asked: [String] = []
+        let base = delegate(syncManager: FileSyncManager(), settings: SettingsManager(),
+                            homeBadgeCoverage: nil)
+        let d = PaneActionDelegate(
+            handler: nil, syncManager: base.syncManager, settings: base.settings, isLeft: true,
+            leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
+            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) })
+
+        d.handleOrganizeFolder(FileNode(id: "/Users/u/Projects/a.txt", name: "a.txt",
+                                        isDirectory: false, children: nil))
+        #expect(asked.isEmpty, "a file reached the Organize handoff")
+
+        d.handleOrganizeFolder(FileNode(id: "/Users/u/Projects", name: "Projects",
+                                        isDirectory: true, children: []))
+        #expect(asked == ["/Users/u/Projects"],
+                "a folder did NOT reach the handoff — the guard above proves nothing")
     }
 
     /// Folders only ever reach the badge, never the duplicates handoff — a folder overlap group is
@@ -114,7 +157,7 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
-            onFindDuplicatesOf: { asked.append($0.id) })
+            onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in })
 
         d.handleFindDuplicates(FileNode(id: "/Users/u/Projects", name: "Projects",
                                         isDirectory: true, children: []))
