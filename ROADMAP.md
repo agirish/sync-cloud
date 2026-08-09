@@ -502,6 +502,13 @@ local monitor.
 
 ## 15. A rules view inside Organize
 
+**Status: reachable, and the placement question is settled.** Organize became the umbrella — the
+workspace bar is **Compare · Organize · Storage**, and everything that changes one tree is a lens on
+a rail inside it — so Automations folded in and *Rules* is one of the six rail items. What this item
+still wants is the view itself: the rule list, editor and preview in the lens slot, and the re-homing
+trap below. **Rules is the one rail item that never carries a badge**, which is the distinction the
+badge draws: eight rules is a configuration you keep, not a result a scan turned up.
+
 **Why:** Filing rules act on filing, and the one that matters most is *learned* from a filing move
 just made. Clicking a file a rule placed and asking "which rule did that?" currently costs a
 workspace change — and *Learned rule* is already a filter chip in Organize, so half the association
@@ -627,6 +634,12 @@ the defect is not in any file.
 disagrees with itself, and proposes a plan to fix it. **Not a sixth workspace, and not a *Structure*
 tab beside *Files* either** — which is what this item proposed until 2026-08-07.
 
+**Placement, as shipped:** a **rail item inside Organize**, not a chip and not a segment. The rail
+replaced the finding chips when Organize became the umbrella (see the Interface section), and the
+argument that settled it is the one this item cares about: *pointed invocation needs a place that
+exists before any scan has run*, and a chip that materialises only after a finding has nowhere for
+"restructure this folder" to land.
+
 A sixth labelled segment costs **104 pt** of bar at the default text size (measured through
 `WorkspaceBarMetrics.fullWidth` with the real labels at `.semibold`: 779 pt → 883 pt, and 99 / 111 pt
 at the small and large sizes). Because the bar sheds every label at once, that takes the whole
@@ -740,6 +753,20 @@ parallels: Vanguard's Roth and Traditional IRAs, four Chase accounts each folder
 What separates MapR is that the same documents sit in both, so this is a content claim and it waits
 on item 18.
 
+**Status: the first detector has shipped, report-only.** `StructureDivergence` reads the profile
+and reports families of siblings shaped differently at different times, under the two rules
+validated below. On the real 3,013-folder tree it returns **one** family — `Finance/US/Income Tax`,
+three eras — with every control quiet. What has *not* shipped is everything below this line: the
+plan, the manifest and any operation that touches a file. A finding names the disagreement; it does
+not offer to fix it.
+
+**The bug that run caught, and no fixture could.** The live profile **propagates axes down the whole
+subtree** — `Income Tax/2013/Federal Tax` carries `year: 2013` exactly as its ancestors do — so a
+"does this folder carry an axis?" test dropped every role folder, emptied every vocabulary, and the
+detector reported nothing at all across 3,013 folders while twelve synthetic tests stayed green.
+The rule is whether a child *introduced* the value. Every fixture had put the axis only on the
+folder that owns it, which is why none of them could see it.
+
 **A proposal is a plan, and the plan is a manifest.** Restructure emits an ordered list of typed
 operations — create folder, **rename folder**, move folder, move file, and only as a separate opt-in
 step remove a folder this plan emptied. Each carries its own written justification, as the 6 Aug log
@@ -846,6 +873,25 @@ shared with whom.
   offer made after filing into a person's folder proposes both, and never keys a person rule on
   that person's own name. Rule persistence became tolerant of unknown conditions in the same
   change (see below).
+- ~~**Find by person — the read-only view**~~ — **shipped.** ⌘F's field offers a person scope when
+  the query names exactly one of them (`PersonSearchOffer`); ↩ takes it and the find becomes a
+  *gather*, ⇧↩ keeps the plain substring search, and a query naming nobody leaves the find exactly
+  as it was. The answer is grouped by evidence: **in her folders**, from the person axis walked up
+  from each document (`PersonFiles.person(forPath:)` — nearest ancestor wins, so `OCI/Shweta/Aditi`
+  is Aditi's), and **hers, filed elsewhere**, the candidate misfilings no browse produces.
+
+  **The corpus set the attribution rule.** Accepting any name match gave Dad **204** files elsewhere
+  against 3 in his own folders, because `girish` is his given name, his wife's surname and both
+  sons'; requiring a phrase or a token unique to him takes that to **10**, and Abhishek — whose
+  unique set is empty — from 290 to 111. That gate sits beside `attribute(fileName:pageSample:)`
+  rather than inside it: the filing path checks a shared word against the destination's own person
+  axis, so its veto has counter-evidence, and **browsing has none**. The offer rule is deliberately
+  looser than the attribution rule — `girish` names one person, so typing your father's name must
+  offer him even though it cannot claim a file on its own.
+- **The page-text channel and the review queue** — page-1 anchors the survey already extracted, and
+  `person-tags.json` beside `people.json` for his verdicts. Weak evidence is not shown today; it is
+  *unreviewed*, and this is where it goes. Confirming a tag never moves a file — filing stays
+  Organize's move.
 - **Person buckets that do not exist yet** — a *create the sibling* proposal, from the parent's
   evidence, the way a cold year bucket is already handled.
 - **A person block in the classifier brief**, so a backend reads "Shweta R Dani" as Shweta too.
