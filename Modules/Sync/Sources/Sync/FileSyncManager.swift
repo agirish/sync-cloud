@@ -771,7 +771,44 @@ public class FileSyncManager: ObservableObject {
     /// The household — who documents belong to. Loaded beside the artifacts above (from
     /// `people.json`, or seeded from the profile's person axis), and part of the router index for
     /// the same reason they are: it decides the person-axis score and the cross-person veto.
+    ///
+    /// Kept in step with ``filingPeopleStore`` rather than set independently once the store exists:
+    /// the store is the editable truth, this is the compiled copy the engine reads.
     public var filingPersonRegistry: PersonRegistry? { didSet { invalidateFilingRouterIndex() } }
+    /// The editable roster, when the app has somewhere to keep one.
+    ///
+    /// Unlike the profile and the memory, this artifact is *written* — see ``PeopleStore``. The
+    /// subscription below is what makes an edit take effect without a relaunch: it recompiles the
+    /// registry, drops the router index built from the old one, and re-derives the artifact
+    /// fingerprint so cached verdicts composed against the previous roster are not replayed.
+    public var filingPeopleStore: PeopleStore? {
+        didSet {
+            filingPersonRegistry = filingPeopleStore?.registry ?? filingPersonRegistry
+            peopleCancellable = filingPeopleStore?.$people
+                .dropFirst()
+                .sink { [weak self] _ in
+                    guard let self, let store = self.filingPeopleStore else { return }
+                    // Announced on THIS object explicitly, for the reason `keptNamesStore` is: the
+                    // store is a separate ObservableObject behind a plain var, so a view watching
+                    // only the manager sees nothing.
+                    self.objectWillChange.send()
+                    self.filingPersonRegistry = store.registry
+                    self.refreshFilingArtifactFingerprint()
+                }
+        }
+    }
+    private var peopleCancellable: AnyCancellable?
+
+    /// Re-reads the artifact digest after one of them is written.
+    ///
+    /// **The roster is part of the question every file is asked** — it decides the person veto and
+    /// the person-axis score, both of which move the shortlist a backend is handed. Without this,
+    /// editing a person would leave `FilingVerdictCache` replaying answers composed against the old
+    /// household, which is the same bug the fingerprint was introduced for when a re-survey landed.
+    func refreshFilingArtifactFingerprint() {
+        guard let dir = filingProfilesDirectory, let id = filingFolderProfile?.profileId else { return }
+        filingArtifactFingerprint = FilingProfileStore.fingerprint(id: id, in: dir)
+    }
     /// The prepared router index, and the destination set it was built from.
     ///
     /// Building it costs ~85 ms against a 2,979-folder tree, and the taxonomy is usually identical

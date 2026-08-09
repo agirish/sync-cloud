@@ -821,8 +821,9 @@ shared with whom.
 
 **What remains.**
 
-- **Editing in the app** — add, rename, merge and delete people, and correct a full-name variant.
-  The Settings section is deliberately read-only until then rather than half-writable.
+- ~~**Editing in the app**~~ — **shipped.** Settings ▸ Organize ▸ People adds, edits and removes
+  people, with a live preview of what a draft would match; `PeopleStore` owns the write path and
+  `people.json` is the one filing artifact the app writes.
 - **Learning from filing** — a recurring name-shaped phrase in documents filed to one person's
   folders becomes a *suggestion* ("add *Shweta Ravindra Dani* as another name for Shweta?"), never
   an automatic write. Likewise an identifier a person's folders have received (a passport or member

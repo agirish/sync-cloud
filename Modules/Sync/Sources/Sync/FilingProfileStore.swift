@@ -76,11 +76,14 @@ public enum FilingProfileStore {
     /// even a tree with no `people.json` gets `Mom` and `Muktha` resolved to one person. What the
     /// file adds is what a survey cannot know — the *full names* documents print, which is what
     /// makes "Aditi Abhishek" attributable to Aditi rather than to two people.
-    public static func personRegistry(id: String, profile: FolderProfile, in directory: URL) -> PersonRegistry {
+    /// `profile` is optional so a roster can be read on a machine with no survey at all — the file
+    /// is the user's, and it does not stop being readable because nothing has scanned their tree.
+    public static func personRegistry(id: String, profile: FolderProfile?, in directory: URL) -> PersonRegistry {
         if let file = decode(PeopleFile.self, at: directory.appendingPathComponent("\(id)/people.json"),
                              what: "people registry") {
             return PersonRegistry(people: file.people)
         }
+        guard let profile else { return PersonRegistry(people: [], source: .profileAxis) }
         return PersonRegistry.seeded(from: profile)
     }
 

@@ -6,19 +6,22 @@ import Foundation
 /// but until now the engine held them as bare tokens. A record is what lets *Mom* and *Muktha*
 /// be the same person, and lets "Shweta R Dani" on a PAN card resolve to the same person as the
 /// folder called `Shweta`.
-public struct Person: Sendable, Equatable {
+public struct Person: Sendable, Equatable, Identifiable {
     /// Stable identity, never displayed — survives renames and added variants.
+    ///
+    /// `let`, unlike everything below it: the id is what a folder's `axes.person` and every saved
+    /// rule will resolve through, so renaming *Shweta* to *Shweta D.* must not orphan them.
     public let id: String
     /// What the tree calls them: the folder name, usually a first name.
-    public let displayName: String
+    public var displayName: String
     /// `me`, `wife`, `daughter`, … — display-only today; recorded because relationship words
     /// ("my wife") are what a future classifier brief will want to print.
-    public let relationship: String?
+    public var relationship: String?
     /// Every full form a document might print — "Shweta Dani", "Shweta Ravindra Dani",
     /// "Shweta R Dani", "Shweta Abhishek". Matching tries these before any single word.
-    public let fullNames: [String]
+    public var fullNames: [String]
     /// What the tree calls them when it is not using their name — "Mom", "Mother".
-    public let aliases: [String]
+    public var aliases: [String]
 
     public init(id: String, displayName: String, relationship: String? = nil,
                 fullNames: [String] = [], aliases: [String] = []) {
@@ -28,9 +31,20 @@ public struct Person: Sendable, Equatable {
         self.fullNames = fullNames
         self.aliases = aliases
     }
+
+    /// An id derived from a display name — lowercased ASCII words joined by `-`, or a timestamp-free
+    /// fallback when the name yields nothing usable (a name written only in a non-Latin script).
+    ///
+    /// Deliberately not a UUID: these ids are read by a human in `people.json` and compared against
+    /// the profile's `axes.person` values by eye. Uniqueness is the caller's job — ``PeopleStore``
+    /// disambiguates, because only it knows the rest of the roster.
+    public static func idCandidate(from displayName: String) -> String {
+        let words = PersonRegistry.words(displayName)
+        return words.isEmpty ? "person" : words.joined(separator: "-")
+    }
 }
 
-extension Person: Decodable {
+extension Person: Codable {
     private enum Key: String, CodingKey { case id, displayName, relationship, fullNames, aliases }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -39,6 +53,18 @@ extension Person: Decodable {
         relationship = try c.decodeIfPresent(String.self, forKey: .relationship)
         fullNames = try c.decodeIfPresent([String].self, forKey: .fullNames) ?? []
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+    }
+
+    /// Written back in the shape the file already has, and **empty collections are omitted** — the
+    /// file is meant to be read and hand-edited, and `"aliases": []` on five of seven people is
+    /// noise that makes the two who have them harder to see.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encodeIfPresent(relationship, forKey: .relationship)
+        if !fullNames.isEmpty { try c.encode(fullNames, forKey: .fullNames) }
+        if !aliases.isEmpty { try c.encode(aliases, forKey: .aliases) }
     }
 }
 
@@ -224,7 +250,11 @@ public struct PersonRegistry: Sendable {
 
     /// Lowercased ASCII-alphanumeric runs, in order, 1-character runs kept — the initial in
     /// "Shweta R Dani" is part of the phrase even though it could never stand alone.
-    static func words(_ s: String) -> [String] {
+    ///
+    /// Public because the matcher's own splitting rule is the only correct way to derive anything
+    /// *from* a name elsewhere — Settings takes initials with it, and a second hand-rolled split
+    /// would disagree with matching on exactly the names that are hard.
+    public static func words(_ s: String) -> [String] {
         var out: [String] = []
         var current = ""
         for ch in s.lowercased().unicodeScalars {

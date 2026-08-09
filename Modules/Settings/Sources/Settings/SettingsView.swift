@@ -417,6 +417,13 @@ enum SettingsSearchIndex {
                          "wife", "husband", "son", "daughter", "mother", "father", "kids",
                          "wrong person", "whose document", "who", "aliases", "privacy",
                          "what is stored", "data"]),
+        // The Add button is its own entry: "add person" is what someone types when the roster is
+        // missing somebody, and it would otherwise reach nothing — the section title does not
+        // contain the word they used.
+        .init(tab: .filing, title: "Add Person…",
+              keywords: ["add person", "new person", "add family member", "add someone",
+                         "remove person", "delete person", "edit person", "rename person",
+                         "relationship", "brother", "sister", "roster"]),
 
         // Duplicates
         .init(tab: .duplicates, title: "Ignore files smaller than",
@@ -1922,10 +1929,17 @@ struct FilingSettingsTab: View {
 
             SettingsSection(
                 "People",
-                caption: "Who your documents belong to. Organize uses this to keep one person’s document out of another’s folder, and to pick between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters here because several of these names are shared. Everything shown below is everything held: names, and which of their words are theirs alone. No document text is stored, and nothing is sent anywhere — this is read at launch and used on your Mac. Editing is not wired up yet; the roster comes from people.json in your profile folder, or from the folder names a survey found."
+                caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names below."
             ) {
-                PeopleList(registry: syncManager?.filingPersonRegistry,
-                           profile: syncManager?.filingFolderProfile)
+                if let store = syncManager?.filingPeopleStore {
+                    PeopleList(store: store,
+                               profile: syncManager?.filingFolderProfile,
+                               memory: syncManager?.filingMemory)
+                } else {
+                    // No engine attached (tests, previews) — say so rather than leaving the caption
+                    // over a void, and never offer an Add button that would write nowhere.
+                    PeopleList.noStoreNote
+                }
             }
         }
         .onAppear(perform: refreshSpend)
@@ -2012,113 +2026,235 @@ struct KeptNamesList: View {
     }
 }
 
-/// The household Organize files for, one row per person — **read-only, and deliberately complete**.
+/// The household Organize files for — one row per person, each editable, each showing what the
+/// engine actually knows about them.
 ///
-/// The point of showing it is not configuration (there is nothing to change here yet) but
-/// disclosure: a rule that can refuse a suggestion, silently, on the grounds that a document names
-/// the wrong person is a rule the user is entitled to inspect. So each row prints everything the
-/// registry actually holds about that person — the names it matches on, which of those words
-/// identify them on their own, which are shared with somebody else — plus how many folders in the
-/// surveyed tree are recorded as theirs, which is the only number here derived from the tree rather
-/// than from the roster.
+/// **A list of names was not enough, and the reason is worth keeping.** The first version printed
+/// six names and nothing else: it did not say what the section was for, what any of it did, or how
+/// to change it — so a rule that can silently refuse a filing suggestion, on the grounds that a
+/// document names the wrong person, was inspectable only in the sense that the names were visible.
+/// Each row now leads with what that person's record *buys*: the name forms matched against a
+/// document, how many folders in the tree are theirs, how many documents are already filed in them,
+/// and a warning when every word they answer to is shared with somebody else — the state that makes
+/// adding a full name worth doing.
 ///
-/// A plain `View` over a value, not an `@ObservedObject`: the registry is replaced wholesale at
-/// launch and never mutated, so there is nothing to observe.
+/// `@ObservedObject` on the store, unlike the value this used to take: the roster is now written
+/// from this view, and a list that did not observe its own edits would need a relaunch to show them.
 struct PeopleList: View {
-    let registry: PersonRegistry?
+    @ObservedObject var store: PeopleStore
     let profile: FolderProfile?
+    let memory: FilingMemory?
+
+    /// Which person is open in the editor. `nil` closes it; a person with an empty id is the
+    /// "add" case, the same sheet doing both jobs.
+    @State private var editing: Person?
+    @State private var confirmingRemoval: Person?
 
     var body: some View {
-        if let registry, !registry.isEmpty {
-            ForEach(registry.people, id: \.id) { person in
-                PersonRow(person: person, registry: registry, folderCount: folderCount(for: person.id))
-            }
-            SettingsRow("Source") {
-                Text(registry.source == .file
-                     ? "people.json in your profile folder"
-                     : "the person folders a survey found")
-                    .foregroundStyle(.secondary)
-            }
-            .help(registry.source == .file
-                  ? "Read from people.json. Full names come from there — they are what makes “Aditi Abhishek” attributable to one person."
-                  : "Seeded from the survey’s person folders and their aliases. No full names, so only single distinctive words match; add people.json to teach it the full forms documents print.")
+        if store.people.isEmpty {
+            Self.emptyRosterNote
         } else {
-            Self.noPeopleNote
+            ForEach(store.people) { person in
+                PersonRow(facts: facts(for: person), person: person,
+                          onEdit: { editing = person },
+                          onRemove: { confirmingRemoval = person })
+            }
+        }
+        HStack(spacing: 10) {
+            Button {
+                editing = Person(id: "", displayName: "")
+            } label: {
+                Label("Add Person…", systemImage: "plus")
+            }
+            .controlSize(.small)
+            Spacer()
+            Text(sourceNote)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 2)
+        .sheet(item: $editing) { person in
+            PersonEditor(person: person,
+                         isNew: person.id.isEmpty,
+                         roster: store.people,
+                         onSave: { edited in
+                             if person.id.isEmpty {
+                                 store.add(displayName: edited.displayName,
+                                           relationship: edited.relationship,
+                                           fullNames: edited.fullNames,
+                                           aliases: edited.aliases)
+                             } else {
+                                 store.update(edited)
+                             }
+                             editing = nil
+                         },
+                         onCancel: { editing = nil })
+        }
+        .alert("Remove \(confirmingRemoval?.displayName ?? "")?",
+               isPresented: Binding(get: { confirmingRemoval != nil },
+                                    set: { if !$0 { confirmingRemoval = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let p = confirmingRemoval { store.remove(id: p.id) }
+                confirmingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { confirmingRemoval = nil }
+        } message: {
+            // Says what removal does and — more usefully — what it does not. Nobody should have to
+            // guess whether this touches their files.
+            Text("Their folders and files are left exactly as they are. Organize will stop "
+                 + "recognising documents that name them, so it will no longer keep those documents "
+                 + "out of other people's folders.")
         }
     }
 
-    /// Folders whose `axes.person` resolves to this person. Counted through the registry rather
-    /// than by string equality, so `Family/Mom` counts toward Muktha — which is the whole point of
-    /// keeping the alias map.
-    private func folderCount(for id: String) -> Int {
-        guard let profile, let registry else { return 0 }
-        return profile.folders.values.filter { entry in
-            guard let axis = entry.axes["person"] else { return false }
-            return registry.person(forAxisValue: axis) == id
-        }.count
+    /// Everything known about one person, computed in `Sync` so the claim this view makes is
+    /// testable without a window.
+    private func facts(for person: Person) -> PersonFilingFacts {
+        PersonFilingFacts.make(for: person, registry: store.registry,
+                               profile: profile, memory: memory)
     }
 
-    /// Shown when no tree has been surveyed — the ordinary state for anyone who has not had a
-    /// profile built, and the same state in tests and previews.
-    static var noPeopleNote: some View {
-        Text("No people yet. Organize learns these from a survey of your tree, or from a people.json in your profile folder.")
+    private var sourceNote: String {
+        store.source == .file
+            ? "Saved in people.json"
+            : "Suggested from your folder names — edit anyone to make it yours"
+    }
+
+    /// Shown when the roster is empty but editable — an invitation, not an error.
+    static var emptyRosterNote: some View {
+        Text("No people yet. Add the people whose documents you file — yourself, family — and Organize will stop mixing up whose document is whose.")
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+    }
+
+    /// Shown when there is no engine behind the tab at all (tests, previews).
+    static var noStoreNote: some View {
+        Text("People are available once a filing profile is loaded.")
             .scaledFont(.callout)
             .foregroundStyle(.secondary)
     }
 }
 
-/// One person: what they are called, the forms matched against a document, and the words that are
-/// theirs alone.
+/// One person: who they are, what the engine matches them on, and what that is worth in this tree.
+///
+/// The three lines are deliberately ordered by what a reader wants first — identity, then the
+/// evidence, then the caveat. The caveat line is the only tinted one, because a name shared with
+/// somebody else is the single fact on this screen that can change an outcome.
 private struct PersonRow: View {
+    let facts: PersonFilingFacts
     let person: Person
-    let registry: PersonRegistry
-    let folderCount: Int
+    let onEdit: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
-        let breakdown = registry.tokenBreakdown(for: person.id)
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(person.displayName.capitalized).scaledFont(.callout).fontWeight(.medium)
-                if let relationship = person.relationship {
-                    Text(relationship).scaledFont(.caption).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 10) {
+            PersonInitials(person: person)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(person.displayName).scaledFont(.callout).fontWeight(.medium)
+                    if let relationship = person.relationship {
+                        Text(relationship).scaledFont(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                Spacer()
-                if folderCount > 0 {
-                    Text(folderCount == 1 ? "1 folder" : "\(folderCount) folders")
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
+                Text(matchedLine).scaledFont(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !knowledgeLine.isEmpty {
+                    Text(knowledgeLine).scaledFont(.caption).foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                if let caveat = caveatLine {
+                    Text(caveat).scaledFont(.caption).foregroundStyle(SemanticColor.caution)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            if !matchedNames.isEmpty {
-                Text(matchedNames.joined(separator: " · "))
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Edit", action: onEdit).controlSize(.small)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill").hoverInk()
             }
-            // The shared words are the interesting half — they are why matching is phrase-first —
-            // so they are the ones tinted. A row with none says so by having no second line.
-            if !breakdown.shared.isEmpty {
-                Text(sharedSummary(breakdown.shared))
-                    .scaledFont(.caption)
-                    .foregroundStyle(SemanticColor.caution)
-            }
+            .buttonStyle(.hoverAffordance(.inline))
+            .help("Remove \(person.displayName) from the household")
         }
-        .help("Matched on: \(matchedNames.isEmpty ? person.displayName : matchedNames.joined(separator: ", ")). "
-              + (breakdown.unique.isEmpty
-                 ? "No word here is theirs alone."
-                 : "Theirs alone: \(breakdown.unique.joined(separator: ", "))."))
+        .padding(.vertical, 2)
+        .help(tooltip)
     }
 
-    private var matchedNames: [String] {
-        person.fullNames + person.aliases
+    /// The shared-word detail, which is real but not a problem — so it lives here rather than on a
+    /// line of its own. Every member of this household shares a word with somebody; a row that said
+    /// so in amber said it seven times out of seven and meant nothing.
+    private var tooltip: String {
+        var parts = [matchedLine]
+        if !facts.uniqueWords.isEmpty {
+            parts.append("Theirs alone: " + facts.uniqueWords.joined(separator: ", ") + ".")
+        }
+        if !facts.sharedWords.isEmpty {
+            parts.append("Shared with the rest of the household: " + facts.sharedSummary + ".")
+        }
+        return parts.joined(separator: " ")
     }
 
-    private func sharedSummary(_ shared: [String]) -> String {
-        let described = shared.map { token -> String in
-            let others = registry.othersSharing(token, with: person.id)
-            return others == 1 ? "“\(token)” (also 1 other)" : "“\(token)” (also \(others) others)"
-        }
-        return "Shared: " + described.joined(separator: ", ")
+    /// The forms a document is matched against, longest first — which is the order they are tried
+    /// in, so the line doubles as an explanation of precedence.
+    private var matchedLine: String {
+        facts.matchedForms.isEmpty ? person.displayName
+                                   : "Matches " + facts.matchedForms.joined(separator: " · ")
+    }
+
+    /// What the record is worth in this tree. Omitted entirely when nothing has been surveyed —
+    /// "0 folders" on a machine with no profile reads as a fault rather than as an absence.
+    private var knowledgeLine: String {
+        guard facts.folderCount > 0 else { return "" }
+        let folders = facts.folderCount == 1 ? "1 folder is theirs" : "\(facts.folderCount) folders are theirs"
+        guard facts.filedDocuments > 0 else { return folders }
+        let docs = facts.filedDocuments == 1 ? "1 document filed" : "\(facts.filedDocuments) documents filed"
+        return "\(folders) · \(docs)"
+    }
+
+    /// The one line that can change an outcome — and it is shown **only when there is one**.
+    ///
+    /// A document naming this person cannot be attributed to them: every word they answer to
+    /// belongs to somebody else here as well, and they have no multi-word form for the matcher to
+    /// find as a phrase. That is actionable, and rare. Merely *sharing* a word is neither.
+    private var caveatLine: String? {
+        guard !facts.isAttributable else { return nil }
+        let shared = facts.sharedWords.isEmpty
+            ? "Nothing names them yet"
+            : "Nothing names them yet: " + facts.sharedSummary
+        return shared + " — add a full name as documents print it"
+    }
+}
+
+/// A person's initials in a tinted disc. Identity at a glance, and the one thing on the row that
+/// stays legible when the text is scaled up and everything else wraps.
+private struct PersonInitials: View {
+    let person: Person
+
+    var body: some View {
+        Text(initials)
+            .scaledFont(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(tint.gradient))
+            .accessibilityHidden(true)
+    }
+
+    /// Two letters of the **display name**, not initials of the full name.
+    ///
+    /// `AG` for Abhishek Girish and `AG` for Anuraag Girish is two identical discs in one list —
+    /// rendered and seen. The display name is what the row is headed by and what the folders are
+    /// called, so `Ab` and `An` track what the reader is actually looking at.
+    private var initials: String {
+        let name = PersonRegistry.words(person.displayName).first ?? person.displayName
+        return name.prefix(2).capitalized
+    }
+
+    /// Derived from the id, so a person keeps their colour across renames and relaunches — a
+    /// stable colour is what makes the disc worth having at all.
+    private var tint: Color {
+        let palette: [Color] = [.blue, .purple, .green, .orange, .pink, .teal, .indigo]
+        var hash = 5381
+        for byte in person.id.utf8 { hash = (hash &* 33) &+ Int(byte) }
+        return palette[abs(hash) % palette.count]
     }
 }
 
