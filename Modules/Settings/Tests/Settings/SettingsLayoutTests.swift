@@ -1,6 +1,7 @@
 import AppKit
 import Design
 import SwiftUI
+import Sync
 import Testing
 @testable import Settings
 
@@ -858,4 +859,92 @@ import Testing
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.width
     }
+}
+
+// MARK: - The cloud-spend readout
+
+/// `FilingSpendReadout` replaced four `SettingsRow`s with a four-figure strip, and until this
+/// existed **only its empty branch had ever been exercised** — every render and every layout test
+/// ran against a `FilingSpendTotals()` with no scans, which draws one sentence and none of the
+/// figures. The whole point of the view was invisible to the suite.
+///
+/// That mattered because the strip is the one place in Settings where four values share a row.
+/// The figures were rendered and read back at three widths before this was written:
+///
+/// - the real column (547pt) — all four fit on one line with room to spare;
+/// - the worst realistic case (`~$128.40`, `91002.7k tok`, `412`, `Opus · 150 files · ~$2.41`) —
+///   also one line;
+/// - the narrowest column the sheet can ever offer (307pt, the floor-sized window) — "Cloud
+///   refines" and the last-refine value **wrap to two lines**, and nothing truncates. That is the
+///   intended degradation: each figure sits in a column the `HStack` proposes a real width to, so
+///   a `Text` too long for it wraps of its own accord.
+///
+/// The strip briefly carried a `.fixedSize(horizontal: false, vertical: true)` on the value,
+/// copied from `SettingsSection`'s caption where it is load-bearing. **Mutation says it was
+/// not**: `theStripWrapsRatherThanOverflowingTheNarrowestColumn` survived its removal, and
+/// rendering both variants at 307pt produced pixel-identical output. It is gone, along with the
+/// comment claiming the value would otherwise truncate — the caption needs it because it is a
+/// `Text` in a stack with `maxWidth: .infinity`, which is a different situation.
+///
+/// Geometry cannot tell "wrapped" from "truncated to …" — that distinction came from reading the
+/// pixels, and it is recorded here rather than asserted. What IS asserted is the part a test can
+/// hold: the populated branch draws something the empty branch does not.
+@Suite struct SpendReadoutTests {
+
+    @MainActor
+    private func height(_ view: some View, width: CGFloat) -> CGFloat {
+        let host = NSHostingView(rootView: view.environment(\.appFontScale, 1).frame(width: width))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
+    }
+
+    /// The narrowest column the sheet can ever offer — the worst case at every text size, since
+    /// the sheet only grows with the scale and stops shrinking at `floorSize`.
+    private static var narrowestColumn: CGFloat {
+        let tiny = CGSize(width: SettingsSheetMetrics.floorSize.width + SettingsSheetMetrics.hostMargin,
+                          height: SettingsSheetMetrics.floorSize.height + SettingsSheetMetrics.hostMargin)
+        return SettingsSheetMetrics.contentWidth(textScale: 1, available: tiny)
+            - 2 * SettingsSheetMetrics.pagePaddingH
+    }
+
+    private static let populated = FilingSpendTotals(costUSD: 4.37, tokens: 3_184_502, scans: 27)
+    private static let lastRefine = FilingSpendEntry(
+        id: "1", timestamp: Date(timeIntervalSince1970: 1_770_000_000),
+        model: "claude-haiku-4-5-20251001", fileCount: 148, placedCount: 148,
+        inputTokens: 300_000, outputTokens: 18_000,
+        cacheReadTokens: 0, cacheCreationTokens: 0, estimatedCostUSD: 0.0312)
+
+    /// The gap this closes: with `scans == 0` the view draws a sentence and returns, so every
+    /// assertion that only ever saw the default `FilingSpendTotals()` was measuring the empty
+    /// state and calling it the readout.
+    @MainActor
+    @Test func theFiguresAppearOnlyOnceThereIsSpend() {
+        let column = SettingsSheetMetrics.contentWidth(textScale: 1)
+            - 2 * SettingsSheetMetrics.pagePaddingH
+        let empty = height(FilingSpendReadout(totals: FilingSpendTotals(), last: nil), width: column)
+        let full = height(FilingSpendReadout(totals: Self.populated, last: Self.lastRefine),
+                          width: column)
+
+        #expect(empty > 0, "the empty state laid out to nothing — this fixture measured no view")
+        #expect(full > empty,
+                """
+                The populated readout (\(full)pt) is no taller than the "nothing spent yet"                 sentence (\(empty)pt) — the figures are not being drawn.
+                """)
+    }
+
+    // There is deliberately NO geometric test that the last-refine figure wraps rather than
+    // truncates, and the absence is the finding.
+    //
+    // Three were written and all three measured the neighbour instead of the subject. Comparing
+    // the whole strip wide-vs-narrow passes because the LABEL "Cloud refines" wraps too, whatever
+    // the value does — `.lineLimit(1)` on the value left it green. Varying the model name to
+    // lengthen the string does nothing either: `FilingSpendFormat.model` collapses
+    // "claude-haiku-4-5-20251001" to "Haiku", so the input never reaches the rendered text, and
+    // the two fixtures measured 44.0pt against 44.0pt.
+    //
+    // `fittingSize` cannot tell a wrapped line from a truncated one — a `Text` that clips to
+    // "Haiku · 148 fi…" and one that wraps to two lines both report a height the assertion is
+    // happy with. Only painted pixels distinguish them, which is how the wide/worst/narrow
+    // renders recorded on this suite were checked. A test that cannot fail for the reason its
+    // name gives is worse than no test: it reads as coverage of exactly the thing nobody checked.
 }

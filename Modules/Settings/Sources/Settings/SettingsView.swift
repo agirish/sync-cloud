@@ -2138,12 +2138,15 @@ struct FilingSpendReadout: View {
             Text(label)
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
+            // No `.fixedSize(horizontal: false, vertical: true)` here, deliberately — it was
+            // written in by analogy with `SettingsSection`'s caption and it does nothing. That
+            // caption needs it because it is a `Text` inside a stack with `maxWidth: .infinity`,
+            // which reports a one-line ideal height and clips. A figure in this strip is inside a
+            // column the `HStack` proposes a real width to, so it already wraps; rendered at the
+            // narrowest column the sheet can offer, with and without, the two are pixel-identical.
             Text(value)
                 .scaledFont(.callout)
                 .monospacedDigit()
-                // The last-refine figure is a sentence's worth of detail in a column sized for a
-                // number; without this it truncates to "Haiku · 88 fi…" at the narrower widths.
-                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
     }

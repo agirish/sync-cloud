@@ -843,12 +843,12 @@ absent — the seed alone fixes the alias misfire. Both the veto and the router'
 now resolve through it, ending the two-tokenizer disagreement between `FilingEngine.nameTokens` and
 `FilingRouter.tokenize`. The router treats a person match as confirmation (+1.0) and a
 contradiction as a penalty (−3.0), which is what picks between sibling person buckets that hold
-identical documents; Settings ▸ Organize shows the roster read-only, including which words are
+identical documents; Settings ▸ People shows the roster read-only, including which words are
 shared with whom.
 
 **What remains.**
 
-- ~~**Editing in the app**~~ — **shipped.** Settings ▸ Organize ▸ People adds, edits and removes
+- ~~**Editing in the app**~~ — **shipped.** Settings ▸ People adds, edits and removes
   people, with a live preview of what a draft would match; `PeopleStore` owns the write path and
   `people.json` is the one filing artifact the app writes.
 - ~~**Learning from filing**~~ — **shipped.** *Look for names* reads the filenames already in each
