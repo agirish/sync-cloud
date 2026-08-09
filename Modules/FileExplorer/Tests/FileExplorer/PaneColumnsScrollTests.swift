@@ -283,15 +283,19 @@ import Sync
         clip.enclosingScrollView?.reflectScrolledClipView(clip)
         // The emission is two main-thread hops away — a bounds-change notification, then the
         // probe's 250ms coalescing flush — and under a full parallel run other main-actor work
-        // can starve those hops well past a polite window (`waitForOrigin`'s lesson, below).
-        // 15s matches it; a 5s deadline here failed about one full-suite run in six under load,
-        // and shortening it to 0.4s reproduces that failure's exact signature on demand.
-        let deadline = Date().addingTimeInterval(15)
-        while probe.linesLogged == before, Date() < deadline {
-            window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        #expect(probe.linesLogged > before, "the probe never reported the column's travel")
+        // can starve those hops well past a polite window.
+        //
+        // **The third hand-rolled copy of the loop `waitForOrigin` used to be**, and it carried the
+        // same defect after both of those were floored. What makes it worth naming rather than just
+        // fixing is *how* it reasoned: the comment here argued only about the SIZE of the window —
+        // fifteen seconds "matches" the sibling's, five failed about one full-suite run in six —
+        // and a bigger number cannot buy a main-actor turn. Observed failing this way on 2026-08-09
+        // under CPU spinners, giving up with `linesLogged` still at its starting value; the sibling
+        // measured one pass against sixteen idle in the same run. `pump` is right here where it was
+        // wrong there: this wait IS for a layout result, and the probe needs the passes.
+        let emitted = await LayoutPumpWait.pump(window, upTo: 15) { probe.linesLogged > before }
+        #expect(emitted.held,
+                "the probe never reported the column's travel, after \(emitted.pumps) passes")
 
         // Not asked for — how it ships. The same travel, back the way it came, must write nothing.
         // `LogFileWriter` caps the log at 5 MB and trims it from the TAIL, so a per-frame line does
@@ -1184,12 +1188,14 @@ import Sync
         // (`waitForOrigin`'s lesson) instead of holding any fixed window. The deadline only
         // bounds a FAILING run — a pass exits on the observable — and loaded verification
         // runs measured the enforcement hop draining up to 13s in, so 15s was no margin.
-        let deadline = Date().addingTimeInterval(60)
-        while clip.bounds.origin.x != 0, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        #expect(clip.bounds.origin.x == 0,
-                "a vertical gesture's leaked delta moved the stack and the hold never reverted it")
+        //
+        // Sixty seconds is kept, and the floor is what makes it mean something: this loop had the
+        // observable right and the BUDGET wrong, which is the half of the lesson the comment above
+        // records learning. Under starvation the deadline is spent before the first sleep returns,
+        // and sixty buys no more turns than fifteen did.
+        let held = await LayoutPumpWait.poll(upTo: 60) { clip.bounds.origin.x == 0 }
+        #expect(held.held,
+                "a vertical gesture's leaked delta moved the stack and the hold never reverted it, after \(held.passes) passes")
     }
 
     /// The crash's shape, pinned: something keeps re-scrolling the stack against the hold — as
@@ -1298,12 +1304,11 @@ import Sync
         try #require(paneA.clip.bounds.origin.x == 9, "fixture failed to strand pane A")
         try #require(paneB.clip.bounds.origin.x == 9, "fixture failed to scroll pane B")
 
-        let deadline = Date().addingTimeInterval(60)
-        while paneA.clip.bounds.origin.x != 0, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        #expect(paneA.clip.bounds.origin.x == 0,
-                "the gesture's own pane was never held — the original leak is back")
+        // Floored for the same reason as its sibling above — same shape, same budget, and the
+        // assertion below it depends on this one having actually waited.
+        let heldA = await LayoutPumpWait.poll(upTo: 60) { paneA.clip.bounds.origin.x == 0 }
+        #expect(heldA.held,
+                "the gesture's own pane was never held — the original leak is back, after \(heldA.passes) passes")
         #expect(paneB.clip.bounds.origin.x == 9,
                 "a vertical gesture in pane A reverted pane B's own scroll — B's reveal is defeated again")
     }
