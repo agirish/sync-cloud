@@ -128,6 +128,28 @@ import Design
                 "the query narrowed the denominator too — M must be the list before the search")
     }
 
+    @Test("A fold made on the All page cannot empty a section the rail selected")
+    func collapsingAppliesToTheAllPageOnly() throws {
+        // **The rail and the fold are two ways to hide the same list, and together they hid it
+        // twice.** `collapsed` is `@State` on the view and survives a rail selection, so folding
+        // "Untouched" on the All page and then clicking Untouched on the rail produced a page with
+        // one collapsed header and nothing else — the thing you just asked for, hidden by a
+        // decision made somewhere else, with no hint that the fold was why.
+        //
+        // The fold is for triaging three lists stacked under a treemap. Narrowed to one, there is
+        // nothing to get past, so it does not apply. Asserted on the source because `collapsed` is
+        // view state with no seam: what matters is that the condition consults the *selection*.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        #expect(source.contains("let isCollapsed = self.section == nil && collapsed.contains(section)"),
+                "the fold no longer consults the rail's selection, so selecting a folded section shows an empty page")
+        // Non-vacuity: the fold still exists and is still a thing the All page can do.
+        #expect(source.contains("collapsed.insert(section)"))
+    }
+
     @Test("Before a scan the rail says it has not looked, rather than claiming zero")
     func theRailDoesNotClaimZeroBeforeAScan() {
         // The rule Organize's rail follows, applied here: a storage lens that has not run cannot

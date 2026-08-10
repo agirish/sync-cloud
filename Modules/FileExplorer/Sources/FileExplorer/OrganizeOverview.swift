@@ -96,6 +96,31 @@ struct RailItemLabel: View {
             : String(format: "%.1fk", (thousands * 10).rounded(.down) / 10)
     }
 
+    /// What VoiceOver reads for one rail item: its name, then what it has to say.
+    ///
+    /// Pure and static so the composition can be asserted without an assistive client attached —
+    /// this suite has no accessibility tree to read back, so a caption assertion made against the
+    /// live view would pass vacuously whatever the label said.
+    ///
+    /// **The count is spoken in full**, not abbreviated: `1.2k` is a width compromise the row makes
+    /// because six capsules share it, and a spoken label has no such constraint. "1,192" is what
+    /// the list actually holds.
+    nonisolated static func accessibilityLabel(title: String, state: RailItemState) -> String {
+        switch state {
+        case .reporting(let count):
+            return "\(title), \(count.formatted())"
+        case .clean:
+            return "\(title), nothing found"
+        case .notScanned:
+            return "\(title), not scanned"
+        case .configuration:
+            // Rules and the overview item. Neither reports, so neither has a state to announce —
+            // and appending "nothing found" to Rules would be the same lie the badge refuses to
+            // tell by never drawing a zero there.
+            return title
+        }
+    }
+
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
@@ -129,7 +154,15 @@ struct RailItemLabel: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 3)
-        .accessibilityLabel(title)
+        // **The state has to be spoken, because the state is carried in colour.** This said the
+        // title and nothing else, which was survivable while every item looked alike and the only
+        // extra information was a badge. It is not survivable now: a reporting item is told apart
+        // from a quiet one by its *tint*, and an unscanned one from a clean one by a 4pt dot —
+        // neither of which reaches VoiceOver, so all six items announced identically and the whole
+        // point of the row was invisible. Colour alone must never be the only carrier of a state
+        // (the same rule the scan-freshness pill follows, where `ScanFreshness` supplies a spoken
+        // form saying "may be out of date" outright).
+        .accessibilityLabel(Self.accessibilityLabel(title: title, state: state))
         // 0.14 is the `Pill` wash this row's other capsules use — matched deliberately, so a
         // reporting item reads as the same kind of thing rather than as a second, competing idiom.
         // The quiet rungs drop to a neutral fill of the same weight, which keeps the capsule (and

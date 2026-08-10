@@ -52,12 +52,12 @@ enum OrganizeRailStyle: Equatable, Sendable {
 ///   row 1's leading side and the model only ever measured the rail, so it was short by 21pt on
 ///   every Organize lens. That button has since been removed and the leading half is the rail
 ///   alone — but the lesson outlives it: anything put back on this side of the row belongs in
-///   ``leadingWidth(scale:badge:)``, not merely in `TidyView.lensTitle`.
+///   ``leadingWidth(scale:state:)``, not merely in `TidyView.lensTitle`.
 ///
 /// Together those came to ~63pt at four badges, which is why the row truncated while the
 /// arithmetic reported room. The failure mode worth remembering is not the size of the error but
 /// its *shape*: because the estimate was wrong per item and per digit, the width the row really
-/// needed drifted with the badge counts, so **no fixed ``reservedTrailing`` could have been
+/// needed drifted with the badge counts, so **no fixed trailing reserve could have been
 /// correct**. Measured against the render, the required reserve came out at 449.6 with three
 /// badges and 458.6 with four; with the leading side measured properly it is 394.8 and 395.3 —
 /// the same number twice, which is what makes a constant legitimate here at all.
@@ -123,7 +123,7 @@ enum OrganizeRailMetrics {
     /// the same reason the per-lens number was: it is an AppKit control at
     /// `.controlSize(.small)`, which follows the system control font rather than the app's
     /// `appFontScale`, while the rail's labels take `scaledFont` and do scale. So the row gets
-    /// tighter at large text on the leading side only, which the scaled ``leadingWidth(scale:badge:)``
+    /// tighter at large text on the leading side only, which the scaled ``leadingWidth(scale:state:)``
     /// already expresses.
     ///
     /// `theRowOneReserveSeatsWhatRowOneDraws` measures the trailing cluster off the render and
@@ -272,7 +272,7 @@ enum OrganizeRailMetrics {
     /// Everything row 1's leading half must seat.
     ///
     /// That is the spelled-out rail and nothing else today — the intro button that used to ride
-    /// beside it is gone. The seam stays named because the *requirement* is what ``style(contentWidth:leadingWidth:lens:)``
+    /// beside it is gone. The seam stays named because the *requirement* is what ``style(contentWidth:leadingWidth:)``
     /// takes, and anything ever added to this half of the row is added here, where it is counted,
     /// rather than beside the rail where the first cut of this type left it uncounted.
     static func leadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
@@ -334,7 +334,7 @@ enum OrganizeRailMetrics {
     ///
     /// Takes the leading width already resolved rather than the ingredients, because this runs
     /// inside the geometry transform — on every width the view is handed — while
-    /// ``leadingWidth(scale:badge:)`` measures type and belongs once per `body`.
+    /// ``leadingWidth(scale:state:)`` measures type and belongs once per `body`.
     ///
     /// **No `lens` parameter any more.** It used to select the trailing reserve, which differed by
     /// lens because each lens's own controls sat on this row. They are on row 2 now, so what row 1

@@ -1017,7 +1017,7 @@ public struct TidyView: View {
                 //
                 // The folder-memory status used to sit here, immediately before Rescan, and it is
                 // on row 2 now — see ``folderMemoryStatus``. Row 1 is fixed-width controls only,
-                // which is what lets ``OrganizeRailMetrics/reservedTrailing(for:)`` be a number at
+                // which is what lets ``OrganizeRailMetrics/searchToggleWidth`` be a number at
                 // all.
                 // Two buttons behind one name — see ``showsFilingControl`` for why Rescan's gate is
                 // not the moved branch's, and where the moved branch stands down.
@@ -1342,7 +1342,7 @@ public struct TidyView: View {
         }
         .buttonStyle(.plain)
         .chromeHover()
-        .help(railHelp(item, badge: badge))
+        .help(item.help(state: counts.state(item)))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -1448,31 +1448,12 @@ public struct TidyView: View {
 
     /// What each rail item promises. Written to read correctly whether or not it is the selected
     /// one — selection is carried by the ring and by `.isSelected`, not by swapping the words.
-    private func railHelp(_ item: OrganizeLens, badge: Int?) -> String {
-        switch item {
-        case .toFile:
-            let n = badge ?? 0
-            return "The filing queue — \(n) loose file\(n == 1 ? "" : "s") this scan found, and "
-                + "where they belong."
-        case .duplicates:
-            return "Identical content under different names or folders."
-        case .names:
-            let n = badge ?? 0
-            return "\(n) name\(n == 1 ? "" : "s") this provider will not accept, found on the same "
-                + "scan. Shows the proposed fixes."
-        case .renames:
-            let n = badge ?? 0
-            return "\(n) folder\(n == 1 ? "" : "s") that have drifted from their own numbering, and "
-                + "the files inside them the rename would touch."
-        case .restructure:
-            return "Where the tree disagrees with its own habits — recurring folders that were "
-                + "shaped differently in different years."
-        case .rules:
-            return "The rules that file things without asking. Configuration, so this one never "
-                + "carries a count."
-        }
-    }
-
+    ///
+    /// **It takes the state, not the badge, because `badge ?? 0` was telling a lie the rest of this
+    /// change exists to stop.** A nil badge means "no number to show", which is true of a lens that
+    /// scanned and found nothing *and* of one that has never run — and this read the second as the
+    /// first, so a never-scanned queue's tooltip said "0 loose files **this scan found**", asserting
+    /// a scan that had not happened. The three states have three different sentences.
     /// Organize's readout while the rename backlog is on screen: what the listed plans would do,
     /// **in files**, since the chip beside it counts folders and nothing renames a folder.
     ///
@@ -1960,7 +1941,7 @@ public struct TidyView: View {
     ///   size — at Large the card's opening has 0.4pt to give.
     ///
     /// No reserve fixes that, which is the point: sizing
-    /// ``OrganizeRailMetrics/reservedTrailing(for:)`` for 921 would strip the rail's labels out to
+    /// a trailing reserve sized for 921 would have stripped the rail's labels out to
     /// ~1316pt of card width, which is most real windows. So the prose moved to the row that is
     /// *for* prose, where there is genuine room beside the readout. Measured after the move, row
     /// 1's trailing set is 436.5pt with a report and 436.5 without — the report costs the row

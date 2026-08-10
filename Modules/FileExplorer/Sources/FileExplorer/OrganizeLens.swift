@@ -170,3 +170,46 @@ extension OrganizeLens {
         }
     }
 }
+
+// MARK: - What each item promises
+
+extension OrganizeLens {
+
+    /// What this item's tooltip says, in the state it is in.
+    ///
+    /// **On the lens rather than on the view, because it is the lens's own words** — the same place
+    /// ``title``, ``symbol`` and ``carriesBadge`` live — and because a pure function of two enums
+    /// can be asserted directly. It was a private method on `TidyView` taking the *badge*, and
+    /// `badge ?? 0` read a nil — which means "no number to show" — as zero, so a never-scanned queue
+    /// said "0 loose files **this scan found**", asserting a scan that had not happened. That is
+    /// exactly the conflation ``RailItemState`` splits apart, still being made by the words beside
+    /// the states.
+    ///
+    /// Written to read correctly whether or not this is the selected item: selection is carried by
+    /// the ring and by `.isSelected`, not by swapping the words. The description is one sentence
+    /// per lens in every state, and only the leading count clause changes.
+    func help(state: RailItemState) -> String {
+        let what: String
+        switch self {
+        case .toFile:      what = "Loose files and where they belong."
+        case .duplicates:  what = "Identical content under different names or folders."
+        case .names:       what = "Names this provider will not accept, found on the filing scan. "
+                                + "Shows the proposed fixes."
+        case .renames:     what = "Folders that have drifted from their own numbering, and the "
+                                + "files inside them a rename would touch."
+        case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
+                                + "that were shaped differently in different years."
+        case .rules:       what = "The rules that file things without asking. Configuration, so "
+                                + "this one never carries a count."
+        }
+        switch state {
+        case .reporting(let count):
+            // In full, unlike the badge — see `RailItemLabel.badgeText`, which abbreviates only
+            // because six capsules share one row.
+            return "\(count.formatted()) here. \(what)"
+        case .clean:       return "Nothing here. \(what)"
+        case .notScanned:  return "Not scanned here yet. \(what)"
+        case .configuration: return what
+        }
+    }
+}

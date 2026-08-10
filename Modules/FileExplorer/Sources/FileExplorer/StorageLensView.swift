@@ -174,8 +174,14 @@ struct StorageLensView: View {
 
     // MARK: List sections
 
+    /// - Note: **Collapsing applies to the All page only.** The fold is for triaging three lists
+    ///   stacked under a treemap — hiding one to get at another. On a page the rail has narrowed to
+    ///   a single section there is nothing to get past, and a fold left set from the All page made
+    ///   the rail item look broken: click "Untouched", get a lone collapsed header and an otherwise
+    ///   empty page, with the thing you asked for hidden by a decision you made somewhere else.
+    ///   The set is remembered rather than cleared, so going back to All restores the folds.
     private func listSection(_ section: StorageSection, entries: [StorageEntry]) -> some View {
-        let isCollapsed = collapsed.contains(section)
+        let isCollapsed = self.section == nil && collapsed.contains(section)
         return VStack(alignment: .leading, spacing: 8) {
             Button {
                 if isCollapsed { collapsed.remove(section) } else { collapsed.insert(section) }

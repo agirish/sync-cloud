@@ -155,7 +155,7 @@ struct OrganizeScopeChipTests {
     /// summary row that outgrows its 22pt budget shifts a boundary two panes away.
     ///
     /// Measured off the render rather than reasoned from the font sizes, which is the same rule
-    /// `OrganizeRailMetrics.reservedTrailing` was re-derived under after its first estimate was
+    /// `OrganizeRailMetrics`'s trailing reserve was re-derived under after its first estimate was
     /// wrong by enough to disable the shedding it existed to perform.
     @Test func theChipFitsTheSummaryRowsHeightBudget() {
         let host = NSHostingView(rootView: AnyView(Self.chip("Income Tax", folderCount: 3013)))

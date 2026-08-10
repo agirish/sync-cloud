@@ -711,6 +711,53 @@ import Design
                 > OrganizeRailMetrics.stateWidth(.clean, scale: 1))
     }
 
+    @Test("The rail says its state in words, not only in colour")
+    func theRailStateIsSpokenNotOnlyTinted() {
+        // **The gap this closes was opened by making the tint mean something.** A reporting item is
+        // told from a quiet one by its wash and an unscanned one from a clean one by a 4pt dot;
+        // neither reaches VoiceOver, so before this every item on the row announced as its bare
+        // title and the whole encoding was invisible. Colour must never be the only carrier.
+        #expect(RailItemLabel.accessibilityLabel(title: "Duplicates", state: .reporting(722))
+                == "Duplicates, 722")
+        #expect(RailItemLabel.accessibilityLabel(title: "Names", state: .clean)
+                == "Names, nothing found")
+        #expect(RailItemLabel.accessibilityLabel(title: "Restructure", state: .notScanned)
+                == "Restructure, not scanned")
+        // Rules and "All" report nothing and have no state to announce — "Rules, nothing found"
+        // would be the same claim the badge refuses to make by never drawing a zero there.
+        #expect(RailItemLabel.accessibilityLabel(title: "Rules", state: .configuration) == "Rules")
+
+        // The three states must be told apart from each other, which is the whole claim.
+        let spoken = Set([RailItemState.reporting(1), .clean, .notScanned]
+            .map { RailItemLabel.accessibilityLabel(title: "X", state: $0) })
+        #expect(spoken.count == 3, "two states announce identically — the row is still colour-only")
+
+        // Spoken in full where the badge abbreviates: `1.2k` is a width compromise six capsules
+        // sharing a row have to make, and a spoken label does not.
+        #expect(RailItemLabel.accessibilityLabel(title: "Renames", state: .reporting(1_192))
+                == "Renames, 1,192")
+        #expect(RailItemLabel.badgeText(1_192) == "1.1k")
+    }
+
+    @Test("A lens that has never scanned does not claim a scan found nothing")
+    func theHelpDoesNotInventAScan() {
+        // `railHelp` took the badge, and `badge ?? 0` reads a nil — which means *no number to show*
+        // — as zero. So a never-scanned queue's tooltip said "0 loose files **this scan found**",
+        // asserting a scan that had not run: precisely the conflation the rail's three states exist
+        // to remove, still being made by the words beside them.
+        let unscanned = OrganizeLens.toFile.help(state: .notScanned)
+        #expect(unscanned.hasPrefix("Not scanned here yet."),
+                "a never-scanned lens says: \(unscanned)")
+        #expect(!unscanned.contains("0 "), "the help is still quoting a zero for a scan that never ran")
+
+        #expect(OrganizeLens.toFile.help(state: .clean).hasPrefix("Nothing here."))
+        #expect(OrganizeLens.toFile.help(state: .reporting(24)).hasPrefix("24 here."))
+        // The description is the same sentence in every state — only the count clause changes.
+        for state in [RailItemState.reporting(24), .clean, .notScanned] {
+            #expect(OrganizeLens.toFile.help(state: state).contains("Loose files and where they belong."))
+        }
+    }
+
     @Test("A four-digit badge abbreviates, and the model measures what it draws")
     func theBadgeAbbreviatesPastThreeDigits() {
         #expect(RailItemLabel.badgeText(999) == "999")
@@ -966,12 +1013,13 @@ import Design
         // the buttons' words, and kept doing it for a further 48pt. Nothing about the folder-memory
         // caption was involved: `survey` is nil here.
         //
-        // This is what ``OrganizeRailMetrics/reservedTrailing(for:)`` being per-lens is for.
+        // That is what the per-lens trailing reserve was for, before the controls moved to row 2 and it
+        // collapsed to ``OrganizeRailMetrics/searchToggleWidth``.
         //
         // **Every text size, and the neighbour above says why a single-scale version is not
         // enough**: a `glyphWidth` that ignored `scale` passed at 0.9, 1.0 and 1.15 and failed only
         // at `.extraLarge`. The reserve carries the same hazard from the other side.
-        // ``OrganizeRailMetrics/reservedTrailing(for:)`` is a flat number *because* the trailing
+        // The trailing reserve was a flat number *because* the trailing
         // controls are AppKit's and do not follow `appFontScale` — measured at 435.5/436.5/438.5/
         // 441.5 across the four sizes — but nothing about that is enforced by the buttons
         // themselves. Give one of them `scaledFont` and the reserve starts under-counting at 1.3
