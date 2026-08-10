@@ -1019,15 +1019,9 @@ public struct TidyView: View {
                 // on row 2 now — see ``folderMemoryStatus``. Row 1 is fixed-width controls only,
                 // which is what lets ``OrganizeRailMetrics/reservedTrailing(for:)`` be a number at
                 // all.
-                // **Or the pane has moved, which is a different button.** The scan gate is right
-                // about *Rescan* — a rescan with nothing to re-scan describes something that never
-                // happened — and wrong about the moved branch, which is not a rescan at all: it
-                // points Organize at the folder you are browsing and then scans it, and that is
-                // exactly what someone who has never scanned wants. Gating both on the same flag
-                // meant the only way to aim Organize from its own header was to have already aimed
-                // it. Landing on the overview — where no lens's intro card is there to carry the
-                // invitation instead — is what made that reachable rather than merely true.
-                if syncManager.hasSuggestedFiling || filingTargetMoved {
+                // Two buttons behind one name — see ``showsFilingControl`` for why Rescan's gate is
+                // not the moved branch's, and where the moved branch stands down.
+                if showsFilingControl {
                     rescanFilingButton
                 }
                 // The apply actions stay with their own list: each acts on the rows on screen, so
@@ -1593,10 +1587,12 @@ public struct TidyView: View {
             return hasResults && !syncManager.isFindingDuplicates
         case .rename, .filing:
             guard !syncManager.isSuggestingFiles else { return false }
-            // Mirrors ``lensActions``'s own gate, including the moved branch — see there. On the
-            // overview this is the only arm that can be true, which is the point: browsing to a
-            // folder with nothing scanned draws one control, and it needs its hairline.
-            if syncManager.hasSuggestedFiling || filingTargetMoved { return true }
+            // **The same member ``lensActions`` draws from, not a hand-copy of its condition.**
+            // That is the whole point of ``showsFilingControl`` existing: this switch is otherwise
+            // a transcription of `lensActions`'s gates, and a transcription of a compound condition
+            // is how a divider comes to be drawn beside a control that is not there (or withheld
+            // from one that is). On the overview this clause is the only one that can be true.
+            if showsFilingControl { return true }
             switch organizeLens {
             case .toFile: return hasFilingResults
             case .names: return !syncManager.riskyNames.isEmpty
@@ -2022,6 +2018,54 @@ public struct TidyView: View {
         }
     }
 
+    /// Whether the pane sits somewhere other than what Organize is answering about.
+    ///
+    /// One expression, read twice — by ``rescanFilingButton`` to pick its branch and by
+    /// ``showsFilingControl`` to decide whether to draw the control at all. Split out because those
+    /// two must agree: a gate that says "no control" while the button would have drawn its moved
+    /// branch is exactly the state that was reported, and inlining the condition twice is how they
+    /// drift back apart.
+    private var filingTargetMoved: Bool {
+        targetMoved(from: syncManager.filingScanFolder, rootFallback: providerRoot)
+    }
+
+    /// Whether To File's setup card is the thing on screen — the pre-scan state that carries its
+    /// own folder-named invitation ("File loose files in Insurance", with a Start button).
+    ///
+    /// **Only To File has one.** `contentCard` routes the other three `.filing` rail items
+    /// elsewhere: the overview to `organizeOverview`, Restructure to a lens whose empty state
+    /// points at Settings rather than at a scan, and Renames to a `RenamePassLens` that renders an
+    /// empty list. Names is `.rename` and deleted its intro states outright — see
+    /// `NameNormalizeLens`, which is reachable only when it already has findings. So this is a
+    /// question about one lens, not a general "is something else inviting you" predicate.
+    private var filingIntroOwnsInvitation: Bool {
+        organizeLens == .toFile && !syncManager.hasSuggestedFiling
+    }
+
+    /// Whether the filing control is drawn at all — **the one gate, read by both places that must
+    /// agree about it** (``lensActions`` draws it, ``hasRowTwoActions`` decides whether row 2 gets
+    /// its hairline).
+    ///
+    /// Two clauses, and they are two different buttons:
+    ///
+    /// - `hasSuggestedFiling` is *Rescan*'s condition and is exactly right for it: a rescan with
+    ///   nothing to re-scan describes something that never happened.
+    /// - `filingTargetMoved` is the *moved* branch's, which is not a rescan — it points Organize at
+    ///   the folder you are browsing and then scans. Someone who has never scanned wants that, so
+    ///   it cannot inherit Rescan's gate; sharing one meant the only way to aim Organize from its
+    ///   own header was to have already aimed it.
+    ///
+    /// **And the moved branch stands down where the intro card is already asking.** Before the
+    /// first scan To File shows a large "File loose files in Insurance" card naming the same folder
+    /// — two invitations to the same place, one of which also moves the scope, is the
+    /// words-nearly-agree-actions-differ shape this file keeps having to remove. The rule the old
+    /// gate encoded ("before the first scan the intro state owns the invitation") was right about
+    /// To File all along; it was wrong only about the five places that have no intro to own it.
+    private var showsFilingControl: Bool {
+        guard !syncManager.isSuggestingFiles else { return false }
+        return syncManager.hasSuggestedFiling || (filingTargetMoved && !filingIntroOwnsInvitation)
+    }
+
     /// Organize's rescan, with the ignore-saved-suggestions variant hung off it.
     ///
     /// A split control rather than a second button: rescanning is the common act and asking afresh
@@ -2030,17 +2074,6 @@ public struct TidyView: View {
     /// button beside the free one. When the user has navigated away the control becomes the
     /// prominent "Scan '<folder>'" call to action instead, where a menu would only be in the way:
     /// there are no saved suggestions for a folder that has not been scanned yet.
-    /// Whether the pane sits somewhere other than what Organize is answering about.
-    ///
-    /// One expression, read twice — by ``rescanFilingButton`` to pick its branch and by the gate
-    /// above it to decide whether to draw the control at all. Split out because those two must
-    /// agree: a gate that says "no control" while the button would have drawn its moved branch is
-    /// exactly the state this whole change fixes, and inlining the condition twice is how they
-    /// drift back apart.
-    private var filingTargetMoved: Bool {
-        targetMoved(from: syncManager.filingScanFolder, rootFallback: providerRoot)
-    }
-
     @ViewBuilder
     private var rescanFilingButton: some View {
         if filingTargetMoved {
@@ -2085,10 +2118,15 @@ public struct TidyView: View {
     }
 
     private var rescanDuplicatesButton: some View {
-        // Same subject as the filing button — this one re-aims the whole workspace too. The
-        // fallback rung is inert here in practice (this control is gated on there being results,
-        // which means a scan ran and set `duplicateScanRoot`), and it is passed anyway so the two
-        // Organize buttons cannot come to disagree about what Organize is aimed at.
+        // This button re-aims the whole workspace too, so it takes the same third rung. It is inert
+        // here in practice — the control is gated on `hasResults`, and groups are published with
+        // `duplicateScanRoot` — so this buys consistency of the *rule*, not a behaviour change.
+        //
+        // It does NOT make the two Organize buttons agree about the subject, and cannot: this one's
+        // second rung is `duplicateScanRoot` and filing's is `filingScanFolder`, so with only one
+        // of the two scans run they genuinely answer about different folders. That is a property of
+        // per-lens scan roots, which the scope exists to override; it is not something a fallback
+        // rung can fix.
         rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot,
                                         rootFallback: providerRoot),
                      movedIcon: "wand.and.stars", disabled: syncManager.isFindingDuplicates,

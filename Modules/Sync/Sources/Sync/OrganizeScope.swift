@@ -219,9 +219,15 @@ public enum OrganizeAim {
         return standardized(paneFolder) != standardized(subject)
     }
 
-    /// Tilde-expanded and symlink-free, so `~/Documents` and `/Users/you/Documents` are one folder.
-    /// The comparison is between paths from three different sources — a persisted scope, a lens's
-    /// scanned root, a settings value — and only one of them was ever guaranteed expanded.
+    /// Tilde-expanded, `.`/`..` resolved, trailing slash dropped — so `~/Documents`,
+    /// `/Users/you/Documents/` and `/Users/you/Documents` are one folder. The comparison is between
+    /// paths from three different sources — a persisted scope, a lens's scanned root, a settings
+    /// value — and only one of them was ever guaranteed expanded.
+    ///
+    /// **Symlinks are deliberately not resolved.** `standardizedFileURL` is a pure string
+    /// operation; `resolvingSymlinksInPath` touches the disk, and this runs inside a view body on
+    /// every render of the header. A symlinked pane path would read as moved, which is the safe
+    /// direction: it offers a re-aim that is a no-op rather than withholding one that is needed.
     private static func standardized(_ path: String) -> String {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
     }

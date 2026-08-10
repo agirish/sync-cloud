@@ -238,15 +238,26 @@ import Foundation
                 "Storage's re-analyze button took Organize's root fallback — it owns no scope to be moved off")
     }
 
-    @Test func pointingOrganizeSomewhereNewIsNotGatedOnHavingAlreadyScanned() throws {
-        // The gate and the button's own branch have to agree, and they are two expressions in two
-        // members: a gate reading `hasSuggestedFiling` alone while the button would have drawn its
-        // moved branch is exactly the state the user reported — browse to a folder before any scan
-        // and Organize's header offers nothing at all, on the overview it now lands on.
+    @Test func theTwoFilingGatesReadOneMember() throws {
+        // `lensActions` draws the control and `hasRowTwoActions` decides whether row 2 gets its
+        // hairline; a `@ViewBuilder` cannot be asked whether it drew anything, so the second is a
+        // hand-copy of the first's conditions. **They must read the same member, not two copies of
+        // one expression** — this started as a duplicated `hasSuggestedFiling || filingTargetMoved`
+        // in both places, which is a divider beside a missing control waiting to happen.
+        // Asserted at each call site's own body rather than by counting mentions — the first cut
+        // counted 6 where it expected 3, because the doc comments reference the member by name too.
+        // A count over a whole file cannot tell a call from a mention of one.
         let tidy = try Self.source("TidyView.swift")
-        let occurrences = tidy.components(separatedBy: "syncManager.hasSuggestedFiling || filingTargetMoved").count - 1
-        #expect(occurrences == 2,
-                "\(occurrences) of the two filing gates admit the moved branch — `lensActions` and `hasRowTwoActions` have drifted apart")
+        let actions = try Self.body(of: "private func lensActions(rows: FilteredRows)", in: tidy)
+        let rowTwo = try Self.body(of: "private var hasRowTwoActions: Bool {", in: tidy)
+        #expect(actions.contains("if showsFilingControl {"),
+                "lensActions no longer reads showsFilingControl — it has inlined the gate again")
+        #expect(rowTwo.contains("if showsFilingControl { return true }"),
+                "hasRowTwoActions no longer reads showsFilingControl — the divider gate is a hand-copy again")
+        for (name, body) in [("lensActions", actions), ("hasRowTwoActions", rowTwo)] {
+            #expect(!body.contains("hasSuggestedFiling"),
+                    "\(name) spells the scan flag out again instead of reading showsFilingControl")
+        }
     }
 
     @Test func anEmptyScopedListBlamesTheScopeAndNotTheSearch() throws {

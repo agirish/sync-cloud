@@ -1313,6 +1313,37 @@ import Design
                 "the overview's trailing band painted nothing with the pane in a subfolder — there is no way to point Organize at what you are browsing")
     }
 
+    @Test("…and stands down on To File, where the setup card is already asking")
+    func theMovedButtonYieldsToTheIntroCard() throws {
+        // The over-reach in the first cut of this fix. Ungating the moved branch everywhere put
+        // `Organize "Aditi"` in the header while To File's pre-scan card underneath it said "File
+        // loose files in Aditi" with its own Start button — two invitations naming one folder, and
+        // only one of them moves the scope.
+        //
+        // Same manager and same pane as `theMovedButtonDrawsBeforeAnyScan`; the *only* difference
+        // is which rail item is selected, so a band that inks here is the duplicate CTA and nothing
+        // else.
+        let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
+                         lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Aditi")
+        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        #expect(counts(band).ink < 20,
+                "To File drew a header control before its first scan — the setup card below it is already the invitation, naming the same folder")
+    }
+
+    @Test("…but still draws on a lens that has no intro card of its own")
+    func theMovedButtonSurvivesOnRenames() throws {
+        // The direction that stops `filingIntroOwnsInvitation` from being written as a bare
+        // `!hasSuggestedFiling`. Renames shares To File's apparatus but renders an empty
+        // `RenamePassLens`, not an invitation — so standing down here would take the button away
+        // from a lens with nothing else offering to aim Organize, which is the original bug in a
+        // narrower room.
+        let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
+                         lens: .renames, providerRoot: "/root", scanTarget: "/root/Family/Aditi")
+        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        #expect(counts(band).ink > 100,
+                "Renames lost the moved button — the stand-down is keyed on the scan flag rather than on To File")
+    }
+
     @Test("…and does not, when the pane is at the top of the tree")
     func theMovedButtonIsAbsentAtTheProviderRoot() throws {
         // The direction that keeps the fix honest. Unscoped Organize already answers about
