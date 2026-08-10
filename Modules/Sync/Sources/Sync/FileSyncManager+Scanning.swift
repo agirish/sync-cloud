@@ -706,23 +706,32 @@ extension FileSyncManager {
                 func childURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
                     if let realFm = fileManager as? FileManager {
                         // Fast path: one call prefetches every child's metadata so buildNode's
-                        // resourceValues are cache hits. The URL-based API does not traverse a
-                        // symlinked directory, so fall back to the path-based listing (which follows
-                        // symlinks, as the tree always has) when it yields nothing.
-                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: metadataKeys, options: []) {
-                            if !prefetched.isEmpty {
-                                return (prefetched, false)
-                            }
-                            // An empty result is either a genuinely empty directory or a symlinked
-                            // directory the URL-based API refused to traverse. Only the symlink case
-                            // needs the fallback listing; for plain empty directories the symlink
-                            // check is a cache hit (isSymbolicLinkKey is in metadataKeys) or one lstat,
-                            // cheaper than a second directory listing.
-                            let isSymlink = (try? dirURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
-                            if !isSymlink {
-                                return (prefetched, false)
-                            }
+                        // resourceValues are cache hits.
+                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: metadataKeys, options: []),
+                           !prefetched.isEmpty {
+                            return (prefetched, false)
                         }
+                        // **An empty result from the URL-based API is not evidence of an empty
+                        // directory, and must never be returned as one.**
+                        //
+                        // It used to be trusted whenever the directory was not itself a symlink, on
+                        // the theory that a symlinked directory was the only thing the URL-based
+                        // call refused to list. It is not. Measured on a real 5,060-directory tree:
+                        // **82 directories return an empty array — successfully, no error — while
+                        // `contentsOfDirectory(atPath:)` returns their real contents in the same
+                        // process.** They are ordinary downloaded iCloud directories
+                        // (`isUbiquitousItem`, status `Current`), not symlinks, and `enumerator(at:)`
+                        // reports them empty too. 401 entries were hidden directly, and every
+                        // descendant with them — whole subtrees absent from the tree with nothing
+                        // logged. That is how a folder-memory survey came to be about to drop 284
+                        // corpus entries whose files were sitting on disk.
+                        //
+                        // So emptiness is now always confirmed by the path-based listing, which is
+                        // also what makes the symlink case work and is the reason this fallback was
+                        // here at all. The cost the old shortcut was buying is smaller than it
+                        // looks: that same tree holds **23** genuinely empty directories against the
+                        // 82 it was silently truncating, so it saved 23 listings and lost 82
+                        // subtrees.
                         do {
                             let names = try realFm.contentsOfDirectory(atPath: dirURL.path)
                             return (names.map { dirURL.appendingPathComponent($0) }, false)
