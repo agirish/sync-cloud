@@ -16,6 +16,16 @@ import SwiftUI
 @MainActor
 @Suite struct OrganizeOverviewWiringTests {
 
+    /// **These read the developer's live defaults, and that is safe only because of what they
+    /// assert.** `overviewModel` reaches `scope`, which is `@AppStorage`-backed, and a property read
+    /// off the struct rather than through a mounted hierarchy takes `UserDefaults.standard` — no
+    /// `.defaultAppStorage` can intercept it. Writing a scratch scope to pin it would mean writing
+    /// this machine's own domain, which is off limits.
+    ///
+    /// It holds because every assertion here is about `isScanning`, which is computed from the
+    /// manager's lifecycle flags alone and cannot vary with a scope. **A test added here that
+    /// asserts a count or an example would not have that guarantee** — the scope filters those —
+    /// and would pass or fail depending on where Organize happened to be pointed.
     private func subject(_ manager: FileSyncManager) -> TidyView {
         TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
                  scanTargetFolder: "/root", onFindDuplicates: {}, onFindFilingSuggestions: {},

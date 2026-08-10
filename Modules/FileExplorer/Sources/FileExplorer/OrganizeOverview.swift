@@ -456,8 +456,27 @@ struct OrganizeOverview: View {
 
     /// The one stranded lens that carries a pass's offer — the first in rail order, so which row
     /// holds the button is stable rather than a function of iteration luck.
-    func firstStrandedLens(of pass: OrganizePass) -> OrganizeLens? {
+    /// Private again: the test that used to reach for it is what made this rule untestable, since
+    /// asking a function that returns one optional how many rows match it can only ever answer 0
+    /// or 1. ``offersPassRun(for:)`` is the seam now, and it is the footer's own condition.
+    private func firstStrandedLens(of pass: OrganizePass) -> OrganizeLens? {
         strandedUnscanned.first { pass.lenses.contains($0.lens) }?.lens
+    }
+
+    /// Whether this footer row draws the run button for its pass — **the predicate the footer
+    /// itself branches on**, not a restatement of it.
+    ///
+    /// Extracted after review found the test guarding this rule could not fail. It counted rows
+    /// matching `firstStrandedLens(of:)`, which returns a single optional, so the count it asserted
+    /// was `1` could only ever be 0 or 1 by construction — and it never touched the footer's own
+    /// condition, so deleting the dedupe from the view left every test green. The rule and the
+    /// thing under test have to be one expression, which is the same conclusion
+    /// ``offersRescan(for:)`` reached one round earlier.
+    func offersPassRun(for section: OrganizeOverviewSection) -> Bool {
+        guard section.state == .notScanned,
+              let pass = OrganizePass(producing: section.lens),
+              runnablePasses.contains(pass) else { return false }
+        return firstStrandedLens(of: pass) == section.lens
     }
 
     /// Whether a row that has already answered offers to re-run the scan behind it.
@@ -835,10 +854,10 @@ struct OrganizeOverview: View {
                     // once per pass**, which is the whole rule this screen exists to enforce.
                     // Written per row it read fine and could put two identical "Run the file pass"
                     // buttons on two stranded lenses of one walk: the old footer's defect, rebuilt
-                    // inside its replacement. `nil` only for Rules, which takes no section at all.
-                    if let pass = OrganizePass(producing: section.lens),
-                       runnablePasses.contains(pass),
-                       firstStrandedLens(of: pass) == section.lens {
+                    // inside its replacement. One expression, in `offersPassRun(for:)`, because the
+                    // test that guards it has to branch on the same thing this does.
+                    if offersPassRun(for: section),
+                       let pass = OrganizePass(producing: section.lens) {
                         Button(pass.runTitle) { onRun(pass) }
                             .buttonStyle(.plain)
                             .scaledFont(.system(size: 11, weight: .semibold))

@@ -291,6 +291,10 @@ import SwiftUI
             let offered = Set(overview(nothingScanned, runnable: runnable).pendingPasses)
             #expect(offered.isSubset(of: runnable),
                     "offered \(offered) with only \(runnable) runnable")
+            // **A subset assertion passes on an empty set**, so it would survive `pendingPasses`
+            // breaking entirely. This is the half that proves the offers are still being made.
+            #expect(offered == runnable,
+                    "with nothing scanned, every runnable pass should be offered: \(offered)")
         }
     }
 
@@ -311,6 +315,12 @@ import SwiftUI
     /// stranded lenses of one walk — the defect this screen replaced, rebuilt inside its
     /// replacement. Not reachable from today's flags, which is exactly why it needs a test rather
     /// than a comment.
+    /// **The first version of this could not fail**, and review caught it by deleting the dedupe
+    /// from the view and watching all 29 tests stay green. It counted rows equal to
+    /// `firstStrandedLens(of:)` — a single optional — so the count it asserted was `1` could only
+    /// ever be 0 or 1, and it branched on its own restatement of the rule rather than on the
+    /// footer's condition. This one asks ``OrganizeOverview/offersPassRun(for:)``, which is the
+    /// expression the footer itself branches on.
     @Test func theFooterOffersAPassAtMostOnce() {
         // To File and Renames unscanned while Names has an answer: the file pass is not `pending`
         // (not all of its lenses are unscanned), so both fall through to the footer.
@@ -318,11 +328,42 @@ import SwiftUI
                                 section(.names, .clean),
                                 section(.renames, .notScanned)])
         #expect(subject.strandedUnscanned.map(\.lens) == [.toFile, .renames])
-        let carriers = subject.strandedUnscanned
-            .filter { subject.firstStrandedLens(of: .file) == $0.lens }
-        #expect(carriers.count == 1,
-                "the file pass is offered \(carriers.count) times in the footer")
-        #expect(carriers.first?.lens == .toFile, "the offer should sit on the first row, in rail order")
+        let offers = subject.sections.filter { subject.offersPassRun(for: $0) }
+        #expect(offers.count == 1,
+                "the file pass is offered \(offers.count) times: \(offers.map(\.lens.title))")
+        #expect(offers.first?.lens == .toFile, "the offer should sit on the first row, in rail order")
+    }
+
+    /// The same rule stated over every pass at once, so a second pass stranding two lenses cannot
+    /// slip through a fixture built around the file pass alone.
+    @Test func noPassIsEverOfferedTwiceInTheFooter() {
+        // Every lens unscanned, but nothing runnable except the file pass — so its three lenses all
+        // strand together (no card is offered for a pass this host cannot run either).
+        let subject = overview(OrganizeLens.allCases.filter(\.carriesBadge).map {
+            section($0, .notScanned)
+        }, runnable: [])
+        #expect(subject.strandedUnscanned.count == 5, "every lens should have stranded")
+        for pass in OrganizePass.allCases {
+            let offers = subject.sections.filter {
+                subject.offersPassRun(for: $0) && pass.lenses.contains($0.lens)
+            }
+            #expect(offers.count <= 1, "\(pass.rawValue) offered \(offers.count) times")
+        }
+    }
+
+    /// A stranded lens whose pass this host cannot run says so and offers nothing — the quiet line
+    /// on its own, which is the state a machine with no filing profile lands in.
+    @Test func aStrandedLensWithNoRunnablePassOffersNothing() {
+        let subject = overview([section(.restructure, .notScanned)], runnable: [.file, .duplicates])
+        #expect(subject.strandedUnscanned.map(\.lens) == [.restructure])
+        #expect(!subject.offersPassRun(for: subject.sections[0]))
+    }
+
+    /// A lens that has already answered never draws the footer's *run* offer — that control says
+    /// "this has not run", and the row's own Rescan is what an answered lens gets.
+    @Test func anAnsweredLensDrawsNoRunOffer() {
+        let answered = section(.duplicates, .findings(count: 3, headline: "3", examples: []))
+        #expect(!overview([answered]).offersPassRun(for: answered))
     }
 
     /// The ledger counts a **clean** lens as run.

@@ -2666,6 +2666,14 @@ public struct TidyView: View {
     /// The passes this host can start. Folder memory is the only conditional one — its handler is
     /// `(() -> Void)?`, and a host that passes none must get a card that explains the state rather
     /// than a button that no-ops.
+    ///
+    /// **The other two are asserted rather than detected, because their handlers cannot be asked.**
+    /// `onFindFilingSuggestions` and `onFindDuplicates` are non-optional with `= {}` defaults, so a
+    /// host that omitted one would get a live button over a closure that does nothing, and nothing
+    /// here could tell. Unreachable today — `ContentView` passes both, and Storage is the only
+    /// other caller that omits them while never rendering this screen (`showingOverview` is false
+    /// for `lens == .storage`) — but a new host wiring Organize is the shape that would break it,
+    /// and the fix would be to make those handlers optional too rather than to add a flag here.
     private var runnablePasses: Set<OrganizePass> {
         var passes: Set<OrganizePass> = [.file, .duplicates]
         if onUpdateFolderMemory != nil { passes.insert(.folderMemory) }
