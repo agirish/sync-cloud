@@ -63,6 +63,13 @@ public struct PersonFileSet: Sendable, Equatable {
     /// Public so callers outside this module can build one — the app target's supersede tests
     /// need an answer to put in a slot, and `@testable` is not available to them across the
     /// package boundary.
+    ///
+    /// **The ordering is an invariant this initialiser cannot enforce.** ``PersonFiles/gather(personId:corpus:profile:registry:)``
+    /// hands over `herFolders` sorted largest-first (ties by name) and each `files` sorted by path,
+    /// and `PersonView` relies on it: the folder list is truncated with `prefix(8)`, so an unsorted
+    /// set would silently show eight arbitrary folders while the header went on reporting the true
+    /// total. Production only ever builds one through `gather`. A fixture that builds one directly
+    /// and cares which rows are visible has to sort it the same way.
     public init(personId: String, herFolders: [(folder: String, files: [PersonFile])],
                 elsewhere: [PersonFile]) {
         self.personId = personId

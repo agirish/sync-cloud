@@ -1500,17 +1500,9 @@ struct ContentView: View {
     /// on its previous content for that interval reads as "nothing happened".
     struct PersonScope: Equatable {
         let person: Person
-        var phase: PersonGatherPhase
-
-        /// Whether accepting an offer for `person` should start a sweep, given what is in the slot.
-        ///
-        /// **A second ⌘↩ on the same offer is a repeat of the same question**, not a new one, and
-        /// restarting would throw away a sweep that is already partway through 10,171 documents.
-        /// Anything else — nobody in the slot, a different person, or the same person whose gather
-        /// has already finished or failed — does start one.
-        static func shouldStart(_ person: Person, given current: PersonScope?) -> Bool {
-            !(current?.person == person && current?.phase == .gathering)
-        }
+        /// `let`, like `person`: every write replaces the whole scope. Nothing mutates a phase in
+        /// place, and a `var` here invited something to.
+        let phase: PersonGatherPhase
 
         /// Whether a finished sweep for `person` may still write its answer into the slot.
         ///
@@ -1520,6 +1512,23 @@ struct ContentView: View {
         /// the winner's.
         static func awaits(_ person: Person, in current: PersonScope?) -> Bool {
             current?.person == person && current?.phase == .gathering
+        }
+
+        /// Whether accepting an offer for `person` should start a sweep, given what is in the slot.
+        ///
+        /// **A second ⌘↩ on the same offer is a repeat of the same question**, not a new one, and
+        /// restarting would throw away a sweep that is already partway through 10,171 documents.
+        /// Anything else — nobody in the slot, a different person, or the same person whose gather
+        /// has already finished or failed — does start one.
+        ///
+        /// **Exactly `!awaits`, and written that way rather than restated.** Both ends of the race
+        /// ask the same question — "is a gather for this person already in flight?" — one before
+        /// starting and one before writing, so a second copy of that expression is a place for the
+        /// two to drift apart while every test on each of them still passes. If the two ever need
+        /// to differ (say, declining to re-gather an answer that is already fresh), expand this
+        /// body; that is a deliberate edit rather than a silent divergence.
+        static func shouldStart(_ person: Person, given current: PersonScope?) -> Bool {
+            !awaits(person, in: current)
         }
     }
 
