@@ -310,6 +310,44 @@ import Foundation
         #expect(PaletteSelection.chosen(at: -1, in: rows) == nil)
     }
 
+    // MARK: The folder index — the defect the installed app found
+
+    /// **A tilde-spelled profile root still matches an expanded provider root.**
+    ///
+    /// This is the bug the app's own log line caught after everything else was green: the host
+    /// compared `FolderProfile.root` (`~/Documents`) against `tidyProviderRootExpanded`
+    /// (`/Users/abhishek/Documents`) as plain strings, so on the real tree the palette indexed
+    /// **0 of 3,013 folders** — every folder query and the entire "organize <folder>" lede silently
+    /// answering nothing, with no error anywhere. The routing tests could not see it: they are
+    /// handed the folder list.
+    @Test func aTildeSpelledProfileRootStillMatchesTheProviderRoot() {
+        let home = NSHomeDirectory()
+        #expect(PaletteIndex.folders(profileRoot: "~/Documents",
+                                     providerRoot: "\(home)/Documents",
+                                     keys: [".", "Legal", "Finance/US"]) == ["Legal", "Finance/US"])
+        // ...and the other direction, since either side can be the tilde-spelled one.
+        #expect(PaletteIndex.folders(profileRoot: "\(home)/Documents",
+                                     providerRoot: "~/Documents",
+                                     keys: ["Legal"]) == ["Legal"])
+    }
+
+    /// A profile about a **different** tree contributes nothing.
+    ///
+    /// Equality, not containment. The keys are relative to the profile's root, so a profile rooted
+    /// anywhere else yields paths relative to the wrong thing — the first cut admitted a profile
+    /// root *under* the provider root and would have minted folder routes pointing at paths that do
+    /// not exist.
+    @Test func aProfileAboutADifferentTreeContributesNoFolders() {
+        #expect(PaletteIndex.folders(profileRoot: "/a/Documents", providerRoot: "/b/Documents",
+                                     keys: ["Legal"]).isEmpty)
+        #expect(PaletteIndex.folders(profileRoot: "/a/Documents/Sub", providerRoot: "/a/Documents",
+                                     keys: ["Legal"]).isEmpty)
+        #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "/a/Documents",
+                                     keys: ["Legal"]).isEmpty)
+        #expect(PaletteIndex.folders(profileRoot: nil, providerRoot: "/a", keys: ["Legal"]).isEmpty)
+        #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "", keys: ["Legal"]).isEmpty)
+    }
+
     // MARK: The matcher's own tiers
 
     @Test func theMatchTiersAreOrderedTheWayTheRankingClaims() {

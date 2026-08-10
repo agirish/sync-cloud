@@ -219,6 +219,34 @@ public struct PaletteIndex: Equatable, Sendable {
     }
 }
 
+// MARK: - Building the folder index
+
+public extension PaletteIndex {
+
+    /// The folder list for a survey profile, **or empty when that profile is about a different
+    /// tree**.
+    ///
+    /// Extracted and pure because the host got it wrong in a way only the installed app showed:
+    /// it compared `FolderProfile.root` against the provider root *unexpanded*, and the profile
+    /// stores `~/Documents` while the provider root is expanded — so on the real tree the palette
+    /// logged "25 rows from **0 folders**" with 3,013 folders surveyed, and every folder query and
+    /// the whole "organize <folder>" lede silently answered nothing. Neither the routing tests (which
+    /// are handed folders) nor the render tests could see it; the app's own log line did.
+    ///
+    /// **Equality after expansion, not containment.** The keys are relative to the profile's root,
+    /// so a profile rooted anywhere else — deeper or shallower — yields paths that are relative to
+    /// the wrong thing. The first cut allowed a profile root *under* the provider root, which would
+    /// have produced folder routes pointing at paths that do not exist. Nothing is the honest answer
+    /// there; a folder that cannot be named is not a destination.
+    static func folders(profileRoot: String?, providerRoot: String, keys: [String]) -> [String] {
+        let profile = (profileRoot as NSString?)?.expandingTildeInPath ?? ""
+        let provider = (providerRoot as NSString).expandingTildeInPath
+        guard !profile.isEmpty, !provider.isEmpty, profile == provider else { return [] }
+        // `.` is the profile root itself, which is where the rail already opens — not a destination.
+        return keys.filter { !$0.isEmpty && $0 != "." }
+    }
+}
+
 // MARK: - Places
 
 /// A destination in the app's own vocabulary: the two other workspaces, and Organize's rail.

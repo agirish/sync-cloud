@@ -4,6 +4,7 @@ import Design
 import FileExplorer
 import Sync
 import Dashboard
+import Events
 
 // MARK: - The menu item
 
@@ -51,7 +52,17 @@ extension ContentView {
         } else {
             paletteQuery = ""
             showCommandPalette = true
-            paletteSelection = PaletteSelection.initialIndex(in: paletteRows)
+            let rows = paletteRows
+            paletteSelection = PaletteSelection.initialIndex(in: rows)
+            // Logged for the same reason the person gather logs its accept: this surface is
+            // keyboard-only, its chord is a menu key equivalent, and nothing short of assistive
+            // access can drive it from a script — so the log is the only place a run that is not a
+            // human's can be checked afterwards. The counts are what say the index was BUILT, not
+            // merely that the overlay appeared over an empty one.
+            let index = paletteIndex
+            Logger.shared.info("Command palette opened — \(rows.count) rows from "
+                + "\(index.folders.count) folders, \(index.people.count) people, "
+                + "\(index.providers.count) sources")
         }
     }
 
@@ -70,14 +81,10 @@ extension ContentView {
     var paletteIndex: PaletteIndex {
         let root = tidyProviderRootExpanded
         let profile = syncManager.filingFolderProfile
-        // The profile keys are relative already, with `.` for the root itself — which is not a
-        // destination, so it is dropped rather than offered as a folder called ".".
-        let folders = (profile?.root).flatMap { profileRoot -> [String]? in
-            guard let profile,
-                  PathBoundary.contains(profileRoot, under: root) || profileRoot == root
-            else { return nil }
-            return profile.folders.keys.filter { $0 != "." && !$0.isEmpty }
-        } ?? []
+        // The rule is `PaletteIndex.folders` and not spelled out here — it has a tilde-expansion in
+        // it that this call site got wrong, and the installed app was the only thing that noticed.
+        let folders = PaletteIndex.folders(profileRoot: profile?.root, providerRoot: root,
+                                           keys: Array(profile?.folders.keys ?? [:].keys))
         return PaletteIndex(
             providers: settings.enabledProviders.map { provider in
                 PaletteProvider(id: provider.id, name: provider.displayName,
@@ -111,6 +118,7 @@ extension ContentView {
     /// Applies a route. **The only place in the app that turns a `PaletteRoute` into state**, so the
     /// routing table's tests and the behaviour cannot come apart anywhere else.
     func runPaletteRoute(_ route: PaletteRoute) {
+        Logger.shared.info("Command palette → \(route)")
         closeCommandPalette()
         switch route {
         case .compare:

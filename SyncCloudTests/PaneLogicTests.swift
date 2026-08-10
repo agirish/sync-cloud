@@ -485,7 +485,7 @@ import Sync
         // action handler must be wired before the discovery task can trigger a refresh.
         #expect(PaneLogic.bootstrapSteps(isFirstAppearance: true) == [
             .resetShowHiddenFilesFromDefault,
-            .honorOpenSettingsOnLaunch,
+            .honorLaunchOverlayDiagnostics,
             .createActionHandler,
             .rewireUndoManager,
             .syncProviderQuirkSettings,

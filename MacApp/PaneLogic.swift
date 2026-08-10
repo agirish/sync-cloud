@@ -516,9 +516,14 @@ enum PaneLogic {
         /// Session: seed `showHiddenFiles` from the General default. Re-running on a window
         /// reopen would discard a mid-session toggle.
         case resetShowHiddenFilesFromDefault
-        /// Session: the `openSettingsOnLaunch` diagnostic is a launch hook; a window reopen
-        /// must not re-open the Settings overlay.
-        case honorOpenSettingsOnLaunch
+        /// Session: the launch-time overlay diagnostics (`openSettingsOnLaunch`,
+        /// `openCommandPaletteOnLaunch`) are launch hooks; a window reopen must not re-open an
+        /// overlay the user has since dismissed.
+        ///
+        /// Plural since ⌘K: a palette is driven entirely by the keyboard and cannot be opened by
+        /// a script — `System Events` keystroke needs assistive access, which this machine refuses
+        /// — so a launch hook is the only way anything but a human can get it on screen to look at.
+        case honorLaunchOverlayDiagnostics
         /// Window: `FileActionHandler` lives in view `@State`, so every fresh ContentView
         /// starts with nil and needs its own.
         case createActionHandler
@@ -544,7 +549,7 @@ enum PaneLogic {
         if isFirstAppearance {
             return [
                 .resetShowHiddenFilesFromDefault,
-                .honorOpenSettingsOnLaunch,
+                .honorLaunchOverlayDiagnostics,
                 .createActionHandler,
                 .rewireUndoManager,
                 .syncProviderQuirkSettings,

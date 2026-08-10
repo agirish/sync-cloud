@@ -84,6 +84,9 @@ struct ContentView: View {
     @State var actionHandler: FileActionHandler?
     @State var quickLookURL: URL? = nil
     @State private var isBootstrappingProviders: Bool = true
+    /// The `openCommandPaletteOnLaunch` diagnostic, waiting for provider discovery — see the
+    /// bootstrap case that sets it.
+    @State private var paletteOnLaunchArmed = false
     /// Guided-review state, owned by the App (like `duplicateReview`) so it outlives BOTH
     /// DifferencesView — that view unmounts on a Details-tab peek and whenever the live
     /// differences list goes empty, and the session (plus any in-flight copy's outcome) must
@@ -537,6 +540,12 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
         .animation(.easeOut(duration: 0.15), value: welcomeDismissedThisSession)
         .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
+        // The armed launch diagnostic, fired once discovery has given the palette a root to index.
+        .onChange(of: isBootstrappingProviders) { _, bootstrapping in
+            guard !bootstrapping, paletteOnLaunchArmed else { return }
+            paletteOnLaunchArmed = false
+            toggleCommandPalette()
+        }
         // The overlays are mutually exclusive; Settings wins the precedence above. Close Help
         // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
         // left lingering underneath a Settings card the user opened on top of it.
@@ -596,7 +605,7 @@ struct ContentView: View {
                 case .resetShowHiddenFilesFromDefault:
                     // General setting: start the session with hidden files shown when the user asked for it.
                     syncManager.showHiddenFiles = UserDefaults.standard.bool(forKey: GeneralSettings.showHiddenByDefaultKey)
-                case .honorOpenSettingsOnLaunch:
+                case .honorLaunchOverlayDiagnostics:
                     // Diagnostic hook: `defaults write com.abhishekgirish.SyncCloud
                     // openSettingsOnLaunch -bool YES` opens the Settings overlay at startup, so
                     // automated verification can reach it without synthesizing input. No-op
@@ -609,6 +618,19 @@ struct ContentView: View {
                             UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey))
                         showSettings = true
                     }
+                    // `defaults write com.abhishekgirish.SyncCloud openCommandPaletteOnLaunch
+                    // -bool YES` brings up ⌘K at startup. The palette is keyboard-only and its
+                    // chord is a menu key equivalent, so nothing short of assistive access — which
+                    // this machine refuses — can open it from a script; without this hook the one
+                    // surface that most needs looking at is the one nothing but a human can reach.
+                    //
+                    // **Armed here, opened when provider discovery finishes** — the same wait the
+                    // first-run card takes, and for a sharper reason. Discovery is async and fills
+                    // `availableProviders`, so at this point `tidyProviderRootExpanded` is still
+                    // empty and the palette's folder index resolves to NOTHING. Opened here it
+                    // logged "19 rows from 0 folders" on a tree of 3,013 — a diagnostic showing a
+                    // state no user can ever be in, which is worse than no diagnostic.
+                    paletteOnLaunchArmed = UserDefaults.standard.bool(forKey: "openCommandPaletteOnLaunch")
                 case .createActionHandler:
                     actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
                 case .rewireUndoManager:
