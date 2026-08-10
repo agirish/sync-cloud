@@ -107,3 +107,53 @@ import Testing
         #expect(HoverCursorTransition.decide(wasHovering: false, isNowInside: false) == .none)
     }
 }
+
+/// The destructive confirmation's wording. Pure, so it can be held to the claim the group actually
+/// makes — which is the whole reason it was lifted out of the view.
+@Suite struct TidyRemovalPromptTests {
+
+    @Test func aSameTextCopyIsNeverCalledRedundant() {
+        // The card refuses that word (badge, subtitle, thumbnail caption); the confirmation is the
+        // point of no return and must refuse it too.
+        let one = TidyRemovalPrompt.itemWord(for: .sameText, count: 1)
+        let many = TidyRemovalPrompt.itemWord(for: .sameText, count: 3)
+        #expect(one == "matching copy")
+        #expect(many == "matching copies")
+        #expect(!one.contains("redundant"))
+        #expect(!many.contains("redundant"))
+    }
+
+    @Test func theOtherKindsKeepTheirOwnWords() {
+        #expect(TidyRemovalPrompt.itemWord(for: .identical, count: 1) == "redundant copy")
+        #expect(TidyRemovalPrompt.itemWord(for: .identical, count: 2) == "redundant copies")
+        #expect(TidyRemovalPrompt.itemWord(for: .versions, count: 1) == "older version")
+        #expect(TidyRemovalPrompt.itemWord(for: .versions, count: 2) == "older versions")
+    }
+
+    @Test func theSameTextConfirmationSaysWhatIsBeingAgreedTo() {
+        let sameText = TidyRemovalPrompt.informativeText(
+            kind: .sameText, keeperName: "Jul 2023.pdf",
+            keeperLocation: "Utilities ▸ PG&E", reclaimText: "402 KB")
+        #expect(sameText.contains("weaker than a byte-for-byte match"))
+        #expect(sameText.contains("402 KB"))
+        #expect(sameText.hasSuffix("This can be undone with ⌘Z."))
+
+        // …and does not lecture where the claim IS byte-identity.
+        let identical = TidyRemovalPrompt.informativeText(
+            kind: .identical, keeperName: "Jul 2023.pdf",
+            keeperLocation: "Utilities ▸ PG&E", reclaimText: "402 KB")
+        #expect(!identical.contains("weaker"))
+        #expect(identical.hasSuffix("This can be undone with ⌘Z."))
+    }
+
+    @Test func everyMatchKindHasAWordAndNoneSaysNothing() {
+        // A new match type must not fall through to a default that borrows another's vocabulary —
+        // the failure this whole helper exists to prevent.
+        for kind in DuplicateMatchType.Kind.allCases {
+            let word = TidyRemovalPrompt.itemWord(for: kind, count: 1)
+            #expect(!word.isEmpty)
+            #expect(!word.hasSuffix("s"), "count 1 must read singular for \(kind)")
+        }
+    }
+}
+

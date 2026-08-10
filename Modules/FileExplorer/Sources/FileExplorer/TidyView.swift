@@ -3684,15 +3684,14 @@ public struct TidyView: View {
     private func apply(_ group: DuplicateGroup) {
         let count = group.recommendedRemovalPaths.count
         guard count > 0 else { return }
-        // Versions discard genuinely older, different content — say so rather than "redundant".
-        let isVersions = group.matchType.kind == .versions
-        let itemWord: String = isVersions
-            ? (count == 1 ? "older version" : "older versions")
-            : (count == 1 ? "redundant copy" : "redundant copies")
+        let itemWord = TidyRemovalPrompt.itemWord(for: group.matchType.kind, count: count)
         let ok = NativeAlerts.confirmDestructive(
             messageText: "Move \(count) \(itemWord) of \"\(group.name)\" to the Trash?",
-            informativeText: "Keeps \"\(group.keeper.name)\" at \(displayPath(group.keeper.path)). "
-                + "Reclaims \(FileSyncManager.formatBytes(group.reclaimableBytes)). This can be undone with ⌘Z.",
+            informativeText: TidyRemovalPrompt.informativeText(
+                kind: group.matchType.kind,
+                keeperName: group.keeper.name,
+                keeperLocation: displayPath(group.keeper.path),
+                reclaimText: FileSyncManager.formatBytes(group.reclaimableBytes)),
             confirmTitle: "Move to Trash"
         )
         guard ok else { return }

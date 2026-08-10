@@ -459,4 +459,26 @@ import Foundation
         #expect(overview.contains("Inbox (\\(shortcut.name))"),
                 "the inbox offer no longer names the inbox folder")
     }
+
+    // MARK: The destructive confirmation speaks the group's own vocabulary
+
+    @Test func theRemovalConfirmationGetsItsWordsFromTidyRemovalPrompt() throws {
+        // `TidyRemovalPrompt` is pure and fully tested, and would stay green if `apply` went back
+        // to composing the sentence inline — which is exactly how a same-text copy came to be
+        // called a "redundant copy" in the one dialog that precedes a delete.
+        let tidy = try Self.source("TidyView.swift")
+        let apply = try Self.body(of: "private func apply(_ group: DuplicateGroup) {", in: tidy)
+        #expect(apply.contains("TidyRemovalPrompt.itemWord"))
+        #expect(apply.contains("TidyRemovalPrompt.informativeText"))
+        // And the literal it replaced is gone from that body. Comment lines are stripped first:
+        // a scan that matches the doc comment explaining a removed string is a scan that can never
+        // fail. The assertion above proves the haystack is non-empty either way.
+        let code = apply.split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        #expect(!code.contains("redundant cop"),
+                "apply() is composing the removal wording inline again")
+        #expect(!code.contains("older version"),
+                "apply() is composing the removal wording inline again")
+    }
 }

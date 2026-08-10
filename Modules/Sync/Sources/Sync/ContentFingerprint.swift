@@ -37,7 +37,8 @@ public struct ExtractedDocument: Sendable, Equatable {
 ///
 /// **What the digest is over.** The token multiset of the extracted text and the form field
 /// values, plus the page count and each page's media box. Each ingredient was ablated over one
-/// frozen extraction of the real tree — 253 groups at baseline — and what it is worth is:
+/// frozen extraction of the real tree — 253 groups at baseline, about five more than the live
+/// reader reports for the reason ``PDFTextExtractor`` records — and what it is worth is:
 ///
 /// | ingredient | groups it removes | recall cost |
 /// |---|---|---|

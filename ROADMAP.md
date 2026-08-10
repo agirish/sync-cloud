@@ -587,10 +587,12 @@ hazard it never named did the most damage.**
   of which both sides fingerprinted, and **0 disagreements**. The other 101 declined — an
   image-only scan makes no claim — and cost nothing, because a byte-identical pair is already
   grouped by the content hash.
-- **It finds 251 groups the byte hash cannot see**, identical across two runs of the shipped code
-  over the same 10,569 files. The measured premise held; the *numbers* in the original entry did
-  not, because the tree has been reorganised since: 232 groups share a (name, size) now, of which
-  183 are byte-identical and **49 are not**.
+- **It finds ~250 groups the byte hash cannot see** — 248, twice, from the shipped code over the
+  same 10,569 files, with not one of those files changed between the runs. The measured premise
+  held; the *numbers* in the original entry did not, because the tree has been reorganised since:
+  232 groups share a (name, size) now, of which 183 are byte-identical and **49 are not**.
+  Treat the total as approximate: about five groups move between differently-sized runs (see the
+  determinism note below), always as a miss rather than a false match.
 - **The proposed pre-filter was wrong and is not in the shipped pass.** "Only files that already
   share a (name, size) or a (size, page count) need the second pass" would miss the **132 of those
   251 groups** that span more than one byte size — more than half — because a re-stamp routinely
@@ -617,7 +619,10 @@ hazard it never named did the most damage.**
   the same binary over the same files reported 226 groups and then 235. The queue is serial, and the
   same two runs then reported 251 and 251 — concurrency had been *splitting* real matches, not
   inventing them. A cold full-tree pass costs ~5.5 minutes instead of ~46 seconds, and nothing on
-  any later scan. It also cost this item's own floor its justification (see below), which is the
+  any later scan. **A residue survives serialization**: a pair that groups when read alone can fail
+  to group inside a full-tree run, ~5 groups in ~250, with two identical full runs either side of
+  it. Recall against byte-identical pairs stayed 485/485 with 0 disagreements throughout, so the
+  residue only ever costs a duplicate going unreported. It also cost this item's own floor its justification (see below), which is the
   general lesson: **a measurement taken through a racing reader is not a measurement.**
 
 **What the claim is, and is not.** It proves the extracted text matches, which is not the same as

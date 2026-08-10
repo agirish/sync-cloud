@@ -274,9 +274,15 @@ public struct DuplicateFinderOptions: Sendable {
     /// Whether to surface drifted same-stem files as version groups.
     public var detectVersions: Bool
     /// Whether to read documents and group those whose *text* matches although their bytes do not
-    /// — the re-stamped-download case. Costs one PDF parse per candidate document on a cold scan
-    /// (measured: 46 s for this tree's 10,569 PDFs) and nothing on a rescan, because the digests
-    /// are cached by the same (path, mtime, size) key the content hashes use.
+    /// — the re-stamped-download case. Costs one PDF parse per document on a COLD scan and nothing
+    /// on a rescan, because the digests are cached by the same (path, mtime, size) key the content
+    /// hashes use.
+    ///
+    /// **~5.5 minutes for this tree's 10,569 PDFs, not the 46 s this once said.** That figure was
+    /// measured with six parses running at a time, which is the arrangement
+    /// ``PDFKitSerialAccess`` exists to forbid — PDFKit's text extraction is not thread-safe, and
+    /// the fast number was buying a digest that changed between runs. The honest cost of a stable
+    /// fingerprint is one parse at a time.
     public var detectSameText: Bool
 
     public init(
@@ -715,7 +721,7 @@ public enum DuplicateFinder {
     /// is holding something; this comment is what it was actually worth.
     ///
     /// **It reaches back for an identical group's keeper, and only as an anchor.** Measured on the
-    /// real tree, 14 of the 212 groups this finds contain a byte-identical sub-pair — one document
+    /// real tree, 14 of the 253 groups this finds contain a byte-identical sub-pair — one document
     /// downloaded twice *and* copied once — and in every one of those 14 the remaining members are
     /// a single file. Excluding everything the identical pass touched would therefore not weaken
     /// those 14 groups, it would delete them. So an identical group's keeper may anchor a group

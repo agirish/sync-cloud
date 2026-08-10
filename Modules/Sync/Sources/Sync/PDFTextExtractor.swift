@@ -28,6 +28,18 @@ import PDFKit
 /// one document read in the same batch could be handed different digests and missed. The price is
 /// bounded — ~5.5 minutes for the full tree on a COLD scan against ~46 s, and nothing afterwards,
 /// because every digest is cached by (path, mtime, size).
+///
+/// **Serialization removed the large effect, not every trace of it, and the residue is worth
+/// knowing.** Two full replays of the same 10,569 documents now agree exactly (248 groups and 248),
+/// and two independent serial re-extractions of the whole tree are byte-for-byte identical — 0 of
+/// 10,569 documents differ. But the *workload itself* still shows: a pair of Chase statements that
+/// groups when the two are read on their own fails to group inside the full-tree run, and about 5
+/// of ~250 groups move that way. Whatever the mechanism (cache pressure inside PDFKit is the
+/// obvious suspect; it is not parse order — 2,500 unrelated parses between two reads of the same
+/// file change nothing), the DIRECTION is what matters and it is one-way: recall against
+/// byte-identical pairs stayed 485/485 with **0 disagreements** in every configuration measured.
+/// The residue costs an occasionally unreported duplicate, never a false claim about one — which
+/// is the side of the trade this feature is allowed to be wrong on.
 public enum PDFTextExtractor {
 
     private static let maxCharsPerPage = 20_000

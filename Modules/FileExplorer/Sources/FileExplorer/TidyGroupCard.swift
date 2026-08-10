@@ -524,6 +524,43 @@ enum TidyScanSkipNote {
     }
 }
 
+/// The wording of the per-group "Move to Trash" confirmation — the last thing the user reads
+/// before a destructive action, and therefore the one place the vocabulary must not drift.
+///
+/// It exists because it did drift. The card is careful about a same-text group: an unfilled seal,
+/// "bytes differ", a note asking the user to open the documents first, and a thumbnail caption that
+/// deliberately does NOT say "duplicate". The confirmation then called the other file a *redundant
+/// copy* — the identical group's word, asserting the very thing this group has not proved — at the
+/// point of no return. Inline in the view it was also untestable, which is why it went unnoticed.
+enum TidyRemovalPrompt {
+
+    /// What the copies being removed are called. Never "redundant" unless redundancy is proven.
+    static func itemWord(for kind: DuplicateMatchType.Kind, count: Int) -> String {
+        let plural = count != 1
+        switch kind {
+        // Versions discard genuinely older, different content — say so rather than "redundant".
+        case .versions: return plural ? "older versions" : "older version"
+        // Proven to READ the same, not proven to BE the same.
+        case .sameText: return plural ? "matching copies" : "matching copy"
+        case .identical, .overlapping, .nameOnly: return plural ? "redundant copies" : "redundant copy"
+        }
+    }
+
+    /// The line under the question: what is kept, what it reclaims, and — for a claim weaker than
+    /// byte-identity — what the user is actually agreeing to.
+    static func informativeText(kind: DuplicateMatchType.Kind,
+                                keeperName: String,
+                                keeperLocation: String,
+                                reclaimText: String) -> String {
+        var text = "Keeps “\(keeperName)” at \(keeperLocation). Reclaims \(reclaimText)."
+        if kind == .sameText {
+            text += " These read the same but their bytes differ, which is weaker than a "
+                + "byte-for-byte match — a signed or edited copy would read the same too."
+        }
+        return text + " This can be undone with ⌘Z."
+    }
+}
+
 // MARK: - Keeper marker
 
 /// Pure mapping from (does this group allow picking a keeper?, is this copy the keeper?) to the

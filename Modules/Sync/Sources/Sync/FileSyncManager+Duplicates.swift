@@ -97,7 +97,7 @@ extension FileSyncManager {
     /// local — and free of time on the second run onwards, because both persisted indexes mean an
     /// unchanged file is neither re-read nor re-parsed. It is no longer free of time on the FIRST
     /// run after the same-text pass arrived: that pass reads every PDF in the tree once (measured
-    /// at ~4 minutes for 10,569 documents) before its digests are cached. The scan is cancellable
+    /// at ~5.5 minutes for 10,569 documents) before its digests are cached. The scan is cancellable
     /// and reports progress throughout, and the pass has a Settings toggle, so the cost is visible
     /// and refusable rather than hidden — but "free by construction", which this said before, is
     /// now only true of the repeat. The questions remain consent and idempotence:
