@@ -939,7 +939,9 @@ struct ContentView: View {
     /// scan actions (Find Duplicates / loose files from a Compare menu) set the workspace directly
     /// and bypass this, so they keep scanning the folder the user picked.
     func presentTidyRail(for workspace: Workspace) {
-        guard let lens = workspace.lens else { return }
+        // The lens itself no longer changes where the rail opens — it is the guard that this is a
+        // lensed workspace at all, which is what makes the early return correct for Compare.
+        guard workspace.lens != nil else { return }
         // Show the rail for this workspace (remembered per workspace, like the manual toggle). The
         // layout animates via `.animation(value: panesHiddenForCurrentTab)`, so no withAnimation.
         let overrides = TopPaneVisibility.settingOverride(
@@ -949,22 +951,22 @@ struct ContentView: View {
         )
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
 
-        // Position the single source (the left pane) for the lens.
-        syncManager.focusOn(relativePath: tidyRailRelativePath(for: lens), isLeft: true)
-    }
-
-    /// The provider-root-relative folder a Tidy lens's rail opens on: the loose-files inbox for
-    /// Organize (Settings ▸ Organize, default "TODO"), the provider root for every other lens. Falls back
-    /// to the root when the inbox is unset or missing, so the rail never strands on an absent folder.
-    private func tidyRailRelativePath(for lens: TidyLens) -> String {
-        guard lens == .filing else { return "" }
-        let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
-            .trimmingCharacters(in: .whitespaces)
-        guard !inbox.isEmpty else { return "" }
-        let inboxPath = (tidyProviderRootExpanded as NSString).appendingPathComponent(inbox)
-        var isDir: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
-        return exists ? inbox : ""
+        // Position the single source (the left pane) at the provider root — **the same place for
+        // every lens, Organize included.**
+        //
+        // Organize used to be the exception: `tidyRailRelativePath(for:)` opened it on the
+        // loose-files inbox, so on a fresh install (where the setting defaults to `TODO`) switching
+        // to Organize moved the source rail into a folder nobody had asked for. That is the last of
+        // the hidden inbox behaviour. `filingScanTargetFolder`'s root-swap went first — a browsing
+        // accident deciding the subject — and this is the same rule wearing the other hat: the pane
+        // was not choosing the subject any more, it was being moved *to* the inbox instead, which
+        // is the same surprise arriving from the opposite direction.
+        //
+        // **The inbox is not gone, it is only no longer automatic.** Organize's overview offers it
+        // as a visible one-click scope ("Inbox (TODO) — N loose files"), and because the scope is
+        // sticky across launches it is clicked once rather than re-implied every time the workspace
+        // is opened. `filingInboxFolder` still resolves the path for exactly that.
+        syncManager.focusOn(relativePath: "", isLeft: true)
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -1706,9 +1708,11 @@ struct ContentView: View {
 
     /// The loose-files inbox, when it exists — the path only, with no opinion about when to use it.
     ///
-    /// Kept from the resolver above (whose existence check this preserves verbatim, so the rail and
-    /// the shortcut never disagree about a missing inbox) and handed to Organize's overview, which
-    /// offers it as a scope. nil when the setting is blank or the folder is not there.
+    /// **The one reader of the inbox setting now.** The rail resolver that used to share it — and
+    /// to open Organize on this folder unasked — is gone, so the existence check this kept in step
+    /// with no longer has a twin to disagree with; it stays because a shortcut offering a folder
+    /// that is not there is worse than no shortcut. nil when the setting is blank or the folder is
+    /// missing, and blank is a state the Settings field can now express.
     var filingInboxFolder: String? {
         let root = tidyProviderRootExpanded
         guard !root.isEmpty else { return nil }

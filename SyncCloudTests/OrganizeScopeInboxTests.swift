@@ -35,6 +35,48 @@ import Foundation
                 "filingScanTargetFolder is testing whether the pane is at the root again")
     }
 
+    /// The rail's own inbox rule — the second half of the hidden behaviour, and the one that
+    /// outlived the first.
+    ///
+    /// `filingScanTargetFolder`'s root-swap went early: the pane's position was choosing the
+    /// subject. `tidyRailRelativePath(for:)` survived that cleanup and did the same thing wearing
+    /// the other hat — it moved the pane *to* the inbox when Organize was opened, so on a fresh
+    /// install (where `filingInboxRelativePathKey` is unset and defaults to `TODO`) switching to
+    /// Organize jumped the source rail into a folder nobody had asked for.
+    @Test func theRailNoLongerOpensOnTheInbox() throws {
+        let source = try Self.contentView()
+        // The resolver is gone outright. Matched on the **declaration**, not the bare name: the
+        // comment that explains the removal names it, and a scan that cannot tell code from the
+        // prose describing it is this suite's standing hazard — stated at the top of the file, and
+        // the reason `body(of:in:)` exists.
+        #expect(!source.contains("private func tidyRailRelativePath"),
+                "the rail's inbox resolver is back — Organize opens on TODO again on a fresh install")
+
+        let body = try Self.body(of: "func presentTidyRail(for workspace: Workspace) {", in: source)
+        #expect(body.contains("focusOn(relativePath: \"\", isLeft: true)"),
+                "the rail no longer opens at the provider root — it is being positioned somewhere else again")
+        // The key, not the word "inbox": the body's own comment explains what was removed and says
+        // "inbox" four times, so a scan for the word would fail a correct implementation.
+        #expect(!body.contains("filingInboxRelativePathKey"),
+                "presentTidyRail reads the inbox setting again, so opening Organize moves the pane")
+    }
+
+    /// The setting can express "off", which it could not.
+    ///
+    /// The field's placeholder was the key's own default, so a field the user had deliberately
+    /// emptied rendered identically to one never touched — greyed-out "TODO" either way — and
+    /// nothing on the row said what blank did. That is what "there is no way to clear it" was.
+    @Test func theInboxSettingCanBeCleared() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Modules/Settings/Sources/Settings/SettingsView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read SettingsView.swift — this scan would be vacuous")
+        #expect(source.contains("TextField(\"None\", text: $filingInbox)"),
+                "the inbox field advertises its default as its placeholder again, so a cleared field looks unset")
+        #expect(!source.contains("TextField(\"TODO\", text: $filingInbox)"))
+    }
+
     @Test func theInboxPATHResolutionSurvives() throws {
         let source = try Self.contentView()
         // Deleted the rule, kept the resolution — the shortcut needs it, and it keeps the existence

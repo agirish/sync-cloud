@@ -35,9 +35,18 @@ public enum GeneralSettings {
     /// while SyncCloud is not the active app. Read by `OperationNotifier`.
     public static let notifyOnBackgroundCompletionKey = "notifyOnBackgroundCompletion"
 
-    /// String (default "TODO"). The provider-root-relative folder Organize scans for loose files by
-    /// default — the "inbox" where loose files pile up. Read by ContentView's Filing action; an empty
-    /// value (or navigating the rail into a subfolder) falls back to the focused folder.
+    /// String (default "TODO"). The provider-root-relative folder where loose files pile up.
+    ///
+    /// **It names a folder; it no longer moves anything.** This used to be read in two places, and
+    /// the second one was the complaint: `ContentView.tidyRailRelativePath(for:)` opened Organize's
+    /// source rail on this folder, so a fresh install — where the key is unset and this default
+    /// applies — jumped the rail into `TODO` on the first switch to Organize. That is gone. What
+    /// reads it now is `ContentView.filingInboxFolder`, which resolves the path for Organize's
+    /// overview to offer as a one-click scope.
+    ///
+    /// **Empty is a real value and means "no offer".** The Settings field shows `None` as its
+    /// placeholder rather than this default, so an emptied field cannot be mistaken for an
+    /// untouched one.
     public static let filingInboxRelativePathKey = "filingInboxRelativePath"
 
     /// The delete-confirmation flag with its default-true semantics (a bare `bool(forKey:)`
@@ -1871,11 +1880,17 @@ struct FilingSettingsTab: View {
         SettingsPage {
             SettingsSection("Filing", content: {
                 SettingsRow("Loose-files inbox") {
-                    TextField("TODO", text: $filingInbox)
+                    // **The placeholder is "None", not "TODO", and that is the fix to a real
+                    // complaint.** It used to show the key's default, so a field the user had
+                    // deliberately emptied rendered identically to one they had never touched —
+                    // greyed-out "TODO" either way — and there was no way to tell whether the
+                    // setting was off. Naming the empty state is what gives the row an "off"
+                    // position at all; the help text below says what that position does.
+                    TextField("None", text: $filingInbox)
                         .frame(maxWidth: 180)
                         .multilineTextAlignment(.trailing)
                 }
-                .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
+                .help("The folder (relative to the provider root) where loose files pile up — e.g. “TODO”. Organize offers it on its overview as a one-click way to narrow to that folder. It does not open there on its own; leave this blank and the offer disappears.")
                 SettingsRow("Remembered rules") {
                     Text("Now live in the Automations workspace")
                         .foregroundStyle(.secondary)
