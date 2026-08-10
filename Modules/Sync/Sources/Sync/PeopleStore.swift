@@ -52,6 +52,35 @@ public final class PeopleStore: ObservableObject {
         source = loaded.source
         dismissedSuggestions = FilingProfileStore.dismissedNameSuggestions(id: profileId,
                                                                            in: directory)
+        carriedKeys = Self.unmodelledKeys(at: fileURL)
+    }
+
+    /// Top-level keys in `people.json` that this build does not model, kept so writing the file
+    /// back does not throw them away.
+    ///
+    /// **The file is hand-written as much as it is app-written, and the prose in it is the part
+    /// worth keeping.** `_note` on the real roster explains why Anuraag is on it, why listing a
+    /// full name is what makes a shared surname attributable, and why `Abhi` and `Shwe` are
+    /// recorded — none of which the app can regenerate. Before this, the first edit made in
+    /// Settings ▸ People silently deleted all of it, because ``PeopleFileOut`` writes exactly three
+    /// keys and a whole-file atomic write replaces everything else with nothing.
+    ///
+    /// Carried generically rather than as a `note: String?` field, for the same reason
+    /// ``PersonTagVerdict/unrecognized(_:)`` exists one file over: the failure is not "the note is
+    /// missing", it is "this build rewrote a file it had only partly understood". A key added by a
+    /// newer build, or by him in a text editor, survives a round trip through this one.
+    private var carriedKeys: [String: Any] = [:]
+
+    /// The keys of `people.json` that this build has no field for.
+    ///
+    /// Read from the bytes rather than through `Codable`, because a `Decodable` that ignores
+    /// unknown keys is exactly what cannot report them. Failure is silent and total on purpose: an
+    /// unreadable file means nothing is carried, which is the same outcome as before this existed.
+    private static func unmodelledKeys(at url: URL) -> [String: Any] {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return object.filter { !PeopleFileOut.modelledKeys.contains($0.key) }
     }
 
     /// A store with no file behind it, for tests and previews — edits stay in memory.
@@ -152,6 +181,14 @@ public final class PeopleStore: ObservableObject {
         let people: [Person]
         /// Omitted when empty, so an untouched file stays as short as it was.
         let notNames: [String]?
+
+        /// Everything this type writes. Anything else in the file belongs to somebody else and is
+        /// carried across a save — see ``PeopleStore/carriedKeys``.
+        ///
+        /// Spelled out rather than derived by encoding an empty value and reading its keys: that
+        /// trick omits `notNames` whenever it is nil, so the set would depend on the value it was
+        /// derived from and a nil-notNames save would "carry" the app's own key back in.
+        static let modelledKeys: Set<String> = ["schemaVersion", "people", "notNames"]
     }
 
     private func save() {
@@ -161,10 +198,11 @@ public final class PeopleStore: ObservableObject {
                                             withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            let data = try encoder.encode(
+            var data = try encoder.encode(
                 PeopleFileOut(schemaVersion: FilingProfileStore.currentSchema, people: people,
                               notNames: dismissedSuggestions.isEmpty ? nil
                                                                      : dismissedSuggestions.sorted()))
+            data = Self.merging(carriedKeys, into: data) ?? data
             // Atomic: the engine reads this file at launch and the fingerprint hashes it, so a
             // torn write would be a half-household that looks like a whole one.
             try data.write(to: fileURL, options: .atomic)
@@ -172,6 +210,25 @@ public final class PeopleStore: ObservableObject {
             Logger.shared.warning("Couldn't save people.json — the change is in memory only "
                                   + "this session: \(error.localizedDescription)")
         }
+    }
+
+    /// Puts the carried keys back into freshly encoded JSON.
+    ///
+    /// **Returns nil rather than throwing, and the caller writes the unmerged bytes on nil.** The
+    /// roster is what this file is *for*; losing an edit to it because a comment could not be
+    /// re-attached would be the worse trade, and the note is already lost in that case either way.
+    ///
+    /// The modelled keys win by construction — `carriedKeys` never contains them — so a stale
+    /// `people` array read at launch can never overwrite the roster being saved now.
+    private static func merging(_ carried: [String: Any], into encoded: Data) -> Data? {
+        guard !carried.isEmpty,
+              var object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        else { return nil }
+        object.merge(carried) { fresh, _ in fresh }
+        // `.sortedKeys` so the file stays diffable, matching what the encoder above produces.
+        return try? JSONSerialization.data(withJSONObject: object,
+                                           options: [.prettyPrinted, .sortedKeys,
+                                                     .withoutEscapingSlashes])
     }
 
     // MARK: - Helpers
