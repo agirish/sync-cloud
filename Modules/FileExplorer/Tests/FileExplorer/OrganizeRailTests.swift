@@ -154,14 +154,20 @@ import Design
     ///     `canRefineFilingSuggestions` also wants the cached taxonomy and the provider root, so a
     ///     suite that forgot them would measure the state without the widest control in it and
     ///     report that the row fits.
+    ///   - scanFolder: the root the filing list was walked from, or nil for a manager that has
+    ///     genuinely never scanned. **`hasScanned: false` alone does not give you that state** — it
+    ///     clears the completion flag while leaving a scanned root behind, which is a pane sitting
+    ///     on its own subject rather than an Organize with no subject at all. The two states differ
+    ///     in exactly the button this suite measures.
     private static func manager(queue: Int, names: Int, hasScanned: Bool = true,
+                                scanFolder: String? = "/root/Downloads",
                                 survey: FileSyncManager.FilingSurveyReport? = nil,
                                 refine: Bool = false,
                                 heavyReadout: Bool = false) -> FileSyncManager {
         let m = FileSyncManager()
         m.publishFilingSuggestions((0..<queue).map { suggestion("f\($0).pdf", confident: $0 % 3 != 0) })
         m.hasSuggestedFiling = hasScanned
-        m.filingScanFolder = "/root/Downloads"
+        m.filingScanFolder = scanFolder
         m.filingLastProviderRoot = "/root"
         m.riskyNames = (0..<names).map { risky("bad:name\($0).pdf") }
         m.nameScanRoot = URL(fileURLWithPath: "/root")
@@ -193,8 +199,15 @@ import Design
     /// `scale` is the app's own text-size multiplier (`FontSize.scale`). It defaults to 1 so the
     /// behavioural tests read as before, but it is a real parameter because the width model claims
     /// to be right at *every* size while only some of its parts actually scale.
+    ///
+    /// `providerRoot` and `scanTarget` are what decide whether the pane has wandered off what
+    /// Organize is answering about (``OrganizeAim``). They default to the pair the rest of this
+    /// suite wants — a target equal to the scanned root, so no fixture draws the moved button by
+    /// accident — and the two tests about that button set them apart on purpose.
     private func mount(_ manager: FileSyncManager, lens: OrganizeLens?,
-                       width: CGFloat? = nil, scale: CGFloat = 1) -> NSHostingView<AnyView> {
+                       width: CGFloat? = nil, scale: CGFloat = 1,
+                       providerRoot: String? = nil,
+                       scanTarget: String = "/root/Downloads") -> NSHostingView<AnyView> {
         let canvas = CGSize(width: width ?? Self.canvas.width, height: Self.canvas.height)
         let defaults = ScratchDefaults("OrganizeRailTests")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
@@ -207,8 +220,9 @@ import Design
         // menu's "Update folder memory" item, and the "Refine with Claude…" invitation, which is
         // withheld outright when there is no Settings to open.
         let subject = TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
-                               scanTargetFolder: "/root/Downloads", onFindDuplicates: {},
-                               onUpdateFolderMemory: {}, onConfigureCloudRefine: {})
+                               scanTargetFolder: scanTarget, onFindDuplicates: {},
+                               onUpdateFolderMemory: {}, onConfigureCloudRefine: {},
+                               providerRoot: providerRoot)
             .defaultAppStorage(defaults)
             .environment(\.appFontScale, scale)
             .frame(width: canvas.width, height: canvas.height)
@@ -1271,10 +1285,48 @@ import Design
     func rescanIsAbsentBeforeAnyScan() throws {
         // The other direction, and what stops the test above from being satisfied by a button that
         // is simply always drawn.
+        //
+        // **The pane is on its subject here** — `scanFolder` and `scanTarget` are the same folder —
+        // which is what leaves this measuring *Rescan*. Point the pane elsewhere and a different
+        // button draws in this band on purpose; see `theMovedButtonDrawsBeforeAnyScan` below.
         let never = try #require(strip(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
                                              lens: .toFile), Self.actionsZone))
         #expect(counts(never).ink < 20,
                 "the action band is inked before any scan has completed — Rescan is ungated")
+    }
+
+    // MARK: The control — pointing Organize somewhere new
+
+    @Test("Organize “<folder>” draws before the first scan, on the overview")
+    func theMovedButtonDrawsBeforeAnyScan() throws {
+        // The reported defect, rendered. Nothing scanned, no scope, the pane browsed into a
+        // subfolder, standing on "All" — which is where the app now lands, and where no lens's
+        // intro card is there to carry the invitation instead. The band was empty: there was no way
+        // to aim Organize from its own header without first having aimed it.
+        //
+        // On the overview, and not on a lens, deliberately: `hasRowTwoActions` gates the whole
+        // trailing group and its `.none` arm is the one that returned false for every state.
+        let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
+                         lens: nil, providerRoot: "/root", scanTarget: "/root/Family/Aditi")
+        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        #expect(counts(band).ink > 100,
+                "the overview's trailing band painted nothing with the pane in a subfolder — there is no way to point Organize at what you are browsing")
+    }
+
+    @Test("…and does not, when the pane is at the top of the tree")
+    func theMovedButtonIsAbsentAtTheProviderRoot() throws {
+        // The direction that keeps the fix honest. Unscoped Organize already answers about
+        // everything, so a pane at the provider root has not moved off anything and an offer to
+        // "Organize everything" there would be a button that changes nothing — the same
+        // fires-on-a-condition-nobody-can-see complaint that took the hidden inbox retarget out.
+        //
+        // Same fixture as above but for the pane's folder, so the *only* thing this can be reading
+        // is `OrganizeAim`'s answer.
+        let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
+                         lens: nil, providerRoot: "/root", scanTarget: "/root")
+        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        #expect(counts(band).ink < 20,
+                "the overview drew a control with the pane at the provider root — Organize is offering to re-aim at what it is already aimed at")
     }
 
     @Test("The actions band is over the actions")

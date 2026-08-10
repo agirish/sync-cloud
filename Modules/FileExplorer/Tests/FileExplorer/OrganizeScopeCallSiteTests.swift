@@ -214,6 +214,41 @@ import Foundation
         #expect(button.contains(".help(movedTitle == nil && reaimClearsScope"))
     }
 
+    @Test func theHeaderAsksOrganizeAimWhereOrganizeIsPointed() throws {
+        // `OrganizeAim` is extracted for testability and is therefore one revert from being unused:
+        // its 13 green tests say nothing if `targetMoved` goes back to spelling the precedence
+        // itself. `OrganizeAimTests` owns the rule; this owns the fact that the header asks it.
+        let tidy = try Self.source("TidyView.swift")
+        let moved = try Self.body(of: "private func targetMoved(", in: tidy)
+        #expect(moved.contains("OrganizeAim.paneMovedAway("),
+                "targetMoved has stopped delegating — the precedence is back inside the view, where no test reaches it")
+        #expect(!moved.contains("?? scannedRoot"),
+                "targetMoved is spelling the subject chain again beside the one it delegates to")
+
+        // **Who passes the provider-root rung is the whole cross-workspace rule.** Organize's two
+        // re-aim buttons do, because unscoped Organize answers about the whole tree; Storage does
+        // not, because it owns no scope and its button re-analyzes rather than re-aims. Storage
+        // picking the fallback up is how its "Analyze X" starts firing on a condition that is about
+        // somebody else's subject.
+        #expect(try Self.body(of: "private var filingTargetMoved: Bool {", in: tidy)
+            .contains("rootFallback: providerRoot"),
+                "Organize's filing button no longer treats an unscoped, unscanned workspace as aimed at the whole tree")
+        #expect(!(try Self.body(of: "private var reanalyzeStorageButton: some View {", in: tidy))
+            .contains("rootFallback"),
+                "Storage's re-analyze button took Organize's root fallback — it owns no scope to be moved off")
+    }
+
+    @Test func pointingOrganizeSomewhereNewIsNotGatedOnHavingAlreadyScanned() throws {
+        // The gate and the button's own branch have to agree, and they are two expressions in two
+        // members: a gate reading `hasSuggestedFiling` alone while the button would have drawn its
+        // moved branch is exactly the state the user reported — browse to a folder before any scan
+        // and Organize's header offers nothing at all, on the overview it now lands on.
+        let tidy = try Self.source("TidyView.swift")
+        let occurrences = tidy.components(separatedBy: "syncManager.hasSuggestedFiling || filingTargetMoved").count - 1
+        #expect(occurrences == 2,
+                "\(occurrences) of the two filing gates admit the moved branch — `lensActions` and `hasRowTwoActions` have drifted apart")
+    }
+
     @Test func anEmptyScopedListBlamesTheScopeAndNotTheSearch() throws {
         // The other one: the Rules lens under a scope offered "The current search hides all 1 rule.
         // Clear it to see the results again" with a Clear Search button, while no search was

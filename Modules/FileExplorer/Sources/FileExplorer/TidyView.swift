@@ -1019,7 +1019,15 @@ public struct TidyView: View {
                 // on row 2 now — see ``folderMemoryStatus``. Row 1 is fixed-width controls only,
                 // which is what lets ``OrganizeRailMetrics/reservedTrailing(for:)`` be a number at
                 // all.
-                if syncManager.hasSuggestedFiling {
+                // **Or the pane has moved, which is a different button.** The scan gate is right
+                // about *Rescan* — a rescan with nothing to re-scan describes something that never
+                // happened — and wrong about the moved branch, which is not a rescan at all: it
+                // points Organize at the folder you are browsing and then scans it, and that is
+                // exactly what someone who has never scanned wants. Gating both on the same flag
+                // meant the only way to aim Organize from its own header was to have already aimed
+                // it. Landing on the overview — where no lens's intro card is there to carry the
+                // invitation instead — is what made that reachable rather than merely true.
+                if syncManager.hasSuggestedFiling || filingTargetMoved {
                     rescanFilingButton
                 }
                 // The apply actions stay with their own list: each acts on the rows on screen, so
@@ -1585,7 +1593,10 @@ public struct TidyView: View {
             return hasResults && !syncManager.isFindingDuplicates
         case .rename, .filing:
             guard !syncManager.isSuggestingFiles else { return false }
-            if syncManager.hasSuggestedFiling { return true }
+            // Mirrors ``lensActions``'s own gate, including the moved branch — see there. On the
+            // overview this is the only arm that can be true, which is the point: browsing to a
+            // folder with nothing scanned draws one control, and it needs its hairline.
+            if syncManager.hasSuggestedFiling || filingTargetMoved { return true }
             switch organizeLens {
             case .toFile: return hasFilingResults
             case .names: return !syncManager.riskyNames.isEmpty
@@ -1843,12 +1854,18 @@ public struct TidyView: View {
     /// Storage is excluded from the scope for the same reason it has no rail: it is a workspace of
     /// its own, and Organize's subject is not its subject. Reading `scope` unguarded here would let
     /// an Organize scope decide when Storage offers to re-analyze — the cross-workspace leak
-    /// `organizeLens` already guards against on the lens selection.
-    private func targetMoved(from scannedRoot: String?) -> Bool {
-        guard let target = scanTargetFolder, !target.isEmpty else { return false }
-        let organizeSubject = lens == .storage ? nil : scope?.path
-        guard let subject = organizeSubject ?? scannedRoot else { return false }
-        return standardizedPath(target) != standardizedPath(subject)
+    /// `organizeLens` already guards against on the lens selection. It passes no `rootFallback`
+    /// either, and for the same reason: "everything" is a claim about Organize's subject, and
+    /// Storage's re-analyze button moves no scope at all.
+    ///
+    /// `rootFallback` is the third rung of ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``
+    /// — see there for why an unscoped, unscanned Organize is answering about the provider root
+    /// rather than about nothing.
+    private func targetMoved(from scannedRoot: String?, rootFallback: String? = nil) -> Bool {
+        OrganizeAim.paneMovedAway(paneFolder: scanTargetFolder,
+                                  scope: lens == .storage ? nil : scope,
+                                  scannedRoot: scannedRoot,
+                                  providerRoot: rootFallback)
     }
 
     /// A rescan button that becomes a prominent "Organize '<folder>'" once the user has navigated
@@ -2013,9 +2030,20 @@ public struct TidyView: View {
     /// button beside the free one. When the user has navigated away the control becomes the
     /// prominent "Scan '<folder>'" call to action instead, where a menu would only be in the way:
     /// there are no saved suggestions for a folder that has not been scanned yet.
+    /// Whether the pane sits somewhere other than what Organize is answering about.
+    ///
+    /// One expression, read twice — by ``rescanFilingButton`` to pick its branch and by the gate
+    /// above it to decide whether to draw the control at all. Split out because those two must
+    /// agree: a gate that says "no control" while the button would have drawn its moved branch is
+    /// exactly the state this whole change fixes, and inlining the condition twice is how they
+    /// drift back apart.
+    private var filingTargetMoved: Bool {
+        targetMoved(from: syncManager.filingScanFolder, rootFallback: providerRoot)
+    }
+
     @ViewBuilder
     private var rescanFilingButton: some View {
-        if targetMoved(from: syncManager.filingScanFolder) {
+        if filingTargetMoved {
             rescanButton(moved: true, movedIcon: FilingGlyph.lens,
                          disabled: syncManager.isSuggestingFiles,
                          action: onFindFilingSuggestions,
@@ -2057,7 +2085,12 @@ public struct TidyView: View {
     }
 
     private var rescanDuplicatesButton: some View {
-        rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot),
+        // Same subject as the filing button — this one re-aims the whole workspace too. The
+        // fallback rung is inert here in practice (this control is gated on there being results,
+        // which means a scan ran and set `duplicateScanRoot`), and it is passed anyway so the two
+        // Organize buttons cannot come to disagree about what Organize is aimed at.
+        rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot,
+                                        rootFallback: providerRoot),
                      movedIcon: "wand.and.stars", disabled: syncManager.isFindingDuplicates,
                      action: onFindDuplicates,
                      reaim: { reaimAtScanTarget(then: onFindDuplicates) },

@@ -176,6 +176,57 @@ extension OrganizeScope {
     }
 }
 
+// MARK: - Where Organize is currently aimed
+
+/// What Organize is answering about right now, and whether the pane has wandered off it.
+///
+/// Split out of `TidyView.targetMoved(from:)` because the rule has a **precedence** in it, and a
+/// precedence buried in a `??` chain inside a private view method is a rule no test can reach. The
+/// three-deep chain is the whole content of the answer, so it is stated here and asserted directly.
+public enum OrganizeAim {
+
+    /// The folder Organize's current answers are *about*, in falling order of authority.
+    ///
+    /// 1. **The scope**, when one is set — the subject the user chose. With a scope the scanned
+    ///    root is an implementation detail of how the answer was computed.
+    /// 2. **The scanned root**, when a lens has run — what its list actually covers.
+    /// 3. **The provider root.** With neither of the above, Organize is answering about *everything*,
+    ///    and everything is the tree's top. This rung is the one that was missing: the old chain
+    ///    stopped at 2 and returned nil, so before any scan Organize had no opinion about its own
+    ///    subject and could not notice the pane leaving it. The user browsed to a folder, got no
+    ///    "Organize this" offer anywhere, and nothing on screen said why.
+    ///
+    /// nil only when all three are absent or empty — no provider, nothing to be aimed at.
+    public static func subject(scope: OrganizeScope?, scannedRoot: String?,
+                               providerRoot: String?) -> String? {
+        for candidate in [scope?.path, scannedRoot, providerRoot] {
+            if let candidate, !candidate.isEmpty { return candidate }
+        }
+        return nil
+    }
+
+    /// Whether `paneFolder` is somewhere other than ``subject(scope:scannedRoot:providerRoot:)`` —
+    /// the cue to *offer* re-aiming.
+    ///
+    /// An offer and never an act: browsing does not move the scope, which is the rule
+    /// ``OrganizeScope`` exists to keep. False when the pane is nowhere (no folder focused) or when
+    /// there is no subject to have moved away from.
+    public static func paneMovedAway(paneFolder: String?, scope: OrganizeScope?,
+                                     scannedRoot: String?, providerRoot: String?) -> Bool {
+        guard let paneFolder, !paneFolder.isEmpty,
+              let subject = subject(scope: scope, scannedRoot: scannedRoot,
+                                    providerRoot: providerRoot) else { return false }
+        return standardized(paneFolder) != standardized(subject)
+    }
+
+    /// Tilde-expanded and symlink-free, so `~/Documents` and `/Users/you/Documents` are one folder.
+    /// The comparison is between paths from three different sources — a persisted scope, a lens's
+    /// scanned root, a settings value — and only one of them was ever guaranteed expanded.
+    private static func standardized(_ path: String) -> String {
+        URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
+    }
+}
+
 // MARK: - Per-lens predicates
 
 /// The scope rules, one per lens — pure functions over a scope and a row.
