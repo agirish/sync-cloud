@@ -43,33 +43,44 @@ extension FocusedValues {
 
 extension ContentView {
 
-    /// ⌘K toggles. Opening resets the query, because a palette that reopened holding the last thing
-    /// you typed would answer a question you have already had answered — and because the reset is
-    /// what makes the empty-query landing (recents, then places) reachable at all after the first use.
+    /// ⌘K toggles. Every open starts from an empty query — a palette that reopened holding the last
+    /// thing you typed would answer a question you have already had answered, and the reset is what
+    /// keeps the empty-query landing (recents, then places) reachable after the first use.
+    ///
+    /// **It raises a panel rather than flipping an overlay flag**, for the reasons recorded at the
+    /// top of `CommandPalettePanel.swift`: as an in-window overlay its clicks and keystrokes went
+    /// through to the AppKit file panes underneath it.
     func toggleCommandPalette() {
-        if showCommandPalette {
-            closeCommandPalette()
-        } else {
-            paletteQuery = ""
-            showCommandPalette = true
-            let rows = paletteRows
-            paletteSelection = PaletteSelection.initialIndex(in: rows)
-            // Logged for the same reason the person gather logs its accept: this surface is
-            // keyboard-only, its chord is a menu key equivalent, and nothing short of assistive
-            // access can drive it from a script — so the log is the only place a run that is not a
-            // human's can be checked afterwards. The counts are what say the index was BUILT, not
-            // merely that the overlay appeared over an empty one.
-            let index = paletteIndex
-            Logger.shared.info("Command palette opened — \(rows.count) rows from "
-                + "\(index.folders.count) folders, \(index.people.count) people, "
-                + "\(index.providers.count) sources")
+        if palettePanel.isPresented {
+            palettePanel.dismiss()
+            return
         }
+        guard let host = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first(where: \.isVisible)
+        else {
+            // No window to hang it on. Said out loud rather than silently doing nothing: ⌘K
+            // appearing to be dead is exactly the kind of report that has no other trace.
+            Logger.shared.warning("⌘K pressed with no window to present the command palette over")
+            return
+        }
+        let index = paletteIndex
+        let state = CommandPaletteState(index: index)
+        showCommandPalette = true
+        palettePanel.present(
+            over: host, state: state, accent: glassHue.accentColor, glassLevel: glassLevel,
+            onRun: { [self] route in runPaletteRoute(route) },
+            onDismiss: { showCommandPalette = false })
+        // Logged for the same reason the person gather logs its accept: this surface is
+        // keyboard-only, its chord is a menu key equivalent, and nothing short of assistive access
+        // can drive it from a script — so the log is the only place a run that is not a human's can
+        // be checked afterwards. The counts are what say the index was BUILT, not merely that
+        // something appeared over an empty one.
+        Logger.shared.info("Command palette opened — \(state.rows.count) rows from "
+            + "\(index.folders.count) folders, \(index.people.count) people, "
+            + "\(index.providers.count) sources")
     }
 
     func closeCommandPalette() {
-        showCommandPalette = false
-        paletteQuery = ""
-        paletteSelection = nil
+        palettePanel.dismiss()
     }
 
     /// What the router is allowed to read, assembled from live state.
@@ -111,15 +122,14 @@ extension ContentView {
             canChooseFolder: true)
     }
 
-    var paletteRows: [PaletteRow] {
-        PaletteRouter.rows(query: paletteQuery, index: paletteIndex)
-    }
-
     /// Applies a route. **The only place in the app that turns a `PaletteRoute` into state**, so the
     /// routing table's tests and the behaviour cannot come apart anywhere else.
+    ///
+    /// The panel has already dismissed itself by the time this runs — see the `onRun` wrapper in
+    /// `CommandPalettePanelController.present` — so a route that changes workspace lands on a
+    /// window that is key again.
     func runPaletteRoute(_ route: PaletteRoute) {
         Logger.shared.info("Command palette → \(route)")
-        closeCommandPalette()
         switch route {
         case .compare:
             workspaceSelection.wrappedValue = .compare
@@ -187,26 +197,5 @@ extension ContentView {
         case .shortcuts: openWindow(id: "keyboard-shortcuts")
         case .activityLog: openWindow(id: "activity-log")
         }
-    }
-
-    /// The palette, over the window on its own scrim.
-    @ViewBuilder
-    var commandPaletteOverlay: some View {
-        CommandPaletteView(
-            rows: paletteRows,
-            query: Binding(get: { paletteQuery },
-                           set: { newValue in
-                               paletteQuery = newValue
-                               // The selection follows the list rather than standing where it was:
-                               // an index into the PREVIOUS results names a different row after a
-                               // keystroke, so ↩ would run something the user never looked at.
-                               paletteSelection = PaletteSelection.initialIndex(
-                                   in: PaletteRouter.rows(query: newValue, index: paletteIndex))
-                           }),
-            selection: $paletteSelection,
-            accent: glassHue.accentColor,
-            glassLevel: glassLevel,
-            onRun: { runPaletteRoute($0) },
-            onClose: { closeCommandPalette() })
     }
 }

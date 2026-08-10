@@ -28,18 +28,16 @@ struct ContentView: View {
     @State private var settingsTab: SettingsView.SettingsTab = .appearance
 
     // MARK: The ⌘K palette (ROADMAP 14)
-    //
-    // View state, deliberately not persisted: a palette is a thing you open, use and close inside
-    // one thought. Everything it *decides* is in `PaletteRouter` / `PaletteSelection`; these three
-    // are the only state it needs, and the wiring is in `CommandPaletteHost.swift`.
 
-    /// Whether the palette is up.
+    /// Raises and dismisses the palette. A `@StateObject` because it owns an `NSPanel` and a set of
+    /// observers that must outlive a body pass — see `CommandPalettePanel.swift` for why the
+    /// palette is a window rather than an overlay on this view.
+    @StateObject var palettePanel = CommandPalettePanelController()
+    /// Whether the palette is up. **Not the source of truth** — the panel is — but the menu chords
+    /// are suspended off it (`ShortcutValuePublisher.suspended`), so it is kept in step by the
+    /// controller's single `onDismiss`. The query and the selection live with the panel; a copy
+    /// here would be a second answer to what has been typed.
     @State var showCommandPalette = false
-    /// What has been typed into it.
-    @State var paletteQuery = ""
-    /// Which row is highlighted — an index into the CURRENT results, so it is recomputed on every
-    /// keystroke rather than carried; an index into the previous list names a different row.
-    @State var paletteSelection: Int?
 
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
@@ -524,11 +522,6 @@ struct ContentView: View {
             // took on a file, where Settings and Help are ambient panels they can reopen.
             if pendingDestination != nil {
                 destinationOverlay
-            } else if showCommandPalette {
-                // Above Settings and Help: the palette is opened, used and closed inside one
-                // thought, and ⌘K is a toggle — a palette rendered UNDER an ambient panel would be
-                // open, invisible, and swallowing the next keystroke.
-                commandPaletteOverlay
             } else if showSettings {
                 settingsOverlay
             } else if showHelp {
@@ -542,7 +535,6 @@ struct ContentView: View {
                 firstRunOverlay
             }
         }
-        .animation(.easeOut(duration: 0.15), value: showCommandPalette)
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
