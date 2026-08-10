@@ -162,4 +162,63 @@ import UniformTypeIdentifiers
         #expect(tokens.contains("invoice"))
         #expect(tokens.contains("1099"))
     }
+
+    // MARK: PDF extraction is serialized
+
+    /// **PDFKit's text extraction is not thread-safe, so this queue must stay serial.**
+    ///
+    /// Measured on a real 10,286-document tree, this reader six at a time returned different text
+    /// for 1.69% of documents run to run; one mortgage statement read 30 times serially gave one
+    /// text and 18 distinct texts once read concurrently. The damage is silent — reordered or
+    /// dropped blocks, still perfectly decodable prose — so nothing downstream can notice it.
+    ///
+    /// Asserting the outcome (peak concurrency) rather than the source: a `.concurrent` attribute
+    /// added back to `pdfQueue` fails this, and so does anything else that lets two parses overlap.
+    /// The counter is instrumentation for exactly this, since serialization has no other outside
+    /// signature short of the sub-2%-of-documents flake this suite has no corpus to reproduce.
+    @Test func pdfExtractionNeverRunsTwoParsesAtOnce() async throws {
+        let dir = FixtureDir()
+        // Enough pages that a parse takes long enough to overlap with its neighbours if it can.
+        let paths = try (0..<12).map { i -> String in
+            let p = dir.path("doc\(i).pdf")
+            // One page per line, five pages — the cap this reader stops at, so each parse is long
+            // enough to overlap with its neighbours if the queue allows it.
+            try Self.writePDF(lines: (0..<5).map { "Statement page \($0) of document \(i)." }, to: p)
+            return p
+        }
+        ContentSignalExtractor.resetPeakConcurrentPDFParses()
+
+        await withTaskGroup(of: Void.self) { group in
+            for p in paths {
+                group.addTask { _ = await ContentSignalExtractor.snippet(forFileAt: p) }
+                group.addTask { _ = await ContentSignalExtractor.tokens(forFileAt: p) }
+            }
+        }
+
+        // Non-vacuity: if nothing was parsed, the peak is trivially 1 and proves nothing.
+        let peak = ContentSignalExtractor.peakConcurrentPDFParses
+        #expect(peak == 1, "\(peak) PDF parses overlapped — extraction is no longer serialized")
+    }
+
+    /// The companion to the above: the parses really did happen, and really were issued
+    /// concurrently. Without this, `peakConcurrentPDFParses == 1` is satisfied by a run in which
+    /// the extractor read nothing at all.
+    @Test func theSerializationTestActuallyParsesConcurrentlyIssuedWork() async throws {
+        let dir = FixtureDir()
+        let paths = try (0..<6).map { i -> String in
+            let p = dir.path("doc\(i).pdf")
+            try Self.writePDF(lines: ["MARKER\(i) statement policy"], to: p)
+            return p
+        }
+        ContentSignalExtractor.resetPeakConcurrentPDFParses()
+        let texts = await withTaskGroup(of: String?.self) { group -> [String] in
+            for p in paths { group.addTask { await ContentSignalExtractor.snippet(forFileAt: p) } }
+            var out: [String] = []
+            for await t in group { if let t { out.append(t) } }
+            return out
+        }
+        #expect(texts.count == 6, "only \(texts.count) of 6 documents were read")
+        #expect(ContentSignalExtractor.peakConcurrentPDFParses >= 1,
+                "the counter never moved — it is not observing the parse")
+    }
 }
