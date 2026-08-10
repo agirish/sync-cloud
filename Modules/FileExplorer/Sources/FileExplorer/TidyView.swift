@@ -2550,7 +2550,7 @@ public struct TidyView: View {
             // decides what you see. The overview leads, because it is what you land on.
             case .filing:
                 if showingOverview {
-                    organizeOverview(rows: rows)
+                    organizeOverview(rows: rows, scopeFolders: scopeFolders)
                 } else if organizeLens == .restructure {
                     restructureContent(rows: rows, scopeFolders: scopeFolders)
                 } else if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
@@ -2609,11 +2609,21 @@ public struct TidyView: View {
 
     // MARK: Overview
 
-    /// Organize's landing — every lens's answer for the current scope.
+    /// Organize's landing — every lens's answer for the current scope, and the scans that would
+    /// produce the answers it does not have.
+    ///
+    /// **`onScan` became `onRun`, and that is the substantive change on this screen.** The old
+    /// closure took a lens and every call site was `{ railLens = item }`: a control captioned
+    /// "Scan…" that navigated. The comment defending it argued that the lens owns its intro state,
+    /// "where that scan's cost is stated — one button up here could not honestly price five scans".
+    /// The first half was true and the second was answering the wrong question: there are not five
+    /// scans. ``OrganizePass`` is the three that exist, each card states its own cost, and the
+    /// button runs it.
     @ViewBuilder
-    private func organizeOverview(rows: FilteredRows) -> some View {
+    private func organizeOverview(rows: FilteredRows, scopeFolders: Int?) -> some View {
+        let model = overviewModel
         OrganizeOverview(
-            sections: overviewSections,
+            sections: model.sections,
             // **The SCOPE, not the last scan's folder.** It read `filingScanFolder` before, which
             // is the root one lens happened to walk — so the overview's "Nothing to do in X" named
             // a folder that had nothing to do with the other five lenses' answers, and named
@@ -2621,12 +2631,54 @@ public struct TidyView: View {
             scopeLabel: scope?.name,
             accent: glassHue.accentColor,
             inboxShortcut: inboxShortcut,
+            ledger: overviewLedger(model, scopeFolders: scopeFolders),
+            runnablePasses: runnablePasses,
             onOpen: { item in withAnimation(listSettle) { railLens = item } },
-            // Every "Scan…" routes to the lens rather than starting the scan from here. The lens
-            // owns its own intro state, which is where that scan's cost is stated — one button up
-            // here could not honestly price five different scans.
-            onScan: { item in withAnimation(listSettle) { railLens = item } }
+            onRun: runPass
         )
+    }
+
+    /// Starts a pass from the overview.
+    ///
+    /// **Deliberately the plain scan, not the re-aim.** `reaimAtScanTarget` sets the scope to the
+    /// focused pane's folder before scanning, which is right for a button captioned
+    /// `Organize “X”` and wrong for one captioned `Run the file pass`: this offer is about the
+    /// subject the overview is already describing, and silently dragging the scope to wherever the
+    /// pane happens to sit is the exact failure ``rescanButton``'s two branches exist to keep apart.
+    private func runPass(_ pass: OrganizePass) {
+        switch pass {
+        case .file: onFindFilingSuggestions()
+        case .duplicates: onFindDuplicates()
+        // Optional at the host boundary, which is why `runnablePasses` exists rather than a card
+        // that draws a button and then does nothing.
+        case .folderMemory: onUpdateFolderMemory?()
+        }
+    }
+
+    /// The passes this host can start. Folder memory is the only conditional one — its handler is
+    /// `(() -> Void)?`, and a host that passes none must get a card that explains the state rather
+    /// than a button that no-ops.
+    private var runnablePasses: Set<OrganizePass> {
+        var passes: Set<OrganizePass> = [.file, .duplicates]
+        if onUpdateFolderMemory != nil { passes.insert(.folderMemory) }
+        return passes
+    }
+
+    /// The overview's cross-lens facts. The counting lives on ``OrganizeOverview/Ledger`` where it
+    /// can be asserted without a view; what this adds is the two figures that need `Sync`.
+    private func overviewLedger(_ model: OverviewModel,
+                                scopeFolders: Int?) -> OrganizeOverview.Ledger {
+        .derived(
+            from: model.sections,
+            // Absent rather than "0 bytes" when there is nothing to reclaim. A zero here reads as a
+            // measured claim about the tree, and before a duplicate scan it is not one — the same
+            // rule the rail badges and `inboxSubtitle` follow.
+            reclaimable: model.reclaimableBytes > 0
+                ? FileSyncManager.formatBytes(model.reclaimableBytes) : nil,
+            // The SCOPED count when scoped, the whole survey when not — matching
+            // `restructureContent` exactly, so the two places that quote a folder count agree.
+            scopeFolders: scope == nil
+                ? syncManager.filingFolderProfile?.folders.count : scopeFolders)
     }
 
     /// The inbox offered as a scope, or nil when there is no inbox — or when it is already the
@@ -2670,10 +2722,36 @@ public struct TidyView: View {
     /// the scan has not run at all — that is a fact about the provider-wide pass, not about the
     /// subtree — while `clean` under a scope means this subtree is clean, and `OrganizeOverview`
     /// names the scope in the words it wraps around them.
-    private var overviewSections: [OrganizeOverviewSection] {
+    ///
+    /// ## Why this returns a struct now
+    ///
+    /// The ledger needs the **scoped** reclaimable total, and `FileSyncManager.duplicateSummary`
+    /// computes the global one — so the overview would have had to filter 722 groups a second time,
+    /// on every render, to reach a number this loop already has the list for. That is the same
+    /// double-pass ``RailCounts`` was consolidated to avoid, arriving through a different door.
+    /// One walk, both answers.
+    struct OverviewModel {
+        var sections: [OrganizeOverviewSection] = []
+        /// Scoped, and **batch-eligible groups only** — mirroring `duplicateSummary` exactly, so
+        /// the ledger's figure is the one "Apply recommended" would actually deliver. Overlapping
+        /// and name-only groups never inflate it.
+        var reclaimableBytes = 0
+    }
+
+    private var overviewModel: OverviewModel {
         let scope = scope
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
-        return OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
+        var model = OverviewModel()
+        // Hoisted out of the loop below because the ledger needs it too. Filtering it a second time
+        // for the reclaimable total would be a second pass over 722 groups per render — see the
+        // type's note.
+        let scopedDuplicates = syncManager.duplicateGroups.filter {
+            OrganizeScopeFilter.matches($0, scope: scope)
+        }
+        model.reclaimableBytes = scopedDuplicates
+            .filter(\.isRecommendedForBatch)
+            .reduce(0) { $0 + $1.reclaimableBytes }
+        model.sections = OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
             switch item {
             case .toFile:
                 let scoped = syncManager.filingSuggestions.filter {
@@ -2689,14 +2767,16 @@ public struct TidyView: View {
                     state: !syncManager.hasSuggestedFiling ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
-                                    example: scoped.first.flatMap { s in
+                                    // `lazy` before `prefix`, so the limit bounds the SUGGESTIONS
+                                    // examined and not merely the ones kept: a plain
+                                    // `scoped.prefix(3).compactMap` over three homeless files
+                                    // yields nothing at all while the fourth had a home to show.
+                                    examples: Array(scoped.lazy.compactMap { s in
                                         s.best.map { "\(s.fileName) → \(($0.path as NSString).lastPathComponent)" }
-                                    }),
+                                    }.prefix(OrganizeOverview.exampleLimit))),
                     isScanning: syncManager.isSuggestingFiles)
             case .duplicates:
-                let scoped = syncManager.duplicateGroups.filter {
-                    OrganizeScopeFilter.matches($0, scope: scope)
-                }
+                let scoped = scopedDuplicates
                 let n = scoped.count
                 return OrganizeOverviewSection(
                     lens: item,
@@ -2704,7 +2784,7 @@ public struct TidyView: View {
                     state: !syncManager.hasFoundDuplicates ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
-                                    example: scoped.first.map {
+                                    examples: scoped.prefix(OrganizeOverview.exampleLimit).map {
                                         "\($0.name) — \($0.copies.count) copies"
                                     }),
                     isScanning: syncManager.isFindingDuplicates)
@@ -2719,7 +2799,8 @@ public struct TidyView: View {
                     state: !syncManager.hasScannedNames ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
-                                    example: scoped.first.map(\.currentName)),
+                                    examples: scoped.prefix(OrganizeOverview.exampleLimit)
+                                        .map(\.currentName)),
                     isScanning: syncManager.isScanningNames)
             case .renames:
                 let scoped = syncManager.renamePlans.filter {
@@ -2735,8 +2816,12 @@ public struct TidyView: View {
                     blurb: "Folders that have drifted from their own numbering.",
                     state: !syncManager.hasSuggestedFiling ? .notScanned
                         : n == 0 ? .clean
+                        // One line, and not three: the backlog's evidence is its *breakdown*
+                        // ("8 month folders · 3 quarters"), which is a summary of the whole list
+                        // rather than a sample from it. Padding it out with three folder names
+                        // would put two different kinds of claim in one column.
                         : .findings(count: n, headline: "\(n) folder\(n == 1 ? "" : "s")",
-                                    example: tally.breakdown.isEmpty ? nil : tally.breakdown),
+                                    examples: tally.breakdown.isEmpty ? [] : [tally.breakdown]),
                     isScanning: syncManager.isSuggestingFiles)
             case .restructure:
                 // `inside` only, matching the badge: a finding about the folder ABOVE the scope is
@@ -2755,14 +2840,16 @@ public struct TidyView: View {
                         : scoped.isEmpty ? .clean
                         : .findings(count: scoped.count,
                                     headline: "\(scoped.count) finding\(scoped.count == 1 ? "" : "s")",
-                                    example: scoped.first?.headline),
+                                    examples: scoped.prefix(OrganizeOverview.exampleLimit)
+                                        .map(\.headline)),
                     isScanning: false)
             // Configuration, not a result: it has nothing to report and no scan to run, so it
-            // takes no section and no footer line either.
+            // takes no section, no pass card and no footer line either.
             case .rules:
                 return nil
             }
         }
+        return model
     }
 
     @ViewBuilder
