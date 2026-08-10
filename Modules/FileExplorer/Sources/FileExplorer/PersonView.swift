@@ -16,9 +16,14 @@ import Sync
 ///
 /// Read-only. Nothing here writes a tag, and a row's action is Reveal — confirming a person and
 /// moving a file are separate verbs, and only the second one exists yet.
+///
+/// Takes the gather's **phase**, not just its answer: the sweep behind it walks every surveyed
+/// document, so the view is on screen before the answer exists and has to say what it is doing.
+/// The header — name and the ✕ out — is common to all three phases, so accepting an offer always
+/// puts something dismissable on screen immediately.
 public struct PersonView: View {
     let displayName: String
-    let files: PersonFileSet
+    let phase: PersonGatherPhase
     let accent: Color
     /// Reveals a folder in the pane. Folders, because that group's unit is the folder.
     let onOpenFolder: (String) -> Void
@@ -26,12 +31,12 @@ public struct PersonView: View {
     let onReveal: (String) -> Void
     let onClear: () -> Void
 
-    public init(displayName: String, files: PersonFileSet, accent: Color,
+    public init(displayName: String, phase: PersonGatherPhase, accent: Color,
                 onOpenFolder: @escaping (String) -> Void,
                 onReveal: @escaping (String) -> Void,
                 onClear: @escaping () -> Void) {
         self.displayName = displayName
-        self.files = files
+        self.phase = phase
         self.accent = accent
         self.onOpenFolder = onOpenFolder
         self.onReveal = onReveal
@@ -46,23 +51,28 @@ public struct PersonView: View {
     /// answer.
     private static let folderLimit = 8
 
-    private var inFolders: Int { files.herFolders.reduce(0) { $0 + $1.files.count } }
-
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if files.total == 0 {
-                        emptyState
-                    } else {
-                        herFoldersGroup
-                        if !files.elsewhere.isEmpty { elsewhereGroup }
+            switch phase {
+            case .gathering:
+                gatheringState
+            case .failed(let reason):
+                failedState(reason)
+            case .ready(let files):
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if files.total == 0 {
+                            emptyState
+                        } else {
+                            herFoldersGroup(files)
+                            if !files.elsewhere.isEmpty { elsewhereGroup(files) }
+                        }
                     }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -77,14 +87,18 @@ public struct PersonView: View {
             Text(displayName)
                 .scaledFont(.system(size: 13, weight: .semibold))
             // The count is the whole set, not the rows on screen — it is the answer to the
-            // question, and the folder list below is deliberately truncated.
-            Text("\(files.total) hers")
-                .scaledFont(.system(size: 11, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(accent)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(accent.opacity(0.14)))
+            // question, and the folder list below is deliberately truncated. Only once there IS
+            // an answer: a capsule saying "0 hers" mid-sweep would be a wrong answer, not a
+            // pending one.
+            if case .ready(let files) = phase {
+                Text("\(files.total) hers")
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(accent)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(accent.opacity(0.14)))
+            }
             Spacer(minLength: 8)
             Button {
                 onClear()
@@ -104,8 +118,9 @@ public struct PersonView: View {
 
     // MARK: Her folders
 
-    private var herFoldersGroup: some View {
-        VStack(alignment: .leading, spacing: 7) {
+    private func herFoldersGroup(_ files: PersonFileSet) -> some View {
+        let inFolders = files.herFolders.reduce(0) { $0 + $1.files.count }
+        return VStack(alignment: .leading, spacing: 7) {
             groupHeader(symbol: "house",
                         title: "In her folders",
                         subtitle: "The tree's own filing.",
@@ -142,7 +157,7 @@ public struct PersonView: View {
 
     // MARK: Filed elsewhere
 
-    private var elsewhereGroup: some View {
+    private func elsewhereGroup(_ files: PersonFileSet) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             groupHeader(symbol: "sparkles",
                         title: "Hers, filed elsewhere",
@@ -196,6 +211,44 @@ public struct PersonView: View {
                 .foregroundStyle(accent)
                 .fixedSize()
         }
+    }
+
+    /// The sweep is running. Said in words as well as a spinner, because the interval this covers
+    /// is exactly the one where a silent slot made the accept look like it did nothing.
+    private var gatheringState: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Gathering \(displayName)’s files…")
+                    .scaledFont(.system(size: 12.5, weight: .semibold))
+                Text("Every surveyed document is being checked — folders that are theirs, "
+                     + "and files named for them elsewhere.")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The sweep could not run, and the slot says why — this used to be a transient banner, gone
+    /// by the time the empty slot made anyone wonder why accepting did nothing.
+    private func failedState(_ reason: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .scaledFont(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Couldn’t gather \(displayName)’s files.")
+                    .scaledFont(.system(size: 12.5, weight: .semibold))
+                Text(reason)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// Nobody's, and that is an answer rather than a failure — it means the surveyed tree holds

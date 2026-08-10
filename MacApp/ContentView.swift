@@ -1490,14 +1490,42 @@ struct ContentView: View {
         }
     }
 
-    /// The person the find was turned into a gather for, and the answer.
+    /// The person the find was turned into a gather for, and where the gather is.
     ///
     /// Held here rather than in the pane because the answer is not about one pane: it collects
     /// across the whole source, which is the difference between a find and a gather.
+    ///
+    /// Carries the **phase**, not just the finished answer, so the slot is taken the moment the
+    /// offer is accepted: the sweep behind it takes long enough to notice, and a slot that stays
+    /// on its previous content for that interval reads as "nothing happened".
     struct PersonScope: Equatable {
         let person: Person
-        let files: PersonFileSet
+        var phase: PersonGatherPhase
+
+        /// Whether accepting an offer for `person` should start a sweep, given what is in the slot.
+        ///
+        /// **A second ⌘↩ on the same offer is a repeat of the same question**, not a new one, and
+        /// restarting would throw away a sweep that is already partway through 10,171 documents.
+        /// Anything else — nobody in the slot, a different person, or the same person whose gather
+        /// has already finished or failed — does start one.
+        static func shouldStart(_ person: Person, given current: PersonScope?) -> Bool {
+            !(current?.person == person && current?.phase == .gathering)
+        }
+
+        /// Whether a finished sweep for `person` may still write its answer into the slot.
+        ///
+        /// The slot has to be **the same person and still waiting**. This is the last-write-wins
+        /// half of the double-accept race: cancellation stops the loser's sweep, but a sweep that
+        /// had already left the loop before the cancel lands would otherwise write its answer over
+        /// the winner's.
+        static func awaits(_ person: Person, in current: PersonScope?) -> Bool {
+            current?.person == person && current?.phase == .gathering
+        }
     }
+
+    /// The in-flight sweep behind `personScope`, held so a successor or a clear can cancel it.
+    /// Without this, accepting twice raced two gathers with last-write-wins.
+    @State private var personGatherTask: Task<Void, Never>?
 
     /// Accepts the ⌘F offer: compute what is theirs and show it.
     ///
@@ -1506,27 +1534,54 @@ struct ContentView: View {
     /// between a key and its character. The offer row itself is cheap (one tokenize) and is what
     /// runs per keystroke.
     ///
-    /// The corpus is read off the main actor because it is a 4.9 MB file and nothing else in the
-    /// app holds it: the profile and the registry load at launch, the corpus does not.
+    /// The corpus read (a 4.9 MB file nothing else in the app holds) **and the sweep itself** run
+    /// off the main actor; the main-actor task only waits and writes the result. Cancellation has
+    /// to be forwarded by hand — a detached task does not inherit it — which is what the
+    /// `withTaskCancellationHandler` is doing.
     func acceptPersonScope(_ person: Person) {
         guard let profile = syncManager.filingFolderProfile,
               let registry = syncManager.filingPersonRegistry,
               let directory = syncManager.filingProfilesDirectory else { return }
+        guard PersonScope.shouldStart(person, given: personScope) else { return }
         Logger.shared.info("User asked for everything that is \(person.displayName)'s")
-        Task {
-            let id = profile.profileId
-            let corpus = await Task.detached(priority: .userInitiated) {
-                FilingSurveyStore.corpus(id: id, in: directory)
-            }.value
-            guard let corpus else {
-                syncManager.banner = .warning(
-                    "The survey of this tree has not been read yet, so there is nothing to gather.")
-                return
-            }
-            let files = PersonFiles.gather(personId: person.id, corpus: corpus,
-                                           profile: profile, registry: registry)
-            personScope = PersonScope(person: person, files: files)
+        personGatherTask?.cancel()
+        personScope = PersonScope(person: person, phase: .gathering)
+        let id = profile.profileId
+        let worker = Task.detached(priority: .userInitiated) { () throws -> PersonFileSet? in
+            guard let corpus = FilingSurveyStore.corpus(id: id, in: directory) else { return nil }
+            return try PersonFiles.gather(personId: person.id, corpus: corpus,
+                                          profile: profile, registry: registry)
         }
+        personGatherTask = Task {
+            let outcome = await withTaskCancellationHandler {
+                await worker.result
+            } onCancel: {
+                worker.cancel()
+            }
+            // Superseded or cleared while sweeping: the canceller owns the slot now. The scope
+            // check backs up the flag — both cancel paths set both, but the write below must
+            // never land on a scope that is no longer this gather's.
+            guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
+            switch outcome {
+            case .success(let files?):
+                personScope = PersonScope(person: person, phase: .ready(files))
+            case .success(nil):
+                personScope = PersonScope(person: person, phase: .failed(
+                    "The survey of this tree has not been read yet, so there is nothing to gather."))
+            case .failure:
+                // Only cancellation escapes the worker, and the guard above already returned for
+                // every path that cancels it — this arm is unreachable in practice.
+                break
+            }
+        }
+    }
+
+    /// The one way out of a person gather, from every exit — the ✕, Esc, and leaving the
+    /// workspace. Cancels a sweep still running so it stops walking documents nobody will see.
+    func clearPersonScope() {
+        personGatherTask?.cancel()
+        personGatherTask = nil
+        personScope = nil
     }
 
     /// Point Organize at one folder: select the filing queue and scan **that** folder.
@@ -2368,7 +2423,7 @@ struct ContentView: View {
                     // Inside the `newWorkspace != previous` guard deliberately: re-selecting the
                     // workspace you are already on is not leaving it, and should not throw the
                     // gather away.
-                    personScope = nil
+                    clearPersonScope()
                     presentTidyRail(for: newWorkspace)
                 }
             }
@@ -2415,7 +2470,7 @@ struct ContentView: View {
         // rather than replacing anything. Clearing gives the slot straight back.
         if let scope = personScope {
             PersonView(displayName: scope.person.displayName,
-                       files: scope.files,
+                       phase: scope.phase,
                        accent: glassHue.accentColor,
                        onOpenFolder: { relative in
                            guard let root = syncManager.filingFolderProfile?.root else { return }
@@ -2427,11 +2482,11 @@ struct ContentView: View {
                            let full = (root as NSString).appendingPathComponent(relative)
                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                        },
-                       onClear: { personScope = nil })
+                       onClear: { clearPersonScope() })
                 // **Esc clears it, which the ✕'s own tooltip has been promising.** Nothing was
                 // wired to the key: the help text said "(Esc)" and the only way out was the ✕ —
                 // a control describing a shortcut that does not exist.
-                .onExitCommand { personScope = nil }
+                .onExitCommand { clearPersonScope() }
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         } else if let lens = selectedLens {
             // The lens workspaces' right-hand slot. ONE construction site for all of them, and

@@ -70,13 +70,13 @@ import Foundation
 
     // MARK: The two channels
 
-    @Test func herFoldersAreGroupedAndTheRestIsTheInterestingPart() {
+    @Test func herFoldersAreGroupedAndTheRestIsTheInterestingPart() throws {
         let p = Self.profile([("Family", nil), ("Family/Aditi", "Aditi"),
                               ("Family/Aditi/School", "Aditi"), ("Shared", nil)])
         let c = Self.corpus(["Family/Aditi/a.pdf", "Family/Aditi/School/b.pdf",
                              "Family/Aditi/School/c.pdf", "Shared/Aditi - passport.pdf",
                              "Shared/unrelated.pdf"])
-        let set = PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
+        let set = try PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
 
         #expect(set.folderCount == 2)
         // Largest folder first: the reading order matches "where most of it is".
@@ -87,18 +87,18 @@ import Foundation
         #expect(set.elsewhere.first?.evidence == .namedInFile)
     }
 
-    @Test func aFileInsideHerOwnFolderIsNotAlsoAMisfiling() {
+    @Test func aFileInsideHerOwnFolderIsNotAlsoAMisfiling() throws {
         // `Family/Aditi/Aditi - passport.pdf` matches her name AND sits in her folder. Counting it
         // in both channels would put a correctly-filed document on the candidate-misfilings list,
         // which is the one list that has to stay worth reading.
         let p = Self.profile([("Family", nil), ("Family/Aditi", "Aditi")])
         let c = Self.corpus(["Family/Aditi/Aditi - passport.pdf"])
-        let set = PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
+        let set = try PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
         #expect(set.elsewhere.isEmpty)
         #expect(set.herFolders.first?.files.count == 1)
     }
 
-    @Test func foldersAreOrderedBySizeThenByNameForStability() {
+    @Test func foldersAreOrderedBySizeThenByNameForStability() throws {
         // The ordering had no test at all, and the expression implementing it looked like the
         // classic swapped-operands bug (it was not — but a sort nobody asserts is a sort nobody
         // can safely rewrite). Equal counts are the half that was invisible: without a tie the
@@ -106,7 +106,7 @@ import Foundation
         let p = Self.profile([("F", nil), ("F/Beta", "Aditi"), ("F/Alpha", "Aditi"),
                               ("F/Big", "Aditi")])
         let c = Self.corpus(["F/Big/1.pdf", "F/Big/2.pdf", "F/Beta/1.pdf", "F/Alpha/1.pdf"])
-        let set = PersonFiles.gather(personId: "aditi", corpus: c, profile: p,
+        let set = try PersonFiles.gather(personId: "aditi", corpus: c, profile: p,
                                      registry: Self.registry)
         #expect(set.herFolders.map(\.folder) == ["F/Big", "F/Alpha", "F/Beta"],
                 "largest first, then ties by name — got \(set.herFolders.map(\.folder))")
@@ -114,19 +114,19 @@ import Foundation
 
     // MARK: The discipline — a shared word never attributes on its own
 
-    @Test func aSharedSurnameDoesNotMakeAFileDads() {
+    @Test func aSharedSurnameDoesNotMakeAFileDads() throws {
         // **The 204-to-10 case.** `Muktha Girish - CV.pdf` is Mum's; `girish` is her surname. A
         // bare shared token must not claim it — and the phrase must claim it for HER.
         let p = Self.profile([("Family", nil), ("Family/Muktha", "Muktha")])
         let c = Self.corpus(["Shared/Muktha Girish - CV.pdf"])
-        let dad = PersonFiles.gather(personId: "girish", corpus: c, profile: p, registry: Self.registry)
+        let dad = try PersonFiles.gather(personId: "girish", corpus: c, profile: p, registry: Self.registry)
         #expect(dad.elsewhere.isEmpty, "a shared surname attributed the file to Dad")
-        let mum = PersonFiles.gather(personId: "muktha", corpus: c, profile: p, registry: Self.registry)
+        let mum = try PersonFiles.gather(personId: "muktha", corpus: c, profile: p, registry: Self.registry)
         #expect(mum.elsewhere.map(\.path) == ["Shared/Muktha Girish - CV.pdf"],
                 "the phrase did not claim it for the person it names — the guard above proves nothing")
     }
 
-    @Test func aBareSharedWordAttributesToNobody() {
+    @Test func aBareSharedWordAttributesToNobody() throws {
         // **The rule the corpus is named for, and the one my first fixtures did not reach.**
         // `Muktha Girish - CV.pdf` is caught a step earlier — the phrase matcher consumes the
         // surname into her full name, so Dad never matches at all and the strength gate is never
@@ -137,52 +137,81 @@ import Foundation
         // Mutation-checked: with the gate accepting every match, this is the test that fails.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Girish - 2021 travel.pdf"])
-        let dad = PersonFiles.gather(personId: "girish", corpus: c, profile: p, registry: Self.registry)
+        let dad = try PersonFiles.gather(personId: "girish", corpus: c, profile: p, registry: Self.registry)
         #expect(dad.elsewhere.isEmpty,
                 "a bare shared word attributed the file — `girish` is also two other people's surname")
         // The same word inside HIS full name does attribute, or the rule above is just "never".
         let named = Self.corpus(["Shared/Girish Krishnamurthy - 2021 travel.pdf"])
-        let byPhrase = PersonFiles.gather(personId: "girish", corpus: named, profile: p,
+        let byPhrase = try PersonFiles.gather(personId: "girish", corpus: named, profile: p,
                                           registry: Self.registry)
         #expect(byPhrase.elsewhere.count == 1)
     }
 
-    @Test func aPhraseSpendsTheSharedWordOnTheRightPerson() {
+    @Test func aPhraseSpendsTheSharedWordOnTheRightPerson() throws {
         // "Aditi Abhishek" is hers, and the surname is consumed doing it, so it is not also her
         // father's. Both directions, because a rule that attributed to neither would pass one half.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Aditi Abhishek - OCI.pdf"])
-        let hers = PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
-        let his = PersonFiles.gather(personId: "abhishek", corpus: c, profile: p, registry: Self.registry)
+        let hers = try PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
+        let his = try PersonFiles.gather(personId: "abhishek", corpus: c, profile: p, registry: Self.registry)
         #expect(hers.elsewhere.count == 1)
         #expect(his.elsewhere.isEmpty, "the surname in his daughter's full name counted for him")
     }
 
-    @Test func aUniqueTokenAttributesOnItsOwn() {
+    @Test func aUniqueTokenAttributesOnItsOwn() throws {
         // The other half of `isStrong`. `dani` names exactly one person, so it does not need a
         // phrase — without this the rule would only ever accept full names and the feature would
         // miss most of what it should find.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Dani - lease.pdf"])
-        let set = PersonFiles.gather(personId: "shweta", corpus: c, profile: p, registry: Self.registry)
+        let set = try PersonFiles.gather(personId: "shweta", corpus: c, profile: p, registry: Self.registry)
         #expect(set.elsewhere.count == 1)
     }
 
-    @Test func anAliasIsAsGoodAsAName() {
+    @Test func anAliasIsAsGoodAsAName() throws {
         // "Dad - passport.pdf" is his. The alias is unique to him, so it attributes on its own.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Dad - passport.pdf"])
-        let set = PersonFiles.gather(personId: "girish", corpus: c, profile: p, registry: Self.registry)
+        let set = try PersonFiles.gather(personId: "girish", corpus: c, profile: p, registry: Self.registry)
         #expect(set.elsewhere.count == 1)
         #expect(set.elsewhere.first?.matchedForm == "Dad")
     }
 
+    // MARK: Cancellation
+
+    @Test func aCancelledGatherStopsInsteadOfFinishing() async throws {
+        // Enough documents that the sweep crosses its cancellation stride — the check is
+        // deliberately coarse (one per 256 documents), so a corpus smaller than the stride
+        // never observes the flag and the sweep legitimately runs to completion.
+        let p = Self.profile([("Family", nil), ("Family/Aditi", "Aditi")])
+        let c = Self.corpus((0..<600).map { "Family/Aditi/doc-\($0).pdf" })
+        let registry = Self.registry
+        let worker = Task.detached { () throws -> PersonFileSet in
+            // Bounded wait for the cancel below. The cancel is unconditionally issued right
+            // after this task is created, so the loop terminates; the pass cap turns a broken
+            // cancellation flag into a diagnosable failure (gather runs uncancelled and the
+            // #expect below reports "did not throw") rather than a hang.
+            var passes = 0
+            while !Task.isCancelled, passes < 5_000 {
+                passes += 1
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            return try PersonFiles.gather(personId: "aditi", corpus: c, profile: p,
+                                          registry: registry)
+        }
+        worker.cancel()
+        await #expect(throws: CancellationError.self,
+                      "a cancelled sweep ran to completion — the stride check is not firing") {
+            try await worker.value
+        }
+    }
+
     // MARK: Non-vacuity
 
-    @Test func aPersonWithNothingGetsAnEmptyAnswerRatherThanEveryonesFiles() {
+    @Test func aPersonWithNothingGetsAnEmptyAnswerRatherThanEveryonesFiles() throws {
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/unrelated.pdf", "Shared/invoice.pdf"])
-        let set = PersonFiles.gather(personId: "divit", corpus: c, profile: p, registry: Self.registry)
+        let set = try PersonFiles.gather(personId: "divit", corpus: c, profile: p, registry: Self.registry)
         #expect(set.total == 0)
     }
 }

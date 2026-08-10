@@ -24,6 +24,10 @@ import Design
     /// "Hers, filed elsewhere" heads y≈155.
     private static let foldersZone = CGRect(x: 0, y: 44, width: 760, height: 90)
     private static let elsewhereZone = CGRect(x: 0, y: 155, width: 760, height: 180)
+    /// The gathering / failed state's two text lines. Starts at x=38 to exclude the spinner —
+    /// its animation frame is not deterministic — and measured from the rendered PNGs: title
+    /// baseline ≈ y 50–64, subtitle ≈ y 69–80, the widest line ending near x 593.
+    private static let stateTextZone = CGRect(x: 38, y: 44, width: 620, height: 44)
 
     private static func folder(_ path: String, _ n: Int) -> (folder: String, files: [PersonFile]) {
         (folder: path, files: (0..<n).map { PersonFile(path: "\(path)/f\($0).pdf", evidence: .herFolder) })
@@ -39,7 +43,12 @@ import Design
 
     private func mount(_ set: PersonFileSet, name: String = "Aditi",
                        scheme: ColorScheme = .light) -> NSHostingView<AnyView> {
-        let subject = PersonView(displayName: name, files: set, accent: .accentColor,
+        mount(phase: .ready(set), name: name, scheme: scheme)
+    }
+
+    private func mount(phase: PersonGatherPhase, name: String = "Aditi",
+                       scheme: ColorScheme = .light) -> NSHostingView<AnyView> {
+        let subject = PersonView(displayName: name, phase: phase, accent: .accentColor,
                                  onOpenFolder: { _ in }, onReveal: { _ in }, onClear: {})
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -121,6 +130,47 @@ import Design
         // …and the folder group above is untouched, or the comparison is measuring the wrong thing.
         #expect(ink(bare, Self.foldersZone) == ink(full, Self.foldersZone),
                 "the folder group changed too — the elsewhere band is measuring the wrong region")
+    }
+
+    @Test("Gathering says so, in both themes")
+    func theGatheringStatePaints() {
+        // The interval this covers is exactly the one where a silent slot made the accept look
+        // like it did nothing. The band starts at x=38 to exclude the spinner, whose animation
+        // frame is not deterministic; the words are the claim.
+        for scheme in [ColorScheme.light, .dark] {
+            let host = mount(phase: .gathering, scheme: scheme)
+            #expect(ink(host, Self.stateTextZone) > 400,
+                    "the gathering text is not painting in \(scheme)")
+            #expect(ink(host, Self.headerZone) > 150,
+                    "the header lost the name or the way out in \(scheme)")
+            #expect(ink(host, Self.elsewhereZone) < 100,
+                    "content painted below a sweep that has no answer yet in \(scheme)")
+        }
+        // The header capsule is an answer, so mid-sweep there must be none — "0 hers" would be
+        // a wrong answer, not a pending one. An empty READY set is the fixture that isolates it:
+        // same name, same ✕, and the capsule is the only thing that can differ.
+        let empty = PersonFileSet(personId: "aditi", herFolders: [], elsewhere: [])
+        #expect(differingPixels(mount(phase: .gathering), mount(empty), Self.headerZone) > 20,
+                "the header paints the same with and without an answer — the count capsule is showing mid-sweep")
+    }
+
+    @Test("A missing corpus is said in the slot, in both themes")
+    func theFailedStateSaysWhy() {
+        // This used to be a transient banner — gone by the time the still-empty slot made anyone
+        // wonder why accepting did nothing.
+        let reason = "The survey of this tree has not been read yet, so there is nothing to gather."
+        for scheme in [ColorScheme.light, .dark] {
+            let host = mount(phase: .failed(reason), scheme: scheme)
+            #expect(ink(host, Self.stateTextZone) > 400,
+                    "the failure text is not painting in \(scheme)")
+            #expect(ink(host, Self.elsewhereZone) < 100,
+                    "content painted below a gather that never ran in \(scheme)")
+        }
+        // And it is a different painting from the gathering state — a failure that renders as
+        // "still working" would leave him waiting on a sweep that already gave up.
+        #expect(differingPixels(mount(phase: .failed(reason)), mount(phase: .gathering),
+                                Self.stateTextZone) > 100,
+                "failed and gathering paint the same words")
     }
 
     @Test("A person with nothing gets an answer, not a blank panel")

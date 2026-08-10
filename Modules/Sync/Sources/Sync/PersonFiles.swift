@@ -32,6 +32,23 @@ public struct PersonFile: Sendable, Equatable, Identifiable {
     }
 }
 
+/// Where a person gather is in its life, for the surface that shows it.
+///
+/// The gather sweeps every surveyed document and reads a multi-megabyte corpus first, so there is
+/// a real interval between accepting the offer and having the answer. The phase is what lets the
+/// slot say so instead of sitting on the previous content — a slow accept with nothing on screen
+/// reads as "nothing happened", which invites the second ⌘↩ that used to race two sweeps.
+public enum PersonGatherPhase: Sendable, Equatable {
+    /// The sweep is running; the slot should say so, not show stale content.
+    case gathering
+    /// The answer.
+    case ready(PersonFileSet)
+    /// The sweep could not run at all — today, only because the corpus has not been surveyed.
+    /// The reason is shown in the slot itself: a transient banner is gone by the time the empty
+    /// slot makes anyone wonder why nothing appeared.
+    case failed(String)
+}
+
 /// Everything that is one person's, grouped by why.
 public struct PersonFileSet: Sendable, Equatable {
     public let personId: String
@@ -42,6 +59,16 @@ public struct PersonFileSet: Sendable, Equatable {
 
     public var total: Int { herFolders.reduce(0) { $0 + $1.files.count } + elsewhere.count }
     public var folderCount: Int { herFolders.count }
+
+    /// Public so callers outside this module can build one — the app target's supersede tests
+    /// need an answer to put in a slot, and `@testable` is not available to them across the
+    /// package boundary.
+    public init(personId: String, herFolders: [(folder: String, files: [PersonFile])],
+                elsewhere: [PersonFile]) {
+        self.personId = personId
+        self.herFolders = herFolders
+        self.elsewhere = elsewhere
+    }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.personId == rhs.personId && lhs.elsewhere == rhs.elsewhere
@@ -133,8 +160,13 @@ public enum PersonFiles {
     ///   - corpus: the surveyed documents — **the file inventory**. The profile knows folders; only
     ///     the corpus knows which documents exist, so this is what makes a per-file answer possible
     ///     at all without touching the disk.
+    ///
+    /// Throws only `CancellationError`, checked once per stride of documents: the sweep is the
+    /// long half of a gather, and a superseded one (a second ⌘↩, or the scope cleared while it
+    /// runs) should stop walking rather than finish an answer nobody will see. Outside a
+    /// cancelled task the checks never fire, so synchronous callers just write `try`.
     public static func gather(personId: String, corpus: FilingCorpus, profile: FolderProfile,
-                              registry: PersonRegistry) -> PersonFileSet {
+                              registry: PersonRegistry) throws -> PersonFileSet {
         var byFolder: [String: [PersonFile]] = [:]
         var elsewhere: [PersonFile] = []
         // Resolved per FOLDER rather than per document: a folder with 112 files would otherwise
@@ -142,7 +174,17 @@ public enum PersonFiles {
         var folderPerson: [String: String?] = [:]
         let uniqueWords = Set(registry.tokenBreakdown(for: personId).unique)
 
+        // Coarse on purpose: a cancellation check is cheap but not free, and 256 documents of
+        // extra work after a cancel is invisible while 10,171 of them is the whole problem.
+        let cancellationStride = 256
+        var sinceCheck = 0
+
         for path in corpus.documents.keys {
+            sinceCheck += 1
+            if sinceCheck >= cancellationStride {
+                sinceCheck = 0
+                try Task.checkCancellation()
+            }
             let folder = (path as NSString).deletingLastPathComponent
             let owner: String?
             if let cached = folderPerson[folder] {
