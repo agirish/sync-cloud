@@ -260,6 +260,37 @@ import Foundation
         }
     }
 
+    @Test func theStandDownMatchesTheStateItStandsDownFor() throws {
+        // `filingIntroOwnsInvitation` is a claim about what `filingContent` renders, made from
+        // outside it. The render tests assert the header band is empty on To File before a scan —
+        // but an empty band is also what you get if the intro card stopped being there, so those
+        // tests cannot tell "stood down because something else is asking" from "stood down for
+        // nothing". This is the half they cannot see: the two conditions must stay the same
+        // condition.
+        let tidy = try Self.source("TidyView.swift")
+
+        let content = try Self.body(of: "private func filingContent(", in: tidy)
+        #expect(content.contains("else if !syncManager.hasSuggestedFiling {"),
+                "filingContent's intro gate is no longer `!hasSuggestedFiling` — filingIntroOwnsInvitation is now describing a state that does not exist")
+        #expect(content.contains("filingIntroState"),
+                "filingContent no longer renders the setup card the stand-down defers to")
+
+        let owns = try Self.body(of: "private var filingIntroOwnsInvitation: Bool {", in: tidy)
+        #expect(owns.contains("organizeLens == .toFile"),
+                "the stand-down is no longer keyed on To File — the lens whose intro it defers to")
+        #expect(owns.contains("!syncManager.hasSuggestedFiling"),
+                "the stand-down no longer tracks filingContent's own pre-scan condition")
+
+        // And the routing that makes "To File" the right key: `contentCard` sends only that rail
+        // item to `filingContent`. If another item started reaching it, a second lens would grow an
+        // intro card the stand-down does not know about.
+        let card = try Self.body(of: "private func contentCard(rows: FilteredRows,", in: tidy)
+        #expect(card.contains("if showingOverview {"))
+        #expect(card.contains("} else if organizeLens == .restructure {"))
+        #expect(card.contains("filingContent(filing: rows.filing, counts: counts)"),
+                "contentCard no longer routes the remaining .filing item to filingContent — re-derive which lens owns an intro")
+    }
+
     @Test func anEmptyScopedListBlamesTheScopeAndNotTheSearch() throws {
         // The other one: the Rules lens under a scope offered "The current search hides all 1 rule.
         // Clear it to see the results again" with a Clear Search button, while no search was

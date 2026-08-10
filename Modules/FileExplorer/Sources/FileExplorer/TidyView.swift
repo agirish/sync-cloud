@@ -2041,7 +2041,9 @@ public struct TidyView: View {
     /// — two invitations to the same place, one of which also moves the scope, is the
     /// words-nearly-agree-actions-differ shape this file keeps having to remove. The rule the old
     /// gate encoded ("before the first scan the intro state owns the invitation") was right about
-    /// To File all along; it was wrong only about the five places that have no intro to own it.
+    /// To File all along; it was wrong only about the **four** places that reach this gate with no
+    /// intro to own it — the overview, Renames and Restructure through `.filing`, and Names through
+    /// `.rename`. Duplicates and Rules never read this: their apparatus arms are their own.
     private var showsFilingControl: Bool {
         guard !syncManager.isSuggestingFiles else { return false }
         return syncManager.hasSuggestedFiling || (filingTargetMoved && !filingIntroOwnsInvitation)

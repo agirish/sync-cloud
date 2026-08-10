@@ -61,6 +61,9 @@ import Design
     private static func trailingZone(_ width: CGFloat) -> CGRect {
         CGRect(x: width - 170, y: 48, width: 170, height: 26)
     }
+    /// The content card beneath the header — everything below the two-row ladder and its gutter.
+    /// Used only to ask whether a lens's page is carrying anything, never what it says.
+    private static let contentZone = CGRect(x: 20, y: 110, width: 1360, height: 420)
 
     // MARK: Fixtures
 
@@ -1329,16 +1332,22 @@ import Design
                 "the action band painted nothing with an empty queue beside 17 risky names — Rescan is gated on the queue again")
     }
 
-    @Test("…and is absent before the first scan, where the intro owns the invitation")
+    @Test("…and is absent before the first scan, where there is nothing to re-scan")
     func rescanIsAbsentBeforeAnyScan() throws {
         // The other direction, and what stops the test above from being satisfied by a button that
         // is simply always drawn.
         //
         // **The pane is on its subject here** — `scanFolder` and `scanTarget` are the same folder —
-        // which is what leaves this measuring *Rescan*. Point the pane elsewhere and a different
-        // button draws in this band on purpose; see `theMovedButtonDrawsBeforeAnyScan` below.
+        // which is what leaves this measuring *Rescan* rather than the moved branch.
+        //
+        // **On Renames, not To File, and the move matters.** To File now withholds this control
+        // before its first scan for a second, independent reason — its setup card owns the
+        // invitation, see `theMovedButtonYieldsToTheIntroCard` — so a `.toFile` fixture would pass
+        // here whether or not Rescan's own gate survived, which is a test that has quietly stopped
+        // testing its own claim. Renames reaches the same gate and has no intro to stand down for,
+        // so an empty band there is Rescan's gate and nothing else.
         let never = try #require(strip(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
-                                             lens: .toFile), Self.actionsZone))
+                                             lens: .renames), Self.actionsZone))
         #expect(counts(never).ink < 20,
                 "the action band is inked before any scan has completed — Rescan is ungated")
     }
@@ -1390,6 +1399,27 @@ import Design
         let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink > 100,
                 "Renames lost the moved button — the stand-down is keyed on the scan flag rather than on To File")
+    }
+
+    @Test("The stand-down has something to stand down for")
+    func theToFileIntroIsActuallyOnScreen() throws {
+        // **The premise `theMovedButtonYieldsToTheIntroCard` rests on, which that test cannot
+        // check.** An empty header band is equally what you get if To File's setup card stopped
+        // rendering — the stand-down would then be deferring to nothing, and the reported bug would
+        // be back on the one lens most likely to be browsed to.
+        //
+        // Renames is the control: the same manager, the same pane, the same canvas, and its
+        // pre-scan content is an empty `RenamePassLens` list. So this compares two content areas
+        // that differ only in whether one of them is carrying an invitation, which also means a
+        // band that drifts off the content hits both sides.
+        let m = { Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil) }
+        let toFile = try #require(strip(mount(m(), lens: .toFile, providerRoot: "/root",
+                                              scanTarget: "/root/Family/Aditi"), Self.contentZone))
+        let renames = try #require(strip(mount(m(), lens: .renames, providerRoot: "/root",
+                                               scanTarget: "/root/Family/Aditi"), Self.contentZone))
+        let (intro, blank) = (counts(toFile).ink, counts(renames).ink)
+        #expect(intro > blank + 500,
+                "To File's content inked \(intro) against Renames' \(blank) — the setup card the header stands down for is not on screen")
     }
 
     @Test("…and does not, when the pane is at the top of the tree")
