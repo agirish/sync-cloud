@@ -77,6 +77,7 @@ final class CommandPalettePanelController: ObservableObject {
     private var resignObserver: NSObjectProtocol?
     private var hostFrameObservers: [NSObjectProtocol] = []
     private var keyMonitor: Any?
+    private var clickMonitor: Any?
     private var onDismiss: (() -> Void)?
 
     var isPresented: Bool { panel != nil }
@@ -125,6 +126,14 @@ final class CommandPalettePanelController: ObservableObject {
         panel.makeKeyAndOrderFront(nil)
         self.panel = panel
 
+        // **Logged because two rounds of this were guesswork.** Whether the panel takes key decides
+        // whether its field holds the caret, and it cannot be observed from a test host — so the
+        // one place the answer exists on a real machine is here. The host's other child windows are
+        // logged with it: a window with a toolbar keeps its title bar in one, which is why covering
+        // the host's frame does not cover the title bar.
+        Logger.shared.debug("[palette] panel key=\(panel.isKeyWindow) frame=\(panel.frame) "
+            + "host children=\((host.childWindows ?? []).map { String(describing: type(of: $0)) })")
+
         // **Resigning key IS the click-away rule.** Not a scrim tap: the scrim is inside this
         // panel and could only ever catch clicks within the host's own bounds, which is what left
         // the title bar undismissable. Anything that takes key — the content, the toolbar, the
@@ -143,6 +152,17 @@ final class CommandPalettePanelController: ObservableObject {
         // ⌘K has to keep working while the panel is key, and it cannot come from the menu item:
         // that reads a `@FocusedValue` published by the window underneath, which is no longer key.
         // A local monitor is the only path left, and it is scoped to the panel's lifetime.
+        clickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self, weak panel] event in
+                guard let self, let panel, self.isPresented,
+                      Self.clickDismissesThePalette(clickedWindow: event.window, palette: panel)
+                else { return event }
+                // The event is RETURNED, never swallowed: the click that dismisses the palette is
+                // also the click the user meant for the toolbar button or the title bar under it,
+                // and eating it would trade one broken gesture for another.
+                self.dismiss()
+                return event
+            }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.isPresented,
                   Self.closesThePalette(modifiers: event.modifierFlags,
@@ -151,6 +171,38 @@ final class CommandPalettePanelController: ObservableObject {
             self.dismiss()
             return nil
         }
+    }
+
+    /// Whether a mouse-down **outside the palette** should dismiss it.
+    ///
+    /// **This is the click-away rule, and it is a rule about which WINDOW was clicked — not about
+    /// layering, and not about key state.** Two mechanisms were tried before it and both were
+    /// reported broken from the running app: the scrim inside this panel, and resigning key.
+    ///
+    /// **Why they failed for title-bar clicks was never established, and this comment says so
+    /// rather than inventing one.** A first draft asserted that a window with a toolbar keeps its
+    /// title bar in a separate window ordered above the panel — plausible, and false. The panel now
+    /// logs what it can see when it is raised, and on the real window that reads:
+    ///
+    ///     [palette] panel key=true frame=(0.0, 87.0, 1710.0, 986.0) host children=["CommandPaletteWindow"]
+    ///
+    /// One child window, which is this panel; a frame that is the host's whole frame and therefore
+    /// *does* span the title bar; and key genuinely taken. Every premise of that explanation is
+    /// contradicted by its own diagnostic. Part of the region is now accounted for by something
+    /// else entirely — the card's `.contentShape` sat outside its 96pt top padding, so the strip
+    /// directly above the card swallowed clicks (fixed separately) — and the rest is not.
+    ///
+    /// That is exactly why the rule below is the one worth having: **it does not depend on knowing.**
+    ///
+    /// A local mouse monitor sees every click destined for this app before it is dispatched, and
+    /// the window it names settles the question with no geometry and no ordering: **anything but
+    /// the palette itself dismisses.** A click *on* the palette is left alone — the scrim's own tap
+    /// handles the dimmed area, and the card has to keep working.
+    ///
+    /// `nil` is a click this app cannot attribute to a window of its own; treating it as outside is
+    /// the safe direction, since the alternative is a palette that survives a click it cannot see.
+    static func clickDismissesThePalette(clickedWindow: NSWindow?, palette: NSWindow) -> Bool {
+        clickedWindow !== palette
     }
 
     /// Whether a key-down is the palette's own chord.
@@ -176,8 +228,11 @@ final class CommandPalettePanelController: ObservableObject {
     /// Idempotent, because five different things call it and two of them can race — esc arriving
     /// as the panel is already resigning key, say.
     func dismiss() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        for monitor in [keyMonitor, clickMonitor].compactMap({ $0 }) {
+            NSEvent.removeMonitor(monitor)
+        }
         keyMonitor = nil
+        clickMonitor = nil
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
         hostFrameObservers.forEach(NotificationCenter.default.removeObserver)

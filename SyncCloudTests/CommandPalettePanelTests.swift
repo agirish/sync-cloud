@@ -177,6 +177,48 @@ import Sync
         teardown(host, controller)
     }
 
+    // MARK: Click-away
+
+    /// **The rule that finally covers the title bar.**
+    ///
+    /// Two mechanisms were tried before it — the panel's own scrim, and resigning key — and both
+    /// were reported broken from the running app. *Why* is not settled, and the explanation this
+    /// comment used to give (that a toolbar puts the title bar in its own window above the panel)
+    /// is contradicted by the panel's own diagnostic: one child window, the host's whole frame,
+    /// key taken. What is left is the question that needs no such answer — the window the click was
+    /// *for*: anything but the palette dismisses.
+    @Test func aClickInAnyOtherWindowDismissesThePalette() {
+        let host = makeHost()
+        let panel = CommandPaletteWindow(contentRect: host.frame,
+                                         styleMask: [.borderless, .nonactivatingPanel],
+                                         backing: .buffered, defer: false)
+        defer { panel.orderOut(nil); host.orderOut(nil) }
+        typealias C = CommandPalettePanelController
+        #expect(C.clickDismissesThePalette(clickedWindow: host, palette: panel),
+                "a click in the host — its content, its toolbar, its title bar — left the palette up")
+        // A title bar lives in its own window, and that window is neither the host nor the panel.
+        let titlebarLike = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                                    backing: .buffered, defer: false)
+        titlebarLike.isReleasedWhenClosed = false
+        defer { titlebarLike.orderOut(nil) }
+        #expect(C.clickDismissesThePalette(clickedWindow: titlebarLike, palette: panel),
+                "a click in the title bar's own window left the palette up — the reported bug")
+        // A click this app cannot attribute to a window of its own is outside by definition.
+        #expect(C.clickDismissesThePalette(clickedWindow: nil, palette: panel))
+    }
+
+    /// ...and a click **on** the palette must not dismiss it, or the card would close under the
+    /// pointer before it could be used. The scrim's own tap owns the dimmed area.
+    @Test func aClickOnThePaletteItselfIsLeftAlone() {
+        let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
+                                         styleMask: [.borderless, .nonactivatingPanel],
+                                         backing: .buffered, defer: false)
+        defer { panel.orderOut(nil) }
+        #expect(!CommandPalettePanelController.clickDismissesThePalette(clickedWindow: panel,
+                                                                        palette: panel),
+                "clicking the palette dismissed it — its own field and rows would be unusable")
+    }
+
     // MARK: ⌘K, while the panel holds the keyboard
 
     /// **The chord must survive Caps Lock.**
