@@ -196,7 +196,10 @@ struct ContentView: View {
     /// `.onGeometryChange` rather than a `GeometryReader` writing a preference: it fires outside
     /// the layout pass, which is what keeps a width-driven toolbar from re-entering layout and
     /// tripping the AppKit constraint-loop crash that pattern caused before.
-    @State var workspaceBarStyle: WorkspaceBarStyle = .iconOnly
+    /// Both controls' rungs, resolved together — see `WorkspaceBarMetrics.styles`. One value
+    /// because they share one row: two states resolved from two thresholds is how each concludes
+    /// it fits a width the other is also spending.
+    @State var toolbarStyles = ToolbarBarStyles(workspace: .iconOnly, search: .compact)
 
     /// Per-workspace override of the top-pane visibility, a JSON map (workspace raw value →
     /// hidden). Empty means "no overrides — every workspace uses its default". Persisted, so
@@ -504,11 +507,16 @@ struct ContentView: View {
             // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
             // reading `appFontScale` here means a scale change rebuilds this closure and
             // re-resolves; a constant would be correct at exactly one setting.
-            .onGeometryChange(for: WorkspaceBarStyle.self) { proxy in
-                WorkspaceBarMetrics.style(contentWidth: proxy.size.width,
-                                          labelWidths: Self.workspaceLabelWidths(scale: appFontScale))
-            } action: { style in
-                workspaceBarStyle = style
+            .onGeometryChange(for: ToolbarBarStyles.self) { proxy in
+                WorkspaceBarMetrics.styles(
+                    contentWidth: proxy.size.width,
+                    labelWidths: Self.workspaceLabelWidths(scale: appFontScale),
+                    searchLabelWidth: CommandPaletteBarMetrics.labelWidth(CommandPaletteBar.label,
+                                                                          scale: appFontScale),
+                    searchKeycapWidth: CommandPaletteBarMetrics.keycapWidth(
+                        symbol: AppChord.commandPalette.display, scale: appFontScale))
+            } action: { styles in
+                toolbarStyles = styles
             }
             .toolbar { mainToolbar }
         .overlay {

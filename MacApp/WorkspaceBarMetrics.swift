@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import FileExplorer
 
 /// Whether the workspace bar can afford to spell its segments out.
 ///
@@ -46,6 +47,12 @@ enum WorkspaceBarMetrics {
     /// before the trailing group, and the utility pill (Info, Logs, Settings). Deliberately
     /// generous — being one segment too cautious costs a label, being one too optimistic costs the
     /// entire control behind an overflow chevron.
+    ///
+    /// **The ⌘K search pill is NOT in here**, and that is deliberate rather than an omission: its
+    /// width depends on which rung *it* is showing, so charging it as a constant would mean either
+    /// over-reserving whenever it is compact or under-reserving whenever it is full. It is charged
+    /// per-rung in ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:separators:)``,
+    /// which is the one place the two controls' widths are added together.
     static let reservedChrome: CGFloat = 78 + 24 + 132
 
     /// Width of the bar with every label spelled out.
@@ -78,13 +85,48 @@ enum WorkspaceBarMetrics {
             + CGFloat(separators) * separatorWidth + containerPadding
     }
 
-    /// The style a window of this content width can seat.
+    /// What a window of this content width can seat — **both toolbar controls, decided together.**
     ///
-    /// All-or-nothing on purpose: shedding labels one segment at a time would leave a bar where
-    /// some workspaces are words and others are glyphs, which reads as two different controls
-    /// rather than one row of peers.
-    static func style(contentWidth: CGFloat, labelWidths: [CGFloat], separators: Int = 1) -> WorkspaceBarStyle {
+    /// One function rather than two, because they compete for one row. The search pill was added
+    /// after this arithmetic existed, and the tempting shape — leave `style` alone and give the
+    /// pill its own threshold — is the one that breaks: each control would size itself against a
+    /// width the other is also spending, both would conclude they fit, and the toolbar would go
+    /// behind the overflow chevron with two green tests. Whatever is on this row is added up here.
+    ///
+    /// The ladder, in order, and the order is the priority:
+    ///
+    /// 1. **Both spelled out.**
+    /// 2. **The pill drops its word.** The magnifier and the ⌘K key still say what it is and how to
+    ///    open it, so the word is the cheapest thing on the row.
+    /// 3. **The workspace bar drops its labels too.** Last, because it is the primary navigation:
+    ///    shedding the words a user navigates by while keeping a decorative one beside them would
+    ///    be backwards. There is deliberately no fourth rung dropping the ⌘K key — see
+    ///    ``CommandPaletteBarStyle``.
+    ///
+    /// The workspace bar stays all-or-nothing within its own rung: shedding labels one segment at a
+    /// time would leave a bar where some workspaces are words and others are glyphs, which reads as
+    /// two different controls rather than one row of peers.
+    static func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
+                       searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
+                       separators: Int = 1) -> ToolbarBarStyles {
         let available = contentWidth - reservedChrome
-        return fullWidth(labelWidths: labelWidths, separators: separators) <= available ? .full : .iconOnly
+        let bar = fullWidth(labelWidths: labelWidths, separators: separators)
+        let searchFull = CommandPaletteBarMetrics.width(style: .full, labelWidth: searchLabelWidth,
+                                                        keycapWidth: searchKeycapWidth)
+        let searchCompact = CommandPaletteBarMetrics.width(style: .compact, labelWidth: searchLabelWidth,
+                                                           keycapWidth: searchKeycapWidth)
+        if bar + searchFull <= available { return ToolbarBarStyles(workspace: .full, search: .full) }
+        if bar + searchCompact <= available { return ToolbarBarStyles(workspace: .full, search: .compact) }
+        return ToolbarBarStyles(workspace: .iconOnly, search: .compact)
     }
+}
+
+/// What the toolbar's two width-sensitive controls are showing right now.
+///
+/// One value, resolved in one place, for the reason `FilteredRows` is one value: two controls
+/// sizing themselves against the same row from two separate decisions is how they come to disagree
+/// about how much room there is.
+struct ToolbarBarStyles: Equatable {
+    var workspace: WorkspaceBarStyle
+    var search: CommandPaletteBarStyle
 }

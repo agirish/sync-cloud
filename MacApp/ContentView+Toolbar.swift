@@ -119,7 +119,7 @@ extension ContentView {
         // accent this pill stranded white text at ~2.1–2.7:1 on Amber/Cyan/Green.
         let accentFill = glassHue.accentFillColor
         let onAccent = glassHue.onAccentLabelColor
-        let style = workspaceBarStyle
+        let style = toolbarStyles.workspace
         return HStack(spacing: WorkspaceBarMetrics.segmentGap) {
             ForEach(Array(Workspace.allCases.enumerated()), id: \.element) { index, workspace in
                 // Compare is the only workspace with two panes; the rest put a lens where its
@@ -218,6 +218,17 @@ extension ContentView {
         // longer trails `.primaryAction` on its own).
         if #available(macOS 26.0, *) {
             ToolbarSpacer(.flexible)
+        }
+
+        // ⌘K, wearing its own key. Trailing rather than centred, which is where every Mac app puts
+        // a toolbar search (Finder, Mail, Notes, Xcode), and its own item rather than a fourth
+        // member of the utility group: those three are glyph buttons and this is a field-shaped
+        // resting surface — dropping it in among them would read as a button that had grown.
+        ToolbarItem(placement: .primaryAction) {
+            CommandPaletteBar(style: toolbarStyles.search,
+                              chord: AppChord.commandPalette.display) {
+                toggleCommandPalette()
+            }
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
