@@ -96,8 +96,8 @@ wrong for two years. The steps below exist so that cannot recur.
 
 ```yaml
 # main's values; v2.x carries "2.10-dev" / "210"
-CFBundleShortVersionString: "3.0-dev"   # the marketing version — what people see
-CFBundleVersion: "300"                  # the build number — what Launch Services orders by
+CFBundleShortVersionString: "4.0-dev"   # the marketing version — what people see
+CFBundleVersion: "400"                  # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git**, so it changes in the
@@ -113,7 +113,7 @@ anywhere, which is what makes changing it safe:
 ### The two numbers
 
 **Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
-version it is heading toward, suffixed `-dev`: `main` (the v3 line) sits at `3.0-dev`, `v2.x`
+version it is heading toward, suffixed `-dev`: `main` sits at `4.0-dev`, `v2.x`
 sits at `2.10-dev`. The suffix says "this build is no release" without implying a distributed beta
 programme. A release drops the suffix, and the tip is re-bumped straight afterwards, so a plain
 number like `2.9` is only ever what the tagged commit itself carries.
