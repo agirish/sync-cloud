@@ -23,22 +23,32 @@ import Design
 @MainActor
 struct OrganizeScopeChipTests {
 
-    static func chip(_ name: String, folderCount: Int?) -> some View {
-        ScopeChipLabel(name: name, folderCount: folderCount, accent: .blue, onClear: {})
+    static func chip(_ name: String, folderCount: Int?, suspended: Bool = false) -> some View {
+        ScopeChipLabel(name: name, folderCount: folderCount, accent: .blue,
+                       isSuspended: suspended,
+                       // The live chip's ✕ and the suspended chip's absence of one, exactly as
+                       // `TidyView` passes them — an `isSuspended: true` chip that still carried a
+                       // clear closure would render a state the app never draws.
+                       onClear: suspended ? nil : {})
     }
 
     /// Renders at the chip's natural size and returns the bitmap.
-    static func render(_ view: some View, width: CGFloat = 320, height: CGFloat = 28)
-        -> NSBitmapImageRep {
+    ///
+    /// The backdrop follows the scheme, so "ink" means *off the backdrop* in both — see
+    /// ``inkedColumns(_:scheme:)``. Light is the default because every assertion written before dark
+    /// was measured is a light-mode measurement, and silently re-basing them would be a change to
+    /// what they claim.
+    static func render(_ view: some View, width: CGFloat = 320, height: CGFloat = 28,
+                       scheme: ColorScheme = .light) -> NSBitmapImageRep {
         let host = NSHostingView(rootView: AnyView(
             view.frame(width: width, height: height, alignment: .leading)
-                .background(Color.white)
-                .environment(\.colorScheme, .light)))
+                .background(scheme == .dark ? Color.black : Color.white)
+                .environment(\.colorScheme, scheme)))
         host.frame = CGRect(x: 0, y: 0, width: width, height: height)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         window.colorSpace = .sRGB
         window.contentView = host
         host.layoutSubtreeIfNeeded()
@@ -50,13 +60,16 @@ struct OrganizeScopeChipTests {
     }
 
     /// Columns carrying any non-background ink, as a set — the chip's painted footprint.
-    static func inkedColumns(_ rep: NSBitmapImageRep) -> Set<Int> {
+    static func inkedColumns(_ rep: NSBitmapImageRep, scheme: ColorScheme = .light) -> Set<Int> {
         var columns = Set<Int>()
         for x in 0..<rep.pixelsWide {
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                // Anything meaningfully off pure white counts as ink — the chip's wash included.
-                if c.redComponent < 0.97 || c.greenComponent < 0.97 || c.blueComponent < 0.97 {
+                // Anything meaningfully off the backdrop counts as ink — the chip's wash included.
+                let off = scheme == .dark
+                    ? (c.redComponent > 0.03 || c.greenComponent > 0.03 || c.blueComponent > 0.03)
+                    : (c.redComponent < 0.97 || c.greenComponent < 0.97 || c.blueComponent < 0.97)
+                if off {
                     columns.insert(x)
                     break
                 }
@@ -65,8 +78,8 @@ struct OrganizeScopeChipTests {
         return columns
     }
 
-    static func inkExtent(_ rep: NSBitmapImageRep) -> Int {
-        let cols = inkedColumns(rep)
+    static func inkExtent(_ rep: NSBitmapImageRep, scheme: ColorScheme = .light) -> Int {
+        let cols = inkedColumns(rep, scheme: scheme)
         guard let lo = cols.min(), let hi = cols.max() else { return 0 }
         return hi - lo + 1
     }
@@ -75,6 +88,42 @@ struct OrganizeScopeChipTests {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return false }
         guard let da = a.tiffRepresentation, let db = b.tiffRepresentation else { return false }
         return da == db
+    }
+
+    // MARK: The suspended chip — ROADMAP 15's "closing must put it back"
+
+    /// **Suspended must look different from live, in both schemes.**
+    ///
+    /// The whole argument for suspending rather than hiding is that the user can see the scope is
+    /// *parked*, not lost. A suspended chip that rendered identically to a live one would be worse
+    /// than hiding it: the lists would silently stop obeying a chip that still looks like it applies.
+    /// Asserted as a pixel difference at a fixed name and count, so only the state can be what moved.
+    @Test(arguments: [ColorScheme.light, ColorScheme.dark])
+    func aSuspendedScopeDoesNotLookLikeALiveOne(scheme: ColorScheme) {
+        let live = Self.render(Self.chip("Legal", folderCount: 12), scheme: scheme)
+        let paused = Self.render(Self.chip("Legal", folderCount: 12, suspended: true), scheme: scheme)
+        #expect(!Self.pixelsEqual(live, paused),
+                "the suspended chip renders identically to the live one in \(scheme) — the lists have stopped obeying a chip that still looks like it applies")
+        // Non-vacuity: both actually painted. A pair of blank renders would also compare unequal
+        // only by luck, and a pair of blanks comparing EQUAL would pass the check above's inverse.
+        #expect(Self.inkExtent(live, scheme: scheme) > 40, "the live chip painted almost nothing in \(scheme)")
+        #expect(Self.inkExtent(paused, scheme: scheme) > 40, "the suspended chip painted almost nothing in \(scheme)")
+    }
+
+    /// The scope's NAME survives the suspension.
+    ///
+    /// The point of keeping the chip on screen is that it still says *which* folder comes back. A
+    /// suspended chip that had lost the name to a generic "paused" would be the disappearance this
+    /// exists to avoid, wearing a label.
+    @Test(arguments: [ColorScheme.light, ColorScheme.dark])
+    func theSuspendedChipStillNamesTheFolder(scheme: ColorScheme) {
+        let legal = Self.render(Self.chip("Legal", folderCount: 12, suspended: true), scheme: scheme)
+        let immigration = Self.render(Self.chip("Immigration", folderCount: 12, suspended: true),
+                                      scheme: scheme)
+        #expect(!Self.pixelsEqual(legal, immigration),
+                "two different scope names render identically while suspended — the name is gone")
+        #expect(Self.inkExtent(immigration, scheme: scheme) > Self.inkExtent(legal, scheme: scheme),
+                "the longer name did not render wider while suspended — it is being clipped")
     }
 
     // MARK: The chip is really drawn

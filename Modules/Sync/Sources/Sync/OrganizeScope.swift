@@ -338,49 +338,17 @@ public enum OrganizeScopeFilter {
         return !scope.contains(revealedPath)
     }
 
-    // MARK: Rules — the one genuine non-scoper
+    // MARK: Rules — no predicate, because the scope does not reach them
 
-    /// Whether a rule could ever file into, or out of, the scope.
-    ///
-    /// **Rules are configuration, not findings, and the list stays global** — this filters what is
-    /// *shown* while every edit still writes the one global list. So the test is deliberately
-    /// generous: a rule is shown when its destination is comparable with the scope in either
-    /// direction.
-    ///
-    /// A destination template is provider-relative and may carry `{year}`-style tokens, which makes
-    /// the exact destination undecidable without a file. Everything from the first token onwards is
-    /// therefore dropped and the **literal prefix** is compared:
-    ///
-    /// - `Finance/US/Income Tax/{year}` under scope `Finance/US` → inside. Shown.
-    /// - `Finance/{year}` under scope `Finance/US` → the prefix `Finance` is an *ancestor* of the
-    ///   scope, so this rule may well file into it once the token resolves. Shown, because the
-    ///   direction that hides a rule which is about to write into the folder you are looking at is
-    ///   the expensive one.
-    /// - `Medical/Bills` under scope `Finance/US` → neither. Hidden.
-    ///
-    /// A rule with an empty destination has nowhere to file and is shown under every scope: it is
-    /// incomplete configuration, and hiding it is how an unfinished rule becomes invisible.
-    public static func matches(_ rule: AutomationRule, scope: OrganizeScope?) -> Bool {
-        guard let scope else { return true }
-        let literal = literalPrefix(of: rule.destinationTemplate)
-        guard !literal.isEmpty else { return true }
-        let absolute = (scope.providerRoot as NSString).appendingPathComponent(literal)
-        return scope.relation(of: absolute) != .outside
-    }
-
-    /// The token-free head of a destination template, as path components.
-    ///
-    /// Truncates at the first component containing `{`, rather than at the first `{` character:
-    /// `Tax/{year}-forms` names an unknown child of `Tax`, and keeping the partial component would
-    /// invent a folder called `{year}-forms`'s literal prefix that is not a path component at all.
-    static func literalPrefix(of template: String) -> String {
-        let trimmed = template.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return "" }
-        var kept: [String] = []
-        for component in trimmed.split(separator: "/", omittingEmptySubsequences: true) {
-            if component.contains("{") { break }
-            kept.append(String(component))
-        }
-        return kept.joined(separator: "/")
-    }
+    // There is deliberately **no `matches(_ rule: AutomationRule, …)` here.** One existed, and it
+    // was a careful thing: it dropped a destination template at its first `{token}` and admitted a
+    // rule whose literal prefix was inside the scope *or an ancestor of it*, on the argument that
+    // hiding a rule about to write into the folder you are looking at is the expensive direction.
+    //
+    // It answered the wrong question. Scoped to the loose-files inbox — the sticky one-click scope
+    // Organize's own overview offers — every rule's destination is `Finance/…`, `Medical/…`,
+    // `Legal/…`, none of which is comparable with `TODO`, so the generous predicate hid all eight
+    // rules and the one rail item that cannot say "nothing here" said it. The scope narrows
+    // *findings*, and rules are configuration; that distinction now lives on the lens itself, as
+    // `OrganizeLens.isScoped`, beside the `carriesBadge` rule it is the twin of. See ROADMAP 15.
 }

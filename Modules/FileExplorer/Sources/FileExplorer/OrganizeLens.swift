@@ -105,6 +105,29 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         guard carriesBadge, count > 0 else { return nil }
         return count
     }
+
+    /// Whether Organize's scope narrows this lens — **false for Rules, and for the same reason
+    /// ``carriesBadge`` is.**
+    ///
+    /// Five lenses report what a scan turned up *somewhere*, so "somewhere" is a narrowing that
+    /// means something: scope To File to `Finance` and you get the loose files in Finance. Rules are
+    /// configuration, and a rule's whole job is to move a file from where it is to somewhere else —
+    /// **rules file into destinations all over the source.** Narrowing them by the folder you happen
+    /// to be working leaves the standing configuration answering about a subtree it was never about.
+    ///
+    /// The concrete failure, which is what ROADMAP 15 calls the trap: Organize's overview offers the
+    /// loose-files inbox as a one-click sticky scope ("Inbox (TODO) — 24 loose files"), and rules
+    /// file *out of* that inbox into `Finance/…`, `Medical/…`, `Legal/…`. Scoped to `TODO`, **every
+    /// rule's destination is outside the scope**, so the one rail item that is not allowed to say
+    /// "nothing here" said exactly that with eight rules configured — and the only way to see them
+    /// was to abandon the scope you were working, which is the one-way trip the item warns about.
+    ///
+    /// So opening Rules aims Organize back at the source root, and leaving it puts the scope back.
+    /// **Nothing is written to do that** — the stored scope is untouched and merely goes unapplied
+    /// while this lens is on screen — which is what makes "puts it back" unconditional rather than a
+    /// restore step that some other exit path can skip. The chip stays on screen, suspended, so the
+    /// scope is visibly parked rather than apparently lost.
+    public var isScoped: Bool { self != .rules }
 }
 
 // MARK: - Scan provenance

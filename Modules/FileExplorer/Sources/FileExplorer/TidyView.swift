@@ -413,15 +413,37 @@ public struct TidyView: View {
     /// from another provider degrades to the global view instead of filtering every lens to empty.
     @AppStorage(OrganizeScopeDefaults.pathKey) private var scopePathRaw: String = ""
 
-    /// The subtree Organize is answering about, or nil for the global view.
+    /// The subtree the user has pointed Organize at — **whether or not the lens on screen applies
+    /// it.** Every writer and every readout of the chip goes through this; the lists go through
+    /// ``scope``.
     ///
     /// Re-resolved rather than stored: `init?` rejects the provider root and anything outside it,
     /// so this is also where a scope left over from a provider that is no longer showing quietly
     /// becomes nil.
-    private var scope: OrganizeScope? {
+    private var storedScope: OrganizeScope? {
         guard let providerRoot, !providerRoot.isEmpty, !scopePathRaw.isEmpty else { return nil }
         return OrganizeScope(path: scopePathRaw, providerRoot: providerRoot)
     }
+
+    /// The scope **one named lens** applies: the stored one, or nil where ``OrganizeLens/isScoped``
+    /// says configuration is not narrowed by a folder.
+    ///
+    /// Per-lens rather than per-selection because the rail draws all six badges at once — see
+    /// ``railCounts``, where asking the *selected* lens's question would have lifted the scope off
+    /// the five that do use it. `nil` (the overview) is scoped: it summarises the five.
+    ///
+    /// The suspension is a read, not a write: `scopePathRaw` is untouched, so leaving Rules puts the
+    /// scope back with no restore step for an exit path to forget.
+    private func appliedScope(for item: OrganizeLens?) -> OrganizeScope? {
+        (item?.isScoped ?? true) ? storedScope : nil
+    }
+
+    /// The subtree the lists on screen are narrowed by, or nil for the global view.
+    private var scope: OrganizeScope? { appliedScope(for: organizeLens) }
+
+    /// Whether a scope is set and the lens on screen is deliberately not applying it — the chip's
+    /// suspended state.
+    private var scopeIsSuspended: Bool { scope == nil && storedScope != nil }
 
     /// Points Organize at a folder, or clears the scope.
     ///
@@ -625,11 +647,10 @@ public struct TidyView: View {
             }
         case .automations:
             let q = AutomationSearch.parse(query)
-            // Filtered for DISPLAY only — every edit still writes the one global list. Rules are
-            // configuration, not findings, which is why this lens is the honest non-scoper.
-            rows.rules = syncManager.automationRules.filter {
-                OrganizeScopeFilter.matches($0, scope: scope) && q.matches($0)
-            }
+            // **The query narrows this list and the scope does not** — `scope` is already nil here,
+            // because `OrganizeLens.isScoped` is false for Rules, so writing the scope test would
+            // be an inert call that reads like a live rule. Rules are configuration, not findings.
+            rows.rules = syncManager.automationRules.filter { q.matches($0) }
         case .storage:
             break   // StorageLensView filters its own three lists from `storageQuery`
         }
@@ -1222,15 +1243,29 @@ public struct TidyView: View {
     /// count is what makes "0 findings" legible as a real answer rather than a broken lens.
     ///
     /// The ✕ is the global view. There is no seventh rail place and no "Everything" item.
+    ///
+    /// **It draws from ``storedScope``, not from the applied ``scope``, and that is the whole
+    /// reason Rules can suspend the scope safely.** A chip that vanished on Rules would say the
+    /// scope had been *lost*, and the user's next move would be to set it again — which is the
+    /// one-way trip stated the other way round. Suspended, the chip keeps naming the folder they
+    /// chose and says, in its tooltip, that it comes back.
     @ViewBuilder
     private func scopeChip(folderCount: Int?) -> some View {
-        if let scope {
-            ScopeChipLabel(name: scope.name,
+        if let storedScope {
+            let suspended = scopeIsSuspended
+            ScopeChipLabel(name: storedScope.name,
                            folderCount: folderCount,
                            accent: glassHue.accentColor,
-                           onClear: { withAnimation(listSettle) { setScope(nil) } })
-                .help("Every lens below is answering about “\(scope.relativePath)”. "
-                      + "✕ goes back to the whole tree.")
+                           isSuspended: suspended,
+                           // No ✕ while suspended: there is nothing to clear *here*, and a ✕ that
+                           // threw away a scope this lens is not even using would be the trip.
+                           onClear: suspended ? nil : { withAnimation(listSettle) { setScope(nil) } })
+                .help(suspended
+                      ? "Rules are configuration, not findings, so they are not narrowed by a "
+                        + "folder — they file into destinations all over the source. “"
+                        + "\(storedScope.relativePath)” comes back when you leave Rules."
+                      : "Every lens below is answering about “\(storedScope.relativePath)”. "
+                        + "✕ goes back to the whole tree.")
         }
     }
 
@@ -1254,8 +1289,12 @@ public struct TidyView: View {
     ///
     /// Counted from the profile rather than by walking the disk — the profile is already in memory,
     /// and a chip in a header must not touch the filesystem. Resolved once per render by `body`.
+    ///
+    /// Counted against ``storedScope``, like the chip it feeds: how big that subtree is stays true
+    /// while Rules is not applying it, and a count that blinked out on one lens would read as the
+    /// survey having lost the folder.
     private var scopeFolderCount: Int? {
-        guard let scope, let profile = syncManager.filingFolderProfile else { return nil }
+        guard let scope = storedScope, let profile = syncManager.filingFolderProfile else { return nil }
         let root = (profile.root as NSString).expandingTildeInPath
         let inside = profile.folders.keys.count {
             let absolute = $0 == "." ? root : (root as NSString).appendingPathComponent($0)
@@ -1425,7 +1464,12 @@ public struct TidyView: View {
     }
 
     private var railCounts: RailCounts {
-        let scope = scope
+        // **The STORED scope, not the applied one, and this is the whole reason the two are
+        // separate.** `scope` answers "what is the list on screen narrowed by", which is nil while
+        // Rules is selected. The rail draws all six badges whatever is selected, so reading it here
+        // would take Duplicates from 27 back to 620 the moment you clicked Rules — the scope
+        // silently lifting off five lenses because a sixth does not use it. Each item is asked for
+        // its own scope, through the same `isScoped` rule the content card obeys.
         // **`inside` only for restructure**: an ancestor finding is shown in the lens (labelled as
         // being about the folder above) but must not swell the badge, which promises work *here*.
         //
@@ -1434,14 +1478,21 @@ public struct TidyView: View {
         // so the one lens whose badge could have announced a finding never did.
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
         return RailCounts(
-            toFile: syncManager.filingSuggestions.count { OrganizeScopeFilter.matches($0, scope: scope) },
-            duplicates: syncManager.duplicateGroups.count { OrganizeScopeFilter.matches($0, scope: scope) },
-            names: syncManager.riskyNames.count { OrganizeScopeFilter.matches($0, scope: scope) },
-            renames: syncManager.renamePlans.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            toFile: syncManager.filingSuggestions.count {
+                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .toFile)) },
+            duplicates: syncManager.duplicateGroups.count {
+                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .duplicates)) },
+            names: syncManager.riskyNames.count {
+                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .names)) },
+            renames: syncManager.renamePlans.count {
+                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
             restructure: structureFindings.count {
-                OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot, scope: scope) == .inside
+                OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
+                                             scope: appliedScope(for: .restructure)) == .inside
             },
-            rules: syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) },
+            // No scope test, because `appliedScope(for: .rules)` is always nil — a call written
+            // here would read like a live narrowing and be one that can never fire.
+            rules: syncManager.automationRules.count,
             // The same conditions ``overviewSections`` uses, so the rail and the overview cannot
             // disagree about whether a lens has run. Rules is absent because it never scans.
             scanned: {

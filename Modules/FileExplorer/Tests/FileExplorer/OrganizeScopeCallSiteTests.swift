@@ -47,6 +47,22 @@ import Foundation
         return String(rest[..<end.lowerBound])
     }
 
+    /// The same text with whole-line `//` comments removed.
+    ///
+    /// **Only for the NEGATIVE checks.** A scan asserting that something is *absent* is the one that
+    /// a doc comment explaining the absence will falsify — the failure this file has already had
+    /// once, where a source scan matched the comment describing a removed control. Positive checks
+    /// keep the raw text: matching a call that is genuinely there is not confused by prose.
+    ///
+    /// Whole-line only, deliberately. A trailing `// …` after real code is rare here and stripping
+    /// it would need a parser that understands string literals containing `//` — a stripper that got
+    /// that wrong would silently shrink the haystack, which is worse than leaving those lines whole.
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     // MARK: The predicate is actually called
 
     @Test func tidyViewFiltersEveryLensThroughTheScopePredicate() throws {
@@ -106,12 +122,18 @@ import Foundation
         // badge went back to reporting 126 beside a list of three. One lens quietly un-scoping is
         // exactly the inconsistency this whole feature exists to remove, so every lens is asserted
         // separately.
+        //
+        // **Each asks `appliedScope(for:)` with its OWN lens, and that is load-bearing.** The
+        // selected lens's `scope` used to be read once at the top of this body, which was right
+        // while every lens applied it. Rules does not (``OrganizeLens/isScoped``), so a single
+        // `let scope = scope` here would go nil the instant Rules was selected and lift the scope
+        // off the five badges beside it — Duplicates jumping 27 → 620 because a sixth item does not
+        // use the scope. Per-lens is the only form that cannot do that.
         let scoped: [(String, String)] = [
-            ("toFile", "syncManager.filingSuggestions.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
-            ("duplicates", "syncManager.duplicateGroups.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
-            ("names", "syncManager.riskyNames.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
-            ("renames", "syncManager.renamePlans.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
-            ("rules", "syncManager.automationRules.count { OrganizeScopeFilter.matches($0, scope: scope) }"),
+            ("toFile", "syncManager.filingSuggestions.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .toFile)) }"),
+            ("duplicates", "syncManager.duplicateGroups.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .duplicates)) }"),
+            ("names", "syncManager.riskyNames.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .names)) }"),
+            ("renames", "syncManager.renamePlans.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) }"),
         ]
         for (lens, call) in scoped {
             #expect(body.contains(call),
@@ -120,10 +142,25 @@ import Foundation
         // Restructure counts through `relation` rather than `matches`, and `.inside` ONLY: an
         // ancestor finding is shown in the lens but is not work in this subtree, so a badge that
         // counted it would promise something here that is not here.
-        #expect(body.contains("OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot, scope: scope) == .inside"),
+        #expect(body.contains("OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,\n                                             scope: appliedScope(for: .restructure)) == .inside"),
                 "the restructure badge is unscoped, or counting ancestor findings as work in the scope")
         #expect(!body.contains("case .restructure: return 0"),
                 "the restructure badge is hard-wired to 0 again")
+        // **Rules counts the whole list, and must not grow a scope test.** Not an omission — see
+        // `OrganizeLens.isScoped`: `appliedScope(for: .rules)` is always nil, so a call written here
+        // would read like a live narrowing and be one that can never fire.
+        #expect(body.contains("rules: syncManager.automationRules.count,"),
+                "the rules badge is no longer the plain count of the one global list")
+        // **Over the CODE, not the prose.** The line above this one in `railCounts` is a comment
+        // saying *why* there is no `appliedScope(for: .rules)` call, and the first cut of this check
+        // matched that comment and failed a correct implementation — the standing hazard of every
+        // scan in this file. Stripped, plus a positive check that the stripping left something, so a
+        // stripper that ate the whole body cannot make this pass vacuously.
+        let code = Self.codeOnly(body)
+        #expect(code.contains("rules: syncManager.automationRules.count,"),
+                "stripping comments emptied the body — this check would be vacuous")
+        #expect(!code.contains("appliedScope(for: .rules)"),
+                "an inert scope call has been added to the rules badge")
     }
 
     /// The counts are resolved ONCE and handed to both consumers — the same property `FilteredRows`

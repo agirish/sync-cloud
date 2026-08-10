@@ -302,49 +302,15 @@ import Foundation
                                              profileRoot: "~/Documents", scope: s) == .outside)
     }
 
-    // MARK: Rules
+    // MARK: Rules — there is no predicate, and that is the assertion
 
-    static func rule(_ destination: String) -> AutomationRule {
-        AutomationRule(name: "r", destinationTemplate: destination)
-    }
-
-    @Test func rulesFilterToThoseThatCouldTouchTheScope() {
-        let s = Self.scope("/Users/x/Documents/Finance/US")
-        // Under the scope.
-        #expect(OrganizeScopeFilter.matches(Self.rule("Finance/US/Income Tax/{year}"), scope: s))
-        // The literal prefix is an ancestor — it may yet file INTO the scope once {year} resolves.
-        #expect(OrganizeScopeFilter.matches(Self.rule("Finance/{year}"), scope: s))
-        // Neither.
-        #expect(!OrganizeScopeFilter.matches(Self.rule("Medical/Bills"), scope: s))
-        #expect(OrganizeScopeFilter.matches(Self.rule("Medical/Bills"), scope: nil))
-    }
-
-    @Test func anIncompleteRuleIsNeverHidden() {
-        // No destination means nowhere to file. Hiding it is how an unfinished rule becomes
-        // invisible and unfixable.
-        let s = Self.scope("/Users/x/Documents/Finance/US")
-        #expect(OrganizeScopeFilter.matches(Self.rule(""), scope: s))
-        #expect(OrganizeScopeFilter.matches(Self.rule("  "), scope: s))
-        #expect(OrganizeScopeFilter.matches(Self.rule("{year}/misc"), scope: s))
-    }
-
-    @Test func theLiteralPrefixStopsAtTheFirstTOKENISEDCOMPONENT() {
-        #expect(OrganizeScopeFilter.literalPrefix(of: "Finance/US/{year}") == "Finance/US")
-        // Truncates at the COMPONENT, not at the `{` character — "Tax/{year}-forms" names an
-        // unknown child of Tax, and keeping "Tax/" plus a partial component would invent a folder.
-        #expect(OrganizeScopeFilter.literalPrefix(of: "Tax/{year}-forms") == "Tax")
-        // **A token in the MIDDLE of a component is the case that separates the two rules**, and
-        // its absence let the `contains("{")` -> `hasPrefix("{")` mutation survive: a component
-        // that merely *starts* with a literal is still unknown until the token resolves, so
-        // "FY{year}" must end the prefix exactly as "{year}" does. Keeping it would have compared
-        // the scope against a folder literally named "FY{year}", which exists nowhere.
-        #expect(OrganizeScopeFilter.literalPrefix(of: "Tax/FY{year}") == "Tax")
-        #expect(OrganizeScopeFilter.literalPrefix(of: "Tax/FY{year}/Receipts") == "Tax")
-        #expect(OrganizeScopeFilter.literalPrefix(of: "{year}/x") == "")
-        #expect(OrganizeScopeFilter.literalPrefix(of: "Finance/US") == "Finance/US")
-        #expect(OrganizeScopeFilter.literalPrefix(of: "") == "")
-        #expect(OrganizeScopeFilter.literalPrefix(of: "/Finance//US/") == "Finance/US")
-    }
+    // `OrganizeScopeFilter.matches(_ rule: AutomationRule, scope:)` and its `literalPrefix` helper
+    // were deleted with the tests that lived here, because the scope does not reach Rules at all
+    // any more (`OrganizeLens.isScoped`). Their replacement is `OrganizeLensScopeTests` in
+    // FileExplorer, next to the rule; the reason for the deletion is on `OrganizeScopeFilter`.
+    //
+    // Nothing is asserted here because there is nothing to assert: a stub retained "for coverage"
+    // would be a predicate that no caller reaches, which is the state this removed.
 
     // MARK: The global view is genuinely unfiltered
 
@@ -353,6 +319,5 @@ import Foundation
         #expect(OrganizeScopeFilter.matches(Self.risky("/anywhere/at/all.pdf"), scope: nil))
         #expect(OrganizeScopeFilter.matches(Self.plan("/anywhere/at/all"), scope: nil))
         #expect(OrganizeScopeFilter.matches(Self.group(["/anywhere/a.pdf"]), scope: nil))
-        #expect(OrganizeScopeFilter.matches(Self.rule("Anywhere"), scope: nil))
     }
 }

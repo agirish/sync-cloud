@@ -195,12 +195,25 @@ struct RailItemLabel: View {
 /// It names the subtree **and its folder count**, because scope honesty was the original
 /// requirement: "Legal" says which folder but not how much of the tree that is, and the count is
 /// what makes a lens reporting zero legible as a real answer rather than a broken lens.
+///
+/// ## The suspended state
+///
+/// One lens deliberately does not apply the scope — see ``OrganizeLens/isScoped`` — and the chip has
+/// to say so rather than disappear. A chip that vanished would read as *the scope was cleared*, and
+/// the honest reading is *parked, and it comes back*. So suspended draws the same words in the
+/// secondary ink over a neutral capsule, with the ✕ withheld: there is nothing to clear here, and a
+/// ✕ that threw away a scope this lens is not using would be the one-way trip stated backwards.
 struct ScopeChipLabel: View {
     let name: String
     /// Folders inside the scope, or nil when there is no profile to count against.
     let folderCount: Int?
     let accent: Color
-    let onClear: () -> Void
+    /// True when a scope is set and the lens on screen is not applying it.
+    var isSuspended: Bool = false
+    /// Clears the scope. **nil withholds the ✕ entirely**, which is what suspended passes — an
+    /// optional rather than a `Bool` beside a closure so the two cannot disagree about whether the
+    /// button is there.
+    let onClear: (() -> Void)?
 
     /// The count's words, factored out so a test can assert the string without reading pixels for
     /// the parts that pixels are a poor instrument for.
@@ -221,19 +234,33 @@ struct ScopeChipLabel: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            Button(action: onClear) {
-                Image(systemName: "xmark")
-                    .scaledFont(.system(size: 8.5, weight: .bold))
+            if let onClear {
+                Button(action: onClear) {
+                    Image(systemName: "xmark")
+                        .scaledFont(.system(size: 8.5, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .chromeHover()
+                .help("Organize everything again")
+                .accessibilityLabel("Clear scope")
+            } else {
+                // The suspension, said in the chip and not only in the tooltip: a chip that merely
+                // went grey would be read as disabled chrome. "Paused" is the shortest word that
+                // says the scope is standing rather than gone.
+                Text("paused")
+                    .scaledFont(.system(size: 9.5, weight: .semibold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Scope paused on this lens")
             }
-            .buttonStyle(.plain)
-            .chromeHover()
-            .help("Organize everything again")
-            .accessibilityLabel("Clear scope")
         }
-        .foregroundStyle(accent)
+        .foregroundStyle(isSuspended ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .background(Capsule().fill(accent.opacity(0.14)))
+        // Neutral while suspended: the accent wash is what makes the chip read as *live narrowing*,
+        // and keeping it under grey text would say two different things at once.
+        .background(Capsule().fill(isSuspended ? AnyShapeStyle(.quaternary)
+                                               : AnyShapeStyle(accent.opacity(0.14))))
         // `fixedSize` so the chip keeps its natural width rather than being compressed into an
         // ellipsis by whatever shares its row — a truncated scope name is a scope claim you cannot
         // read, which is worse than one that pushes the readout beside it.

@@ -42,6 +42,30 @@ import Testing
         }
     }
 
+    // MARK: The scope reaches five of the six
+
+    @Test func rulesAreNotNarrowedByTheScopeAndEveryOtherLensIs() {
+        // ROADMAP 15's trap. Rules file into destinations all over the source, so the folder you
+        // happen to be working is not a narrowing of the standing configuration — and the concrete
+        // failure was total: scoped to the loose-files inbox, every rule's destination is outside
+        // it, so the one item that cannot say "nothing here" said exactly that with rules set up.
+        #expect(OrganizeLens.rules.isScoped == false)
+        for lens in OrganizeLens.allCases where lens != .rules {
+            #expect(lens.isScoped, "\(lens.rawValue) reports findings somewhere and must narrow to it")
+        }
+    }
+
+    @Test func theTwoRulesAboutRulesAreTheSameDistinction() {
+        // `carriesBadge` and `isScoped` are the same claim — this item is configuration, not a
+        // result — said about two different surfaces. They are separate members because they are
+        // read in different places, and asserting the agreement here is what would catch a third
+        // lens being made unscoped without anyone re-asking whether it should still wear a badge.
+        for lens in OrganizeLens.allCases {
+            #expect(lens.carriesBadge == lens.isScoped,
+                    "\(lens.rawValue) counts work but is unscoped (or the reverse) — decide which it is")
+        }
+    }
+
     // MARK: Staleness is per lens, not per workspace
 
     @Test func onlyTheLensesTheFilingScanRepublishesGoStale() {
