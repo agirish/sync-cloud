@@ -97,7 +97,10 @@ struct TidyGroupCard: View {
         case .identical:
             return group.isDirectory ? "\(n) copies · identical trees" : "\(n) copies · byte-for-byte"
         case .sameText:
-            return "\(n) copies · same text, different bytes"
+            // Short enough to survive the header row. "same text, different bytes" measured
+            // truncated to "same text, diffe…" at 640pt — and the badge beside it already says
+            // "Same text", so the half worth the space is the half the badge does not carry.
+            return "\(n) copies · bytes differ"
         case .overlapping(let f):
             return "\(n) copies · \(Int((f * 100).rounded()))% shared"
         case .nameOnly:
@@ -170,7 +173,10 @@ struct TidyGroupCard: View {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(thumbnailCopies) { copy in
                         DuplicateThumbnailView(path: copy.path, name: group.name,
-                                               isKeeper: copy.isRecommendedKeeper, modified: copy.modificationDate)
+                                               isKeeper: copy.isRecommendedKeeper,
+                                               modified: copy.modificationDate,
+                                               nonKeeperLabel: group.matchType.kind == .sameText
+                                                   ? "same text" : "duplicate")
                     }
                     if group.copies.count > Self.maxThumbnails {
                         overflowTile(group.copies.count - Self.maxThumbnails)

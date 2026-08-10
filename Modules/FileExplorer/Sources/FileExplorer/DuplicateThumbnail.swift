@@ -81,6 +81,9 @@ struct DuplicateThumbnailView: View {
     /// The copy's modification date — part of the cache key, so a re-scan that changed the file's
     /// content refreshes the preview instead of serving the stale one.
     let modified: Date?
+    /// What a non-keeper copy is called under its thumbnail. Defaulted to the identical group's
+    /// word so every existing call site is unchanged.
+    var nonKeeperLabel: String = "duplicate"
     var side: CGFloat = 54
 
     @State private var image: NSImage?
@@ -127,7 +130,10 @@ struct DuplicateThumbnailView: View {
             .scaleEffect(isHovering && !reduceMotion ? 1.1 : 1)
             .zIndex(isHovering ? 1 : 0)
 
-            Text(isKeeper ? "keeper" : "duplicate")
+            // "duplicate" is the identical group's word and it overclaims for a same-text one,
+            // where all that is proven is that the two READ alike — the caller passes the group's
+            // own vocabulary so the thumbnail cannot say more than the badge above it.
+            Text(isKeeper ? "keeper" : nonKeeperLabel)
                 .scaledFont(.system(size: 10, design: .monospaced))
                 .foregroundStyle(isKeeper ? AnyShapeStyle(SemanticColor.success) : AnyShapeStyle(.tertiary))
         }

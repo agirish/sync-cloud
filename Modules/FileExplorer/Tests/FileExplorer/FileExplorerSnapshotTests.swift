@@ -309,6 +309,32 @@ import Sync
             named: "collapsed-versions")
     }
 
+    /// The same-text card, expanded: the unfilled seal that says "less certain than identical",
+    /// the "same text, different bytes" subtitle, the note explaining that a signed or redacted
+    /// copy would read the same too, and an action row that offers a per-group trash while the
+    /// group stays out of "Apply recommended". Rendered because none of that is provable from
+    /// geometry — the badge, the note and the button label are the whole claim.
+    @Test func tidyGroupCardExpandedSameText() {
+        let group = DuplicateGroup(
+            matchType: .sameText,
+            name: "Jul 2023.pdf",
+            isDirectory: false,
+            copies: [
+                Self.copy(path: "/d/Home/Utilities/PG&E/2023/Jul 2023.pdf", keeper: true),
+                Self.copy(path: "/d/Downloads/9829custbill07182023.pdf", keeper: false),
+            ],
+            reclaimableBytes: 402_394)
+        assertViewSnapshot(
+            of: TidyGroupCard(
+                group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
+                densityMetrics: ListDensity.comfortable.metrics,
+                onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
+                onChooseKeeper: { _ in }, onMerge: {})
+                .padding(12),
+            size: CGSize(width: 640, height: 470),
+            named: "expanded-same-text")
+    }
+
     /// Expanded identical-folders group (directories skip the thumbnail strip, keeping the
     /// tree synchronous): keeper radio vs selectable radio, breadcrumbs with the provider
     /// crumb, Keep/Move-to-Trash fate chips, the safety note, and the action row including

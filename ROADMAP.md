@@ -639,6 +639,12 @@ and why its note says to open them first.
   content overlap rather than name evidence.
 - **A tag store keyed on the fingerprint**, so a find-by-person verdict survives a provider
   re-stamping the bytes.
+- **"Compare copies" is offered for folder groups only**, and the same-text group is the one that
+  would most benefit from it: its note asks you to open the documents before removing anything,
+  precisely because the difference is *not* in the text and a 54pt page-1 thumbnail will not show a
+  signature or a redaction three pages in. `DuplicateReviewCoordinator.compareCopies` already
+  carries `keepIsDirectory` and relativises plain paths, so the pair case looks supported; it was
+  left alone here because nothing in this change could drive the review panes to prove it.
 
 ---
 
