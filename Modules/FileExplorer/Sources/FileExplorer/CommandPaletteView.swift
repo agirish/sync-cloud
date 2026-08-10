@@ -46,6 +46,10 @@ public struct CommandPaletteView: View {
     /// its neighbour — the failure the scope chip's suite exists to catch, one surface over.
     static let cardWidth: CGFloat = 620
     static let listMaxHeight: CGFloat = 420
+    /// How far down the window the card floats. Named rather than inline because it is the height
+    /// of the strip above the card, and that strip has to be scrim rather than a dead hit target —
+    /// see `body`.
+    static let cardTopInset: CGFloat = 96
 
     public var body: some View {
         ZStack(alignment: .top) {
@@ -53,10 +57,18 @@ public struct CommandPaletteView: View {
                 .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()
                 .onTapGesture(perform: onClose)
+            // **`contentShape` BEFORE the padding, and the order is the whole of it.** Applied
+            // after, the hit region becomes the padded frame — a 620×96pt invisible block sitting
+            // directly above the card, swallowing every click in the one strip a user is most
+            // likely to aim at when they mean "outside it". Reported exactly that way: the title
+            // bar dismissed on the left and the right and not immediately above the palette.
+            //
+            // Before the padding, the shape is the card, and the strip above it is scrim again —
+            // which is the only thing that should be there.
             card
                 .frame(width: Self.cardWidth)
-                .padding(.top, 96)
                 .contentShape(Rectangle())
+                .padding(.top, Self.cardTopInset)
         }
         .transition(.opacity)
     }
