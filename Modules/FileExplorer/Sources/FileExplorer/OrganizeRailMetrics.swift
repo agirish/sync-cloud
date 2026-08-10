@@ -86,6 +86,14 @@ enum OrganizeRailMetrics {
     /// `theLeadingModelMatchesWhatTheRowDraws` states: a model short of the row it describes lets
     /// the row overrun before it sheds.
     static let overviewMargin: CGFloat = 8
+    /// Storage's equivalent, measured on Storage's own row rather than inherited.
+    ///
+    /// **Zero, and that is a measurement.** Organize's 8pt covers slack in a six-item assembly whose
+    /// labels are measured at `.semibold` and mostly drawn at `.medium`; Storage's rail is four
+    /// items and its "All" is the *selected* one in the default state, so the same 8pt was pure
+    /// over-count — the render put the model 13.3 / 19.7 / 22.1pt over at 0.9 / 1.15 / 1.3.
+    /// `theStorageLeadingModelMatchesWhatTheRowDraws` holds both ends of this.
+    static let storageOverviewMargin: CGFloat = 0
     /// A group separator: the 1pt rule, plus the ONE `itemGap` adding an element to the row costs.
     ///
     /// Not two. The rail is an `HStack(spacing: itemGap)`, so N elements carry N−1 gaps and each
@@ -236,10 +244,20 @@ enum OrganizeRailMetrics {
 
     /// The overview item, spelled out. No badge ever — a count here would have to be the sum of six
     /// different kinds of thing.
-    static func overviewItemWidth(scale: CGFloat) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 11.5 * scale, weight: .semibold)
+    /// - Parameter margin: slack added on top, which **differs by rail and is measured per rail**.
+    ///   Organize's six-item assembly needs ``overviewMargin``; Storage's five-element row does not,
+    ///   and charging it there put the model 13–22pt over its own render at three of the four text
+    ///   sizes. A margin is meant to keep a model on the safe side of what it describes, not to be
+    ///   a constant copied between two rails that measure differently.
+    static func overviewItemWidth(scale: CGFloat, margin: CGFloat = overviewMargin) -> CGFloat {
+        // Through the ramp's curve, like ``labelWidth(_:scale:)``. `11.5 * scale` is the linear
+        // reading the curve deliberately does not take — above the 11pt knee only half the surplus
+        // applies — so a raw multiply over-measures at large text and the model sheds early there
+        // and nowhere else.
+        let font = NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale: scale),
+                                     weight: .semibold)
         return (overviewTitle as NSString).size(withAttributes: [.font: font]).width
-            + overviewGlyphWidth * scale + glyphGap + itemPadding + itemGap + overviewMargin
+            + overviewGlyphWidth * scale + glyphGap + itemPadding + itemGap + margin
     }
 
     /// Width of the rail with every label shed. Badges stay — they are the reason to look.
@@ -274,14 +292,21 @@ enum OrganizeRailMetrics {
     /// rode here uncharged.
     static func storageLeadingWidth(scale: CGFloat,
                                     state: (StorageSection) -> RailItemState) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 11.5 * scale, weight: .semibold)
+        // The ramp's curve, not `11.5 * scale` — see ``overviewItemWidth(scale:margin:)``.
+        let font = NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale: scale),
+                                     weight: .semibold)
         let items = StorageSection.allCases.reduce(CGFloat.zero) { total, section in
             total + (section.railTitle as NSString).size(withAttributes: [.font: font]).width
                 + storageGlyphWidth(section, scale: scale) + glyphGap + itemPadding
                 + stateWidth(state(section), scale: scale)
         }
-        return items + CGFloat(StorageSection.allCases.count) * itemGap
-            + overviewItemWidth(scale: scale) + separatorWidth
+        // **`count - 1`, and the off-by-one this fixes was found by rendering the row.** Five
+        // elements — All, the rule, and three sections — carry four gaps, and the three sections
+        // account for only two of them between themselves; `overviewItemWidth` and
+        // `separatorWidth` each carry the one gap their own element adds. Charging `count` put a
+        // whole `itemGap` in twice. Same shape as ``fullWidth(scale:state:)``, which had it right.
+        return items + CGFloat(max(0, StorageSection.allCases.count - 1)) * itemGap
+            + overviewItemWidth(scale: scale, margin: storageOverviewMargin) + separatorWidth
     }
 
     /// Storage's rail glyphs at 10.5pt semibold, tabulated like ``glyphWidth(_:scale:)`` and pinned
