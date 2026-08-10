@@ -33,6 +33,9 @@ public enum OrdinalMonthName {
         public let ordinalDigits: Int
         /// 1–12, or nil for a slot that carries no month (the summary slot).
         public let month: Int?
+        /// 1–31 when the body spells a day **between** its month and its year (`Jan 15 2026`), else
+        /// nil. See ``OrdinalMonthName/day(in:month:year:)`` for why the position is required.
+        public let day: Int?
         public let year: Int?
         /// Everything between the ordinal and the extension, verbatim — `Apr 2025`, `Summary 2022`.
         /// Kept so a pure re-numbering can rewrite the ordinal without touching the rest of a name
@@ -49,11 +52,12 @@ public enum OrdinalMonthName {
         /// one file in the tree with that defect. The only sound test is against the original text.
         public let name: String
 
-        public init(ordinal: Int, ordinalDigits: Int, month: Int?, year: Int?, body: String,
-                    ext: String, name: String) {
+        public init(ordinal: Int, ordinalDigits: Int, month: Int?, day: Int? = nil, year: Int?,
+                    body: String, ext: String, name: String) {
             self.ordinal = ordinal
             self.ordinalDigits = ordinalDigits
             self.month = month
+            self.day = day
             self.year = year
             self.body = body
             self.ext = ext
@@ -149,8 +153,47 @@ public enum OrdinalMonthName {
         guard let ordinal = Int(digits) else { return nil }
 
         let (month, year) = monthAndYear(in: String(body))
-        return Parsed(ordinal: ordinal, ordinalDigits: digits.count, month: month, year: year,
+        return Parsed(ordinal: ordinal, ordinalDigits: digits.count, month: month,
+                      day: day(in: String(body), month: month, year: year), year: year,
                       body: String(body), ext: ext, name: name)
+    }
+
+    /// The day a `Mon DD YYYY` body names — **only when the number sits between the month and the
+    /// year**, and only when the body names exactly one of each.
+    ///
+    /// **Measured over the 3,681 parseable names in the tree**, against a reader that takes any
+    /// 1–2-digit number in the body: 378 names to this one's 366, and the twelve it refuses are the
+    /// six `N. Form I-20 - Mon YYYY.pdf` files, each of which would be filed as *the 20th* of its
+    /// month because of the form number.
+    ///
+    /// Two things this rule is **not** doing, recorded because measuring said so and reasoning had
+    /// said otherwise:
+    ///
+    /// - It is not what saves the duplicate markers. `11. Nov 2014 -2.pdf` and
+    ///   `01. Jan 2016 (2).pdf` are refused because nothing follows the marker that could be the
+    ///   year — the loop below needs a token on each side — not by either clause in the guard.
+    /// - Neither clause is separable on this corpus. Removing *either* the month-before or the
+    ///   year-after half alone changes no answer in 3,681 names; only removing both does. They are
+    ///   kept as a pair because together they spell `Mon DD YYYY`, which is the convention itself,
+    ///   and because dropping one widens the rule to "a small number next to a year" — a widening
+    ///   whose correctness nothing here has measured.
+    ///
+    /// What it accepts is every shape the 24 `ordinal-day` folders write — `Jan 15 2026`,
+    /// `Jun 6 2019`, `Dec 01 2018`, `Jan 01 2019 (Labs)`, `Jun 21 2019 Sev`.
+    ///
+    /// Month-keyed folders never consult this; see ``SlotGranularity``.
+    static func day(in body: String, month: Int?, year: Int?) -> Int? {
+        guard month != nil, let year else { return nil }
+        let tokens = body.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        for (i, token) in tokens.enumerated() where i > 0 && i + 1 < tokens.count {
+            guard monthIndex(String(tokens[i - 1]).lowercased()) != nil,
+                  Int(tokens[i + 1]) == year, tokens[i + 1].count == 4,
+                  (1...2).contains(token.count), token.allSatisfy(\.isNumber),
+                  let d = Int(token), (1...31).contains(d)
+            else { continue }
+            return d
+        }
+        return nil
     }
 
     /// The month and year a conforming body names, when it names exactly one of each.
@@ -189,6 +232,22 @@ public enum OrdinalMonthName {
     /// `Apr 2025` — the canonical body for a month and year.
     public static func body(month: Int, year: Int) -> String {
         "\(monthAbbreviations[month - 1]) \(year)"
+    }
+
+    /// `Apr 15 2025` — the canonical body for a day-keyed folder.
+    ///
+    /// **The day is padded to two digits**, which is what 9 of the 12 single-digit days in the
+    /// tree's `ordinal-day` folders already do. That is thin evidence and it is deliberately not
+    /// leaned on: an existing name keeps its own body verbatim (a body carrying a day is never a
+    /// `bodyIsBareDate`, so ``Parsed/canonicalName`` only ever widens its ordinal), so this spelling
+    /// reaches nothing but a raw file being *placed* for the first time.
+    public static func body(month: Int, day: Int, year: Int) -> String {
+        String(format: "%@ %02d %d", monthAbbreviations[month - 1], day, year)
+    }
+
+    /// `09. May 15 2026.pdf` — the canonical name for a slot in a day-keyed folder.
+    public static func render(ordinal: Int, month: Int, day: Int, year: Int, ext: String) -> String {
+        render(ordinal: ordinal, body: body(month: month, day: day, year: year), ext: ext)
     }
 
     /// `04. Apr 2025.pdf` — the canonical name for a slot.

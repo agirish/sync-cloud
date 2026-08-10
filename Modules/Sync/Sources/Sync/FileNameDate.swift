@@ -26,13 +26,17 @@ public enum FileNameDate {
     /// A month and year mined from a name, with the evidence that produced it.
     public struct Mined: Sendable, Equatable {
         public let month: Int
+        /// The day, when the name pinned one. **Only day-keyed folders read it** — a month-keyed
+        /// folder's slot is the month, so a day it happens to know changes nothing there.
+        public let day: Int?
         public let year: Int
         /// How it was found, for the row subtitle — the user is reviewing a proposed rename and
         /// "from `07182023` in the name" is the difference between trusting it and not.
         public let evidence: String
 
-        public init(month: Int, year: Int, evidence: String) {
+        public init(month: Int, day: Int? = nil, year: Int, evidence: String) {
             self.month = month
+            self.day = day
             self.year = year
             self.evidence = evidence
         }
@@ -47,16 +51,23 @@ public enum FileNameDate {
         let stem = (fileName as NSString).deletingPathExtension
         let runs = tokenRuns(stem)
 
-        let stamped = datestamp(in: runs)
-        let spelled = spelledMonth(in: runs)
+        // Three independent readings, and **every one that fires must agree on the month and the
+        // year**. Kept as a unanimity rule over a list rather than the pairwise `switch` this used
+        // to be: a third reading would have needed a nine-arm switch, and the arm that matters —
+        // "two readings disagree, so this name is not one this pass understands" — is easy to get
+        // subtly wrong when it is spelled nine times.
+        let readings = [datestamp(in: runs), delimitedDate(in: runs), spelledMonth(in: runs)]
+            .compactMap { $0 }
+        guard let first = readings.first,
+              readings.allSatisfy({ $0.month == first.month && $0.year == first.year })
+        else { return nil }
 
-        switch (stamped, spelled) {
-        case let (s?, w?):
-            return (s.month == w.month && s.year == w.year) ? s : nil
-        case let (s?, nil): return s
-        case let (nil, w?): return w
-        case (nil, nil): return nil
-        }
+        // A day is reported only when the readings that found one agree about it. A reading that
+        // found no day abstains rather than vetoing — `Jun 2019` beside `06152019` is a name whose
+        // day is known once, not a contradiction.
+        let days = Set(readings.compactMap(\.day))
+        return Mined(month: first.month, day: days.count == 1 ? days.first : nil,
+                     year: first.year, evidence: first.evidence)
     }
 
     // MARK: Tokenising
@@ -106,20 +117,63 @@ public enum FileNameDate {
     /// contain digit sequences reading as dates; requiring a whole delimited run keeps them out.
     static func datestamp(in runs: [Substring]) -> Mined? {
         var found: Set<Int> = []      // month * 10000 + year, so a repeat of the SAME date is one value
+        // Days are counted separately, and deliberately do NOT join the key above. Two stamps for
+        // one month — `20240115` and `20240120` — collapse to a single month-and-year answer today,
+        // and folding the day into `found` would turn that into a refusal. The day is the thing
+        // that is unknown there, not the month.
+        var days: Set<Int> = []
         var evidence = ""
         for run in runs where run.count == 8 && run.allSatisfy(\.isNumber) {
             let d = Array(run)
             let a = Int(String(d[0...3]))!, b = Int(String(d[4...5]))!, c = Int(String(d[6...7]))!
             let m1 = Int(String(d[0...1]))!, d1 = Int(String(d[2...3]))!, y1 = Int(String(d[4...7]))!
             if isYear(a), isMonth(b), isDay(c) {
-                found.insert(b * 10000 + a); evidence = String(run)
+                found.insert(b * 10000 + a); days.insert(c); evidence = String(run)
             } else if isMonth(m1), isDay(d1), isYear(y1) {
-                found.insert(m1 * 10000 + y1); evidence = String(run)
+                found.insert(m1 * 10000 + y1); days.insert(d1); evidence = String(run)
             }
         }
         guard found.count == 1, let packed = found.first else { return nil }
-        return Mined(month: packed / 10000, year: packed % 10000,
-                     evidence: "the datestamp \(evidence) in the name")
+        return Mined(month: packed / 10000, day: days.count == 1 ? days.first : nil,
+                     year: packed % 10000, evidence: "the datestamp \(evidence) in the name")
+    }
+
+    // MARK: Reading 3 — a delimited date
+
+    /// The date from **three adjacent numeric runs** shaped `YYYY MM DD` or `MM DD YYYY`.
+    ///
+    /// This is what reaches `Payslip_2026-06-15.pdf`, and without it the file the whole day-keyed
+    /// convention exists for names no month at all: its runs are `Payslip · 2026 · 06 · 15`, which
+    /// carries no 8-digit stamp and no spelled month, so ``mine`` returned nil for it.
+    ///
+    /// **Shape-disjoint, exactly as ``datestamp`` is.** A `(4,2,2)` window can only be read
+    /// year-first and a `(2,2,4)` window only year-last, so the two never compete for one window and
+    /// there is no coin flip. `DD MM YYYY` is refused for the same reason it is refused there:
+    /// nothing in the surveyed tree writes it, and `15 06 2026` is indistinguishable from a June
+    /// 15th written the American way.
+    ///
+    /// Requiring the runs to be *adjacent* and *exactly* those widths is what keeps account numbers
+    /// out: `STMTCMB100_20201101_5203` runs as `100 · 20201101 · 5203`, whose widths are 3, 8 and 4.
+    static func delimitedDate(in runs: [Substring]) -> Mined? {
+        var found: Set<Int> = []      // month * 10000 + year, matching `datestamp`'s key
+        var days: Set<Int> = []
+        var evidence = ""
+        for i in runs.indices.dropLast(2) {
+            let w = [runs[i], runs[i + 1], runs[i + 2]]
+            guard w.allSatisfy({ $0.allSatisfy(\.isNumber) }),
+                  let a = Int(w[0]), let b = Int(w[1]), let c = Int(w[2]) else { continue }
+            let widths = w.map(\.count)
+            if widths == [4, 2, 2], isYear(a), isMonth(b), isDay(c) {
+                found.insert(b * 10000 + a); days.insert(c)
+                evidence = w.joined(separator: "-")
+            } else if widths == [2, 2, 4], isMonth(a), isDay(b), isYear(c) {
+                found.insert(a * 10000 + c); days.insert(b)
+                evidence = w.joined(separator: "-")
+            }
+        }
+        guard found.count == 1, let packed = found.first else { return nil }
+        return Mined(month: packed / 10000, day: days.count == 1 ? days.first : nil,
+                     year: packed % 10000, evidence: "the date \(evidence) in the name")
     }
 
     static func isYear(_ y: Int) -> Bool { (1900...2199).contains(y) }
@@ -150,7 +204,25 @@ public enum FileNameDate {
         // two years is a fiscal span (`Apr 2009 - Mar 2010`), and neither has a monthly slot.
         guard months.count == 1, years.count == 1,
               let m = months.first, let y = years.first else { return nil }
-        return Mined(month: m, year: y, evidence: "“\(monthWord) \(y)” in the name")
+        return Mined(month: m, day: dayBetweenMonthAndYear(in: runs, year: y), year: y,
+                     evidence: "“\(monthWord) \(y)” in the name")
+    }
+
+    /// The day in a `Mon DD YYYY` run sequence — **positional, for the same reason
+    /// ``OrdinalMonthName/day(in:month:year:)`` is.** A small number elsewhere in a name is a
+    /// duplicate marker or an account fragment far more often than it is a day.
+    static func dayBetweenMonthAndYear(in runs: [Substring], year: Int) -> Int? {
+        var days: Set<Int> = []
+        for i in runs.indices.dropFirst().dropLast() {
+            let token = runs[i]
+            guard (1...2).contains(token.count), token.allSatisfy(\.isNumber),
+                  let d = Int(token), isDay(d),
+                  monthSuffix(String(runs[i - 1])) != nil,
+                  runs[i + 1].count == 4, Int(runs[i + 1]) == year
+            else { continue }
+            days.insert(d)
+        }
+        return days.count == 1 ? days.first : nil
     }
 
     /// 1–12 when a letter run is, or ends with, a month name.

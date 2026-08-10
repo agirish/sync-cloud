@@ -183,11 +183,11 @@ import Testing
 
     @Test("An unsurveyed folder needs three conforming files before it is recruited")
     func inferenceNeedsThree() {
-        #expect(RenamePlanner.usesOrdinalConvention(
-            files: files(["1. Jan 2020.pdf", "Lease.pdf", "Notes.pdf"]), entry: nil) == false)
-        #expect(RenamePlanner.usesOrdinalConvention(
+        #expect(RenamePlanner.slotGranularity(
+            files: files(["1. Jan 2020.pdf", "Lease.pdf", "Notes.pdf"]), entry: nil) == nil)
+        #expect(RenamePlanner.slotGranularity(
             files: files(["1. Jan 2020.pdf", "2. Feb 2020.pdf", "3. Mar 2020.pdf"]),
-            entry: nil) == true)
+            entry: nil) == .month)
     }
 
     // MARK: Padding — the bulk of the backlog
@@ -552,5 +552,224 @@ import Testing
         // Padding preserves the month-number reading the folder was built with — it does NOT
         // renumber Mar to 01 just because it is the first file present.
         #expect(targets(p)["9. Sep 2021.pdf"] == "09. Sep 2021.pdf")
+    }
+}
+
+/// Folders whose slot is a **date**, not a month — `naming: "ordinal-day"`.
+///
+/// The survey has written that value for 24 folders since it was built, and nothing read it: the
+/// string appeared nowhere else in the app, so the pass declined every one of them. Every fixture
+/// below is a real name from those folders, and the folder they mostly come from is
+/// `Work/HPE/Compensation/Salary Statements/2026`, which is paid on the 15th and the last day of
+/// each month.
+@Suite struct OrdinalDayTests {
+
+    private func files(_ names: [String]) -> [FolderFile] {
+        names.map { FolderFile(path: "/T/" + $0, name: $0) }
+    }
+
+    private func entry(naming: String?, year: String? = nil) -> FolderProfileEntry {
+        FolderProfileEntry(path: "T", role: .yearBucket, naming: naming, anchors: [],
+                           acceptsNewFiles: true, fileCount: 0, subfolderCount: 0,
+                           axes: year.map { ["year": $0] } ?? [:])
+    }
+
+    private func plan(_ names: [String], naming: String? = "ordinal-day",
+                      year: String? = "2026", incoming: String? = nil) -> RenamePlan {
+        RenamePlanner.plan(folderPath: "/T", relativePath: "T", files: files(names),
+                           entry: entry(naming: naming, year: year),
+                           incoming: incoming.map { FolderFile(path: "/In/" + $0, name: $0) })
+    }
+
+    /// The ten payslips the 2026 folder actually held when this was written.
+    private var salaryStatements2026: [String] {
+        ["01. Jan 15 2026.pdf", "02. Jan 31 2026.pdf", "03. Feb 15 2026.pdf", "04. Feb 28 2026.pdf",
+         "05. Mar 15 2026.pdf", "06. Mar 31 2026.pdf", "07. Apr 15 2026.pdf", "08. Apr 30 2026.pdf",
+         "09. May 15 2026.pdf", "10. May 31 2026.pdf"]
+    }
+
+    // MARK: The grammar
+
+    @Test("A day is read only when it sits between the month and the year")
+    func dayIsPositional() {
+        #expect(OrdinalMonthName.parse("01. Jan 15 2026.pdf")?.day == 15)
+        #expect(OrdinalMonthName.parse("01. Jun 6 2019.pdf")?.day == 6)
+        #expect(OrdinalMonthName.parse("01. Jan 01 2019 (Labs).pdf")?.day == 1)
+        #expect(OrdinalMonthName.parse("02. Jun 21 2019 Sev.pdf")?.day == 21)
+        // **The hazard the positional rule actually buys**, measured over the tree rather than
+        // reasoned about: of the 3,681 parseable names, a reader taking any 1–2-digit number in
+        // the body finds a day in 378 against this one's 366, and the twelve extras are all the
+        // `Form I-20` files below — filed as the 20th of their month because of the form number.
+        #expect(OrdinalMonthName.parse("1. Form I-20 - May 2012.pdf")?.day == nil)
+        #expect(OrdinalMonthName.parse("6. Form I-20 - Mar 2016.pdf")?.day == nil)
+        // These two are also refused, but NOT by the guard — nothing follows the duplicate marker
+        // that could be a year, so the scan never considers it. Asserted anyway because the
+        // outcome is what matters, and noted because a reader would otherwise credit the wrong
+        // rule for it.
+        #expect(OrdinalMonthName.parse("11. Nov 2014 -2.pdf")?.day == nil)
+        #expect(OrdinalMonthName.parse("01. Jan 2016 (2).pdf")?.day == nil)
+        #expect(OrdinalMonthName.parse("01. Jan 2016 (Credit).pdf")?.day == nil)
+        #expect(OrdinalMonthName.parse("04. Apr 2025.pdf")?.day == nil)
+        // Month and year are unchanged by any of it — the day is strictly additive.
+        #expect(OrdinalMonthName.parse("11. Nov 2014 -2.pdf")?.month == 11)
+        #expect(OrdinalMonthName.parse("01. Jan 15 2026.pdf")?.month == 1)
+        #expect(OrdinalMonthName.parse("01. Jan 15 2026.pdf")?.year == 2026)
+    }
+
+    @Test("A dated body keeps its own spelling — only the ordinal is widened")
+    func datedBodyIsPreserved() {
+        // `13.July 15 2018.pdf` is real, and has two defects: no space, and `July` where the
+        // renderer would write `Jul`. Only the first is this pass's business — a body carrying a
+        // day is never a bare date, so it is never re-rendered from parts.
+        #expect(OrdinalMonthName.parse("13.July 15 2018.pdf")?.canonicalName == "13. July 15 2018.pdf")
+        #expect(OrdinalMonthName.parse("1. Feb 26 2019.pdf")?.canonicalName == "01. Feb 26 2019.pdf")
+    }
+
+    @Test("A new day-keyed name pads the day")
+    func rendersPaddedDay() {
+        #expect(OrdinalMonthName.render(ordinal: 11, month: 6, day: 15, year: 2026, ext: "pdf")
+                == "11. Jun 15 2026.pdf")
+        #expect(OrdinalMonthName.render(ordinal: 1, month: 6, day: 6, year: 2019, ext: "pdf")
+                == "01. Jun 06 2019.pdf")
+    }
+
+    // MARK: Mining a day out of a raw name
+
+    @Test("A delimited date is mined, day and all")
+    func minesDelimitedDates() {
+        // The name the whole feature exists for. Its runs are `Payslip · 2026 · 06 · 15` — no
+        // 8-digit stamp, no spelled month — so before this it mined NOTHING and the file could not
+        // be placed in any folder, day-keyed or not.
+        let m = FileNameDate.mine("Payslip_2026-06-15.pdf")
+        #expect(m?.month == 6)
+        #expect(m?.day == 15)
+        #expect(m?.year == 2026)
+        #expect(FileNameDate.mine("Statement 06 15 2026.pdf")?.day == 15)
+        // Shape-disjoint, so neither window is a coin flip.
+        #expect(FileNameDate.mine("2026-06-15.pdf")?.month == 6)
+        #expect(FileNameDate.mine("06-15-2026.pdf")?.month == 6)
+        // An account reference whose runs are the wrong widths stays refused.
+        #expect(FileNameDate.mine("STMTCMB100_5203_9911.pdf") == nil)
+        // `DD MM YYYY` is refused outright — `15 06 2026` cannot be told from a US June 15th.
+        #expect(FileNameDate.mine("bill 15 13 2026.pdf") == nil)
+    }
+
+    @Test("The 8-digit datestamp now reports its day, and its month is unchanged")
+    func datestampReportsDay() {
+        #expect(FileNameDate.mine("9829custbill07182023.pdf")?.day == 18)
+        #expect(FileNameDate.mine("9829custbill07182023.pdf")?.month == 7)
+        #expect(FileNameDate.mine("20240128-statements-8857.pdf")?.day == 28)
+        // Two stamps in one month still answer the month — folding the day into that key would
+        // turn a known month with an unknown day into a refusal.
+        let two = FileNameDate.mine("bill 20240115 and 20240120.pdf")
+        #expect(two?.month == 1)
+        #expect(two?.day == nil)
+    }
+
+    @Test("Readings that disagree still refuse, and one that abstains does not veto")
+    func readingsMustAgree() {
+        // A datestamp for one month beside a word for another is not a name this pass understands.
+        #expect(FileNameDate.mine("Feb 2020 stamped 20200315.pdf") == nil)
+        // A spelled month with no day beside a stamp that has one: the day is known once.
+        #expect(FileNameDate.mine("Jan 2024 - 20240115.pdf")?.day == 15)
+    }
+
+    // MARK: The slot is a date
+
+    @Test("Two payslips in one month are two slots, not a collision")
+    func twoFilesOneMonth() {
+        // Against the month-keyed reading `02. Jan 31 2026.pdf` is a second January and the pass
+        // would report it as colliding with `01. Jan 15 2026.pdf`. Under `ordinal-day` they are
+        // simply the two payments January holds.
+        let p = plan(salaryStatements2026)
+        #expect(p.steps.isEmpty)     // already canonical
+        #expect(p.skips.isEmpty)
+    }
+
+    @Test("A payslip filed in takes the next slot, keeping the day")
+    func placesIncomingPayslip() {
+        let p = plan(salaryStatements2026, incoming: "Payslip_2026-06-15.pdf")
+        let step = p.steps.first { $0.currentName == "Payslip_2026-06-15.pdf" }
+        #expect(step?.proposedName == "11. Jun 15 2026.pdf")
+        #expect(step?.kind == .placed)
+        // Nothing else moves: it lands after everything already there.
+        #expect(step?.cohort == 0)
+        #expect(p.steps.count == 1)
+    }
+
+    @Test("The second payslip of a month does not collide with the first")
+    func secondPayslipOfAMonth() {
+        // Jun 15 has landed; Jun 30 must get slot 12, not "June is already held here".
+        let p = plan(salaryStatements2026 + ["11. Jun 15 2026.pdf"],
+                     incoming: "Payslip_2026-06-30.pdf")
+        #expect(p.steps.first { $0.currentName == "Payslip_2026-06-30.pdf" }?.proposedName
+                == "12. Jun 30 2026.pdf")
+        #expect(p.skips.isEmpty)
+    }
+
+    @Test("The same date twice is still refused")
+    func sameDateStillCollides() {
+        // The duplicate trap the pass exists for, at day resolution: a raw re-download of a payslip
+        // already filed. Reported, never guessed at.
+        let p = plan(salaryStatements2026, incoming: "Payslip_2026-05-15.pdf")
+        #expect(p.steps.isEmpty)
+        // `first?` rather than `[0]`: an #expect on the count does not stop the run, so a
+        // subscript here turns a readable failure into an index-out-of-range crash that hides it.
+        #expect(p.skips.count == 1)
+        #expect(p.skips.first?.reason.contains("May 15 2026") == true)
+        #expect(p.skips.first?.reason.contains("09. May 15 2026.pdf") == true)
+    }
+
+    @Test("A day-keyed folder says so when the incoming name gives no day")
+    func incomingWithoutADaySaysSo() {
+        let p = plan(salaryStatements2026, incoming: "Payslip Jun 2026.pdf")
+        #expect(p.steps.isEmpty)
+        #expect(p.skips.count == 1)
+        #expect(p.skips.first?.reason.contains("no day") == true)
+    }
+
+    @Test("A day-keyed folder is never read as month-numbered")
+    func dayFoldersAreAlwaysPositional() {
+        // `Salary Statements/2019` starts in October, so its first files are `01. Oct 15 · 02. Oct
+        // 31` — and a stretch that happens to run one file per month would read as `.monthNumber`,
+        // whose whole premise (the ordinal IS the month) cannot describe this folder.
+        // The fixture has GAPS on purpose. A contiguous 01·02·03 run is one the two schemes cannot
+        // tell apart, and `inferScheme` deliberately calls that `.position` — so a contiguous
+        // fixture would pass this test with the guard removed, which is no test at all.
+        let gappy = ["03. Mar 15 2021.pdf", "05. May 15 2021.pdf", "11. Nov 15 2021.pdf"]
+        #expect(RenamePlanner.inferScheme(files: files(gappy), granularity: .day) == .position)
+        // The same shape read month-keyed DOES infer monthNumber, which is what makes the line
+        // above a measurement of the guard rather than of the fixture.
+        #expect(RenamePlanner.inferScheme(
+            files: files(["03. Mar 2021.pdf", "05. May 2021.pdf", "11. Nov 2021.pdf"]),
+            granularity: .month) == .monthNumber)
+    }
+
+    @Test("Granularity comes from the profile, and is inferred only unanimously")
+    func granularityRules() {
+        #expect(RenamePlanner.slotGranularity(files: [], entry: entry(naming: "ordinal-day")) == .day)
+        #expect(RenamePlanner.slotGranularity(files: [], entry: entry(naming: "ordinal-month")) == .month)
+        #expect(RenamePlanner.slotGranularity(files: [], entry: entry(naming: "descriptive")) == nil)
+        // Unsurveyed: all three conforming names carry days, so the folder is day-keyed.
+        #expect(RenamePlanner.slotGranularity(
+            files: files(["01. Jan 15 2026.pdf", "02. Jan 31 2026.pdf", "03. Feb 15 2026.pdf"]),
+            entry: nil) == .day)
+        // One dated stray among bare months is a stray, not a day-keyed folder — reading it as one
+        // would renumber the eleven files around it.
+        #expect(RenamePlanner.slotGranularity(
+            files: files(["01. Jan 15 2026.pdf", "02. Feb 2026.pdf", "03. Mar 2026.pdf"]),
+            entry: nil) == .month)
+    }
+
+    @Test("A month-keyed folder ignores a day its names happen to carry")
+    func monthKeyedIsUnchanged() {
+        // The regression guard for the 327 folders that were already working. These names carry
+        // days, but the folder says `ordinal-month`, so the second January is still a collision.
+        let p = plan(["01. Jan 15 2026.pdf"], naming: "ordinal-month",
+                     incoming: "Payslip_2026-01-31.pdf")
+        #expect(p.steps.isEmpty)
+        #expect(p.skips.count == 1)
+        #expect(p.skips.first?.reason.contains("Jan 2026") == true)
+        #expect(p.skips.first?.reason.contains("Jan 31 2026") == false)
     }
 }
