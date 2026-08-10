@@ -42,7 +42,7 @@ import Design
             registry: PersonRegistry(people: [Person(id: "p.aditi", displayName: "Aditi",
                                                      relationship: "daughter",
                                                      fullNames: ["Aditi Girish"])]),
-            isScanning: false, hasSurvey: true, canChooseFolder: true)
+            isScanning: false, hasSurvey: true)
     }
 
     static func rows(_ query: String) -> [PaletteRow] {

@@ -21,7 +21,22 @@ import Sync
 ///   while the palette was open). Resigning key covers the content, the toolbar, the title bar and
 ///   another app with one rule.
 ///
-/// `.serialized` because these make windows key, which is process-wide state.
+/// ## Where the boundary is, measured
+///
+/// **Real key transfer is not observable in this test host.** `makeKeyAndOrderFront` gives a window
+/// key only while its *application* is active, and an `xcodebuild test` host is not — even after
+/// `NSApp.activate(ignoringOtherApps:)`, `isKeyWindow` stayed false through a five-second poll. So
+/// two tests here originally asserted `isKeyWindow` and were meaningless: they passed on the one
+/// run where the host happened to be frontmost and failed the next, which is a test that answers
+/// only when nobody is looking.
+///
+/// The split this suite settled on is the honest one. **AppKit's key machinery is not mine to
+/// test**; what is mine is (1) the window class *permitting* key at all, which is the exact default
+/// that was broken, and (2) what this controller does when key is lost, which is driven here by
+/// posting the notification AppKit would post. Both mutations that matter — a panel that refuses
+/// key, a resign handler that does nothing — are still killed by that pair.
+///
+/// `.serialized` because these order real windows in and out, which is process-wide state.
 @MainActor
 @Suite(.serialized) struct CommandPalettePanelTests {
 
@@ -46,8 +61,7 @@ import Sync
         PaletteIndex(providers: [PaletteProvider(id: "icloud", name: "iCloud",
                                                  isMounted: true, isCurrent: true)],
                      providerRoot: "/root", folders: ["Legal"], recentFolders: [],
-                     people: [], registry: nil, isScanning: false, hasSurvey: false,
-                     canChooseFolder: true)
+                     people: [], registry: nil, isScanning: false, hasSurvey: false)
     }
 
     @discardableResult
@@ -73,40 +87,40 @@ import Sync
         panel.orderOut(nil)
     }
 
-    @Test func presentingRaisesAKeyPanelOverTheHost() {
+    @Test func presentingRaisesAPanelParentedToAndSizedWithTheHost() {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         present(controller, over: host)
         #expect(controller.isPresented)
         let panel = try? #require(host.childWindows?.compactMap { $0 as? CommandPaletteWindow }.first)
         #expect(panel != nil, "the panel is not a child of the host — it will not move or order with it")
-        #expect(panel?.isKeyWindow == true,
-                "the palette did not take key — its field cannot hold the caret, which is the bug this replaced")
-        // Sized to the host, because the scrim is inside it and has to dim the whole window.
+        // Sized to the host, because the scrim is inside it and has to dim the whole window —
+        // including the title bar, which is what makes clicking there dismiss.
         #expect(panel?.frame == host.frame)
+        // Whether it *did* take key is AppKit's business and unobservable here; that it *may* is
+        // this app's, and `theWindowClassCanBecomeKeyAtAll` holds it.
+        #expect(panel?.canBecomeKey == true)
         teardown(host, controller)
     }
 
     /// **Click-away, expressed as the only rule that covers the title bar.**
     ///
-    /// Making the host key is what a click anywhere in it does — content, toolbar or title bar
-    /// alike. The panel must go.
-    @Test func theHostTakingKeyBackDismissesThePalette() async {
+    /// A click anywhere in the window — content, toolbar or title bar — makes the host key, which
+    /// makes the panel resign it. Driven by posting the notification AppKit posts, because the
+    /// transfer itself does not happen in a test host (see the suite's note): what is under test is
+    /// this controller's reaction, not AppKit's delivery.
+    @Test func resigningKeyDismissesThePalette() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         var dismissed = false
         present(controller, over: host, onDismiss: { dismissed = true })
         #expect(controller.isPresented)
+        let panel = try #require(host.childWindows?.first, "no panel to resign key")
 
-        host.makeKey()
-        // The notification is delivered on the main queue, so give the runloop a turn. Bounded and
-        // asserted after, never an unbounded spin.
-        for _ in 0..<20 where controller.isPresented {
-            await Task.yield()
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
-        #expect(!controller.isPresented,
-                "the palette survived the host taking key — clicking anywhere in the window, including the title bar, leaves it up")
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+        // Delivered on the main queue, so it lands on a later turn. Bounded, and it fails at the
+        // deadline rather than passing on timeout.
+        await waitUntil("the palette dismissed after resigning key") { !controller.isPresented }
         #expect(dismissed, "onDismiss did not fire, so the chord suspension stays stuck on")
         teardown(host, controller)
     }
@@ -155,14 +169,54 @@ import Sync
         let controller = CommandPalettePanelController()
         present(controller, over: host)
         host.setFrame(CGRect(x: 120, y: 140, width: 1200, height: 800), display: true)
-        for _ in 0..<20 {
-            await Task.yield()
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-            if host.childWindows?.first?.frame == host.frame { break }
+        await waitUntil("the panel followed the host's new frame") {
+            host.childWindows?.first?.frame == host.frame
         }
         #expect(host.childWindows?.first?.frame == host.frame,
                 "the scrim came adrift of the window it is dimming")
         teardown(host, controller)
+    }
+
+    // MARK: ⌘K, while the panel holds the keyboard
+
+    /// **The chord must survive Caps Lock.**
+    ///
+    /// While the panel is key the menu item cannot fire — it reads a `@FocusedValue` published by
+    /// the window underneath — so ⌘K comes from a local event monitor, and the obvious way to write
+    /// that test is wrong: `.deviceIndependentFlagsMask` includes `.capsLock`, `.function` and
+    /// `.numericPad`, so comparing the whole intersection to `.command` made ⌘K stop closing the
+    /// palette for anyone with Caps Lock on. Only the four modifiers a chord is made of count.
+    @Test func theClosingChordIgnoresKeyStateThatIsNotPartOfAChord() {
+        typealias C = CommandPalettePanelController
+        #expect(C.closesThePalette(modifiers: [.command], charactersIgnoringModifiers: "k"))
+        #expect(C.closesThePalette(modifiers: [.command, .capsLock], charactersIgnoringModifiers: "K"),
+                "⌘K stopped closing the palette because Caps Lock was on")
+        #expect(C.closesThePalette(modifiers: [.command, .function], charactersIgnoringModifiers: "k"))
+        #expect(C.closesThePalette(modifiers: [.command, .numericPad], charactersIgnoringModifiers: "k"))
+    }
+
+    /// ...and it must not fire for a *different* chord, or the palette would swallow keys that
+    /// belong to the app. A monitor that returns nil eats the event for everyone.
+    @Test func theClosingChordIsOnlyTheChordItself() {
+        typealias C = CommandPalettePanelController
+        #expect(!C.closesThePalette(modifiers: [.command, .shift], charactersIgnoringModifiers: "k"))
+        #expect(!C.closesThePalette(modifiers: [.command, .option], charactersIgnoringModifiers: "k"))
+        #expect(!C.closesThePalette(modifiers: [.command, .control], charactersIgnoringModifiers: "k"))
+        #expect(!C.closesThePalette(modifiers: [], charactersIgnoringModifiers: "k"),
+                "a bare k closed the palette — every letter typed into the field would close it")
+        #expect(!C.closesThePalette(modifiers: [.command], charactersIgnoringModifiers: "j"))
+        #expect(!C.closesThePalette(modifiers: [.command], charactersIgnoringModifiers: nil))
+    }
+
+    /// The chord comes from `AppChord`, so the monitor and the menu item cannot come to disagree
+    /// about which key opens and closes the palette.
+    @Test func theClosingChordIsTheRegisteredOne() {
+        #expect(!CommandPalettePanelController.closesThePalette(
+            modifiers: [.command],
+            charactersIgnoringModifiers: String(AppChord.commandPalette.key.character) + "x"))
+        #expect(CommandPalettePanelController.closesThePalette(
+            modifiers: [.command],
+            charactersIgnoringModifiers: String(AppChord.commandPalette.key.character)))
     }
 
     // MARK: The state the panel owns

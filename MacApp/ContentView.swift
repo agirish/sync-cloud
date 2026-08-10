@@ -39,6 +39,19 @@ struct ContentView: View {
     /// here would be a second answer to what has been typed.
     @State var showCommandPalette = false
 
+    /// Organize's rail selection and scope, **as `@AppStorage` rather than raw `UserDefaults`**.
+    ///
+    /// `aimOrganize` writes both when ⌘K routes to a lens or a folder, and it wrote them through
+    /// `UserDefaults.standard.set` — which this app has already been bitten by and documented:
+    /// `@AppStorage`'s process-wide storage location per (store, key) can **lose** a standard-domain
+    /// write outright rather than deliver it late, which is why the defaults-backed test suites
+    /// mount with their own `ScratchDefaults`. `TidyView` holds both keys in `@AppStorage`, so a
+    /// route could land on Organize and leave the rail on whatever lens it was already showing,
+    /// intermittently and with nothing to see. Writing through the same property wrapper puts both
+    /// sides on one storage location, which is the path every other writer in the app already takes.
+    @AppStorage(OrganizeLens.defaultsKey) var paletteRailLens: OrganizeLens?
+    @AppStorage(OrganizeScopeDefaults.pathKey) var paletteScopePath: String = ""
+
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false

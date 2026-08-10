@@ -43,7 +43,7 @@ import Foundation
         PaletteIndex(providers: providers, providerRoot: root, folders: folders,
                      recentFolders: recent, people: hasRegistry ? people : [],
                      registry: hasRegistry ? PersonRegistry(people: people) : nil,
-                     isScanning: isScanning, hasSurvey: hasSurvey, canChooseFolder: true)
+                     isScanning: isScanning, hasSurvey: hasSurvey)
     }
 
     static func routes(_ query: String, _ index: PaletteIndex? = nil) -> [PaletteRoute] {
@@ -237,15 +237,6 @@ import Foundation
         #expect(!rows.contains { if case .person = $0.route { return true } else { return false } })
     }
 
-    @Test func chooseFolderIsWithheldWhenTheSourceCannotBeRepointed() {
-        var index = Self.index()
-        index.canChooseFolder = false
-        #expect(!PaletteRouter.rows(query: "choose", index: index)
-            .contains { $0.route == .action(.chooseFolder) })
-        #expect(!PaletteRouter.rows(query: "", index: index)
-            .contains { $0.route == .action(.chooseFolder) })
-    }
-
     // MARK: Pinned and recent are two different claims
 
     /// ROADMAP 14 asks the Folders group for "recent and pinned paths". They are two lists because
@@ -346,6 +337,49 @@ import Foundation
                                      keys: ["Legal"]).isEmpty)
         #expect(PaletteIndex.folders(profileRoot: nil, providerRoot: "/a", keys: ["Legal"]).isEmpty)
         #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "", keys: ["Legal"]).isEmpty)
+    }
+
+    // MARK: Each group appears once
+
+    /// **A group's header must appear exactly once.**
+    ///
+    /// `PaletteResultsList` emits one wherever the group changes, so a ranking that interleaves
+    /// groups puts the same heading on screen two or three times. The flat score sort this replaced
+    /// did exactly that on nearly every short query — measured over this fixture, `"s"` produced
+    /// *Places, Actions, Sources, Actions, Places, Actions, Folders*: five groups, seven headings.
+    ///
+    /// Swept over one- and two-letter queries because that is where a group's rows spread widest
+    /// across the score range; a single hand-picked query would have missed it, and did.
+    @Test func everyGroupAppearsInExactlyOneRun() {
+        let letters = "abcdefghijklmnopqrstuvwxyz".map(String.init)
+        let queries = letters + ["fi", "re", "st", "or", "le", "do", "in", "organize", "legal"]
+        for query in queries {
+            let rows = PaletteRouter.rows(query: query, index: Self.index())
+            let runs = rows.indices.filter { $0 == 0 || rows[$0 - 1].group != rows[$0].group }
+                .map { rows[$0].group }
+            #expect(runs.count == Set(runs).count,
+                    "“\(query)” draws \(runs.map(\.rawValue)) — a section header appears more than once")
+        }
+    }
+
+    /// ...and **the top row is still the best-scoring row**, which is what the flat sort was for.
+    ///
+    /// Grouping the rows is only safe if it does not bury the best match: ordering the groups by
+    /// `rank` instead of by their best row would put a weak place match above a strong folder one,
+    /// which is the obvious way to write this and the wrong one. Asserted over a sweep, with the
+    /// cross-group case pinned separately so the sweep cannot pass on single-group queries alone.
+    @Test func theTopRowIsAlwaysTheBestScoringRow() {
+        let queries = ["s", "legal", "fi", "organize legal", "in", "medical", "backup", "rescan"]
+        var sawMoreThanOneGroup = false
+        for query in queries {
+            let rows = PaletteRouter.rows(query: query, index: Self.index())
+            guard let first = rows.first, let best = rows.map(\.score).max() else { continue }
+            #expect(first.score == best,
+                    "“\(query)” leads with \(first.title) at \(first.score) while \(best) was available — grouping has buried the best match")
+            if Set(rows.map(\.group)).count > 1 { sawMoreThanOneGroup = true }
+        }
+        #expect(sawMoreThanOneGroup,
+                "no swept query spanned two groups, so this proved nothing about ordering between them")
     }
 
     // MARK: The matcher's own tiers

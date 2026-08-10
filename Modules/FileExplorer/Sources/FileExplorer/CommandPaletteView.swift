@@ -1,17 +1,22 @@
 import SwiftUI
 import Design
 
-/// The ⌘K palette: one field over the window, grouped results beneath it.
+/// The ⌘K palette: one field, grouped results beneath it, over a scrim.
 ///
 /// **Every decision this view makes is somewhere else.** What the query means is
 /// ``PaletteRouter``; what ↑ ↓ ↩ do is ``PaletteSelection``. What is left here is drawing and the
 /// three key handlers, which is the most that can be left in a surface a unit test cannot drive.
 ///
-/// The trigger is *not* here either, and must not be: ⌘K is a menu item in `MacApp`, because
-/// `.onKeyPress` is strictly focus-scoped — with focus in a file table, which is where it always is,
-/// a sibling's handler never fires, and with no focus at all nothing fires anywhere. A palette that
-/// worked only when you had not clicked anything would be worse than none. The keys handled *inside*
-/// this view are a different matter: the field owns the focus while the palette is up.
+/// Neither of the chord's ends is here, and both are somewhere deliberate. **Opening** is a menu
+/// item in `MacApp`, because `.onKeyPress` is strictly focus-scoped — with focus in a file table,
+/// which is where it always is, a sibling's handler never fires. **Closing** is a local event
+/// monitor owned by the panel that hosts this view, because while that panel is key the menu item's
+/// `@FocusedValue` comes from a window that is not.
+///
+/// The keys handled *inside* this view are a different matter, and only because of where it is
+/// drawn: `CommandPalettePanel` puts it in a real key window, so the field genuinely holds first
+/// responder. As an in-window `.overlay` it did not, and the characters went to the file pane
+/// underneath — see that file's header for the whole account.
 public struct CommandPaletteView: View {
 
     let rows: [PaletteRow]
@@ -23,7 +28,6 @@ public struct CommandPaletteView: View {
     let onClose: () -> Void
 
     @FocusState private var fieldFocused: Bool
-    @Environment(\.colorScheme) private var scheme
 
     public init(rows: [PaletteRow], query: Binding<String>, selection: Binding<Int?>,
                 accent: Color, glassLevel: GlassLevel,
@@ -93,11 +97,11 @@ public struct CommandPaletteView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .onAppear {
-            // Next turn: a `FocusState` write inside the transaction that inserts the field is
-            // silently dropped — the same reason the pane search field hops before claiming focus.
-            DispatchQueue.main.async { fieldFocused = true }
-        }
+        // Claimed HERE, once the field exists, and one turn later: a `FocusState` write landing in
+        // the transaction that inserts the field is silently dropped. Written as the `Task` hop
+        // `ExpandingSearchField` uses rather than a `DispatchQueue` one — same turn, but that is the
+        // form this app has already proved out for exactly this, and one working pattern beats two.
+        .onAppear { Task { @MainActor in fieldFocused = true } }
         // esc closes, from the field or from anywhere on the card.
         .onExitCommand(perform: onClose)
     }
@@ -250,6 +254,26 @@ struct PaletteResultsList: View {
         .contentShape(Rectangle())
         .opacity(row.isAvailable ? 1 : 0.55)
         .onTapGesture {
+            guard row.isAvailable else { return }
+            selection = index
+            onChoose()
+        }
+        // One element per row, and the state said out loud — the same treatment the Organize rail's
+        // items get. Without `.combine` a row is three or four separate stops (glyph, title,
+        // detail, reason), which on a list you navigate with ↑/↓ is three or four times the
+        // announcement for one destination; without the traits, the highlight that decides what ↩
+        // runs is visible only to people looking at it.
+        //
+        // An unavailable row takes **no** button trait and no action: it is text that explains
+        // itself ("Backup SSD — Not mounted"), and announcing it as a button would promise an
+        // activation that `onTapGesture` already refuses.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(row.isAvailable
+                                ? (isSelected ? [.isButton, .isSelected] : .isButton)
+                                : [])
+        // The row is a tap gesture, not a `Button`, so VoiceOver has nothing to activate unless it
+        // is given one — a button trait with no action behind it is the worse half of the pair.
+        .accessibilityAction {
             guard row.isAvailable else { return }
             selection = index
             onChoose()

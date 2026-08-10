@@ -37,6 +37,10 @@ public enum CommandPaletteBarMetrics {
 
     /// The ⌘K keycap's own width: `ShortcutKeycap` pads a monospaced subheadline by 8pt a side.
     ///
+    /// Measured at 13pt where `.subheadline` resolves to 11 — deliberately over, not a mistake:
+    /// this number is charged into the reserve the workspace bar sheds against, and the failure
+    /// with no symptom is *under*-measuring. `theArithmeticMatchesWhatIsDrawn` holds both ends.
+    ///
     /// Measured through `NSFont` rather than tabulated, for the reason the workspace bar's labels
     /// are: the app scales its own type, so a constant would be right at exactly one Settings ▸
     /// Text size — and this one is charged into the *reserve* the workspace bar sheds against, so
@@ -134,12 +138,16 @@ public struct CommandPaletteBar: View {
         .buttonStyle(.plain)
         .chromeHover()
         .fixedSize()
-        .help(ShortcutHint.tooltip("Go to a place, folder, person or action", chord))
         .accessibilityLabel("Command palette")
         // Said out loud, because the badge is decoration to a screen reader: `ShortcutKeycap` is
         // `accessibilityHidden`, deliberately, so without this the one control whose entire job is
         // to advertise a chord would advertise it to everyone except the people who most need the
         // announcement. The same sentence `.shortcutKeycap(_:)` applies for every other control.
         .accessibilityHint("Keyboard shortcut: \(ShortcutKeycapSpeech.spoken(chord))")
+        // **`.help` OUTSIDE the hint**, which is the ordering rule `ShortcutKeycap` documents: on
+        // macOS both land on the element's accessibility help and the outermost wins. Applied the
+        // other way round — as it was — the tooltip's description lost to the bare chord, so the
+        // control that exists to explain itself explained the least.
+        .help(ShortcutHint.tooltip("Go to a place, folder, person or action", chord))
     }
 }

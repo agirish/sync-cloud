@@ -45,6 +45,12 @@ public enum PaletteRoute: Equatable, Sendable {
 /// Deliberately **only things that already exist as a menu item or a header control.** A palette is
 /// a second way to reach what is there; inventing an action reachable *only* here would put a verb
 /// in the app that nothing on screen can teach you.
+///
+/// **None of them is conditional, and one of them used to pretend to be.** `PaletteIndex` carried a
+/// `canChooseFolder` flag gating "Choose Folder…", and every production call site passed `true`,
+/// because the open panel behind it is always available — a field that looks like it varies and
+/// cannot, with a test exercising a value the app never sends. Availability that is real is carried
+/// per row, in ``PaletteRow/unavailable``, with the reason attached.
 public enum PaletteAction: String, CaseIterable, Sendable {
     case rescan
     case newFolder
@@ -198,14 +204,12 @@ public struct PaletteIndex: Equatable, Sendable {
     /// Whether a document survey exists for a person gather to read. Without one the offer is a
     /// button that does nothing, which is what the gather's own failure path had to be taught to say.
     public var hasSurvey: Bool
-    /// Whether the current source is one the user can re-point ("Choose Folder…").
-    public var canChooseFolder: Bool
 
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
                 folders: [String] = [], recentFolders: [String] = [],
                 pinnedFolders: [String] = [], people: [Person] = [],
-                registry: PersonRegistry? = nil, isScanning: Bool = false, hasSurvey: Bool = false,
-                canChooseFolder: Bool = false) {
+                registry: PersonRegistry? = nil, isScanning: Bool = false,
+                hasSurvey: Bool = false) {
         self.providers = providers
         self.providerRoot = providerRoot
         self.folders = folders
@@ -215,7 +219,6 @@ public struct PaletteIndex: Equatable, Sendable {
         self.registry = registry
         self.isScanning = isScanning
         self.hasSurvey = hasSurvey
-        self.canChooseFolder = canChooseFolder
     }
 }
 
@@ -393,14 +396,38 @@ public enum PaletteRouter {
         return sorted(rows)
     }
 
-    /// Highest score first; then group order; then title, so the list is fully deterministic —
-    /// a palette whose rows shuffled between identical queries would be unusable.
+    /// Best first, **and each group in one run.**
+    ///
+    /// Groups are ordered by their own best row, then every row of that group follows before the
+    /// next group starts; within a group it is score, then title, so the list is fully
+    /// deterministic — a palette whose rows shuffled between identical queries would be unusable.
+    ///
+    /// **A flat score sort is what this replaces, and it was wrong in a way only a render could
+    /// show.** `PaletteResultsList` emits a header wherever the group changes, so a flat sort put
+    /// the same header on screen several times: measured over the fixture, `"s"` produced *Places,
+    /// Actions, Sources, Actions, Places, Actions, Folders* — five groups in seven headings. It is
+    /// not a rare tie either; nearly every one- and two-letter query did it, because a group's rows
+    /// are spread across the whole score range and the group rank was only a tie-break.
+    ///
+    /// Ordering by the group's best row keeps what the flat sort was for: whatever matched best is
+    /// still the first row on screen, and `PaletteSelection` still walks the array, so ↑/↓ still
+    /// move the way the eye does. What changes is that the rest of that group comes with it.
     static func sorted(_ rows: [PaletteRow]) -> [PaletteRow] {
-        rows.sorted {
-            if $0.score != $1.score { return $0.score > $1.score }
-            if $0.group.rank != $1.group.rank { return $0.group.rank < $1.group.rank }
-            return $0.title < $1.title
-        }
+        let byGroup = Dictionary(grouping: rows, by: \.group)
+        return PaletteGroup.allCases
+            .compactMap { group -> (group: PaletteGroup, rows: [PaletteRow])? in
+                guard let inGroup = byGroup[group], !inGroup.isEmpty else { return nil }
+                return (group, inGroup.sorted {
+                    $0.score != $1.score ? $0.score > $1.score : $0.title < $1.title
+                })
+            }
+            // The group's best row decides where the group goes; `rank` breaks a tie between two
+            // groups whose best rows scored the same, so the order is total.
+            .sorted {
+                let a = $0.rows.first?.score ?? 0, b = $1.rows.first?.score ?? 0
+                return a != b ? a > b : $0.group.rank < $1.group.rank
+            }
+            .flatMap(\.rows)
     }
 
     // MARK: The lede — "organize income tax", "duplicates in Legal"
@@ -579,7 +606,6 @@ public enum PaletteRouter {
 
     static func actionRows(query: String, index: PaletteIndex) -> [PaletteRow] {
         PaletteAction.allCases.compactMap { action in
-            guard action != .chooseFolder || index.canChooseFolder else { return nil }
             let match = best(of: [action.title, action.title.replacingOccurrences(of: "…", with: "")]
                              + action.keywords, query: query)
             guard match > .none else { return nil }
@@ -625,8 +651,7 @@ public enum PaletteRouter {
         for (offset, provider) in index.providers.enumerated() {
             rows.append(providerRow(provider, score: 800 - offset))
         }
-        for (offset, action) in PaletteAction.allCases.enumerated()
-        where action != .chooseFolder || index.canChooseFolder {
+        for (offset, action) in PaletteAction.allCases.enumerated() {
             rows.append(actionRow(action, index: index, score: 700 - offset))
         }
         return sorted(rows)

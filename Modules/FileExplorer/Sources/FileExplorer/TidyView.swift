@@ -2358,8 +2358,13 @@ public struct TidyView: View {
         let enabled = rules.filter(\.enabled).count
         return Group {
             // NOT the scope: rules are the one genuine non-scoper, and this names the
-            // folder a PREVIEW would run over. The scope chip beside it says which rules
-            // are listed; this says where trying them would look.
+            // folder a PREVIEW would run over.
+            //
+            // The chip beside it used to be described here as saying "which rules are listed",
+            // and that stopped being true when Rules stopped being scoped at all: the scope chip
+            // is *suspended* on this lens (`OrganizeLens.isScoped`) and says so. So the two say
+            // different things on purpose — the chip names a folder that is standing by, this
+            // names the folder a preview would actually walk.
             scannedFolderChip(scanTargetFolder,
                               help: "A preview would run these rules over “\(scanTargetName)”")
             StatPill(count: rules.count, label: rules.count == 1 ? "automation" : "automations",

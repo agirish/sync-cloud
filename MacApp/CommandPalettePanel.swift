@@ -112,12 +112,12 @@ final class CommandPalettePanelController: ObservableObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.isMovable = false
+        // A second belt for the case `didResignKey` already covers (the app being deactivated), and
+        // kept because that one case is the only one this cannot be tested for: a panel left
+        // floating over another app would be the worst version of the bug this file fixes.
         panel.hidesOnDeactivate = true
-        // Above the host, below anything the system floats over everything.
-        panel.level = .floating
         panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
         panel.contentView = NSHostingView(rootView: AnyView(content))
-        panel.setFrame(host.frame, display: false)
 
         // A child window rides the host: it moves, resizes and orders with it, so the scrim cannot
         // come adrift of the window it is dimming.
@@ -144,13 +144,33 @@ final class CommandPalettePanelController: ObservableObject {
         // that reads a `@FocusedValue` published by the window underneath, which is no longer key.
         // A local monitor is the only path left, and it is scoped to the panel's lifetime.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.isPresented else { return event }
-            let isCommandK = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
-                && event.charactersIgnoringModifiers?.lowercased() == "k"
-            guard isCommandK else { return event }
+            guard let self, self.isPresented,
+                  Self.closesThePalette(modifiers: event.modifierFlags,
+                                        charactersIgnoringModifiers: event.charactersIgnoringModifiers)
+            else { return event }
             self.dismiss()
             return nil
         }
+    }
+
+    /// Whether a key-down is the palette's own chord.
+    ///
+    /// **Only the four modifiers a chord is made of are compared.** The obvious form —
+    /// `modifierFlags.intersection(.deviceIndependentFlagsMask) == .command` — is what this
+    /// replaced, and it is wrong for anyone typing with **Caps Lock on**: that mask includes
+    /// `.capsLock` (and `.function`, and `.numericPad`), so the intersection came back as
+    /// `[.command, .capsLock]`, matched nothing, and ⌘K silently stopped closing the palette it had
+    /// opened. Exactly the class of bug this whole surface keeps producing — a chord that works
+    /// until some unrelated key state is different.
+    ///
+    /// Static and pure so the rule can be asserted without an `NSEvent`, which cannot be
+    /// synthesised in a test.
+    static func closesThePalette(modifiers: NSEvent.ModifierFlags,
+                                 charactersIgnoringModifiers: String?) -> Bool {
+        let chordModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        guard modifiers.intersection(chordModifiers) == .command else { return false }
+        // Caps Lock also changes the character, so the comparison folds case as well as flags.
+        return charactersIgnoringModifiers?.lowercased() == String(AppChord.commandPalette.key.character)
     }
 
     /// Idempotent, because five different things call it and two of them can race — esc arriving

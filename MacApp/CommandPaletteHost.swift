@@ -64,11 +64,16 @@ extension ContentView {
         }
         let index = paletteIndex
         let state = CommandPaletteState(index: index)
-        showCommandPalette = true
         palettePanel.present(
             over: host, state: state, accent: glassHue.accentColor, glassLevel: glassLevel,
             onRun: { [self] route in runPaletteRoute(route) },
             onDismiss: { showCommandPalette = false })
+        // **After `present`, not before.** `present` retires whatever it replaces, which fires that
+        // presentation's `onDismiss` — so a flag raised first could be lowered by the outgoing
+        // palette a line later, leaving every menu chord suspended with nothing on screen. Nothing
+        // reaches that path today (the toggle above returns early when one is up), which is exactly
+        // why the ordering is worth making unable to matter.
+        showCommandPalette = true
         // Logged for the same reason the person gather logs its accept: this surface is
         // keyboard-only, its chord is a menu key equivalent, and nothing short of assistive access
         // can drive it from a script — so the log is the only place a run that is not a human's can
@@ -79,16 +84,14 @@ extension ContentView {
             + "\(index.providers.count) sources")
     }
 
-    func closeCommandPalette() {
-        palettePanel.dismiss()
-    }
-
     /// What the router is allowed to read, assembled from live state.
     ///
-    /// **Folders come from the survey's folder profile, not from a disk walk.** This is rebuilt on
-    /// every keystroke through `paletteRows`, and a palette that stat'd the tree between a key and
-    /// its character would be the header-touches-the-filesystem mistake one surface over. The
-    /// profile is already in memory and already knows every folder under the root.
+    /// **Folders come from the survey's folder profile, not from a disk walk.** The profile is
+    /// already in memory and already knows every folder under the root; walking the disk to answer
+    /// "what folders are there" would be the header-touches-the-filesystem mistake one surface over.
+    ///
+    /// Read once, when the palette opens — `CommandPaletteState` holds the result for the life of
+    /// that session — so this is not on the keystroke path at all.
     var paletteIndex: PaletteIndex {
         let root = tidyProviderRootExpanded
         let profile = syncManager.filingFolderProfile
@@ -118,8 +121,7 @@ extension ContentView {
             // an offer whose accept does nothing is what `acceptPersonScope`'s failure path exists
             // to say out loud; the palette says it before you press ↩ instead.
             hasSurvey: syncManager.filingFolderProfile != nil
-                && syncManager.filingProfilesDirectory != nil,
-            canChooseFolder: true)
+                && syncManager.filingProfilesDirectory != nil)
     }
 
     /// Applies a route. **The only place in the app that turns a `PaletteRoute` into state**, so the
@@ -160,18 +162,15 @@ extension ContentView {
         // Through the bar's own binding, so entering Organize does everything entering Organize
         // does — the review teardown, the person-scope clear, the rail presentation.
         workspaceSelection.wrappedValue = .filing
-        if let lens {
-            UserDefaults.standard.set(lens.rawValue, forKey: OrganizeLens.defaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: OrganizeLens.defaultsKey)
-        }
+        // Through `@AppStorage`, never `UserDefaults.standard.set` — see `paletteRailLens` for the
+        // write this app has already watched go missing.
+        paletteRailLens = lens
         guard let scope else { return }
         let root = tidyProviderRootExpanded
         // Normalized through `OrganizeScope`, which is the one writer's rule: pointing at the
         // provider root CLEARS the scope rather than storing the root as one, so ⌘K cannot mint the
         // second encoding of the global view that the type is failable to prevent.
-        let resolved = OrganizeScope(path: scope, providerRoot: root)
-        UserDefaults.standard.set(resolved?.path ?? "", forKey: OrganizeScopeDefaults.pathKey)
+        paletteScopePath = OrganizeScope(path: scope, providerRoot: root)?.path ?? ""
         revealInSourcePane(scope)
     }
 
