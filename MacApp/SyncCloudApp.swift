@@ -531,6 +531,11 @@ struct SyncCloudApp: App {
             // because it is what the other two (and ⌘F, ⇧⌘N, ⇧⌘P) are aimed by, and its title
             // naming the destination pane is the only at-rest answer to "which pane is focused".
             CommandMenu("Go") {
+                // First, and on its own: it is the only item here that can reach a destination
+                // NOT currently on screen — which is the whole argument for ROADMAP 14. The two
+                // below walk the history of where you already are.
+                CommandPaletteCommand()     // ⌘K
+                Divider()
                 GoBackCommand()             // ⌘[
                 GoForwardCommand()          // ⌘]
                 Divider()

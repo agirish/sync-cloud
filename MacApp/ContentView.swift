@@ -27,6 +27,20 @@ struct ContentView: View {
     /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
     @State private var settingsTab: SettingsView.SettingsTab = .appearance
 
+    // MARK: The ⌘K palette (ROADMAP 14)
+    //
+    // View state, deliberately not persisted: a palette is a thing you open, use and close inside
+    // one thought. Everything it *decides* is in `PaletteRouter` / `PaletteSelection`; these three
+    // are the only state it needs, and the wiring is in `CommandPaletteHost.swift`.
+
+    /// Whether the palette is up.
+    @State var showCommandPalette = false
+    /// What has been typed into it.
+    @State var paletteQuery = ""
+    /// Which row is highlighted — an index into the CURRENT results, so it is recomputed on every
+    /// keystroke rather than carried; an index into the previous list names a different row.
+    @State var paletteSelection: Int?
+
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
@@ -499,6 +513,11 @@ struct ContentView: View {
             // took on a file, where Settings and Help are ambient panels they can reopen.
             if pendingDestination != nil {
                 destinationOverlay
+            } else if showCommandPalette {
+                // Above Settings and Help: the palette is opened, used and closed inside one
+                // thought, and ⌘K is a toggle — a palette rendered UNDER an ambient panel would be
+                // open, invisible, and swallowing the next keystroke.
+                commandPaletteOverlay
             } else if showSettings {
                 settingsOverlay
             } else if showHelp {
@@ -512,6 +531,7 @@ struct ContentView: View {
                 firstRunOverlay
             }
         }
+        .animation(.easeOut(duration: 0.15), value: showCommandPalette)
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
@@ -1047,7 +1067,9 @@ struct ContentView: View {
     /// Choosing a folder that is ALREADY a source (or is a discovered provider's own root) selects
     /// that source instead of adding a second — `addFolderSource` returns the existing id, so this
     /// closure does the right thing either way without knowing which happened.
-    private func chooseFolderSource(_ select: @escaping (String) -> Void) {
+    /// Internal, not private: the ⌘K palette's "Choose Folder…" action runs the same panel, from
+    /// `CommandPaletteHost.swift`. Two open-panel call sites would be two prompts to keep in step.
+    func chooseFolderSource(_ select: @escaping (String) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -2302,6 +2324,9 @@ struct ContentView: View {
         // this window's state; it cannot be `.onKeyPress` at all, since that is focus-scoped and a
         // pane search is invoked precisely when focus is in a file table. See `FindInPaneCommand`.
         .focusedSceneValue(\.beginPaneSearch, beginPaneSearch)
+        // ⌘K, on the same contract and for the same reason: `.onKeyPress` is focus-scoped and the
+        // palette is wanted exactly when focus is in a file table. See `CommandPaletteCommand`.
+        .focusedSceneValue(\.commandPalette, toggleCommandPalette)
         // The rest of the menu-bar chords, on the same contract, bundled into one modifier
         // (`ShortcutValuePublisher` — inlining the ten chained publications here broke the
         // type-checker's time budget): each value recomputes with this body, so a menu item's

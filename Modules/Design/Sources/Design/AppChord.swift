@@ -49,6 +49,16 @@ public extension AppChord {
     static let infoInspector = AppChord("i", .command)
     static let activityLog = AppChord("l", .command)
     static let shortcutsReference = AppChord("/", .command)
+    /// ⌘K — the command palette (ROADMAP 14).
+    ///
+    /// **A menu item, and it has to be.** `.onKeyPress` is strictly focus-scoped: with focus in a
+    /// file table — where it always is — a sibling's handler never fires, and with no focus at all
+    /// nothing fires anywhere. A palette that only opened when you had not clicked anything would
+    /// be worse than none. The menu item also documents the chord where someone looks for it.
+    ///
+    /// ⌘K was free: it is not one of macOS's reserved single-window equivalents, and nothing in
+    /// this app had claimed it. No ⌥, per the invariant `AppChordTests` guards.
+    static let commandPalette = AppChord("k", .command)
 
     /// ⌘1…⌘n by the workspace bar's own enumeration order — the caller passes the 1-based
     /// ordinal, so the badge and the registration count the same list.

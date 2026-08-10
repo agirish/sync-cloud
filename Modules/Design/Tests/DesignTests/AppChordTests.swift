@@ -12,6 +12,7 @@ import Testing
         #expect(AppChord.infoInspector.display == "⌘I")
         #expect(AppChord.activityLog.display == "⌘L")
         #expect(AppChord.shortcutsReference.display == "⌘/")
+        #expect(AppChord.commandPalette.display == "⌘K")
         #expect(AppChord.findInPane.display == "⌘F")
         #expect(AppChord.paneBack.display == "⌘[")
         #expect(AppChord.paneForward.display == "⌘]")
@@ -35,7 +36,8 @@ import Testing
     /// itself, not the one case that violated it.
     @Test func noChordContainsOptionSoNothingFiresThroughTheReveal() {
         let all: [AppChord] = [
-            .settings, .infoInspector, .activityLog, .shortcutsReference, .findInPane,
+            .settings, .infoInspector, .activityLog, .shortcutsReference, .commandPalette,
+            .findInPane,
             .paneBack, .paneForward, .rescan, .newFolder, .hiddenFiles, .previewColumn,
             .deleteSelection, .switchPaneFocus, .reviewDifferences, .verifyDifferences,
             .differencesList, .foldAllDifferences,
@@ -51,7 +53,8 @@ import Testing
     /// with the keys the chords actually use ("Command ." is announced as just "Command").
     @Test func everyChordSpeaksWithoutBarePunctuation() {
         let all: [AppChord] = [
-            .settings, .infoInspector, .activityLog, .shortcutsReference, .findInPane,
+            .settings, .infoInspector, .activityLog, .shortcutsReference, .commandPalette,
+            .findInPane,
             .paneBack, .paneForward, .rescan, .newFolder, .hiddenFiles, .previewColumn,
             .deleteSelection, .switchPaneFocus, .reviewDifferences, .verifyDifferences,
             .differencesList, .foldAllDifferences,

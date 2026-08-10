@@ -40,6 +40,25 @@ public final class FolderJumpStore: ObservableObject {
     func recents(forRoot root: String) -> [JumpLocation] { recentsByRoot[root] ?? [] }
     func pinned(forRoot root: String) -> [JumpLocation] { pinnedByRoot[root] ?? [] }
 
+    /// The pinned folders for a root, as relative paths — the ⌘K palette's Folders group, which
+    /// ROADMAP 14 asks to hold "recent and pinned paths".
+    ///
+    /// Public and `[String]` rather than exposing `JumpLocation`: the palette needs the path and
+    /// derives its own label, and widening the menu's own value type to another module would make
+    /// every field of it API. **This store is the one recents list.** A second one was written over
+    /// the pane's back/forward history before this was found; two would disagree the first time a
+    /// scan moved a pane without pushing history.
+    public func pinnedPaths(forRoot root: String) -> [String] {
+        pinned(forRoot: root).map(\.relativePath)
+    }
+
+    /// The recently visited folders for a root, most recent first, **excluding anything pinned** —
+    /// a folder listed twice under two headings is one wasted row in a list of eight.
+    public func recentPaths(forRoot root: String) -> [String] {
+        let pins = Set(pinnedPaths(forRoot: root))
+        return recents(forRoot: root).map(\.relativePath).filter { !pins.contains($0) }
+    }
+
     func isPinned(root: String, relativePath: String) -> Bool {
         (pinnedByRoot[root] ?? []).contains { $0.relativePath == relativePath }
     }

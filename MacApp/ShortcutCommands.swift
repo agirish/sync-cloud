@@ -237,7 +237,13 @@ extension ContentView {
             differencesList: shortcutDifferencesList,
             delete: shortcutDeleteSelection,
             switchPaneFocus: switchPaneFocusAction,
-            suspended: pendingDestination != nil
+            // Suspended by the palette too, on the destination picker's own argument: it is a
+            // full-window overlay whose scrim blocks the mouse from every control these chords
+            // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
+            // the field you are typing into. Unlike Settings and Help — ambient panels the app
+            // deliberately keeps its chords live under — this one OWNS the keyboard while it is up,
+            // and ⌘K itself stays live (its own focused value) so the toggle can close it.
+            suspended: pendingDestination != nil || showCommandPalette
         )
     }
 

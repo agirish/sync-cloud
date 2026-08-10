@@ -27,6 +27,10 @@ enum ShortcutsReference {
             // nothing. `ShortcutsReferenceTests` pins the derived string against the enum.
             Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)",
                  action: "Switch workspace, in the bar's order"),
+            // Second: it is the one shortcut that can reach a place not currently on screen — a
+            // workspace, one of Organize's six lenses, a folder, a person, or an action — so it is
+            // the entry that makes the rest of this list optional.
+            Item(keys: "⌘ K", action: "Command palette — go to any place, folder or person"),
             Item(keys: "⌘ I", action: "Show or hide the Info inspector"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),
             Item(keys: "⌘ ,", action: "Open Settings"),
@@ -90,7 +94,13 @@ struct ShortcutsReferenceView: View {
     /// `theReferenceFitsItsWindowWithoutScrolling` measures the laid-out content against this
     /// number, so a future row can move it but never silently overflow it; the ScrollView stays
     /// for the larger Settings ▸ Text sizes, which is all it is for.
-    static let windowSize = CGSize(width: 880, height: 560)
+    ///
+    /// **560 → 600 when ⌘K was added.** The palette's row went into General, which is in the taller
+    /// left column, and the content measured 593pt — the test caught it, which is exactly what it
+    /// is for. Raising the window is the right half of its "raise windowSize or trim rows": every
+    /// row here documents a chord that exists, so trimming would mean hiding one. 600pt still fits
+    /// a 13" display's usable height with room to spare.
+    static let windowSize = CGSize(width: 880, height: 600)
 
     var body: some View {
         ScrollView {

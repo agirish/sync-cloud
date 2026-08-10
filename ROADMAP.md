@@ -466,72 +466,6 @@ on both sides so accented names match. Per-item ignores are a separate durable l
 
 ---
 
-## 14. ⌘K command palette
-
-**Why:** The flat workspace bar made every workspace one click deep, and then folding Rename into a
-conditional chip took one destination *off* the bar entirely. That is the right trade for a rare
-finding, but it leaves nothing to aim at: a user who thinks "rename" has no target for the thought.
-A palette is the general answer — and it is the only surface that can route to a control that is
-not currently on screen.
-
-**What:** One field over the window, indexing four kinds of thing:
-
-| Kind | Examples | Does |
-|---|---|---|
-| Workspaces | Compare, Duplicates, Storage | switches, keeping the current source |
-| Sources | iCloud, Projects, Backup SSD | re-aims the current workspace |
-| Folders | recent and pinned paths | reveals in the source browser |
-| Actions | Rescan · Undo last run · Add Folder… · New backup… | runs it, or opens its sheet |
-
-"Rename" resolves as an action that opens Organize with the risky-names chip selected **whether or
-not the chip is currently showing** — which is what closes the hole the fold opened.
-
-**Surfaces to mock:** the overlay (query field, grouped results, selection, a keyboard-hint column);
-the empty-query state showing recent and likely actions; an unavailable result — an unmounted source
-— shown disabled *with its reason*, not hidden.
-
-**The one implementation trap:** **this cannot be `.onKeyPress`.** That modifier is strictly
-focus-scoped: with focus in a file table a sibling's handler never fires, and with no focus at all
-nothing fires anywhere. A palette that works only when you have not clicked anything is worse than
-none. It has to be a menu-item shortcut — which also documents it in the menu bar — or an `NSEvent`
-local monitor.
-
-**Effort:** Low–Medium. **Risk:** Low — read-only routing.
-
----
-
-## 15. A rules view inside Organize
-
-**Status: reachable, and the placement question is settled.** Organize became the umbrella — the
-workspace bar is **Compare · Organize · Storage**, and everything that changes one tree is a lens on
-a rail inside it — so Automations folded in and *Rules* is one of the six rail items. What this item
-still wants is the view itself: the rule list, editor and preview in the lens slot, and the re-homing
-trap below. **Rules is the one rail item that never carries a badge**, which is the distinction the
-badge draws: eight rules is a configuration you keep, not a result a scan turned up.
-
-**Why:** Filing rules act on filing, and the one that matters most is *learned* from a filing move
-just made. Clicking a file a rule placed and asking "which rule did that?" currently costs a
-workspace change — and *Learned rule* is already a filter chip in Organize, so half the association
-is there.
-
-**What:** A persistent control in Organize's header, beside *File all N*, that swaps the right slot
-for the rule list, editor and preview. Deliberately **not** a chip: the risky-names chip earns its
-place by *disappearing* at zero, and rules do not — eight rules is a configuration, not a result,
-and putting it in the chip row would teach that row two different meanings.
-
-**Surfaces to mock:** the header control and its active state; the rule list in the lens slot; the
-rule editor; the return path back to the queue.
-
-**The trap:** Organize homes the left pane on the loose-files inbox, but rules file into
-destinations all over the source. Opening the rules view has to **re-home the rail to the source
-root** — otherwise you are editing a rule about `Documents/IRS` while the pane shows an unrelated
-folder — and closing it must put the rail back, or the control is a one-way trip out of the queue
-you were working.
-
-**Effort:** Low–Medium. **Risk:** Low.
-
----
-
 ## 16. A Home workspace — the one-screen answer
 
 **Why:** Every workspace is somewhere you go with a task already in mind. There is nowhere to land
@@ -1212,8 +1146,6 @@ the question hundreds of keeper picks actually raise.
 | 11 | In-app diff viewer | Medium | Medium |
 | 12 | Menu bar status item | Low–Medium | Medium |
 | 13 | Path-anchored / include-only rules | Low–Medium | Medium |
-| 14 | ⌘K command palette | Low–Medium | Medium–High |
-| 15 | Rules view inside Organize | Low–Medium | Medium |
 | 16 | Home workspace | Medium | Medium (after 1c) |
 | 18 | PDF content fingerprint | Medium | High |
 | 20 | Restructure — is the shape itself right | High | **High** |
@@ -1258,10 +1190,10 @@ ways. **17 and 21 are together the cheapest route to a good free tier** — betw
 conventions and what its folders already contain, most routes are decidable by arithmetic, so fewer
 files ever reach the paid refine pass.
 
-**The cheapest two, both independent of item 1:** **15** (the rules view, which moves an existing
-list into a slot that already exists) and **14** (the ⌘K palette), which is the one that pays
-back the flat bar's only regression — folding Rename off the bar left a destination with nothing
-to aim at. The third — "Find duplicates of this" — has shipped.
+**The cheapest three have all shipped now** — "Find duplicates of this", the rules view, and the
+⌘K palette. The palette is the one that paid back the flat bar's only regression: folding Rename
+off the bar left a destination with nothing to aim at, and ⌘K reaches every place — including a
+control that is not currently on screen. What is left below is the expensive work.
 
 **Watch the bar.** Items 1b and 16 (Home) each add a segment. Five labelled segments already
 overflow the 600pt floor, and `WorkspaceBarMetrics` sheds all labels at once when they do; at
