@@ -189,6 +189,80 @@ import Design
                 "a scan in flight changed only \(Int(points))pt² — the card still reads idle")
     }
 
+    /// Every lens answered, so no pass card is on offer — the fixture that isolates the *rows*.
+    ///
+    /// Without this, `runnablePasses` moves two things at once (the pass cards and the row
+    /// controls), and a render diff could not say which of them it had measured.
+    private static func allAnswered() -> [OrganizeOverviewSection] {
+        OrganizeLens.allCases.filter(\.carriesBadge).map {
+            section($0, .findings(count: 7, headline: "7 things", examples: ["evidence line"]))
+        }
+    }
+
+    /// **A lens that has already answered can re-run its own scan.**
+    ///
+    /// The gap this closes: the only scan control on the overview beside the pass cards was row 2's
+    /// Rescan, which runs the *file* pass alone — so Duplicates could be read from here but never
+    /// re-hashed, which is the pass whose answer ages fastest.
+    ///
+    /// Measured against a fixture where nothing is pending, so the pass cards are out of the
+    /// picture and `runnablePasses` moves only the row controls.
+    @Test func anAnsweredLensCanRerunItsOwnPass() throws {
+        let band = Self.fullBand
+        let a = try #require(bitmap(mount(Self.allAnswered()), band))
+        let b = try #require(bitmap(mount(Self.allAnswered(), runnable: []), band))
+        let scale = CGFloat(a.pixelsHigh) / band.height
+        let points = CGFloat(differingPixels(a, b)) / (scale * scale)
+        // Two rows earn a control here — Duplicates and Restructure — at roughly 60×18 and
+        // 150×18pt of chrome. 600pt² is well above noise and well under the pair.
+        #expect(points > 600,
+                "no rescan control on an answered row (\(Int(points))pt² moved)")
+    }
+
+    /// **A row says so while its scan runs** — the count gives way to a spinner rather than
+    /// redrawing a stale figure in confident bold.
+    ///
+    /// Named for what it actually measures. It was once called "withdraws its rescan control" and
+    /// **survived the mutation that removed the withdrawal**: the row changes so much when the
+    /// headline becomes a spinner that any threshold catching the button was already met without
+    /// it. The claim about the button needs a fixture where the spinner is not also moving, which
+    /// is the test below.
+    @Test func aRunningLensSaysSoInItsRow() throws {
+        let band = Self.fullBand
+        let idle = Self.allAnswered()
+        let running = idle.map {
+            OrganizeOverviewSection(lens: $0.lens, blurb: $0.blurb, state: $0.state,
+                                    isScanning: $0.lens == .duplicates)
+        }
+        let a = try #require(bitmap(mount(idle), band))
+        let b = try #require(bitmap(mount(running), band))
+        let scale = CGFloat(a.pixelsHigh) / band.height
+        let points = CGFloat(differingPixels(a, b)) / (scale * scale)
+        #expect(points > 300,
+                "a running Duplicates scan left its row unchanged (\(Int(points))pt² moved)")
+    }
+
+    /// **A scan already running does not offer to start itself again**, or the screen invites the
+    /// second click that `rescanFilingButton` disables itself to prevent.
+    ///
+    /// Isolated by making **every** row that could carry the control scan at once, then rendering
+    /// that with the passes runnable and not runnable. If the withdrawal holds, neither render
+    /// draws a rescan and the two are pixel-identical; if it is removed, only one of them does.
+    /// The spinner is in both, so it cannot stand in for the button — which is precisely what it
+    /// did in the first version of this check.
+    @Test func aRunningLensWithdrawsItsRescanControl() throws {
+        let band = Self.fullBand
+        let running = Self.allAnswered().map {
+            OrganizeOverviewSection(lens: $0.lens, blurb: $0.blurb, state: $0.state,
+                                    isScanning: OrganizePass(producing: $0.lens)?
+                                        .answersOneLens == true)
+        }
+        let runnable = try #require(bitmap(mount(running), band))
+        let notRunnable = try #require(bitmap(mount(running, runnable: []), band))
+        #expect(differingPixels(runnable, notRunnable) == 0,
+                "a rescan control is still drawn on a row whose scan is already running")
+    }
+
     /// **Nothing on this screen says “Scan…” any more**, because nothing on it navigates instead of
     /// scanning. A guard against the old control returning by the back door.
     @Test func theOverviewOffersNoNavigatingScanLink() throws {

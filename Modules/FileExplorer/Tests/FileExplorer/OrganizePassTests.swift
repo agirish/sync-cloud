@@ -110,6 +110,53 @@ import SwiftUI
         }
     }
 
+    // MARK: Re-running a pass whose answer is already on screen
+
+    /// Only a pass answering **one** lens can be re-run from that lens's row.
+    ///
+    /// The file pass answers three, so a rescan on each of their rows would be three controls
+    /// running one identical walk — the defect this whole type exists to remove, rebuilt on the
+    /// other side of the screen. Its rescan stays on row 2, where one control speaks for the walk.
+    @Test func onlySingleLensPassesCanBeRerunFromARow() {
+        #expect(OrganizePass.duplicates.answersOneLens)
+        #expect(OrganizePass.folderMemory.answersOneLens)
+        #expect(!OrganizePass.file.answersOneLens,
+                "the file pass would put an identical Rescan on three rows")
+    }
+
+    /// The rule is a property of the **pass**, not of how much happens to be reporting.
+    ///
+    /// The permissive alternative — "offer it when this row is the pass's only reporting voice" —
+    /// makes the button appear and vanish as lenses start and stop reporting, so which control sits
+    /// under the cursor depends on the tree's contents. Asserted by holding the answer fixed while
+    /// the reporting set changes underneath it.
+    @Test func theRescanRuleDoesNotMoveWithTheData() {
+        for reporting in [[OrganizeLens.toFile], [.toFile, .names], [.toFile, .names, .renames]] {
+            _ = reporting
+            #expect(!OrganizePass.file.answersOneLens)
+            #expect(OrganizePass.duplicates.answersOneLens)
+        }
+    }
+
+    /// Restructure's refresh is **not** called a rescan, because it runs no scan.
+    ///
+    /// It reads the folder survey; the honest verb is the survey's own, and it is the same wording
+    /// the Rescan menu already uses for the same action so the two cannot read as two features.
+    @Test func restructureRefreshesBySurveyingNotScanning() {
+        #expect(OrganizePass.folderMemory.rescanTitle == "Update folder memory")
+        #expect(OrganizePass.duplicates.rescanTitle == "Rescan")
+    }
+
+    /// The control names its lens to VoiceOver — a bare "Rescan" among five rows says nothing about
+    /// which one it belongs to.
+    @Test func theRescanControlNamesItsLens() {
+        #expect(OrganizePass.duplicates.rescanAccessibilityLabel(for: .duplicates)
+                == "Rescan Duplicates")
+        // Already self-standing, so it is not padded into "Update folder memory Restructure".
+        #expect(OrganizePass.folderMemory.rescanAccessibilityLabel(for: .restructure)
+                == "Update folder memory")
+    }
+
     // MARK: What the overview offers
 
     private func section(_ lens: OrganizeLens,

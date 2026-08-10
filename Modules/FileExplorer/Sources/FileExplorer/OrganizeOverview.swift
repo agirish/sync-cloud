@@ -596,12 +596,15 @@ struct OrganizeOverview: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 30)
                 }
-                Button("Open \(section.lens.title) — \(count) ›") { onOpen(section.lens) }
-                    .buttonStyle(.plain)
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent)
-                    .chromeHover()
-                    .padding(.leading, 30)
+                HStack(spacing: 12) {
+                    Button("Open \(section.lens.title) — \(count) ›") { onOpen(section.lens) }
+                        .buttonStyle(.plain)
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                    rescanControl(for: section)
+                }
+                .padding(.leading, 30)
             }
             .padding(.leading, 10)
             .padding(.vertical, 10)
@@ -610,6 +613,29 @@ struct OrganizeOverview: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 9).fill(accent.opacity(0.07)))
         .clipShape(RoundedRectangle(cornerRadius: 9))
+    }
+
+    /// Re-runs the scan behind a lens that has already answered — **the answer to "the number is
+    /// stale and there is nothing here to refresh it".**
+    ///
+    /// Before this, the only scan control on the overview beside the pass cards was row 2's Rescan,
+    /// which runs the *file* pass alone. So a lens whose pass had already run could be read but not
+    /// re-run, and Duplicates — the one pass whose answer ages fastest, because it is the one
+    /// nobody re-runs casually — had no way to be re-hashed from this screen at all.
+    ///
+    /// Offered only for a pass that answers this lens alone; see ``OrganizePass/answersOneLens``
+    /// for why the file pass is excluded rather than given three identical buttons.
+    @ViewBuilder
+    private func rescanControl(for section: OrganizeOverviewSection) -> some View {
+        if let pass = OrganizePass(producing: section.lens), pass.answersOneLens,
+           runnablePasses.contains(pass), !section.isScanning {
+            Button(pass.rescanTitle) { onRun(pass) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .chromeHover()
+                .help(pass.offerCost)
+                .accessibilityLabel(pass.rescanAccessibilityLabel(for: section.lens))
+        }
     }
 
     // MARK: A pass that has not run

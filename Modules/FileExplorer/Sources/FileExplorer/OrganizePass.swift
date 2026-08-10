@@ -54,6 +54,41 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Whether this pass answers exactly one lens, and can therefore be re-run from that lens's own
+    /// row without ambiguity.
+    ///
+    /// **This is what decides which finding rows carry a rescan, and it is deliberately a property
+    /// of the pass rather than of the data.** The file pass answers three lenses, so a rescan on
+    /// each of their rows would be three controls doing one identical thing — the old footer's
+    /// mistake, rebuilt on the other side of the screen. Its rescan therefore stays where it
+    /// already is, on row 2, where one control speaks for the whole walk.
+    ///
+    /// The tempting alternative was "offer it when this row is the pass's only reporting voice",
+    /// which is more permissive and worse: the button would appear and vanish as lenses started and
+    /// stopped reporting, so the control under the cursor would depend on the tree's contents. A
+    /// static rule means Duplicates always has its rescan and To File never does.
+    var answersOneLens: Bool { lenses.count == 1 }
+
+    /// The words for re-running a pass whose answer is already on screen.
+    ///
+    /// Not ``runTitle``: that offers a scan which has never happened here and names the pass to say
+    /// what it will produce. This one sits beside an answer, so it names the act.
+    var rescanTitle: String {
+        switch self {
+        case .file, .duplicates: return "Rescan"
+        // Restructure runs no walk of its own, so "rescan" would name something that does not
+        // happen. Refreshing its answer means re-reading the folders — the same words the Rescan
+        // menu uses for the same action, so the two places cannot read as two features.
+        case .folderMemory: return "Update folder memory"
+        }
+    }
+
+    /// What VoiceOver reads for that control. A button is its own accessibility element, and a bare
+    /// "Rescan" beside five other rows does not say which one it belongs to.
+    func rescanAccessibilityLabel(for lens: OrganizeLens) -> String {
+        rescanTitle == "Rescan" ? "Rescan \(lens.title)" : rescanTitle
+    }
+
     /// The pass that produces this lens's answer, or `nil` for Rules — which has none.
     ///
     /// Deliberately the inverse of ``lenses`` rather than a second hand-written table; see the
