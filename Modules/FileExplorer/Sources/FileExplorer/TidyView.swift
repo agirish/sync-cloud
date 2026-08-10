@@ -2678,6 +2678,10 @@ public struct TidyView: View {
                                 scopeFolders: Int?) -> OrganizeOverview.Ledger {
         .derived(
             from: model.sections,
+            // The ratio is over the checks this host can start, not every lens that carries a
+            // badge — see `Ledger.countedLenses`. Same predicate the pass cards use, so the two
+            // cannot disagree about which checks are real on this machine.
+            runnablePasses: runnablePasses,
             // Absent rather than "0 bytes" when there is nothing to reclaim. A zero here reads as a
             // measured claim about the tree, and before a duplicate scan it is not one — the same
             // rule the rail badges and `inboxSubtitle` follow.
@@ -2746,7 +2750,11 @@ public struct TidyView: View {
         var reclaimableBytes = 0
     }
 
-    private var overviewModel: OverviewModel {
+    /// Internal, not private, so `OrganizeOverviewWiringTests` can assert what this actually hands
+    /// the view. The per-lens `isScanning` flags were wrong in two of five arms and no test could
+    /// see it: the render suite mounts ``OrganizeOverview`` directly and is handed its sections, so
+    /// it validates what the view does with them and never what this produces.
+    var overviewModel: OverviewModel {
         let scope = scope
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
         var model = OverviewModel()
@@ -2809,7 +2817,16 @@ public struct TidyView: View {
                         : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit)
                                         .map(\.currentName)),
-                    isScanning: syncManager.isScanningNames)
+                    // **`isSuggestingFiles` too, and it is the flag that matters.** Names rides the
+                    // filing walk — `detectRiskyNames` republishes `riskyNames` from it — but that
+                    // path calls `completeScan` only, never `beginScan`, so `isScanningNames` stays
+                    // false for the whole pass; the lifecycle is begun solely by `scanNames`, which
+                    // has no caller in the app. Alone, this row sat showing a stale count in
+                    // confident bold beside To File and Renames saying "rescanning", during the one
+                    // walk that was republishing all three. Invisible until this commit's
+                    // predecessor made `isScanning` load-bearing: the field existed before and the
+                    // view read it nowhere, so nothing ever checked that its value was true.
+                    isScanning: syncManager.isSuggestingFiles || syncManager.isScanningNames)
             case .renames:
                 let scoped = syncManager.renamePlans.filter {
                     OrganizeScopeFilter.matches($0, scope: scope)
@@ -2850,7 +2867,13 @@ public struct TidyView: View {
                                     headline: "\(scoped.count) finding\(scoped.count == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit)
                                         .map(\.headline)),
-                    isScanning: false)
+                    // **The folder survey, which is this lens's pass.** Hard-coded `false` was
+                    // right while nothing read it — Restructure runs no walk of its own — and wrong
+                    // the moment the row grew an "Update folder memory" button: that button stayed
+                    // live and the count stayed bold for the whole survey it had just started,
+                    // while the menu item running the identical action one row up is `.disabled`
+                    // for exactly that period.
+                    isScanning: syncManager.filingSurveyLifecycle.isRunning)
             // Configuration, not a result: it has nothing to report and no scan to run, so it
             // takes no section, no pass card and no footer line either.
             case .rules:

@@ -149,22 +149,37 @@ import Design
 
     // MARK: The offer is a control, not a caption
 
-    /// **The pass card draws a real button.**
+    /// **An unrun pass takes a card, where three tertiary footnotes used to sit.**
     ///
-    /// What this replaces was `Text("To File — not scanned")` in tertiary grey beside a plain-styled
-    /// `Scan…` link — and that link did not scan, it set the rail selection. Rendering the same card
-    /// with the pass runnable and not runnable isolates the control: everything else on screen is
-    /// identical, so the pixels that move are the button.
-    @Test func theUnrunPassCardDrawsARealButton() throws {
+    /// Measured against the same screen with that pass answered, so what the diff contains is the
+    /// card itself rather than some property of the fixture.
+    ///
+    /// **This was once phrased as a claim about the button** — runnable versus not-runnable, on the
+    /// theory that `runnablePasses` moved only the control. Review made that false and better:
+    /// `pendingPasses` is now gated on runnability, so a non-runnable pass draws no card at all and
+    /// the old A/B silently began measuring the whole card while still being named for the button.
+    /// The button's presence needs no pixel test now — `noPassIsOfferedWithoutAWayToRunIt` pins
+    /// `pendingPasses ⊆ runnablePasses` directly, which makes a card without its button
+    /// unrepresentable rather than merely untested.
+    @Test func anUnrunPassTakesACardOfItsOwn() throws {
         let band = Self.fullBand
-        let a = try #require(bitmap(mount(Self.sections(examples: 3)), band))
-        let b = try #require(bitmap(mount(Self.sections(examples: 3), runnable: []), band))
+        let pending = Self.sections(examples: 3)
+        let answered = pending.map {
+            OrganizePass.file.lenses.contains($0.lens)
+                ? OrganizeOverviewSection(lens: $0.lens, blurb: $0.blurb, state: .clean,
+                                          isScanning: false)
+                : $0
+        }
+        let a = try #require(bitmap(mount(pending), band))
+        let b = try #require(bitmap(mount(answered), band))
+        let bg = try #require(a.colorAt(x: a.pixelsWide - 3, y: a.pixelsHigh - 3))
         let scale = CGFloat(a.pixelsHigh) / band.height
-        let points = CGFloat(differingPixels(a, b)) / (scale * scale)
-        // "Run the file pass" in a small bordered button is ~110×20pt of chrome and glyphs. A floor
-        // of 600pt² is far above antialiasing noise and comfortably under one button.
-        #expect(points > 600,
-                "making the file pass runnable changed only \(Int(points))pt² — no button drawn")
+        let grew = CGFloat(inkedRows(a, background: bg).count
+                           - inkedRows(b, background: bg).count) / scale
+        // Heading, lede, three lens rows, two dividers and a cost line is ~150pt of card against
+        // the one "to file checked · names checked" line it replaces. 60 clears that comfortably.
+        #expect(grew > 60,
+                "an unrun file pass added only \(Int(grew))pt of content — no card drawn")
     }
 
     /// **A running pass shows its progress here, and stops offering to start.**

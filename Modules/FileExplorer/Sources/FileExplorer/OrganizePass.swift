@@ -73,6 +73,12 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     ///
     /// Not ``runTitle``: that offers a scan which has never happened here and names the pass to say
     /// what it will produce. This one sits beside an answer, so it names the act.
+    ///
+    /// **`.file`'s arm is unreachable and deliberately kept.** Only a pass with
+    /// ``answersOneLens`` is offered from a row, so the file pass never asks for these words; the
+    /// arm exists because the switch is total, and answering "Rescan" is what it would want if the
+    /// walk ever came to answer one lens. Do not read its presence as the file pass having a row
+    /// control — it has one control, on row 2, for all three of its lenses.
     var rescanTitle: String {
         switch self {
         case .file, .duplicates: return "Rescan"

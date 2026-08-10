@@ -354,15 +354,43 @@ struct OrganizeOverview: View {
         /// denominator is the lenses that can run at all.
         ///
         /// `reclaimable` and `scopeFolders` come in from the caller because both need `Sync`.
+        ///
+        /// `runnablePasses` narrows both halves of the ratio to the checks this host can actually
+        /// run — see ``countedLenses(runnablePasses:)`` for why that is not the same as counting
+        /// every lens that carries a badge.
         static func derived(from sections: [OrganizeOverviewSection],
+                            runnablePasses: Set<OrganizePass>,
                             reclaimable: String?, scopeFolders: Int?) -> Self {
-            Self(checksRun: sections.filter { $0.state != .notScanned }.count,
-                 // **`carriesBadge`, not `allCases.count`.** Rules can never run, so a denominator
-                 // of six would leave the ledger stuck at "5 of 6" with every check complete —
-                 // a screen that permanently claims outstanding work.
-                 checksTotal: OrganizeLens.allCases.filter(\.carriesBadge).count,
-                 reclaimable: reclaimable,
-                 scopeFolders: scopeFolders)
+            let counted = countedLenses(runnablePasses: runnablePasses)
+            return Self(
+                checksRun: sections.filter {
+                    counted.contains($0.lens) && $0.state != .notScanned
+                }.count,
+                checksTotal: counted.count,
+                reclaimable: reclaimable,
+                scopeFolders: scopeFolders)
+        }
+
+        /// The lenses the ratio is over: those that can report **and** whose pass this host can
+        /// start.
+        ///
+        /// Two exclusions, and the second was found by review. Rules never scans, so a denominator
+        /// of six would leave the ledger stuck at "5 of 6" with every check complete. Restructure
+        /// is subtler: its pass is the folder survey, `resurveyFilingMemory` returns early without
+        /// an existing profile, and `ContentView` withholds the handler entirely in that state — so
+        /// on a machine with no filing profile Restructure can *never* run, and counting it left
+        /// the ledger reading "4 of 5" permanently. A ratio that cannot be closed is a standing
+        /// claim of outstanding work against a button that does not exist.
+        ///
+        /// The same predicate governs whether the pass is offered a card at all, so the ledger, the
+        /// cards and the footer cannot disagree about which checks are real here.
+        static func countedLenses(runnablePasses: Set<OrganizePass>) -> Set<OrganizeLens> {
+            Set(OrganizeLens.allCases.filter { lens in
+                guard lens.carriesBadge, let pass = OrganizePass(producing: lens) else {
+                    return false
+                }
+                return runnablePasses.contains(pass)
+            })
         }
     }
 
@@ -391,14 +419,24 @@ struct OrganizeOverview: View {
         sections.filter { $0.state == .clean }
     }
 
-    /// The passes with nothing to show here: every lens they answer is `.notScanned`.
+    /// The passes offered a card: every lens they answer is `.notScanned`, **and this host can
+    /// start them**.
     ///
     /// **All of them, not any** — a pass is offered only when running it would change every lens
     /// behind the offer. The distinction cannot arise for the file pass today (one flag publishes
     /// its three) and is the correct rule regardless: a card headed "hasn't run here" over a lens
     /// that already has an answer would be false about the lens it names.
+    ///
+    /// **And runnable, which review added.** Without it the commonest way to meet the folder-memory
+    /// card was with no way to act on it: the card appears when there is no profile, `ContentView`
+    /// withholds `onUpdateFolderMemory` in exactly that state, and `resurveyFilingMemory` returns
+    /// early without a profile anyway — so on any machine that has never been surveyed, the landing
+    /// screen carried a permanent card-sized slab offering a scan that could not be run. That is
+    /// strictly worse than the one tertiary line it replaced, which is where such a lens now falls
+    /// back to (``strandedUnscanned``).
     var pendingPasses: [OrganizePass] {
         OrganizePass.allCases.filter { pass in
+            guard runnablePasses.contains(pass) else { return false }
             let mine = sections.filter { pass.lenses.contains($0.lens) }
             return !mine.isEmpty && mine.allSatisfy { $0.state == .notScanned }
         }
@@ -407,12 +445,31 @@ struct OrganizeOverview: View {
     /// Lenses that have not run and whose pass is **not** on offer above — so the invitation is
     /// never dropped for a lens a pass card does not already speak for.
     ///
-    /// Empty today, and kept because emptiness here is a consequence of how the flags happen to be
-    /// wired rather than a guarantee. If a future pass ever publishes its lenses separately, this
-    /// is what keeps those lenses from silently losing the only offer to scan them.
-    private var strandedUnscanned: [OrganizeOverviewSection] {
+    /// Two ways in. A pass this host cannot start (folder memory with no profile) is reported here
+    /// as a quiet line instead of a dead card; and a pass that has answered some of its lenses but
+    /// not all would strand the rest, which the flags cannot produce today but which the shape of
+    /// the rule allows.
+    var strandedUnscanned: [OrganizeOverviewSection] {
         let offered = Set(pendingPasses.flatMap(\.lenses))
         return sections.filter { $0.state == .notScanned && !offered.contains($0.lens) }
+    }
+
+    /// The one stranded lens that carries a pass's offer — the first in rail order, so which row
+    /// holds the button is stable rather than a function of iteration luck.
+    func firstStrandedLens(of pass: OrganizePass) -> OrganizeLens? {
+        strandedUnscanned.first { pass.lenses.contains($0.lens) }?.lens
+    }
+
+    /// Whether a row that has already answered offers to re-run the scan behind it.
+    ///
+    /// Extracted from the view so the rule can be asserted directly rather than inferred from
+    /// pixels — and because the pixel test alone could not express the property that matters most
+    /// here, which is that the answer does **not** move with the data. See
+    /// ``OrganizePass/answersOneLens``.
+    func offersRescan(for section: OrganizeOverviewSection) -> Bool {
+        guard case .findings = section.state, !section.isScanning,
+              let pass = OrganizePass(producing: section.lens) else { return false }
+        return pass.answersOneLens && runnablePasses.contains(pass)
     }
 
     /// How many examples a finding row draws. Three, measured against the room: the row's other
@@ -627,8 +684,7 @@ struct OrganizeOverview: View {
     /// for why the file pass is excluded rather than given three identical buttons.
     @ViewBuilder
     private func rescanControl(for section: OrganizeOverviewSection) -> some View {
-        if let pass = OrganizePass(producing: section.lens), pass.answersOneLens,
-           runnablePasses.contains(pass), !section.isScanning {
+        if offersRescan(for: section), let pass = OrganizePass(producing: section.lens) {
             Button(pass.rescanTitle) { onRun(pass) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -775,10 +831,14 @@ struct OrganizeOverview: View {
                     Text("\(section.lens.title) — not scanned")
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(.tertiary)
-                    // Runs the pass, like every other scan control on this screen. `nil` only for
-                    // Rules, which has no pass and never reaches here — it takes no section at all.
+                    // Runs the pass, like every other scan control on this screen — and **at most
+                    // once per pass**, which is the whole rule this screen exists to enforce.
+                    // Written per row it read fine and could put two identical "Run the file pass"
+                    // buttons on two stranded lenses of one walk: the old footer's defect, rebuilt
+                    // inside its replacement. `nil` only for Rules, which takes no section at all.
                     if let pass = OrganizePass(producing: section.lens),
-                       runnablePasses.contains(pass) {
+                       runnablePasses.contains(pass),
+                       firstStrandedLens(of: pass) == section.lens {
                         Button(pass.runTitle) { onRun(pass) }
                             .buttonStyle(.plain)
                             .scaledFont(.system(size: 11, weight: .semibold))
