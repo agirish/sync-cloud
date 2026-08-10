@@ -35,6 +35,42 @@ public actor ContentHashCache {
     /// cannot add stored properties — can reach it.
     public static let shared = ContentHashCache()
 
+    /// Every persisted digest index the app keeps, as one list.
+    ///
+    /// **A list in one place, because a list spread across call sites is what breaks** — the same
+    /// argument `clearLensResultsForProviderSwitch` makes for lens results, and it broke here
+    /// exactly as predicted: Settings ▸ Saved scan data sized and cleared
+    /// ``shared`` alone, so the day ``sharedFingerprints`` arrived, "Clear" stopped meaning what
+    /// its caption says ("clearing costs time on the next scan and nothing else") — the document
+    /// fingerprints survived it and kept being served. Adding an index means adding it here, and
+    /// `theRosterHoldsEveryPersistedDigestIndex` fails until it is.
+    public static var allPersisted: [ContentHashCache] { [.shared, .sharedFingerprints] }
+
+    /// Bytes every persisted index occupies together, or nil when none of them is written.
+    ///
+    /// `caches` is a parameter purely so tests can exercise the summing on their OWN instances:
+    /// pointing the shared ones at a temp file would leave every other test in the process — most
+    /// of which reach `.shared` implicitly through `findDuplicates`'s default — talking to a path
+    /// this test then deletes.
+    public static func totalPersistedSizeOnDisk(
+        _ caches: [ContentHashCache] = allPersisted
+    ) async -> Int? {
+        var total: Int?
+        for cache in caches {
+            guard let bytes = await cache.persistedSizeOnDisk() else { continue }
+            total = (total ?? 0) + bytes
+        }
+        return total
+    }
+
+    /// Forgets every persisted index — memory and disk, for each. `caches` is injectable for the
+    /// same reason as above.
+    public static func forgetAllPersistedIndexes(
+        _ caches: [ContentHashCache] = allPersisted
+    ) async {
+        for cache in caches { await cache.forgetPersistedIndex() }
+    }
+
     /// The same store, holding ``ContentFingerprint`` digests instead of SHA-256 content hashes.
     ///
     /// **A second instance, not a second namespace inside the first.** The key shape is identical

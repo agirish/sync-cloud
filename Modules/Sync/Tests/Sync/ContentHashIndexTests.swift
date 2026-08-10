@@ -359,3 +359,47 @@ import Testing
                 == first.duplicateGroups.first?.copies.count)
     }
 }
+
+/// The persisted-index roster. Settings sizes and clears "File digests" through it, so an index
+/// missing from the list is an index the Clear button silently leaves on disk.
+@Suite struct PersistedDigestIndexRosterTests {
+
+    @Test func theRosterHoldsEveryPersistedDigestIndex() {
+        // Identity, not count: this is what fails if one is dropped from the list.
+        let roster = ContentHashCache.allPersisted
+        #expect(roster.contains { $0 === ContentHashCache.shared })
+        #expect(roster.contains { $0 === ContentHashCache.sharedFingerprints })
+    }
+
+    @Test func sizingAndClearingCoverEveryCacheOnTheRoster() async throws {
+        // Local instances, never the singletons: most tests in this package reach `.shared`
+        // implicitly through `findDuplicates`'s default argument, and repointing it at a temp file
+        // this test deletes would follow them for the rest of the process.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IndexRoster-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let caches = [ContentHashCache(), ContentHashCache()]
+        for (i, cache) in caches.enumerated() {
+            await cache.enablePersistence(at: dir.appendingPathComponent("index-\(i).json"))
+            await cache.store(String(repeating: "a", count: 64),
+                              for: ContentHashKey(path: "/x/\(i).pdf", mtime: 1, size: 10))
+            await cache.save()
+        }
+        ContentHashIndexStore.waitForPendingWrites()
+
+        var individually = 0
+        for cache in caches { individually += await cache.persistedSizeOnDisk() ?? 0 }
+        #expect(individually > 0)
+        // The sum covers EVERY cache handed to it — with only the first counted this fails.
+        #expect(await ContentHashCache.totalPersistedSizeOnDisk(caches) == individually)
+
+        await ContentHashCache.forgetAllPersistedIndexes(caches)
+        ContentHashIndexStore.waitForPendingWrites()
+        for (i, cache) in caches.enumerated() {
+            #expect(await cache.persistedSizeOnDisk() == nil)
+            #expect(await cache.hash(for: ContentHashKey(path: "/x/\(i).pdf", mtime: 1, size: 10)) == nil)
+        }
+    }
+}

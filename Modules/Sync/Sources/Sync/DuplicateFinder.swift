@@ -756,6 +756,10 @@ public enum DuplicateFinder {
             // another group already promised to keep costs nothing and keeps this group actionable.
             let pool = protectedPaths.isEmpty ? members : members.filter { protectedPaths.contains($0.path) }
             let keeper = pool[chooseKeeper(pool)]
+            // A SECOND protected member leaves the group rather than appearing in it: it can be
+            // neither the keeper (taken) nor removable, so it has nowhere safe to sit — the same
+            // call `protectingFolderKeepers` makes, for the same reason. It stays marked as grouped
+            // below, so nothing downstream picks it up again.
             let removable = members.filter { $0.path != keeper.path && !protectedPaths.contains($0.path) }
             guard !removable.isEmpty else { continue }
 

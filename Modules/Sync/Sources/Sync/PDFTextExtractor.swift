@@ -10,37 +10,27 @@ import PDFKit
 /// and can never be unit-tested. Keeping it in `Sync` is what lets the extraction rules (page cap,
 /// locked documents, evicted iCloud files) have tests at all.
 ///
-/// The synchronous parse runs on its own queue, never on the cooperative pool — the same reason
-/// `ContentSignalExtractor` has one. A full-tree pass is 10,569 documents.
+/// The parse runs on ``PDFKitSerialAccess``'s lane — off the cooperative pool, and one at a time
+/// across the whole process. A full-tree pass is 10,569 documents.
+///
+/// **Why the lane, and not merely "off the main thread".** This reader started out on a private
+/// `.concurrent` queue, six parses at a time. The corpus replay caught it: the same 10,569
+/// documents, the same binary, two runs back to back produced **226 groups and then 235**. Reading
+/// every document serially once and then concurrently twice showed **~1% extract different text
+/// under concurrency** while serial passes were byte-for-byte identical — PDFKit's text extraction
+/// is not thread-safe, and the affected files are the ones whose embedded fonts need substitution.
+/// A private *serial* queue then fixed this reader against itself and nothing more, because
+/// `ContentSignalExtractor` was parsing PDFs on its own queue at the same time and two serial
+/// queues race exactly like one concurrent one. Hence the process-wide lane.
+///
+/// A fingerprint that flaps is worse than no fingerprint: the cache would hold one digest and the
+/// next scan compute another, so groups would appear and vanish between scans, and two copies of
+/// one document read in the same batch could be handed different digests and missed. The price is
+/// bounded — ~5.5 minutes for the full tree on a COLD scan against ~46 s, and nothing afterwards,
+/// because every digest is cached by (path, mtime, size).
 public enum PDFTextExtractor {
 
     private static let maxCharsPerPage = 20_000
-
-    /// **Serialized, and that is a correctness requirement rather than a style choice.**
-    ///
-    /// This started out `.concurrent`, six parses at a time, like `ContentSignalExtractor`'s queue.
-    /// The corpus replay caught it: the same 10,569 documents, the same binary, two runs back to
-    /// back produced **226 groups and then 235**. Isolating it — read every document serially once,
-    /// then concurrently twice — showed **~1% of documents extract different text under
-    /// concurrency**, and disagree with each other run to run, while serial passes over those same
-    /// documents were byte-for-byte identical. PDFKit's text extraction is not thread-safe; the
-    /// affected files are ones whose embedded fonts need substitution (a whole folder of PG&E
-    /// bills, a run of mortgage statements), which is consistent with a race in the shared font
-    /// machinery underneath.
-    ///
-    /// A fingerprint that flaps is worse than no fingerprint: the cache would hold one digest and
-    /// the next scan compute another, so groups would appear and vanish between scans, and two
-    /// copies of one document read in the same batch could be handed different digests and missed.
-    ///
-    /// The price is real and bounded — the full tree goes from ~46 s of wall time to ~4 minutes on
-    /// a COLD scan, and to nothing at all afterwards, because every digest is cached by (path,
-    /// mtime, size). Callers may still issue reads concurrently; they simply queue here.
-    ///
-    /// **The lane is ``PDFKitSerialAccess``, not a queue of this type's own.** A private serial
-    /// queue here protected this reader from itself and nothing more: `ContentSignalExtractor` was
-    /// parsing PDFs on its own queue at the same time, and two serial queues race exactly like one
-    /// concurrent one — 4.5–6.3% of documents flapped, against 0% with the lane to itself. See that
-    /// type for the measurement.
 
     /// The document at `path`, or nil when there is nothing to read: not a PDF, unparseable,
     /// password-locked, or an iCloud file that is not on this disk.
@@ -49,6 +39,10 @@ public enum PDFTextExtractor {
     }
 
     /// Synchronous half, so tests can drive it without an executor.
+    ///
+    /// **Call it on ``PDFKitSerialAccess``'s lane, or from a test that is the only reader.** It is
+    /// the parse itself, with none of the serialization — the lane is taken by ``read(atPath:)``
+    /// above, not here.
     static func readSync(_ path: String) -> ExtractedDocument? {
         guard ContentFingerprint.canFingerprint(path: path) else { return nil }
         let url = URL(fileURLWithPath: path)

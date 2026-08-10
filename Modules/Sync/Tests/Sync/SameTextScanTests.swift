@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import Sync
@@ -157,5 +158,122 @@ import Testing
                                      textFingerprint: { log.record($0); return "FP" },
                                      fingerprintCache: cache)
         #expect(log.recorded.filter { $0 == edited.path }.count == 2)
+    }
+
+    // MARK: What the review pass found
+
+    @MainActor
+    @Test func theProgressBarEndsTheReadingPhaseFull() async throws {
+        // The `done == total` progress hop is an unstructured main-actor Task, and the scan's
+        // `defer` bumps the epoch on the way out — so without a deterministic terminal publish the
+        // bar can be dropped at the last 50-multiple and sit there for the rest of the scan. This
+        // is the long phase now, so that is minutes of a bar frozen just short of full.
+        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<60 {
+            try write(root.appendingPathComponent("docs/doc-\(i).pdf"), bytes: 6000 + i, fill: UInt8(i % 251))
+        }
+
+        let manager = FileSyncManager()
+        var seen: [(completed: Int, total: Int)] = []
+        let cancellable = manager.$duplicateScanProgress.sink { if let p = $0 { seen.append(p) } }
+        defer { cancellable.cancel() }
+
+        await manager.findDuplicates(root: root,
+                                     textFingerprint: { _ in nil },
+                                     fingerprintCache: nil)
+
+        // The reading phase's own totals — 60 documents, distinct from the hashing phase's.
+        let reading = seen.filter { $0.total == 60 }
+        #expect(!reading.isEmpty)
+        #expect(reading.last?.completed == 60)
+    }
+
+    @MainActor
+    @Test func oneCacheInstanceForBothDigestKindsIsRefusedRatherThanConfused() async throws {
+        // Both caches key on (path, mtime, size) and both store a 64-hex string, so a single
+        // instance holding both would let a file's SHA-256 be served as its fingerprint with
+        // nothing about the value to give it away. The scan declines the cache instead.
+        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
+        try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
+
+        let shared = ContentHashCache()
+        let log = ReadLog()
+        let manager = FileSyncManager()
+        for _ in 0..<2 {
+            manager.clearDuplicates()
+            await manager.findDuplicates(root: root, cache: shared,
+                                         textFingerprint: { log.record($0); return "FP" },
+                                         fingerprintCache: shared)
+        }
+
+        // Still finds the group — the guard costs re-reading, never correctness…
+        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
+        // …and every read went to the extractor, because no fingerprint was cached under a key the
+        // content hashes also own.
+        #expect(log.recorded.count == 4)
+    }
+
+    @MainActor
+    @Test func aSameTextGroupSurvivesApplyRecommended() async throws {
+        // The call-site half of `isRecommendedForBatch`. The group property is pinned in
+        // DuplicateFinderSameTextTests; this is the check that the manager's batch actually
+        // consults it — a filter dropped here would leave that property true and unused.
+        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kept = root.appendingPathComponent("Utilities/Jul 2023.pdf")
+        let other = root.appendingPathComponent("Downloads/9829custbill.pdf")
+        try write(kept, bytes: 6000, fill: 0x41)
+        try write(other, bytes: 6040, fill: 0x42)
+        try write(root.appendingPathComponent("Utilities/u-only.txt"), bytes: 8, fill: 0x61)
+        try write(root.appendingPathComponent("Downloads/d-only.txt"), bytes: 12, fill: 0x62)
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root,
+                                     textFingerprint: { $0.hasSuffix(".pdf") ? "FP" : nil },
+                                     fingerprintCache: nil)
+        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
+
+        await manager.applyRecommendedDuplicates(manager.duplicateGroups)
+
+        // Both copies still on disk, and the group still listed for a per-group look.
+        #expect(FileManager.default.fileExists(atPath: kept.path))
+        #expect(FileManager.default.fileExists(atPath: other.path))
+        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
+    }
+
+    @MainActor
+    @Test func resolvingACopyOutOfBandUpdatesEVERYGroupHoldingIt() async throws {
+        // `groupedFilePaths` used to guarantee a file was in at most one file group, and
+        // `removeResolvedDuplicateCopy` relied on it by taking the FIRST match. The same-text pass
+        // broke that on purpose: an identical group's keeper may also anchor a same-text group.
+        // Trash it from the Compare review and the first-match version left the other group listing
+        // a file that is now in the Trash.
+        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        // A and Copy are byte-identical; Restamped has the same text but different bytes.
+        try write(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
+        try write(root.appendingPathComponent("Copy/bill.pdf"), bytes: 6000, fill: 0x41)
+        try write(root.appendingPathComponent("B/restamped.pdf"), bytes: 6040, fill: 0x42)
+        try write(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
+        try write(root.appendingPathComponent("Copy/c-only.txt"), bytes: 9, fill: 0x62)
+        try write(root.appendingPathComponent("B/b-only.txt"), bytes: 10, fill: 0x63)
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root,
+                                     textFingerprint: { $0.hasSuffix(".pdf") ? "FP" : nil },
+                                     fingerprintCache: nil)
+
+        let identical = try #require(manager.duplicateGroups.first { $0.matchType == .identical })
+        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
+        let anchor = identical.keeper.path
+        // The fixture is only meaningful if that one path really is in both groups.
+        #expect(manager.duplicateGroups.filter { $0.copies.contains { $0.id == anchor } }.count == 2)
+
+        manager.removeResolvedDuplicateCopy(atPath: anchor)
+
+        #expect(manager.duplicateGroups.allSatisfy { !$0.copies.contains { $0.id == anchor } })
     }
 }

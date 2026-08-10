@@ -2831,7 +2831,7 @@ struct AdvancedSettingsTab: View {
                             .foregroundStyle(.secondary)
                         Button("Clear") {
                             Task {
-                                await ContentHashCache.shared.forgetPersistedIndex()
+                                await ContentHashCache.forgetAllPersistedIndexes()
                                 // The barrier is a blocking `writeQueue.sync`, and this Task runs
                                 // on the main actor — parked behind a queued multi-megabyte index
                                 // write (a Verify save that just fired, say) it is a beachball.
@@ -2884,11 +2884,14 @@ struct AdvancedSettingsTab: View {
         .task { await refreshSavedScanData() }
     }
 
-    /// Stats the two saved-scan-data files. The hash index's size is asked of the cache actor
-    /// rather than of the store, because only the actor knows whether persistence was enabled at
-    /// all — a location the app injects and tests never do.
+    /// Stats the saved-scan-data files. The digest sizes are asked of the cache actors rather than
+    /// of the store, because only an actor knows whether persistence was enabled at all — a
+    /// location the app injects and tests never do. "File digests" is every persisted digest index
+    /// summed (content hashes and document fingerprints), not just the first one: they are one
+    /// answer to "how much is this storing, and make it stop", and a Clear that left half of it
+    /// behind would contradict this section's own caption.
     private func refreshSavedScanData() async {
-        let hashBytes = await ContentHashCache.shared.persistedSizeOnDisk()
+        let hashBytes = await ContentHashCache.totalPersistedSizeOnDisk()
         let storageBytes = syncManager?.storedStorageLensSizeOnDisk()
         // Zero-byte files read as "None": a store that has been cleared leaves an empty payload
         // behind in the Storage case, and offering Clear for 0 bytes is offering nothing.

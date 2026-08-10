@@ -150,6 +150,18 @@ extension FileSyncManager {
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
+        // The two caches must not be the same instance. They share a key shape — (path, mtime,
+        // size) — and both store a 64-hex string, so one instance holding both would let a file's
+        // SHA-256 be served as its fingerprint and vice versa, silently and with nothing about the
+        // value to give it away. `ContentHashCache.sharedFingerprints` exists to make that
+        // unwriteable; this is what makes that claim true rather than a comment. Declining the
+        // cache rather than trapping: the cost is re-reading documents, and a crash over a caching
+        // mistake is the worse outcome.
+        let documentCache: ContentHashCache? =
+            (fingerprintCache != nil && fingerprintCache === cache) ? nil : fingerprintCache
+        if documentCache == nil, fingerprintCache != nil {
+            Logger.shared.warning("Tidy: the document-fingerprint cache and the content-hash cache are the same instance — reading documents without a cache rather than letting one serve the other's digests")
+        }
         let epoch = beginScan(\.duplicateScanLifecycle, status: "Scanning \(root.lastPathComponent)…")
         duplicateScanProgress = nil   // walk phase — total unknown until candidates are counted
         // hasCompleted is set only on completion (below), so a cancelled scan leaves the
@@ -235,7 +247,7 @@ extension FileSyncManager {
         //     each PDF on download, so the same bill fetched twice is byte-different with identical
         //     content. Every fingerprintable document is read, NOT just the size-colliding hash
         //     candidates above — measured on the real tree, restricting the pass to files that
-        //     already share a size would find 115 of the 212 groups it finds unrestricted, because
+        //     already share a size would find 119 of the 251 groups it finds unrestricted, because
         //     a re-stamp routinely changes the byte count too (a compressed re-save changes it by
         //     an order of magnitude). Cached by (path, mtime, size), so this is paid once.
         var textFingerprints: [String: String] = [:]
@@ -249,10 +261,16 @@ extension FileSyncManager {
                            status: "Reading \(documentTotal) document\(documentTotal == 1 ? "" : "s")…")
                 duplicateScanProgress = (completed: 0, total: documentTotal)
                 textFingerprints = await Self.fingerprintDocuments(
-                    documentPaths, fileManager: fileManager, cache: fingerprintCache,
+                    documentPaths, fileManager: fileManager, cache: documentCache,
                     extract: textFingerprint
                 ) { [weak self] done in
-                    if done % 50 == 0 || done == documentTotal {
+                    // Every 50, and deliberately NOT also on the last one. The hashing phase above
+                    // publishes `done == total` from here as well as terminally, which is harmless
+                    // but makes the terminal publish untestable — the racing hop usually lands, so
+                    // deleting the terminal publish leaves every assertion green and the bug only
+                    // shows up under load. With the interval hops alone, the full value has exactly
+                    // one source and a test can hold it to that.
+                    if done % 50 == 0 {
                         Task { @MainActor in
                             guard let self,
                                   self.updateScan(\.duplicateScanLifecycle, epoch: epoch,
@@ -262,9 +280,20 @@ extension FileSyncManager {
                     }
                 }
                 textUnreadable = documentTotal - textFingerprints.count
+                // Deterministic terminal publish, for the same reason the hashing phase above has
+                // one: the `done == documentTotal` update is an unstructured main-actor Task that
+                // can lose the race against this resumption, and the defer's epoch bump then drops
+                // it — leaving the bar at the last 50-multiple. It matters MORE here than there,
+                // because this is now the long phase (minutes on a cold tree), so a bar frozen at
+                // "Reading 10,550 of 10,569" is what the user stares at for the rest of the scan.
+                if !Task.isCancelled {
+                    updateScan(\.duplicateScanLifecycle, epoch: epoch,
+                               status: "Reading \(documentTotal) of \(documentTotal)…")
+                    duplicateScanProgress = (completed: documentTotal, total: documentTotal)
+                }
                 // Same contract as the content hashes above: the reading has happened whatever the
                 // grouping below decides, so a cancellation must not throw the digests away.
-                await fingerprintCache?.save()
+                await documentCache?.save()
             }
         }
         if Task.isCancelled { return }
@@ -985,11 +1014,21 @@ extension FileSyncManager {
     /// figures, or removes the whole group when only the keeper is left. Matched by absolute path;
     /// a no-op if the path isn't in any current group.
     public func removeResolvedDuplicateCopy(atPath path: String) {
-        guard let idx = duplicateGroups.firstIndex(where: { $0.copies.contains { $0.id == path } }) else { return }
-        if let updated = duplicateGroups[idx].removingRedundantCopy(atPath: path) {
-            duplicateGroups[idx] = updated
-        } else {
-            duplicateGroups.remove(at: idx)
+        // EVERY group holding the path, not the first — one file can now legitimately be in two.
+        // `groupedFilePaths` used to guarantee a file appeared in at most one file group, and
+        // `firstIndex` was correct because of it; the same-text pass broke that invariant on
+        // purpose, by letting an identical group's KEEPER anchor a same-text group as well (see
+        // `sameTextFileGroups`). Trash that keeper out-of-band from the Compare review and the
+        // first-match version updated one group and left the other listing a file that is now in
+        // the Trash — not destructive, because `keeperStillExists` refuses the resolve, but the
+        // user is told to rescan for something the app was holding the answer to.
+        for idx in duplicateGroups.indices.reversed()
+        where duplicateGroups[idx].copies.contains(where: { $0.id == path }) {
+            if let updated = duplicateGroups[idx].removingRedundantCopy(atPath: path) {
+                duplicateGroups[idx] = updated
+            } else {
+                duplicateGroups.remove(at: idx)
+            }
         }
     }
 

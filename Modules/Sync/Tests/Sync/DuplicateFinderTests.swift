@@ -784,14 +784,20 @@ import Testing
         #expect(fallback.minFileSize == 4096)
         #expect(fallback.overlapThreshold == 0.7)
         #expect(fallback.detectVersions == true)
+        #expect(fallback.detectSameText == true)
 
         d.set(102_400, forKey: DuplicateFinderOptions.DefaultsKey.minFileSize)
         d.set(0.9, forKey: DuplicateFinderOptions.DefaultsKey.overlapThreshold)
         d.set(false, forKey: DuplicateFinderOptions.DefaultsKey.detectVersions)
+        // The Settings toggle writes this key and nothing else reads it. Left out of this test,
+        // the switch would have been inert with every other test still green — a new option is
+        // invisible to a fixture that only ever starts from the defaults.
+        d.set(false, forKey: DuplicateFinderOptions.DefaultsKey.detectSameText)
         let overridden = DuplicateFinderOptions.fromDefaults(d)
         #expect(overridden.minFileSize == 102_400)
         #expect(overridden.overlapThreshold == 0.9)
         #expect(overridden.detectVersions == false)
+        #expect(overridden.detectSameText == false)
     }
 
     @Test func nestedSameNameFoldersDoNotFormAGroup() {
