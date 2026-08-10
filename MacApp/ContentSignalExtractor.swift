@@ -51,24 +51,12 @@ enum ContentSignalExtractor {
     /// v2.x line still does, costs 106 s against 198 s — and flaps at 1.69% rather than 0.83%, since
     /// exposure scales with how much of each document is touched.) A real scan reads only the files
     /// it is classifying, four at a time, so it pays a fraction of that 39 s.
-    private static let pdfQueue = DispatchQueue(label: "com.synccloud.content-signals.pdf",
-                                                qos: .utility)
-
-    /// The most PDF parses ever running at once on ``pdfQueue``. Test instrumentation only —
-    /// serialization cannot be asserted from the outside any other way, and a queue quietly made
-    /// concurrent again would otherwise be caught only by a sub-1%-of-documents flake on a tree no
-    /// test has. Nothing outside tests reads it.
-    private static let pdfConcurrencyLock = NSLock()
-    private nonisolated(unsafe) static var livePDFParses = 0
-    nonisolated(unsafe) static var peakConcurrentPDFParses = 0
-
-    static func resetPeakConcurrentPDFParses() {
-        pdfConcurrencyLock.lock()
-        // Deliberately leaves `livePDFParses` alone: zeroing it under an in-flight parse drives it
-        // negative on the next decrement, and the peak then never rises above zero.
-        peakConcurrentPDFParses = 0
-        pdfConcurrencyLock.unlock()
-    }
+    ///
+    /// **The lane is ``PDFKitSerialAccess``, shared with `PDFTextExtractor`, not one of this type's
+    /// own.** Two serial queues race exactly like one concurrent queue — 4.5–6.3% of documents
+    /// flapped when a second serial queue read PDFs alongside, against 0% with the lane to itself —
+    /// and a folder-memory survey and a duplicate scan guard only their own re-entrancy, so nothing
+    /// stops them extracting at the same time.
 
     /// The seam the manager injects: `syncManager.filingContentExtractor = ContentSignalExtractor.tokens(forFileAt:)`.
     static func tokens(forFileAt path: String) async -> Set<String> {
@@ -97,16 +85,7 @@ enum ContentSignalExtractor {
             workQueue.async {
                 let url = URL(fileURLWithPath: path)
                 guard !isEvictediCloudFile(url) else { return continuation.resume(returning: nil) }
-                let image: CGImage? = pdfQueue.sync {
-                    pdfConcurrencyLock.lock()
-                    livePDFParses += 1
-                    peakConcurrentPDFParses = max(peakConcurrentPDFParses, livePDFParses)
-                    pdfConcurrencyLock.unlock()
-                    defer {
-                        pdfConcurrencyLock.lock()
-                        livePDFParses -= 1
-                        pdfConcurrencyLock.unlock()
-                    }
+                let image: CGImage? = PDFKitSerialAccess.run {
                     guard let doc = PDFDocument(url: url), !doc.isLocked,
                           let page = doc.page(at: 0) else { return nil }
                     let bounds = page.bounds(for: .mediaBox)
@@ -192,24 +171,11 @@ enum ContentSignalExtractor {
     /// it is preserved exactly; what stops is reading past a page that already said plenty.
     private static let enoughFromOnePage = 600
 
-    /// Runs the PDF parse on ``pdfQueue``. `sync` rather than `async`: the caller is already off the
-    /// cooperative pool on ``workQueue``, so blocking it is exactly the intent — several extractions
-    /// queue up here and take their turn. Never call this from `pdfQueue` itself (nothing does; the
-    /// only caller is `extractTextSync`, which runs on `workQueue`) — `DispatchQueue.sync` onto the
-    /// queue you are already on deadlocks.
+    /// Takes the PDFKit lane. The synchronous `run` rather than the async `perform` because this
+    /// caller is already off the cooperative pool on ``workQueue`` — blocking it is exactly the
+    /// intent, so several extractions queue up and take their turn.
     private static func pdfText(_ url: URL) -> String {
-        pdfQueue.sync {
-            pdfConcurrencyLock.lock()
-            livePDFParses += 1
-            peakConcurrentPDFParses = max(peakConcurrentPDFParses, livePDFParses)
-            pdfConcurrencyLock.unlock()
-            defer {
-                pdfConcurrencyLock.lock()
-                livePDFParses -= 1
-                pdfConcurrencyLock.unlock()
-            }
-            return pdfTextSync(url)
-        }
+        PDFKitSerialAccess.run { pdfTextSync(url) }
     }
 
     private static func pdfTextSync(_ url: URL) -> String {

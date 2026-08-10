@@ -2,6 +2,7 @@ import AppKit
 import CoreText
 import Foundation
 import ImageIO
+import Sync
 import Testing
 import UniformTypeIdentifiers
 @testable import SyncCloud
@@ -210,7 +211,7 @@ import UniformTypeIdentifiers
             try Self.writePDF(lines: (0..<5).map { "Statement page \($0) of document \(i)." }, to: p)
             return p
         }
-        ContentSignalExtractor.resetPeakConcurrentPDFParses()
+        PDFKitSerialAccess.resetPeakConcurrentParses()
 
         await withTaskGroup(of: Void.self) { group in
             for p in paths {
@@ -220,7 +221,7 @@ import UniformTypeIdentifiers
         }
 
         // Non-vacuity: if nothing was parsed, the peak is trivially 1 and proves nothing.
-        let peak = ContentSignalExtractor.peakConcurrentPDFParses
+        let peak = PDFKitSerialAccess.peakConcurrentParses
         #expect(peak == 1, "\(peak) PDF parses overlapped — extraction is no longer serialized")
     }
 
@@ -234,7 +235,7 @@ import UniformTypeIdentifiers
             try Self.writePDF(lines: ["MARKER\(i) statement policy"], to: p)
             return p
         }
-        ContentSignalExtractor.resetPeakConcurrentPDFParses()
+        PDFKitSerialAccess.resetPeakConcurrentParses()
         let texts = await withTaskGroup(of: String?.self) { group -> [String] in
             for p in paths { group.addTask { await ContentSignalExtractor.snippet(forFileAt: p) } }
             var out: [String] = []
@@ -242,7 +243,7 @@ import UniformTypeIdentifiers
             return out
         }
         #expect(texts.count == 6, "only \(texts.count) of 6 documents were read")
-        #expect(ContentSignalExtractor.peakConcurrentPDFParses >= 1,
+        #expect(PDFKitSerialAccess.peakConcurrentParses >= 1,
                 "the counter never moved — it is not observing the parse")
     }
 }

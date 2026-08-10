@@ -149,14 +149,58 @@ import Testing
             urls.append(url)
         }
 
-        PDFTextExtractor.resetPeakConcurrentParses()
+        PDFKitSerialAccess.resetPeakConcurrentParses()
         await withTaskGroup(of: String?.self) { group in
             for url in urls { group.addTask { await PDFTextExtractor.fingerprint(url.path) } }
             var digests: [String?] = []
             for await d in group { digests.append(d) }
             #expect(digests.compactMap { $0 }.count == urls.count)
         }
-        #expect(PDFTextExtractor.peakConcurrentParses == 1)
+        #expect(PDFKitSerialAccess.peakConcurrentParses == 1)
+    }
+
+    /// **The lane is process-wide, not per-reader — that is the whole point of it.**
+    ///
+    /// A private serial queue on this type protected it from itself and nothing else: Filing's
+    /// `ContentSignalExtractor` was parsing PDFs on its own queue at the same time, and two serial
+    /// queues race exactly like one concurrent one. Measured over 176 real Chase statements: a
+    /// serial pass agreed with itself across six runs (0 documents differing) and started
+    /// disagreeing on 4.5–6.3% of them as soon as a second serial queue read PDFs alongside.
+    ///
+    /// `ContentSignalExtractor` lives in `MacApp` and cannot be reached from this module, so what
+    /// is asserted here is the property that makes sharing work: reads issued through the lane's
+    /// two entry points at once still never overlap. A second lane anywhere fails the same way the
+    /// second queue did — invisibly — so the guard is that both doors lead to one room.
+    @Test func theLaneSerializesItsTwoEntryPointsAgainstEachOther() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var urls: [URL] = []
+        for i in 0..<12 {
+            let url = dir.appendingPathComponent("doc-\(i).pdf")
+            try writePDF(["\(sentence) number \(i)"], to: url)
+            urls.append(url)
+        }
+
+        PDFKitSerialAccess.resetPeakConcurrentParses()
+        await withTaskGroup(of: Void.self) { group in
+            for url in urls {
+                // The async door — what PDFTextExtractor.read uses.
+                group.addTask { _ = await PDFTextExtractor.read(atPath: url.path) }
+                // The synchronous door — what ContentSignalExtractor uses from its own queue.
+                group.addTask {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        DispatchQueue.global(qos: .utility).async {
+                            _ = PDFKitSerialAccess.run { PDFTextExtractor.readSync(url.path) }
+                            continuation.resume()
+                        }
+                    }
+                }
+            }
+        }
+        let peak = PDFKitSerialAccess.peakConcurrentParses
+        #expect(peak == 1, "\(peak) parses overlapped — the two entry points are not one lane")
+        // Non-vacuity: a peak of 1 is also what "nothing was ever parsed" produces.
+        #expect(peak >= 1, "the counter never moved — nothing went through the lane")
     }
 
     @Test func theAsyncSeamReturnsTheSameDigestAsTheSyncRead() async throws {
