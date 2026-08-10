@@ -927,10 +927,59 @@ shared with whom.
   axis, so its veto has counter-evidence, and **browsing has none**. The offer rule is deliberately
   looser than the attribution rule — `girish` names one person, so typing your father's name must
   offer him even though it cannot claim a file on its own.
-- **The page-text channel and the review queue** — page-1 anchors the survey already extracted, and
-  `person-tags.json` beside `people.json` for his verdicts. Weak evidence is not shown today; it is
-  *unreviewed*, and this is where it goes. Confirming a tag never moves a file — filing stays
-  Organize's move.
+- ~~**The page-text channel and the review queue**~~ — **shipped.** The rows stage 1 suppressed now
+  arrive as questions rather than vanishing: a shared word in the filename, or page 1 naming
+  somebody when the filename names nobody. `person-tags.json` holds his answers beside
+  `people.json`, keyed by the PDF text fingerprint where the document has one — so a verdict
+  survives the rename and move Organize exists to perform — and by path otherwise. Confirming never
+  moves a file. A rejection is the half that had to persist: the channels are deterministic, so
+  without a remembered "no" the same weak match returns on every gather forever.
+
+  **All four channels were replayed over the 1,375 person-filed corpus documents before the queue
+  was trusted with anything** (`PersonChannelReplayTests`), scored against the folder's own person
+  axis:
+
+  | channel | claimed | correct | precision | contradicts the tree |
+  |---|---|---|---|---|
+  | her folders | 1,375 | — | 100% by construction | — |
+  | named in file · strong | 157 | 155 | **98.7%** | 2 |
+  | named in file · weak | 36 | 35 | **97.2%** | 1 |
+  | named on page · strong | 254 | 239 | **94.1%** | 15 |
+  | named on page · weak | 31 | 27 | **87.1%** | 4 |
+  | page, precedence dropped | 324 | 302 | 93.2% | 22 |
+
+  **The limit matters more than the numbers, and the suite says so where they are printed.** Ground
+  truth exists only for documents a folder already claims — which are precisely the ones the queue
+  never holds, because a claimed document is attributed by the folder channel and never reaches
+  review. These are an *upper bound* on the queue's rows, not an estimate of them. What the replay
+  can honestly assert is the ordering — filename beats page, strong beats weak — and that is what it
+  asserts; the counts are printed, not pinned, because the tree is his live `~/Documents`.
+
+  **The page channel's problem turned out to be volume, not precision.** Asked of every document
+  whose filename names nobody, page 1 named *somebody* on **4,568** of them — 2,011 for one person
+  alone, and every sampled row was a joint household document: a swim-class invoice names the parent
+  who pays, a bank nomination form names the spouse who is the nominee. That is testimony, not
+  ownership. Requiring the page to name **exactly one person** takes it to **635** and keeps the case
+  the channel exists for — her disability claim, his bank KYC form, scans whose own names say
+  nothing. So page evidence only ever *queues*; it never claims a document the way a filename can.
+  Note what that gate is not: `dani` is unique to Shweta and passes the strength gate easily, and it
+  was on all 2,011 rows. Strength asks whether a word could mean somebody else; this asks whether the
+  document is about one person or a household.
+
+  Across the household the queue is **870 rows** — 420, 350 and 95 for the three people whose names
+  are shared, and one or two each for everyone else. The view lists twelve and states the remainder.
+
+  **A hazard that measured zero, and was therefore not built for.** The corpus stores page-1 anchors
+  **sorted and de-duplicated**, so word order is gone before anything reads them back: real phrases
+  cannot match, and phrases could in principle be *invented* out of alphabetical adjacency. A barrier
+  token between anchors was written to prevent that and then deleted — across 1,304 documents
+  carrying text it prevented exactly **zero**, and an inert mechanism carrying a paragraph of
+  justification is worse than the hazard it does not address. The replay pins the zero instead and
+  names the barrier as the fix if a roster change ever moves it.
+
+  `person-tags.json` is decoded **tag by tag**, because a synthesized decoder meeting one unknown
+  case is how the `personIs` rules were once silently wiped; an unrecognized verdict is carried and
+  written back verbatim rather than guessed at, and the shape is pinned against literal JSON.
 - **Person buckets that do not exist yet** — a *create the sibling* proposal, from the parent's
   evidence, the way a cold year bucket is already handled.
 - **A person block in the classifier brief**, so a backend reads "Shweta R Dani" as Shweta too.
@@ -1163,7 +1212,7 @@ the question hundreds of keeper picks actually raise.
 | 16 | Home workspace | Medium | Medium (after 1c) |
 | 18 | PDF content fingerprint | Medium | High |
 | 20 | Restructure — is the shape itself right | High | **High** |
-| 22 | People — editing, learning, and `personIs` rules (phase 1 shipped) | Medium, staged | **High** |
+| 22 | People — what remains is person buckets and the classifier brief (search, tags and rules shipped) | Medium, staged | **High** |
 
 ### Interface
 
