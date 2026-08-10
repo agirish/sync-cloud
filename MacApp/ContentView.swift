@@ -1577,11 +1577,16 @@ struct ContentView: View {
         personGatherTask?.cancel()
         personScope = PersonScope(person: person, phase: .gathering)
         let id = profile.profileId
+        // Snapshotted here, on the main actor, rather than read inside the sweep: the store is
+        // `@MainActor` and the sweep deliberately is not. A verdict recorded while a gather runs
+        // therefore lands in the *next* gather, which is right — the one in flight is answering the
+        // question as it stood when it was asked.
+        let tags = syncManager.filingPersonTagStore?.index ?? PersonTagIndex(tags: [])
         personGatherTask = Task {
             do {
                 let files = try await Self.gatherOffMainActor(
                     personId: person.id, profileId: id, directory: directory,
-                    profile: profile, registry: registry)
+                    profile: profile, registry: registry, tags: tags)
                 // **Both checks, and they close different holes.**
                 //
                 // `Task.isCancelled` — this gather was superseded or cleared. A cancel that lands
@@ -1639,7 +1644,8 @@ struct ContentView: View {
     /// Internal rather than private so the supersede suite can drive the real thing.
     nonisolated static func gatherOffMainActor(
         personId: String, profileId: String, directory: URL,
-        profile: FolderProfile, registry: PersonRegistry
+        profile: FolderProfile, registry: PersonRegistry,
+        tags: PersonTagIndex = PersonTagIndex(tags: [])
     ) async throws -> PersonFileSet? {
         // Bracketing the read: the decode is a synchronous ~90 ms that cannot be interrupted, so
         // these are the two points at which a gather cancelled during it can actually stop.
@@ -1647,7 +1653,41 @@ struct ContentView: View {
         guard let corpus = FilingSurveyStore.corpus(id: profileId, in: directory) else { return nil }
         try Task.checkCancellation()
         return try PersonFiles.gather(personId: personId, corpus: corpus,
-                                      profile: profile, registry: registry)
+                                      profile: profile, registry: registry, tags: tags)
+    }
+
+    /// Records a verdict on a review row, and takes the row off the screen.
+    ///
+    /// **Two halves, and the order matters.** The display is updated *first* and synchronously, so
+    /// the button press has an effect in the same frame; the durable half — deciding the key and
+    /// writing the file — follows on a task, because deciding the key means reading the document.
+    ///
+    /// **The key is the fingerprint where the document has one.** A digest over what a PDF *says*
+    /// survives the file being renamed and moved, which is exactly what Organize is for and exactly
+    /// what a path-keyed verdict would not survive. It costs one PDF read of one file, here, at the
+    /// moment of the decision — never for the 10,171 documents a gather walks. Anything that is not
+    /// a fingerprintable PDF (a photo, a `.docx`, a locked or image-only scan) falls back to the
+    /// path, which is the weaker promise honestly made rather than no verdict at all.
+    ///
+    /// Nothing here moves a file. Filing stays Organize's verb.
+    func recordPersonVerdict(_ person: Person, path: String, isTheirs: Bool) {
+        guard let store = syncManager.filingPersonTagStore else { return }
+        if let scope = personScope, scope.person == person, case .ready(let files) = scope.phase {
+            personScope = PersonScope(person: person,
+                                      phase: .ready(files.applying(verdict: isTheirs, to: path)))
+        }
+        guard let root = syncManager.filingFolderProfile?.root else { return }
+        let full = ((root as NSString).expandingTildeInPath as NSString)
+            .appendingPathComponent(path)
+        Task {
+            var key = PersonTagKey.path(path)
+            if ContentFingerprint.canFingerprint(path: full),
+               let digest = await PDFTextExtractor.fingerprint(full) {
+                key = .fingerprint(digest)
+            }
+            store.record(personId: person.id, key: key,
+                         verdict: isTheirs ? .confirmed : .rejected, path: path)
+        }
     }
 
     /// The one way out of a person gather, from every exit — the ✕, Esc, and leaving the
@@ -2570,7 +2610,10 @@ struct ContentView: View {
                            let full = (root as NSString).appendingPathComponent(relative)
                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                        },
-                       onClear: { clearPersonScope() })
+                       onClear: { clearPersonScope() },
+                       onVerdict: { relative, isTheirs in
+                           recordPersonVerdict(scope.person, path: relative, isTheirs: isTheirs)
+                       })
                 // **Esc clears it, which the ✕'s own tooltip has been promising.** Nothing was
                 // wired to the key: the help text said "(Esc)" and the only way out was the ✕ —
                 // a control describing a shortcut that does not exist.

@@ -1,0 +1,226 @@
+import Testing
+import Foundation
+@testable import Sync
+
+/// `person-tags.json` — the file, its forward compatibility, and the store that writes it.
+///
+/// **Pinned against literal JSON, not against a round-trip through this build's own encoder.** A
+/// round-trip test passes just as happily when both halves are wrong together, which is precisely
+/// the failure that matters for a file another build has to read.
+@Suite struct PersonTagTests {
+
+    // MARK: - The file, as bytes
+
+    /// The exact shape written today. A change to any of these key names is a change to a file
+    /// other builds read, and has to be a deliberate one.
+    static let literal = """
+        {
+          "schemaVersion": 1,
+          "tags": [
+            {
+              "at": "Shared/Inbox/Scan 2026-03-14.pdf",
+              "fingerprint": "pdf-text-1:9f2c",
+              "person": "aditi",
+              "verdict": "confirmed"
+            },
+            {
+              "path": "Financial/Abhishek - Family insurance card.pdf",
+              "person": "shweta",
+              "verdict": "rejected"
+            }
+          ]
+        }
+        """
+
+    @Test func decodesTheFileAsWritten() throws {
+        let file = try JSONDecoder().decode(PersonTagFile.self,
+                                            from: Data(Self.literal.utf8))
+        #expect(file.tags.count == 2)
+        let aditi = try #require(file.tags.first { $0.personId == "aditi" })
+        #expect(aditi.key == .fingerprint("pdf-text-1:9f2c"))
+        #expect(aditi.verdict == .confirmed)
+        #expect(aditi.recordedPath == "Shared/Inbox/Scan 2026-03-14.pdf")
+        let shweta = try #require(file.tags.first { $0.personId == "shweta" })
+        #expect(shweta.key == .path("Financial/Abhishek - Family insurance card.pdf"))
+        #expect(shweta.verdict == .rejected)
+        // A path-keyed tag names its file in the key, so it needs no separate `at` to be readable.
+        #expect(shweta.recordedPath == "Financial/Abhishek - Family insurance card.pdf")
+    }
+
+    /// What this build writes is what this build reads — asserted against the literal above rather
+    /// than against itself.
+    @Test func writesTheFileTheSameWayItReadsIt() throws {
+        let decoded = try JSONDecoder().decode(PersonTagFile.self, from: Data(Self.literal.utf8))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(decoded)
+        let text = String(decoding: data, as: UTF8.self)
+        for fragment in ["\"person\" : \"aditi\"", "\"verdict\" : \"confirmed\"",
+                         "\"fingerprint\" : \"pdf-text-1:9f2c\"",
+                         "\"path\" : \"Financial/Abhishek - Family insurance card.pdf\"",
+                         "\"schemaVersion\" : 1"] {
+            #expect(text.contains(fragment), "missing \(fragment) in\n\(text)")
+        }
+    }
+
+    // MARK: - The failure this file is shaped to avoid
+
+    /// **A verdict this build has never heard of costs that tag and nothing else.**
+    ///
+    /// This is the `personIs` data-loss bug asked in a different place: rule conditions were one
+    /// blob with a synthesized decoder, so meeting one unknown case threw on the whole array and
+    /// silently wiped every rule the user had. Here the container decodes tag by tag, so a future
+    /// `"maybe"` is skipped and the two verdicts either side of it survive.
+    @Test func oneUnknownVerdictDoesNotTakeTheFileWithIt() throws {
+        let fromTheFuture = """
+            {
+              "schemaVersion": 1,
+              "tags": [
+                { "path": "a.pdf", "person": "aditi", "verdict": "confirmed" },
+                { "path": "b.pdf", "person": "aditi", "verdict": "maybe", "confidence": 0.4 },
+                { "path": "c.pdf", "person": "divit", "verdict": "rejected" }
+              ]
+            }
+            """
+        let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(fromTheFuture.utf8))
+        #expect(file.tags.count == 3, "an unknown verdict must not cost the tags around it")
+        #expect(file.tags.map(\.personId) == ["aditi", "aditi", "divit"])
+        #expect(file.tags[1].verdict == .unrecognized("maybe"))
+        #expect(file.tags[1].verdict.isActionable == false,
+                "an unknown verdict must never be acted on — guessing it means yes is a wrong answer")
+    }
+
+    /// A structurally broken tag — one naming no document at all — costs itself, and the loop still
+    /// advances past it rather than stopping there.
+    @Test func aMalformedTagCostsOnlyItself() throws {
+        let broken = """
+            {
+              "tags": [
+                { "person": "aditi", "verdict": "confirmed" },
+                { "path": "b.pdf", "person": "divit", "verdict": "confirmed" },
+                "not even an object",
+                { "path": "c.pdf", "person": "muktha", "verdict": "rejected" }
+              ]
+            }
+            """
+        let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
+        #expect(file.tags.map(\.personId) == ["divit", "muktha"],
+                "the two readable tags after the broken ones must survive")
+    }
+
+    /// **The verbatim round-trip.** An unrecognized verdict read from a newer build has to go back
+    /// to disk exactly as it arrived — a build that quietly rewrote `"maybe"` as `"rejected"`, or
+    /// dropped it, would be destroying the newer build's data while looking like it worked.
+    @MainActor @Test func anUnknownVerdictIsWrittenBackUntouched() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("person-tags-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profileDir = dir.appendingPathComponent("p")
+        try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
+        let url = profileDir.appendingPathComponent("person-tags.json")
+        try Data("""
+            {
+              "schemaVersion": 1,
+              "tags": [
+                { "at": "b.pdf", "fingerprint": "fp-b", "person": "aditi", "verdict": "maybe" }
+              ]
+            }
+            """.utf8).write(to: url)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        #expect(store.tags.isEmpty, "an unactionable verdict is carried, not offered as a verdict")
+        // Any write at all rewrites the whole file — which is the moment a carried tag would be lost.
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.count == 2, "the carried tag must still be in the file")
+        let carried = try #require(reread.tags.first { $0.personId == "aditi" })
+        #expect(carried.verdict == .unrecognized("maybe"))
+        #expect(carried.key == .fingerprint("fp-b"))
+        #expect(carried.recordedPath == "b.pdf")
+    }
+
+    // MARK: - The store
+
+    @MainActor
+    private func makeStore() throws -> (PersonTagStore, URL) {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("person-tags-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return (PersonTagStore(directory: dir, profileId: "p"), dir)
+    }
+
+    /// Changing your mind leaves **one** verdict, not two that disagree.
+    @MainActor @Test func aSecondVerdictReplacesTheFirst() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        #expect(store.tags.count == 1)
+        #expect(store.tags[0].verdict == .confirmed)
+    }
+
+    /// The same document can belong to a verdict for two different people without them colliding.
+    @MainActor @Test func verdictsAreKeyedPerPersonAsWellAsPerDocument() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        #expect(store.tags.count == 2)
+        let index = store.index
+        #expect(index.verdict(personId: "aditi", path: "a.pdf") == .confirmed)
+        #expect(index.verdict(personId: "divit", path: "a.pdf") == .rejected)
+        #expect(index.verdict(personId: "shweta", path: "a.pdf") == nil)
+    }
+
+    @MainActor @Test func aVerdictSurvivesReopeningTheStore() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.record(personId: "aditi", key: .fingerprint("fp"), verdict: .rejected, path: "a.pdf")
+        let reopened = PersonTagStore(directory: dir, profileId: "p")
+        #expect(reopened.index.verdict(personId: "aditi", path: "a.pdf", fingerprint: "fp")
+                == .rejected)
+    }
+
+    /// Withdrawing puts the document back in front of the channels — the undo for a misclick, and
+    /// the only way a row returns to the queue.
+    @MainActor @Test func clearingAVerdictPutsTheRowBack() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        store.clear(personId: "aditi", key: .path("a.pdf"))
+        #expect(store.tags.isEmpty)
+        #expect(store.index.verdict(personId: "aditi", path: "a.pdf") == nil)
+    }
+
+    // MARK: - Finding a verdict again
+
+    /// **A fingerprint-keyed verdict is findable at the path it was made at.**
+    ///
+    /// Without this the durable key would be inert in the surface that uses it: a gather walks
+    /// paths, nothing computes 10,171 digests to answer "whose is this?", and the persisted
+    /// fingerprint index only exists once a Tidy scan has run. The digest is still the key — it is
+    /// what survives the file moving — but the recorded path is how the queue finds it before
+    /// anything has fingerprinted the tree.
+    @Test func aFingerprintKeyedVerdictIsFoundByPathWhenNoDigestIsInHand() {
+        let index = PersonTagIndex(tags: [
+            PersonTag(personId: "aditi", key: .fingerprint("fp"), verdict: .rejected,
+                      recordedPath: "Shared/Inbox/Scan.pdf")
+        ])
+        #expect(index.verdict(personId: "aditi", path: "Shared/Inbox/Scan.pdf") == .rejected)
+        #expect(index.verdict(personId: "aditi", path: "Moved/Scan.pdf", fingerprint: "fp")
+                == .rejected,
+                "the digest is the durable key — the file moving must not lose the verdict")
+        #expect(index.verdict(personId: "aditi", path: "Other/Unrelated.pdf") == nil)
+    }
+
+    /// An unrecognized verdict is carried in the file but never answers a question.
+    @Test func anUnknownVerdictIsNotAnAnswer() {
+        let index = PersonTagIndex(tags: [
+            PersonTag(personId: "aditi", key: .path("a.pdf"), verdict: .unrecognized("maybe"),
+                      recordedPath: "a.pdf")
+        ])
+        #expect(index.verdict(personId: "aditi", path: "a.pdf") == nil)
+        #expect(index.confirmedPaths(for: "aditi").isEmpty)
+    }
+}

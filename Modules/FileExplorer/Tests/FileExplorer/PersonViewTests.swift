@@ -219,4 +219,124 @@ import Design
         // a rectangle, the claim is left uncovered and said so: the remainder line is asserted by
         // no test, and locating it wants the row pitch measured rather than assumed.
     }
+
+    // MARK: - Waiting for review
+
+    /// The review band, **measured** by sweeping row ink over a fixture that has one: the group
+    /// header lands at y≈252–275 and the two rows at y≈295–317 and y≈340–362. The band starts at
+    /// 240 so it clears the elsewhere group above, whose last row ends at y≈225.
+    private static let reviewZone = CGRect(x: 0, y: 240, width: 760, height: 130)
+
+    /// The elsewhere group's own rows, stopping short of the review group.
+    ///
+    /// **`elsewhereZone` is 180pt tall and reaches y=335, which is inside the review group.** That
+    /// was harmless while nothing rendered below it and is not any more: the "did the group above
+    /// change?" check below read 10,256 against 25,222 ink and failed, correctly, because the band
+    /// it was comparing contained the very group whose arrival it was supposed to be isolating from.
+    /// The elsewhere group's last row ends at y≈225.
+    private static let elsewhereOnlyZone = CGRect(x: 0, y: 155, width: 760, height: 80)
+
+    static var aditiWithReview: PersonFileSet {
+        PersonFileSet(personId: "aditi",
+                      herFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
+                      elsewhere: [
+                        PersonFile(path: "Shared/Inbox/Aditi Abhishek - OCI Card.pdf",
+                                   evidence: .namedInFile, matchedForm: "Aditi Abhishek")],
+                      review: [
+                        PersonFile(path: "Shared/Inbox/Scan 2026-03-14.pdf",
+                                   evidence: .namedOnPage, matchedForm: "Aditi Abhishek",
+                                   reason: .namedOnPageOnly(form: "Aditi Abhishek")),
+                        PersonFile(path: "Financial/Abhishek - Family insurance card.pdf",
+                                   evidence: .namedInFile, matchedForm: "Abhishek",
+                                   reason: .sharedWordInName(word: "abhishek", sharedWith: 3)),
+                      ])
+    }
+
+    @Test("The review group paints, in both themes")
+    func theReviewGroupPaints() {
+        for scheme in [ColorScheme.light, .dark] {
+            let host = mount(Self.aditiWithReview, scheme: scheme)
+            #expect(ink(host, Self.reviewZone) > 600, "the review group is empty in \(scheme)")
+        }
+    }
+
+    /// **A group that has nothing to ask must not paint a heading.** An empty "Waiting for review"
+    /// is itself a claim that there is something to review.
+    @Test("The review group is absent when there is nothing to review")
+    func theReviewGroupIsConditional() {
+        let without = mount(Self.aditi)
+        let with = mount(Self.aditiWithReview)
+        #expect(ink(without, Self.reviewZone) < 100, "the review group painted with nothing in it")
+        #expect(ink(with, Self.reviewZone) > 600)
+        // …and the groups above are untouched, or the band is measuring the wrong region.
+        #expect(ink(without, Self.foldersZone) == ink(with, Self.foldersZone),
+                "the folder group changed too — the review band overlaps it")
+        #expect(ink(without, Self.elsewhereOnlyZone) == ink(with, Self.elsewhereOnlyZone),
+                "the elsewhere group changed too — the review band overlaps it")
+    }
+
+    /// **The two answers paint as controls, not as a third link.**
+    ///
+    /// Rendered first as plain text runs, the row read as three links of which the answers were the
+    /// least prominent — "Not Aditi's" wore the same grey as "Reveal", so the refusal looked like a
+    /// tertiary action rather than half of the question. The fill is drawn by hand for a reason
+    /// worth keeping: `.borderedProminent` renders **unfilled** in an offscreen host, so a
+    /// filled-control assertion would read false with the button plainly on screen.
+    ///
+    /// Measured inside the capsule itself — a band over the whole trailing group would count the
+    /// row's text and pass with no fill at all.
+    @Test("The confirm button is a filled control, in both themes")
+    func theConfirmButtonPaintsFilled() {
+        let capsule = CGRect(x: 612, y: 298, width: 38, height: 10)
+        for scheme in [ColorScheme.light, .dark] {
+            let host = mount(Self.aditiWithReview, scheme: scheme)
+            host.layoutSubtreeIfNeeded()
+            guard let rep = host.bitmapImageRepForCachingDisplay(in: capsule) else {
+                Issue.record("no bitmap in \(scheme)")
+                return
+            }
+            host.cacheDisplay(in: capsule, to: rep)
+            var accentPixels = 0
+            for y in 0..<rep.pixelsHigh {
+                for x in 0..<rep.pixelsWide {
+                    guard let c = rep.colorAt(x: x, y: y) else { continue }
+                    // A blue fill: blue materially above red. Neither theme's row background is.
+                    if c.blueComponent - c.redComponent > 0.25 { accentPixels += 1 }
+                }
+            }
+            #expect(accentPixels > 200,
+                    "the confirm button is not filled in \(scheme) — \(accentPixels) accent pixels")
+        }
+    }
+
+    /// **The header says how many are hers and how many are still questions, separately.**
+    ///
+    /// Folding them into one total would be the view asserting exactly what the queue exists to
+    /// ask. The two fixtures share every claimed row, so the chip is the only thing that can move
+    /// these pixels.
+    @Test("The review count is its own chip, not folded into the total")
+    func theReviewCountIsSeparate() {
+        #expect(differingPixels(mount(Self.aditiWithReview), mount(Self.aditi), Self.headerZone) > 20,
+                "the header paints the same with and without questions — the chip is missing")
+        #expect(Self.aditiWithReview.total == Self.aditi.total,
+                "a question was counted as an answer")
+    }
+
+    /// The two reasons say different things — a row that blurred them would be asking the user to
+    /// judge evidence it had misdescribed.
+    @Test("A shared-word row and a page row do not read the same")
+    func theTwoReasonsPaintDifferently() {
+        let page = PersonFile(path: "a.pdf", evidence: .namedOnPage,
+                              reason: .namedOnPageOnly(form: "Aditi Abhishek"))
+        let word = PersonFile(path: "a.pdf", evidence: .namedInFile,
+                              reason: .sharedWordInName(word: "abhishek", sharedWith: 3))
+        #expect(PersonView.caption(for: page, displayName: "Aditi")
+                != PersonView.caption(for: word, displayName: "Aditi"))
+        #expect(PersonView.caption(for: word, displayName: "Aditi").contains("3 others"))
+        #expect(PersonView.caption(for: page, displayName: "Aditi").contains("page 1"))
+        // Singular is not "1 others".
+        let one = PersonFile(path: "a.pdf", evidence: .namedInFile,
+                             reason: .sharedWordInName(word: "girish", sharedWith: 1))
+        #expect(PersonView.caption(for: one, displayName: "Girish").contains("1 other person"))
+    }
 }

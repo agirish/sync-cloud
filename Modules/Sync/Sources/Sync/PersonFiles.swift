@@ -10,6 +10,21 @@ public enum PersonEvidence: String, Sendable, Equatable, CaseIterable {
     case herFolder
     /// Her name is in the file's own name, and she is not already the folder's person.
     case namedInFile
+    /// Page 1 named her — and named nobody else. **Never enough to claim a document**, which is why
+    /// this evidence only ever appears on a review row; see ``PersonFiles``.
+    case namedOnPage
+    /// He said so. The only evidence that is a decision rather than a computation, and the only one
+    /// that outranks everything else.
+    case taggedByYou
+}
+
+/// Why a document is waiting for a verdict rather than being claimed or ignored.
+public enum PersonReviewReason: Sendable, Equatable {
+    /// Her name is in the filename, but only as a word other people answer to as well.
+    /// `sharedWith` is how many of them.
+    case sharedWordInName(word: String, sharedWith: Int)
+    /// Page 1 named her, and named nobody else. The filename named no one at all.
+    case namedOnPageOnly(form: String)
 }
 
 /// One document attributed to a person.
@@ -21,14 +36,20 @@ public struct PersonFile: Sendable, Equatable, Identifiable {
     /// match, where nothing in the document said anything.
     public let matchedForm: String?
 
+    /// Why this row is waiting for a verdict — set only on ``PersonFileSet/review`` rows, where the
+    /// user is being asked a question and has to be told what is being asked about.
+    public let reason: PersonReviewReason?
+
     public var id: String { path }
     public var name: String { (path as NSString).lastPathComponent }
     public var folder: String { (path as NSString).deletingLastPathComponent }
 
-    public init(path: String, evidence: PersonEvidence, matchedForm: String? = nil) {
+    public init(path: String, evidence: PersonEvidence, matchedForm: String? = nil,
+                reason: PersonReviewReason? = nil) {
         self.path = path
         self.evidence = evidence
         self.matchedForm = matchedForm
+        self.reason = reason
     }
 }
 
@@ -56,7 +77,16 @@ public struct PersonFileSet: Sendable, Equatable {
     public let herFolders: [(folder: String, files: [PersonFile])]
     /// Hers by name, filed somewhere that is not hers — the candidate misfilings.
     public let elsewhere: [PersonFile]
+    /// Evidence too weak to claim a document on, waiting for a verdict.
+    ///
+    /// **Not wrong — unreviewed.** Stage 1 suppressed these rows because there was nowhere to put
+    /// them; this is where they belong, and a verdict on one is remembered so the same weak match
+    /// never returns.
+    public let review: [PersonFile]
 
+    /// The answer to "how many are hers" — **the claimed rows only.** Review rows are questions,
+    /// not answers, and counting them here would make the header assert something the queue exists
+    /// to ask.
     public var total: Int { herFolders.reduce(0) { $0 + $1.files.count } + elsewhere.count }
     public var folderCount: Int { herFolders.count }
 
@@ -71,14 +101,41 @@ public struct PersonFileSet: Sendable, Equatable {
     /// total. Production only ever builds one through `gather`. A fixture that builds one directly
     /// and cares which rows are visible has to sort it the same way.
     public init(personId: String, herFolders: [(folder: String, files: [PersonFile])],
-                elsewhere: [PersonFile]) {
+                elsewhere: [PersonFile], review: [PersonFile] = []) {
         self.personId = personId
         self.herFolders = herFolders
         self.elsewhere = elsewhere
+        self.review = review
+    }
+
+    /// The set as it will be once a verdict on `path` has been recorded.
+    ///
+    /// **Why the view does not simply re-gather.** Re-running the sweep is the obviously correct
+    /// refresh and it is the wrong one to reach for here: it re-reads a 4.9 MB corpus and walks
+    /// 10,171 documents to change one row, and — because the slot shows its phase — it puts a
+    /// "Gathering…" spinner on screen between every keystroke of a review session. Twelve verdicts
+    /// would be twelve sweeps.
+    ///
+    /// So the change is applied here instead, and this function exists to be **the same answer the
+    /// next gather gives**, which is a property a test can hold it to rather than a hope: a
+    /// confirmation moves the row to `elsewhere` as ``PersonEvidence/taggedByYou``, a rejection
+    /// drops it, and nothing else moves. The verdict itself is already on disk by the time this is
+    /// called; this is the display catching up, not a second source of truth.
+    public func applying(verdict isTheirs: Bool, to path: String) -> PersonFileSet {
+        guard review.contains(where: { $0.path == path }) else { return self }
+        let remaining = review.filter { $0.path != path }
+        guard isTheirs else {
+            return PersonFileSet(personId: personId, herFolders: herFolders,
+                                 elsewhere: elsewhere, review: remaining)
+        }
+        let claimed = elsewhere + [PersonFile(path: path, evidence: .taggedByYou)]
+        return PersonFileSet(personId: personId, herFolders: herFolders,
+                             elsewhere: claimed.sorted { $0.path < $1.path },
+                             review: remaining)
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.personId == rhs.personId && lhs.elsewhere == rhs.elsewhere
+        lhs.personId == rhs.personId && lhs.elsewhere == rhs.elsewhere && lhs.review == rhs.review
             && lhs.herFolders.count == rhs.herFolders.count
             && zip(lhs.herFolders, rhs.herFolders).allSatisfy { $0.folder == $1.folder && $0.files == $1.files }
     }
@@ -172,10 +229,57 @@ public enum PersonFiles {
     /// long half of a gather, and a superseded one (a second ⌘↩, or the scope cleared while it
     /// runs) should stop walking rather than finish an answer nobody will see. Outside a
     /// cancelled task the checks never fire, so synchronous callers just write `try`.
+    /// The page sample a document offers, from the anchors the survey already extracted.
+    ///
+    /// **A sorted, de-duplicated bag of words, not the page.** ``FilingCorpus`` stores anchors that
+    /// way so a diff of two corpora shows real change, which means word order is gone by the time
+    /// anything reads them back. Two consequences, both measured over the live tree:
+    ///
+    /// - **Real phrases are lost.** "Aditi Abhishek" on page 1 sorts to `abhishek … aditi`, so the
+    ///   phrase matcher cannot see it and the page can only ever contribute single distinctive
+    ///   words. That is a ceiling on this channel, not a bug in it.
+    /// - **Phrases could in principle be invented**, from tokens that happen to land next to each
+    ///   other alphabetically. Measured across 1,304 documents carrying text: **zero**, which is why
+    ///   there is no barrier token here separating the anchors. `PersonChannelReplayTests` asserts
+    ///   that zero, so if a roster change ever makes it non-zero the fix is a barrier and this
+    ///   comment is where to start.
+    static func pageSample(_ document: FilingCorpusDocument) -> String? {
+        document.anchors.isEmpty ? nil : document.anchors.joined(separator: " ")
+    }
+
+    /// Whether page-1 evidence is worth putting in front of the user for this person.
+    ///
+    /// **Exactly one person, or nothing** — and this single rule is what makes the channel usable.
+    /// A page-1 mention is *testimony*: a swim-class invoice prints the parent who pays, a bank
+    /// nomination form prints the spouse who is the nominee, and a joint account prints both. Asked
+    /// of every document whose filename names nobody, the page named *somebody* on **4,568** of
+    /// them — 2,011 for one person alone, all of them documents that merely mention her. Requiring
+    /// the page to name one person and one only takes that to **635**, and the survivors are the
+    /// case this channel exists for: her disability claim, his bank KYC form, her mother's broker
+    /// form — scans whose names say nothing at all.
+    ///
+    /// Note what this is *not*: it is not the strength gate. `dani` is unique to Shweta and passes
+    /// ``isStrong`` easily, and it is on all 2,011 of those rows. Strength asks "could this word
+    /// mean somebody else"; this asks "is this document about one person or a household".
+    static func pageNamesOnly(_ personId: String, in report: PersonMatchReport) -> PersonMatch? {
+        var seen: PersonMatch?
+        for match in report.matches {
+            if let seen, seen.personId != match.personId { return nil }
+            seen = match
+        }
+        guard let seen, seen.personId == personId else { return nil }
+        return seen
+    }
+
     public static func gather(personId: String, corpus: FilingCorpus, profile: FolderProfile,
-                              registry: PersonRegistry) throws -> PersonFileSet {
+                              registry: PersonRegistry,
+                              tags: PersonTagIndex = PersonTagIndex(tags: [])) throws -> PersonFileSet {
         var byFolder: [String: [PersonFile]] = [:]
         var elsewhere: [PersonFile] = []
+        var review: [PersonFile] = []
+        // Confirmations that no channel produced a row for — a photo carries no text and no name
+        // either way, so without this the verdict would be recorded and then invisible.
+        var unseenConfirmations = tags.confirmedPaths(for: personId)
         // Resolved per FOLDER rather than per document: a folder with 112 files would otherwise
         // walk its ancestors 112 times, and the answer cannot differ between siblings.
         var folderPerson: [String: String?] = [:]
@@ -186,7 +290,7 @@ public enum PersonFiles {
         let cancellationStride = 256
         var sinceCheck = 0
 
-        for path in corpus.documents.keys {
+        for (path, document) in corpus.documents {
             sinceCheck += 1
             if sinceCheck >= cancellationStride {
                 sinceCheck = 0
@@ -203,26 +307,71 @@ public enum PersonFiles {
 
             if owner == personId {
                 byFolder[folder, default: []].append(PersonFile(path: path, evidence: .herFolder))
+                unseenConfirmations.remove(path)
                 continue
             }
-            // Not her folder — so her NAME on the file is the only thing that can claim it, and
-            // that claim is the interesting one.
+
+            // **His verdict outranks every channel, both ways.** A confirmation claims the document
+            // whatever the evidence says, and a rejection ends the matter — which is the entire
+            // reason the file exists: the channels are deterministic, so without a remembered "no"
+            // the same weak match comes back on every gather forever.
+            if let verdict = tags.verdict(personId: personId, path: path) {
+                unseenConfirmations.remove(path)
+                if verdict == .confirmed {
+                    elsewhere.append(PersonFile(path: path, evidence: .taggedByYou))
+                }
+                continue
+            }
+
+            // Not her folder — so what the document *says* is the only thing that can speak for it.
             //
-            // **Membership comes from the shipped `attribute(fileName:pageSample:)`**, which owns
-            // the precedence rule the filing engine and the cross-person veto both use: the
-            // filename outranks the page, and the page is consulted only when the name names
-            // nobody. Stage 1 has no page channel, so `nil` — but it is called rather than
-            // reimplemented so that when the page channel lands, precedence is already right here.
+            // **Membership comes from the shipped `attribution(fileName:pageSample:)`**, which owns
+            // the precedence rule the filing engine and the cross-person veto also use: the filename
+            // outranks the page, and the page is read only when the name names nobody. Asking it
+            // rather than re-deriving it is what keeps one answer to that question in the codebase.
             let name = (path as NSString).lastPathComponent
-            guard registry.attribute(fileName: name, pageSample: nil).contains(personId) else {
+            let sample = pageSample(document)
+            let (people, tier) = registry.attribution(fileName: name, pageSample: sample)
+            guard people.contains(personId) else { continue }
+
+            switch tier {
+            case .fileName:
+                // The strength gate, which `attribution` deliberately does not apply — see above.
+                let stem = (name as NSString).deletingPathExtension
+                let report = registry.explain(in: stem)
+                guard let match = report.matches.first(where: { $0.personId == personId }) else {
+                    continue
+                }
+                if isStrong(match, unique: uniqueWords) {
+                    elsewhere.append(PersonFile(path: path, evidence: .namedInFile,
+                                                matchedForm: match.form))
+                } else {
+                    // Weak: one word, and other people answer to it too. Not wrong — unreviewed.
+                    let word = match.words.first ?? match.form
+                    review.append(PersonFile(
+                        path: path, evidence: .namedInFile, matchedForm: match.form,
+                        reason: .sharedWordInName(
+                            word: word,
+                            sharedWith: registry.othersSharing(word, with: personId))))
+                }
+            case .pageText:
+                guard let sample,
+                      let match = pageNamesOnly(personId, in: registry.explain(in: sample))
+                else { continue }
+                // **Always a review row, never a claim.** The page is testimony; see `pageNamesOnly`.
+                review.append(PersonFile(path: path, evidence: .namedOnPage,
+                                         matchedForm: match.form,
+                                         reason: .namedOnPageOnly(form: match.form)))
+            case .identifier, .none:
                 continue
             }
-            // …and then the strength gate, which `attribute` deliberately does not apply.
-            let stem = (name as NSString).deletingPathExtension
-            let report = registry.explain(in: stem)
-            guard let match = report.matches.first(where: { $0.personId == personId }),
-                  isStrong(match, unique: uniqueWords) else { continue }
-            elsewhere.append(PersonFile(path: path, evidence: .namedInFile, matchedForm: match.form))
+        }
+
+        // Confirmations at paths the corpus no longer holds — the file was moved or deleted outside
+        // the app since the verdict was made. Kept rather than dropped: a verdict silently vanishing
+        // is worse than one pointing at a path that has moved, and the row still reveals.
+        for path in unseenConfirmations.sorted() {
+            elsewhere.append(PersonFile(path: path, evidence: .taggedByYou))
         }
 
         // Largest folder first, ties broken by name so the order is stable across runs.
@@ -244,6 +393,7 @@ public enum PersonFiles {
             return a.folder < b.folder
         }
         return PersonFileSet(personId: personId, herFolders: groups,
-                             elsewhere: elsewhere.sorted { $0.path < $1.path })
+                             elsewhere: elsewhere.sorted { $0.path < $1.path },
+                             review: review.sorted { $0.path < $1.path })
     }
 }

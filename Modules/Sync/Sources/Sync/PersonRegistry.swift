@@ -299,16 +299,48 @@ public struct PersonRegistry: Sendable {
     /// a second, quietly different answer to the same question.
     public func attribute(fileName: String, pageSample: String?,
                           identity: PersonIdentityIndex? = nil) -> Set<String> {
+        attribution(fileName: fileName, pageSample: pageSample, identity: identity).people
+    }
+
+    /// Which tier of ``attribution(fileName:pageSample:identity:)`` produced the answer.
+    ///
+    /// The tiers are not equally believable and the surfaces that show them have to say which one
+    /// spoke — "named in the file" and "page 1 reads" are different claims, and a review row that
+    /// confused them would be asking the user to judge evidence it had misdescribed.
+    public enum AttributionTier: String, Sendable, Equatable {
+        /// Nobody was named by anything.
+        case none
+        /// The file's own name — the user's own label, and the only tier that can claim a document
+        /// on its own.
+        case fileName
+        /// Page 1 named them. **Testimony, not a label**: measured over the live tree, this tier
+        /// puts 2,011 documents in one person's set purely because a joint bank form names her as
+        /// nominee and a swim-class invoice names her as the payer. Worth reviewing, never worth
+        /// assuming — see ``PersonFiles``.
+        case pageText
+        /// An identifier the person's folders have received. Never above a name anybody wrote.
+        case identifier
+    }
+
+    /// Who a document is about, and which tier said so.
+    ///
+    /// ``attribute(fileName:pageSample:identity:)`` is this with the tier thrown away, so there is
+    /// exactly one implementation of the precedence rule. Two would eventually disagree, and this
+    /// one is shared by the cross-person veto, the `personIs` rule condition and the person gather.
+    public func attribution(fileName: String, pageSample: String?,
+                            identity: PersonIdentityIndex? = nil)
+        -> (people: Set<String>, tier: AttributionTier) {
         let named = detect(in: (fileName as NSString).deletingPathExtension)
-        if !named.isEmpty { return named }
-        guard let pageSample else { return [] }
+        if !named.isEmpty { return (named, .fileName) }
+        guard let pageSample else { return ([], .none) }
         let byName = detect(in: pageSample)
-        if !byName.isEmpty { return byName }
+        if !byName.isEmpty { return (byName, .pageText) }
         // **Last, and only when nothing was named.** An account number is the strongest evidence in
         // a scan that reads as an image — but it is also the most surprising to be attributed by,
         // so it never overrides a name anybody actually wrote. This is the tier that gives
         // `Scan 2026-08-02.pdf` an answer at all.
-        return identity?.people(in: pageSample) ?? []
+        let byId = identity?.people(in: pageSample) ?? []
+        return byId.isEmpty ? ([], .none) : (byId, .identifier)
     }
 
     /// The person a profile's `axes.person` value names, or nil when the registry cannot say —

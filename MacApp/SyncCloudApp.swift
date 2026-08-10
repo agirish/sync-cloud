@@ -371,6 +371,10 @@ struct SyncCloudApp: App {
             manager.filingPeopleStore = PeopleStore(directory: profiles,
                                                     profileId: loaded.profile.profileId,
                                                     profile: loaded.profile)
+            // His verdicts on whose document is whose. A store for the same reason the roster is:
+            // the person view writes through it, and nothing else on this machine may.
+            manager.filingPersonTagStore = PersonTagStore(directory: profiles,
+                                                          profileId: loaded.profile.profileId)
             // Part of the question every file is asked — a re-survey must not replay answers the
             // old tree produced. Read from the same directory the artifacts came from.
             manager.filingArtifactFingerprint =
@@ -378,7 +382,8 @@ struct SyncCloudApp: App {
             Logger.shared.info("Filing profile '\(loaded.profile.profileId)' loaded — "
                                + "\(loaded.profile.folders.count) folders, "
                                + "\(loaded.memory?.folders.count ?? 0) with filing memory, "
-                               + "\(manager.filingPeopleStore?.people.count ?? 0) people")
+                               + "\(manager.filingPeopleStore?.people.count ?? 0) people, "
+                               + "\(manager.filingPersonTagStore?.tags.count ?? 0) person tag(s)")
         }
         if OnDeviceFilingClassifier.isAvailable {
             manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }

@@ -30,17 +30,25 @@ public struct PersonView: View {
     /// Reveals one file in Finder.
     let onReveal: (String) -> Void
     let onClear: () -> Void
+    /// Records a verdict on a review row: the path, and whether it is theirs.
+    ///
+    /// **Never a move.** Confirming says whose a document is; putting it somewhere is Organize's
+    /// verb, and the two stay separate — the design's own line, and the reason this closure has no
+    /// destination in it.
+    let onVerdict: (String, Bool) -> Void
 
     public init(displayName: String, phase: PersonGatherPhase, accent: Color,
                 onOpenFolder: @escaping (String) -> Void,
                 onReveal: @escaping (String) -> Void,
-                onClear: @escaping () -> Void) {
+                onClear: @escaping () -> Void,
+                onVerdict: @escaping (String, Bool) -> Void = { _, _ in }) {
         self.displayName = displayName
         self.phase = phase
         self.accent = accent
         self.onOpenFolder = onOpenFolder
         self.onReveal = onReveal
         self.onClear = onClear
+        self.onVerdict = onVerdict
     }
 
     /// How many folders are listed before the rest collapse into a count.
@@ -50,6 +58,15 @@ public struct PersonView: View {
     /// silently showed the top five would misreport the answer to the question the view exists to
     /// answer.
     private static let folderLimit = 8
+
+    /// How many review rows are shown before the rest collapse into a count.
+    ///
+    /// **Measured, not guessed.** Over the live tree the queue is 870 rows across the household —
+    /// 420 for one person, 350 for another — because a page-1 mention is common even after the
+    /// one-person rule cuts it by 86%. A list that rendered all of them would be a wall, and the
+    /// remainder is stated rather than dropped: verdicts stick, so working down a long queue is
+    /// progress that is kept.
+    private static let reviewLimit = 12
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -63,11 +80,12 @@ public struct PersonView: View {
             case .ready(let files):
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        if files.total == 0 {
+                        if files.total == 0 && files.review.isEmpty {
                             emptyState
                         } else {
-                            herFoldersGroup(files)
+                            if !files.herFolders.isEmpty { herFoldersGroup(files) }
                             if !files.elsewhere.isEmpty { elsewhereGroup(files) }
+                            if !files.review.isEmpty { reviewGroup(files) }
                         }
                     }
                     .padding(14)
@@ -98,6 +116,18 @@ public struct PersonView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(accent.opacity(0.14)))
+                // Separate from the count, because it is a different kind of number: "hers" is an
+                // answer and this is an outstanding question. Folding them into one total would be
+                // the view asserting exactly what the queue exists to ask.
+                if !files.review.isEmpty {
+                    Text("\(files.review.count) to review")
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(SemanticColor.warning)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(SemanticColor.warning.opacity(0.14)))
+                }
             }
             Spacer(minLength: 8)
             Button {
@@ -190,16 +220,115 @@ public struct PersonView: View {
         }
     }
 
+    // MARK: Waiting for review
+
+    /// The rows stage 1 threw away.
+    ///
+    /// **These are not claims, and the group says so in every word it uses.** Each row states the
+    /// evidence and nothing else — the shared word and how many people answer to it, or what page 1
+    /// read — because the user is being asked a question and cannot answer it from a row that has
+    /// already decided. The two buttons are the whole vocabulary: yes and no, and *no* is the one
+    /// that matters, because the channels are deterministic and an unremembered refusal comes back
+    /// on every gather forever.
+    private func reviewGroup(_ files: PersonFileSet) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            groupHeader(symbol: "questionmark.circle",
+                        title: "Waiting for review",
+                        subtitle: "Too weak to attribute on its own. Your answer is remembered.",
+                        amount: "\(files.review.count) file\(files.review.count == 1 ? "" : "s")",
+                        tint: SemanticColor.warning)
+            ForEach(files.review.prefix(Self.reviewLimit)) { file in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(file.path)
+                            .scaledFont(.system(size: 11.5, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                        Text(Self.caption(for: file, displayName: displayName))
+                            .scaledFont(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Reveal") { onReveal(file.path) }
+                        .buttonStyle(.plain)
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .chromeHover()
+                    // **The two answers are drawn as a pair, and as controls.** Rendered first as
+                    // plain accent-and-grey text runs beside Reveal, the row read as three links of
+                    // which the *answers* were the least prominent — "Not Aditi’s" in the same grey
+                    // as "Reveal" made the refusal look like a tertiary action rather than half of
+                    // the question being asked. Filled and outlined capsules make the choice look
+                    // like a choice.
+                    //
+                    // Filled by hand rather than with `.borderedProminent`: that style renders
+                    // **unfilled** in an offscreen host, so the fixture that proves this paints
+                    // would read false with the button plainly on screen.
+                    Button { onVerdict(file.path, true) } label: {
+                        Text("\(displayName)’s")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.onFillLabel(accent))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2.5)
+                            .background(Capsule().fill(accent))
+                    }
+                    .buttonStyle(.plain)
+                    .chromeHover()
+                    .accessibilityLabel("\(file.name) is \(displayName)’s")
+                    Button { onVerdict(file.path, false) } label: {
+                        Text("Not \(displayName)’s")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2.5)
+                            .background(Capsule().strokeBorder(.tertiary, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .chromeHover()
+                    .accessibilityLabel("\(file.name) is not \(displayName)’s")
+                }
+                .padding(.vertical, 5)
+                .padding(.horizontal, 9)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+            }
+            if files.review.count > Self.reviewLimit {
+                Text("\(files.review.count - Self.reviewLimit) more waiting…")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 9)
+            }
+        }
+    }
+
+    /// What the row says the evidence is.
+    ///
+    /// Spelled out per reason rather than as one sentence with holes in it: "only the shared word
+    /// *abhishek* — 3 others answer to it" and "page 1 reads *Muktha Girish*" are different claims,
+    /// and a row that blurred them would be asking the user to judge evidence it had misdescribed.
+    static func caption(for file: PersonFile, displayName: String) -> String {
+        switch file.reason {
+        case .sharedWordInName(let word, let sharedWith):
+            let others = sharedWith == 1 ? "1 other person answers to it"
+                                         : "\(sharedWith) others answer to it"
+            return "only the shared word “\(word)” in the name — \(others)"
+        case .namedOnPageOnly(let form):
+            return "page 1 reads “\(form)”, and names nobody else — but the file’s name says nothing"
+        case nil:
+            return "weak evidence"
+        }
+    }
+
     // MARK: Chrome
 
     private func groupHeader(symbol: String, title: String, subtitle: String,
-                             amount: String) -> some View {
-        HStack(spacing: 9) {
+                             amount: String, tint: Color? = nil) -> some View {
+        let hue = tint ?? accent
+        return HStack(spacing: 9) {
             Image(systemName: symbol)
                 .scaledFont(.system(size: 11, weight: .semibold))
-                .foregroundStyle(accent)
+                .foregroundStyle(hue)
                 .frame(width: 21, height: 21)
-                .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.14)))
+                .background(RoundedRectangle(cornerRadius: 6).fill(hue.opacity(0.14)))
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).scaledFont(.system(size: 12.5, weight: .semibold))
                 Text(subtitle).scaledFont(.system(size: 11)).foregroundStyle(.secondary)
@@ -208,7 +337,7 @@ public struct PersonView: View {
             Text(amount)
                 .scaledFont(.system(size: 12, weight: .bold))
                 .monospacedDigit()
-                .foregroundStyle(accent)
+                .foregroundStyle(hue)
                 .fixedSize()
         }
     }

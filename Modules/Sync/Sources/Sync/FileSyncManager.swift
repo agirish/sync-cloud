@@ -839,6 +839,32 @@ public class FileSyncManager: ObservableObject {
     }
     private var peopleCancellable: AnyCancellable?
 
+    /// His verdicts on whose document is whose — see ``PersonTagStore``.
+    ///
+    /// The second writable filing artifact, and wired exactly like the roster: a store rather than
+    /// a value, with a subscription so a verdict recorded in the person view re-renders the surface
+    /// that asked for it without a relaunch.
+    ///
+    /// **Not part of ``filingArtifactFingerprint``, unlike `people.json`.** That fingerprint exists
+    /// so cached *classifier* answers are not replayed against a changed question, and the roster
+    /// changes the question — it moves the router's shortlist through the person-axis score and the
+    /// cross-person veto. A tag does neither: it says who one document belongs to, is read only by
+    /// the person gather, and re-deriving every cached verdict because one file was confirmed would
+    /// be an expensive answer to a question nothing asked.
+    public var filingPersonTagStore: PersonTagStore? {
+        didSet {
+            personTagCancellable = filingPersonTagStore?.$tags
+                .dropFirst()
+                .sink { [weak self] _ in
+                    // Announced on THIS object for the same reason the roster's edit is: the store
+                    // is a separate ObservableObject behind a plain var, so a view watching only
+                    // the manager would see nothing.
+                    self?.objectWillChange.send()
+                }
+        }
+    }
+    private var personTagCancellable: AnyCancellable?
+
     /// Records a cross-person refusal, resolving the ids to the names a person would recognise.
     ///
     /// The engine reports registry **ids** because that is what it reasons with; nobody wants to
