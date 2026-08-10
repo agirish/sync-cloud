@@ -157,6 +157,22 @@ import Foundation
         #expect(tidy.contains("let scopeFolders = scopeFolderCount"))
     }
 
+    /// The pure count rule is actually *called* with the rail's selection.
+    ///
+    /// **A rule extracted for testability is one revert away from being unused.**
+    /// `StorageSection.counts(in:section:matching:)` is asserted directly by
+    /// `theOfMCountsFollowTheRail`, and every one of those assertions stays green if the view hands
+    /// it `nil` — the numbers would go back to describing all three lists and only the call site
+    /// would show it.
+    @Test func theStorageCountsAreAskedAboutTheSelectedSection() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let body = try Self.body(of: "private var storageCounts: (filtered: Int, total: Int) {", in: tidy)
+        #expect(body.contains("section: storageSection"),
+                "storageCounts is not passing the rail's selection, so \"N of M\" describes lists the page is not showing")
+        #expect(body.contains("StorageSection.counts(in: report"),
+                "storageCounts has stopped using the shared rule and is summing lists itself again")
+    }
+
     @Test func theOverviewNamesTheScopeAndNotTheLastScannedFolder() throws {
         let tidy = try Self.source("TidyView.swift")
         #expect(tidy.contains("scopeLabel: scope?.name"))

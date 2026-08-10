@@ -368,6 +368,54 @@ import Design
         return cluster.1 - cluster.0
     }
 
+    /// The width **from the first inked run to the last** in a band — the span every control on
+    /// this side of the row occupies together.
+    ///
+    /// **Two wrong measures were tried first, and both are worth recording.**
+    ///
+    /// *Raw first-to-last inked column* reported 738pt of "control" beside a 22pt button: the
+    /// card's glass carries a gradient, so at a 0.03 threshold the far end of a 700pt band differs
+    /// from the near end and the whole band reads as inked. Hence the 0.10 threshold and the
+    /// gap-splitting into runs.
+    ///
+    /// *The last run alone* passed a mutation that put the lens actions back on row 1 — the
+    /// rightmost run is the search toggle either way, so it answered 22pt while three buttons sat
+    /// beside it. A reserve covers everything after the rail, so the span has to run from the first
+    /// control to the last.
+    private func trailingSpan(_ rep: NSBitmapImageRep, bandWidth: CGFloat) -> CGFloat? {
+        guard let background = rep.colorAt(x: rep.pixelsWide - 3, y: 2) else { return nil }
+        let scale = CGFloat(rep.pixelsWide) / bandWidth
+        var inked: [Bool] = []
+        for x in 0..<rep.pixelsWide {
+            var n = 0
+            for y in 0..<rep.pixelsHigh {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let delta = max(abs(c.redComponent - background.redComponent),
+                                max(abs(c.greenComponent - background.greenComponent),
+                                    abs(c.blueComponent - background.blueComponent)))
+                if delta > 0.10 { n += 1 }
+            }
+            inked.append(n >= 2)
+        }
+        var runs: [(Int, Int)] = []
+        var start: Int?
+        var blank = 0
+        let gap = Int(10 * scale)
+        for (i, on) in inked.enumerated() {
+            if on {
+                if start == nil { start = i }
+                blank = 0
+            } else if let s = start {
+                blank += 1
+                if blank >= gap { runs.append((s, i - blank)); start = nil }
+            }
+        }
+        if let s = start { runs.append((s, inked.count - 1)) }
+        let real = runs.filter { $0.1 - $0.0 > 2 }
+        guard let first = real.first, let last = real.last else { return nil }
+        return CGFloat(last.1 - first.0) / scale
+    }
+
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
         var n = 0
@@ -740,6 +788,93 @@ import Design
                 "at \(size.scale)× the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
     }
 
+    @Test("The divider never draws against nothing")
+    func theRowTwoDividerIsPairedWithItsControls() throws {
+        // `hasRowTwoActions` is a hand-written copy of `lensActions`'s own gates — a `@ViewBuilder`
+        // cannot be asked whether it produced anything, so the divider's condition had to be
+        // restated. **A restated condition is one edit away from disagreeing with the original**,
+        // and the visible cost of disagreement is a hairline floating against an empty band: the
+        // exact "rule separating prose from the card edge" this file rejected once already.
+        //
+        // Asserted at the two states that differ, on a band narrow enough that a 1pt rule is a
+        // large share of it — a wide band would drown the divider in the readout beside it.
+        let edge = { (w: CGFloat) in CGRect(x: w - 60, y: 48, width: 52, height: 26) }
+        let width: CGFloat = 1400
+
+        // Before any scan: no controls, and therefore no rule.
+        let never = try #require(strip(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
+                                             lens: .toFile, width: width), edge(width)))
+        // **Wash, not ink, and that distinction is the test.** The divider is a 1pt `.quaternary`
+        // rule: measured, it registers 56 wash pixels and *zero* ink ones, so an ink assertion here
+        // passed the mutation that ungated it — 0 against 0. The faint-fill measure is the only one
+        // that can see a hairline at all.
+        #expect(counts(never).wash < 20,
+                "row 2's trailing edge washed \(counts(never).wash) before any scan — the divider is drawing with no controls beside it")
+
+        // After one: controls, and the rule that separates them from the prose.
+        let scanned = try #require(strip(mount(Self.manager(queue: 24, names: 17),
+                                               lens: .toFile, width: width), edge(width)))
+        #expect(counts(scanned).ink > 100,
+                "row 2's trailing edge inked \(counts(scanned).ink) with a finished scan — the controls are not drawing where the divider says they are")
+    }
+
+    @Test("A stale readout leaves the row empty — it does not borrow the overview's")
+    func aStaleLensDoesNotBorrowTheOverviewsReadout() throws {
+        // **The `else` of a compound condition catches both its arms, and that is the bug.**
+        // `organizeSummary` read `if let organizeLens, !stale { … } else { overviewSummary }`, so a
+        // lens whose list the filing scan republishes — To File, Names, Renames, the three the
+        // guard exists for — fell through mid-scan and drew the OVERVIEW's readout ("1 reporting ·
+        // 2 clean") underneath a selected lens. Suppressing a stale readout has to leave the row
+        // empty; substituting a different answer is worse than the staleness it was avoiding.
+        let scanning = Self.manager(queue: 24, names: 17)
+        scanning.isSuggestingFiles = true
+        let onToFile = try #require(strip(mount(scanning, lens: .toFile), Self.readoutZone))
+
+        // The overview at the same moment DOES draw its readout — that is the non-vacuity half.
+        // Without it, "the band is empty" would pass just as well if `overviewSummary` had been
+        // deleted outright.
+        let onOverview = try #require(strip(mount(scanning, lens: nil), Self.readoutZone))
+        #expect(counts(onOverview).ink > 200,
+                "the overview drew no readout while a scan was running — this comparison proves nothing")
+        #expect(counts(onToFile).ink < counts(onOverview).ink / 2,
+                "a selected lens inked \(counts(onToFile).ink) against the overview's \(counts(onOverview).ink) while its own scan was running — it is drawing the overview's readout instead of leaving the row empty")
+    }
+
+    @Test("Row 1's reserve seats what row 1 actually draws, at every text size",
+          arguments: FontSize.allCases)
+    func theRowOneReserveSeatsWhatRowOneDraws(size: FontSize) throws {
+        // **The test `searchToggleWidth`'s doc claimed existed, and did not.** The doc named this
+        // function as the thing holding the constant to the render; nothing of the sort was ever
+        // written, so from the moment the lens controls moved to row 2 the only number row 1
+        // reserves has been an unchecked assertion. A citation is not a test, and this suite has
+        // the harness to make it one.
+        //
+        // What it measures: everything row 1 draws to the RIGHT of the rail. Today that is the
+        // search toggle `LensHeaderCard` appends itself and nothing else, and the reserve must
+        // cover it — with the refine offer showing and a survey report in hand, i.e. the state that
+        // used to put three buttons and a sentence up here.
+        let manager = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
+        let width: CGFloat = 1400
+        let host = mount(manager, lens: .toFile, width: width, scale: size.scale)
+
+        // The band runs from the rail's end to the card's right edge. `leadingExtent` gives the
+        // rail's own extent off the render, so the trailing side is measured relative to what is
+        // actually drawn rather than to a hard-coded x — the mistake that let a 300pt band report
+        // the caption's absence as truncation.
+        let railEnd = try #require(leadingExtent(host, width: width),
+                                   "row 1 drew no leading cluster at \(size.scale)× — nothing to measure from")
+        let band = CGRect(x: railEnd + 8, y: 12, width: width - railEnd - 16, height: 30)
+        let rep = try #require(strip(host, band))
+
+        // Measured as the inked EXTENT, not an ink count: the question is how much width row 1's
+        // trailing side consumes, and a count answers a different one (a wide sparse control and a
+        // narrow dense one ink alike).
+        let drawn = try #require(trailingSpan(rep, bandWidth: band.width),
+                                 "row 1's trailing side drew nothing at \(size.scale)× — the search toggle is gone, and this reserve is protecting a control that no longer exists")
+        #expect(drawn <= OrganizeRailMetrics.searchToggleWidth,
+                "row 1's trailing side draws \(drawn)pt at \(size.scale)× against a reserve of \(OrganizeRailMetrics.searchToggleWidth) — a control has been put back up here and the rail is not being charged for it")
+    }
+
     @Test("The glyph table still matches the renderer")
     func theGlyphTableMatchesTheRenderer() throws {
         // ``OrganizeRailMetrics/glyphWidth(_:scale:)`` is tabulated because measuring costs ~812µs
@@ -828,7 +963,7 @@ import Design
         // themselves. Give one of them `scaledFont` and the reserve starts under-counting at 1.3
         // alone, which is precisely the scale this sweep adds.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
-        let badge = Self.states([.toFile: 24, .names: 17])
+        _ = Self.states([.toFile: 24, .names: 17])
         // From 900 for the reason the neighbour above gives: row 1 and row 2 no longer shed
         // against the same width, and 900 is where real windows start.
         let threshold: CGFloat = 900

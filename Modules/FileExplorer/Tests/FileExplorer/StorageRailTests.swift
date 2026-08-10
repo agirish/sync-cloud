@@ -93,6 +93,41 @@ import Design
         #expect(unscanned < width)
     }
 
+    @Test("“N of M” follows the rail, not the whole report")
+    func theOfMCountsFollowTheRail() {
+        // **The regression the rail introduced, and the reason this arithmetic is a pure function.**
+        // The header summed all three ranked lists unconditionally — correct while the page was
+        // always all three. Once a section could be selected the sum described a page nobody was
+        // looking at: standing on Largest with a query showing 3 of its 50, the row read "3 of
+        // 164", a denominator drawn from two lists that were not on screen. That is the same
+        // dishonesty the scope work removed from the Organize lenses, arriving through the rail.
+        let r = Self.report(largest: 50, stale: 96, reclaim: 18)
+
+        // No selection: every list, as before. This half is what stops a fix to the half below
+        // being a change to the All page as well.
+        let all = StorageSection.counts(in: r, section: nil) { _ in true }
+        #expect(all.total == 164)
+        #expect(all.filtered == 164)
+
+        // Selected: that list alone, on BOTH numbers. A fix that narrowed only the numerator would
+        // read "50 of 164" — still describing a page that is not on screen.
+        let largest = StorageSection.counts(in: r, section: .largest) { _ in true }
+        #expect(largest.total == 50, "M is still the whole report — the denominator describes lists the rail is not showing")
+        #expect(largest.filtered == 50)
+        #expect(StorageSection.counts(in: r, section: .stale) { _ in true }.total == 96)
+        #expect(StorageSection.counts(in: r, section: .reclaim) { _ in true }.total == 18)
+
+        // And the query still narrows within the selection: N is the rows on screen, M is that list
+        // before the transient narrowing. Each section's fixture names its entries differently, so
+        // this predicate keeps 50 of Largest and none of the other two — a filter that leaked
+        // across sections would show up as a total that is not 50.
+        let searched = StorageSection.counts(in: r, section: .largest) { $0.name.hasPrefix("big") }
+        #expect(searched == (filtered: 50, total: 50))
+        let missing = StorageSection.counts(in: r, section: .largest) { $0.name.hasPrefix("old") }
+        #expect(missing == (filtered: 0, total: 50),
+                "the query narrowed the denominator too — M must be the list before the search")
+    }
+
     @Test("Before a scan the rail says it has not looked, rather than claiming zero")
     func theRailDoesNotClaimZeroBeforeAScan() {
         // The rule Organize's rail follows, applied here: a storage lens that has not run cannot

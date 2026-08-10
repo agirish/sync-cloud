@@ -634,12 +634,21 @@ public struct TidyView: View {
     private var storageQuery: StorageSearch.Query { StorageSearch.parse(query) }
 
     /// The counts behind Storage's "N of M": the three ranked lists, before and after the query.
+    /// "N of M" for Storage — **over the lists the body is actually showing.**
+    ///
+    /// It summed all three ranked lists unconditionally, which was right while the page was always
+    /// all three. The rail can narrow it to one now, and the unchanged sum described a page nobody
+    /// was looking at: standing on Largest with a query showing 3 of its 50, the row read "3 of
+    /// 164" — a denominator drawn from two lists that were not on screen. That is the same
+    /// dishonesty the scope work removed from the Organize lenses, arriving here through the rail.
+    ///
+    /// The selection narrows *which lists*; the query narrows *within them*. Both are needed: N is
+    /// the rows on screen and M is the list before the transient narrowing, and after the rail
+    /// "this list" means the selected section.
     private var storageCounts: (filtered: Int, total: Int) {
         guard let report = syncManager.storageLensReport else { return (0, 0) }
-        let lists = [report.largest, report.stale, report.reclaimCandidates]
         let q = storageQuery
-        return (lists.reduce(0) { $0 + $1.filter { q.matches($0) }.count },
-                lists.reduce(0) { $0 + $1.count })
+        return StorageSection.counts(in: report, section: storageSection) { q.matches($0) }
     }
 
     /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups (the menu
@@ -852,19 +861,22 @@ public struct TidyView: View {
     /// chrome already said.
     ///
     /// So Organize gives the row to its rail, which names where you are *more* precisely than the
-    /// title did (the ringed item is the lens, not just the workspace). Storage has no rail, and
-    /// nothing else earns row 1's leading half, so it leaves it empty: its readout stays on row 2.
+    /// title did (the ringed item is the lens, not just the workspace). **Storage has a rail of its
+    /// own now** — All and its three ranked lists — which is what fills the leading half the intro
+    /// button used to hold. Its per-list counts moved onto it; what stays on row 2 is what belongs
+    /// to the whole report rather than to one list.
     @ViewBuilder
     private func lensTitle(_ counts: RailCounts) -> some View {
         HStack(spacing: 6) {
-            // Storage has no rail, and promoting its readout here was worse than the title it
-            // replaced: row 1's leading half competes with the actions, so "Documents" truncated
-            // away to a bare folder glyph, and row 2 — a fixed row on a fixed-height card — went
-            // empty. Its readout stays on row 2 and row 1 is simply its controls, which is the
-            // shape Compare's header already has.
+            // **Promoting Storage's readout here was tried and was worse**, and the rail below is
+            // not that: the readout is prose whose width is a property of the data, so "Documents"
+            // truncated to a bare folder glyph and row 2 went empty. A rail is four fixed-width
+            // places that leave row 2 its folder, total and freshness. The failure is worth keeping
+            // written down, because "put the storage readout on row 1" will look like a good idea
+            // again.
             if lens == .storage {
                 // **Storage's own rail, in the half the intro button used to hold.** Removing that
-                // button gave Organize's rail 21pt; Storage has no rail, so it gave Storage an
+                // button gave Organize's rail 21pt; Storage had none, so it gave Storage an
                 // empty row — a 27pt band with two controls floated right and nothing on its
                 // leading two-thirds, on a card whose height is pinned whatever it holds.
                 //
@@ -1126,7 +1138,26 @@ public struct TidyView: View {
         // replaced by the ONE scope chip `lensSummary` draws above every lens. Three chips naming
         // three different territories is what made six rail items look like peers answering about
         // one subject when they answered about four.
-        if let organizeLens, !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
+        // **The overview is tested for on its own, not reached through the `else` of the guard
+        // below.** Written as `if let organizeLens, !stale { … } else { overviewSummary }` it read
+        // correctly and was wrong: the `else` catches *both* arms of a compound condition, so a
+        // lens that had gone stale mid-scan — To File, Names or Renames, exactly the three the
+        // guard exists for — fell through to the overview's readout and drew "1 reporting · 2
+        // clean" under a selected lens while its own scan was running. Suppressing a stale readout
+        // must leave the row empty, which is what the guard was for; it must not substitute a
+        // different lens's answer.
+        if organizeLens == nil {
+            // **The overview's own readout.** Row 2 was blank here — the switch below is keyed on a
+            // selected lens and the overview has none — which was tolerable while the overview was
+            // a state you fell into, and is not now that "All" is a place you can point at. A
+            // destination with an empty readout row looks like one that failed to load.
+            //
+            // It says what the rail says, in words: how many lenses have something, how many came
+            // back clean, how many have not run. The third number is the one no other surface on
+            // this row can state, and the reason `RailItemState` keeps clean and unscanned apart.
+            overviewSummary(counts)
+        } else if let organizeLens,
+                  !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
             switch organizeLens {
             case .toFile:
                 if hasFilingResults { filingSummary(rows.filing) }
@@ -1143,16 +1174,6 @@ public struct TidyView: View {
             case .duplicates, .restructure, .rules:
                 EmptyView()
             }
-        } else {
-            // **The overview's own readout.** Row 2 was blank here — the switch above is keyed on a
-            // selected lens and the overview has none — which was tolerable while the overview was
-            // a state you fell into, and is not now that "All" is a place you can point at. A
-            // destination with an empty readout row looks like one that failed to load.
-            //
-            // It says what the rail says, in words: how many lenses have something, how many came
-            // back clean, how many have not run. The third number is the one no other surface on
-            // this row can state, and the reason `RailItemState` keeps clean and unscanned apart.
-            overviewSummary(counts)
         }
     }
 
@@ -2237,16 +2258,17 @@ public struct TidyView: View {
     /// Storage's pills. The total is the whole scanned tree's — a query filters the ranked lists,
     /// never the tree's size, so this figure must not move when you type.
     ///
-    /// **One pill per section the body draws.** `StorageLensView` lists three — largest, stale,
-    /// reclaim — and this row counted two of them: `stale` had no pill at all, so "Untouched for a
-    /// long time" was a full section with its own list that nothing in the header ever announced.
-    /// Its glyph and colour are the section's own (`StorageSection.stale`), so the pill and the
-    /// heading it stands for read as the same thing rather than as two unrelated warnings.
+    /// **The per-section counts are not here any more — they are on the rail**, where each sits on
+    /// the place it describes and clicking it goes there. This row could only ever say how many.
     ///
-    /// Absent at zero, like the reclaim pill beside it: "0 untouched" is a claim, and the section's
-    /// own empty state ("Nothing has been sitting untouched") already says it in words. `largest`
-    /// keeps its unconditional pill — it is the ranking every report has, not a finding that may or
-    /// may not turn up.
+    /// The rule they left behind is the one worth keeping: *every section the body draws is
+    /// counted somewhere the reader can see*. It was broken here — `StorageLensView` lists three
+    /// ranked lists and this row had pills for two, so "Untouched for a long time" was a full
+    /// section with its own list that nothing above it announced. `StorageSection.allCases` is what
+    /// makes that unrepeatable now, and `everySectionIsOnTheRail` pins it.
+    ///
+    /// What remains belongs to the whole report rather than to one list: the folder it is about,
+    /// the total, and how old the numbers are.
     private func storageSummary(_ report: StorageLensReport) -> some View {
         Group {
             scannedFolderChip(syncManager.storageLensRoot?.path,

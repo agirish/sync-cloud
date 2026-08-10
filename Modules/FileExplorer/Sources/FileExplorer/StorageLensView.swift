@@ -307,6 +307,23 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
         }
     }
 
+    /// "N of M" for whatever the page is showing: `section` nil means all three lists.
+    ///
+    /// **Pure, and separate from the view, because this is where a regression landed.** The header
+    /// summed all three lists unconditionally, which was right while the page was always all three;
+    /// once the rail could narrow it to one, the unchanged sum described a page nobody was looking
+    /// at — "3 of 164" over a single list of 50. The arithmetic lives here so it can be asserted
+    /// directly rather than inferred from a rendered number, and `theOfMCountsFollowTheRail` does.
+    ///
+    /// `matching` is the search predicate: the selection decides *which lists*, the query narrows
+    /// *within them*, and N-of-M needs both.
+    static func counts(in report: StorageLensReport, section: StorageSection?,
+                       matching: (StorageEntry) -> Bool) -> (filtered: Int, total: Int) {
+        let lists = (section.map { [$0] } ?? allCases).map { $0.entries(in: report) }
+        return (lists.reduce(0) { $0 + $1.filter(matching).count },
+                lists.reduce(0) { $0 + $1.count })
+    }
+
     /// This section's entries in a report — the one place the mapping lives, so the rail's badge and
     /// the list below it cannot count different things.
     func entries(in report: StorageLensReport) -> [StorageEntry] {
