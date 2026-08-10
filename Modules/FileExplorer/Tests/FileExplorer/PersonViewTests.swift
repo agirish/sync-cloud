@@ -24,9 +24,16 @@ import Design
     /// "Hers, filed elsewhere" heads y≈155.
     private static let foldersZone = CGRect(x: 0, y: 44, width: 760, height: 90)
     private static let elsewhereZone = CGRect(x: 0, y: 155, width: 760, height: 180)
-    /// The gathering / failed state's two text lines. Starts at x=38 to exclude the spinner —
-    /// its animation frame is not deterministic — and measured from the rendered PNGs: title
-    /// baseline ≈ y 50–64, subtitle ≈ y 69–80, the widest line ending near x 593.
+    /// The gathering / failed state's leading glyph and its two text lines.
+    ///
+    /// **Measured, and the first comment here was wrong twice.** It claimed x=38 excluded the
+    /// spinner "because its animation frame is not deterministic"; a column sweep put the
+    /// gathering state's ink at x 40–591 and the spinner itself at x 40–75, so the band contains
+    /// the spinner rather than excluding it. It is also not a flake risk: eight renders of
+    /// `.gathering` inked 6,476 pixels every time (spread 0) — an offscreen window that is never
+    /// ordered in does not advance the animation. Rows land at y 51–79, inside this band.
+    /// The failed state's warning triangle sits further left (from x 15) and is partly outside;
+    /// that is fine, because the text is what these tests are asserting.
     private static let stateTextZone = CGRect(x: 38, y: 44, width: 620, height: 44)
 
     private static func folder(_ path: String, _ n: Int) -> (folder: String, files: [PersonFile]) {

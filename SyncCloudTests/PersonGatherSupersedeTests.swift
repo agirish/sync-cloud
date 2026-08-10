@@ -14,6 +14,14 @@ import Sync
 /// asked when the second accept arrives; ``awaits`` is asked when a sweep finishes and wants to
 /// write. The sweep's own cancellation is tested in `PersonFilesTests` — this is the slot half,
 /// which is where the wrong answer actually reached the screen.
+///
+/// **Two claims here are deliberately uncovered, and saying so beats pretending.**
+///
+/// `acceptPersonScope` itself cannot be driven: it needs a whole `ContentView` with a live
+/// `FileSyncManager`, and SwiftUI state is not reachable from a unit test. So the *composition* —
+/// that the `.failed` slot is written when the profile is missing rather than the accept returning
+/// silently, and that `Task.isCancelled` is consulted alongside `awaits` — rests on the pieces
+/// below plus review, not on a test. What is covered is every decision the composition makes.
 @Suite struct PersonGatherSupersedeTests {
 
     private static let aditi = Person(id: "aditi", displayName: "Aditi",
@@ -79,5 +87,101 @@ import Sync
         // assertion above and no gather would ever paint an answer.
         let mine = Scope(person: Self.aditi, phase: .gathering)
         #expect(Scope.awaits(Self.aditi, in: mine))
+    }
+
+    // MARK: The off-actor half — corpus read + sweep
+    //
+    // The two decisions above are pure and were the only thing covered. What actually runs between
+    // them had NO test: whether a missing corpus is distinguishable from an answer, and whether a
+    // cancel during the read is honoured. Both are what the slot's `.failed` and the supersede
+    // path are built on, so a silent change in either would go straight past the suite above.
+
+    /// A corpus of `documents` files, deliberately **below `PersonFiles.gather`'s 256-document
+    /// cancellation stride**. That is what makes the cancellation test below test what it claims:
+    /// with a larger corpus the sweep's own periodic check would throw, and removing the checks
+    /// that bracket the corpus read — the ones this file is here to cover — would fail nothing.
+    private static let corpusDocuments = 100
+
+    private static func makeProfileDirectory(withCorpus: Bool) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gather-\(UUID().uuidString)")
+        let profile = root.appendingPathComponent("t")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        if withCorpus {
+            let corpus = FilingCorpus(profileId: "t", salt: "s", documents: Dictionary(
+                uniqueKeysWithValues: (0..<corpusDocuments).map {
+                    ("Family/Aditi/doc-\($0).pdf",
+                     FilingCorpusDocument(size: 1, modified: 0, anchors: [], idHashes: []))
+                }))
+            try JSONEncoder().encode(corpus)
+                .write(to: profile.appendingPathComponent("filing-corpus.json"))
+        }
+        return root
+    }
+
+    private static func folderProfile() -> FolderProfile {
+        FolderProfile(profileId: "t", root: "/root", folders: [
+            "Family/Aditi": FolderProfileEntry(
+                path: "Family/Aditi", role: nil, naming: nil, anchors: [], acceptsNewFiles: true,
+                fileCount: 1, subfolderCount: 0, axes: ["person": "Aditi"]),
+        ], personTokens: [])
+    }
+
+    private static var registry: PersonRegistry {
+        PersonRegistry(people: [Person(id: "aditi", displayName: "Aditi",
+                                       fullNames: ["Aditi Abhishek"])])
+    }
+
+    @Test func aMissingCorpusIsNilRatherThanAnEmptyAnswer() async throws {
+        // **nil and "nobody has anything" must not look alike.** The slot renders the first as
+        // `.failed` ("nothing has been surveyed") and the second as the empty state ("nothing is
+        // theirs"), which are different claims — and collapsing them is how the missing-corpus
+        // path would silently become a confident "0 hers".
+        let root = try Self.makeProfileDirectory(withCorpus: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missing = try await ContentView.gatherOffMainActor(
+            personId: "aditi", profileId: "t", directory: root,
+            profile: Self.folderProfile(), registry: Self.registry)
+        #expect(missing == nil, "a missing corpus produced an answer instead of nil")
+
+        // …and with a corpus present the same call returns one, or the assertion above passes for
+        // the wrong reason (any broken read would also return nil).
+        let present = try Self.makeProfileDirectory(withCorpus: true)
+        defer { try? FileManager.default.removeItem(at: present) }
+        let found = try await ContentView.gatherOffMainActor(
+            personId: "aditi", profileId: "t", directory: present,
+            profile: Self.folderProfile(), registry: Self.registry)
+        #expect(found?.total == Self.corpusDocuments,
+                "the corpus read or the sweep is not reaching the documents")
+    }
+
+    @Test func aCancelledGatherThrowsRatherThanReturningAPartialAnswer() async throws {
+        // A superseded gather must not come back with half a sweep and let `awaits` decide — the
+        // slot's guard is the second line of defence, not the first.
+        //
+        // The fixture is 100 documents, under the sweep's 256 stride, so `PersonFiles.gather`
+        // never reaches a check of its own: the only thing that can throw here is the pair of
+        // checks bracketing the corpus read.
+        let root = try Self.makeProfileDirectory(withCorpus: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = Self.folderProfile()
+        let registry = Self.registry
+        let task = Task {
+            // Bounded, and the cancel below is unconditional, so this terminates either way: the
+            // pass cap turns a broken cancellation into a named failure instead of a hang.
+            var passes = 0
+            while !Task.isCancelled, passes < 5_000 {
+                passes += 1
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            return try await ContentView.gatherOffMainActor(
+                personId: "aditi", profileId: "t", directory: root,
+                profile: profile, registry: registry)
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self,
+                      "a cancelled gather returned an answer instead of stopping") {
+            try await task.value
+        }
     }
 }

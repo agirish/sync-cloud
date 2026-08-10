@@ -1535,49 +1535,98 @@ struct ContentView: View {
     /// runs per keystroke.
     ///
     /// The corpus read (a 4.9 MB file nothing else in the app holds) **and the sweep itself** run
-    /// off the main actor; the main-actor task only waits and writes the result. Cancellation has
-    /// to be forwarded by hand — a detached task does not inherit it — which is what the
-    /// `withTaskCancellationHandler` is doing.
+    /// off the main actor, in ``gatherOffMainActor(personId:profileId:directory:profile:registry:)``;
+    /// the main-actor task only waits and writes the result.
     func acceptPersonScope(_ person: Person) {
+        guard PersonScope.shouldStart(person, given: personScope) else { return }
         guard let profile = syncManager.filingFolderProfile,
               let registry = syncManager.filingPersonRegistry,
-              let directory = syncManager.filingProfilesDirectory else { return }
-        guard PersonScope.shouldStart(person, given: personScope) else { return }
+              let directory = syncManager.filingProfilesDirectory else {
+            // **Said, not swallowed.** The offer that leads here needs only the roster
+            // (`personOffer` guards on `filingPersonRegistry` alone) while the gather needs the
+            // survey too, and `FilingProfileStore.personRegistry` deliberately reads a roster on a
+            // machine with no profile at all. So a roster outliving its survey puts an offer on
+            // screen whose accept did *nothing*, with no message — the exact "nothing happened"
+            // this whole feature exists to remove, surviving in the one path it had not covered.
+            personScope = PersonScope(person: person, phase: .failed(Self.noSurveyToGather))
+            return
+        }
         Logger.shared.info("User asked for everything that is \(person.displayName)'s")
         personGatherTask?.cancel()
         personScope = PersonScope(person: person, phase: .gathering)
         let id = profile.profileId
-        let worker = Task.detached(priority: .userInitiated) { () throws -> PersonFileSet? in
-            guard let corpus = FilingSurveyStore.corpus(id: id, in: directory) else { return nil }
-            return try PersonFiles.gather(personId: person.id, corpus: corpus,
-                                          profile: profile, registry: registry)
-        }
         personGatherTask = Task {
-            let outcome = await withTaskCancellationHandler {
-                await worker.result
-            } onCancel: {
-                worker.cancel()
-            }
-            // Superseded or cleared while sweeping: the canceller owns the slot now. The scope
-            // check backs up the flag — both cancel paths set both, but the write below must
-            // never land on a scope that is no longer this gather's.
-            guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
-            switch outcome {
-            case .success(let files?):
-                personScope = PersonScope(person: person, phase: .ready(files))
-            case .success(nil):
+            do {
+                let files = try await Self.gatherOffMainActor(
+                    personId: person.id, profileId: id, directory: directory,
+                    profile: profile, registry: registry)
+                // **Both checks, and they close different holes.**
+                //
+                // `Task.isCancelled` — this gather was superseded or cleared. A cancel that lands
+                // *after* the sweep has already returned raises no error at all, so the `catch`
+                // below never sees it. The case that needs this: accept Aditi, clear, accept Aditi
+                // again. The first sweep finishes in the window before its cancel is observed, and
+                // the slot is now the *second* gather's — same person, still `.gathering`, so
+                // `awaits` says yes and the dead task writes into the live one's slot.
+                //
+                // `awaits` — the slot must still be waiting for this person at all. It is the
+                // invariant that actually protects the pixels, and it is what stops Aditi's answer
+                // landing under Girish's name.
+                guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
+                personScope = PersonScope(
+                    person: person,
+                    phase: files.map { .ready($0) } ?? .failed(Self.noSurveyToGather))
+            } catch is CancellationError {
+                // The canceller owns the slot. Nothing to write, and nothing to say.
+            } catch {
+                // Nothing below throws anything but cancellation today. Swallowing this anyway
+                // would leave the spinner turning **forever** — strictly worse than the silent
+                // slot this feature replaced — so an unexpected failure ends the wait out loud.
+                // Same pair of checks as the success path, for the same two reasons: a dead
+                // gather must not write its failure into a live one's slot either.
+                guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
+                Logger.shared.warning("The person gather failed: \(error.localizedDescription)")
                 personScope = PersonScope(person: person, phase: .failed(
-                    "The survey of this tree has not been read yet, so there is nothing to gather."))
-            case .failure:
-                // Only cancellation escapes the worker, and the guard above already returned for
-                // every path that cancels it — this arm is unreachable in practice.
-                break
+                    "Something went wrong gathering these files: \(error.localizedDescription)"))
             }
         }
     }
 
+    /// What the slot says when there is no survey to gather from — the profile never loaded, or it
+    /// did and its corpus is missing. One string for both because the two states differ only in
+    /// which artifact is absent, and the thing to do about them is the same.
+    static let noSurveyToGather =
+        "The survey of this tree has not been read yet, so there is nothing to gather."
+
+    /// Reads the corpus and sweeps it, **off the main actor** — `nonisolated`, so awaiting it from
+    /// the main-actor task above hops to the cooperative pool rather than running the sweep
+    /// between the user and their next frame. (Measured: a `nonisolated` async function called
+    /// from a `@MainActor` context does not run on the main thread, and it inherits cancellation
+    /// without a handler — which is why there is no `Task.detached` here.)
+    ///
+    /// Returns nil when the corpus is absent, which is a state rather than an error: the tree has
+    /// not been surveyed. Throws only `CancellationError`.
+    ///
+    /// Internal rather than private so the supersede suite can drive the real thing.
+    nonisolated static func gatherOffMainActor(
+        personId: String, profileId: String, directory: URL,
+        profile: FolderProfile, registry: PersonRegistry
+    ) async throws -> PersonFileSet? {
+        // Bracketing the read: the decode is a synchronous ~90 ms that cannot be interrupted, so
+        // these are the two points at which a gather cancelled during it can actually stop.
+        try Task.checkCancellation()
+        guard let corpus = FilingSurveyStore.corpus(id: profileId, in: directory) else { return nil }
+        try Task.checkCancellation()
+        return try PersonFiles.gather(personId: personId, corpus: corpus,
+                                      profile: profile, registry: registry)
+    }
+
     /// The one way out of a person gather, from every exit — the ✕, Esc, and leaving the
     /// workspace. Cancels a sweep still running so it stops walking documents nobody will see.
+    ///
+    /// **The only place `personScope` is set back to nil.** Anything that clears it by hand would
+    /// leave the sweep running, and `PersonScope.awaits` would then throw its answer away silently
+    /// after paying for all of it.
     func clearPersonScope() {
         personGatherTask?.cancel()
         personGatherTask = nil
