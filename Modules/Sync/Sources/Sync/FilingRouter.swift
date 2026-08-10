@@ -143,6 +143,8 @@ public enum FilingRouter {
         /// and looked up by hash — folding them into the readable map would need every lookup to
         /// know which kind of token it holds.
         let idDocFrequencyByFolder: [String: [String: Double]]
+        /// Folder → the folders it is a stash of copies of. See ``SatelliteFolders``.
+        let satelliteHomes: [String: Set<String>]
 
         public var isEmpty: Bool { destinations.isEmpty }
     }
@@ -152,7 +154,8 @@ public enum FilingRouter {
     /// `destinations` is the taxonomy the caller already computed; folders the profile forbids are
     /// dropped here rather than at the call site so no consumer can forget.
     public static func makeIndex(destinations: [String], profile: FolderProfile?,
-                                 memory: FilingMemory?, registry: PersonRegistry? = nil) -> Index {
+                                 memory: FilingMemory?, registry: PersonRegistry? = nil,
+                                 satelliteHomes: [String: Set<String>] = [:]) -> Index {
         // One rule, asked the same way everywhere — see ``FolderProfile/isInboxPath(_:)``.
         let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
         var byAnchor: [String: [(String, Double)]] = [:]
@@ -217,6 +220,13 @@ public enum FilingRouter {
                 folderPerson[f] = id
             }
         }
+        // Only pairs whose BOTH ends survived the allow-list can ever fire, so a satellite whose
+        // home was filtered out (an inbox, a forbidden folder) is not half-applied.
+        let satellites = satelliteHomes.reduce(into: [String: Set<String>]()) { out, pair in
+            guard allowedSet.contains(pair.key) else { return }
+            let homes = pair.value.filter { allowedSet.contains($0) }
+            if !homes.isEmpty { out[pair.key] = homes }
+        }
         return Index(byAnchor: byAnchor, byIdHash: byIdHash, docs: docs, destinations: allowed,
                      pathTokens: pathTokens, anchorTokens: anchorTokens, yearKey: yearKey,
                      roleBonus: roleBonus, children: children,
@@ -224,7 +234,8 @@ public enum FilingRouter {
                      registry: registry, salt: memory?.salt ?? "",
                      foldersByPathToken: foldersByPathToken, foldersByYear: foldersByYear,
                      anchorsByFolder: anchorsByFolder, docFrequencyByFolder: docFrequencyByFolder,
-                     idDocFrequencyByFolder: idDocFrequencyByFolder)
+                     idDocFrequencyByFolder: idDocFrequencyByFolder,
+                     satelliteHomes: satellites)
     }
 
     /// Ranks destinations for one file.
@@ -392,6 +403,34 @@ public enum FilingRouter {
             for (f, v) in name { total[f, default: 0] += nameWeight * (v / namePeak) }
         }
         for f in excluding { total.removeValue(forKey: f) }
+
+        // **A folder does not outrank the folder it is a stash of copies of.**
+        //
+        // Applied here rather than by the caller — `rank` has two call sites and a re-rank one of
+        // them forgot would be invisible — and applied to the scores rather than to the final
+        // order, so the margin below is computed on what the ranking actually claims.
+        //
+        // A DEMOTION, not a removal: the satellite stays on the card as an alternate, one click
+        // away, because the relation is a statement about which folder is the home and not about
+        // whether a document may ever be copied into a petition packet again.
+        //
+        // Only fires when both ends are in play for the same file, which is a narrow event: 14
+        // pairs over the tree's 3,013 profiled folders, and 67 of 10,470 identified documents live
+        // in a satellite at all. **Leave-one-out cannot score this**, and that is worth saying
+        // plainly rather than reporting a number that looks like validation: the corpus's ground
+        // truth for those 67 documents IS the satellite — they are filed there — so a replay
+        // scores the demotion as 67 regressions. The population it exists for is the one the
+        // corpus never holds, a document arriving for the first time.
+        if !index.satelliteHomes.isEmpty {
+            // Read from a snapshot, so a chain (A copies B, B copies C) settles against the scores
+            // as ranked rather than against a partially demoted set.
+            let scored = total
+            for (satellite, homes) in index.satelliteHomes {
+                guard let own = scored[satellite] else { continue }
+                guard let best = homes.compactMap({ scored[$0] }).max(), best < own else { continue }
+                total[satellite] = best * 0.99
+            }
+        }
         guard !total.isEmpty else { return .empty }
 
         // Top-k by selection, not by sorting. A document routinely puts a few thousand folders in

@@ -11,16 +11,24 @@ import Foundation
 extension FileSyncManager {
 
     /// Builds the router index for a taxonomy, reusing the last one when the taxonomy has not moved.
-    func prepareFilingRouter(destinations: Set<String>) {
+    func prepareFilingRouter(destinations: Set<String>, providerRoot: String? = nil) {
         guard filingFolderProfile != nil || filingMemory != nil, !destinations.isEmpty else {
             invalidateFilingRouterIndex()
             return
         }
-        if filingRouterIndex != nil, filingRouterIndexKey == destinations { return }
+        // Refreshed before the early-out below, not after it: the satellite map and the taxonomy
+        // move independently — a duplicates scan writes new fingerprints without adding a folder —
+        // and gating it on the taxonomy having changed would leave the map stale for as long as the
+        // tree's shape held still, which is most of the time.
+        let before = filingSatelliteHomes
+        refreshSatelliteHomes(providerRoot: providerRoot)
+        if filingRouterIndex != nil, filingRouterIndexKey == destinations,
+           before == filingSatelliteHomes { return }
         filingRouterIndex = FilingRouter.makeIndex(destinations: Array(destinations),
                                                    profile: filingFolderProfile,
                                                    memory: filingMemory,
-                                                   registry: filingPersonRegistry)
+                                                   registry: filingPersonRegistry,
+                                                   satelliteHomes: filingSatelliteHomes)
         filingRouterIndexKey = destinations
         filingRouterIndexBuilds += 1
     }

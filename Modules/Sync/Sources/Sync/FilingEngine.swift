@@ -838,6 +838,7 @@ public enum FilingEngine {
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
+                                     satelliteHomes: [String: Set<String>] = [:],
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
                                      pageSamples: [String: String] = [:],
@@ -854,6 +855,7 @@ public enum FilingEngine {
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
                              providerRoot: providerRoot, rejectedByFile: rejectedByFile,
                              contentBlind: contentBlind, routerShortlists: routerShortlists,
+                             satelliteHomes: satelliteHomes,
                              profile: profile, registry: registry, pageSamples: pageSamples,
                              identity: identity, onVeto: onVeto)
     }
@@ -878,6 +880,7 @@ public enum FilingEngine {
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
+                                     satelliteHomes: [String: Set<String>] = [:],
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
                                      pageSamples: [String: String] = [:],
@@ -923,6 +926,29 @@ public enum FilingEngine {
                rawDest.newSegments.isEmpty, s.best != nil,
                !shortlist.contains(Self.relative(rawDest.path, under: providerRoot)) {
                 return s
+            }
+            // **The model may re-rank the shortlist, but not past a folder's own copy stash.**
+            //
+            // The router already demotes a satellite below its home (see ``SatelliteFolders``), so
+            // the shortlist handed over has the home first — and a verdict naming the satellite is
+            // inside the shortlist, which is exactly the case the rule above lets through. Measured
+            // on the reported case: asked where `Payslip_2026-06-15.pdf` belonged, the backend
+            // answered `…/Petition/Supporting Documents/pay_statements` at High confidence, four
+            // copies of January and February payslips whose originals are the ten files in
+            // `Work/HPE/Compensation/Salary Statements/2026`.
+            //
+            // Stated once here rather than by pre-filtering the shortlist, because the shortlist is
+            // also what the model is *shown*, and a satellite is a perfectly good answer when its
+            // home is not on the table — a document really can belong in a petition packet.
+            //
+            // Asked of the suggestion's OWN candidates rather than of `routerShortlists`, and that
+            // is load-bearing rather than tidy: the refine pass ranks its own shortlists and does
+            // not pass them here at all, so a rule keyed on them would be silently off on the one
+            // pass that reaches the cloud model — the pass that produced the wrong answer this was
+            // written for. The candidates are on both paths by construction.
+            if let homes = satelliteHomes[Self.relative(rawDest.path, under: providerRoot)] {
+                let onTheCard = Set(s.candidates.map { Self.relative($0.path, under: providerRoot) })
+                if !homes.isDisjoint(with: onTheCard) { return s }
             }
             // **A backend that has not read the document cannot report high confidence.** It saw a
             // filename; that is a `.low` claim however sure the model says it is, and the badge on

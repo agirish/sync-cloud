@@ -292,7 +292,7 @@ extension FileSyncManager {
         // The router reasons over the UNCAPPED folder set: the classifier's cap exists to bound
         // token cost, and this pass sends nothing anywhere, so capping it would hide real
         // destinations for no benefit.
-        prepareFilingRouter(destinations: filingLastExistingFolders)
+        prepareFilingRouter(destinations: filingLastExistingFolders, providerRoot: providerRoot.path)
 
         // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
@@ -571,6 +571,7 @@ extension FileSyncManager {
                                                          rejectedByFile: rejectedByFile,
                                                          contentBlind: contentBlind,
                                                          routerShortlists: routerShortlists,
+                                                         satelliteHomes: filingSatelliteHomes,
                                                          profile: filingFolderProfile,
                                                          registry: filingPersonRegistry,
                                                          pageSamples: routerSnippets,

@@ -249,6 +249,7 @@ extension FileSyncManager {
                                                  existingRelative: existingRelative,
                                                  providerRoot: root, rejectedByFile: rejectedByFile,
                                                  contentBlind: contentBlind,
+                                                 satelliteHomes: filingSatelliteHomes,
                                                  profile: filingFolderProfile,
                                                  registry: filingPersonRegistry,
                                                  pageSamples: filingPageSamples,

@@ -916,10 +916,55 @@ public class FileSyncManager: ObservableObject {
     /// rebuild produces a value equal to the one it replaced.
     var filingRouterIndexBuilds = 0
 
+    /// Satellite folder → its homes, and the state that says whether it needs rebuilding.
+    ///
+    /// Derived from the two persisted content indexes, which together are ~10 MB of JSON — far too
+    /// much to decode per scan, and it does not change per scan. The key is the pair of files'
+    /// modification dates, so a duplicates scan that writes new fingerprints is picked up on the
+    /// next filing scan and nothing else re-reads them.
+    var filingSatelliteHomes: [String: Set<String>] = [:]
+    var filingSatelliteKey: [Date]?
+    /// So a test can tell a reused map from a rebuilt one — same reason as `filingRouterIndexBuilds`.
+    var filingSatelliteBuilds = 0
+
+    /// Rebuilds ``filingSatelliteHomes`` when the indexes behind it have moved.
+    func refreshSatelliteHomes(providerRoot: String?, fileManager fm: FileManager = .default) {
+        guard let providerRoot, let profile = filingFolderProfile,
+              let hashURL = ContentHashIndexStore.defaultURL(fileManager: fm),
+              let fpURL = ContentHashIndexStore.defaultFingerprintURL(fileManager: fm)
+        else {
+            filingSatelliteHomes = [:]
+            filingSatelliteKey = nil
+            return
+        }
+        let stamps = [hashURL, fpURL].map {
+            (try? fm.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date) ?? nil
+                ?? Date.distantPast
+        }
+        if filingSatelliteKey == stamps { return }
+        let index = DocumentIdentityIndex.build(
+            hashes: ContentHashIndexStore.load(from: hashURL),
+            fingerprints: ContentHashIndexStore.load(from: fpURL),
+            providerRoot: providerRoot,
+            existsOnDisk: { fm.fileExists(atPath: $0) })
+        // Asked through the profile's own rule, not re-implemented — an inbox posing as the bigger
+        // folder is what makes this relation read backwards. See `SatelliteFolders`.
+        filingSatelliteHomes = SatelliteFolders.homesBySatellite(in: index) {
+            profile.acceptsNewFiles($0)
+        }
+        filingSatelliteKey = stamps
+        filingSatelliteBuilds += 1
+        if !filingSatelliteHomes.isEmpty {
+            Logger.shared.info("Filing: \(filingSatelliteHomes.count) folder(s) hold copies of another "
+                        + "folder's documents and will not outrank it")
+        }
+    }
+
     /// Drops the cached index. Called whenever the artifacts it was built from are replaced.
     func invalidateFilingRouterIndex() {
         filingRouterIndex = nil
         filingRouterIndexKey = nil
+        filingSatelliteKey = nil
     }
 
     /// Derives content tokens from text already read, so a file's page is never extracted twice.
