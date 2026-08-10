@@ -178,7 +178,6 @@ import UniformTypeIdentifiers
     /// signature short of the sub-2%-of-documents flake this suite has no corpus to reproduce.
     @Test func pdfExtractionNeverRunsTwoParsesAtOnce() async throws {
         let dir = FixtureDir()
-        // Enough pages that a parse takes long enough to overlap with its neighbours if it can.
         let paths = try (0..<12).map { i -> String in
             let p = dir.path("doc\(i).pdf")
             // One page per line, five pages — the cap this reader stops at, so each parse is long
@@ -186,16 +185,20 @@ import UniformTypeIdentifiers
             try Self.writePDF(lines: (0..<5).map { "Statement page \($0) of document \(i)." }, to: p)
             return p
         }
-        ContentSignalExtractor.resetPeakConcurrentPDFParses()
-
-        await withTaskGroup(of: Void.self) { group in
+        let read = await withTaskGroup(of: Bool.self) { group -> Int in
             for p in paths {
-                group.addTask { _ = await ContentSignalExtractor.snippet(forFileAt: p) }
-                group.addTask { _ = await ContentSignalExtractor.tokens(forFileAt: p) }
+                group.addTask { await ContentSignalExtractor.snippet(forFileAt: p) != nil }
+                group.addTask { await !ContentSignalExtractor.tokens(forFileAt: p).isEmpty }
             }
+            var ok = 0
+            for await didRead in group where didRead { ok += 1 }
+            return ok
         }
+        // Non-vacuity, and it has to be asserted separately: nothing parsed leaves the peak at 0,
+        // which `== 1` below does catch — but a run where every parse returned EMPTY would still
+        // move the counter, so the fixture being readable is its own claim.
+        #expect(read == paths.count * 2, "only \(read) of \(paths.count * 2) reads produced anything")
 
-        // Non-vacuity: if nothing was parsed, the peak is trivially 1 and proves nothing.
         let peak = ContentSignalExtractor.peakConcurrentPDFParses
         #expect(peak == 1, "\(peak) PDF parses overlapped — extraction is no longer serialized")
     }
@@ -210,7 +213,6 @@ import UniformTypeIdentifiers
             try Self.writePDF(lines: ["MARKER\(i) statement policy"], to: p)
             return p
         }
-        ContentSignalExtractor.resetPeakConcurrentPDFParses()
         let texts = await withTaskGroup(of: String?.self) { group -> [String] in
             for p in paths { group.addTask { await ContentSignalExtractor.snippet(forFileAt: p) } }
             var out: [String] = []
@@ -220,5 +222,7 @@ import UniformTypeIdentifiers
         #expect(texts.count == 6, "only \(texts.count) of 6 documents were read")
         #expect(ContentSignalExtractor.peakConcurrentPDFParses >= 1,
                 "the counter never moved — it is not observing the parse")
+        #expect(texts.allSatisfy { $0.contains("MARKER") },
+                "a document came back without its marker — the reads are not returning real text")
     }
 }

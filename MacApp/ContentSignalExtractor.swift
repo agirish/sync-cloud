@@ -52,20 +52,25 @@ enum ContentSignalExtractor {
     private static let pdfQueue = DispatchQueue(label: "com.synccloud.content-signals.pdf",
                                                 qos: .utility)
 
-    /// The most PDF parses ever running at once on ``pdfQueue``. Test instrumentation only —
-    /// serialization cannot be asserted from the outside any other way, and a queue quietly made
-    /// concurrent again would otherwise be caught only by a sub-1%-of-documents flake on a tree no
-    /// test has. Nothing outside tests reads it.
     private static let pdfConcurrencyLock = NSLock()
     private nonisolated(unsafe) static var livePDFParses = 0
-    nonisolated(unsafe) static var peakConcurrentPDFParses = 0
+    private nonisolated(unsafe) static var peakPDFParses = 0
 
-    static func resetPeakConcurrentPDFParses() {
+    /// The most PDF parses ever running at once on ``pdfQueue``. Test instrumentation only —
+    /// serialization cannot be asserted from the outside any other way, and a queue quietly made
+    /// concurrent again would otherwise be caught only by a sub-2%-of-documents flake on a tree no
+    /// test has. Nothing outside tests reads it.
+    ///
+    /// **Read-only, and there is deliberately no reset.** A reset would be a second writer of a
+    /// process-wide counter, and swift-testing runs a suite's tests in parallel: one test zeroing it
+    /// between another's parses and that other's read makes a correct serialization look like none
+    /// at all. No reset is needed, because on a serial queue this can only ever be 0 or 1 — so
+    /// "never two at once" reads as `== 1` for the life of the process once anything has parsed,
+    /// and a queue made concurrent pushes it above 1 and stays there.
+    static var peakConcurrentPDFParses: Int {
         pdfConcurrencyLock.lock()
-        // Deliberately leaves `livePDFParses` alone: zeroing it under an in-flight parse drives it
-        // negative on the next decrement, and the peak then never rises above zero.
-        peakConcurrentPDFParses = 0
-        pdfConcurrencyLock.unlock()
+        defer { pdfConcurrencyLock.unlock() }
+        return peakPDFParses
     }
 
     /// The seam the manager injects: `syncManager.filingContentExtractor = ContentSignalExtractor.tokens(forFileAt:)`.
@@ -125,7 +130,7 @@ enum ContentSignalExtractor {
         pdfQueue.sync {
             pdfConcurrencyLock.lock()
             livePDFParses += 1
-            peakConcurrentPDFParses = max(peakConcurrentPDFParses, livePDFParses)
+            peakPDFParses = max(peakPDFParses, livePDFParses)
             pdfConcurrencyLock.unlock()
             defer {
                 pdfConcurrencyLock.lock()
