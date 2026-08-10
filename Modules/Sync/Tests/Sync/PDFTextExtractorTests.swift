@@ -149,7 +149,6 @@ import Testing
             urls.append(url)
         }
 
-        PDFKitSerialAccess.resetPeakConcurrentParses()
         await withTaskGroup(of: String?.self) { group in
             for url in urls { group.addTask { await PDFTextExtractor.fingerprint(url.path) } }
             var digests: [String?] = []
@@ -181,26 +180,30 @@ import Testing
             urls.append(url)
         }
 
-        PDFKitSerialAccess.resetPeakConcurrentParses()
-        await withTaskGroup(of: Void.self) { group in
+        let read = await withTaskGroup(of: Bool.self) { group -> Int in
             for url in urls {
                 // The async door — what PDFTextExtractor.read uses.
-                group.addTask { _ = await PDFTextExtractor.read(atPath: url.path) }
+                group.addTask { await PDFTextExtractor.read(atPath: url.path) != nil }
                 // The synchronous door — what ContentSignalExtractor uses from its own queue.
                 group.addTask {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                         DispatchQueue.global(qos: .utility).async {
-                            _ = PDFKitSerialAccess.run { PDFTextExtractor.readSync(url.path) }
-                            continuation.resume()
+                            let doc = PDFKitSerialAccess.run { PDFTextExtractor.readSync(url.path) }
+                            continuation.resume(returning: doc != nil)
                         }
                     }
                 }
             }
+            var ok = 0
+            for await didRead in group where didRead { ok += 1 }
+            return ok
         }
+        // Non-vacuity, and it is NOT the peak that provides it: both doors must have returned a
+        // document. Discarding the reads let a broken fixture move the counter and pass.
+        #expect(read == urls.count * 2, "only \(read) of \(urls.count * 2) reads returned a document")
+
         let peak = PDFKitSerialAccess.peakConcurrentParses
         #expect(peak == 1, "\(peak) parses overlapped — the two entry points are not one lane")
-        // Non-vacuity: a peak of 1 is also what "nothing was ever parsed" produces.
-        #expect(peak >= 1, "the counter never moved — nothing went through the lane")
     }
 
     @Test func theAsyncSeamReturnsTheSameDigestAsTheSyncRead() async throws {

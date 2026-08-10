@@ -25,38 +25,9 @@ enum ContentSignalExtractor {
     ///
     /// Stays concurrent: OCR is the slow branch (0.5–2.1 s per file) and Vision tolerates being
     /// driven from several threads, so funnelling scans through one lane would cost real time for
-    /// no correctness. Only the PDF branch is serialized, on ``pdfQueue`` below.
+    /// no correctness. Only the PDF branch is serialized — see ``pdfText(_:)``.
     private static let workQueue = DispatchQueue(label: "com.synccloud.content-signals",
                                                  qos: .utility, attributes: .concurrent)
-
-    /// **PDFKit text extraction is serialized, and that is a correctness requirement.**
-    ///
-    /// `PDFDocument`/`PDFPage.string` is not thread-safe. Measured through this exact reader over a
-    /// real 10,286-document tree, six at a time: **0.83% of documents came back with different text
-    /// than a serial pass**, and concurrent passes disagreed with each other as well. Narrowed to a
-    /// single mortgage statement, 30 serial reads produced **one** text; adding 180 concurrent reads
-    /// of the same file produced **18 distinct texts**, differing by whole reordered or dropped
-    /// blocks — one came back 1,341 characters against 2,616. The affected documents are the ones
-    /// whose embedded fonts need substitution (Chase statements, PG&E bills, mortgage statements).
-    ///
-    /// It matters more than those character counts suggest, because nothing downstream reads the
-    /// whole extract — the classifier prompt carries a few hundred characters. Across those 18
-    /// variants there were **7 different first-400-character windows**, so a document's tokens are
-    /// drawn from text that changes between scans: unstable suggestions, and a verdict cached under
-    /// a key (path, mtime, size, model, prompt) that cannot see that the question itself was
-    /// composed from a different excerpt.
-    ///
-    /// The price is small precisely because this reader stops at ``enoughFromOnePage``: on that same
-    /// full-tree cold pass, 39 s six-at-a-time against 78 s serial. (Reading all five pages, as the
-    /// v2.x line still does, costs 106 s against 198 s — and flaps at 1.69% rather than 0.83%, since
-    /// exposure scales with how much of each document is touched.) A real scan reads only the files
-    /// it is classifying, four at a time, so it pays a fraction of that 39 s.
-    ///
-    /// **The lane is ``PDFKitSerialAccess``, shared with `PDFTextExtractor`, not one of this type's
-    /// own.** Two serial queues race exactly like one concurrent queue — 4.5–6.3% of documents
-    /// flapped when a second serial queue read PDFs alongside, against 0% with the lane to itself —
-    /// and a folder-memory survey and a duplicate scan guard only their own re-entrancy, so nothing
-    /// stops them extracting at the same time.
 
     /// The seam the manager injects: `syncManager.filingContentExtractor = ContentSignalExtractor.tokens(forFileAt:)`.
     static func tokens(forFileAt path: String) async -> Set<String> {
@@ -75,11 +46,11 @@ enum ContentSignalExtractor {
     /// 2× is the smallest scale that read a real lease reliably; at 1× Vision missed body text on
     /// the scans measured.
     ///
-    /// **The PDFKit half runs on ``pdfQueue``; Vision does not.** Opening the document and drawing
-    /// the page is the same unsafe machinery ``pdfText(_:)`` serializes, so it takes its turn there.
-    /// Recognition is the expensive part (seconds), it is not PDFKit, and holding the queue across
-    /// it would stall every scan extraction behind one user-initiated OCR — so the gate is released
-    /// the moment there is a bitmap.
+    /// **The PDFKit half takes ``PDFKitSerialAccess``'s lane; Vision does not.** Opening the document
+    /// and drawing the page is the same unsafe machinery ``pdfText(_:)`` serializes, so it takes its
+    /// turn there. Recognition is the expensive part (seconds), it is not PDFKit, and holding the
+    /// lane across it would stall every scan extraction behind one user-initiated OCR — so the lane
+    /// is released the moment there is a bitmap.
     static func ocrPDFFirstPage(atPath path: String) async -> String? {
         await withCheckedContinuation { continuation in
             workQueue.async {
@@ -174,6 +145,34 @@ enum ContentSignalExtractor {
     /// Takes the PDFKit lane. The synchronous `run` rather than the async `perform` because this
     /// caller is already off the cooperative pool on ``workQueue`` — blocking it is exactly the
     /// intent, so several extractions queue up and take their turn.
+    ///
+    ///
+    /// `PDFDocument`/`PDFPage.string` is not thread-safe. Measured through this exact reader over a
+    /// real 10,286-document tree, six at a time: **0.83% of documents came back with different text
+    /// than a serial pass**, and concurrent passes disagreed with each other as well. Narrowed to a
+    /// single mortgage statement, 30 serial reads produced **one** text; adding 180 concurrent reads
+    /// of the same file produced **18 distinct texts**, differing by whole reordered or dropped
+    /// blocks — one came back 1,341 characters against 2,616. The affected documents are the ones
+    /// whose embedded fonts need substitution (Chase statements, PG&E bills, mortgage statements).
+    ///
+    /// It matters more than those character counts suggest, because nothing downstream reads the
+    /// whole extract — the classifier prompt carries a few hundred characters. Across those 18
+    /// variants there were **7 different first-400-character windows**, so a document's tokens are
+    /// drawn from text that changes between scans: unstable suggestions, and a verdict cached under
+    /// a key (path, mtime, size, model, prompt) that cannot see that the question itself was
+    /// composed from a different excerpt.
+    ///
+    /// The price is small precisely because this reader stops at ``enoughFromOnePage``: on that same
+    /// full-tree cold pass, 39 s six-at-a-time against 78 s serial. (Reading all five pages, as the
+    /// v2.x line still does, costs 106 s against 198 s — and flaps at 1.69% rather than 0.83%, since
+    /// exposure scales with how much of each document is touched.) A real scan reads only the files
+    /// it is classifying, four at a time, so it pays a fraction of that 39 s.
+    ///
+    /// **The lane is ``PDFKitSerialAccess``, shared with `PDFTextExtractor`, not one of this type's
+    /// own.** Two serial queues race exactly like one concurrent queue — 4.5–6.3% of documents
+    /// flapped when a second serial queue read PDFs alongside, against 0% with the lane to itself —
+    /// and a folder-memory survey and a duplicate scan guard only their own re-entrancy, so nothing
+    /// stops them extracting at the same time.
     private static func pdfText(_ url: URL) -> String {
         PDFKitSerialAccess.run { pdfTextSync(url) }
     }

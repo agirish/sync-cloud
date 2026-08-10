@@ -19,29 +19,35 @@ public enum PDFKitSerialAccess {
 
     private static let queue = DispatchQueue(label: "com.synccloud.pdfkit", qos: .utility)
 
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var live = 0
+    private nonisolated(unsafe) static var peak = 0
+
     /// The most parses ever running at once. Test instrumentation — serialization has no other
     /// outside signature short of the sub-2%-of-documents flake no test has a corpus to reproduce.
     /// Nothing outside tests reads it.
     ///
     /// `public` rather than internal only because the other caller, `ContentSignalExtractor`, lives
     /// in `MacApp`, which belongs to no SPM package: its tests are a separate module and cannot
-    /// reach an internal symbol here.
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var live = 0
-    public nonisolated(unsafe) static var peakConcurrentParses = 0
-
-    /// Deliberately leaves the live count alone: zeroing it under an in-flight parse drives it
-    /// negative on the next decrement, and the peak then never rises above zero again.
-    public static func resetPeakConcurrentParses() {
+    /// reach an internal symbol here. Read under the lock, and read-only: a plain
+    /// `nonisolated(unsafe) var` raced the write site on every read and let any module assign to it.
+    ///
+    /// **There is deliberately no reset.** A reset is a second writer of a process-wide counter, and
+    /// swift-testing runs a suite's tests in parallel: one test zeroing it between another's parses
+    /// and that other's read makes correct serialization look like none at all. None is needed —
+    /// on a serial lane this is only ever 0 or 1, so "never two at once" reads as `== 1` for the
+    /// life of the process once anything has parsed, and a concurrent lane pushes it above 1 and
+    /// keeps it there.
+    public static var peakConcurrentParses: Int {
         lock.lock()
-        peakConcurrentParses = 0
-        lock.unlock()
+        defer { lock.unlock() }
+        return peak
     }
 
     private static func counted<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         live += 1
-        peakConcurrentParses = max(peakConcurrentParses, live)
+        peak = max(peak, live)
         lock.unlock()
         defer {
             lock.lock()
