@@ -23,6 +23,7 @@ import Testing
         switch t {
         case .identical: return "identical"
         case .versions: return "versions"
+        case .sameText: return "sameText"
         case .nameOnly: return "nameOnly"
         case .overlapping(let f): return "overlapping(\(String(format: "%.2f", f)))"
         }

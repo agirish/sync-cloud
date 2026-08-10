@@ -21,12 +21,24 @@ extension FileSyncManager {
         /// not the bytes, so no single-path duplicate offer about one is truthful. Counted so
         /// a Time-Machine-shaped tree doesn't just quietly report fewer duplicates.
         public var multiLink: Int
+        /// Documents the same-text pass could not judge: an image-only scan, a password-locked
+        /// PDF, or one whose page 1 holds fewer than ``ContentFingerprint/minimumTokens`` tokens.
+        ///
+        /// **Counted for exactly the reason this feature exists.** The roadmap's complaint about
+        /// the re-stamped-PDF blind spot was not that it was large, it was that it was *silent* —
+        /// the files hashed fine, failed to match, and no counter moved. A same-text pass that
+        /// declined a thousand image-only scans without saying so would recreate that.
+        public var textUnreadable: Int
+        /// Files no duplicate claim of any kind could be made about. `textUnreadable` is
+        /// deliberately NOT in it: those files were hashed and grouped normally, and only the
+        /// weaker text claim was declined for them.
         public var total: Int { tooLarge + cloudOnly + multiLink }
 
-        public init(tooLarge: Int = 0, cloudOnly: Int = 0, multiLink: Int = 0) {
+        public init(tooLarge: Int = 0, cloudOnly: Int = 0, multiLink: Int = 0, textUnreadable: Int = 0) {
             self.tooLarge = tooLarge
             self.cloudOnly = cloudOnly
             self.multiLink = multiLink
+            self.textUnreadable = textUnreadable
         }
     }
 
@@ -49,7 +61,12 @@ extension FileSyncManager {
                 reclaimable += g.reclaimableBytes
                 redundant += g.copies.count - 1
             }
-            if case .nameOnly = g.matchType { review += 1 }
+            // Both kinds the user must look at before acting: a name-only group because its copies
+            // differ, a same-text group because its copies only provably *read* the same.
+            switch g.matchType {
+            case .nameOnly, .sameText: review += 1
+            case .identical, .overlapping, .versions: break
+            }
         }
         return DuplicateSummary(groupCount: duplicateGroups.count,
                                 reclaimableBytes: reclaimable,
@@ -76,9 +93,14 @@ extension FileSyncManager {
     }
 
     /// Re-runs the duplicate scan on lens open, when `root` is one of the targets the user has
-    /// scanned to completion before. Free by construction — the scan reads and hashes locally,
-    /// and the persisted hash index means unchanged files are not even re-read — so the only
-    /// questions are consent and idempotence:
+    /// scanned to completion before. Free of *money and of network*, always — everything it does is
+    /// local — and free of time on the second run onwards, because both persisted indexes mean an
+    /// unchanged file is neither re-read nor re-parsed. It is no longer free of time on the FIRST
+    /// run after the same-text pass arrived: that pass reads every PDF in the tree once (measured
+    /// at ~4 minutes for 10,569 documents) before its digests are cached. The scan is cancellable
+    /// and reports progress throughout, and the pass has a Settings toggle, so the cost is visible
+    /// and refusable rather than hidden — but "free by construction", which this said before, is
+    /// now only true of the repeat. The questions remain consent and idempotence:
     ///
     /// - **Consent** is a remembered target matching: the user has scanned exactly this before,
     ///   so repeating it unasked offers nothing they didn't already ask for. Nothing remembered
@@ -111,13 +133,20 @@ extension FileSyncManager {
     /// `cache` is the session hash cache, shared with Verify so a rescan of an unchanged tree costs
     /// no re-reads. A test that varies `maxBytesToHash` or `isCloudOnly` across scans of the SAME
     /// files must pass `nil` — see ``hashFilesCounting`` for why a hit bypasses both knobs.
+    /// `textFingerprint` is the same-text pass's reader: a path in, a ``ContentFingerprint`` digest
+    /// out, or nil for a document that said too little. Defaulted to the real PDFKit reader for the
+    /// same reason `isCloudOnly` is defaulted to the real materialization check — production wants
+    /// it and only tests want to vary it. `fingerprintCache` is its own store, separate from the
+    /// content-hash one because the two hold different things under the same key shape.
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
         fileManager fm: FileManaging? = nil,
         maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
-        cache: ContentHashCache? = .shared
+        cache: ContentHashCache? = .shared,
+        textFingerprint: @escaping @Sendable (String) async -> String? = PDFTextExtractor.fingerprint,
+        fingerprintCache: ContentHashCache? = .sharedFingerprints
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
@@ -202,16 +231,56 @@ extension FileSyncManager {
         }.value
         if Task.isCancelled { return }
 
+        // 2b. Read the documents, for the duplicates a byte hash cannot see: a provider re-stamps
+        //     each PDF on download, so the same bill fetched twice is byte-different with identical
+        //     content. Every fingerprintable document is read, NOT just the size-colliding hash
+        //     candidates above — measured on the real tree, restricting the pass to files that
+        //     already share a size would find 115 of the 212 groups it finds unrestricted, because
+        //     a re-stamp routinely changes the byte count too (a compressed re-save changes it by
+        //     an order of magnitude). Cached by (path, mtime, size), so this is paid once.
+        var textFingerprints: [String: String] = [:]
+        var textUnreadable = 0
+        if options.detectSameText {
+            let documentPaths = allFiles.map { $0.id }
+                .filter { ContentFingerprint.canFingerprint(path: $0) }
+            if !documentPaths.isEmpty {
+                let documentTotal = documentPaths.count
+                updateScan(\.duplicateScanLifecycle, epoch: epoch,
+                           status: "Reading \(documentTotal) document\(documentTotal == 1 ? "" : "s")…")
+                duplicateScanProgress = (completed: 0, total: documentTotal)
+                textFingerprints = await Self.fingerprintDocuments(
+                    documentPaths, fileManager: fileManager, cache: fingerprintCache,
+                    extract: textFingerprint
+                ) { [weak self] done in
+                    if done % 50 == 0 || done == documentTotal {
+                        Task { @MainActor in
+                            guard let self,
+                                  self.updateScan(\.duplicateScanLifecycle, epoch: epoch,
+                                                  status: "Reading \(done) of \(documentTotal)…") else { return }
+                            self.duplicateScanProgress = (completed: done, total: documentTotal)
+                        }
+                    }
+                }
+                textUnreadable = documentTotal - textFingerprints.count
+                // Same contract as the content hashes above: the reading has happened whatever the
+                // grouping below decides, so a cancellation must not throw the digests away.
+                await fingerprintCache?.save()
+            }
+        }
+        if Task.isCancelled { return }
+
         // 3. Group (pure), then drop anything the user has kept separate.
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options,
-                                                multiLinkPaths: multiLinkPaths)
+                                                multiLinkPaths: multiLinkPaths,
+                                                textFingerprints: textFingerprints)
         if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
         // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value
         // (like duplicateScanRoot, it labels what's on screen, not the in-flight scan).
         duplicateScanSkips = DuplicateScanSkips(tooLarge: hashOutcome.skippedTooLarge,
                                                 cloudOnly: hashOutcome.skippedCloudOnly,
-                                                multiLink: multiLinkPaths.count)
+                                                multiLink: multiLinkPaths.count,
+                                                textUnreadable: textUnreadable)
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -225,6 +294,68 @@ extension FileSyncManager {
         if skips.total > 0 {
             Logger.shared.info("Tidy: \(skips.total) file(s) outside duplicate detection — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded), \(skips.multiLink) hard-linked (trashing a link frees nothing); duplicates among them are not detected")
         }
+        if skips.textUnreadable > 0 {
+            Logger.shared.info("Tidy: \(skips.textUnreadable) document(s) said too little to fingerprint (image-only scan, locked, or under \(ContentFingerprint.minimumTokens) tokens) — a re-stamped copy of one of them is not detected")
+        }
+    }
+
+    /// The (path, mtime, size) triple a fingerprint is cached under — ``ContentHashKey``'s own
+    /// invalidation contract, reused verbatim: any edit to a document moves its mtime, so a stale
+    /// digest is bypassed rather than served. nil when the file has no readable mtime, which means
+    /// this document is fingerprinted every scan rather than cached under an unstable key.
+    nonisolated static func fingerprintCacheKey(forPath path: String,
+                                                fileManager: FileManaging) -> ContentHashKey? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path),
+              let modified = attributes[.modificationDate] as? Date else { return nil }
+        let size = (attributes[.size] as? NSNumber)?.intValue ?? (attributes[.size] as? Int) ?? 0
+        return ContentHashKey(path: path, mtime: modified.timeIntervalSince1970, size: size)
+    }
+
+    /// Fingerprints documents with bounded concurrency, returning path → digest for the ones that
+    /// produced one. Cached by the (path, mtime, size) key the content hashes use, so a rescan of
+    /// an unchanged tree re-parses nothing.
+    ///
+    /// A cache MISS and a document that legitimately has no fingerprint look the same to the
+    /// cache — both are "no entry" — so an image-only scan is re-parsed on every scan. That is a
+    /// parse of a page that yields nothing, not a re-hash of gigabytes, and the alternative
+    /// (persisting a negative) would have to be invalidated by the same key anyway.
+    nonisolated static func fingerprintDocuments(
+        _ paths: [String],
+        fileManager: FileManaging,
+        maxConcurrent: Int = 6,
+        cache: ContentHashCache?,
+        extract: @escaping @Sendable (String) async -> String?,
+        onProgress: (@Sendable (Int) -> Void)? = nil
+    ) async -> [String: String] {
+        guard !paths.isEmpty else { return [:] }
+        var out: [String: String] = [:]
+        out.reserveCapacity(paths.count)
+        var next = 0
+        var completed = 0
+        await withTaskGroup(of: (String, String?).self) { group in
+            func schedule(_ path: String) {
+                group.addTask {
+                    let key = fingerprintCacheKey(forPath: path, fileManager: fileManager)
+                    if let key, let cached = await cache?.hash(for: key) { return (path, cached) }
+                    guard let digest = await extract(path) else { return (path, nil) }
+                    if let key { await cache?.store(digest, for: key) }
+                    return (path, digest)
+                }
+            }
+            let initial = min(maxConcurrent, paths.count)
+            while next < initial { schedule(paths[next]); next += 1 }
+            for await (path, digest) in group {
+                if let digest { out[path] = digest }
+                completed += 1
+                onProgress?(completed)
+                if Task.isCancelled {
+                    group.cancelAll()
+                    continue
+                }
+                if next < paths.count { schedule(paths[next]); next += 1 }
+            }
+        }
+        return out
     }
 
     // MARK: Keep separate (persistent ignore)

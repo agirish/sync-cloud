@@ -36,13 +36,14 @@ public enum TidyLens: String, CaseIterable, Identifiable {
 
 /// Filter over the match type of duplicate groups.
 enum TidyFilter: String, CaseIterable, Identifiable {
-    case all, identical, overlapping, nameOnly, versions
+    case all, identical, sameText, overlapping, nameOnly, versions
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .all: return "All"
         case .identical: return "Identical"
+        case .sameText: return "Same text"
         case .overlapping: return "Overlapping"
         case .nameOnly: return "Name only"
         case .versions: return "Versions"
@@ -53,6 +54,7 @@ enum TidyFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: return true
         case .identical: return group.matchType.kind == .identical
+        case .sameText: return group.matchType.kind == .sameText
         case .overlapping: return group.matchType.kind == .overlapping
         case .nameOnly: return group.matchType.kind == .nameOnly
         case .versions: return group.matchType.kind == .versions
@@ -66,6 +68,9 @@ enum TidyMatchStyle {
     static func symbol(_ type: DuplicateMatchType) -> String {
         switch type {
         case .identical: return "checkmark.seal.fill"
+        // A seal, like `identical`, but unfilled: the same claim made with less certainty behind
+        // it. The glyph pair is the vocabulary — nothing here relies on the colour alone.
+        case .sameText: return "checkmark.seal"
         case .overlapping: return "square.on.square"
         case .nameOnly: return "exclamationmark.triangle.fill"
         case .versions: return "clock.arrow.circlepath"
@@ -74,6 +79,7 @@ enum TidyMatchStyle {
     static func color(_ type: DuplicateMatchType) -> Color {
         switch type {
         case .identical: return SemanticColor.success
+        case .sameText: return SemanticColor.caution
         case .overlapping: return SemanticColor.warning
         case .nameOnly: return SemanticColor.caution
         case .versions: return .purple
@@ -82,6 +88,7 @@ enum TidyMatchStyle {
     static func label(_ type: DuplicateMatchType) -> String {
         switch type {
         case .identical: return "Identical"
+        case .sameText: return "Same text"
         case .overlapping(let f): return "Overlapping · \(Int((f * 100).rounded()))%"
         case .nameOnly: return "Name only"
         case .versions: return "Versions"
@@ -91,6 +98,7 @@ enum TidyMatchStyle {
         switch f {
         case .all: return .secondary
         case .identical: return SemanticColor.success
+        case .sameText: return SemanticColor.caution
         case .overlapping: return SemanticColor.warning
         case .nameOnly: return SemanticColor.caution
         case .versions: return .purple

@@ -573,42 +573,72 @@ width note in 1b.
 
 ## 18. A content fingerprint for PDFs — duplicates a byte hash cannot see
 
-**Why:** Providers re-generate the PDF on every download, stamping a fresh document `/ID` into the
-header. The same bill downloaded twice is therefore **byte-different with identical content**, and
-`DuplicateFinder`'s content hash reports no match. Measured in one tree:
+~~**The fingerprint itself**~~ — **shipped.** `ContentFingerprint` digests the sorted token
+multiset of a PDF's extracted text and form-field values, plus its page count and page geometry;
+`PDFTextExtractor` reads it with PDFKit; `DuplicateFinder` groups matches as `.sameText`, a weaker
+claim than `.identical` with its own badge, its own note, and a standing exclusion from *Apply
+recommended*. Digests are cached by (path, mtime, size) in their own index, beside the content-hash
+one.
 
-```
-Home/Utilities/PG&E/2023/07. Jul 2023.pdf         402,394 bytes   md5 8689e3fb…
-Home/Utilities/PG&E/2023/9829custbill07182023.pdf 402,394 bytes   md5 931c425b…
-```
+**What the corpus said — because four of this item's own assumptions did not survive it, and a
+hazard it never named did the most damage.**
 
-Same bill, same byte count, differing at byte 36; extracted text identical. Both sit in the *same
-folder* — one renamed to the house convention, one the original that was never deleted. The August
-pair is the same story. Tree-wide: **383 groups share a (name, size); 315 are byte-identical and 68
-are not.** Those 68 are real duplicate sets the app currently misses.
+- **Recall is exact where it can be judged.** Over 10,569 real PDFs: 586 byte-identical pairs, 485
+  of which both sides fingerprinted, and **0 disagreements**. The other 101 declined — an
+  image-only scan makes no claim — and cost nothing, because a byte-identical pair is already
+  grouped by the content hash.
+- **It finds 251 groups the byte hash cannot see**, identical across two runs of the shipped code
+  over the same 10,569 files. The measured premise held; the *numbers* in the original entry did
+  not, because the tree has been reorganised since: 232 groups share a (name, size) now, of which
+  183 are byte-identical and **49 are not**.
+- **The proposed pre-filter was wrong and is not in the shipped pass.** "Only files that already
+  share a (name, size) or a (size, page count) need the second pass" would miss the **132 of those
+  251 groups** that span more than one byte size — more than half — because a re-stamp routinely
+  changes the byte count too, and a compressed re-save changes it by an order of magnitude (a
+  2.1 MB passport scan beside its 171 KB copy). Every fingerprintable document is read instead,
+  which is affordable only because of the cache.
+- **Sorting the tokens wins, but by three documents, not by the landslide the case for it assumed.**
+  Hashing the token *sequence* finds 248 of the 253 groups the multiset finds over one frozen
+  extraction. Reading the five groups only the multiset admits: three real (a state tax transcript
+  filed twice, a compressed passport, a compressed birth certificate — re-renders that reordered
+  the text), two not (a resume revision, and a report whose filename ends "- Sorted").
+- **The token floor this item added is inert on this tree, and says so.** Its first justification —
+  ten unrelated earnings summaries grouping on a lone page-number token — was itself an artifact of
+  the racing reader above. Read serially those documents yield *zero* tokens and are declined at any
+  floor, and ablation says the floor removes no group at all. It is kept as a bound on a shape a
+  scanner can produce, not as a fix for one this corpus has.
+- **Glyph soup is identity here, not noise.** `FilingSurvey.isDecodable` exists to keep
+  `ToUnicode`-less nonsense out of a folder's anchors; porting that reflex would have dropped 11
+  groups, ten of them real — including both halves of the `Form 1095-C` pair that is the clearest
+  evidence in the tree of a duplicated taxonomy. Two downloads of one soupy document produce the
+  same soup.
+- **PDFKit's text extraction is not thread-safe**, which the replay caught and nothing else would
+  have: six parses at a time, ~1% of documents extract different text run to run, and two runs of
+  the same binary over the same files reported 226 groups and then 235. The queue is serial, and the
+  same two runs then reported 251 and 251 — concurrency had been *splitting* real matches, not
+  inventing them. A cold full-tree pass costs ~5.5 minutes instead of ~46 seconds, and nothing on
+  any later scan. It also cost this item's own floor its justification (see below), which is the
+  general lesson: **a measurement taken through a racing reader is not a measurement.**
 
-This is a **fourth** blind spot, and worse than the three in `DEFERRED_ENHANCEMENTS.md` #6
-(cloud-only, over the size cap, hard-linked) in one specific way: those three are *detected and
-reported* — `DuplicateScanSkips` counts each reason and the results view says so. This one is
-silent. The files hash successfully and simply do not match, so the scan reports a clean result
-that is wrong, and no counter moves.
+**What the claim is, and is not.** It proves the extracted text matches, which is not the same as
+proving the documents do. Reading every group from one run, **9 were not the same document**: three
+resume revisions whose edits were purely visual, five signed / redacted / stamped copies beside
+their originals, and one report deliberately re-sorted. That is why the group is never in the batch
+and why its note says to open them first.
 
-**What:** For PDFs, a fingerprint over the *content* rather than the file bytes — the extracted text
-(PDFKit gives it without an external dependency), or the concatenated page content streams for
-scans with no text layer. Grouped as a weaker claim than byte-identical, with its own vocabulary and
-its own never-auto-trash rule, exactly as Deferred #6 argues a sampled hash would need. Cheap
-pre-filter: only files that already share a (name, size) or a (size, page count) need the second
-pass, which is 828 files out of 9,861 in the surveyed tree.
+**What remains.**
 
-**Impact:** High, and it lands on the tree's largest single category — 80% of these files are PDFs.
-It is also what would let the shipped rename pass do more than it currently can: that pass detects a
-raw original and its renamed copy contending for one slot and refuses both, because you cannot
-confidently delete the original after renaming a copy if the app cannot prove the two are the same
-document.
-
-**Effort:** Medium. **Risk:** Medium — it lands on the destructive review path, and a text-equal
-claim is genuinely weaker than a byte-equal one. Scanned pages that OCR differently between two
-downloads must not be called identical.
+- **Scans with no text layer.** 853 of 10,569 documents (8%) say too little to fingerprint, and
+  `DuplicateScanSkips.textUnreadable` now counts them rather than letting them vanish. The original
+  entry proposed hashing "the concatenated page content streams" for these; that is untried, and the
+  risk this item always named — two OCR passes of one scan differing — applies to any answer here.
+- **The rename pass still refuses the case this was meant to unblock.** It detects a raw original
+  and its renamed copy contending for one slot and declines both; it can now ask whether the two are
+  the same document, and does not.
+- **Restructure's *duplicated taxonomy* detector** (item 20) waited on this and can now be built on
+  content overlap rather than name evidence.
+- **A tag store keyed on the fingerprint**, so a find-by-person verdict survives a provider
+  re-stamping the bytes.
 
 ---
 
@@ -750,8 +780,11 @@ holding both `Forms/` and `Income Tax/`, each with the same three form folders �
 name evidence. Tested against the tree, matching siblings by child names is dominated by correct
 parallels: Vanguard's Roth and Traditional IRAs, four Chase accounts each foldered by year,
 `PFL - Shweta` beside `SDI - Shweta`. **Identical sibling structure is usually a sign of health.**
-What separates MapR is that the same documents sit in both, so this is a content claim and it waits
-on item 18.
+What separates MapR is that the same documents sit in both, so this is a content claim — and item 18
+has now shipped the evidence it needs. The `.sameText` pass groups both halves of the `Form 1095-C`
+pair across `Work/Archive/MapR/Compensation/Forms/` and `Finance/US/Income Tax/2016/Forms/`, which
+is exactly the overlap this detector was waiting for; what remains is reading those groups as a
+statement about the two *folders* rather than about the two files.
 
 **Status: the first detector has shipped, report-only.** `StructureDivergence` reads the profile
 and reports families of siblings shaped differently at different times, under the two rules

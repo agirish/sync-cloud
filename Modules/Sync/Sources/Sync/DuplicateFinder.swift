@@ -17,6 +17,16 @@ public enum DuplicateMatchType: Sendable, Equatable, Hashable {
     case nameOnly
     /// File names that reduce to one stem (`Report`, `Report (1)`, `Report-final`) but drifted.
     case versions
+    /// Documents whose *text* is identical although their bytes are not — one document downloaded
+    /// twice from a provider that re-stamps each copy. See ``ContentFingerprint``.
+    ///
+    /// **A strictly weaker claim than `identical`, and it carries its own rules because of that.**
+    /// The digest proves the extracted text matches, which is not the same as proving the documents
+    /// match: measured over the real tree, 9 of 212 such groups turned out to be a signed copy
+    /// beside its unsigned original, a redacted copy beside the full one, or a resume revision whose
+    /// edit was purely visual. So the group is never in the "Apply recommended" batch — the user
+    /// looks at each one — while still being resolvable per group once they have.
+    case sameText
 
     /// A stable key for filtering/sorting that ignores the associated value.
     public var kind: Kind {
@@ -25,11 +35,12 @@ public enum DuplicateMatchType: Sendable, Equatable, Hashable {
         case .overlapping: return .overlapping
         case .nameOnly: return .nameOnly
         case .versions: return .versions
+        case .sameText: return .sameText
         }
     }
 
     public enum Kind: String, Sendable, CaseIterable, Hashable {
-        case identical, overlapping, nameOnly, versions
+        case identical, overlapping, nameOnly, versions, sameText
     }
 }
 
@@ -143,14 +154,16 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     /// case (identical dedup, or keep-newest for versions).
     public var isFullyResolvableByRemoval: Bool {
         switch matchType {
-        case .identical, .versions: return true
+        case .identical, .versions, .sameText: return true
         case .overlapping, .nameOnly: return false
         }
     }
 
     /// True when this group is safe to include in the blind "Apply recommended" batch. Only
     /// byte-identical duplicates qualify: versions discard genuinely *different* older content and
-    /// version-matching is heuristic (bursts, numbered series), so they require a per-group look.
+    /// version-matching is heuristic (bursts, numbered series), so they require a per-group look —
+    /// and a `sameText` group proves only that two documents *read* the same, which the measured
+    /// signed-copy and redacted-copy cases show is not the same as being the same document.
     public var isRecommendedForBatch: Bool {
         if case .identical = matchType { return true }
         return false
@@ -159,7 +172,7 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     /// Absolute paths the recommended removal would trash (fully-redundant / older copies).
     public var recommendedRemovalPaths: [String] {
         switch matchType {
-        case .identical, .versions:
+        case .identical, .versions, .sameText:
             // Protected copies are filtered here, at the ONE place a recommendation becomes a list
             // of paths to trash, so re-aiming the keeper cannot smuggle one back in.
             return redundantCopies.filter { !$0.isProtectedFromRemoval }.map { $0.path }
@@ -236,7 +249,7 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     private static func reclaim(after removed: DuplicateCopy, matchType: DuplicateMatchType,
                                 remaining: [DuplicateCopy], priorReclaim: Int) -> Int {
         switch matchType {
-        case .identical, .versions:
+        case .identical, .versions, .sameText:
             return remaining.filter { !$0.isRecommendedKeeper && !$0.isProtectedFromRemoval }
                 .reduce(0) { $0 + $1.size }
         case .overlapping(let fraction):
@@ -260,17 +273,24 @@ public struct DuplicateFinderOptions: Sendable {
     public var ignoredNames: Set<String>
     /// Whether to surface drifted same-stem files as version groups.
     public var detectVersions: Bool
+    /// Whether to read documents and group those whose *text* matches although their bytes do not
+    /// — the re-stamped-download case. Costs one PDF parse per candidate document on a cold scan
+    /// (measured: 46 s for this tree's 10,569 PDFs) and nothing on a rescan, because the digests
+    /// are cached by the same (path, mtime, size) key the content hashes use.
+    public var detectSameText: Bool
 
     public init(
         minFileSize: Int = 4 * 1024,
         overlapThreshold: Double = 0.7,
         ignoredNames: Set<String> = DuplicateFinderOptions.defaultIgnoredNames,
-        detectVersions: Bool = true
+        detectVersions: Bool = true,
+        detectSameText: Bool = true
     ) {
         self.minFileSize = minFileSize
         self.overlapThreshold = overlapThreshold
         self.ignoredNames = ignoredNames
         self.detectVersions = detectVersions
+        self.detectSameText = detectSameText
     }
 
     public static let defaultIgnoredNames: Set<String> = [
@@ -282,6 +302,7 @@ public struct DuplicateFinderOptions: Sendable {
         public static let minFileSize = "tidyMinFileSize"
         public static let overlapThreshold = "tidyOverlapThreshold"
         public static let detectVersions = "tidyDetectVersions"
+        public static let detectSameText = "tidyDetectSameText"
     }
 
     /// Builds options from persisted settings, falling back to the code defaults for any unset key.
@@ -295,6 +316,9 @@ public struct DuplicateFinderOptions: Sendable {
         }
         if defaults.object(forKey: DefaultsKey.detectVersions) != nil {
             options.detectVersions = defaults.bool(forKey: DefaultsKey.detectVersions)
+        }
+        if defaults.object(forKey: DefaultsKey.detectSameText) != nil {
+            options.detectSameText = defaults.bool(forKey: DefaultsKey.detectSameText)
         }
         return options
     }
@@ -350,12 +374,16 @@ public enum DuplicateFinder {
     ///   - fileHashes: Map of absolute file path → SHA-256 hex. Files absent from the map are
     ///     treated as "identity unknown" and never asserted identical.
     ///   - options: Tuning.
+    ///   - textFingerprints: Map of absolute file path → ``ContentFingerprint`` digest, for the
+    ///     documents that produced one. Absent means "this document did not say enough to be
+    ///     identified by what it says" and is never evidence either way.
     /// - Returns: Groups sorted by reclaimable bytes (desc), then name.
     public static func findGroups(
         tree: [FileNode],
         fileHashes: [String: String],
         options: DuplicateFinderOptions = .init(),
-        multiLinkPaths: Set<String> = []
+        multiLinkPaths: Set<String> = [],
+        textFingerprints: [String: String] = [:]
     ) -> [DuplicateGroup] {
         var files: [NodeInfo] = []
         var dirs: [NodeInfo] = []
@@ -385,9 +413,24 @@ public enum DuplicateFinder {
         // file from inside a folder the very same batch is keeping — see `protectingFolderKeepers`.
         var folderKeeperRoots: Set<String> = []
 
+        // The KEEPER side of every identical-FILE group, for the same reason `folderKeeperRoots`
+        // exists one line up: the same-text pass below is allowed to reach back for one of these
+        // as an anchor, and must never offer to remove it.
+        var identicalFileKeepers: Set<String> = []
+
         groups += identicalFolderGroups(dirs, options: options, coveredRoots: &coveredRoots, keeperRoots: &folderKeeperRoots)
         groups += overlappingAndNameOnlyGroups(dirs, options: options, coveredRoots: &coveredRoots)
-        groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths)
+        groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths, keepers: &identicalFileKeepers)
+        // BEFORE versions, deliberately. A provider's second download often lands beside the first
+        // under a name the version stemmer reduces to the same stem — `DE429D.pdf` next to
+        // `DE429D-2.pdf`. Left to the versions pass those become "keep newest, trash older", which
+        // is a story about a document that changed; the fingerprint knows it did not change at all.
+        if options.detectSameText, !textFingerprints.isEmpty {
+            groups += sameTextFileGroups(files, fingerprints: textFingerprints, options: options,
+                                         coveredRoots: coveredRoots, folderKeeperRoots: folderKeeperRoots,
+                                         identicalKeepers: identicalFileKeepers,
+                                         groupedFilePaths: &groupedFilePaths)
+        }
         if options.detectVersions {
             groups += versionGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths)
         }
@@ -621,7 +664,8 @@ public enum DuplicateFinder {
         options: DuplicateFinderOptions,
         coveredRoots: Set<String>,
         keeperRoots: Set<String>,
-        groupedFilePaths: inout Set<String>
+        groupedFilePaths: inout Set<String>,
+        keepers: inout Set<String>
     ) -> [DuplicateGroup] {
         var buckets: [String: [NodeInfo]] = [:]
         for f in files {
@@ -650,6 +694,84 @@ public enum DuplicateFinder {
             // protection: a protected file dropped from this group is still accounted for by it,
             // and leaving it unmarked let it reappear in a versions group the identical pass had
             // always suppressed.
+            for m in members { groupedFilePaths.insert(m.path) }
+            keepers.insert(keeper.path)
+        }
+        return groups
+    }
+
+    // MARK: Same text, different bytes
+
+    /// Documents whose ``ContentFingerprint`` digest matches although their bytes do not — the
+    /// re-stamped download, the compressed re-save, the same statement filed under two names.
+    ///
+    /// **The pass only ever adds information the byte hash did not have**, and it gets that from
+    /// `groupedFilePaths` rather than from a guard of its own. A first draft carried an explicit
+    /// "at least two distinct content signatures" check, and mutation testing could not kill it:
+    /// it is unreachable by construction. `identicalFileGroups` buckets by content hash under the
+    /// same size floor and the same `coveredRoots`, so any two members here that share a KNOWN
+    /// hash were already grouped and marked — leaving at most that group's keeper behind — while
+    /// members with no hash are distinct by definition. An inert guard reads as a safety net that
+    /// is holding something; this comment is what it was actually worth.
+    ///
+    /// **It reaches back for an identical group's keeper, and only as an anchor.** Measured on the
+    /// real tree, 14 of the 212 groups this finds contain a byte-identical sub-pair — one document
+    /// downloaded twice *and* copied once — and in every one of those 14 the remaining members are
+    /// a single file. Excluding everything the identical pass touched would therefore not weaken
+    /// those 14 groups, it would delete them. So an identical group's keeper may anchor a group
+    /// here (it is the copy that pass promised to keep), while never being offered for removal by
+    /// it: two groups, disjoint removal sets, no way for one batch to undo the other's promise.
+    private static func sameTextFileGroups(
+        _ files: [NodeInfo],
+        fingerprints: [String: String],
+        options: DuplicateFinderOptions,
+        coveredRoots: Set<String>,
+        folderKeeperRoots: Set<String>,
+        identicalKeepers: Set<String>,
+        groupedFilePaths: inout Set<String>
+    ) -> [DuplicateGroup] {
+        var buckets: [String: [NodeInfo]] = [:]
+        for f in files {
+            guard f.size >= options.minFileSize else { continue }
+            guard !isCovered(f.path, by: coveredRoots) else { continue }
+            guard !groupedFilePaths.contains(f.path) || identicalKeepers.contains(f.path) else { continue }
+            guard let digest = fingerprints[f.path] else { continue }
+            buckets[digest, default: []].append(f)
+        }
+
+        var groups: [DuplicateGroup] = []
+        // Sorted by digest so the emitted order does not ride on dictionary iteration. It is
+        // observable only where the final sort ties (two groups with equal reclaimable bytes and
+        // equal names) and only ACROSS launches, because Swift seeds its hasher per process — so
+        // no single-process test can kill this line, and none pretends to.
+        for digest in buckets.keys.sorted() {
+            let members = buckets[digest]!
+            guard members.count >= 2 else { continue }
+            let protectedPaths = Set(members.map { $0.path }.filter {
+                identicalKeepers.contains($0) || isCovered($0, by: folderKeeperRoots)
+            })
+            // Keeper: preferred from the protected subset when there is one. Same argument as
+            // `protectingFolderKeepers` makes for identical files — the keeper choice is a location
+            // heuristic carrying no promise, and the user can re-aim it — so anchoring on the copy
+            // another group already promised to keep costs nothing and keeps this group actionable.
+            let pool = protectedPaths.isEmpty ? members : members.filter { protectedPaths.contains($0.path) }
+            let keeper = pool[chooseKeeper(pool)]
+            let removable = members.filter { $0.path != keeper.path && !protectedPaths.contains($0.path) }
+            guard !removable.isEmpty else { continue }
+
+            let ordered = [keeper] + removable.sorted { ($0.depth, $0.path) < ($1.depth, $1.path) }
+            let copies = ordered.enumerated().map { idx, info in
+                makeCopy(info, keeper: keeper, isKeeper: idx == 0, protectedPaths: protectedPaths)
+            }
+            groups.append(DuplicateGroup(
+                matchType: .sameText,
+                name: keeper.name,
+                isDirectory: false,
+                copies: copies,
+                reclaimableBytes: copies.dropFirst().reduce(0) { $0 + $1.size }
+            ))
+            // Every member, protected ones included — the rule the two passes above follow, so a
+            // file this group accounted for can never be picked up again by versions.
             for m in members { groupedFilePaths.insert(m.path) }
         }
         return groups
@@ -900,8 +1022,15 @@ public enum DuplicateFinder {
 
     // MARK: Helpers
 
+    /// - Parameters:
+    ///   - protectedRoots: DIRECTORIES whose contents may not be removed (an identical-folder
+    ///     group's keeper). Tested by containment.
+    ///   - protectedPaths: EXACT paths that may not be removed (an identical-file group's keeper).
+    ///     A separate parameter because `isInsideDirectory` matches proper ancestors only, so a
+    ///     file path handed to `protectedRoots` would protect nothing — silently.
     private static func makeCopy(_ info: NodeInfo, keeper: NodeInfo, isKeeper: Bool,
-                                 protectedRoots: Set<String> = []) -> DuplicateCopy {
+                                 protectedRoots: Set<String> = [],
+                                 protectedPaths: Set<String> = []) -> DuplicateCopy {
         let unique = isKeeper ? 0 : info.contentHashes.subtracting(keeper.contentHashes).count
         // Unverified content: a file whose hash is missing or an unknown-content placeholder, or
         // a folder without a full structural signature (some descendant wasn't walked) or with an
@@ -925,6 +1054,7 @@ public enum DuplicateFinder {
             isRecommendedKeeper: isKeeper,
             contentUnverified: unverified,
             isProtectedFromRemoval: isCovered(info.path, by: protectedRoots)
+                || protectedPaths.contains(info.path)
         )
     }
 

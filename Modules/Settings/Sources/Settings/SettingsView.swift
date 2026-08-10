@@ -485,6 +485,11 @@ enum SettingsSearchIndex {
               keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
         .init(tab: .duplicates, title: "Detect versions",
               keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
+        // Nobody hunting for this types its label. They type what they were doing when they
+        // noticed it: the same bill downloaded twice, or the minutes the first scan took.
+        .init(tab: .duplicates, title: "Read PDFs to find copies a byte hash misses",
+              keywords: ["pdf", "text", "same text", "content", "fingerprint", "re-downloaded",
+                         "downloaded twice", "re-stamped", "slow scan", "duplicates"]),
 
         // Intelligence — the engine and its cost, in tab order. This block carries more of the
         // findability load than any other: the rail says "Intelligence", and nobody hunting for
@@ -1817,6 +1822,7 @@ struct DuplicatesSettingsTab: View {
     @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var tidyMinFileSize: Int = 4096
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.detectSameText) private var tidyDetectSameText: Bool = true
 
     var body: some View {
         SettingsPage {
@@ -1825,7 +1831,7 @@ struct DuplicatesSettingsTab: View {
             // — the same redundancy that cost the Filing header its name over on Organize. The
             // caption carried the actual explanation and is unchanged.
             SettingsSection(
-                caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan."
+                caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Reading PDFs finds a further kind — the same document downloaded twice, which providers re-stamp so its bytes differ — and is the one setting here that costs time rather than shaping results: it extracts text (never OCR, and a scan with no text layer is simply skipped), so the first pass over a large tree takes a few extra minutes and later scans reuse what it read. Changes apply on the next scan."
             ) {
                 // Both row lists come from `SettingsPickerOptions` so a stored value outside the
                 // offered set still displays (and survives) instead of rendering as no selection.
@@ -1848,6 +1854,7 @@ struct DuplicatesSettingsTab: View {
                     .fixedSize()
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
+                Toggle("Read PDFs to find copies a byte hash misses", isOn: $tidyDetectSameText)
             }
         }
     }

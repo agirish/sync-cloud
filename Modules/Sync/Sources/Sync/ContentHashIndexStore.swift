@@ -47,6 +47,19 @@ public enum ContentHashIndexStore {
         return support.appendingPathComponent("SyncCloud/content-hash-index.json")
     }
 
+    /// `~/Library/Application Support/SyncCloud/content-fingerprint-index.json` — the same records
+    /// holding ``ContentFingerprint`` digests, for ``ContentHashCache/sharedFingerprints``.
+    ///
+    /// Its own file, so a change to ``ContentFingerprint/scheme`` can be answered by deleting this
+    /// one and nothing else. (Nothing deletes it today: a digest carries its scheme in the string
+    /// it hashed, so an old entry simply stops matching new ones and ages out under
+    /// ``ContentHashCache/maxEntryAge`` — wrong-looking rather than wrong.)
+    public static func defaultFingerprintURL(fileManager: FileManager = .default) -> URL? {
+        guard let support = fileManager.urls(for: .applicationSupportDirectory,
+                                             in: .userDomainMask).first else { return nil }
+        return support.appendingPathComponent("SyncCloud/content-fingerprint-index.json")
+    }
+
     private struct Payload: Codable {
         let schema: Int
         let records: [ContentHashRecord]

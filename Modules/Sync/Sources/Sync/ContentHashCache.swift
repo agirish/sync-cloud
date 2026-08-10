@@ -35,6 +35,16 @@ public actor ContentHashCache {
     /// cannot add stored properties — can reach it.
     public static let shared = ContentHashCache()
 
+    /// The same store, holding ``ContentFingerprint`` digests instead of SHA-256 content hashes.
+    ///
+    /// **A second instance, not a second namespace inside the first.** The key shape is identical
+    /// — (path, mtime, size), with identical invalidation semantics — but the values answer
+    /// different questions, and mixing them would make one lookup able to return the other's
+    /// answer if a prefix were ever dropped or mistyped. Two instances make that unwriteable, and
+    /// they cost only a second dictionary; they also persist to separate files, so the
+    /// fingerprint index can be thrown away (or its scheme bumped) without re-hashing gigabytes.
+    public static let sharedFingerprints = ContentHashCache()
+
     /// Upper bound on retained entries; oldest are evicted first once exceeded.
     ///
     /// **This number is a cliff, not a dial.** Eviction is FIFO and the workloads re-read their

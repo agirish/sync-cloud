@@ -67,6 +67,28 @@ import Testing
         let one = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 0))
         #expect(one?.hasPrefix("1 file outside duplicate detection") == true)
     }
+
+    @Test func documentsThatSaidTooLittleGetTheirOwnSentenceAndNoneOfTheCount() {
+        // These files WERE hashed and grouped; only the weaker same-text comparison was declined.
+        // Folding them into the total would make the pill claim a much larger blindness than the
+        // scan actually has — 853 of 10,569 on the tree this was measured against.
+        let note = TidyScanSkipNote.text(Skips(tooLarge: 1, textUnreadable: 853))
+        #expect(note?.hasPrefix("1 file outside duplicate detection") == true)
+        #expect(note?.contains("A further 853 documents were hashed but said too little") == true)
+    }
+
+    @Test func nothingSkippedStaysSilentEvenWhenDocumentsSaidTooLittle() {
+        // The pill counts files outside detection, and there are none — so no pill, and the
+        // declined-text sentence has nowhere to hang. Deliberate: an image-only scan not being
+        // comparable by text is the ordinary state of a tree full of scans, not a warning.
+        #expect(TidyScanSkipNote.text(Skips(textUnreadable: 853)) == nil)
+    }
+
+    @Test func oneDeclinedDocumentReadsSingular() {
+        let note = TidyScanSkipNote.text(Skips(cloudOnly: 1, textUnreadable: 1))
+        #expect(note?.contains("A further 1 document was hashed but said too little") == true)
+        #expect(note?.contains("a re-downloaded copy of it is not detected") == true)
+    }
 }
 
 /// Pins the cursor-stack bookkeeping behind the selectable radio's hover effect: NSCursor's

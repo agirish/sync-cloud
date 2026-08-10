@@ -96,6 +96,8 @@ struct TidyGroupCard: View {
         switch group.matchType {
         case .identical:
             return group.isDirectory ? "\(n) copies · identical trees" : "\(n) copies · byte-for-byte"
+        case .sameText:
+            return "\(n) copies · same text, different bytes"
         case .overlapping(let f):
             return "\(n) copies · \(Int((f * 100).rounded()))% shared"
         case .nameOnly:
@@ -253,7 +255,7 @@ struct TidyGroupCard: View {
                 chip("Keep", systemImage: "checkmark", color: SemanticColor.success)
             } else {
                 switch group.matchType {
-                case .identical, .versions:
+                case .identical, .versions, .sameText:
                     chip("Move to Trash", systemImage: "trash", color: SemanticColor.error)
                 case .overlapping:
                     chip("Fold in", systemImage: "arrow.triangle.merge", color: SemanticColor.warning)
@@ -281,6 +283,10 @@ struct TidyGroupCard: View {
                 parts.append("\(copy.uniqueItemCount) unique here")
             case .identical, .versions:
                 parts.append(copy.isFullyRedundant ? "fully redundant" : "\(copy.uniqueItemCount) unique here")
+            // Deliberately NOT "fully redundant": that phrase is the content hash's promise, and
+            // this group has not proved it. What it proved is on the badge and in the note.
+            case .sameText:
+                break
             default: break
             }
         }
@@ -319,6 +325,8 @@ struct TidyGroupCard: View {
             base = "These folders share \(Int((f * 100).rounded()))% of their contents; the other cop\(many ? "ies add" : "y adds") \(unique) unique item\(unique == 1 ? "" : "s"). Merging copies those into “\(group.keeper.name)”, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost — reversible with ⌘Z."
         case .nameOnly:
             base = "Same name, different contents — likely two unrelated things. Tidy won't remove either; keep them separate, or rename one to disambiguate."
+        case .sameText:
+            base = "These documents read exactly the same but their bytes differ — usually one document downloaded twice, since providers re-stamp each copy. Weaker than a byte-for-byte match: a signed copy, a redacted copy or a purely visual revision would also read the same, so open them before removing anything. Excluded from “Apply recommended” for that reason. Removed copies go to the Trash and can be restored with Undo."
         }
         if let caveat = TidyUnverifiedNote.text(
             unverifiedCount: group.copies.filter { $0.contentUnverified }.count) {
@@ -385,6 +393,7 @@ struct TidyGroupCard: View {
     private var applyTitle: String {
         switch group.matchType {
         case .versions: return "Keep newest, Trash older"
+        case .sameText: return group.copies.count > 2 ? "Keep one, Trash the rest" : "Trash the other copy"
         default: return group.copies.count > 2 ? "Keep one, Trash the rest" : "Trash redundant copy"
         }
     }
@@ -491,7 +500,21 @@ enum TidyScanSkipNote {
         if skips.cloudOnly > 0 { reasons.append("\(skips.cloudOnly) cloud-only (not downloaded)") }
         if skips.multiLink > 0 { reasons.append("\(skips.multiLink) hard-linked (trashing a link frees nothing)") }
         let plural = skips.total != 1
-        return "\(skips.total) file\(plural ? "s" : "") outside duplicate detection: \(reasons.joined(separator: ", ")). Duplicates among them are not detected."
+        var note = "\(skips.total) file\(plural ? "s" : "") outside duplicate detection: "
+            + "\(reasons.joined(separator: ", ")). Duplicates among them are not detected."
+        // A DIFFERENT claim being declined, so a different sentence — and deliberately not part of
+        // the pill's count. These documents were hashed and grouped normally; all that was declined
+        // is the weaker same-text comparison, because an image-only scan says nothing to compare.
+        // Rolling them into "outside duplicate detection" would be a much larger and much less true
+        // number (853 of 10,569 on the tree this was measured against).
+        if skips.textUnreadable > 0 {
+            let many = skips.textUnreadable != 1
+            note += " A further \(skips.textUnreadable) document\(many ? "s" : "") "
+                + "\(many ? "were" : "was") hashed but said too little to compare by text "
+                + "(image-only scan, locked, or almost no text), so a re-downloaded copy of "
+                + "\(many ? "one of them" : "it") is not detected either."
+        }
+        return note
     }
 }
 

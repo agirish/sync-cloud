@@ -253,6 +253,16 @@ struct SyncCloudApp: App {
                 }
             }
         }
+        // The same arrangement for the same-text pass's document fingerprints, which are the more
+        // expensive half to recompute: a full PDF parse per document against a re-read of bytes.
+        if let fingerprintURL = ContentHashIndexStore.defaultFingerprintURL() {
+            Task.detached(priority: .utility) {
+                let adopted = await ContentHashCache.sharedFingerprints.enablePersistence(at: fingerprintURL)
+                if adopted > 0 {
+                    Logger.shared.info("Document-fingerprint index: \(adopted) digest(s) reloaded — unchanged documents won't be re-read")
+                }
+            }
+        }
         // Verdicts are cached per (file identity × backend × prompt version), so a folder whose
         // files have not changed is not re-classified — and, on the paid cloud backend, not
         // re-paid for. The location is injected rather than defaulted inside `Sync`, so nothing
