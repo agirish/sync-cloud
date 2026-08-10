@@ -238,7 +238,10 @@ public struct PersonView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.triangle")
                 .scaledFont(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.orange)
+                // The severity table, not a bare `.orange` — this was the one place in
+                // FileExplorer painting a meaning with a literal hue. `warning` rather than
+                // `error`: the gather could not run, but nothing was lost.
+                .foregroundStyle(SemanticColor.warning)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Couldn’t gather \(displayName)’s files.")
                     .scaledFont(.system(size: 12.5, weight: .semibold))

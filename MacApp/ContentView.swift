@@ -1525,6 +1525,14 @@ struct ContentView: View {
 
     /// The in-flight sweep behind `personScope`, held so a successor or a clear can cancel it.
     /// Without this, accepting twice raced two gathers with last-write-wins.
+    ///
+    /// **Deliberately not cleared when a gather finishes**, which looks like a leak and is not.
+    /// A completed `Task` retains nothing that matters, and the tidy-looking `personGatherTask =
+    /// nil` at the end of the task body is a race: task 1 finishing *after* task 2 has been
+    /// assigned here would null out task 2's handle, and the next accept or clear would then have
+    /// nothing to cancel — re-opening, by hand, the exact bug this property exists to close.
+    /// Every writer of this property is on the main actor and outside the task body; keep it that
+    /// way. Cancelling an already-finished task is a no-op, so the stale handle costs nothing.
     @State private var personGatherTask: Task<Void, Never>?
 
     /// Accepts the ⌘F offer: compute what is theirs and show it.
@@ -1542,6 +1550,11 @@ struct ContentView: View {
         guard let profile = syncManager.filingFolderProfile,
               let registry = syncManager.filingPersonRegistry,
               let directory = syncManager.filingProfilesDirectory else {
+            // Cancel first, like every other path that takes the slot from someone: a sweep for
+            // the *previous* person can no longer be shown once this write lands, and leaving it
+            // running would sweep 10,171 documents for an answer `awaits` will then discard.
+            personGatherTask?.cancel()
+            personGatherTask = nil
             // **Said, not swallowed.** The offer that leads here needs only the roster
             // (`personOffer` guards on `filingPersonRegistry` alone) while the gather needs the
             // survey too, and `FilingProfileStore.personRegistry` deliberately reads a roster on a
@@ -1592,11 +1605,18 @@ struct ContentView: View {
         }
     }
 
-    /// What the slot says when there is no survey to gather from — the profile never loaded, or it
-    /// did and its corpus is missing. One string for both because the two states differ only in
-    /// which artifact is absent, and the thing to do about them is the same.
+    /// What the slot says when there is no survey to gather from. One string for all of it because
+    /// the causes differ only in which artifact is missing, and the thing to do about them is the
+    /// same: survey the tree.
+    ///
+    /// **"No readable survey", not "has not been read yet"** — which is what the banner this
+    /// replaced said, and it is false for one of the three causes. `FilingSurveyStore.corpus`
+    /// returns nil when the file is *absent* (never surveyed), when the profile never loaded, and
+    /// when the file is present but **fails to decode** — and in that last case the tree has been
+    /// surveyed. A banner flashes past; this sits in the slot until it is dismissed, so a sentence
+    /// that is wrong a third of the time is worth more than it costs to say accurately.
     static let noSurveyToGather =
-        "The survey of this tree has not been read yet, so there is nothing to gather."
+        "No readable survey of this tree was found, so there is nothing to gather."
 
     /// Reads the corpus and sweeps it, **off the main actor** — `nonisolated`, so awaiting it from
     /// the main-actor task above hops to the cooperative pool rather than running the sweep
@@ -2483,8 +2503,18 @@ struct ContentView: View {
     /// placeholder like scanning / all-in-sync). Collapse only applies here — the header strip it
     /// leaves behind belongs to `DifferencesView`, which the placeholders don't render. Internal so
     /// the split-layout extension can gate the collapsed frame on it.
+    ///
+    /// **A person gather takes this slot, so it makes this false.** `bottomPaneView`'s chain tries
+    /// `personScope` first, so while a gather owns the pane the differences list is not on screen —
+    /// and this predicate claiming otherwise was believed by two things that then acted on a view
+    /// that was not there. `bottomPaneIsCollapsed` gave `bottomPaneView` a nil (hug-the-strip)
+    /// height while `PersonView` was in it, and `shortcutDifferencesList` stayed armed, so the
+    /// show/hide-the-list command resized the person gather instead. Predates the gather's loading
+    /// state — the slot has always been shared — and is fixed here because it is the same
+    /// mechanism: whatever offers an action has to require everything that action needs.
     var compareBottomListActive: Bool {
-        selectedWorkspace == .compare && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
+        selectedWorkspace == .compare && personScope == nil
+            && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
     }
 
     /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it,
