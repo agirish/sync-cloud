@@ -599,6 +599,12 @@ extension FileSyncManager {
                                    profile: namingProfile)
         }.value
         if Task.isCancelled { return }
+        // Which of these the tree ALREADY holds — after the naming pass, because a card that says
+        // "this is already filed in X" is about the document and not about the name it would land
+        // under, and before the publish so the queue never shows a duplicate as ordinary for a
+        // frame and then corrects itself.
+        suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path)
+        if Task.isCancelled { return }
         self.publishFilingSuggestions(suggestions)   // single publish
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.

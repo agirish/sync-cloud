@@ -365,6 +365,11 @@ struct SyncCloudApp: App {
             // Where a re-survey writes the memory back — the same directory it was just read from,
             // for the same reason it is read here and not in `Sync`.
             manager.filingProfilesDirectory = profiles
+            // Where the byte-hash and PDF-fingerprint indexes live, so the filing queue can say
+            // "the tree already holds this document" and demote a folder's own copy stash. Handed
+            // over here for the same reason the line above is: `Sync` does not go looking for a
+            // home directory of its own.
+            manager.contentIndexDirectory = profiles.deletingLastPathComponent()
             // The roster is the one filing artifact the user edits, so it is handed over as a
             // STORE rather than a value — Settings writes through it, and the manager's
             // subscription recompiles the registry and the fingerprint without a relaunch.

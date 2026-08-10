@@ -765,6 +765,15 @@ public class FileSyncManager: ObservableObject {
     /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any
     /// machine that has never been surveyed.
     public var filingProfilesDirectory: URL?
+    /// Where the two content indexes live — `~/Library/Application Support/SyncCloud`.
+    ///
+    /// **Injected, never defaulted**, for exactly the reason the line above is and the reason
+    /// ``FilingProfileStore/defaultDirectory(fileManager:)`` states: `Sync` does not decide that a
+    /// real home directory exists. Left nil, "is this document already filed?" and the satellite
+    /// relation are both no-ops — which is the state of any machine that has never hashed anything,
+    /// and the state every test runs in. Defaulting it would have had the filing tests decode ten
+    /// megabytes of the developer's own index on every scan.
+    public var contentIndexDirectory: URL?
     /// Whether a document is on this disk to be read, asked before a re-survey opens one.
     ///
     /// Defaults to the real check, so this is the production path rather than a hook something else
@@ -930,13 +939,14 @@ public class FileSyncManager: ObservableObject {
     /// Rebuilds ``filingSatelliteHomes`` when the indexes behind it have moved.
     func refreshSatelliteHomes(providerRoot: String?, fileManager fm: FileManager = .default) {
         guard let providerRoot, let profile = filingFolderProfile,
-              let hashURL = ContentHashIndexStore.defaultURL(fileManager: fm),
-              let fpURL = ContentHashIndexStore.defaultFingerprintURL(fileManager: fm)
+              let directory = contentIndexDirectory
         else {
             filingSatelliteHomes = [:]
             filingSatelliteKey = nil
             return
         }
+        let hashURL = directory.appendingPathComponent("content-hash-index.json")
+        let fpURL = directory.appendingPathComponent("content-fingerprint-index.json")
         let stamps = [hashURL, fpURL].map {
             (try? fm.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date) ?? nil
                 ?? Date.distantPast

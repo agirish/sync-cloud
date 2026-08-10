@@ -91,6 +91,12 @@ struct FilingSuggestionCard: View {
                     // apply also renamed the file would be under-reporting what the button does,
                     // and compact mode is exactly where that would go unnoticed.
                     if let renamed = best?.proposedName { renameRow(renamed) }
+                    // **Never hidden by density**, for the same reason the rename line is not: it
+                    // changes what "File here" means. Every other secondary line describes where
+                    // the file is going; this one says the tree already has this document, and a
+                    // compact card that dropped it would be the one place a silent second copy
+                    // gets made.
+                    if suggestion.isAlreadyFiled { alreadyFiledRow }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
                     if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
@@ -274,6 +280,49 @@ struct FilingSuggestionCard: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Create as \(editedFolderName.isEmpty ? leaf : editedFolderName)")
         }
+    }
+
+    /// "already filed in Work › HPE › … › 2026" — the tree already holds this exact document.
+    ///
+    /// By CONTENT, not by name or bytes: the PDF text fingerprint pairs two downloads of one
+    /// statement that share no byte hash because the provider re-stamped the second. The wording
+    /// says "this document" rather than "this file" for that reason — the copy on disk is very
+    /// likely to have a different name and a different size.
+    private var alreadyFiledRow: some View {
+        let folders = suggestion.alreadyFiledAt
+        let shown = folders[0].split(separator: "/").joined(separator: " › ")
+        let more = folders.count - 1
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "doc.on.doc")
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .foregroundStyle(SemanticColor.warning)
+            Text("already filed in")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(SemanticColor.warning)
+                .fixedSize()
+            Text(shown)
+                .scaledFont(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+            if more > 0 {
+                Text("+\(more)")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(accessibleAlreadyFiled))
+        .help(accessibleAlreadyFiled)
+    }
+
+    /// The full sentence — every folder named, not just the first. The row truncates to one line
+    /// and shows "+2"; a tooltip and VoiceOver have room to say which two.
+    private var accessibleAlreadyFiled: String {
+        let names = suggestion.alreadyFiledAt.map { $0.split(separator: "/").joined(separator: " › ") }
+        return "This document is already filed in \(names.joined(separator: ", ")). "
+            + "Filing it here would make a second copy."
     }
 
     private var rememberedBadge: some View {

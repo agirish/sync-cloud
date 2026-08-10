@@ -119,8 +119,16 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// destination breadcrumb provider-relative (e.g. "iCloud › Documents › …") instead of leaking
     /// the `/Users/<you>` home prefix. nil ⇒ the UI tilde-abbreviates instead.
     public let providerRoot: String?
+    /// Provider-relative folders that already hold **this same document**, by content — the PDF text
+    /// fingerprint where there is one and the byte hash otherwise.
+    ///
+    /// Empty is the ordinary case and the default, so a caller that knows nothing about duplicates
+    /// builds exactly the suggestion it always did.
+    public let alreadyFiledAt: [String]
 
     public var best: FilingDestination? { candidates.first }
+    /// Whether this document is already somewhere in the tree.
+    public var isAlreadyFiled: Bool { !alreadyFiledAt.isEmpty }
     /// The rename the card offers alongside the move, or nil when the best home does not name its
     /// files by a convention this pass can read.
     public var proposedName: String? { best?.proposedName }
@@ -129,17 +137,32 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// (not content, not the LLM). Content-derived and AI homes still show a per-file "File here"
     /// but aren't auto-filed — a weaker/less-verifiable signal shouldn't move files unseen (the
     /// on-device model can be confidently wrong).
+    ///
+    /// **A document the tree already holds is never in the blind batch.** The batch files without
+    /// the user looking, and the one thing they cannot review afterwards is a second copy they did
+    /// not know was a copy: it lands under a name of its own, in a folder that legitimately fits,
+    /// and nothing about it says it is a duplicate. Filing it is not undone by moving it back.
     public var isBatchEligible: Bool {
-        hasConfidentHome && best?.fromContent == false && best?.fromAI == false
+        hasConfidentHome && best?.fromContent == false && best?.fromAI == false && !isAlreadyFiled
     }
 
-    public init(filePath: String, fileName: String, size: Int, modificationDate: Date?, candidates: [FilingDestination], providerRoot: String? = nil) {
+    public init(filePath: String, fileName: String, size: Int, modificationDate: Date?,
+                candidates: [FilingDestination], providerRoot: String? = nil,
+                alreadyFiledAt: [String] = []) {
         self.id = filePath
         self.fileName = fileName
         self.size = size
         self.modificationDate = modificationDate
         self.candidates = candidates
         self.providerRoot = providerRoot
+        self.alreadyFiledAt = alreadyFiledAt
+    }
+
+    /// A copy of this suggestion carrying the folders that already hold the same document.
+    public func alreadyFiled(at folders: [String]) -> FilingSuggestion {
+        FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
+                         modificationDate: modificationDate, candidates: candidates,
+                         providerRoot: providerRoot, alreadyFiledAt: folders)
     }
 }
 
