@@ -76,9 +76,14 @@ enum FirstRunWelcome {
         Page(art: .tidy,
              title: "Clear out duplicates",
              blurb: "Organize's Duplicates lens finds files with identical contents and picks which copies to remove — and never trashes the last copy of anything."),
+        // TWO lines, not three, and that is a layout constraint rather than a style preference:
+        // this is the last page, so it is the one carrying the provider pill under its blurb (see
+        // `lastPageContext`). At three lines the header outgrows `headerMinHeight` and pushes the
+        // dots and the button row down, so the card jumps as you step onto it. It shipped at four
+        // — "Settings." alone on a line — which is what `FirstRunBlurbFitTests` now measures.
         Page(art: .filing,
              title: "Let Organize do the filing",
-             blurb: "Organize puts loose files in the folders where they belong, proposes better names, and can turn a choice you keep making into a rule. It reads content signals on your Mac — or uses AI, when you turn it on in Settings."),
+             blurb: "Organize puts loose files where they belong and proposes better names — using content on your Mac, or AI when you turn it on in Settings."),
     ]
 }
 
@@ -138,6 +143,16 @@ struct FirstRunOverlay: View {
             .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
+    /// The card's fixed width, and the inset between its edge and the text. Named because the blurb
+    /// line-budget test has to lay text out at exactly the width the card gives it — a test
+    /// restating `460 - 48` would keep passing after either number moved.
+    static let cardWidth: CGFloat = 460
+    static let cardPadding: CGFloat = 24
+    /// The floor the page header is held at, so pages of different blurb lengths do not move the
+    /// dots and the button row as you step through. A page whose content EXCEEDS this is the
+    /// alignment bug: the floor can only pad a short page, never shrink a tall one.
+    static let headerMinHeight: CGFloat = 250
+
     private var cardContent: some View {
         VStack(spacing: 16) {
             pageHeader
@@ -149,8 +164,8 @@ struct FirstRunOverlay: View {
 
             controls
         }
-        .padding(24)
-        .frame(width: 460)
+        .padding(Self.cardPadding)
+        .frame(width: Self.cardWidth)
         .overlay(alignment: .topTrailing) { closeButton }
     }
 
@@ -183,7 +198,7 @@ struct FirstRunOverlay: View {
                 lastPageContext
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 250, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: Self.headerMinHeight, alignment: .top)
     }
 
     @ViewBuilder
