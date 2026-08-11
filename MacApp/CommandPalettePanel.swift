@@ -137,7 +137,7 @@ final class CommandPalettePanelController: ObservableObject {
         //
         // `isActive` is logged beside `isKeyWindow` because a `.nonactivatingPanel` takes key only
         // while its app is active, so `key=false` alone says nothing: `paletteOnLaunchArmed` raises
-        // the palette when discovery finishes — a few seconds on his tree, ~10s on a cold cache —
+        // the palette when discovery finishes — 1.3–2.1s warm, 10.5–15.4s cold, five launches —
         // which can land after the user has moved to another app. Without `active=` the two
         // readings that matter, "the panel refused key" and "SyncCloud was in the background", are
         // the same line.
