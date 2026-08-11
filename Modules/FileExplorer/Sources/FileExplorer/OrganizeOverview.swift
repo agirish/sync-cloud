@@ -645,6 +645,16 @@ struct OrganizeOverview: View {
     /// card at a glance, and it is doing real work: findings and offers are both full-width cards
     /// on this screen, and the difference between "here is an answer" and "here is something you
     /// could run" should not rest on reading the heading.
+    /// The unit run of a "\(count) unit" headline — "folders" of "79 folders" — or nil when the
+    /// headline does not lead with this count, in which case the pill draws the whole string.
+    /// Every current headline leads with its count; the fallback exists so a future headline
+    /// that doesn't cannot render "79 79 folders".
+    nonisolated static func headlineUnit(count: Int, headline: String) -> String? {
+        let prefix = "\(count) "
+        guard headline.hasPrefix(prefix) else { return nil }
+        return String(headline.dropFirst(prefix.count))
+    }
+
     private func findingsSection(_ section: OrganizeOverviewSection, count: Int,
                                  headline: String, examples: [String]) -> some View {
         HStack(alignment: .top, spacing: 0) {
@@ -678,12 +688,13 @@ struct OrganizeOverview: View {
                                 .foregroundStyle(.secondary)
                         }
                         .fixedSize()
+                    } else if let unit = Self.headlineUnit(count: count, headline: headline) {
+                        // The C1 mini pill — the same claim the rail badge makes, in the same
+                        // dress. Bare accent text floated at the far edge of a very wide card;
+                        // the wash anchors the number against the card between it and the title.
+                        Pill(.mini, tint: accent, count: count, label: unit)
                     } else {
-                        Text(headline)
-                            .scaledFont(.system(size: 13, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(accent)
-                            .fixedSize()
+                        Pill(.mini, tint: accent, text: headline)
                     }
                 }
                 if !examples.isEmpty {
