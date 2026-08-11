@@ -53,6 +53,42 @@ public final class PeopleStore: ObservableObject {
         dismissedSuggestions = FilingProfileStore.dismissedNameSuggestions(id: profileId,
                                                                            in: directory)
         carriedKeys = Self.unmodelledKeys(at: fileURL)
+        rosterIsUnreadable = Self.rosterIsUnreadable(at: fileURL, loaded: loaded,
+                                                     fileManager: fileManager)
+        if rosterIsUnreadable {
+            Logger.shared.warning("people.json exists but could not be read — showing the roster "
+                                  + "seeded from folder names, and REFUSING to write over the file. "
+                                  + "Fix or move \(fileURL.path) to edit the household again.")
+        }
+    }
+
+    /// True when `people.json` holds **structured data this build could not decode** — a hand-edit
+    /// that broke one `Person` entry, or a schema a newer build wrote.
+    ///
+    /// **This is the difference between "no roster yet" and "a roster I cannot read", and until it
+    /// existed the two were the same state.** A failed decode falls back to a registry seeded from
+    /// folder names, which looks populated in Settings — six or seven people, no full names — so
+    /// nothing tells the user their roster did not load. The first edit then calls `save()`, and a
+    /// whole-file atomic write replaces the real household with the seed: every full name, alias,
+    /// relationship, dismissed suggestion and the `_note` prose, gone, with no backup. The
+    /// carried-keys mechanism cannot help, because `people` is a key this build *models*, so the
+    /// real roster is exactly what a carry is defined not to preserve.
+    ///
+    /// **A file that is not JSON at all is deliberately NOT this case**, and that is not an
+    /// oversight — see `anUnreadableFileDoesNotBlockTheSave`. Bytes that parse as nothing hold no
+    /// roster to protect, and refusing every edit until the user hand-repairs a corrupt file would
+    /// trade a rare loss for a permanent lockout. The line is whether there is structured content
+    /// to lose: valid JSON that did not decode is a household this build merely failed to
+    /// understand, and rewriting it is the loss this flag exists to prevent.
+    @Published public private(set) var rosterIsUnreadable = false
+
+    /// Decides the above from two independent facts: did the registry come from the file (`source`
+    /// is `.file` only on a successful decode), and is there JSON in the file at all.
+    private static func rosterIsUnreadable(at url: URL, loaded: PersonRegistry,
+                                           fileManager: FileManager) -> Bool {
+        guard loaded.source != .file else { return false }        // decoded, nothing to protect from
+        guard let data = fileManager.contents(atPath: url.path) else { return false }   // no file
+        return (try? JSONSerialization.jsonObject(with: data)) != nil
     }
 
     /// Top-level keys in `people.json` that this build does not model, kept so writing the file
@@ -193,6 +229,16 @@ public final class PeopleStore: ObservableObject {
 
     private func save() {
         guard isPersistent else { return }
+        // **A file this build could not read is a file it must not rewrite.** Everything below is a
+        // whole-file atomic write of the roster now in memory, and when the load fell back to the
+        // folder-name seed that roster is the app's guess, not the user's household. Writing it
+        // would replace a real `people.json` with the seed. See `rosterIsUnreadable`.
+        guard !rosterIsUnreadable else {
+            Logger.shared.warning("Refusing to write people.json — it exists but could not be read, "
+                                  + "so this session's roster is a seed and would overwrite the real "
+                                  + "one. The change is in memory only.")
+            return
+        }
         do {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)

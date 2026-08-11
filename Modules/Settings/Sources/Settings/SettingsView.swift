@@ -2319,6 +2319,12 @@ struct PeopleList: View {
     @State private var hasLooked = false
 
     var body: some View {
+        // Said before the list, because everything below it is a seed rather than the household —
+        // and because the edits the list offers will not be written while this is true. Without it
+        // the refusal in `PeopleStore.save()` is a change that appears to work and does nothing.
+        if store.rosterIsUnreadable {
+            Self.unreadableRosterNote
+        }
         if store.people.isEmpty {
             Self.emptyRosterNote
         } else {
@@ -2455,6 +2461,19 @@ struct PeopleList: View {
     }
 
     /// Shown when the roster is empty but editable — an invitation, not an error.
+    /// Shown when `people.json` is on disk but unreadable. It names the file and says plainly that
+    /// edits will not save — the alternative is a roster that looks ordinary, edits that appear to
+    /// take, and a real household quietly replaced by folder-name guesses.
+    static var unreadableRosterNote: some View {
+        Label {
+            Text("The people file couldn’t be read, so this list is guessed from folder names. Edits won’t be saved until it’s fixed — see ~/sync-cloud.log for the reason.")
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+        }
+        .scaledFont(.callout)
+        .foregroundStyle(.secondary)
+    }
+
     static var emptyRosterNote: some View {
         Text("No people yet. Add the people whose documents you file — yourself, family — and Organize will stop mixing up whose document is whose.")
             .scaledFont(.callout)

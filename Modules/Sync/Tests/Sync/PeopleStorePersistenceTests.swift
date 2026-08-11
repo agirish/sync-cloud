@@ -141,5 +141,76 @@ import Foundation
 
         let saved = try read(dir)
         #expect((saved["people"] as? [[String: Any]])?.count == 1)
+        #expect(store.rosterIsUnreadable == false,
+                "bytes that parse as nothing hold no roster to protect — the edit must still land")
+    }
+
+    // MARK: - A roster this build cannot decode is never overwritten
+
+    /// **The other half of the carry, and the one that loses the household.** `carriedKeys` keeps
+    /// the keys this build does not model; `people` is one it *does*, so when the decode fails the
+    /// roster is precisely what a carry cannot save. The load falls back to a folder-name seed, the
+    /// list looks ordinary in Settings, and the first edit atomically replaces the real file.
+    @Test func aRosterWithOneBadEntryIsNotOverwrittenByAnEdit() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Valid JSON, real household, one hand-edit typo: `fullNames` is a string, not an array.
+        let broken = """
+            {
+              "schemaVersion": 1,
+              "_note": "why Anuraag is on this roster",
+              "people": [
+                { "id": "abhishek", "displayName": "Abhishek", "fullNames": "Abhishek Girish" }
+              ]
+            }
+            """
+        try write(broken, to: dir)
+        let before = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        #expect(store.rosterIsUnreadable, "an undecodable roster must be known to be undecodable")
+        store.add(displayName: "Shweta")
+
+        let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
+        #expect(after == before, "the household was overwritten by a roster the app guessed")
+    }
+
+    /// A file a NEWER build wrote. The schema probe rejects it wholesale — which is right — but that
+    /// makes it exactly the shape above: real data, not decodable here, and rewriting it downgrades
+    /// the user's roster to whatever this build could guess.
+    @Test func aRosterFromANewerSchemaIsNotOverwritten() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write("""
+            {
+              "schemaVersion": 99,
+              "people": [{ "id": "abhishek", "displayName": "Abhishek", "somethingNew": true }]
+            }
+            """, to: dir)
+        let before = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.add(displayName: "Shweta")
+
+        let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
+        #expect(after == before, "a newer build's file was downgraded by this one")
+    }
+
+    /// **Non-vacuity, and the direction that would hide a permanent lockout.** If the guard read
+    /// "any file at all", every ordinary edit would stop saving and the two tests above would still
+    /// pass. A readable roster must save exactly as before.
+    @Test func aReadableRosterStillSavesEveryEdit() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write(Self.handWritten, to: dir)
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        #expect(store.rosterIsUnreadable == false)
+        store.add(displayName: "Shweta")
+
+        let saved = try read(dir)
+        let names = (saved["people"] as? [[String: Any]])?.compactMap { $0["displayName"] as? String }
+        #expect(names?.sorted() == ["Abhishek", "Shweta"], "the edit must still be written")
+        #expect(saved["_note"] as? String == "Anuraag is on this roster because the tree already files for him.")
     }
 }
