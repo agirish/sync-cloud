@@ -77,12 +77,29 @@ enum FileTypeGlyph {
         }
     }
 
+    /// Classification, cached by lowercased extension. `classify` is a Launch Services
+    /// metadata lookup — cheap alone, but paid per row per render pass without this, which is
+    /// the cost `FileIconCache` exists to remove one shelf over. Bounded by the number of
+    /// distinct extensions on screen; directories bypass it (no lookup to save).
+    @MainActor
+    private static var kindCache: [String: Kind] = [:]
+
+    @MainActor
+    static func cachedKind(name: String, isDirectory: Bool) -> Kind {
+        if isDirectory { return .folder }
+        let ext = (name as NSString).pathExtension.lowercased()
+        if let cached = kindCache[ext] { return cached }
+        let kind = classify(ext: ext, isDirectory: false)
+        kindCache[ext] = kind
+        return kind
+    }
+
     /// The ready-made row glyph: symbol in its tint (secondary when the kind has none),
     /// hierarchical rendering, sized by the caller's frame.
     @MainActor
     @ViewBuilder
     static func view(name: String, isDirectory: Bool, pointSize: CGFloat) -> some View {
-        let kind = classify(ext: (name as NSString).pathExtension, isDirectory: isDirectory)
+        let kind = cachedKind(name: name, isDirectory: isDirectory)
         Image(systemName: symbol(for: kind))
             .scaledFont(.system(size: pointSize))
             .symbolRenderingMode(.hierarchical)

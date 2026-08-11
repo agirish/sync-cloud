@@ -103,7 +103,11 @@ enum Workspace: String, CaseIterable, Identifiable {
             // `.storage` is the only lens that is still a workspace of its own.
             return WorkspaceSelection(workspace: .storage, organizeLens: nil)
         }
-        return WorkspaceSelection(workspace: .filing, organizeLens: organizeLens)
+        // Through the fold's one seam: `OrganizeLens(.rename)` is `.names`, which no longer
+        // presents as its own place — a destination minted here without resolving would write
+        // the folded lens back into the stored selection from outside the migration.
+        return WorkspaceSelection(workspace: .filing,
+                                  organizeLens: organizeLens.resolvedForPresentation)
     }
 }
 

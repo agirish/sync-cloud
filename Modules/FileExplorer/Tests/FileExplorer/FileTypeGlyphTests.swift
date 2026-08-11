@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import FileExplorer
 
 /// The medium classification behind the shared row glyph. The rule that could rot: an unknown
@@ -26,6 +27,21 @@ import Testing
         #expect(FileTypeGlyph.classify(ext: "", isDirectory: false) == .generic)
         #expect(FileTypeGlyph.classify(ext: "xyzzy123", isDirectory: false) == .generic)
         #expect(FileTypeGlyph.tint(for: .generic) == nil)
+    }
+
+    @Test @MainActor func theCacheAnswersExactlyAsTheLookupDoes() {
+        // The cache must be an invisible optimization: for every kind the vocabulary
+        // distinguishes (and the generic fallbacks), cached and direct classification agree.
+        for (name, isDir) in [("a.pdf", false), ("b.JPG", false), ("c.mp3", false),
+                              ("d.docx", false), ("e.xyzzy", false), ("f", false),
+                              ("Reports.pdf", true)] {
+            let direct = FileTypeGlyph.classify(ext: (name as NSString).pathExtension,
+                                                isDirectory: isDir)
+            #expect(FileTypeGlyph.cachedKind(name: name, isDirectory: isDir) == direct,
+                    "cache disagrees with classify for \(name)")
+            // And again, now that it is warm.
+            #expect(FileTypeGlyph.cachedKind(name: name, isDirectory: isDir) == direct)
+        }
     }
 
     @Test func directoriesAreFoldersWhateverTheirName() {

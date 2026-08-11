@@ -290,4 +290,17 @@ import FileExplorer
         tabOnly.set("Tidy", forKey: Workspace.legacyTabKey)
         #expect(Workspace.migrateSelection(in: tabOnly) == Workspace.tidyDefault)
     }
+
+    /// The TidyLens bridge must not resurrect the folded Names lens: `OrganizeLens(.rename)` is
+    /// `.names`, and a destination minted from it without resolving would write the folded lens
+    /// back into the stored selection from OUTSIDE the migration seam — the one path adversarial
+    /// review found around `resolvedForPresentation`.
+    @Test func testARenameLensDestinationLandsOnTheFoldedHost() {
+        let destination = Workspace.destination(for: .rename)
+        #expect(destination.workspace == .filing)
+        #expect(destination.organizeLens == .renames)
+        // The other bridges are untouched by the fold.
+        #expect(Workspace.destination(for: .duplicates).organizeLens == .duplicates)
+        #expect(Workspace.destination(for: .storage).workspace == .storage)
+    }
 }

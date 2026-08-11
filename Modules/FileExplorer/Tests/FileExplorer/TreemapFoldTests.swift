@@ -46,6 +46,38 @@ import Foundation
         #expect(fold.visible.count == 3)
     }
 
+    @Test func theTailClampCannotSqueezeAVisibleTileUnderTheFloor() {
+        // Adversarial case: sizes arranged so a single-pass fold leaves its smallest visible
+        // tile just above the floor, and the tail's clamp (which takes real width) would push
+        // it back under — the anonymous sliver, reintroduced at the boundary. The fold must
+        // settle instead. Replays the view's own width arithmetic over many shapes.
+        let shapes: [[Int]] = [
+            [40_000, 8_000, 7_000, 900, 800, 700, 600, 500],
+            [100, 99, 98, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+            [50_000, 4_000, 3_900, 3_800, 500, 400, 300],
+        ]
+        for (i, sizes) in shapes.enumerated() {
+            let nodes = sizes.enumerated().map { node("n\($0.offset)", $0.element) }
+            for width: CGFloat in [300, 420, 560, 700] {
+                let fold = TreemapView.fold(nodes: nodes, availableWidth: width)
+                guard !fold.folded.isEmpty else { continue }
+                let spacing: CGFloat = 3
+                let total = CGFloat(max(1, nodes.reduce(0) { $0 + $1.bytes }))
+                let tileCount = fold.visible.count + 1
+                let available = max(0, width - spacing * CGFloat(tileCount - 1))
+                let tailWidth = max(TreemapView.labelMinWidth,
+                                    available * CGFloat(fold.tailBytes) / total)
+                let visibleBytes = CGFloat(max(1, nodes.reduce(0) { $0 + $1.bytes } - fold.tailBytes))
+                let visibleAvailable = max(0, available - tailWidth)
+                for tile in fold.visible {
+                    let w = visibleAvailable * CGFloat(tile.bytes) / visibleBytes
+                    #expect(w >= TreemapView.labelMinWidth - 0.5,
+                            "shape \(i) at \(width)pt: \(tile.name) settles at \(w)pt — under the label floor")
+                }
+            }
+        }
+    }
+
     @Test func degenerateInputsPassThrough() {
         #expect(TreemapView.fold(nodes: [], availableWidth: 700).folded.isEmpty)
         let one = [node("A", 1)]

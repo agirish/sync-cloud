@@ -954,7 +954,9 @@ struct OrganizeOverview: View {
                 // A tiny checkmark before each entry says "ran and clean" pre-attentively.
                 // Tertiary like the words, deliberately not success-green: clean is quiet
                 // (the tier rule) — a zero is still never drawn, and neither is a celebration.
-                HStack(spacing: 10) {
+                // FlowLayout, not an HStack: five entries at extra-large text overrun a
+                // 600pt-floor window, and a row that cannot wrap clips its last claims.
+                FlowLayout(spacing: 10, lineSpacing: 3) {
                     ForEach(clean) { section in
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark.circle")
@@ -962,6 +964,7 @@ struct OrganizeOverview: View {
                             Text("\(section.lens.title.lowercased()) checked")
                                 .scaledFont(.system(size: 11))
                         }
+                        .fixedSize()
                     }
                 }
                 .foregroundStyle(.tertiary)

@@ -50,18 +50,36 @@ struct TreemapView: View {
     /// Two deliberate edges: a fold of ONE would relabel a tile "+1 more" in the same space its
     /// own name could use, so a single sub-threshold node keeps its identity (the view widens it
     /// to the label floor instead); and nodes are assumed largest-first, so the fold is a suffix.
+    /// Iterative, and that is the correctness point (found in adversarial review): the tail is
+    /// clamped to the label floor, and the width that clamp takes comes out of the visible
+    /// tiles — which can push the smallest of THEM under the floor, the exact anonymous-sliver
+    /// state the fold exists to remove. So the decision replays against the post-clamp widths
+    /// until it settles: fold the last tile while it cannot carry a label, then re-measure.
+    /// Nodes arrive largest-first, so widths descend and the settled visible set is entirely
+    /// at or above the floor.
     nonisolated static func fold(nodes: [TreemapNode], availableWidth: CGFloat,
                                  spacing: CGFloat = 3) -> Fold {
         guard nodes.count > 1, availableWidth > 0 else { return Fold(visible: nodes, folded: []) }
         let total = max(1, nodes.reduce(0) { $0 + $1.bytes })
-        let available = max(0, availableWidth - spacing * CGFloat(nodes.count - 1))
-        let firstFolded = nodes.firstIndex {
-            available * CGFloat($0.bytes) / CGFloat(total) < labelMinWidth
+        var visible = nodes
+        var folded: [TreemapNode] = []
+        while visible.count > 1 {
+            let tileCount = visible.count + (folded.isEmpty ? 0 : 1)
+            let available = max(0, availableWidth - spacing * CGFloat(max(0, tileCount - 1)))
+            let tailBytes = folded.reduce(0) { $0 + $1.bytes }
+            let tailWidth = folded.isEmpty ? 0
+                : max(labelMinWidth, available * CGFloat(tailBytes) / CGFloat(total))
+            let visibleBytes = max(1, total - tailBytes)
+            let visibleAvailable = max(0, available - tailWidth)
+            guard let last = visible.last else { break }
+            let lastWidth = visibleAvailable * CGFloat(last.bytes) / CGFloat(visibleBytes)
+            guard lastWidth < labelMinWidth else { break }
+            folded.insert(visible.removeLast(), at: 0)
         }
-        guard let firstFolded, nodes.count - firstFolded >= 2 else {
-            return Fold(visible: nodes, folded: [])
-        }
-        return Fold(visible: Array(nodes[..<firstFolded]), folded: Array(nodes[firstFolded...]))
+        // A fold of ONE would relabel a tile "+1 more" in the same space its own name could
+        // use — the straggler keeps its identity (the view widens it to the floor instead).
+        guard folded.count >= 2 else { return Fold(visible: nodes, folded: []) }
+        return Fold(visible: visible, folded: folded)
     }
 
     var body: some View {

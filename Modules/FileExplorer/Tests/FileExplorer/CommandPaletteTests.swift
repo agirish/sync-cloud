@@ -91,11 +91,18 @@ import Foundation
                 == .organize(lens: .duplicates, scope: "\(Self.root)/Legal"))
     }
 
-    /// **"rename" reaches Names.** ROADMAP 14's founding case: folding Rename into a conditional
-    /// chip took its destination off the bar, so a user who thinks "rename" has nothing to aim at.
-    /// The palette is the only surface that can route to a control that is not currently on screen.
+    /// **"rename" reaches the place that fixes names.** ROADMAP 14's founding case: a user who
+    /// thinks "rename" must have something to aim at. That place is Renames now — the Names lens
+    /// folded into it as the "to fix" section — and the vocabulary moved with it, which is what
+    /// this pins: the word still routes, and it routes to where the findings actually live.
     @Test func renameReachesTheNamesLensEvenThoughNothingIsCalledRename() {
-        #expect(Self.routes("rename").contains(.organize(lens: .names, scope: nil)))
+        #expect(Self.routes("rename").contains(.organize(lens: .renames, scope: nil)))
+        // The folded vocabulary rode along: the words the OLD place answered to reach the
+        // same landing, so no muscle memory dead-ends.
+        #expect(Self.routes("risky").contains(.organize(lens: .renames, scope: nil)))
+        #expect(Self.routes("illegal").contains(.organize(lens: .renames, scope: nil)))
+        // And the folded lens is not offered as a second place for the same landing.
+        #expect(!Self.routes("names").contains(.organize(lens: .names, scope: nil)))
     }
 
     /// A place whose name is **two words** is found, object and all.
@@ -207,7 +214,7 @@ import Foundation
     @Test func theEmptyQueryWithNoHistoryStillOffersEveryPlace() {
         let rows = PaletteRouter.rows(query: "   ", index: Self.index())
         for place in [PaletteRoute.browse, .compare, .storage, .organize(lens: nil, scope: nil)]
-            + OrganizeLens.allCases.map({ PaletteRoute.organize(lens: $0, scope: nil) }) {
+            + OrganizeLens.railItems.map({ PaletteRoute.organize(lens: $0, scope: nil) }) {
             #expect(rows.contains { $0.route == place }, "\(place) is unreachable from an empty query")
         }
     }
@@ -235,7 +242,7 @@ import Foundation
     @Test func everyPlaceIsOfferedByTheHandWrittenAllCases() {
         let offered = Set(PalettePlace.allCases.map(\.id))
         let expected = Set(([PalettePlace.browse, .compare, .storage, .organizeOverview]
-                            + OrganizeLens.allCases.map(PalettePlace.lens)).map(\.id))
+                            + OrganizeLens.railItems.map(PalettePlace.lens)).map(\.id))
         #expect(offered == expected)
         // And the list is what the ROWS come from, so an entry that exists but scores nothing is
         // still a place nobody can reach.

@@ -26,72 +26,24 @@ struct FilingSetupCard: View {
     let onStart: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                trigger
-                sampleSection
+        // The generalized card (LensSetupCard) grew out of this view; delegating back keeps one
+        // body for every lens's fresh state instead of a template and a drifting origin.
+        LensSetupCard(
+            intro: intro,
+            accent: accent,
+            triggerTitle: "Suggest homes",
+            triggerSymbol: FilingGlyph.lens,
+            triggerHelp: "Suggest where the loose files in this folder belong. Runs on this Mac "
+                + "and costs nothing; once there are results you can re-ask Claude about them.",
+            samplesTitle: "What a suggestion looks like",
+            samplesAccessibility: "Example of the suggestion format: a file name, the folder it "
+                + "would move to, and how confident the suggestion is. These are "
+                + "samples, not files on your disk.",
+            onStart: onStart
+        ) {
+            ForEach(FilingSetupCard.samples) { sample in
+                sampleRow(sample)
             }
-            .frame(maxWidth: 520, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 28)
-            .padding(.top, 30)
-            .padding(.bottom, 24)
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top, spacing: 13) {
-            Image(systemName: intro.icon)
-                .scaledFont(.system(size: 27))
-                .foregroundStyle(accent)
-                .frame(width: 34)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(intro.title)
-                    .scaledFont(.system(size: 15, weight: .semibold))
-                    .accessibilityAddTraits(.isHeader)
-                Text(intro.message)
-                    .scaledFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                // The safety contract, in the same slot `EmptyStateView` reserves for it.
-                Text(intro.safety)
-                    .scaledFont(.caption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var trigger: some View {
-        Button(action: onStart) {
-            Label("Suggest homes", systemImage: FilingGlyph.lens)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .chromeHover()
-        .help("Suggest where the loose files in this folder belong. Runs on this Mac and costs "
-              + "nothing; once there are results you can re-ask Claude about them.")
-    }
-
-    private var sampleSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("What a suggestion looks like")
-                .scaledFont(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(nil)
-            VStack(spacing: 4) {
-                ForEach(FilingSetupCard.samples) { sample in
-                    sampleRow(sample)
-                }
-            }
-            // Announced as one unit: read row by row, three invented filenames sound like real
-            // findings about the user's disk, which is the opposite of what they are.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Example of the suggestion format: a file name, the folder it "
-                                + "would move to, and how confident the suggestion is. These are "
-                                + "samples, not files on your disk.")
         }
     }
 

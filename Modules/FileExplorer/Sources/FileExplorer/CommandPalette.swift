@@ -273,7 +273,10 @@ enum PalettePlace: CaseIterable {
     /// list produces against what the type can build, for exactly that reason.
     static var allCases: [PalettePlace] {
         [.browse, .compare, .organizeOverview]
-            + OrganizeLens.allCases.map(PalettePlace.lens) + [.storage]
+            // `railItems`, not `allCases`: the folded Names lens is not a place any more, and
+            // offering "Organize ▸ Names" beside "Organize ▸ Renames" was two rows for one
+            // landing. Its search vocabulary lives on the Renames place now.
+            + OrganizeLens.railItems.map(PalettePlace.lens) + [.storage]
     }
 
     var title: String {
@@ -303,8 +306,11 @@ enum PalettePlace: CaseIterable {
         case .organizeOverview: return ["organize", "tidy", "all"]
         case .lens(.toFile): return ["organize", "file", "filing", "loose", "inbox", "to file"]
         case .lens(.duplicates): return ["organize", "duplicates", "dupes", "copies", "identical"]
-        case .lens(.names): return ["organize", "names", "rename", "risky", "illegal", "characters"]
-        case .lens(.renames): return ["organize", "renames", "numbering", "backlog", "folders"]
+        // Unreachable from the places list (the lens folded into Renames) but the switch stays
+        // exhaustive; the vocabulary someone would type lives on the Renames place below.
+        case .lens(.names): return []
+        case .lens(.renames): return ["organize", "renames", "rename", "numbering", "backlog",
+                                      "folders", "names", "risky", "illegal", "characters"]
         case .lens(.restructure): return ["organize", "restructure", "structure", "shape", "habits"]
         case .lens(.rules): return ["organize", "rules", "automations", "automatic", "learned"]
         }
