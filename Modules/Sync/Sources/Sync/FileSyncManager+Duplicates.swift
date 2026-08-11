@@ -237,14 +237,47 @@ extension FileSyncManager {
     private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
         let keeper = group.keeper
         guard fileManager.fileExists(atPath: keeper.path) else { return false }
-        guard !keeper.isDirectory else { return true }
-        guard let attrs = try? fileManager.attributesOfItem(atPath: keeper.path) else { return false }
+        return !copyDriftedInPlace(keeper)
+    }
+
+    /// Whether `copy` is still on disk but no longer the size the scan recorded — an in-place
+    /// rewrite (a re-export to the same name, a provider re-download, an edit) that leaves the path
+    /// intact while replacing the bytes underneath it.
+    ///
+    /// One member because two callers must agree: the keeper check above and the removal-candidate
+    /// check below ask the same question about opposite ends of a group, and a group is only safe
+    /// to act on when *neither* end drifted. A copy that has simply *vanished* is not drift — there
+    /// is nothing left to trash, and `dropFullyRemovedGroups` already accounts for it.
+    ///
+    /// Unstattable counts as drifted, which refuses. That is the safe direction on both ends: a
+    /// path we cannot measure is one we cannot show to be redundant.
+    private func copyDriftedInPlace(_ copy: DuplicateCopy) -> Bool {
+        guard fileManager.fileExists(atPath: copy.path) else { return false }
+        guard !copy.isDirectory else { return false }
+        guard let attrs = try? fileManager.attributesOfItem(atPath: copy.path) else { return true }
         let currentSize = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
         // Refuse only on a KNOWN mismatch: a real file always reports its size, so a drifted
-        // keeper is caught; if size is unavailable (never happens on the real FS) fall back to the
+        // copy is caught; if size is unavailable (never happens on the real FS) fall back to the
         // existence check rather than over-refuse.
-        if let currentSize, currentSize != keeper.size { return false }
-        return true
+        if let currentSize, currentSize != copy.size { return true }
+        return false
+    }
+
+    /// The copies this group would TRASH that no longer hold the bytes the scan grouped.
+    ///
+    /// The keeper check alone is half a guarantee, and the dangerous half is the other one: the
+    /// keeper is the file being *kept*, while these are the files being *destroyed*. A group is a
+    /// point-in-time snapshot, the results outlive the scan for the whole session, and one of these
+    /// paths being rewritten in place between scan and click means the copy is no longer a copy —
+    /// trashing it destroys the only instance of its new content, under a banner calling it
+    /// redundant. On a volume with no Trash `deleteItems` escalates to a *permanent* delete, which
+    /// the user confirms believing the app verified the file was a duplicate.
+    ///
+    /// Same refusal shape the merge path has always had (`mergeSourceDrifted`, which re-walks the
+    /// redundant copy immediately before trashing it): if it changed, leave it alone and say so.
+    private func driftedRemovalCandidates(_ group: DuplicateGroup) -> [DuplicateCopy] {
+        let removalPaths = Set(group.recommendedRemovalPaths)
+        return group.copies.filter { removalPaths.contains($0.path) && copyDriftedInPlace($0) }
     }
 
     /// Drops every group whose recommended copies are all off the disk — trashed just now,
@@ -275,6 +308,11 @@ extension FileSyncManager {
         guard !paths.isEmpty else { return false }
         guard keeperStillExists(group) else {
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.")
+            return false
+        }
+        if let drifted = driftedRemovalCandidates(group).first {
+            banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
+            Logger.shared.warning("Tidy: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
             return false
         }
         let bytes = group.reclaimableBytes
@@ -317,11 +355,13 @@ extension FileSyncManager {
     /// name-only group can't talk this into trashing it.
     public func applyRecommendedDuplicates(_ scope: [DuplicateGroup]) async {
         let eligible = scope.filter { $0.isRecommendedForBatch }
-        let batch = eligible.filter { keeperStillExists($0) }
+        // Both ends re-verified, for the same reason the per-group path checks both: the blind
+        // batch is exactly where a drifted copy would go unlooked-at.
+        let batch = eligible.filter { keeperStillExists($0) && driftedRemovalCandidates($0).isEmpty }
         let paths = batch.flatMap { $0.recommendedRemovalPaths }
         guard !paths.isEmpty else {
             if !eligible.isEmpty {
-                banner = .warning("The keepers are no longer at their scanned locations — rescan before removing copies.")
+                banner = .warning("These groups changed since they were scanned — rescan before removing copies.")
             }
             return
         }

@@ -250,6 +250,77 @@ import Combine
         #expect(manager.banner?.severity == .warning, "partial outcome must not read as full success")
     }
 
+    /// The keeper check is the half that protects the file being KEPT. This is the other half —
+    /// and it is the one that destroys data when it is missing: a "redundant" copy rewritten in
+    /// place between scan and click holds content nothing else has.
+    @MainActor
+    @Test func resolveRefusesWhenARedundantCopyWasRewrittenSinceScan() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        // Keeper is exactly as scanned; the copy's bytes were replaced (a re-export to the same
+        // name), which the scan recorded as 1000 and the disk now reports as 4242.
+        mockFM.virtualDisk["/a/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
+        mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 4242], contents: nil)
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(mockFM.virtualDisk["/b/x"] != nil, "a copy that is no longer a copy must never be trashed")
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(manager.duplicateGroups.count == 1, "the group stays listed until a rescan re-establishes it")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("x") == true, "the banner must name the file it refused")
+    }
+
+    /// The blind batch is where an unlooked-at drifted copy would be destroyed, so it re-verifies
+    /// the removal end too — while still resolving the groups that did not drift.
+    @MainActor
+    @Test func applyRecommendedSkipsGroupsWhoseRedundantCopyWasRewritten() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        for p in ["/a/x", "/b/x", "/a/y"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        // Group 2's redundant copy was rewritten after the scan.
+        mockFM.virtualDisk["/b/y"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 77], contents: nil)
+        manager.duplicateGroups = [
+            grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000),
+            grp(.identical, keeper: "/a/y", redundant: ["/b/y"], reclaim: 1000),
+        ]
+
+        await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
+
+        #expect(mockFM.virtualDisk["/b/x"] == nil, "the undrifted group still resolves")
+        #expect(mockFM.virtualDisk["/b/y"] != nil, "the rewritten copy must never be trashed")
+        #expect(manager.duplicateGroups.count == 1)
+        #expect(manager.duplicateGroups.first?.keeper.path == "/a/y")
+        #expect(manager.banner?.severity == .warning, "a partial outcome must not read as full success")
+    }
+
+    /// The drift guard must not over-refuse: a copy that simply VANISHED is not a copy that
+    /// changed — there is nothing left to destroy, and the group's other copies still resolve.
+    @MainActor
+    @Test func resolveStillTrashesWhenAnotherCopyMerelyVanished() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        // "/c/x3" is absent from the virtual disk entirely — deleted externally after the scan.
+        for p in ["/a/x", "/b/x2"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x2", "/c/x3"], reclaim: 2000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == true, "a vanished copy must not block the ones still there")
+        #expect(mockFM.virtualDisk["/b/x2"] == nil, "the surviving redundant copy is still trashed")
+        #expect(manager.duplicateGroups.isEmpty)
+    }
+
     @MainActor
     @Test func applyRecommendedKeepsGroupsWhoseCopiesSurvivedTheDelete() async throws {
         let mockFM = MockFileManager()
