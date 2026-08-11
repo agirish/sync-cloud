@@ -647,6 +647,17 @@ struct PaneColumnsView: View {
     ///
     /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
     /// and `PaneListSelectionStyler` keep working instead of being reimplemented three times over.
+    /// Whether a column overlays its small tertiary "Empty" caption.
+    ///
+    /// **Never at depth 0**: an empty tree already draws the pane's "Folder is empty"
+    /// placeholder in the same space, and the two captions rendered stacked — this one clipped
+    /// against the placeholder's folder glyph. The caption exists for columns opened *into* an
+    /// empty subfolder, where the big placeholder deliberately does not show.
+    /// `nonisolated` and pure so the rule can be asserted without mounting the column stack.
+    nonisolated static func showsEmptyCaption(rowsEmpty: Bool, depth: Int) -> Bool {
+        rowsEmpty && depth > 0
+    }
+
     @ViewBuilder
     private func column(directory: String, depth: Int, previewSupported: Bool) -> some View {
         let rows = childrenIndex.children(atPath: directory) ?? []
@@ -674,7 +685,7 @@ struct PaneColumnsView: View {
             if !selected.isEmpty { delegate.handleDelete(selected) }
         }
         .overlay {
-            if rows.isEmpty {
+            if Self.showsEmptyCaption(rowsEmpty: rows.isEmpty, depth: depth) {
                 Text("Empty")
                     .scaledFont(.caption)
                     .foregroundStyle(.tertiary)
