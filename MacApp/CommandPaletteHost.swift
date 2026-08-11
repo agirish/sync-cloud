@@ -62,7 +62,11 @@ extension ContentView {
         // raise the palette over a pending destination pick: ↩ on a workspace row then switches
         // workspace mid-pick, which is the defect that commit set out to stop.
         guard pendingDestination == nil else {
-            Logger.shared.debug("⌘K ignored: the destination picker owns the keyboard")
+            // `.info`, not `.debug`: this is the only refusal a user can actually trigger, and it
+            // records a control that appeared to do nothing. `.debug` is dropped entirely at
+            // Settings ▸ Advanced ▸ Info, which is where "⌘K did nothing and the log is silent"
+            // comes from — the sibling refusal below is `.warning` for exactly this reason.
+            Logger.shared.info("⌘K ignored: the destination picker owns the keyboard")
             return
         }
         guard let host = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first(where: \.isVisible)

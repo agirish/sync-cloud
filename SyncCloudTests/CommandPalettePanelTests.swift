@@ -282,12 +282,51 @@ import Sync
         #expect(block.contains("Self.closesThePalette("),
                 "the ⌘K monitor no longer consults closesThePalette — the chord rule is extracted and unused")
         #expect(block.contains("self.dismiss()"), "the ⌘K monitor no longer dismisses")
-        // The chord is SWALLOWED, unlike the click: a returned ⌘K would reach the menu item too.
+        // The chord is SWALLOWED and everything else PASSED ON, and the ORDER is the whole of it.
+        // A set check (`contains("event") && contains("nil")`) passed with the two swapped —
+        // measured — which is the inverted monitor: every non-⌘K keystroke eaten so the palette's
+        // own field receives nothing, and ⌘K handed on to the menu item as well.
         let returns = Self.returnedExpressions(in: block)
-        #expect(returns.contains("event"),
-                "the ⌘K monitor never passes an event on — every keystroke typed into the field would be eaten")
-        #expect(returns.contains("nil"),
-                "the ⌘K monitor returns \(returns) — it must swallow its own chord, or ⌘K reaches the menu item as well")
+        #expect(returns.count >= 2, "the ⌘K monitor has \(returns.count) return(s) — it cannot be both passing other keys on and swallowing its own chord")
+        #expect(returns.last == "nil",
+                "the ⌘K monitor's last return is \(returns.last ?? "none") — it must swallow its own chord, or ⌘K reaches the menu item as well")
+        #expect(returns.dropLast().allSatisfy { $0 == "event" },
+                "the ⌘K monitor returns \(returns) — everything that is not the chord must be passed on, or the palette's own field receives nothing")
+    }
+
+    /// **The mask fails CLOSED on Swift it cannot lex.**
+    ///
+    /// `masked` is a four-flag scanner, not a Swift lexer, and three constructs defeat it — each
+    /// probed, each producing a wrong verdict rather than a loud one:
+    ///
+    /// - `"""` multi-line literals: the three quotes open/close/open, so a body with an **odd**
+    ///   number of `"` inverts the string state and everything after it is masked backwards (three
+    ///   red tests, all blaming code that was fine).
+    /// - `#"…"#` raw strings: `\` is not an escape and `"#` is the terminator, so the mask ends at
+    ///   the first bare `"` and blanks real code after it — including real braces.
+    /// - interpolation containing a nested literal (`"\(d["k"])"`): the inner quotes close and
+    ///   reopen the outer string, leaking its contents as code.
+    ///
+    /// None is in the file today. This test is what stops "not today" from becoming a silent wrong
+    /// answer the day someone adds one — the scan stops instead of guessing. Also asserts the two
+    /// invariants the callers depend on: the mask preserves length, and the masked file's braces
+    /// balance to zero.
+    @Test func rejectsConstructsTheMaskCannotLex() throws {
+        let source = try Self.panelSource()
+        #expect(!source.contains("\"\"\""),
+                "CommandPalettePanel.swift now uses a multi-line string literal, which `masked` cannot lex — teach it `\"\"\"` before trusting any scan in this suite")
+        #expect(!source.contains("#\""),
+                "CommandPalettePanel.swift now uses a raw string literal, which `masked` cannot lex — teach it `#\"…\"#` before trusting any scan in this suite")
+        let code = Self.masked(source)
+        #expect(code.count == source.count,
+                "the mask changed the source's length, so every range it produces indexes the original wrongly")
+        var depth = 0
+        for character in code {
+            if character == "{" { depth += 1 }
+            if character == "}" { depth -= 1 }
+        }
+        #expect(depth == 0,
+                "the masked source's braces do not balance (net \(depth)) — the mask has leaked a literal or a comment, and every block bound in this suite is suspect")
     }
 
     /// **The helper the monitors install through must still install and still be drained.**
@@ -316,19 +355,34 @@ import Sync
     /// **This is the load-bearing helper, and stripping whole lines was not enough.** Measured, all
     /// three against a green suite:
     ///
-    /// - a `{` inside a string literal (`Logger.shared.debug("dismiss {")` — this file logs heavily)
-    ///   pushed `braceBalancedBlock` past `dismiss()`'s real closing brace, so the block swallowed
-    ///   the rest of the class and a drain moved out of `dismiss()` still satisfied its assertion;
+    /// - a `{` inside a string literal (`Logger.shared.debug("dismiss {")`) pushed
+    ///   `braceBalancedBlock` past `dismiss()`'s real closing brace, so the block swallowed the rest
+    ///   of the class and a drain moved out of `dismiss()` still satisfied its assertion;
     /// - a `}` in a **trailing** comment truncated the click monitor's block to one line, producing
     ///   three failures that all blamed production code for things it still did;
     /// - the word `return` inside a string or a trailing comment was parsed as a return statement.
     ///
+    /// **Block comments nest in Swift, and a `Bool` cannot see that.** With `inBlockComment` as a
+    /// flag, `/* outer /* inner */ still commented */` un-masked at the *first* `*/` and the rest was
+    /// lexed as live code. Measured end-to-end: deleting the click monitor's `self.dismiss()` and
+    /// leaving it inside such a comment passed all 16 tests, with click-away broken — a false pass in
+    /// the check written to prevent exactly that deletion. Hence a depth counter.
+    ///
     /// Offsets are preserved (characters are replaced, never removed) so a range found in the masked
     /// text indexes the original safely. Delimiters are kept so `""` still reads as a literal.
+    ///
+    /// **What this deliberately cannot lex** — see `rejectsConstructsTheMaskCannotLex`, which fails
+    /// the scan rather than letting it answer wrongly: multi-line `"""` literals (an odd number of
+    /// `"` in the body flips the parity and desyncs everything after it), raw strings `#"…"#` (`\`
+    /// is not an escape and `"#` is the terminator), and interpolation containing a nested string
+    /// literal (`"\(d["k"])"`, whose inner quotes close and reopen the outer literal). All three were
+    /// probed and all three produce wrong verdicts; none appears in the file today, and the guard is
+    /// what keeps "none today" from becoming a silent wrong answer tomorrow.
     static func masked(_ source: String) -> String {
         var out = ""
         out.reserveCapacity(source.count)
-        var inLineComment = false, inBlockComment = false, inString = false, escaped = false
+        var inLineComment = false, inString = false, escaped = false
+        var blockDepth = 0
         var index = source.startIndex
         while index < source.endIndex {
             let character = source[index]
@@ -336,8 +390,9 @@ import Sync
             let peek: Character? = next < source.endIndex ? source[next] : nil
             if inLineComment {
                 if character == "\n" { inLineComment = false; out.append(character) } else { out.append(" ") }
-            } else if inBlockComment {
-                if character == "*", peek == "/" { inBlockComment = false; out += "  "; index = next }
+            } else if blockDepth > 0 {
+                if character == "/", peek == "*" { blockDepth += 1; out += "  "; index = next }
+                else if character == "*", peek == "/" { blockDepth -= 1; out += "  "; index = next }
                 else { out.append(character == "\n" ? "\n" : " ") }
             } else if inString {
                 if escaped { escaped = false; out.append(" ") }
@@ -345,7 +400,7 @@ import Sync
                 else if character == "\"" { inString = false; out.append(character) }
                 else { out.append(character == "\n" ? "\n" : " ") }
             } else if character == "/", peek == "/" { inLineComment = true; out += "  "; index = next }
-            else if character == "/", peek == "*" { inBlockComment = true; out += "  "; index = next }
+            else if character == "/", peek == "*" { blockDepth = 1; out += "  "; index = next }
             else if character == "\"" { inString = true; out.append(character) }
             else { out.append(character) }
             index = source.index(after: index)
@@ -387,12 +442,18 @@ import Sync
         return String(rest[rest.index(after: open)..<end])
     }
 
-    /// Every `return <expr>` written at the block's **own** depth, as the expression's text.
+    /// Every `return <expr>` in a block, as the expression's text, in source order.
     ///
-    /// Depth matters both ways. A `guard … else { return x }` is a swallow just as much as a tail
-    /// return, so its return counts even though it sits inside braces — hence the allowance for one
-    /// level. A `return` inside a *nested closure* (`filter { return $0.isVisible }`) belongs to that
-    /// closure and not to this one; counting it failed correct code. Pass an already-masked block.
+    /// A `guard … else { return x }` is a swallow just as much as a tail return, so its return
+    /// counts even though it sits inside braces. A `return` sharing its line with the closure brace
+    /// that owns it (`filter { w in return w.isVisible }`) does not — counting it failed correct
+    /// code. The discriminator is the keyword in front of that brace, not the depth.
+    ///
+    /// **Scope, stated precisely because an earlier version of this comment over-claimed:** depth is
+    /// computed from the current line only, so a `return` on its own line inside a *multi-line*
+    /// nested closure is still attributed to this block. That is the conservative direction — it can
+    /// false-fail, never silently miss a swallow — but it is not the "own depth" analysis the first
+    /// draft of this sentence claimed. Pass an already-masked block.
     static func returnedExpressions(in block: String) -> [String] {
         var expressions: [String] = []
         for line in block.split(separator: "\n", omittingEmptySubsequences: false) {

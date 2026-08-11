@@ -138,6 +138,12 @@ extension ContentView {
         .padding(3)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
         .fixedSize()
+        // **The destination picker owns the window while it is up, and the toolbar is not under
+        // it.** The picker is a content overlay and this is a titlebar accessory, so every segment
+        // here stays visible and clickable over it — which is the same hole ⌘K had: clicking a
+        // workspace switched it *under* a pending pick. `toggleCommandPalette` guards the palette;
+        // this guards the bar.
+        .disabled(pendingDestination != nil)
     }
 
     @ViewBuilder
@@ -229,6 +235,10 @@ extension ContentView {
                               chord: AppChord.commandPalette.display) {
                 toggleCommandPalette()
             }
+            // `toggleCommandPalette` refuses while a pick is pending, and a control that silently
+            // does nothing is its own bug: the menu item dims itself for the same reason, and this
+            // is the path a mouse user actually takes.
+            .disabled(pendingDestination != nil)
         }
 
         ToolbarItemGroup(placement: .primaryAction) {

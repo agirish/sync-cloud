@@ -40,6 +40,27 @@ import Foundation
 
     static func paletteSource() throws -> String { try Scan.source("CommandPaletteView.swift") }
 
+    /// One chained line split into its individual modifiers, cutting at `.` only where no
+    /// parenthesis, bracket or brace is open — so `.padding(.top, Self.cardTopInset)` stays whole
+    /// while `.zIndex(0).background(Color.clear)` becomes two.
+    static func chainedModifiers(_ line: String) -> [String] {
+        guard line.hasPrefix(".") else { return [line] }
+        var parts: [String] = []
+        var current = ""
+        var depth = 0
+        for character in line {
+            if "([{".contains(character) { depth += 1 }
+            if ")]}".contains(character) { depth -= 1 }
+            if character == ".", depth == 0, !current.isEmpty {
+                parts.append(current)
+                current = ""
+            }
+            current.append(character)
+        }
+        if !current.isEmpty { parts.append(current) }
+        return parts
+    }
+
     /// The palette's body with whole-line comments stripped, split at the card into the scrim's
     /// half and the card's half.
     ///
@@ -78,11 +99,17 @@ import Foundation
         let close = try #require(stackClose, "no closing brace for the palette's ZStack")
         // Exactly two children, so a third one sweeping into the "card" region fails loudly here
         // rather than being mis-blamed on the card by the assertions downstream.
+        //
+        // A closing delimiter at the stack's own indentation is a continuation, not a child: writing
+        // the scrim as `Rectangle(\n)` is byte-identical in behaviour and made this read 3, failing
+        // all three tests on correct code. Only lines that OPEN something count.
         let topLevel = lines[..<close].filter { line in
             let code = line.prefix { $0 != "/" }
+            let trimmed = code.trimmingCharacters(in: .whitespaces)
             return code.hasPrefix("            ") && !code.hasPrefix("             ")
-                && !code.trimmingCharacters(in: .whitespaces).hasPrefix(".")
-                && !code.trimmingCharacters(in: .whitespaces).isEmpty
+                && !trimmed.isEmpty
+                && !trimmed.hasPrefix(".")
+                && !(trimmed.first.map { ")]},".contains($0) } ?? true)
         }
         #expect(topLevel.count == 2,
                 "the palette's ZStack has \(topLevel.count) top-level children, not the scrim and the card this scan assumes — the split below would attribute a sibling's modifiers to the card")
@@ -113,12 +140,21 @@ import Foundation
         // was measured over-strict: `.accessibilityLabel("Command palette")` changes no hit region
         // and failed the suite. Anything not on this list is treated as hit-testable, so the default
         // for an unrecognised modifier is to fail — the safe direction for this particular bug.
-        let inert = ["accessibility", "help(", "zIndex(", "animation(", "transition(", "id(",
+        //
+        // **Reasoned, not measured, apart from `.accessibilityLabel`**: none of these adds or
+        // enlarges a hit shape. `.help(` is deliberately NOT here — a tooltip attaches to the
+        // padded frame, which is the 620×96pt strip this test exists to keep clear.
+        let inert = ["accessibility", "zIndex(", "animation(", "transition(", "id(",
                      "opacity(", "shadow(", "blur(", "compositingGroup("]
         let after = card[padding.upperBound...]
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map { $0.prefix { $0 != "/" }.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+            // **Split chained modifiers, because the whitelist matched the whole LINE.**
+            // `.zIndex(0).background(Color.clear)` passed with the dead strip restored — measured —
+            // since the line began with an inert prefix. Cutting at `.` only at paren depth 0 keeps
+            // `.padding(.top, x)` in one piece.
+            .flatMap(Self.chainedModifiers)
             .filter { modifier in !inert.contains { modifier.hasPrefix(".\($0)") } }
         #expect(after.isEmpty,
                 "\(after) is applied after the card's top inset; anything hit-testable there re-inflates the hit region to the padded frame and the strip above the card becomes a dead hit target again")

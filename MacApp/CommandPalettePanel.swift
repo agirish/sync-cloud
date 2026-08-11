@@ -137,15 +137,18 @@ final class CommandPalettePanelController: ObservableObject {
         //
         // `isActive` is logged beside `isKeyWindow` because a `.nonactivatingPanel` takes key only
         // while its app is active, so `key=false` alone says nothing: `paletteOnLaunchArmed` raises
-        // the palette when discovery finishes, which can be a very long time after launch: across
-        // the 200 `[load] left #1 walked … in N` lines in `~/sync-cloud.log` that figure runs from
-        // **1.09 s to 9891 s**, so the palette can arm minutes or hours in, long after the user has
-        // moved to another app. Without `active=` the two readings that matter, "the panel refused
-        // key" and "SyncCloud was in the background", are the same line.
+        // the palette when discovery finishes, which can be a very long time after launch. The
+        // `[load] left #1 walked … in N` field in `~/sync-cloud.log` is **mixed-unit**: of 202
+        // readings, 77 are in ms (68.6–938.2) and 125 in s (1.07–9891.41, the longest a single
+        // outlier). So the palette can arm a fraction of a second in, or hours in, long after the
+        // user has moved to another app. Without `active=` the two readings that matter, "the panel
+        // refused key" and "SyncCloud was in the background", are the same line.
         //
-        // (Two earlier versions of this sentence were wrong in opposite directions, both from
-        // reading `tail -5` of that grep instead of all of it: "minutes" was called invented when
-        // the log supports it, then "10.5–15.4 s cold" replaced it. Read the whole field.)
+        // (Three earlier versions of this sentence were wrong. Two read `tail -5` of that grep
+        // instead of all of it — "minutes" was called invented when the log supports it, then
+        // "10.5–15.4 s cold" replaced it. The third read the whole field and then sorted it as if
+        // it had one unit, dropping 38% of the readings and putting the floor 16× too high.
+        // **Read the whole field, and check its units before quoting a range.**)
         //
         // **`childWindows` answers a narrower question than it looks like it does.** It lists only
         // windows *parented* here, and the panel was parented nine lines up, so it is guaranteed to

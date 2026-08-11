@@ -65,4 +65,33 @@ import FileExplorer
         #expect(content.contains("searchKeycapWidth: CommandPaletteBarMetrics.keycapWidth("))
         #expect(!content.contains("searchLabelWidth: 0"))
     }
+
+    /// **The destination picker owns the window, and every way to leave it must know that.**
+    ///
+    /// `a1c96082` suspended ⌘K by nilling a focused value, which reached the menu item alone; the
+    /// pill and the armed-on-launch path called `toggleCommandPalette()` directly and walked past
+    /// it, so clicking the pill mid-pick raised the palette and ↩ on a workspace row switched
+    /// workspace under the pending pick. The workspace bar had the same hole with no ⌘K involved.
+    ///
+    /// Each guard is asserted where it lives. Every one of them could be deleted with all 1,129 +
+    /// 392 tests green before this test existed — which is the shape the commit that added them
+    /// condemned in `a1c96082`, one layer down and in its own diff.
+    @Test func everyWayIntoTheAppIsSuspendedWhileADestinationPickIsPending() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        let toggle = try #require(host.range(of: "func toggleCommandPalette()"),
+                                  "toggleCommandPalette is gone — this scan would be vacuous")
+        let body = String(host[toggle.upperBound...].prefix(1200))
+        #expect(body.contains("pendingDestination == nil"),
+                "toggleCommandPalette no longer refuses while a destination pick is pending — the pill and the armed-on-launch path raise the palette over it, and ↩ switches workspace mid-pick")
+
+        let toolbar = try Self.source("ContentView+Toolbar.swift")
+        #expect(toolbar.components(separatedBy: "disabled(pendingDestination != nil)").count - 1 >= 2,
+                "the toolbar no longer dims both the ⌘K pill and the workspace bar during a pick — a control that silently does nothing, or one that switches workspace under the picker")
+
+        let content = try Self.source("ContentView.swift")
+        #expect(content.contains("palettePanel.dismiss()"),
+                "presentDestination no longer lowers the palette, so the picker can be raised under a window that holds key and take neither a keystroke nor a click")
+        #expect(content.contains("paletteOnLaunchArmed, pendingDestination == nil"),
+                "the armed-on-launch flag is consumed before the guard can refuse it — the one shot for that session is burned with only a log line to say so")
+    }
 }

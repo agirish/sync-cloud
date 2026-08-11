@@ -69,11 +69,29 @@ import Foundation
         // (`suspended: Bool`) and asserted against the word "Bool" — the same first-match hazard
         // these scans keep being fixed for, reintroduced by the fix. Which line carries the
         // expression is not the point; that some line does is.
-        let mentions = source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { $0.contains("suspended:") }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+        //
+        // **Trailing comments cut first, and the line must START with `suspended:`.** `codeOnly`
+        // strips only whole-line comments, so `suspended: false  // was: pendingDestination != nil
+        // || showCommandPalette` satisfied both checks below while every mirrored chord stayed live
+        // during a destination pick — measured, and the decoy fits on the real line, no second call
+        // site needed.
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.prefix { $0 != "/" }.trimmingCharacters(in: .whitespaces) }
+        let mentions = lines.filter { $0.hasPrefix("suspended:") }
         #expect(!mentions.isEmpty, "the chord publisher no longer takes a suspension at all")
-        let expression = mentions.joined(separator: " ")
+        // If the argument is a bare identifier, follow it. "Extract the condition into a named
+        // property" is the most likely next edit to this line, and it is behaviour-preserving —
+        // failing it would train the next person to delete this test rather than trust it.
+        let resolved = mentions.flatMap { mention -> [String] in
+            let argument = mention.dropFirst("suspended:".count).trimmingCharacters(in: .whitespaces)
+            guard !argument.isEmpty,
+                  argument.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }),
+                  let declaration = lines.first(where: { $0.contains("var \(argument)") && $0.contains("{") })
+            else { return [mention] }
+            let index = lines.firstIndex(of: declaration) ?? 0
+            return [mention] + lines[index...].prefix(6)
+        }
+        let expression = resolved.joined(separator: " ")
         #expect(expression.contains("pendingDestination != nil"),
                 "no `suspended:` argument mentions the destination picker — ⌘R would rescan underneath it and ⇧⌘. flip filters behind the field being typed into. Found: \(mentions)")
         #expect(expression.contains("showCommandPalette"),

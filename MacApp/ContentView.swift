@@ -314,11 +314,16 @@ struct ContentView: View {
     /// Raises the picker, whoever asked for it. The one place `pendingDestination` is set, so the
     /// recents snapshot can never drift out of step with the request it belongs to.
     func presentDestination(_ pending: PendingDestination) {
-        // The palette is a real window that holds key; the picker is an overlay *inside* the host,
-        // so raising one under the other leaves the picker unable to take a keystroke or a click —
-        // its buttons, ↩ and esc all go to the palette's field instead. `toggleCommandPalette`
-        // blocks the other order; this blocks this one, so "the picker owns the keyboard" is true
-        // rather than nearly true. A file operation finishing while the palette is up is the path.
+        // The palette is a real window that holds key (observed: `[palette] panel key=true
+        // active=true` in `~/sync-cloud.log`); the picker is an overlay *inside* the host, so
+        // raising one under the other would leave the picker unable to take a keystroke or a click —
+        // its buttons, ↩ and esc would all go to the palette's field instead.
+        //
+        // **No caller can reach that today**, and an earlier version of this comment invented one
+        // ("a file operation finishing while the palette is up"). Both callers are direct mouse
+        // gestures inside the content, which by this file's own model land on the panel and dismiss
+        // it. The line is here so a fourth caller — or a keyboard route to the picker — cannot
+        // invert the ownership silently. `toggleCommandPalette` blocks the other order.
         palettePanel.dismiss()
         pendingRecents = DestinationRecents.load(providerRoot: pending.request.providerRoot)
         pendingDestination = pending
@@ -561,7 +566,11 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
         // The armed launch diagnostic, fired once discovery has given the palette a root to index.
         .onChange(of: isBootstrappingProviders) { _, bootstrapping in
-            guard !bootstrapping, paletteOnLaunchArmed else { return }
+            // The arm is consumed only when it is actually spent. Discovery can land anywhere from
+            // a fraction of a second to hours after launch, so a destination picker may well be up
+            // when it does — and clearing the flag before `toggleCommandPalette` could refuse it
+            // burned the one shot for that session with nothing but a debug line to say so.
+            guard !bootstrapping, paletteOnLaunchArmed, pendingDestination == nil else { return }
             paletteOnLaunchArmed = false
             toggleCommandPalette()
         }
