@@ -3760,7 +3760,7 @@ public struct TidyView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
-        // The same progress dress as the duplicate scan and the file pane — one dialect.
+        // No dress, for the reason the duplicate scan above gives — still one dialect.
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

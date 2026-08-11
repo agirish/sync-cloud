@@ -15,9 +15,10 @@ import Sync
 ///
 /// Measured the same way — render over a magenta backdrop nothing in the UI uses, then count the
 /// pixels below the chip header that are not that backdrop. Ink and the Cancel capsule come to
-/// 11,702 of 1,148,000 in the band; the card took that to 75,051. Each screen was mutated on its
-/// own and failed only its own test, so neither of these is measuring the other's view. The floor
-/// guards the opposite failure: a canvas that renders nothing would sail past a ceiling alone.
+/// 11,702 of 1,148,000 in the band in light and 14,746 in dark; the card took those to 75,051 and
+/// 77,998. Each screen was mutated on its own and failed only its own test, in both appearances,
+/// so neither of these is measuring the other's view. The floor guards the opposite failure: a
+/// canvas that renders nothing would sail past a ceiling alone.
 @MainActor
 @Suite struct OrganizeScanningPlaceholderRenderTests {
 
@@ -28,11 +29,15 @@ import Sync
 
     /// Non-backdrop pixels in the content band of a scanning lens.
     private func paintedInBand(lens: TidyLens, chip: OrganizeLens,
+                               appearance: NSAppearance.Name,
                                scanning: (FileSyncManager) -> Void) throws -> Int {
         let manager = FileSyncManager()
         scanning(manager)
 
-        let defaults = ScratchDefaults("OrganizeScanningPlaceholderRenderTests")
+        // One scratch suite per render, not one per suite: both tests write the SAME key
+        // (`OrganizeLens.defaultsKey`) with different values, and a shared suite would leave
+        // whichever ran second deciding which lens the first one rendered.
+        let defaults = ScratchDefaults("OrganizeScanning-\(chip.rawValue)-\(appearance.rawValue)")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         defaults.set(chip.rawValue, forKey: OrganizeLens.defaultsKey)
 
@@ -43,7 +48,7 @@ import Sync
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             // Behind the lens, not over it: anything the placeholder fills hides this.
             .background(Color(red: 1, green: 0, blue: 1))
-            .environment(\.colorScheme, .light)
+            .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
 
         let host = NSHostingView(rootView: AnyView(subject))
         host.frame = CGRect(origin: .zero, size: Self.canvas)
@@ -52,7 +57,7 @@ import Sync
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: appearance)
         window.colorSpace = .sRGB
         window.contentView = host
         host.layoutSubtreeIfNeeded()
@@ -72,19 +77,21 @@ import Sync
         return painted
     }
 
-    @Test func theDuplicateScanScreenPaintsNoCardOfItsOwn() throws {
-        let painted = try paintedInBand(lens: .duplicates, chip: .duplicates) {
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func theDuplicateScanScreenPaintsNoCardOfItsOwn(appearance: NSAppearance.Name) throws {
+        let painted = try paintedInBand(lens: .duplicates, chip: .duplicates, appearance: appearance) {
             $0.isFindingDuplicates = true
         }
-        #expect(painted > 2_000, "duplicate scan screen painted almost nothing (\(painted) px)")
-        #expect(painted < 40_000, "duplicate scan screen is painting a fill (\(painted) px)")
+        #expect(painted > 2_000, "\(appearance.rawValue): duplicate scan screen painted almost nothing (\(painted) px)")
+        #expect(painted < 40_000, "\(appearance.rawValue): duplicate scan screen is painting a fill (\(painted) px)")
     }
 
-    @Test func theFileScanScreenPaintsNoCardOfItsOwn() throws {
-        let painted = try paintedInBand(lens: .filing, chip: .toFile) {
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func theFileScanScreenPaintsNoCardOfItsOwn(appearance: NSAppearance.Name) throws {
+        let painted = try paintedInBand(lens: .filing, chip: .toFile, appearance: appearance) {
             $0.isSuggestingFiles = true
         }
-        #expect(painted > 2_000, "file scan screen painted almost nothing (\(painted) px)")
-        #expect(painted < 40_000, "file scan screen is painting a fill (\(painted) px)")
+        #expect(painted > 2_000, "\(appearance.rawValue): file scan screen painted almost nothing (\(painted) px)")
+        #expect(painted < 40_000, "\(appearance.rawValue): file scan screen is painting a fill (\(painted) px)")
     }
 }
