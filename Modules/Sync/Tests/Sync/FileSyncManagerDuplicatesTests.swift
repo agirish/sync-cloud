@@ -300,6 +300,35 @@ import Combine
         #expect(manager.banner?.severity == .warning, "a partial outcome must not read as full success")
     }
 
+    /// **A folder's stat size is not its recursive content size**, so the drift check exempts
+    /// directories — the same exemption the keeper check has always had. Untested, that exemption
+    /// is one deleted line away from refusing EVERY folder duplicate group, because the recorded
+    /// size is the recursive total and the stat is a few hundred bytes of directory entry.
+    @MainActor
+    @Test func aFolderCopyIsNotRefusedForItsStatSize() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        // Recorded recursive sizes, versus what stat reports for the directory itself.
+        for p in ["/a/Photos", "/b/Photos"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: true,
+                                                             attributes: [.size: 96], contents: nil)
+        }
+        let keeper = DuplicateCopy(id: "/a/Photos", name: "Photos", isDirectory: true, size: 400_000,
+                                   itemCount: 12, modificationDate: nil, uniqueItemCount: 0,
+                                   depth: 2, isRecommendedKeeper: true)
+        let redundant = DuplicateCopy(id: "/b/Photos", name: "Photos", isDirectory: true, size: 400_000,
+                                      itemCount: 12, modificationDate: nil, uniqueItemCount: 0,
+                                      depth: 2, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .identical, name: "Photos", isDirectory: true,
+                                   copies: [keeper, redundant], reclaimableBytes: 400_000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == true, "a folder group was refused because a directory stat is not its content size")
+        #expect(mockFM.virtualDisk["/b/Photos"] == nil)
+    }
+
     /// The drift guard must not over-refuse: a copy that simply VANISHED is not a copy that
     /// changed — there is nothing left to destroy, and the group's other copies still resolve.
     @MainActor
