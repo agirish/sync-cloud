@@ -57,6 +57,21 @@ import Testing
         #expect(tree.folders == ["Home": 111])
     }
 
+    /// The other half of the same fact: a folder the walk stopped at is *recorded* as unexplored,
+    /// not merely skipped. Without the record, "nobody looked here" and "these are gone" are the
+    /// same reading — see `aDocumentUnderAnUnwalkedFolderIsNotDropped`.
+    @Test func flattenRemembersWhichFoldersItCouldNotEnter() {
+        var capped = Self.folder("Deep", modified: 999, [])
+        capped.isUnexplored = true
+        let tree = FilingSurvey.flatten([Self.folder("Home", modified: 111, [capped])])
+        #expect(tree.unexplored == ["Home/Deep"])
+        #expect(tree.wasNotWalked("Home/Deep/tax return.pdf"))
+        #expect(!tree.wasNotWalked("Home/bill.pdf"), "a walked branch must not be excused")
+        // Prefix matching is on path SEGMENTS: a sibling that merely starts with the same letters
+        // was walked, and excusing it would keep documents that really are gone.
+        #expect(!tree.wasNotWalked("Home/Deeper/x.pdf"))
+    }
+
     // MARK: - What is stale
 
     @Test func aFolderIsStaleWhenItsMtimeMovedOrItIsUnknown() {
@@ -226,6 +241,41 @@ import Testing
         #expect(after.documents.keys.sorted() == ["Old/stays.pdf"])
         let memory = FilingSurvey.buildMemory(corpus: after, folderModified: ["Old": 1])
         #expect(memory.folders["Old"]?.docs == 1)
+    }
+
+    /// **The drop rule must fire on evidence of departure, never on absence of coverage.** One
+    /// permission-denied folder contributes nothing to `tree.documents`, so before this every
+    /// document under it read as deleted and was erased from the corpus — months of page-1 reads,
+    /// gone on a pass that reports "0 documents read".
+    @Test func aDocumentUnderAnUnwalkedFolderIsNotDropped() {
+        let before = Self.corpus(["Locked/deed.pdf": Self.doc(["grant"], size: 5, modified: 5),
+                                  "Open/gone.pdf": Self.doc(["kaiser"], size: 6, modified: 6),
+                                  "Open/stays.pdf": Self.doc(["kaiser"], size: 7, modified: 7)])
+        // The walk entered `Open` and found one of its two documents; it could not enter `Locked`.
+        let tree = FilingSurvey.Tree(
+            folders: ["Open": 1],
+            documents: ["Open/stays.pdf": FilingSurvey.Stamp(size: 7, modified: 7)],
+            unexplored: ["Locked"])
+
+        let after = FilingSurvey.merge(corpus: before, tree: tree, read: [:])
+
+        #expect(after.documents.keys.sorted() == ["Locked/deed.pdf", "Open/stays.pdf"])
+        // Both directions in one fixture: the unwalked branch is kept AND the real departure from
+        // the walked branch is still dropped. A guard that simply stopped dropping would pass the
+        // first half and fail here.
+        #expect(after.documents["Open/gone.pdf"] == nil,
+                "a document the walk looked for and did not find must still be dropped")
+    }
+
+    /// An empty walk is the whole-root version of the same mistake, and the one that erases
+    /// everything at once. `merge` alone cannot tell it from a tree wiped clean, which is why the
+    /// survey refuses before reaching here — this pins what `merge` does if it ever does arrive.
+    @Test func anEmptyWalkUnderAnUnexploredRootKeepsTheWholeCorpus() {
+        let before = Self.corpus(["A/one.pdf": Self.doc(["x"], size: 1, modified: 1),
+                                  "B/two.pdf": Self.doc(["y"], size: 2, modified: 2)])
+        let tree = FilingSurvey.Tree(folders: [:], documents: [:], unexplored: ["A", "B"])
+        let after = FilingSurvey.merge(corpus: before, tree: tree, read: [:])
+        #expect(after.documents.count == 2)
     }
 
     // MARK: - Reading one document

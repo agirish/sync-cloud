@@ -87,6 +87,26 @@ extension FileSyncManager {
                                           fileManager: fileManager, maxDepth: nil)
         }
         if Task.isCancelled { return .none }
+        // **A root that could not be listed must never reach the merge.** `buildTree` reports a
+        // permission-denied or briefly-unreachable root as a single unexplored marker; `flatten`
+        // skips it, and what comes out the other side is an EMPTY tree — indistinguishable from a
+        // tree whose every document was deleted. The merge would then drop the whole corpus, and
+        // `write` would atomically replace both artifacts with empty ones and publish them. That is
+        // months of page-1 reads gone, top-1 routing back to a fraction of what it was, and no
+        // error anywhere: the pass reports "0 documents read" and looks like an unchanged tree.
+        //
+        // Recovery is not a second click either — the surveyed *region* is derived from the corpus
+        // that was just emptied, so the next run would re-survey the entire tree unscoped,
+        // including branches the original survey deliberately left out.
+        //
+        // The rename pass, the risky-name scan and the name normalizer have all carried this guard
+        // since they were written. This one writes a file, and did not.
+        if Self.isUnreadableRootMarker(walked, root: root) {
+            Logger.shared.warning("Folder memory: could not read \(root.lastPathComponent) — "
+                                  + "permission denied or unavailable. Nothing was re-surveyed, and "
+                                  + "the memory already on disk was left exactly as it was.")
+            return .none
+        }
         let tree = FilingSurvey.flatten(walked)
         let previousMemory = filingMemory
         let stale = FilingSurvey.staleFolders(tree: tree, memory: previousMemory)
@@ -132,7 +152,11 @@ extension FileSyncManager {
             Logger.shared.info("\(unavailable) document(s) are not downloaded — left for a later survey")
         }
         let relocated = FilingSurvey.relocations(tree: tree, corpus: corpus).count
-        let dropped = corpus.documents.keys.filter { tree.documents[$0] == nil }.count - relocated
+        // Counted the same way `merge` decides, so the report cannot claim a drop the merge did not
+        // make: a document under a folder the walk never entered is not dropped and is not news.
+        let dropped = corpus.documents.keys.filter {
+            tree.documents[$0] == nil && !tree.wasNotWalked($0)
+        }.count - relocated
 
         var read: [String: FilingCorpusDocument] = [:]
         if !toRead.isEmpty {

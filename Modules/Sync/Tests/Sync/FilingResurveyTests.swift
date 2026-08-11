@@ -54,6 +54,44 @@ import Testing
         return (manager, docs, profiles, reads)
     }
 
+    // MARK: - A walk that read nothing must never be mistaken for an empty tree
+
+    /// **The survey is the one pass here that WRITES, and it was the one without the guard.** A
+    /// root that cannot be listed comes back as a single unexplored marker, `flatten` drops it, and
+    /// what reaches `merge` is an empty tree — identical in shape to a tree whose every document
+    /// was deleted. Both artifacts were then atomically replaced with empty ones and published,
+    /// silently: the pass reports "0 documents read", which is also what an unchanged tree reports.
+    ///
+    /// Asserted on the BYTES on disk rather than on the report, because the report is exactly what
+    /// could not tell the two apart.
+    @Test func aRootThatCannotBeListedLeavesTheArtifactsExactlyAsTheyWere() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let corpusBefore = try Data(contentsOf: corpusURL)
+        let memoryBefore = try Data(contentsOf: memoryURL)
+        let learnedBefore = try #require(manager.filingMemory).folders.count
+        #expect(learnedBefore > 0, "fixture: there must be something to lose")
+
+        // The real-world causes are TCC revocation and a briefly unreachable provider root; an
+        // unlistable directory is the same walk result and the only one a test can arrange.
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: docs.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: docs.path) }
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report.changed == false)
+        #expect(try Data(contentsOf: corpusURL) == corpusBefore,
+                "the corpus was rewritten from a walk that read nothing")
+        #expect(try Data(contentsOf: memoryURL) == memoryBefore,
+                "the folder memory was rewritten from a walk that read nothing")
+        #expect(manager.filingMemory?.folders.count == learnedBefore,
+                "the published memory must still describe the tree")
+    }
+
     // MARK: - The thing that was asked for
 
     /// A folder created after the last survey, holding one filed document, becomes a destination the

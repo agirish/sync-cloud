@@ -41,9 +41,28 @@ public enum FilingSurvey {
         /// Document path relative to the root → its stamp.
         public let documents: [String: Stamp]
 
-        public init(folders: [String: Int], documents: [String: Stamp]) {
+        /// Folders the walk did **not** descend into — permission denied, a depth cap, a symlink
+        /// cycle. Relative paths, same spelling as `folders`.
+        ///
+        /// **A walk records two different kinds of "not here", and merging them destroys data.**
+        /// `documents` missing a path can mean the file was deleted, or it can mean nobody looked;
+        /// only the first is a reason to forget what was learned from it. Without this set the
+        /// second case reads as the first, and one unreadable folder silently drops every document
+        /// under it from the corpus on the next survey — see ``merge(corpus:tree:read:)``.
+        public let unexplored: Set<String>
+
+        /// Defaulted so a fixture that is only about folders and documents stays about those.
+        public init(folders: [String: Int], documents: [String: Stamp],
+                    unexplored: Set<String> = []) {
             self.folders = folders
             self.documents = documents
+            self.unexplored = unexplored
+        }
+
+        /// Whether `path` sits under a folder this walk never descended into — so its absence from
+        /// `documents` says nothing about whether it is still on disk.
+        public func wasNotWalked(_ path: String) -> Bool {
+            unexplored.contains { path == $0 || path.hasPrefix($0 + "/") }
         }
     }
 
@@ -75,6 +94,7 @@ public enum FilingSurvey {
     public static func flatten(_ taxonomy: [FileNode]) -> Tree {
         var folders: [String: Int] = [:]
         var documents: [String: Stamp] = [:]
+        var unexplored: Set<String> = []
         func walk(_ node: FileNode, prefix: String) {
             // Dot-files are Finder and sync-provider bookkeeping, never filed documents.
             guard !node.name.hasPrefix(".") else { return }
@@ -82,7 +102,12 @@ public enum FilingSurvey {
             if node.isDirectory {
                 // A folder whose children were not walked (depth cap, symlink cycle) must not be
                 // recorded as up-to-date: its mtime would then vouch for contents nobody looked at.
-                guard node.isUnexplored != true else { return }
+                // Remembered rather than merely skipped: dropping it silently is what made "nobody
+                // looked here" indistinguishable from "these documents are gone".
+                guard node.isUnexplored != true else {
+                    unexplored.insert(rel)
+                    return
+                }
                 folders[rel] = Int(node.modificationDate?.timeIntervalSince1970 ?? 0)
                 for child in node.children ?? [] { walk(child, prefix: rel) }
             } else {
@@ -91,7 +116,7 @@ public enum FilingSurvey {
             }
         }
         for node in taxonomy { walk(node, prefix: "") }
-        return Tree(folders: folders, documents: documents)
+        return Tree(folders: folders, documents: documents, unexplored: unexplored)
     }
 
     // MARK: - What changed
@@ -224,12 +249,19 @@ public enum FilingSurvey {
     /// counting towards it, or the folder keeps recommending itself for the very thing that left —
     /// and since every filing move is a departure from somewhere, a corpus that only ever grows is
     /// wrong within a day of use.
+    ///
+    /// **But only a document the walk actually looked for may be dropped.** `tree.documents` is
+    /// what the walk *found*, and a folder it could not descend into contributes nothing to it —
+    /// so treating every absence as a deletion made one permission-denied directory erase
+    /// everything learned under it, permanently and without a word. `Tree.wasNotWalked` is the
+    /// distinction; the survey is months of page-1 reads and the file it writes is the only copy.
     public static func merge(corpus: FilingCorpus, tree: Tree,
                              read: [String: FilingCorpusDocument]) -> FilingCorpus {
         let relocated = relocations(tree: tree, corpus: corpus)
         var documents: [String: FilingCorpusDocument] = [:]
         documents.reserveCapacity(corpus.documents.count + read.count)
-        for (path, doc) in corpus.documents where tree.documents[path] != nil {
+        for (path, doc) in corpus.documents
+        where tree.documents[path] != nil || tree.wasNotWalked(path) {
             documents[path] = doc
         }
         for (now, before) in relocated {
