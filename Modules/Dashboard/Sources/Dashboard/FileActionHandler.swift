@@ -322,8 +322,16 @@ public class FileActionHandler {
     /// Deletes after the confirmation alert — or immediately when the user switched the
     /// "Confirm before deleting" setting off (items still go to the Trash and stay undoable;
     /// deletions that require a PERMANENT delete keep their own confirmation regardless).
-    public func confirmDelete(_ nodes: [FileNode]) {
-        if GeneralSettings.shouldConfirmBeforeDelete(defaults) {
+    ///
+    /// - Parameter alwaysConfirm: asks regardless of the setting. One caller passes it: the pane
+    ///   bar's Delete button, which is permanently visible beside Sort and Hidden Files rather
+    ///   than something you navigated a menu to reach. A stray click on a rung in a row of
+    ///   otherwise reversible controls is a different risk from a menu item chosen by name, and
+    ///   the setting is about the latter. The flag is per-CALL and defaults to off, so the row
+    ///   menu and ⌘⌫ keep honouring the preference exactly as before — this is not a second
+    ///   reading of the defaults key.
+    public func confirmDelete(_ nodes: [FileNode], alwaysConfirm: Bool = false) {
+        if alwaysConfirm || GeneralSettings.shouldConfirmBeforeDelete(defaults) {
             guard deleteConfirmer(nodes.map { $0.name }) else { return }
             Logger.shared.info("User confirmed deletion of \(nodes.count) item(s)")
         } else {

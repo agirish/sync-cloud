@@ -96,4 +96,48 @@ import Foundation
         #expect(!PaneBarMigration.apply(defaults: defaults))
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan")
     }
+
+    /// **Delete does NOT migrate onto a stored bar**, and this is the assertion that says so.
+    ///
+    /// Search's migration exists because a discoverable affordance landed invisible in ⋯. The
+    /// reasoning does not transfer to a destructive control: pushing Delete onto a bar someone
+    /// arranged is what this mechanism makes possible, not what it exists to do. The bar below is
+    /// one written before either control shipped, so it exercises the tempting mistake — running
+    /// the migration and adding "whatever is new" — rather than a bar that happens to be current.
+    @Test func testAStoredBarDoesNotGainDelete() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-no-delete")
+        defaults.set("flexibleSpace,viewMode,backForward,scan,sort,hiddenFiles", forKey: PaneBar.arrangementKey)
+
+        PaneBarMigration.apply(defaults: defaults)
+
+        let migrated = PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey) ?? "")
+        #expect(!migrated.items.contains(.delete))
+        // The Search step still ran, so this is "Delete was left out", not "the migration was
+        // switched off" — the difference a test asserting only the absence could not see.
+        #expect(migrated.items.contains(.search))
+    }
+
+    /// The stamp Search wrote is untouched: adding a control WITHOUT a migration step must not
+    /// bump the version, or the next control to ship would find every bar already stamped past it
+    /// and would silently never migrate.
+    @Test func testTheSearchStampIsUnchanged() {
+        #expect(PaneBarMigration.currentVersion == 1)
+        // A bar stamped at Search's version is current, and stays untouched — which is only true
+        // while `currentVersion` is still 1.
+        let defaults = ScratchDefaults("PaneBarMigrationTests-stamp")
+        defaults.set(1, forKey: PaneBar.migrationKey)
+        defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
+        #expect(!PaneBarMigration.apply(defaults: defaults))
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan,sort")
+    }
+
+    /// The blind spot this whole suite exists for, pointed at the new case: a bar stored before
+    /// `delete` existed must round-trip without gaining it — and without losing anything either,
+    /// which is the half a `!contains(.delete)` assertion cannot see.
+    @Test func testABarStoredBeforeDeleteRoundTripsUnchanged() {
+        let stored = "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search"
+        let arrangement = PaneBarArrangement(encoded: stored)
+        #expect(!arrangement.items.contains(.delete))
+        #expect(arrangement.encoded == stored)
+    }
 }

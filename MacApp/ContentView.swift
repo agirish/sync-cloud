@@ -289,6 +289,11 @@ struct ContentView: View {
     /// pane is one full-width column listing exactly what the tree listed, so this changes what a
     /// click *does* — one click opens a folder instead of needing the row menu's Open.
     @AppStorage(PaneViewMode.railDefaultsKey) private var railViewModeRaw = PaneViewMode.default.rawValue
+    /// Browse's own presentation, on its own key for the same reason the rail has one: Browse draws
+    /// the same pane the rail does, at full window width instead of in a 220pt column, and a stack
+    /// chosen for one is not a choice about the other. Sharing the rail's key would mean flipping
+    /// Browse to Tree silently restacks Organize.
+    @AppStorage(PaneViewMode.browseDefaultsKey) private var browseViewModeRaw = PaneViewMode.default.rawValue
 
     func paneViewMode(isLeft: Bool) -> PaneViewMode {
         PaneViewMode(rawValue: isLeft ? leftViewModeRaw : rightViewModeRaw) ?? .default
@@ -298,6 +303,24 @@ struct ContentView: View {
     /// would hand it the left comparison pane's setting.
     var railViewMode: PaneViewMode {
         PaneViewMode(rawValue: railViewModeRaw) ?? .default
+    }
+
+    /// Browse's presentation. Same argument as `railViewMode`, one surface further out.
+    var browseViewMode: PaneViewMode {
+        PaneViewMode(rawValue: browseViewModeRaw) ?? .default
+    }
+
+    /// Which of the three stored presentations the pane on screen right now is reading.
+    ///
+    /// **One member, deliberately.** Three surfaces draw `FileTreeView` — the two comparison panes,
+    /// the Tidy rail, and Browse — and before Browse existed the choice was a bare
+    /// `layoutMode == .singleSource ? rail : pane` ternary restated at each of its three call
+    /// sites. Adding a third surface to two of them and missing the third is not a hypothetical:
+    /// the missed one would show Browse in the rail's stack and write the user's choice into the
+    /// rail's key, which is the exact bug the separate key exists to prevent, arriving silently.
+    func resolvedViewMode(isLeft: Bool) -> PaneViewMode {
+        if selectedWorkspace == .browse { return browseViewMode }
+        return layoutMode == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
     }
 
     /// The destination question on screen, if any. Held here because both surfaces that raise it —
@@ -449,6 +472,19 @@ struct ContentView: View {
     /// Binding for the same switch on the Tidy rail, writing the rail's own key.
     var railViewModeBinding: Binding<PaneViewMode> {
         Binding(get: { railViewMode }, set: { railViewModeRaw = $0.rawValue })
+    }
+
+    /// Binding for the same switch in Browse, writing Browse's own key.
+    var browseViewModeBinding: Binding<PaneViewMode> {
+        Binding(get: { browseViewMode }, set: { browseViewModeRaw = $0.rawValue })
+    }
+
+    /// The write side of ``resolvedViewMode(isLeft:)``, and the same one-member argument applies:
+    /// a reader that resolved Browse correctly paired with a writer that did not would show the
+    /// right stack and store it in the wrong key.
+    func resolvedViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
+        if selectedWorkspace == .browse { return browseViewModeBinding }
+        return layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft)
     }
 
     /// Everything the tree diff indices are derived from, as one Equatable value
@@ -962,6 +998,9 @@ struct ContentView: View {
         case singleExpanded
         /// Single source: the source rail collapsed to a spine beside the workspace.
         case singleCollapsed
+        /// Browse: the source pane alone, filling the window. No workspace half, so nothing to
+        /// collapse toward and no spine to collapse into.
+        case browseFull
     }
 
     /// The current tab's layout mode (compare vs single-source).
@@ -979,6 +1018,12 @@ struct ContentView: View {
 
     /// Resolves the content layout from the tab's mode and its pane/workspace visibility.
     var contentLayout: ContentLayout {
+        // Browse is decided BEFORE the pane-hiding question is asked, and that ordering is the
+        // point: the pane is the entire window here, so "panes hidden" would mean an empty window.
+        // No control in Browse can write that override today — the header's collapse rung is nil
+        // and there is no spine to click — but a stray key in the stored map must not be able to
+        // blank the workspace either.
+        if selectedWorkspace == .browse { return .browseFull }
         switch layoutMode {
         case .compare:
             // The comparison panes and the workspace are both always shown (their toggles were
@@ -2045,8 +2090,8 @@ struct ContentView: View {
         let diffIndex: DiffStatusIndex
         let otherPaneName: String?
         let hasOnlyHiddenEntries: Bool
-        /// How this pane presents its tree. Comparison panes and the Tidy rail all reach Columns,
-        /// each from its own stored key.
+        /// How this pane presents its tree. The comparison panes, the Tidy rail and Browse all
+        /// reach Columns, each from its own stored key — see `resolvedViewMode(isLeft:)`.
         let viewMode: PaneViewMode
         /// Path → children for the columns presentation, cached per publish by the manager. `nil`
         /// in Tree mode: building it walks the whole tree, and a pane that will never draw a column
@@ -2058,9 +2103,9 @@ struct ContentView: View {
     /// searching from the same one place `paneColumn` does — a second copy of "which tree is this
     /// pane showing" is how a search would end up running against the other side's nodes.
     func paneContext(isLeft: Bool) -> PaneContext {
-        // The rail reads its OWN key, not the left pane's — it is the same underlying pane state
-        // but a different surface, and a comparison choice must not restack it.
-        let mode: PaneViewMode = layoutMode == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
+        // The rail and Browse each read their OWN key, not the left pane's — same underlying pane
+        // state, different surfaces, and a choice made on one must not restack the others.
+        let mode: PaneViewMode = resolvedViewMode(isLeft: isLeft)
         return PaneContext(
             isLeft: isLeft,
             title: isLeft ? "Left" : "Right",
@@ -2096,6 +2141,11 @@ struct ContentView: View {
         // separately in each spot re-walked the tree several times per render (~100ms each), which
         // was the comparison panes' selection lag.
         let barNodes = barSelectionNodes(isLeft: isLeft)
+        // THIS pane's selection, which is a different question from `barNodes` above: that one is
+        // the ACTIVE pane's, and is empty by construction on every side and workspace the floating
+        // action bar does not appear on. Resolved once here and handed to the header, which needs
+        // both the count (to disable its Delete) and the nodes (to act).
+        let ownNodes = paneSelectionNodes(isLeft: isLeft)
         // Read the scroll-flip trigger so this column re-renders when a scroll crossing flips the
         // edge; the value itself is unused — the edge is resolved fresh below.
         _ = isLeft ? leftBarAtTop : rightBarAtTop
@@ -2130,8 +2180,10 @@ struct ContentView: View {
                 } },
                 sortOption: $syncManager.sortOption,
                 // Only the single-source Tidy rail collapses itself (back to the spine); the two
-                // comparison panes never collapse individually.
-                onCollapse: layoutMode == .singleSource
+                // comparison panes never collapse individually, and Browse cannot — the pane IS
+                // the window there, so there is no spine to collapse into and nothing beside it
+                // that the space would go to.
+                onCollapse: layoutMode == .singleSource && selectedWorkspace != .browse
                     ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
                     : nil,
                 onRefresh: { forceRefreshAction() },
@@ -2147,11 +2199,22 @@ struct ContentView: View {
                 // the one pane on screen and a ring would distinguish it from nothing.
                 isFocused: layoutMode == .compare && paneSearchTargetIsLeft == isLeft,
                 showHiddenFiles: $syncManager.showHiddenFiles,
-                // The rail gets the switch too, bound to its own key.
-                viewMode: layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft),
+                // The rail and Browse get the switch too, each bound to its own key.
+                viewMode: resolvedViewModeBinding(isLeft: isLeft),
                 // Targets the pane's current folder, which in Columns is the deepest open column.
                 // One resolution shared with ⇧⌘N — see `beginNewFolder(isLeft:)`.
                 onNewFolder: { beginNewFolder(isLeft: isLeft) },
+                // Trashes THIS pane's selection — `ownNodes`, never `activeSelectionNodes`. In
+                // Compare both panes are on screen with a Delete each, and a button that acted on
+                // "whichever pane is active" would make the two identical rungs mean different
+                // things depending on where you last clicked.
+                //
+                // `alwaysConfirm: true` regardless of Settings ▸ Confirm before deleting: this is
+                // a permanently visible rung between Hidden Files and Search, not a menu item
+                // chosen by name. The row menu and ⌘⌫ still honour the setting; the tooltip says
+                // this one does not, so the prompt cannot read as the setting being broken.
+                onDelete: { actionHandler?.confirmDelete(ownNodes, alwaysConfirm: true) },
+                selectionCount: ownNodes.count,
                 // Search inside THIS pane's tree. Every workspace with a pane browser gets it from
                 // here — Compare's two panes and the single-source rail — because they are all this
                 // one header over this one pane component.

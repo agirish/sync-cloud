@@ -3,15 +3,21 @@ import FileExplorer
 
 /// The one top-level selection: which workspace the window is showing.
 ///
-/// Three segments, and they are three different *kinds of place* rather than three tasks:
-/// **Compare** holds two trees side by side, **Storage** reads one tree and changes nothing, and
-/// **Organize** changes one tree. Everything that moves a file inside a single tree is a lens
-/// inside Organize (see ``OrganizeLens``) — duplicates and automations included, which is what
-/// took the bar from five segments to three.
+/// Four segments, and they are four different *kinds of place* rather than four tasks:
+/// **Browse** shows one tree and proposes nothing, **Compare** holds two trees side by side,
+/// **Storage** reads one tree and changes nothing, and **Organize** changes one tree. Everything
+/// that moves a file inside a single tree *on the app's suggestion* is a lens inside Organize
+/// (see ``OrganizeLens``) — duplicates and automations included, which is what took the bar from
+/// five segments to three.
+///
+/// Browse is the fourth kind rather than a mode inside Organize, and the distinction is the whole
+/// reason it exists: it is where you go when you do not want a lens's opinion — move this file, by
+/// hand, now. A mode inside Organize could not be that, because it would still be Organize.
 ///
 /// The layout rule underneath is unchanged and is why the fold is cheap: **the left side is always
 /// a file browser; the right side is either the other cloud (Compare) or a lens (everything
-/// else).** Folding two workspaces in moved nothing across that line.
+/// else).** Browse is that rule with the right side taken away, which is why it costs a layout arm
+/// and no new pane. Folding two workspaces in moved nothing across that line.
 ///
 /// The raw values are deliberately inherited from the enums this has collapsed over time, so a
 /// persisted selection survives: `Differences` and `Tidy` came from `ContentView.BottomTab`, and
@@ -20,6 +26,13 @@ import FileExplorer
 /// separate from `rawValue` precisely so a display name can change without stranding anyone
 /// (`Differences` shows as "Compare", `Filing` as "Organize").
 enum Workspace: String, CaseIterable, Identifiable {
+    /// One tree, full width, no lens. The plain file browser.
+    ///
+    /// Declared FIRST, which is load-bearing twice over: `allCases` is the bar's order, and it is
+    /// also where ⌘1–⌘4 come from (`WorkspaceCommands` and `workspaceSegment` both number the
+    /// segments by position). The raw value is new, so no stored selection can name it — which is
+    /// what makes it safe to be the default.
+    case browse = "Browse"
     /// The two provider panes over the Differences workspace. Shown as "Compare".
     case compare = "Differences"
     /// Everything that changes one tree. Shown as "Organize"; the raw value is still `Filing`
@@ -34,6 +47,7 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// breaking a stored selection.
     var title: String {
         switch self {
+        case .browse: return "Browse"
         case .compare: return "Compare"
         case .filing: return "Organize"
         case .storage: return "Storage"
@@ -44,6 +58,13 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// so each has to be legible on its own rather than decorative.
     var symbol: String {
         switch self {
+        // The plain folder, which is what Browse is: your files, with nothing done to them. It is
+        // deliberately the UNBADGED form of Organize's glyph — the gear badge is the whole
+        // difference between the two places, and at icon-only widths (where every segment sheds
+        // its word at once) that badge is the only thing distinguishing them. That is a real
+        // legibility cost, and it is the honest one: any glyph distinct enough to be unmistakable
+        // there would have stopped saying "files".
+        case .browse: return "folder"
         case .compare: return "arrow.left.arrow.right"
         case .filing: return "folder.badge.gearshape"
         case .storage: return "chart.pie"
@@ -59,7 +80,7 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// `TidyLens` for its per-lens search grammars and scroll state.
     var lens: TidyLens? {
         switch self {
-        case .compare: return nil
+        case .browse, .compare: return nil
         case .filing: return .filing
         case .storage: return .storage
         }
@@ -94,7 +115,17 @@ struct WorkspaceSelection: Equatable {
     var workspace: Workspace
     var organizeLens: OrganizeLens?
 
-    static let `default` = WorkspaceSelection(workspace: .compare, organizeLens: nil)
+    /// Where a window with nothing to go on opens.
+    ///
+    /// Browse, not Compare. This is two decisions in one value and both are deliberate: a fresh
+    /// install lands in the file browser rather than in a comparison of two clouds it has not
+    /// scanned yet, and — because ``migratedWorkspace(_:)`` falls back here — so does a stored
+    /// `selectedWorkspace` that no longer resolves. "Nothing stored" and "unreadable" agreeing is
+    /// the property being preserved; which place they agree on is what changed. A file browser is
+    /// a better place to land confused than a two-tree diff.
+    ///
+    /// Existing installs are untouched: they carry a stored selection that still resolves.
+    static let `default` = WorkspaceSelection(workspace: .browse, organizeLens: nil)
 }
 
 // MARK: - Migration off the selections this replaces
@@ -116,7 +147,7 @@ extension Workspace {
     ///
     /// This is the table that keeps a fold from silently dropping people. A stored value that no
     /// longer resolves does not fail loudly — `@AppStorage` takes its default — so someone sitting
-    /// in Duplicates would reopen the app on Compare with nothing to explain it.
+    /// in Duplicates would reopen the app on the default workspace with nothing to explain it.
     ///
     /// **Each retirement gets its destination back, not just the umbrella.** `Rename` had to
     /// resolve to plain Organize when it was folded in, because the risky names were a chip that
@@ -135,8 +166,13 @@ extension Workspace {
 
     /// Where a session that ended on the old two-level selection resumes.
     ///
-    /// Anything unrecognised resolves to `.compare`, which is also the default: an unreadable
-    /// stored value and no stored value at all should land in the same place.
+    /// A tab that is not `Tidy` resolves to ``WorkspaceSelection/default`` — Browse — because an
+    /// unreadable stored value and no stored value at all should land in the same place.
+    ///
+    /// **The two Tidy arms do NOT follow it there, and must not be "fixed" to.** They resolve to
+    /// ``tidyDefault``, a lens: someone whose session ended inside Tidy was in a lens, so a lens is
+    /// the nearer answer than a file browser. The default moving to Browse changes where the
+    /// unrecognised *workspace* lands; it does not change where an unrecognised *lens* lands.
     ///
     /// This reads the LEGACY pair only. `selectedBottomTab` never held anything but `Differences`
     /// or `Tidy`, so there is deliberately no `Rename` arm on the tab here — a retired *workspace*

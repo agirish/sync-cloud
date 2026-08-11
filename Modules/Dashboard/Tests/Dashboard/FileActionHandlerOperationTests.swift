@@ -463,6 +463,44 @@ import Settings
         }
     }
 
+    /// The pane bar's Delete asks even with the setting off — `alwaysConfirm: true`.
+    ///
+    /// Paired with `testConfirmDeleteSkipsPromptWhenSettingDisabled` above, which is the half that
+    /// makes this one mean anything: the same defaults domain, the same setting, and the only
+    /// difference is the flag. Without its sibling this could pass just as well against a build
+    /// where confirmation had become unconditional for everybody — which is precisely the change
+    /// the tooltip promises has NOT been made.
+    ///
+    /// Cancelling rather than confirming, so the file survives and the test leaves nothing in the
+    /// user's Trash to restore.
+    @MainActor
+    @Test func testAlwaysConfirmAsksEvenWithTheSettingOff() async throws {
+        let manager = FileSyncManager()
+        let dir = try makeTempDir("del-always")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = try makeFile(in: dir, named: "asked.txt")
+        let defaults = ScratchDefaults("FAH-del-always")
+        defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
+        var promptedNames: [String]? = nil
+        let handler = FileActionHandler(
+            syncManager: manager,
+            settings: makeSettings(providers: []),
+            defaults: defaults,
+            deleteConfirmer: { names in
+                promptedNames = names
+                return false
+            }
+        )
+
+        handler.confirmDelete([FileNode(id: file.path, name: "asked.txt", isDirectory: false)],
+                              alwaysConfirm: true)
+        await waitForOperationsToFinish(manager)
+
+        #expect(promptedNames == ["asked.txt"])
+        // Asked AND obeyed: a prompt whose "no" was ignored would be worse than no prompt.
+        #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+
     // MARK: - Rename
 
     @MainActor

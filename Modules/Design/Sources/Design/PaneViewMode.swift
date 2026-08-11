@@ -74,6 +74,15 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// folder you were last in. That is the same continuity the shared focus already provides.
     public static let railDefaultsKey = "paneViewModeRail"
 
+    /// UserDefaults key for the Browse workspace's mode.
+    ///
+    /// Browse draws the same pane as the Tidy rail — it IS the left pane, at full window width —
+    /// but for the same reason the rail does not inherit the left comparison pane's key, Browse
+    /// does not inherit the rail's: a stack chosen for a 220pt rail beside a lens is not a choice
+    /// about a full-width file browser, and flipping Browse to Tree must not silently restack
+    /// Organize. Path, selection and history stay shared; only the presentation is per-surface.
+    public static let browseDefaultsKey = "paneViewModeBrowse"
+
     /// Reads a pane's stored mode, falling back to the default for an absent or unrecognised value.
     public static func stored(isLeft: Bool, in defaults: UserDefaults = .standard) -> PaneViewMode {
         guard let raw = defaults.string(forKey: defaultsKey(isLeft: isLeft)),

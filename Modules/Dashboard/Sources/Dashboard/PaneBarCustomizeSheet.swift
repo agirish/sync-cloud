@@ -49,9 +49,17 @@ struct PaneBarCustomizeSheet: View {
     /// Everything the palette offers. Spacers last, as in Finder, because they are layout rather than
     /// ability — and `scan` is present but inert, so its absence from the removable set is explained
     /// rather than merely felt.
+    ///
+    /// Hand-written and therefore the second place a new case has to be listed — the enum's own
+    /// `allCases` does not reach here. An item missing from this list is not merely absent from the
+    /// sheet: it is a control that can be dragged OFF a bar and never put back, and for a control
+    /// that ships in ⋯ for every stored arrangement (Delete does) the sheet is the only way onto
+    /// the bar at all. `PaneBarCustomizeSheetTests.testThePaletteOffersEveryRemovableControl`
+    /// checks this against `PaneBarItem.allCases` so the next one cannot be forgotten quietly — it
+    /// is what caught Delete's tile missing here.
     static let palette: [PaneBarItem] = [
-        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .search, .collapse,
-        .scan, .space, .flexibleSpace
+        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .search, .delete,
+        .collapse, .scan, .space, .flexibleSpace
     ]
 
     // MARK: Metrics

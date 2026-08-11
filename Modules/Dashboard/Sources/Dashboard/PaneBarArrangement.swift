@@ -27,6 +27,15 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// `absent(from:)`). ⌘F opens the field either way, so a bar without it is a bar missing a
     /// button, not an ability.
     case search
+    /// Appended last, per the rule above, and deliberately NOT added to `PaneBarMigration`.
+    ///
+    /// Search's migration exists because a discoverable affordance landed invisible in ⋯ for
+    /// everyone who had ever opened the customize sheet. That reasoning does not transfer to a
+    /// destructive control: pushing Delete onto a bar someone arranged is the thing that
+    /// mechanism makes possible, not the thing it exists to do. A stored arrangement predates
+    /// this case, so it arrives in ⋯ — where the row menu's Delete and ⌘⌫ were reaching the
+    /// same act all along.
+    case delete
 
     public var id: String { rawValue }
 
@@ -57,6 +66,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .space: return "Space"
         case .flexibleSpace: return "Flexible Space"
         case .search: return "Search"
+        case .delete: return "Delete"
         }
     }
 
@@ -75,6 +85,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .space: return "space"
         case .flexibleSpace: return "arrow.left.and.right"
         case .search: return "magnifyingglass"
+        case .delete: return "trash"
         }
     }
 
@@ -120,9 +131,14 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// Trailing end, and deliberately: it is where `ExpandingSearchToggle` sits on every other
     /// surface in the app, and the shedding order is right-to-left — so the narrowest pane gives up
     /// the magnifier first, which is the one control here that has a keyboard equivalent.
+    /// Delete joins on the same terms Search did, and the same sentence above covers it: a header
+    /// that passes no delete handler does not offer it, so every existing caller still builds
+    /// precisely the bar it built before. It sits before Search rather than after because the
+    /// shedding order is right-to-left and the magnifier is the one control here with a keyboard
+    /// equivalent — Delete's own chord (⌘⌫) is Compare-only, so it is not the cheapest to lose.
     public static let `default` = PaneBarArrangement([
         .flexibleSpace, .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-        .preview, .search
+        .preview, .delete, .search
     ])
 
     /// Normalizes on the way in, so no other code has to defend against a malformed list:
@@ -351,7 +367,7 @@ public enum PaneBarLayout {
         // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph. A pill among pills is
         // what the bar looks like, and it keeps this arithmetic one line instead of a second opinion
         // about a glyph's intrinsic width.
-        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search:
+        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search, .delete:
             return pill.width
         }
     }

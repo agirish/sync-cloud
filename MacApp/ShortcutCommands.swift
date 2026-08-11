@@ -306,8 +306,12 @@ extension ContentView {
     }
 
     var shortcutPreviewColumn: Binding<Bool>? {
-        let mode = layoutMode == .singleSource
-            ? railViewModeBinding : paneViewModeBinding(isLeft: shortcutTargetIsLeft)
+        // Through the resolver, like every other reader of "which presentation is on screen".
+        // Spelled out here as its own ternary, this was the third surface and the one that got
+        // missed: in Browse it asked the RAIL's mode, so ⇧⌘P offered the preview column according
+        // to a stack the user was not looking at — dead in Browse-Columns whenever the rail was in
+        // Tree, and live in Browse-Tree whenever the rail was in Columns.
+        let mode = resolvedViewModeBinding(isLeft: shortcutTargetIsLeft)
         guard PaneViewMode.showsPreviewToggle(mode: mode.wrappedValue) else { return nil }
         return $previewColumnEnabled
     }
@@ -347,8 +351,13 @@ extension ContentView {
 
 // MARK: - The menu items
 
-/// View ▸ the five workspaces, ⌘1–⌘5 in bar order. `Toggle`s, so the menu carries the checkmark
+/// View ▸ the workspaces, ⌘1–⌘4 in bar order. `Toggle`s, so the menu carries the checkmark
 /// a `Picker` would have given for free — a `Picker` can't put a distinct chord on each option.
+///
+/// The chords come from POSITION in `Workspace.allCases`, so adding Browse at the head shifted
+/// every other workspace's number by one. That is the cost of numbering by position, and it is
+/// the right cost: the badge on each segment is generated the same way, so the menu and the bar
+/// cannot disagree about which key opens what.
 struct WorkspaceCommands: View {
     @FocusedValue(\.workspaceSelection) private var selection
 

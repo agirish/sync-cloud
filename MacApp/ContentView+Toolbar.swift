@@ -54,6 +54,24 @@ extension ContentView {
         paneActionBarSideActive(isLeft: isLeft) ? activeSelectionNodes : []
     }
 
+    /// What THIS pane has selected, whether or not it is the active one.
+    ///
+    /// **Not `barSelectionNodes(isLeft:)`, and the difference is not a nuance.** That one runs
+    /// through `paneActionBarSideActive`, which opens `guard layoutMode == .compare` — so it is
+    /// empty for the inactive side of Compare and empty for *every* pane in every single-source
+    /// workspace. A per-pane control fed from it would be permanently dead in Browse and on the
+    /// Organize rail, and on Compare's inactive side it would report the OTHER pane's selection as
+    /// its own the moment focus moved. Both are the ambiguity a control living inside a pane's own
+    /// header exists to avoid.
+    ///
+    /// Resolving both is cheap: `leftNodes(for:)`/`rightNodes(for:)` look paths up in a cached
+    /// path→node index rebuilt only when the published tree version changes, so this is
+    /// O(selection), not the per-render tree walk the comment above remembers.
+    func paneSelectionNodes(isLeft: Bool) -> [FileNode] {
+        isLeft ? syncManager.leftNodes(for: syncManager.selectedLeftPaths)
+               : syncManager.rightNodes(for: syncManager.selectedRightPaths)
+    }
+
     /// The selection-driven file-action bar, docked at the bottom of the active pane. These are the
     /// actions that used to sit in the titlebar (Compare / Copy / Move / Delete), now scoped to —
     /// and naming — the pane whose selection they act on. `selectionNodes` is resolved by the caller
@@ -122,9 +140,16 @@ extension ContentView {
         let style = toolbarStyles.workspace
         return HStack(spacing: WorkspaceBarMetrics.segmentGap) {
             ForEach(Array(Workspace.allCases.enumerated()), id: \.element) { index, workspace in
-                // Compare is the only workspace with two panes; the rest put a lens where its
-                // second provider goes. The rule says so — it is the one real grouping in the bar.
-                if index == 1 {
+                // Browse and Compare look at trees; Organize and Storage act on or account for
+                // one. The rule says so — it is the one real grouping in the bar.
+                //
+                // A hardcoded index, and it has to move whenever the bar's order does: it read
+                // `index == 1` when Compare led the bar, which with Browse in front would draw the
+                // rule between Browse and Compare — the wrong grouping, and invisible to
+                // `WorkspaceBarMetrics`, which is only ever told HOW MANY separators there are.
+                // `WorkspaceBarMetricsTests.theRuleSeparatesTheLookersFromTheActors` pins the pair
+                // it sits between rather than the number.
+                if index == Self.workspaceRuleIndex {
                     Divider().frame(height: 14).padding(.horizontal, 4)
                 }
                 workspaceSegment(workspace, ordinal: index + 1, selection: selection, style: style,
@@ -193,6 +218,13 @@ extension ContentView {
         // VoiceOver for free.
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
+
+    /// Which segment the group rule is drawn BEFORE, as an index into `Workspace.allCases`.
+    ///
+    /// Named rather than written inline so a test can assert what it separates instead of
+    /// restating the literal — a test that reads `2` and finds `2` would have passed just as
+    /// happily when `2` was the wrong answer.
+    static let workspaceRuleIndex = 2
 
     /// Each segment's rendered label width, at the app's current text scale.
     ///

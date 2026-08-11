@@ -7,8 +7,19 @@ import Foundation
 /// Two layout modes:
 ///   • **Compare** stacks *two* provider panes — the Left↔Right comparison surface — over the
 ///     Differences workspace. You navigate, select, and compare across both.
-///   • **Single source** (every lens workspace: Organize, Duplicates, Rename, Automations,
-///     Storage) scans one folder, so it docks a *single* collapsible provider rail beside it.
+///   • **Single source** (Browse, and every lens workspace: Organize, Duplicates, Rename,
+///     Automations, Storage) works one tree.
+///
+/// **Browse is single-source and gets no mode of its own, deliberately.** It has no lens to dock a
+/// rail beside — it *is* the pane, full width — so a third case is tempting. It would also be a
+/// trap: a dozen sites ask `layoutMode == .singleSource` to mean "there is only one tree here",
+/// and a third case makes every one of them answer no for the workspace that is most purely one
+/// tree. Those are the sites that empty the difference index, drop the comparison verbs from the
+/// row menu, stop ⌥-click driving the hidden right pane, and let Escape clear a selection with no
+/// action bar to clear it from — all of which Browse needs. What Browse does differently is
+/// *layout*, and layout is `ContentView.ContentLayout`'s question: it answers `.browseFull` before
+/// this type's pane-hiding is ever consulted. The rule to keep: this enum says how many trees,
+/// `ContentLayout` says how they are arranged.
 ///
 /// Either way the panes can be shown or hidden per workspace, and the choice persists — encoded
 /// into one defaults string keyed by the workspace's raw value. Because the workspace bar is always

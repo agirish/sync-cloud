@@ -11,21 +11,25 @@ import Testing
 
     /// Every item a Compare pane in Columns mode can offer.
     private static let allAvailable: [PaneBarItem] =
-        [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview, .search]
+        [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview,
+         .search, .delete]
 
     // MARK: Persistence
 
     @Test func testTheDefaultIsTodaysBar() {
         // The load-bearing one. An untouched install must render exactly what it rendered before the
         // bar became arrangeable: a flexible space (what used to be the trailing-edge Spacer) and
-        // then the nine controls in their historical order — now followed by Search, appended at the
-        // trailing end where the shedding order gives it up first.
+        // then the nine controls in their historical order — followed by Search, and now by Delete
+        // ahead of it, since the shedding order runs right-to-left and Search is the one control
+        // here with a keyboard equivalent on every surface.
         //
         // Restated literally rather than read off `PaneBarArrangement.default`, deliberately: this is
         // the assertion that makes changing the shipped bar a decision someone has to write down.
+        // Delete arriving here is that decision — a header only draws it if the host passes a
+        // delete handler, which no test fixture and no non-app caller does.
         #expect(PaneBarArrangement.default.items == [
             .flexibleSpace, .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-            .preview, .search
+            .preview, .delete, .search
         ])
     }
 

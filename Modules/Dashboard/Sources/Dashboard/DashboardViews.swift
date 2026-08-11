@@ -66,6 +66,21 @@ public struct PaneHeader: View {
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
+    /// Trashes THIS pane's selection. `nil` hides the control — which is what every caller outside
+    /// the app passes, and what keeps the bar, the ladder and the snapshots exactly as they were.
+    ///
+    /// "This pane's", not "the active pane's", and the distinction is the whole point of putting it
+    /// here: Compare's floating action bar acts on whichever side is active, which is unambiguous
+    /// only because that bar appears on one side at a time. A control in a pane's own header is
+    /// visible on both sides at once, so inheriting `activePane` would give two identical buttons
+    /// two different meanings.
+    public let onDelete: (() -> Void)?
+    /// How many items THIS pane has selected, so the button can be disabled with none and say how
+    /// many it would take with some.
+    ///
+    /// A count rather than a Bool because the tooltip needs the number, and it is the first thing
+    /// on this bar whose state comes from the selection rather than from the pane or a preference.
+    public let selectionCount: Int
 
     // MARK: Search inside this pane's tree
     //
@@ -148,6 +163,8 @@ public struct PaneHeader: View {
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
         onNewFolder: (() -> Void)? = nil,
+        onDelete: (() -> Void)? = nil,
+        selectionCount: Int = 0,
         searchText: Binding<String>? = nil,
         searchIsExpanded: Binding<Bool>? = nil,
         searchSummary: String? = nil,
@@ -178,6 +195,8 @@ public struct PaneHeader: View {
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.onNewFolder = onNewFolder
+        self.onDelete = onDelete
+        self.selectionCount = selectionCount
         self.searchText = searchText
         self.searchIsExpanded = searchIsExpanded
         self.searchSummary = searchSummary
@@ -629,6 +648,11 @@ public struct PaneHeader: View {
         if onRefresh != nil { available.append(.scan) }
         if onNewFolder != nil { available.append(.newFolder) }
         if showsPreviewToggle { available.append(.preview) }
+        // Same gate, same reason as search below: a header with no delete handler has nothing to
+        // trash, so it offers no trash — and so builds precisely the bar it built before this
+        // control existed. That is what keeps `PaneHeaderHeightTests` and the 250pt snapshots
+        // measuring what they were written to measure.
+        if onDelete != nil { available.append(.delete) }
         // A header with no search bindings has no field to reveal, so it offers no magnifier — and
         // so builds precisely the bar it built before search existed. That is what keeps every
         // existing header test, snapshot and ladder measurement untouched by this feature.
@@ -841,6 +865,27 @@ public struct PaneHeader: View {
         case .preview:
             if showsPreviewToggle {
                 previewTogglePill(controlSize: controlSize)
+            }
+
+        case .delete:
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        // The one glyph on this bar that wears a colour of its own rather than the
+                        // app accent. Every other rung here either changes something reversible or
+                        // changes nothing at all; this one moves files. Disabled it greys out with
+                        // the rest, so the red appears only when there is something to act on.
+                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize,
+                                       ink: SemanticColor.error)
+                }
+                .buttonStyle(navButtonStyle)
+                .disabled(selectionCount == 0)
+                // Deliberately NOT `AppChord.deleteSelection`: ⌘⌫ is Compare-only and acts on the
+                // ACTIVE pane, so badging this button with it would promise the chord does what
+                // the button does — which is false on the inactive side, and false everywhere in
+                // Browse and Organize.
+                .help(deleteHelp)
+                .accessibilityLabel(deleteHelp)
             }
 
         case .search:
@@ -1138,9 +1183,33 @@ public struct PaneHeader: View {
                     Label("Find in This Pane…", systemImage: "magnifyingglass")
                 }
             }
+        case .delete:
+            // Where Delete lives for everyone who had already arranged their bar — no migration
+            // moves it onto a stored arrangement, so for them this menu IS the button.
+            if let onDelete {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Move Selection to Trash…", systemImage: "trash")
+                }
+                .disabled(selectionCount == 0)
+            }
         case .space, .flexibleSpace:
             EmptyView()
         }
+    }
+
+    /// What the Delete rung says it will do.
+    ///
+    /// It states the confirmation out loud because this control does not honour
+    /// "Confirm before deleting" — it always asks. Left unsaid, someone who switched that setting
+    /// off would read the prompt as the setting being broken rather than as this button's own rule.
+    /// Internal so a test can read the promise the button makes instead of restating it.
+    var deleteHelp: String {
+        guard selectionCount > 0 else {
+            return "Move this pane's selected items to the Trash — select something first"
+        }
+        let subject = selectionCount == 1 ? "the selected item" : "\(selectionCount) selected items"
+        return "Move \(subject) in this pane to the Trash — always asks first, "
+            + "even with confirmations turned off"
     }
 
     /// Whether this header offers the preview toggle at all.
@@ -1277,6 +1346,19 @@ enum PaneNavMetrics {
 struct PaneNavChrome: ViewModifier {
     let accent: Color
     let controlSize: ControlSize
+    /// Overrides the glyph colour while the rung is ENABLED. `nil` — every rung but Delete — keeps
+    /// the chrome ink below.
+    ///
+    /// It has to be a parameter rather than a `.foregroundStyle` on the button, and that is worth
+    /// stating because the obvious version is silently inert: this modifier applies its own
+    /// `.foregroundStyle(glyph)` directly to the glyph, and the application closest to the leaf is
+    /// the one that wins, so a colour set further out never arrives. Measured, not deduced — the
+    /// first draft of Delete's red tint painted zero red pixels.
+    ///
+    /// Deliberately NOT routed through `ChromeInk.label`: that returns full-strength white in dark,
+    /// which is right for chrome whose job is legibility and wrong for a colour whose job is to say
+    /// "this one is destructive" in both appearances.
+    var ink: Color? = nil
 
     @Environment(\.hoverAffordancePhase) private var phase
     @Environment(\.isEnabled) private var isEnabled
@@ -1312,6 +1394,9 @@ struct PaneNavChrome: ViewModifier {
     /// appearances, so dropping the glyph's tint costs the affordance nothing.
     private var glyph: Color {
         guard isEnabled else { return .primary.opacity(0.25) }
+        // A supplied ink outranks the engagement tint too: a trash that turned accent-blue under
+        // the cursor would drop its one distinguishing cue at the exact moment of the click.
+        if let ink { return ink }
         return ChromeInk.label(colorScheme, light: phase.isEngaged ? accent : .primary.opacity(0.75))
     }
 }
@@ -1320,8 +1405,8 @@ extension View {
     /// See `PaneNavChrome`. Pair with `.buttonStyle(.hoverAffordance(.filled, …))`, which supplies
     /// the phase this reads plus the press scale, and deliberately no wash of its own — the fill
     /// here is the wash.
-    func paneNavChrome(accent: Color, controlSize: ControlSize) -> some View {
-        modifier(PaneNavChrome(accent: accent, controlSize: controlSize))
+    func paneNavChrome(accent: Color, controlSize: ControlSize, ink: Color? = nil) -> some View {
+        modifier(PaneNavChrome(accent: accent, controlSize: controlSize, ink: ink))
     }
 }
 

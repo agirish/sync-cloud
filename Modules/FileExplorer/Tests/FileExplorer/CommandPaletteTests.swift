@@ -206,10 +206,52 @@ import Foundation
 
     @Test func theEmptyQueryWithNoHistoryStillOffersEveryPlace() {
         let rows = PaletteRouter.rows(query: "   ", index: Self.index())
-        for place in [PaletteRoute.compare, .storage, .organize(lens: nil, scope: nil)]
+        for place in [PaletteRoute.browse, .compare, .storage, .organize(lens: nil, scope: nil)]
             + OrganizeLens.allCases.map({ PaletteRoute.organize(lens: $0, scope: nil) }) {
             #expect(rows.contains { $0.route == place }, "\(place) is unreachable from an empty query")
         }
+    }
+
+    /// ⌘K reaches Browse — which takes TWO things, and the second is the one that rots. A
+    /// `PaletteRoute` case with no `PalettePlace` beside it compiles, routes correctly when it is
+    /// run, and can never be run, because nothing ever emits a row carrying it.
+    @Test func browseIsReachableByName() {
+        #expect(Self.first("browse") == .browse)
+    }
+
+    /// The words someone reaches for when they want to look at their files rather than be told
+    /// something about them. "files" especially: it is the query for "I just want to go and move
+    /// this", which is the whole distinction Browse carries.
+    @Test func theWordsForLookingAtFilesReachBrowse() {
+        for query in ["files", "finder", "folders"] {
+            #expect(Self.routes(query).contains(.browse), "'\(query)' does not reach Browse")
+        }
+    }
+
+    /// `PalettePlace.allCases` is hand-written — the associated-value case rules out the
+    /// synthesized conformance — so it is the one list where a new place can be added to the enum
+    /// and silently never offered. Counted rather than eyeballed: every place the type can build
+    /// has to appear in the list the router walks.
+    @Test func everyPlaceIsOfferedByTheHandWrittenAllCases() {
+        let offered = Set(PalettePlace.allCases.map(\.id))
+        let expected = Set(([PalettePlace.browse, .compare, .storage, .organizeOverview]
+                            + OrganizeLens.allCases.map(PalettePlace.lens)).map(\.id))
+        #expect(offered == expected)
+        // And the list is what the ROWS come from, so an entry that exists but scores nothing is
+        // still a place nobody can reach.
+        let rows = PaletteRouter.rows(query: "", index: Self.index())
+        for place in PalettePlace.allCases {
+            #expect(rows.contains { $0.route == place.route(scope: nil) },
+                    "\(place.title) is in allCases but no empty-query row carries it")
+        }
+    }
+
+    /// Browse takes no scope. It shows wherever the pane already is, and moving the pane is what
+    /// the existing `.folder` route does — so "browse income tax" must not mint a second, silently
+    /// different way of aiming a workspace.
+    @Test func browseTakesNoFolder() {
+        #expect(!PalettePlace.browse.takesAFolder)
+        #expect(PalettePlace.browse.route(scope: "\(Self.root)/Finance") == .browse)
     }
 
     /// Whitespace is not a query. Without the trim, a stray space would drop the user from the

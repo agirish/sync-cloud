@@ -44,16 +44,19 @@ import FileExplorer
         }
     }
 
-    /// **What the ⌘K pill costs, stated as a number rather than discovered.**
+    /// **What the fourth segment costs, stated as a number rather than discovered.**
     ///
-    /// Three labelled segments used to fit the window's 600pt `minWidth` — that was the win of
-    /// folding five workspaces down to three, and the assertion here used to say so. The search
-    /// pill spends part of that row, so the bar now keeps its words down to ~617pt at the default
-    /// text size and goes to glyphs in the 17pt band above the hard floor.
+    /// The history is the point of the number. Three labelled segments fit the window's 600pt
+    /// `minWidth` — the win of folding five workspaces down to three. The ⌘K pill then took part
+    /// of that row and left a 17pt band above the floor where the bar is glyphs. Browse takes its
+    /// label, its `segmentChrome` and one more `segmentGap`, and the band is now ~108pt: below
+    /// roughly 708pt the segments are icons.
     ///
-    /// That band is the whole cost and it is pinned from both sides, because the tempting way to
-    /// "fix" a failing floor test is to shave `reservedChrome` — which buys the labels back by
-    /// under-measuring the row, and under-measuring is what folds the toolbar behind the chevron.
+    /// **That is accepted, not a regression to fix by shaving `reservedChrome`.** The alternative
+    /// was shortening a label people navigate by, and under-measuring the row is exactly what
+    /// folds the toolbar behind the overflow chevron — the failure this whole type exists to
+    /// prevent. So the band is pinned from both sides: it may not silently grow, and the ceiling
+    /// names the width at which it stops being a corner case.
     @Test func testTheLabelsSurviveToWithinAShortDistanceOfTheFloor() {
         let widths = labelWidths()
         let search = searchWidths()
@@ -63,11 +66,15 @@ import FileExplorer
             + WorkspaceBarMetrics.reservedChrome
         #expect(styles(contentWidth: keepsWords, labelWidths: widths).workspace == .full)
         #expect(styles(contentWidth: keepsWords - 1, labelWidths: widths).workspace == .iconOnly)
-        // The band above the 600pt floor where the labels are gone. Small enough to be a corner of
-        // a deliberately-shrunk window rather than the ordinary state; if a future control on this
-        // row pushes it wide, this fails and says by how much.
-        #expect(keepsWords - 600 < 40,
+        // The band above the 600pt floor where the labels are gone. A fifth segment or another
+        // toolbar control would push it wider still; this fails and says by how much rather than
+        // letting the labelled bar quietly become the exception instead of the rule.
+        #expect(keepsWords - 600 < 120,
                 "the bar sheds its labels \(keepsWords - 600)pt above the window's floor — the toolbar row has grown enough that a narrow window is glyphs for most of its range")
+        // The floor from the other side: the window opens at ~85% of the screen and can be dragged
+        // to 600pt, so the band has to stay a corner of the range rather than most of it.
+        #expect(keepsWords < 800,
+                "the labels survive only above \(keepsWords)pt — that is no longer a narrow window")
     }
 
     @Test func testTheGlyphRungAndTheCompactPillDoFitTheFloorTogether() {
@@ -112,17 +119,19 @@ import FileExplorer
         }
     }
 
-    @Test func testTheIconOnlyRungIsDormantButStillCorrect() {
-        // **Honest about the consequence of the fold: nothing sheds labels today.** Three segments
-        // fit the floor at every text size (above), so `iconOnly` is currently unreachable in the
-        // shipping app. That is worth stating rather than discovering later, and it is NOT a
-        // reason to delete the rung: the Backup lens and Home are both queued for the bar, and the
-        // fifth segment brings the shedding back.
+    @Test func testTheIconOnlyRungIsLiveInTheShippingBar() {
+        // **This rung is no longer dormant, and that is the headline of the fourth segment.** It
+        // used to be unreachable: three labelled segments fit the 600pt floor at every text size,
+        // so nothing in the shipping app ever shed a label, and this test could only exercise the
+        // arithmetic against a hypothetical five-segment bar. Browse changed that — at the floor,
+        // the real bar is glyphs.
         //
-        // So the rung stays under test against the bar it will have, not the bar it has. Five
-        // labels at the largest text size is the state this arithmetic existed to catch, and it
-        // still catches it.
-        let queued = ["Compare", "Organize", "Storage", "Backup", "Home"]
+        // Asserted with the app's OWN labels first, so the live behaviour is pinned, and then
+        // against the queued bar so the arithmetic still has headroom under test.
+        #expect(styles(contentWidth: 600, labelWidths: labelWidths()).workspace == .iconOnly,
+                "the shipping four-segment bar keeps its labels at the window's floor — if that is now true, this test and the band above disagree")
+
+        let queued = ["Browse", "Compare", "Organize", "Storage", "Backup", "Home"]
         let font = NSFont.systemFont(ofSize: 12 * FontSize.large.scale, weight: .semibold)
         let widths = queued.map { ($0 as NSString).size(withAttributes: [.font: font]).width }
         #expect(styles(contentWidth: 600, labelWidths: widths,
@@ -210,6 +219,32 @@ import FileExplorer
         // Degenerate inputs must not go negative: one child has no gaps, and neither has none.
         #expect(WorkspaceBarMetrics.gapWidth(children: 1) == 0)
         #expect(WorkspaceBarMetrics.gapWidth(children: 0) == 0)
+    }
+
+    /// **Where the rule is drawn, which this type cannot see.**
+    ///
+    /// `WorkspaceBarMetrics` is only ever told HOW MANY separators there are, so every assertion
+    /// above stays green with the rule in the wrong place. It is a hardcoded index in
+    /// `workspaceBar`, and it read `index == 1` when Compare led the bar — left alone, Browse
+    /// arriving in front would have drawn it between Browse and Compare, splitting the two
+    /// tree-lookers and grouping a looker with the actors.
+    ///
+    /// Asserted as the PROPERTY rather than the literal: everything before the rule shows no lens,
+    /// everything after it shows one. A test reading `== 2` against a constant of `2` would have
+    /// passed just as happily when `2` was wrong.
+    @Test func testTheRuleSeparatesTheLookersFromTheActors() {
+        let index = ContentView.workspaceRuleIndex
+        let before = Workspace.allCases.prefix(index)
+        let after = Workspace.allCases.dropFirst(index)
+
+        #expect(before.map(\.title) == ["Browse", "Compare"])
+        #expect(after.map(\.title) == ["Organize", "Storage"])
+        #expect(before.allSatisfy { $0.lens == nil }, "a workspace with a lens is on the lookers' side of the rule")
+        #expect(after.allSatisfy { $0.lens != nil }, "a workspace with no lens is on the actors' side of the rule")
+        // One rule, and the metrics are charged for exactly that many. The bar's arithmetic and
+        // the bar's drawing agreeing about the count is the other half of getting the rule right.
+        #expect(index > 0 && index < Workspace.allCases.count,
+                "the rule is drawn outside the bar, so it separates nothing")
     }
 
     @Test func testAnEmptyBarHasNoWidth() {

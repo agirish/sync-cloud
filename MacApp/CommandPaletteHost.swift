@@ -147,6 +147,8 @@ extension ContentView {
     func runPaletteRoute(_ route: PaletteRoute) {
         Logger.shared.info("Command palette → \(route)")
         switch route {
+        case .browse:
+            workspaceSelection.wrappedValue = .browse
         case .compare:
             workspaceSelection.wrappedValue = .compare
         case .storage:

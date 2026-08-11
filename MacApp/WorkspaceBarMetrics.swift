@@ -4,8 +4,10 @@ import FileExplorer
 
 /// Whether the workspace bar can afford to spell its segments out.
 ///
-/// Six labelled segments are about 500pt, and the toolbar also has to seat the traffic lights and
-/// the trailing utility pill. Against the window's 600pt `minWidth` that does not fit, and a
+/// Six labelled segments are about 500pt — the bar carries four now, and gained one when Browse
+/// shipped, which moved the icon-only rung to a wider window than before rather than changing any
+/// of this arithmetic. The toolbar also has to seat the traffic lights and the trailing utility
+/// pill. Against the window's 600pt `minWidth` that does not fit, and a
 /// toolbar that does not fit does not wrap or truncate — macOS silently folds the overflow behind
 /// a chevron, which is how the *only* control for switching workspace disappears. The two-level
 /// picker avoided this by keeping the lens tabs out of the toolbar entirely; a flat bar cannot.
@@ -38,9 +40,13 @@ enum WorkspaceBarMetrics {
     static let segmentGap: CGFloat = 4
     /// The container capsule's own inset, both edges.
     static let containerPadding: CGFloat = 6
-    /// The rule that separates Compare from the lens workspaces: a 1pt `Divider` inside 2×4pt of
-    /// horizontal padding. Its `segmentGap` on either side is NOT in here — it is a child of the
-    /// same `HStack`, so it is counted by the gap term below like any other child.
+    /// The rule that separates the tree-lookers (Browse, Compare) from the tree-actors (Organize,
+    /// Storage): a 1pt `Divider` inside 2×4pt of horizontal padding. Its `segmentGap` on either
+    /// side is NOT in here — it is a child of the same `HStack`, so it is counted by the gap term
+    /// below like any other child.
+    ///
+    /// WHERE it is drawn is not this type's business and cannot be checked from here: this only
+    /// ever learns how MANY there are. See `ContentView.workspaceRuleIndex`.
     static let separatorWidth: CGFloat = 1 + 8
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap

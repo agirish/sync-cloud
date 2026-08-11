@@ -36,7 +36,12 @@ import Testing
     /// the point.
     @Test func testEveryMenuChordHasAReferenceRow() {
         let allKeys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
-        let chords = ["⌘ 1 – ⌘ 3", "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫", "⌃ ⇥",
+        // The workspace range moves with the bar — Browse arriving at its head made every other
+        // segment's digit shift by one. Derived rather than retyped, so this list cannot be the
+        // thing that has to be remembered; `testTheWorkspaceRowCountsEveryWorkspace` below is what
+        // pins the row's own text against the same count.
+        let chords = ["⌘ 1 – ⌘ \(Workspace.allCases.count)",
+                      "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫", "⌃ ⇥",
                       "⇧⌘ R", "⇧⌘ V", "⌘ D", "⇧⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /", "⌘ K"]
         for chord in chords {
             #expect(allKeys.contains(chord), "no reference row lists “\(chord)”")

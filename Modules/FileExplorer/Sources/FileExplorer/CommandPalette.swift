@@ -14,6 +14,8 @@ import Sync
 /// rows carrying routes, a test asserts the routes, and the host's only job is to *apply* one.
 public enum PaletteRoute: Equatable, Sendable {
 
+    /// The Browse workspace — one tree, full width, nothing proposing anything.
+    case browse
     /// The Compare workspace — two trees side by side.
     case compare
     /// The Storage workspace — reads one tree, changes nothing.
@@ -106,9 +108,9 @@ public enum PaletteAction: String, CaseIterable, Sendable {
 
 /// The palette's sections, in the order they are shown.
 ///
-/// **"Places" rather than "Workspaces"**, because five of the nine places are rail items *inside*
+/// **"Places" rather than "Workspaces"**, because six of the ten places are rail items *inside*
 /// Organize. Calling the group Workspaces would have made the six lenses look like a different kind
-/// of thing from the three segments, when routing to them is exactly the same act — and the lenses
+/// of thing from the four segments, when routing to them is exactly the same act — and the lenses
 /// are the reason this item got more valuable than it was when written.
 public enum PaletteGroup: String, CaseIterable, Sendable {
     case places = "Places"
@@ -252,24 +254,31 @@ public extension PaletteIndex {
 
 // MARK: - Places
 
-/// A destination in the app's own vocabulary: the two other workspaces, and Organize's rail.
+/// A destination in the app's own vocabulary: the three other workspaces, and Organize's rail.
 ///
 /// Spelled out rather than derived from `Workspace`, which lives in `MacApp` — a target that is in
 /// **no SPM package**, so a routing table written there is reachable by no `swift test`. That is not
 /// a workaround: the palette's whole risk is a routing table that is wrong in a way nobody can see,
 /// and the host's job is reduced to mapping these four cases onto its own selection type.
 enum PalettePlace: CaseIterable {
+    case browse
     case compare
     case storage
     case organizeOverview
     case lens(OrganizeLens)
 
+    /// Hand-written, because the associated-value case rules out the synthesized conformance —
+    /// which makes this the one place a new case can be added to the enum and silently never
+    /// offered. `CommandPaletteTests.everyPlaceIsOfferedByTheHandWrittenAllCases` counts what this
+    /// list produces against what the type can build, for exactly that reason.
     static var allCases: [PalettePlace] {
-        [.compare, .organizeOverview] + OrganizeLens.allCases.map(PalettePlace.lens) + [.storage]
+        [.browse, .compare, .organizeOverview]
+            + OrganizeLens.allCases.map(PalettePlace.lens) + [.storage]
     }
 
     var title: String {
         switch self {
+        case .browse: return "Browse"
         case .compare: return "Compare"
         case .storage: return "Storage"
         case .organizeOverview: return "Organize"
@@ -285,6 +294,10 @@ enum PalettePlace: CaseIterable {
     /// destination off the bar, and this is where it comes back.
     var keywords: [String] {
         switch self {
+        // "files" and "finder" are the words someone reaches for when they want to go and look
+        // at their files rather than have the app tell them something about them — which is the
+        // whole distinction Browse exists to carry.
+        case .browse: return ["browse", "files", "finder", "folders", "move", "look"]
         case .compare: return ["diff", "differences", "sync", "compare"]
         case .storage: return ["space", "disk", "size", "storage"]
         case .organizeOverview: return ["organize", "tidy", "all"]
@@ -299,6 +312,7 @@ enum PalettePlace: CaseIterable {
 
     var symbol: String {
         switch self {
+        case .browse: return "folder"
         case .compare: return "arrow.left.arrow.right"
         case .storage: return "chart.pie"
         case .organizeOverview: return "folder.badge.gearshape"
@@ -308,6 +322,7 @@ enum PalettePlace: CaseIterable {
 
     var detail: String {
         switch self {
+        case .browse: return "Your files, with nothing proposed"
         case .compare: return "Two trees, side by side"
         case .storage: return "What is using the space"
         case .organizeOverview: return "Every lens's answer, on one page"
@@ -317,6 +332,7 @@ enum PalettePlace: CaseIterable {
 
     var id: String {
         switch self {
+        case .browse: return "place.browse"
         case .compare: return "place.compare"
         case .storage: return "place.storage"
         case .organizeOverview: return "place.organize"
@@ -324,10 +340,13 @@ enum PalettePlace: CaseIterable {
         }
     }
 
-    /// This place, optionally re-aimed at a folder. Only Organize can carry a scope — Compare has
-    /// two trees and Storage analyses whatever the pane is on, so neither has one subject to move.
+    /// This place, optionally re-aimed at a folder. Only Organize can carry a scope: Compare has
+    /// two trees, Storage analyses whatever the pane is on, and Browse has no *subject* to re-aim
+    /// — it shows wherever the pane already is, and the existing `.folder` route is how the
+    /// palette moves the pane there.
     func route(scope: String?) -> PaletteRoute {
         switch self {
+        case .browse: return .browse
         case .compare: return .compare
         case .storage: return .storage
         case .organizeOverview: return .organize(lens: nil, scope: scope)
@@ -338,7 +357,7 @@ enum PalettePlace: CaseIterable {
     /// Whether "<this place> <a folder>" is a request that can be honoured.
     var takesAFolder: Bool {
         switch self {
-        case .compare, .storage: return false
+        case .browse, .compare, .storage: return false
         case .organizeOverview, .lens: return true
         }
     }

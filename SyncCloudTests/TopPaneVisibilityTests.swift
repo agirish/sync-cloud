@@ -14,6 +14,21 @@ import AppKit
         }
     }
 
+    /// **Browse is single-source, and deliberately gets no mode of its own.**
+    ///
+    /// It is not in `lensWorkspaces`, so the loop above never reaches it — which is exactly how a
+    /// third case could be added here and every existing assertion stay green. A dozen sites ask
+    /// `layoutMode == .singleSource` to mean "there is only one tree", and a `.browse` case makes
+    /// all of them answer no for the workspace that is most purely one tree: the difference index
+    /// would stop being emptied, the row menu would offer Copy to the other provider, ⌥-click
+    /// would drive the hidden right pane, and Escape would stop clearing the selection. What
+    /// Browse does differently is layout, and layout is `ContentLayout`'s question.
+    @Test func testBrowseIsSingleSourceLikeTheLenses() {
+        #expect(TopPaneVisibility.mode(for: .browse) == .singleSource)
+        #expect(TopPaneVisibility.paneCount(for: .browse) == 1)
+        #expect(!Workspace.lensWorkspaces.contains(.browse), "Browse has no lens — this loop cannot cover it")
+    }
+
     @Test func testPaneCountPerWorkspace() {
         #expect(TopPaneVisibility.paneCount(for: .compare) == 2)
         for workspace in Workspace.lensWorkspaces {

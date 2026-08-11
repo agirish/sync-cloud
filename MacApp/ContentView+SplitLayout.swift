@@ -144,6 +144,8 @@ extension ContentView {
                 // Single-source (Tidy): the source rail docked left of a full-height workspace,
                 // laid out horizontally — collapsed to a spine, or expanded to a resizable pane.
                 singleSourceLayout(collapsed: contentLayout == .singleCollapsed, geo: geo)
+            case .browseFull:
+                browseLayout(geo: geo)
             }
         }
     }
@@ -201,6 +203,30 @@ extension ContentView {
             }
             .coordinateSpace(.named(Self.railRowSpace))
         }
+    }
+
+    /// Browse: the source pane with the whole window, and nothing else in it.
+    ///
+    /// This is `singleSourceLayout(collapsed: false, …)` with the workspace half, the divider and
+    /// the fraction arithmetic taken out — there is no second region for a fraction to divide.
+    /// What it deliberately keeps is everything that makes that column a pane rather than a list:
+    /// the same `paneColumn(isLeft: true)`, the same region frame, and the same Space → Quick Look
+    /// handler resolved with `singleSource: true` so a stale selection left in the hidden right
+    /// pane cannot hijack the preview.
+    @ViewBuilder
+    func browseLayout(geo: GeometryProxy) -> some View {
+        paneColumn(isLeft: true)
+            .panesRegionFrame(surfaceStyle, level: glassLevel)
+            .frame(width: geo.size.width, height: geo.size.height)
+            .onKeyPress(.space) {
+                guard let targetPath = CurrentSelection.primaryPanePath(
+                    left: syncManager.selectedLeftPaths,
+                    right: syncManager.selectedRightPaths,
+                    singleSource: true
+                ) else { return .ignored }
+                toggleQuickLook(URL(fileURLWithPath: targetPath))
+                return .handled
+            }
     }
 
     /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the
