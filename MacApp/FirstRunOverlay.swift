@@ -31,7 +31,12 @@ enum FirstRunWelcome {
 
     /// Which illustration heads a page. Kept on the pure data so reordering pages can never
     /// desync the artwork from the copy.
-    enum Art: Hashable { case welcome, compare, transfer, tidy, filing }
+    ///
+    /// `FirstRunWelcomeTests.testEveryIllustrationIsUsedByExactlyOnePage` pins this against
+    /// ``pages``, because an art case is unusually easy to strand: nothing outside this file
+    /// references one, so a case added without a page — or a page deleted without its case —
+    /// compiles and renders exactly as before.
+    enum Art: Hashable { case welcome, browse, compare, transfer, tidy, filing }
 
     /// One page of the welcome tour. Pure data so the sequence is testable.
     struct Page: Equatable {
@@ -43,22 +48,37 @@ enum FirstRunWelcome {
     /// The tour: an intro page, then one page per headline feature. The view renders each page's
     /// `art` as a small vector illustration above the copy, and adds the pane pill / choose-
     /// providers hint on the final page. Blurbs describe shipping behavior — keep them honest.
+    ///
+    /// **This is the one screen in the app nobody who works on it ever sees.** It renders once per
+    /// install, on a machine that has never run SyncCloud, and `shouldShow` is false forever after
+    /// — so it drifts silently while every other surface gets looked at daily. It spent the whole
+    /// Organize build calling Duplicates a *workspace*, which it stopped being when the five
+    /// segments folded to three; `testTheTourCallsNoRetiredWorkspaceAWorkspace` is derived from
+    /// ``retiredWorkspaceRawValues`` so the next fold cannot leave the same kind of lie behind.
+    ///
+    /// The last page is the one carrying the Scan CTA and the provider pill (see
+    /// `lastPageContext`), so whatever sits there has to make sense directly above "Scan now".
     static let pages: [Page] = [
         Page(art: .welcome,
              title: "Welcome to SyncCloud",
-             blurb: "Compare two cloud folders side by side, then copy, move, or tidy the differences."),
+             blurb: "Browse your files, compare two cloud folders side by side, and let SyncCloud tidy what it finds — duplicates, loose files, names that don't travel."),
+        // Browse leads the bar and is where a fresh window opens, so it leads the tour: the first
+        // page after the intro should be the place the tour is about to leave you standing in.
+        Page(art: .browse,
+             title: "Browse your files",
+             blurb: "One tree at full width, in columns or as an outline — this is where SyncCloud opens. Press Space to preview a file, and ⌘K to jump to any folder by name."),
         Page(art: .compare,
              title: "Compare side by side",
-             blurb: "Point each pane at a folder in iCloud, OneDrive, Google Drive, or Dropbox. SyncCloud shows exactly what differs — files on only one side, and ones that changed."),
+             blurb: "Point each pane at a folder in iCloud, OneDrive, Google Drive, Dropbox — or any folder on your Mac. SyncCloud shows exactly what differs: files on only one side, and ones that changed."),
         Page(art: .transfer,
              title: "Copy & move differences",
              blurb: "Send files either direction with a click. SyncCloud confirms before it writes, resolves name collisions, and every action can be undone with ⌘Z."),
         Page(art: .tidy,
              title: "Clear out duplicates",
-             blurb: "The Duplicates workspace finds duplicate files and picks which copies to remove — and never trashes the last copy of anything."),
+             blurb: "Organize's Duplicates lens finds files with identical contents and picks which copies to remove — and never trashes the last copy of anything."),
         Page(art: .filing,
-             title: "File loose files automatically",
-             blurb: "Organize sorts stray files into the folders where they belong, using on-device content signals — or AI, when you turn it on in Settings."),
+             title: "Let Organize do the filing",
+             blurb: "Organize puts loose files in the folders where they belong, proposes better names, and can turn a choice you keep making into a rule. It reads content signals on your Mac — or uses AI, when you turn it on in Settings."),
     ]
 }
 
@@ -303,7 +323,7 @@ private struct ProviderGlyph: View {
 /// Symbols, and shapes (no new assets), tinted with each provider's brand hue and animated in on
 /// appear (motion gated on Reduce Motion). Decorative: the title and blurb carry the meaning, so
 /// `pageHeader` marks the artwork `.accessibilityHidden(true)`.
-private struct TourArtwork: View {
+struct TourArtwork: View {
     let art: FirstRunWelcome.Art
     let leftName: String
     let rightName: String
@@ -311,6 +331,7 @@ private struct TourArtwork: View {
     var body: some View {
         switch art {
         case .welcome:  WelcomeArt()
+        case .browse:   BrowseArt()
         case .compare:  CompareArt(leftName: leftName, rightName: rightName)
         case .transfer: TransferArt(leftName: leftName, rightName: rightName)
         case .tidy:     TidyArt()
@@ -365,6 +386,66 @@ private struct WelcomeArt: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { appeared = true }
             withAnimation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true)) { breathe = true }
         }
+    }
+}
+
+/// Three columns opening left to right, each with the row that opened the next one lit — which is
+/// exactly what a Browse pane looks like once you have drilled into something.
+///
+/// Deliberately the *column* stack rather than a folder glyph: Columns is the default presentation,
+/// and the one thing a new user needs to expect is that clicking a folder opens a column beside it
+/// instead of expanding it in place. A folder icon would have said "files", which they knew.
+private struct BrowseArt: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    /// Which row is lit in each column, and it must stay strictly ascending: the lit rows are read
+    /// as one diagonal — a path walked down and to the right — and any other arrangement reads as
+    /// three unrelated lists that happen to have a blue row each. The first draft ended on row 0
+    /// and did exactly that, which a pixel count could not have told me.
+    private static let litRows = [1, 2, 3]
+
+    /// Rows per column. Five rather than four so the columns read as lists with a little room
+    /// under them, rather than as mostly-empty frames.
+    private static let rowsPerColumn = 5
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(Array(Self.litRows.enumerated()), id: \.offset) { index, litRow in
+                column(litRow: litRow, isDeepest: index == Self.litRows.count - 1)
+                    .opacity(appeared ? 1 : 0)
+                    .offset(x: appeared ? 0 : -12)
+                    // Staggered left to right: the columns arrive in the order clicking would
+                    // have opened them.
+                    .animation(reduceMotion ? nil
+                               : .spring(response: 0.42, dampingFraction: 0.74).delay(0.09 * Double(index)),
+                               value: appeared)
+            }
+        }
+        .onAppear {
+            guard !reduceMotion else { appeared = true; return }
+            withAnimation { appeared = true }
+        }
+    }
+
+    private func column(litRow: Int, isDeepest: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(0..<Self.rowsPerColumn, id: \.self) { row in
+                Capsule()
+                    // The deepest column's lit row is the selection; the shallower ones are the
+                    // trail behind it, so they carry the tint at half strength.
+                    .fill(row == litRow
+                          ? AnyShapeStyle(.tint.opacity(isDeepest ? 1 : 0.45))
+                          : AnyShapeStyle(Color.secondary.opacity(0.35)))
+                    .frame(width: row == Self.rowsPerColumn - 1 ? 22 : 30, height: 5)
+            }
+        }
+        .padding(8)
+        .frame(width: 46, height: 92, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(Color.secondary.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .strokeBorder(Color.secondary.opacity(0.22), lineWidth: 1))
     }
 }
 
