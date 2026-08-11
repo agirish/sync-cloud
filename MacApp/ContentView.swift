@@ -428,7 +428,19 @@ struct ContentView: View {
         // No provider sidebar: provider choice now rides on each pane/source header (ProviderMenu),
         // so the window is a single content column — the panes fill the space the sidebar used to take.
         mainContentView
-            .frame(minWidth: 600)
+            // The height floor is not symmetry with the width — it closes a hole. With no
+            // `minHeight` at all, `.contentMinSize` resizability let the window be dragged down to
+            // the toolbar and nothing else: a sliver with the pane header, the file list and the
+            // action bar all squeezed out, which is not a size a user picks so much as one the
+            // window cannot refuse.
+            //
+            // 560 is what keeping it a window costs, in the panes' own constants: the pane header
+            // card takes 86 (`LiquidGlass.headerHeight` 81 inside 2×`cardInset`) and the action bar
+            // 44 (`ActionBarMetrics.height` 28 inside 2×8pt of padding), leaving ~430 for the list —
+            // a column header and fifteen-odd rows. It also clears the 428pt below which
+            // `SettingsLayout` stops shrinking its sheet (`floorSize` 380 + `hostMargin` 48) and
+            // starts overflowing the window it is centered in.
+            .frame(minWidth: 600, minHeight: 560)
             .toolbar { mainToolbar }
         .overlay {
             // The picker wins the precedence: it is a direct answer to an action the user just
