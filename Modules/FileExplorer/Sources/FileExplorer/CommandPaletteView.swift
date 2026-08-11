@@ -53,6 +53,21 @@ public struct CommandPaletteView: View {
 
     public var body: some View {
         ZStack(alignment: .top) {
+            // **The scrim owns dismissal for every click over the host window**, because the panel
+            // spans the host's frame and this fill hit-tests — see
+            // `CommandPalettePanelController.clickDismissesThePalette`, which is where that boundary
+            // is written down. Two known gaps, neither fixed here because both are behaviour
+            // changes that cannot be verified from a test (`NSHostingView.hitTest` does not
+            // decompose SwiftUI, and this machine refuses assistive access):
+            //
+            // - `onTapGesture` is **left-button only**, so a right- or middle-click on the dimmed
+            //   area does nothing at all — the panel is above the host, so it does not fall through
+            //   either. The mouse monitor deliberately ignores these (they are `window === panel`).
+            // - `onTapGesture` also needs down and up within the tap slop, so **press-and-drag on
+            //   the scrim dismisses nothing** — and the window cannot be dragged either, since the
+            //   panel covers the title bar and is `isMovable = false`. Pressing in the strip above
+            //   the card and moving the pointer is a plausible "drag the window" intent that
+            //   currently does nothing.
             Rectangle()
                 .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()

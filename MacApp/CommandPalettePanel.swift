@@ -23,11 +23,12 @@ import FileExplorer
 //
 // - **Keyboard.** The panel becomes key, so its field is the first responder and the pane's field
 //   cannot be. No focus race, no `@FocusState` write to lose.
-// - **Clicking away.** Split across two mechanisms, and it took three attempts to see why: the
+// - **Clicking away.** Split across three mechanisms, and it took four attempts to get here: the
 //   panel spans the host's whole frame, so clicks over the host — content, toolbar band and title
-//   bar alike — land on the panel's own scrim and are dismissed by its tap; clicks in another of
-//   this app's windows move key, and resigning key dismisses. `clickDismissesThePalette` carries
-//   the boundary and the corrections; read it before changing either half.
+//   bar alike — land on the panel's own scrim and are dismissed by its tap; a left-click in another
+//   of this app's windows moves key, and resigning key dismisses; a right- or middle-click there
+//   moves no key at all, and only the mouse monitor covers it. `clickDismissesThePalette` carries
+//   the boundary, the corrections, and what is still unverified; read it before changing any half.
 // - **The scrim still belongs to the palette.** The panel is sized to the host window and is
 //   transparent, so `CommandPaletteView` draws exactly what it drew before: dimmed backdrop, card
 //   floating near the top. Nothing about the look changes.
@@ -136,26 +137,27 @@ final class CommandPalettePanelController: ObservableObject {
         //
         // `isActive` is logged beside `isKeyWindow` because a `.nonactivatingPanel` takes key only
         // while its app is active, so `key=false` alone says nothing: `paletteOnLaunchArmed` raises
-        // the palette when discovery finishes, which on a large tree lands minutes after launch and
-        // routinely while the user is in another app. Without `active=` the two readings that
-        // matter — the panel refused key, and SyncCloud was simply in the background — are the
-        // same line.
+        // the palette when discovery finishes — a few seconds on his tree, ~10s on a cold cache —
+        // which can land after the user has moved to another app. Without `active=` the two
+        // readings that matter, "the panel refused key" and "SyncCloud was in the background", are
+        // the same line.
         //
         // **`childWindows` answers a narrower question than it looks like it does.** It lists only
-        // windows attached with `addChildWindow` — which the panel was, nine lines up — so it is
-        // guaranteed to contain the palette and nothing AppKit owns. A window merely *ordered
-        // above* this one is not a child and will never appear here. Read it as "what this app
-        // parented", never as "what is above the panel".
+        // windows *parented* here, and the panel was parented nine lines up, so it is guaranteed to
+        // contain the palette. It is not a list of what is on screen above this window: a window
+        // merely *ordered* above is not a child, and AppKit attaches children of its own (sheets,
+        // popovers). Read it as "what is parented here", never as "what is above the panel" — this
+        // line has already been mis-read once as refuting a theory it cannot speak to.
         Logger.shared.debug("[palette] panel key=\(panel.isKeyWindow) active=\(NSApp.isActive) "
             + "frame=\(panel.frame) "
             + "host children=\((host.childWindows ?? []).map { String(describing: type(of: $0)) })")
 
-        // **Resigning key is the click-away rule for every window that is not the palette** — the
-        // content, the toolbar, the title bar and another app all take key when clicked, and losing
-        // it closes the palette. It is *not* the rule for clicks over the host's own frame: the
-        // panel is sized to that frame and its scrim is opaque to hit-testing, so those clicks land
-        // on the panel, never move key, and are dismissed by the scrim's own tap instead. See
-        // `clickDismissesThePalette` for where that boundary actually falls.
+        // **Resigning key covers a left-click in another window, and another app.** Not clicks over
+        // the host's own frame — the panel spans that frame and hit-tests, so those land on the
+        // panel, move no key, and fall to the scrim's own tap. And not a right- or middle-click
+        // anywhere, which changes no key window at all; the mouse monitor below is the only thing
+        // that covers those. See `clickDismissesThePalette` for the whole boundary and for which
+        // parts of it are still unverified.
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.dismiss() }
@@ -168,9 +170,10 @@ final class CommandPalettePanelController: ObservableObject {
                 })
         }
         // Clicks in another of this app's windows, dismissing before the event is dispatched rather
-        // than after key has moved. **What this can and cannot reach is written out on
-        // `clickDismissesThePalette` — it is narrower than it looks, and the narrowness is the
-        // point of reading that comment before touching this.**
+        // than after key has moved. **Not deletable as a duplicate of the resign observer: a right-
+        // or middle-click moves no key, so for two of these three masks this is the only dismissal
+        // path.** What it can and cannot reach — and what about that is still unverified — is
+        // written out on `clickDismissesThePalette`.
         addMonitor(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             // Compared against `self.panel`, not a captured one: the capture would name the panel
             // from *this* presentation, and a monitor outliving its presentation would then measure
@@ -199,14 +202,25 @@ final class CommandPalettePanelController: ObservableObject {
 
     /// Installs a local monitor and tracks its token, so `dismiss()` has one bag to drain.
     ///
-    /// The optional is handled here rather than at each call site: `addLocalMonitorForEvents`
-    /// returns `nil` when the monitor could not be installed, and a `nil` appended to the bag would
-    /// be a monitor this controller believes it owns and can never remove.
+    /// **The `if let` is about the bag's element type, not about a failed install.** The local
+    /// variant has no documented failure mode — it is `nullable` in the header only because it
+    /// shares a declaration shape with the *global* variant, which really can fail on accessibility
+    /// trust — but it is typed `Any?`, and an `Any?` appended straight to an `[Any]` bag becomes an
+    /// element of type `Optional<Any>`. A `nil` one bridges to `NSNull`, and `NSEvent.removeMonitor`
+    /// on that traps with `-[NSNull invalidate]: unrecognized selector`. Unwrapping first is what
+    /// keeps the bag drainable.
+    ///
+    /// A failure to install would mean ⌘K silently stops closing the palette, on a surface whose
+    /// whole reason for logging is that it is otherwise unobservable — so say so rather than
+    /// dropping it.
     private func addMonitor(matching mask: NSEvent.EventTypeMask,
                             handler: @escaping (NSEvent) -> NSEvent?) {
-        if let monitor = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) {
-            eventMonitors.append(monitor)
+        guard let monitor = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) else {
+            Logger.shared.warning("[palette] event monitor for mask \(mask.rawValue) was not installed — "
+                + "the palette will not respond to those events")
+            return
         }
+        eventMonitors.append(monitor)
     }
 
     /// Whether a mouse-down **outside the palette** should dismiss it.
@@ -217,32 +231,40 @@ final class CommandPalettePanelController: ObservableObject {
     ///
     /// ## What this does NOT cover, and the correction that matters
     ///
-    /// **The title-bar bug this rule was written for is not fixed by this rule, and reading it that
-    /// way is how a fifth attempt at click-away gets started.** The panel is sized to the host's
-    /// whole `frame` and its scrim is a filled `Rectangle` — `overlayScrimOpacity` is 0.55 or 0.35,
-    /// never 0 — so it hit-tests everywhere. Every click over the host, the title band and toolbar
-    /// band included, is therefore attributed to *this panel*, `clickedWindow === palette`, and the
-    /// monitor returns the event untouched. The panel's own diagnostic agrees:
+    /// **The title-bar bug this rule was written for is almost certainly not fixed by this rule, and
+    /// reading it that way is how a fifth attempt at click-away gets started.** The panel is sized
+    /// to the host's whole `frame` (nine lines above the monitor) and its scrim is a filled,
+    /// hit-testing `Rectangle`, so every click over the host — title band and toolbar band included
+    /// — should be attributed to *this panel*, making `clickedWindow === palette` and leaving the
+    /// monitor to return the event untouched.
     ///
-    ///     [palette] panel key=true active=true frame=(0.0, 87.0, 1710.0, 986.0) host children=["CommandPaletteWindow"]
+    /// **INFERRED, not observed, and the distinction is the whole lesson of this file.** What
+    /// supports it: the panel's frame is the host's, and `399d0c04` fixed a *title-bar* symptom by
+    /// reordering `.contentShape` on a SwiftUI view **inside this panel**, which can only work if
+    /// the click landed on the panel. What would settle it: log `event.window` in the monitor for
+    /// one session and click the title bar. **That has never been done, and `event.window` has
+    /// never been logged.** Do it before building anything else on this paragraph.
     ///
-    /// A frame that is the host's whole frame and therefore *does* span the title bar, and key
-    /// genuinely taken. (Its `children` list cannot speak to what is *ordered* above the panel —
-    /// see the comment at the log site — so it refutes nothing on its own.) What actually restored
-    /// dismissal above the card was the card's `.contentShape` sitting outside its top padding, so
-    /// a 620×96pt block swallowed the clicks; that is fixed in `CommandPaletteView`, and the strip
-    /// is the scrim's again.
+    /// What actually restored dismissal above the card was that same `.contentShape` sitting
+    /// outside its top padding, so a 620×96pt block swallowed the clicks; the strip is the scrim's
+    /// again.
     ///
     /// So the reachable job of this rule is narrower than "anything outside": it is **another
-    /// window of this app** — Keyboard Shortcuts, Activity Log, Sync History, an open/save panel,
-    /// the host's resize margin. Each of those also takes key from the panel, so the resign-key
-    /// observer in `present` covers them too; this monitor only gets there first, during dispatch
-    /// rather than after the key change.
+    /// window of this app** — Keyboard Shortcuts, Activity Log and Sync History are real `Window`
+    /// scenes (Settings and Help are in-window overlays and are *under* the panel, not other
+    /// windows), plus an open/save panel.
     ///
-    /// A local monitor also does **not** see everything: NSMenu tracking and window drag/resize
-    /// tracking pull events in `NSEventTrackingRunLoopMode` without routing them through
-    /// `NSApp.sendEvent:`, and opening a menu does not move key either — so the palette stays up
-    /// over a pulled-down menu. Known and unfixed; do not read the rule as complete.
+    /// **It is not redundant with the resign-key observer, and the difference is the mask.** A
+    /// left-click in one of those windows makes it key, so the observer would have covered it and
+    /// this monitor merely gets there first — synchronously during dispatch, where the observer is
+    /// registered `queue: .main` and lands a turn later. But a **right- or middle-click does not
+    /// change the key window**, so for two of the three masks here this monitor is the *only* thing
+    /// that dismisses. Do not delete it as a duplicate.
+    ///
+    /// A local monitor is also believed not to see events consumed by NSMenu tracking or by a
+    /// window drag/resize tracking loop, so the palette may stay up over a pulled-down menu.
+    /// **Unverified — neither the mechanism nor the behaviour has been observed here.** If you touch
+    /// this, open a menu with the palette up and write down what happens.
     ///
     /// `nil` is a click this app cannot attribute to a window of its own; treating it as outside is
     /// the safe direction, since the alternative is a palette that survives a click it cannot see.

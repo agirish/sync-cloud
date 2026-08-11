@@ -84,10 +84,10 @@ import Sync
         let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
         #expect(panel.canBecomeKey, "a borderless panel that cannot become key cannot hold a caret")
         // ...and never main, so the menu bar and window title keep describing the document window.
         #expect(!panel.canBecomeMain)
-        panel.orderOut(nil)
     }
 
     @Test func presentingRaisesAPanelParentedToAndSizedWithTheHost() {
@@ -191,8 +191,10 @@ import Sync
     /// the host's whole frame and its scrim hit-tests, so a click over the host — content, toolbar
     /// band, title bar — is attributed to *the panel*, and this rule answers `false` for it; the
     /// scrim's own tap is what dismisses there. What this rule reaches is another of this app's
-    /// windows: Keyboard Shortcuts, Activity Log, Sync History, an open panel, the host's resize
-    /// margin. See `CommandPalettePanelController.clickDismissesThePalette` for the whole boundary.
+    /// windows: Keyboard Shortcuts, Activity Log, Sync History, an open panel. (Not "the host's
+    /// resize margin", which an earlier version of this listed — that is inside `host.frame` and so
+    /// is the panel by the same argument.) See
+    /// `CommandPalettePanelController.clickDismissesThePalette` for the whole boundary.
     ///
     /// No real window is ordered in for this: the rule is object identity, and three `NSWindow`s
     /// on screen would be process-wide state bought for nothing. Unordered windows still have
@@ -218,32 +220,121 @@ import Sync
     /// entire `addMonitor(matching:)` block deleted — the rule extracted for testability, one revert
     /// from being unused. `present` is not reachable from here in a way that can synthesise an
     /// `NSEvent`, so this is a source scan of the call site, in the shape this repo already uses in
-    /// `CommandPaletteRouteCallSiteTests`: it names the file it reads and fails if it cannot be
-    /// found, and each check asserts the exact string whose absence is the regression.
+    /// `CommandPaletteRouteCallSiteTests`.
     ///
-    /// The mask is checked as well as the call, because it is the part that can narrow silently: a
-    /// monitor left matching only `.leftMouseDown` still passes every behavioural test in this file
-    /// while a right-click in another window stops closing the palette.
+    /// **Three things an earlier version of this test got wrong, each measured by mutation:**
+    ///
+    /// - It bounded the block by the first eight-space `}`. Re-indenting `present` (wrapping the
+    ///   installs in an `if`) made that brace the *`if`'s*, swallowing the ⌘K monitor below and
+    ///   failing with a message about the wrong monitor; moving the dismissal into a
+    ///   `DispatchQueue.main.async { … }` whose brace lands at eight spaces ended the block *early*
+    ///   and let a monitor that **swallowed every mouse-down in the app** pass all four checks.
+    ///   Bounds now come from balancing braces from the opening `{`, which no indentation can move.
+    /// - The mask was checked against the whole file, so adding any second full-mask monitor let the
+    ///   real one narrow to `[.leftMouseDown]` unnoticed — right- and middle-click silently stop
+    ///   dismissing, and those are the two the resign observer cannot cover.
+    /// - "returns the event" was `contains("return event") && !contains("return nil")`, which a
+    ///   `return .none` defeats and a trailing `// … return nil …` comment falsely fails. Every
+    ///   `return` in the block is now parsed and required to be `event`.
     @Test func theMonitorActuallyInstallsTheClickAwayRule() throws {
-        // Scoped to the monitor's own block, not the whole file: this file's prose quotes the rule
-        // by name several times, and a check that a comment can satisfy is a check that has stopped
-        // measuring the code. Bounded by the block's closing brace rather than a character count.
         let source = Self.codeOnly(try Self.panelSource())
-        let start = try #require(source.range(of: "        addMonitor(matching: [.leftMouseDown"),
-                                 "the click monitor is gone — nothing installs the click-away rule")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n        }"), "no closing brace for the click monitor")
-        let block = String(rest[..<end.lowerBound])
+        let block = try Self.braceBalancedBlock(after: "addMonitor(matching: [.leftMouseDown",
+                                                in: source,
+                                                what: "the click monitor")
 
         #expect(block.contains("Self.clickDismissesThePalette(clickedWindow: event.window, palette: panel)"),
                 "the click monitor no longer consults clickDismissesThePalette — the rule is extracted and unused")
-        #expect(source.contains("addMonitor(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown])"),
-                "the click monitor's mask narrowed — some mouse buttons no longer dismiss")
         #expect(block.contains("self.dismiss()"), "the click monitor no longer dismisses")
-        // Returned, never swallowed: the click that dismisses is also the click the user meant for
-        // whatever is under it.
-        #expect(block.contains("return event") && !block.contains("return nil"),
-                "the click monitor swallows the event instead of passing it on")
+
+        // The mask, read off the monitor's OWN call, never the file at large.
+        let call = try #require(source.range(of: "addMonitor(matching: [.leftMouseDown"),
+                                "the click monitor is gone")
+        let maskArgument = String(source[call.lowerBound...].prefix(while: { $0 != ")" }))
+        for button in [".leftMouseDown", ".rightMouseDown", ".otherMouseDown"] {
+            #expect(maskArgument.contains(button),
+                    "the click monitor's mask lost \(button) — that button no longer dismisses, and for the non-left buttons nothing else does (they change no key window)")
+        }
+
+        // Returned, never swallowed. Every return is parsed rather than string-matched: `return .none`
+        // swallows just as thoroughly as `return nil`, and a comment is not a return statement.
+        let returns = Self.returnedExpressions(in: block)
+        #expect(!returns.isEmpty, "the click monitor returns nothing — it cannot be passing the event on")
+        #expect(returns.allSatisfy { $0 == "event" },
+                "the click monitor returns \(returns) — anything but `event` swallows the click the user meant for whatever is under the palette")
+    }
+
+    /// **The helper the monitors install through must still install and still be drained.**
+    ///
+    /// Mutation found the previous test's blind spot one level down: gutting `addMonitor`'s body, or
+    /// dropping either `eventMonitors.append` or `dismiss()`'s drain, disables **both** monitors —
+    /// click-away and ⌘K — with the whole suite green. The deletable point moved below the test.
+    @Test func theMonitorHelperInstallsAndDismissDrainsThem() throws {
+        let source = Self.codeOnly(try Self.panelSource())
+        let helper = try Self.braceBalancedBlock(after: "private func addMonitor(matching mask:",
+                                                 in: source, what: "addMonitor")
+        #expect(helper.contains("NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)"),
+                "addMonitor no longer calls AppKit — every monitor in this file is now a no-op")
+        #expect(helper.contains("eventMonitors.append(monitor)"),
+                "addMonitor no longer tracks the token, so dismiss() can never remove the monitor")
+
+        let dismiss = try Self.braceBalancedBlock(after: "func dismiss() {", in: source, what: "dismiss()")
+        #expect(dismiss.contains("eventMonitors.forEach(NSEvent.removeMonitor)"),
+                "dismiss() no longer drains the monitors — they outlive the palette and fire app-wide")
+        #expect(dismiss.contains("eventMonitors = []"),
+                "dismiss() leaves stale tokens in the bag — the next dismiss() would remove them twice")
+    }
+
+    /// The text between an anchor's opening `{` and its matching `}`, found by balancing braces.
+    ///
+    /// Indentation is not used, deliberately: bounding a block by "the first `}` at column N" is how
+    /// the previous version of the monitor scan came to answer about the wrong text in both
+    /// directions. Call with comment-stripped source — a `{` inside a comment would still count.
+    static func braceBalancedBlock(after anchor: String, in source: String,
+                                   what: String) throws -> String {
+        let start = try #require(source.range(of: anchor), "\(what) is gone — this scan would be vacuous")
+        // From the START of the match, not its end: an anchor that already carries its own `{`
+        // (`func dismiss() {`) would otherwise skip past it and balance the NEXT block instead —
+        // which is how this first returned the body of `if let resignObserver` and passed nothing.
+        let rest = source[start.lowerBound...]
+        let open = try #require(rest.firstIndex(of: "{"), "no opening brace for \(what)")
+        var depth = 0
+        var close: String.Index?
+        var index = open
+        while index < rest.endIndex {
+            if rest[index] == "{" { depth += 1 }
+            if rest[index] == "}" {
+                depth -= 1
+                if depth == 0 { close = index; break }
+            }
+            index = rest.index(after: index)
+        }
+        let end = try #require(close, "no matching closing brace for \(what)")
+        return String(rest[rest.index(after: open)..<end])
+    }
+
+    /// Every `return <expr>` in a block, as the expression's own text — **including** the ones
+    /// tucked into a `guard … else { return x }`, which is a swallow just as much as a tail return
+    /// and is where a line-leading match would have looked away.
+    static func returnedExpressions(in block: String) -> [String] {
+        var expressions: [String] = []
+        for rawLine in block.split(separator: "\n", omittingEmptySubsequences: false) {
+            // Trailing comments are cut FIRST. `return event  // never `return nil` here` is correct
+            // code, and scanning the prose found the comment's own words and failed it — measured.
+            // (`codeOnly` strips only whole-line comments, so it does not reach this.)
+            let line = rawLine.prefix { $0 != "/" }
+            var tail = Substring(line)
+            while let keyword = tail.range(of: "return") {
+                // `returnValue` is not a return statement; require a boundary on both sides.
+                let before = keyword.lowerBound == tail.startIndex ? " " : tail[tail.index(before: keyword.lowerBound)]
+                let after = keyword.upperBound == tail.endIndex ? " " : tail[keyword.upperBound]
+                tail = tail[keyword.upperBound...]
+                guard !before.isLetter, !before.isNumber, before != "_",
+                      !after.isLetter, !after.isNumber, after != "_" else { continue }
+                let expression = tail.prefix { $0 != "}" && $0 != "/" }
+                expressions.append(expression.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return expressions
     }
 
     /// Reads `CommandPalettePanel.swift` itself. Fails loudly when it cannot be found, so a rename

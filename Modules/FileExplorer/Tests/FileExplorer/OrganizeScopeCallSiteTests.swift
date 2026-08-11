@@ -42,6 +42,12 @@ import Foundation
     static func body(of declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — the scan below would be vacuous")
+        // **Uniqueness, because `range(of:)` silently takes the FIRST match.** Measured: adding a
+        // second `public var body: some View {` above `CommandPaletteView`'s — an onboarding variant,
+        // say — made the hit-shape scan read the decoy and pass with BOTH of its defects present.
+        // A duplicated declaration means this helper is answering about text nobody chose.
+        #expect(source.components(separatedBy: declaration).count - 1 == 1,
+                "\(declaration) occurs more than once — this scan would silently read the first one")
         let rest = source[start.upperBound...]
         let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
         return String(rest[..<end.lowerBound])
