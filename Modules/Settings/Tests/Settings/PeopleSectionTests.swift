@@ -235,4 +235,86 @@ import Testing
         #expect(PersonEditor.folding(committed, pendingFullName: "aditi abhishek",
                                      pendingAlias: "").fullNames == ["Aditi Abhishek"])
     }
+
+    // MARK: - The unreadable-roster warning is actually on screen
+
+    /// Ink drawn by `view` at `width`, counted as pixels differing from the window background.
+    ///
+    /// **Pixels, because room is not paint.** A height comparison would pass against a note that
+    /// reserved space and drew nothing, which is the failure this file's neighbours keep meeting.
+    /// Light appearance with an opaque background fill, for the reason `PeopleRenderProbe` gives:
+    /// without it a render decodes as white-on-transparent and reads as an empty view.
+    private func ink(_ view: some View, width: CGFloat) -> Int {
+        let subject = view.frame(width: width)
+            .background(Color(nsColor: .windowBackgroundColor))
+        let host = NSHostingView(rootView: subject)
+        host.appearance = NSAppearance(named: .aqua)
+        host.frame = CGRect(origin: .zero,
+                            size: CGSize(width: width, height: max(1, host.fittingSize.height)))
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let background = rep.colorAt(x: 0, y: 0) else { return 0 }
+        var painted = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 1) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 1) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                if abs(c.brightnessComponent - background.brightnessComponent) > 0.08 { painted += 1 }
+            }
+        }
+        return painted
+    }
+
+    /// **The claim is split in two because a whole-list render cannot carry it, and the first
+    /// attempt at one passed with the wiring deleted.** Comparing a readable list against an
+    /// unreadable one measures `sourceNote` as well: it swaps "Saved in people.json" for the much
+    /// longer "Suggested from your folder names…" whenever the roster is seeded, which is *always*
+    /// true in the unreadable case. That difference alone cleared the threshold, so the test
+    /// reported the warning present while `PeopleList` no longer drew it — a measurement adjacent
+    /// to the claim, which is the shape this codebase keeps meeting.
+    ///
+    /// So: this asserts the note **paints**, and `theUnreadableRosterNoteIsWiredIntoTheList`
+    /// asserts it is **reached**. Neither alone is the claim; together they are.
+    /// **The control is the same Label with no message**, and it has to be: a bare threshold on the
+    /// note's own ink passed with the `Text` emptied, because the warning triangle alone paints
+    /// hundreds of pixels. The icon is not the claim — the sentence is.
+    @Test func theUnreadableRosterNotePaintsItsMessage() {
+        let width = SettingsSheetMetrics.contentWidth(textScale: 1)
+        let note = ink(PeopleList.unreadableRosterNote, width: width)
+        let iconOnly = ink(
+            Label { Text("") } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                .scaledFont(.callout).foregroundStyle(.secondary),
+            width: width)
+        #expect(iconOnly > 50, "the harness drew nothing even for the icon (\(iconOnly))")
+        #expect(note > iconOnly * 3,
+                "the warning is little more than its icon (\(note) vs \(iconOnly)) — its message is not being drawn")
+    }
+
+    /// The other half: the note is reached from `PeopleList.body`, under the store's own flag.
+    ///
+    /// Source-level because SwiftUI cannot be driven from here and the render above cannot isolate
+    /// this branch. Bounded to `body` by its closing brace and failing loudly if the declaration
+    /// moves, so a rename cannot quietly empty the haystack.
+    @Test func theUnreadableRosterNoteIsWiredIntoTheList() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Settings/SettingsView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read SettingsView.swift — this scan would be vacuous")
+        let marker = "struct PeopleList: View {"
+        #expect(source.components(separatedBy: marker).count - 1 == 1,
+                "PeopleList is declared more than once — this scan would read the wrong one")
+        let start = try #require(source.range(of: marker), "PeopleList is gone")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    var body: some View {"),
+                               "PeopleList has no body")
+        let bodyStart = rest[end.upperBound...]
+        let bodyEnd = try #require(bodyStart.range(of: "\n    }"), "no closing brace for body")
+        let body = String(bodyStart[..<bodyEnd.lowerBound])
+
+        #expect(body.contains("store.rosterIsUnreadable"),
+                "PeopleList no longer asks whether the roster loaded — the refusal to save is silent")
+        #expect(body.contains("unreadableRosterNote"),
+                "PeopleList no longer draws the warning")
+    }
 }
