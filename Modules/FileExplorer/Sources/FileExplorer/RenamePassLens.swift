@@ -34,6 +34,35 @@ struct RenamePassLens: View {
     /// Folders opened to show their steps. Collapsed by default — the summary line is the claim,
     /// and the detail is there for the row you are unsure about.
     @State private var expanded: Set<String> = []
+    /// Groups whose disclosure the user flipped away from their category's default (pad starts
+    /// collapsed, judgment categories open — `RenameCategories.groupsStartCollapsed`). A toggled
+    /// set, not a collapsed set, so the default keeps applying to groups the next scan adds.
+    @State private var toggledGroups: Set<String> = []
+    /// Categories the user collapsed whole.
+    @State private var collapsedSections: Set<RenameCategories.Category> = []
+    /// For the shared trailing Rename column — measured at the live scale.
+    @Environment(\.appFontScale) private var appFontScale
+
+    private func groupKey(_ category: RenameCategories.Category,
+                          _ group: RenameCategories.Group) -> String {
+        "\(category)|\(group.parent)"
+    }
+
+    private func isGroupCollapsed(_ category: RenameCategories.Category,
+                                  _ group: RenameCategories.Group) -> Bool {
+        RenameCategories.isCollapsed(category: category,
+                                     toggled: toggledGroups.contains(groupKey(category, group)))
+    }
+
+    /// One right edge for every Rename control (the row buttons were ragged — each label's own
+    /// width put "Rename 7" and "Rename 10" at different x). Derived from the widest label this
+    /// list can produce, at the live scale — never a hard-coded constant.
+    private var renameSlotWidth: CGFloat {
+        let widest = "Rename \(plans.map(\.steps.count).max() ?? 0)"
+        return LabelMetrics.width(of: widest,
+                                  font: ScaledFont.caption.weight(.semibold),
+                                  scale: appFontScale)
+    }
 
     var body: some View {
         let sections = RenameCategories.sections(plans)
@@ -44,12 +73,16 @@ struct RenamePassLens: View {
             }
             ForEach(sections, id: \.category) { section in
                 Section {
-                    ForEach(section.groups, id: \.parent) { group in
-                        groupHeader(group, in: section)
-                        ForEach(group.plans) { plan in
-                            planRow(plan, category: section.category)
-                            if expanded.contains(plan.id) {
-                                expandedRows(plan)
+                    if !collapsedSections.contains(section.category) {
+                        ForEach(section.groups, id: \.parent) { group in
+                            groupHeader(group, in: section)
+                            if !isGroupCollapsed(section.category, group) {
+                                ForEach(group.plans) { plan in
+                                    planRow(plan, category: section.category)
+                                    if expanded.contains(plan.id) {
+                                        expandedRows(plan)
+                                    }
+                                }
                             }
                         }
                     }
@@ -159,6 +192,23 @@ struct RenamePassLens: View {
 
     private func categoryHeader(_ section: RenameCategories.Section) -> some View {
         HStack(spacing: 8) {
+            Button {
+                if collapsedSections.contains(section.category) {
+                    collapsedSections.remove(section.category)
+                } else {
+                    collapsedSections.insert(section.category)
+                }
+            } label: {
+                Image(systemName: collapsedSections.contains(section.category)
+                        ? "chevron.right" : "chevron.down")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .chromeHover()
+            .help(collapsedSections.contains(section.category)
+                    ? "Show this section" : "Hide this section")
             Pill(.mini, tint: tint(section.category),
                  count: section.kindCount, label: section.category.label)
             Text(section.category.definition)
@@ -191,6 +241,21 @@ struct RenamePassLens: View {
     private func groupHeader(_ group: RenameCategories.Group,
                              in section: RenameCategories.Section) -> some View {
         HStack(spacing: 8) {
+            Button {
+                let key = groupKey(section.category, group)
+                if toggledGroups.contains(key) { toggledGroups.remove(key) }
+                else { toggledGroups.insert(key) }
+            } label: {
+                Image(systemName: isGroupCollapsed(section.category, group)
+                        ? "chevron.right" : "chevron.down")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .chromeHover()
+            .help(isGroupCollapsed(section.category, group)
+                    ? "Show these folders" : "Hide these folders")
             Text(group.parent.isEmpty ? "Top level" : group.parent + "/")
                 .scaledFont(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
@@ -201,17 +266,16 @@ struct RenamePassLens: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize()
             Spacer(minLength: 8)
-            if group.plans.count > 1 {
-                Button { onApply(group.plans) } label: {
-                    Text("Rename \(group.fileCount)")
-                        .scaledFont(.caption)
-                        .fontWeight(.semibold)
-                }
-                .buttonStyle(.borderless)
-                .tint(accent)
-                .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
-                .help("Apply every rename under “\(group.parent.isEmpty ? "the top level" : group.parent)”, as one undoable change")
+            Button { onApply(group.plans) } label: {
+                Text("Rename \(group.fileCount)")
+                    .scaledFont(.caption)
+                    .fontWeight(.semibold)
+                    .frame(minWidth: renameSlotWidth, alignment: .trailing)
             }
+            .buttonStyle(.borderless)
+            .tint(accent)
+            .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+            .help("Apply every rename under “\(group.parent.isEmpty ? "the top level" : group.parent)”, as one undoable change")
         }
         .padding(.top, 4)
     }
@@ -283,6 +347,7 @@ struct RenamePassLens: View {
                     Text("Rename \(plan.steps.count)")
                         .scaledFont(.caption)
                         .fontWeight(.semibold)
+                        .frame(minWidth: renameSlotWidth, alignment: .trailing)
                 }
                 .buttonStyle(.borderless)
                 .tint(accent)

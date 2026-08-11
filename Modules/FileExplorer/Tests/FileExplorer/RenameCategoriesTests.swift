@@ -70,6 +70,25 @@ import Foundation
         #expect(sample?.currentName == "IMG_4501.pdf")
     }
 
+    @Test func onlyThePadCategoryStartsCollapsed() {
+        // Pad is the mechanical bulk this screen accepts wholesale; the judgment categories'
+        // rows need eyes before their buttons, so they start open. A new category added later
+        // fails this sweep until it declares which kind it is.
+        for category in RenameCategories.Category.allCases {
+            #expect(RenameCategories.groupsStartCollapsed(category) == (category == .pad),
+                    "\(category) has the wrong default disclosure")
+        }
+    }
+
+    @Test func aToggleAlwaysMeansTheOtherStateOfTheDefault() {
+        // Stored as a toggled set so the category default keeps applying to groups the next
+        // scan adds — toggling must invert whatever the default is, both ways.
+        #expect(RenameCategories.isCollapsed(category: .pad, toggled: false))
+        #expect(!RenameCategories.isCollapsed(category: .pad, toggled: true))
+        #expect(!RenameCategories.isCollapsed(category: .name, toggled: false))
+        #expect(RenameCategories.isCollapsed(category: .name, toggled: true))
+    }
+
     @Test func theKindCountClaimsOnlyItsOwnKind() {
         // The pill says "1 to name"; the bulk button says "Rename 3 files" — different claims,
         // both true, and the kind count must not inflate to the folder total.

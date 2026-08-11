@@ -119,4 +119,22 @@ enum RenameCategories {
     static func sampleStep(_ plan: RenamePlan, category: Category) -> RenameStep? {
         plan.steps.first { $0.kind == category.kind }
     }
+
+    // MARK: Collapse defaults
+
+    /// Whether a category's groups start collapsed. **Pad does, alone**: it is the mechanical
+    /// bulk this screen exists to accept wholesale — its own definition line says so — and six
+    /// hundred always-open rows are what made review a scroll instead of a read. The judgment
+    /// categories (fix, name, reshuffle) start open, because their rows are the ones that need
+    /// eyes before their buttons. Everything stays one chevron from the other state.
+    static func groupsStartCollapsed(_ category: Category) -> Bool {
+        category == .pad
+    }
+
+    /// Resolves a group's collapsed state from the default and the user's toggles. Stored as a
+    /// TOGGLED set rather than a collapsed set, so the per-category default keeps applying to
+    /// groups that arrive with the next scan instead of freezing whatever the first render saw.
+    static func isCollapsed(category: Category, toggled: Bool) -> Bool {
+        groupsStartCollapsed(category) != toggled
+    }
 }
