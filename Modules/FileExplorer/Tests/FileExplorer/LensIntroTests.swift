@@ -8,8 +8,9 @@ import Testing
 @Suite struct LensIntroTests {
 
     private var all: [(name: String, intro: LensIntro)] {
-        [("Duplicates", LensIntros.duplicates(providerName: "iCloud")),
+        [("Duplicates", LensIntros.duplicates(targetName: "Family")),
          ("Organize", LensIntros.organize(scanTargetName: "TODO")),
+         ("Renames", LensIntros.renames(providerName: "iCloud")),
          ("Storage", LensIntros.storage(providerName: "iCloud"))]
     }
 
@@ -28,22 +29,28 @@ import Testing
         // Not a spelling test — each of these words is the operative promise. Duplicates and
         // Organize are undoable and confirmed; Storage is the one that touches nothing at all,
         // and that difference is the reason its results can be restored when theirs cannot.
-        #expect(LensIntros.duplicates(providerName: nil).safety.contains("undoable"))
-        #expect(LensIntros.duplicates(providerName: nil).safety.contains("confirmation"))
+        #expect(LensIntros.duplicates(targetName: "Family").safety.contains("undoable"))
+        #expect(LensIntros.duplicates(targetName: "Family").safety.contains("confirmation"))
         #expect(LensIntros.organize(scanTargetName: "TODO").safety.contains("undoable"))
+        #expect(LensIntros.renames(providerName: nil).safety.contains("undoable"))
         #expect(LensIntros.storage(providerName: nil).safety.contains("Read-only"))
     }
 
     @Test func theProviderAndTargetReachTheTitle() {
         // The intro is shown from the header too, where there is no surrounding empty state to say
         // which folder is meant — so the naming has to be in the intro itself.
-        #expect(LensIntros.duplicates(providerName: "Dropbox").title.contains("Dropbox"))
+        // Duplicates names the FOCUSED FOLDER — its scan hashes the folder you stand on, and
+        // a provider-named title was the same too-wide claim its clean state used to make.
+        #expect(LensIntros.duplicates(targetName: "Family").title.contains("Family"))
         #expect(LensIntros.organize(scanTargetName: "TODO").title.contains("TODO"))
+        // Renames names the PROVIDER — its detectors read the provider-wide taxonomy, and a
+        // folder-named title would promise a narrower answer than the one given.
+        #expect(LensIntros.renames(providerName: "Dropbox").title.contains("Dropbox"))
         #expect(LensIntros.storage(providerName: "Dropbox").title.contains("Dropbox"))
     }
 
     @Test func anUnnamedProviderStillReadsAsASentence() {
-        #expect(LensIntros.duplicates(providerName: nil).title.contains("this provider"))
+        #expect(LensIntros.renames(providerName: nil).title.contains("this provider"))
         #expect(LensIntros.storage(providerName: nil).title.contains("this provider"))
     }
 }

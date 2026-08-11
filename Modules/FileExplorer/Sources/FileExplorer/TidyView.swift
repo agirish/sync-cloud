@@ -2677,7 +2677,22 @@ public struct TidyView: View {
                     let fixRows = syncManager.riskyNames.filter {
                         OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames))
                     }
-                    if !syncManager.renamePlans.isEmpty, rows.renames.isEmpty, fixRows.isEmpty {
+                    if !syncManager.hasSuggestedFiling {
+                        // Never scanned: the setup card (P12), named for the PROVIDER — the
+                        // rename detectors read the provider-wide taxonomy, so a folder-named
+                        // title would promise a narrower answer than the one given.
+                        renameSetupState
+                    } else if syncManager.renamePlans.isEmpty, syncManager.riskyNames.isEmpty {
+                        // Ran and found nothing — the earned state, never the pitch.
+                        EmptyStateView(
+                            icon: "checkmark.seal.fill",
+                            tint: SemanticColor.success,
+                            title: "Nothing to rename",
+                            message: "Every folder keeps its own numbering, and every name is one this provider can store.",
+                            secondary: .init("Scan again", systemImage: "arrow.clockwise",
+                                             handler: onFindFilingSuggestions)
+                        )
+                    } else if rows.renames.isEmpty, fixRows.isEmpty {
                         noMatchesState(scopedTotal: counts.renames,
                                        globalTotal: syncManager.renamePlans.count, noun: "folder")
                     } else {
@@ -3268,18 +3283,43 @@ public struct TidyView: View {
     // MARK: Empty / scanning states
 
     private var introState: some View {
-        // The L4 gold-standard template (EmptyStateView): provider named in the title, the job
-        // in the message, the safety contract in the caption, one primary button. The words come
-        // from `LensIntros`, the one place each lens's explanation is written.
-        let intro = LensIntros.duplicates(providerName: providerName)
-        return EmptyStateView(
-            icon: intro.icon,
-            tint: glassHue.accentColor,
-            title: intro.title,
-            message: intro.message,
-            caption: intro.safety,
-            primary: .init("Find Duplicates", systemImage: "wand.and.stars", handler: onFindDuplicates)
-        )
+        // The setup card (P12): the job, the safety contract, one trigger, and sample rows in
+        // the shape real groups take — the first real list should not be the first sighting of
+        // its layout. Named for the FOCUSED folder: that is what the scan hashes.
+        LensSetupCard(
+            intro: LensIntros.duplicates(targetName: scanTargetName),
+            accent: glassHue.accentColor,
+            triggerTitle: "Find Duplicates",
+            triggerSymbol: "wand.and.stars",
+            triggerHelp: "Hash “\(scanTargetName)” and group identical content. Free, on this Mac — the slow part is reading every file once.",
+            samplesTitle: "What a finding looks like",
+            samplesAccessibility: "Example of the duplicate-group format: a match-type badge, "
+                + "the common name, how many copies, and what removing the extras reclaims. "
+                + "These are samples, not files on your disk.",
+            onStart: onFindDuplicates
+        ) {
+            LensSetupSampleRow {
+                Pill(.mini, tint: SemanticColor.success, text: "Identical")
+                Text("Wedding Gifts.pdf").scaledFont(.caption).lineLimit(1)
+                Text("2 copies").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Text("reclaim 71 KB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            LensSetupSampleRow {
+                Pill(.mini, tint: SemanticColor.caution, text: "Same text")
+                Text("Passport - All Pages.pdf").scaledFont(.caption).lineLimit(1)
+                Text("2 copies").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Text("reclaim 26 MB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            LensSetupSampleRow {
+                Pill(.mini, tint: SemanticColor.caution, text: "Name only")
+                Text("Events").scaledFont(.caption).lineLimit(1)
+                Text("2 folders").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Text("nothing to reclaim").scaledFont(.caption.monospaced()).foregroundStyle(.tertiary)
+            }
+        }
     }
 
     private var scanningState: some View {
@@ -3601,6 +3641,43 @@ public struct TidyView: View {
             accent: glassHue.accentColor,
             onStart: onFindFilingSuggestions
         )
+    }
+
+    /// Renames before its first run (P12): the walk's job for this lens, one trigger (the same
+    /// file pass To File offers — one walk answers all three), and the row shapes of all three
+    /// categories a scan can produce, the red to-fix first.
+    private var renameSetupState: some View {
+        LensSetupCard(
+            intro: LensIntros.renames(providerName: providerName),
+            accent: glassHue.accentColor,
+            triggerTitle: "Run the file pass",
+            triggerSymbol: "folder.badge.gearshape",
+            triggerHelp: "One walk of the tree answers To File, the name check, and this backlog. Free, and on-device.",
+            samplesTitle: "What a finding looks like",
+            samplesAccessibility: "Example of the rename formats: a provider-hostile name and "
+                + "its safe form, a file renamed to its folder's convention, and a one-digit "
+                + "ordinal padded to two. These are samples, not files on your disk.",
+            onStart: onFindFilingSuggestions
+        ) {
+            LensSetupSampleRow {
+                Pill(.mini, tint: SemanticColor.error, text: "to fix")
+                Text("Tax: 2024?.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
+                Image(systemName: "arrow.right").scaledFont(.system(size: 9)).foregroundStyle(.tertiary)
+                Text("Tax - 2024.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+            }
+            LensSetupSampleRow {
+                Pill(.mini, tint: glassHue.accentColor, text: "to name")
+                Text("9829custbill.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
+                Image(systemName: "arrow.right").scaledFont(.system(size: 9)).foregroundStyle(.tertiary)
+                Text("07. Jul 2023.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+            }
+            LensSetupSampleRow {
+                Pill(.mini, tint: .secondary, text: "to pad")
+                Text("1. Jan 2011.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
+                Image(systemName: "arrow.right").scaledFont(.system(size: 9)).foregroundStyle(.tertiary)
+                Text("01. Jan 2011.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
     }
 
     private var filingScanningState: some View {

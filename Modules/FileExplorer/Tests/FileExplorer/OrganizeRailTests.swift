@@ -1410,14 +1410,15 @@ import Design
         // rendering — the stand-down would then be deferring to nothing, and the reported bug would
         // be back on the one lens most likely to be browsed to.
         //
-        // Renames is the control: the same manager, the same pane, the same canvas, and its
-        // pre-scan content is an empty `RenamePassLens` list. So this compares two content areas
-        // that differ only in whether one of them is carrying an invitation, which also means a
-        // band that drifts off the content hits both sides.
+        // Restructure is the control now: Renames' pre-scan state became a setup card of its
+        // own (P12), so it can no longer play blank. With no folder profile, Restructure draws
+        // the leanest content this pane has — a small centred pointer — so this still compares
+        // two content areas that differ in whether one carries the full invitation, and a band
+        // that drifts off the content still hits both sides.
         let m = { Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil) }
         let toFile = try #require(strip(mount(m(), lens: .toFile, providerRoot: "/root",
                                               scanTarget: "/root/Family/Aditi"), Self.contentZone))
-        let renames = try #require(strip(mount(m(), lens: .renames, providerRoot: "/root",
+        let renames = try #require(strip(mount(m(), lens: .restructure, providerRoot: "/root",
                                                scanTarget: "/root/Family/Aditi"), Self.contentZone))
         let (intro, blank) = (counts(toFile).ink, counts(renames).ink)
         #expect(intro > blank + 500,

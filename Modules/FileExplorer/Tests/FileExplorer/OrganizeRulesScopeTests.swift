@@ -68,6 +68,10 @@ import Design
                       reason: "colon", isDirectory: false)
         }
         m.hasScannedNames = true
+        // The names now render inside the folded Renames lens, which gates its results on the
+        // file pass having run — without this both scoped and global would show the identical
+        // setup card and the narrowing comparison below would be vacuous.
+        m.hasSuggestedFiling = true
         return m
     }
 

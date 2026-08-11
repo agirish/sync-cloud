@@ -13,12 +13,26 @@ import Foundation
 /// naming the lens says "in iCloud" about the same folder rather than something more generic.
 enum LensIntros {
 
-    static func duplicates(providerName: String?) -> LensIntro {
+    /// Named for the FOCUSED FOLDER, not the provider: the duplicate scan hashes the folder
+    /// you are standing on (`duplicateScanRoot`), and a title promising the provider for a
+    /// folder-scoped scan is the same too-wide claim the clean state used to make.
+    static func duplicates(targetName: String) -> LensIntro {
         LensIntro(
             icon: "wand.and.stars",
-            title: "Find duplicates in \(providerName ?? "this provider")",
-            message: "Scan this provider for folders and files that repeat across the tree — then collapse them into one.",
+            title: "Find duplicates in \(targetName)",
+            message: "Scan this folder for folders and files that repeat across its tree — then collapse them into one.",
             safety: "Nothing is removed without your confirmation, and everything is undoable."
+        )
+    }
+
+    /// Named for the PROVIDER, deliberately: the rename detectors read the provider-wide
+    /// taxonomy, so "in <folder>" here would promise a narrower answer than the one given.
+    static func renames(providerName: String?) -> LensIntro {
+        LensIntro(
+            icon: "folder.badge.gearshape",
+            title: "Check names across \(providerName ?? "this provider")",
+            message: "Find names that need changing — provider-hostile names that break sync, files that don't follow their folder's convention, and folders that have drifted from their own numbering.",
+            safety: "Nothing is renamed without your say-so, and every rename is undoable."
         )
     }
 

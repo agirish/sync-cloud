@@ -91,15 +91,44 @@ struct StorageLensView: View {
     // MARK: Intro / building states
 
     private var introState: some View {
-        let intro = LensIntros.storage(providerName: providerName)
-        return EmptyStateView(
-            icon: intro.icon,
-            tint: glassHue.accentColor,
-            title: intro.title,
-            message: intro.message,
-            caption: intro.safety,
-            primary: .init("Analyze storage", systemImage: "chart.pie.fill", handler: onBuild)
-        )
+        // The setup card (P12): job, safety contract, one trigger, and sample rows in the
+        // ranked-list shape — plus the read-only promise where it is most load-bearing.
+        LensSetupCard(
+            intro: LensIntros.storage(providerName: providerName),
+            accent: glassHue.accentColor,
+            triggerTitle: "Analyze storage",
+            triggerSymbol: "chart.pie.fill",
+            triggerHelp: "Map this folder's biggest areas and rank its largest and longest-untouched files. Read-only.",
+            samplesTitle: "What the ranked lists look like",
+            samplesAccessibility: "Example of the ranked-list format: a file-type glyph, the "
+                + "name, where it sits, and its size. These are samples, not files on your disk.",
+            onStart: onBuild
+        ) {
+            LensSetupSampleRow {
+                FileTypeGlyph.view(name: "sample.mp4", isDirectory: false, pointSize: 13)
+                    .frame(width: 16)
+                Text("Wedding highlights.mp4").scaledFont(.caption).lineLimit(1)
+                Text("Events/2023").scaledFont(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("1.2 GB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            LensSetupSampleRow {
+                FileTypeGlyph.view(name: "sample.pdf", isDirectory: false, pointSize: 13)
+                    .frame(width: 16)
+                Text("Scanned archive.pdf").scaledFont(.caption).lineLimit(1)
+                Text("Legal/Old").scaledFont(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("340 MB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            LensSetupSampleRow {
+                FileTypeGlyph.view(name: "sample.zip", isDirectory: false, pointSize: 13)
+                    .frame(width: 16)
+                Text("backup-2019.zip").scaledFont(.caption).lineLimit(1)
+                Text("untouched 6 years").scaledFont(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("2.8 GB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var buildingState: some View {
