@@ -18,8 +18,11 @@ import Sync
 /// - **Anything else taking key dismisses it.** The overlay's scrim could only ever catch clicks
 ///   inside the window's own content, and not even those: the panes are `NSViewRepresentable`s, so
 ///   clicks landed in the `NSTableView` underneath (`[click] left pane selected 1 item(s)`, again
-///   while the palette was open). Resigning key covers the content, the toolbar, the title bar and
-///   another app with one rule.
+///   while the palette was open). Resigning key covers another of this app's windows, and another
+///   app. It does **not** cover clicks over the host itself: the panel spans the host's frame and
+///   its scrim hit-tests, so those land on the panel and never move key — the scrim's own tap
+///   dismisses them. `CommandPalettePanelController.clickDismissesThePalette` carries that boundary
+///   in full, and an earlier version of this comment had it wrong.
 ///
 /// ## Where the boundary is, measured
 ///
@@ -95,7 +98,9 @@ import Sync
         let panel = try? #require(host.childWindows?.compactMap { $0 as? CommandPaletteWindow }.first)
         #expect(panel != nil, "the panel is not a child of the host — it will not move or order with it")
         // Sized to the host, because the scrim is inside it and has to dim the whole window —
-        // including the title bar, which is what makes clicking there dismiss.
+        // including the title bar. That sizing is also *why* a title-bar click never moves key: it
+        // lands on this panel, and the scrim's tap dismisses it. Sizing alone was once claimed to
+        // be what made clicking there dismiss; it is not, and it was reported broken twice.
         #expect(panel?.frame == host.frame)
         // Whether it *did* take key is AppKit's business and unobservable here; that it *may* is
         // this app's, and `theWindowClassCanBecomeKeyAtAll` holds it.
@@ -103,10 +108,11 @@ import Sync
         teardown(host, controller)
     }
 
-    /// **Click-away, expressed as the only rule that covers the title bar.**
+    /// **Click-away, for the half of it that key state actually owns: another window.**
     ///
-    /// A click anywhere in the window — content, toolbar or title bar — makes the host key, which
-    /// makes the panel resign it. Driven by posting the notification AppKit posts, because the
+    /// Clicking another of this app's windows — or another app — makes that window key, which makes
+    /// the panel resign it. Not the host's own content, toolbar or title bar: the panel spans those
+    /// and takes the click itself. Driven by posting the notification AppKit posts, because the
     /// transfer itself does not happen in a test host (see the suite's note): what is under test is
     /// this controller's reaction, not AppKit's delivery.
     @Test func resigningKeyDismissesThePalette() async throws {
@@ -125,7 +131,7 @@ import Sync
         teardown(host, controller)
     }
 
-    /// Every exit path runs `onDismiss` exactly once. Five things call `dismiss()` and two can
+    /// Every exit path runs `onDismiss` exactly once. Six things call `dismiss()` and two can
     /// race — esc arriving as the panel is already resigning key — so a second call must be inert
     /// rather than re-firing the callback that clears the chord suspension.
     @Test func dismissIsIdempotentAndFiresItsCallbackOnce() {
@@ -179,32 +185,86 @@ import Sync
 
     // MARK: Click-away
 
-    /// **The rule that finally covers the title bar.**
+    /// **The rule for the half of click-away that is about another window.**
     ///
-    /// Two mechanisms were tried before it — the panel's own scrim, and resigning key — and both
-    /// were reported broken from the running app. *Why* is not settled, and the explanation this
-    /// comment used to give (that a toolbar puts the title bar in its own window above the panel)
-    /// is contradicted by the panel's own diagnostic: one child window, the host's whole frame,
-    /// key taken. What is left is the question that needs no such answer — the window the click was
-    /// *for*: anything but the palette dismisses.
-    @Test func aClickInAnyOtherWindowDismissesThePalette() {
-        let host = makeHost()
-        let panel = CommandPaletteWindow(contentRect: host.frame,
+    /// Not the title bar, and an earlier version of this comment claimed otherwise. The panel spans
+    /// the host's whole frame and its scrim hit-tests, so a click over the host — content, toolbar
+    /// band, title bar — is attributed to *the panel*, and this rule answers `false` for it; the
+    /// scrim's own tap is what dismisses there. What this rule reaches is another of this app's
+    /// windows: Keyboard Shortcuts, Activity Log, Sync History, an open panel, the host's resize
+    /// margin. See `CommandPalettePanelController.clickDismissesThePalette` for the whole boundary.
+    ///
+    /// No real window is ordered in for this: the rule is object identity, and three `NSWindow`s
+    /// on screen would be process-wide state bought for nothing. Unordered windows still have
+    /// distinct identities, which is the entire input.
+    @Test func aClickInAnotherWindowDismissesThePalette() {
+        let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
-        defer { panel.orderOut(nil); host.orderOut(nil) }
+        panel.isReleasedWhenClosed = false
+        let other = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
+                             styleMask: [.borderless], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
         typealias C = CommandPalettePanelController
-        #expect(C.clickDismissesThePalette(clickedWindow: host, palette: panel),
-                "a click in the host — its content, its toolbar, its title bar — left the palette up")
-        // A title bar lives in its own window, and that window is neither the host nor the panel.
-        let titlebarLike = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                                    backing: .buffered, defer: false)
-        titlebarLike.isReleasedWhenClosed = false
-        defer { titlebarLike.orderOut(nil) }
-        #expect(C.clickDismissesThePalette(clickedWindow: titlebarLike, palette: panel),
-                "a click in the title bar's own window left the palette up — the reported bug")
+        #expect(C.clickDismissesThePalette(clickedWindow: other, palette: panel),
+                "a click in another of this app's windows left the palette up")
         // A click this app cannot attribute to a window of its own is outside by definition.
         #expect(C.clickDismissesThePalette(clickedWindow: nil, palette: panel))
+    }
+
+    /// **The rule is only worth anything if the monitor still installs it.**
+    ///
+    /// `clickDismissesThePalette` is pure and static, so both tests around this one pass with the
+    /// entire `addMonitor(matching:)` block deleted — the rule extracted for testability, one revert
+    /// from being unused. `present` is not reachable from here in a way that can synthesise an
+    /// `NSEvent`, so this is a source scan of the call site, in the shape this repo already uses in
+    /// `CommandPaletteRouteCallSiteTests`: it names the file it reads and fails if it cannot be
+    /// found, and each check asserts the exact string whose absence is the regression.
+    ///
+    /// The mask is checked as well as the call, because it is the part that can narrow silently: a
+    /// monitor left matching only `.leftMouseDown` still passes every behavioural test in this file
+    /// while a right-click in another window stops closing the palette.
+    @Test func theMonitorActuallyInstallsTheClickAwayRule() throws {
+        // Scoped to the monitor's own block, not the whole file: this file's prose quotes the rule
+        // by name several times, and a check that a comment can satisfy is a check that has stopped
+        // measuring the code. Bounded by the block's closing brace rather than a character count.
+        let source = Self.codeOnly(try Self.panelSource())
+        let start = try #require(source.range(of: "        addMonitor(matching: [.leftMouseDown"),
+                                 "the click monitor is gone — nothing installs the click-away rule")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n        }"), "no closing brace for the click monitor")
+        let block = String(rest[..<end.lowerBound])
+
+        #expect(block.contains("Self.clickDismissesThePalette(clickedWindow: event.window, palette: panel)"),
+                "the click monitor no longer consults clickDismissesThePalette — the rule is extracted and unused")
+        #expect(source.contains("addMonitor(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown])"),
+                "the click monitor's mask narrowed — some mouse buttons no longer dismiss")
+        #expect(block.contains("self.dismiss()"), "the click monitor no longer dismisses")
+        // Returned, never swallowed: the click that dismisses is also the click the user meant for
+        // whatever is under it.
+        #expect(block.contains("return event") && !block.contains("return nil"),
+                "the click monitor swallows the event instead of passing it on")
+    }
+
+    /// Reads `CommandPalettePanel.swift` itself. Fails loudly when it cannot be found, so a rename
+    /// cannot leave an empty haystack in which every `contains` quietly answers false.
+    static func panelSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("MacApp/CommandPalettePanel.swift")
+        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                "cannot read CommandPalettePanel.swift — the scan would be vacuous")
+        #expect(text.count > 500, "CommandPalettePanel.swift is implausibly short")
+        return text
+    }
+
+    /// Whole-line `//` comments removed, for checks a comment could otherwise satisfy — this file's
+    /// own prose quotes the monitor's shape at length.
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 
     /// ...and a click **on** the palette must not dismiss it, or the card would close under the
@@ -213,7 +273,7 @@ import Sync
         let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
-        defer { panel.orderOut(nil) }
+        panel.isReleasedWhenClosed = false
         #expect(!CommandPalettePanelController.clickDismissesThePalette(clickedWindow: panel,
                                                                         palette: panel),
                 "clicking the palette dismissed it — its own field and rows would be unusable")

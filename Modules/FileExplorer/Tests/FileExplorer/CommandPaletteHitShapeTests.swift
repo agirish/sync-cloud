@@ -16,35 +16,40 @@ import Foundation
 /// region the padded frame — a 620×96pt invisible block directly above the card that swallowed
 /// every click in it. Reported from the running app in exactly those terms: the title bar dismissed
 /// the palette on the left and on the right, and not immediately above it.
+///
+/// **Both checks are scoped to one view's own modifier chain, and that is load-bearing.** A first
+/// version compared the first `.contentShape` anywhere in the body against the first `.padding`
+/// anywhere in it, and passed with the bug reintroduced as long as an unrelated `.contentShape` sat
+/// earlier — adding one to the scrim, an entirely idiomatic thing to do to a tap target, was enough.
+/// Two tokens in the same body say nothing about being in the same chain.
+///
+/// Helpers come from `OrganizeScopeCallSiteTests`: same target, same directory, and the brace-bounded
+/// window and the non-vacuity guards are exactly the things that should not have two owners.
 @Suite struct CommandPaletteHitShapeTests {
 
-    static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)                 // …/Tests/FileExplorer/<this>
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/CommandPaletteView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read CommandPaletteView.swift — this scan would be vacuous")
-        #expect(text.count > 500, "CommandPaletteView.swift is implausibly short")
-        return text
-    }
+    private typealias Scan = OrganizeScopeCallSiteTests
 
-    /// The card's own body, bounded by its closing brace rather than a character count — a fixed
-    /// window is a known way for a scan in this repo to answer about the wrong text.
-    static func paletteBody(_ source: String) throws -> String {
-        let start = try #require(source.range(of: "    public var body: some View {"),
-                                 "the palette's body is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for the palette's body")
-        return String(rest[..<end.lowerBound])
+    /// The palette's body with whole-line comments stripped, split at the card into the scrim's
+    /// half and the card's half.
+    ///
+    /// Comments are stripped because the body carries a ten-line block that names both
+    /// `.contentShape` and `.padding(.top, Self.cardTopInset)` while explaining their order — prose
+    /// that would otherwise be matched as if it were the code it describes.
+    static func halves() throws -> (scrim: String, card: String) {
+        let body = Scan.codeOnly(try Scan.body(of: "    public var body: some View {",
+                                               in: try Scan.source("CommandPaletteView.swift")))
+        // Anchored on the newline as well as the indent, so `cardStack`/`cardColumn` cannot match a
+        // renamed-but-prefixed view and silently move the split.
+        let card = try #require(body.range(of: "\n            card\n"),
+                                "the palette's body no longer declares `card` at the ZStack's top level — this scan has lost its anchor and would answer about the wrong text")
+        return (String(body[..<card.lowerBound]), String(body[card.lowerBound...]))
     }
 
     @Test func theCardsHitShapeIsTheCardAndNotItsPadding() throws {
-        let body = try Self.paletteBody(try Self.source())
-        let shape = try #require(body.range(of: ".contentShape(Rectangle())"),
+        let card = try Self.halves().card
+        let shape = try #require(card.range(of: ".contentShape(Rectangle())"),
                                  "the card no longer declares a hit shape at all")
-        let padding = try #require(body.range(of: ".padding(.top, Self.cardTopInset)"),
+        let padding = try #require(card.range(of: ".padding(.top, Self.cardTopInset)"),
                                    "the card's top inset is gone, or is inline again — see cardTopInset")
         #expect(shape.lowerBound < padding.lowerBound,
                 "`.contentShape` is applied after the padding, so the strip above the card is a dead hit target again and clicking there will not dismiss the palette")
@@ -53,12 +58,16 @@ import Foundation
     /// The scrim is what the strip above the card must fall through to, so it has to be the thing
     /// carrying the dismissing tap. Without this the test above passes over a palette whose scrim
     /// stopped closing anything.
-    @Test func theScrimStillOwnsTheDismissingTap() throws {
-        let body = try Self.paletteBody(try Self.source())
-        let scrimTap = try #require(body.range(of: ".onTapGesture(perform: onClose)"),
-                                    "the scrim no longer dismisses on click")
-        let card = try #require(body.range(of: "            card"))
-        #expect(scrimTap.lowerBound < card.lowerBound,
-                "the dismissing tap has moved off the scrim and onto the card")
+    ///
+    /// Asserted in both directions: on the scrim, and **not** on the card. Ordering alone was not
+    /// enough — adding a second `.onTapGesture(perform: onClose)` to the card's own chain left the
+    /// first one still ahead of the card and the check still green, while the card consumed taps
+    /// meant for its own rows.
+    @Test func theScrimStillOwnsTheDismissingTapAndTheCardDoesNot() throws {
+        let (scrim, card) = try Self.halves()
+        #expect(scrim.contains(".onTapGesture(perform: onClose)"),
+                "the scrim no longer dismisses on click — the strip above the card falls through to nothing")
+        #expect(!card.contains(".onTapGesture(perform: onClose)"),
+                "the card took the dismissing tap as well, so clicking the card or its rows closes the palette")
     }
 }
