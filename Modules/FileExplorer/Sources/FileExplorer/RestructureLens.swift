@@ -108,7 +108,10 @@ struct RestructureLens: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.35)))
+        // The C2 recipe, not a hand-rolled slab: every other lens's content cards wear
+        // lensCard(), and this was the one set outside the family — flat gray, radius 9, and
+        // no lit-glass hairline in dark. The scheme rows inside keep their quiet inner fills.
+        .lensCard()
     }
 
     private func schemeRow(_ scheme: StructureFinding.Scheme) -> some View {
