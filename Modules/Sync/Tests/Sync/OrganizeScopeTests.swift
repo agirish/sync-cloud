@@ -346,5 +346,34 @@ import Foundation
     @Test func withNoScopeCoverageIsJustWhetherAPassHasRun() {
         #expect(OrganizeScopeFilter.scanCovers(scope: nil, scannedRoot: Self.root + "/Photos"))
         #expect(!OrganizeScopeFilter.scanCovers(scope: nil, scannedRoot: nil))
+        #expect(OrganizeScopeFilter.looseFileScanCovers(scope: nil, scannedFolder: Self.root))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: nil, scannedFolder: nil))
+    }
+
+    /// **A one-level pass can only answer about the folder it enumerated**, and the ancestor case is
+    /// the one that matters: the loose files of the provider root are all outside `Legal`, so a
+    /// root-level filing scan leaves `Legal`'s count zero by construction. Answering "covered" there
+    /// is the false-clean bug one level up, which is what a shared ancestry predicate produced.
+    @Test func aOneLevelScanAnswersOnlyForTheFolderItEnumerated() {
+        let legal = Self.scope(Self.legal)
+        #expect(OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.legal))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.root),
+                "an ancestor scan enumerated its own loose files, not the scope's")
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal,
+                                                        scannedFolder: Self.legal + "/2024"))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal,
+                                                        scannedFolder: Self.root + "/Photos"))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: nil))
+        // Same folder, spelled two ways — equality has to go through the path rules, not `==`.
+        #expect(OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.legal + "/"))
+    }
+
+    /// The two predicates must not collapse into one another: the recursive pass accepts an
+    /// ancestor exactly where the one-level pass refuses it. If a future edit points both at the
+    /// same helper, this fails.
+    @Test func theRecursiveAndOneLevelRulesDisagreeAboutAnAncestor() {
+        let legal = Self.scope(Self.legal)
+        #expect(OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.root))
     }
 }

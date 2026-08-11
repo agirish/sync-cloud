@@ -2823,20 +2823,31 @@ public struct TidyView: View {
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
         var model = OverviewModel()
         // **A count of zero under a scope the scan never covered is not "clean", it is "unasked".**
-        // The filing pass enumerates the direct children of ONE folder and the duplicate pass hashes
-        // ONE root, so under any other scope the scoped count is zero by construction — and the
-        // overview then said "Nothing to do in Legal. Every check that has run came back clean."
-        // about a subtree nothing had looked at. Three doors reach that state without scanning:
-        // the inbox shortcut, Open on a single-source row, and ⌘K.
+        // The overview said "Nothing to do in Legal. Every check that has run came back clean."
+        // about a subtree nothing had looked at, and three doors reach that state without scanning:
+        // the inbox shortcut, Open on a single-source row, and ⌘K. Absent beats a wrong zero; here
+        // that means falling back to `notScanned`, which is also the state that puts the run offer
+        // back on screen — the honest answer and the useful one are the same.
         //
-        // The predicate is the one the inbox offer already uses for the same reason (see
-        // `inboxOffer`, which refuses to print a count it cannot support). Absent beats a wrong
-        // zero; here that means falling back to `notScanned`, which is also the state that puts the
-        // run offer back on screen — the honest answer and the useful one are the same.
-        let filingCovers = OrganizeScopeFilter.scanCovers(scope: scope,
-                                                          scannedRoot: syncManager.filingScanFolder)
-        let duplicatesCover = OrganizeScopeFilter.scanCovers(scope: scope,
-                                                            scannedRoot: syncManager.duplicateScanRoot)
+        // **The two passes have different shapes, so they take different predicates**, and getting
+        // this wrong in either direction is a defect of its own:
+        //
+        // - **To File** enumerates the direct files of ONE folder, so only that exact folder can be
+        //   answered about. Ancestry would call a provider-root scan "covering" `Legal` and hand
+        //   back the same false clean, one level up.
+        // - **Duplicates** hashes a whole subtree, so any ancestor of the scope covers it.
+        // - **Names and Renames are NOT gated at all**, and that is the correction to a first pass
+        //   of this fix which gated them on To File's folder "because they ride the same walk".
+        //   They ride the same walk but not the same root: `detectRiskyNames` and
+        //   `detectRenamePlans` are both handed the provider-wide taxonomy (`root: providerRoot`,
+        //   `maxDepth: nil`) while the loose-file enumeration is one folder deep. Their findings
+        //   therefore cover every scope inside the provider, and gating them on the filing folder
+        //   hid real findings under any scope the inbox scan did not sit in. If either detector is
+        //   ever narrowed to a subtree, it needs a gate here against ITS OWN root.
+        let filingCovers = OrganizeScopeFilter.looseFileScanCovers(
+            scope: scope, scannedFolder: syncManager.filingScanFolder)
+        let duplicatesCover = OrganizeScopeFilter.scanCovers(
+            scope: scope, scannedRoot: syncManager.duplicateScanRoot)
         // Hoisted out of the loop below because the ledger needs it too. Filtering it a second time
         // for the reclaimable total would be a second pass over 722 groups per render — see the
         // type's note.
@@ -2891,10 +2902,10 @@ public struct TidyView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Names this provider will not accept.",
-                    // Names and Renames ride the same filing walk To File does, so they inherit its
-                    // coverage question too: one folder was enumerated, and a scope outside it was
-                    // never looked at.
-                    state: !syncManager.hasScannedNames || !filingCovers ? .notScanned
+                    // Ungated on purpose — the name detector is handed the provider-wide taxonomy,
+                    // so a zero here really is clean for any scope inside the provider. See the
+                    // note where `filingCovers` is computed.
+                    state: !syncManager.hasScannedNames ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit)
@@ -2921,7 +2932,9 @@ public struct TidyView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Folders that have drifted from their own numbering.",
-                    state: !syncManager.hasSuggestedFiling || !filingCovers ? .notScanned
+                    // Ungated for the same reason Names is: `detectRenamePlans` reads the
+                    // provider-wide taxonomy, not the enumerated folder.
+                    state: !syncManager.hasSuggestedFiling ? .notScanned
                         : n == 0 ? .clean
                         // One line, and not three: the backlog's evidence is its *breakdown*
                         // ("8 month folders · 3 quarters"), which is a summary of the whole list

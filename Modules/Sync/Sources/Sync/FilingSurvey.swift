@@ -64,6 +64,19 @@ public enum FilingSurvey {
         public func wasNotWalked(_ path: String) -> Bool {
             unexplored.contains { path == $0 || path.hasPrefix($0 + "/") }
         }
+
+        /// Whether this walk is **evidence that `path` is gone**: it looked where the document was
+        /// and did not find it.
+        ///
+        /// **One member because three callers must agree**, and they did not. `merge` was taught to
+        /// keep an unwalked document while `relocations` still counted it among the lost — so an
+        /// unwalked document whose stamp matched a newly-found file was recorded as a move, and
+        /// `merge` then wrote it at BOTH paths: the same document contributing to two folders'
+        /// learned content, inflating one and keeping the other. Reachable from something ordinary:
+        /// copy a file out of a folder, then lose read access to that folder.
+        public func showsGone(_ path: String) -> Bool {
+            documents[path] == nil && !wasNotWalked(path)
+        }
     }
 
     /// Extensions a re-survey will open — **the offline generator's document set, intersected with
@@ -224,7 +237,10 @@ public enum FilingSurvey {
     public static func relocations(tree: Tree, corpus: FilingCorpus?) -> [String: String] {
         guard let corpus, !corpus.isEmpty else { return [:] }
         var lostByStamp: [Stamp: [String]] = [:]
-        for (path, doc) in corpus.documents where tree.documents[path] == nil {
+        // **Lost means the walk looked and did not find it.** A document under a folder the walk
+        // could not enter is not lost, it is unseen — and treating it as lost lets a coincidental
+        // stamp match elsewhere record a "move" that never happened. See ``Tree/showsGone(_:)``.
+        for (path, doc) in corpus.documents where tree.showsGone(path) {
             lostByStamp[Stamp(size: doc.size, modified: doc.modified), default: []].append(path)
         }
         guard !lostByStamp.isEmpty else { return [:] }
@@ -260,8 +276,7 @@ public enum FilingSurvey {
         let relocated = relocations(tree: tree, corpus: corpus)
         var documents: [String: FilingCorpusDocument] = [:]
         documents.reserveCapacity(corpus.documents.count + read.count)
-        for (path, doc) in corpus.documents
-        where tree.documents[path] != nil || tree.wasNotWalked(path) {
+        for (path, doc) in corpus.documents where !tree.showsGone(path) {
             documents[path] = doc
         }
         for (now, before) in relocated {

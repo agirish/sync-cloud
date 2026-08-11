@@ -532,24 +532,51 @@ import Foundation
     /// of zero rendering as *"Nothing to do in Legal. Every check that has run came back clean."*
     /// over a subtree nothing had opened.
     ///
-    /// Asserted per lens rather than by a total, because the four are independently deletable and
-    /// three of them ride one walk: To File, Names and Renames all come back from the filing pass,
-    /// so they share its coverage question and each has its own line that can lose it.
-    @Test func everyScannedLensGatesItsCleanVerdictOnCoverage() throws {
+    /// **Each lens is asserted by the predicate its own pass justifies**, because the two passes
+    /// have different shapes and a shared one is wrong for at least one of them:
+    ///
+    /// - To File enumerates one folder one level deep → `looseFileScanCovers` (equality). Ancestry
+    ///   here would call a provider-root scan "covering" `Legal` and reproduce the false clean.
+    /// - Duplicates hashes a whole subtree → `scanCovers` (ancestry).
+    /// - Names and Renames read the provider-wide taxonomy → no gate at all. A first pass of this
+    ///   fix gated them on the filing folder and hid real findings; the negative below is what
+    ///   stops that returning.
+    @Test func eachScannedLensGatesOnThePredicateItsPassJustifies() throws {
         let tidy = try Self.source("TidyView.swift")
         let model = try Self.body(of: "var overviewModel: OverviewModel {", in: tidy)
 
+        #expect(model.contains("OrganizeScopeFilter.looseFileScanCovers"),
+                "To File no longer asks whether the enumerated folder was the scope")
+        #expect(model.contains("scannedFolder: syncManager.filingScanFolder"))
         #expect(model.contains("OrganizeScopeFilter.scanCovers"),
-                "overviewModel no longer asks whether the scan covered the scope")
-        // The three filing-fed lenses and the duplicate lens, each by the flag its own arm reads.
-        // A bare count would pass with one arm reverted.
-        #expect(model.components(separatedBy: "!filingCovers").count - 1 == 3,
-                "one of To File / Names / Renames stopped gating on the filing pass's coverage")
-        #expect(model.contains("!duplicatesCover"),
-                "the duplicate lens stopped gating on its scan's coverage")
-        // Both flags must come from the manager's real scanned roots — a flag hard-wired true is
-        // the same bug with a longer name.
-        #expect(model.contains("scannedRoot: syncManager.filingScanFolder"))
+                "Duplicates no longer asks whether its scan covered the scope")
         #expect(model.contains("scannedRoot: syncManager.duplicateScanRoot"))
+
+        // Exactly ONE arm may consult the loose-file coverage flag — To File's. Comments are
+        // stripped first: this file has already had a scan match the prose explaining a rule
+        // rather than the rule, and the note above `filingCovers` names every lens.
+        let code = Self.codeOnly(model)
+        #expect(code.components(separatedBy: "!filingCovers").count - 1 == 1,
+                "Names or Renames is gating on the filing folder again — their detectors read the provider-wide taxonomy, so that hides findings the scan does have")
+        #expect(code.components(separatedBy: "!duplicatesCover").count - 1 == 1)
+    }
+
+    /// The pass-shape claim the gate above rests on, asserted against the code that makes it true
+    /// rather than trusted: if the loose-file walk ever stops being one level deep, or the name and
+    /// rename detectors stop being handed the provider root, the predicates chosen next door are
+    /// the wrong ones and this says so.
+    @Test func theOverviewsCoverageRulesMatchTheScansTheyDescribe() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sync/Sources/Sync/FileSyncManager+Filing.swift")
+        let filing = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read FileSyncManager+Filing.swift — this scan would be vacuous")
+        #expect(filing.contains("buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)"),
+                "the loose-file walk is no longer one level deep — To File's equality rule may be wrong now")
+        #expect(filing.contains("detectRiskyNames(in: taxonomy, root: providerRoot"),
+                "names are no longer scanned provider-wide — they may need a coverage gate now")
+        #expect(filing.contains("detectRenamePlans(in: taxonomy, root: providerRoot"),
+                "rename plans are no longer scanned provider-wide — they may need a coverage gate now")
     }
 }

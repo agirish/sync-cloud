@@ -56,9 +56,11 @@ public final class PeopleStore: ObservableObject {
         rosterIsUnreadable = Self.rosterIsUnreadable(at: fileURL, loaded: loaded,
                                                      fileManager: fileManager)
         if rosterIsUnreadable {
+            // The store is built once per launch, so this state lasts the session: fixing the file
+            // now does not re-read it. Say so, rather than implying an edit will start working.
             Logger.shared.warning("people.json exists but could not be read — showing the roster "
                                   + "seeded from folder names, and REFUSING to write over the file. "
-                                  + "Fix or move \(fileURL.path) to edit the household again.")
+                                  + "Fix \(fileURL.path) and relaunch to edit the household again.")
         }
     }
 

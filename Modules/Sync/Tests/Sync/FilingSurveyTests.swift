@@ -267,6 +267,43 @@ import Testing
                 "a document the walk looked for and did not find must still be dropped")
     }
 
+    /// **An unseen document must not be readable as a move.** `merge` keeps a document under a
+    /// folder the walk could not enter; `relocations` used to count that same document among the
+    /// lost, so a coincidental stamp match against a genuinely new file recorded a relocation —
+    /// and merge then wrote the document at BOTH paths, letting one document's tokens count
+    /// towards two folders.
+    ///
+    /// The fixture is the ordinary way to produce that stamp match: copy a file out of a folder
+    /// (a copy keeps size, and a preserving copy keeps mtime), then lose read access to the folder.
+    @Test func aDocumentInAnUnwalkedFolderIsNotMistakenForAMove() {
+        let stamp = FilingSurvey.Stamp(size: 5, modified: 5)
+        let before = Self.corpus(["Locked/deed.pdf": Self.doc(["grant"], size: 5, modified: 5)])
+        let tree = FilingSurvey.Tree(
+            folders: ["Archive": 1],
+            documents: ["Archive/deed.pdf": stamp],      // the copy, found where nothing was before
+            unexplored: ["Locked"])                      // the original, still there, unreadable
+
+        #expect(FilingSurvey.relocations(tree: tree, corpus: before).isEmpty,
+                "an unseen document was reported as having moved")
+
+        let after = FilingSurvey.merge(corpus: before, tree: tree, read: [:])
+        #expect(after.documents.keys.sorted() == ["Locked/deed.pdf"],
+                "the document was duplicated into two folders: \(after.documents.keys.sorted())")
+    }
+
+    /// The other direction, so the guard above cannot be a blanket "never relocate": a document the
+    /// walk DID look for and did not find still follows its stamp to the file's new home.
+    @Test func aDocumentTheWalkLookedForStillFollowsItsMove() {
+        let stamp = FilingSurvey.Stamp(size: 5, modified: 5)
+        let before = Self.corpus(["Old/deed.pdf": Self.doc(["grant"], size: 5, modified: 5)])
+        let tree = FilingSurvey.Tree(folders: ["Old": 1, "Archive": 1],
+                                     documents: ["Archive/deed.pdf": stamp])
+
+        #expect(FilingSurvey.relocations(tree: tree, corpus: before) == ["Archive/deed.pdf": "Old/deed.pdf"])
+        let after = FilingSurvey.merge(corpus: before, tree: tree, read: [:])
+        #expect(after.documents.keys.sorted() == ["Archive/deed.pdf"])
+    }
+
     /// An empty walk is the whole-root version of the same mistake, and the one that erases
     /// everything at once. `merge` alone cannot tell it from a tree wiped clean, which is why the
     /// survey refuses before reaching here — this pins what `merge` does if it ever does arrive.

@@ -2460,13 +2460,12 @@ struct PeopleList: View {
             : "Suggested from your folder names — edit anyone to make it yours"
     }
 
-    /// Shown when the roster is empty but editable — an invitation, not an error.
     /// Shown when `people.json` is on disk but unreadable. It names the file and says plainly that
     /// edits will not save — the alternative is a roster that looks ordinary, edits that appear to
     /// take, and a real household quietly replaced by folder-name guesses.
     static var unreadableRosterNote: some View {
         Label {
-            Text("The people file couldn’t be read, so this list is guessed from folder names. Edits won’t be saved until it’s fixed — see ~/sync-cloud.log for the reason.")
+            Text("The people file couldn’t be read, so this list is guessed from folder names. Edits won’t be saved. Fix people.json and restart SyncCloud — ~/sync-cloud.log says what went wrong.")
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
         }
@@ -2474,6 +2473,7 @@ struct PeopleList: View {
         .foregroundStyle(.secondary)
     }
 
+    /// Shown when the roster is empty but editable — an invitation, not an error.
     static var emptyRosterNote: some View {
         Text("No people yet. Add the people whose documents you file — yourself, family — and Organize will stop mixing up whose document is whose.")
             .scaledFont(.callout)

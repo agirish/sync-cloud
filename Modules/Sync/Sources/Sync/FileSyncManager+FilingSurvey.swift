@@ -152,11 +152,10 @@ extension FileSyncManager {
             Logger.shared.info("\(unavailable) document(s) are not downloaded — left for a later survey")
         }
         let relocated = FilingSurvey.relocations(tree: tree, corpus: corpus).count
-        // Counted the same way `merge` decides, so the report cannot claim a drop the merge did not
-        // make: a document under a folder the walk never entered is not dropped and is not news.
-        let dropped = corpus.documents.keys.filter {
-            tree.documents[$0] == nil && !tree.wasNotWalked($0)
-        }.count - relocated
+        // The same predicate `merge` and `relocations` decide by, so the report cannot claim a drop
+        // the merge did not make: a document under a folder the walk never entered is not dropped
+        // and is not news.
+        let dropped = corpus.documents.keys.filter { tree.showsGone($0) }.count - relocated
 
         var read: [String: FilingCorpusDocument] = [:]
         if !toRead.isEmpty {
