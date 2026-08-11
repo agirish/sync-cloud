@@ -198,6 +198,33 @@ public struct AutomationsLens: View {
 
     private func newRule() { editingRule = AutomationRule(name: "") }
 
+    /// One greyed sample rule in the setup card: its condition chips, then where matching files
+    /// go. The chips borrow the real cards' glyph vocabulary (`automationConditionIcon`) rather
+    /// than inventing icons, so the sample and the thing it describes look like each other.
+    private func ruleSample(conditions: [(icon: String, text: String)],
+                            destination: String) -> some View {
+        LensSetupSampleRow {
+            ForEach(Array(conditions.enumerated()), id: \.offset) { _, condition in
+                HStack(spacing: 4) {
+                    Image(systemName: condition.icon).scaledFont(.system(size: 9))
+                    Text(condition.text).scaledFont(.caption)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1.5)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            }
+            Image(systemName: "arrow.right")
+                .scaledFont(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            Text(destination)
+                .scaledFont(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
+            Spacer(minLength: 6)
+        }
+    }
+
     private func runPreview(only: UUID? = nil) {
         state.viewingResults = true
         onPreview(only)
@@ -208,14 +235,39 @@ public struct AutomationsLens: View {
     @ViewBuilder
     private var rulesState: some View {
         if syncManager.automationRules.isEmpty {
-            EmptyStateView(
-                icon: AutomationsGlyph.lens,
-                tint: accent,
-                title: "Automate where loose files go",
-                message: "Write a plain-words rule — “PDFs that mention ‘invoice’ belong in Documents/Invoices/{year}” — and preview exactly which files it would file. Every test runs on your Mac; nothing is sent to the cloud.",
-                caption: "Rules steer Organize's suggestions, and preview here before anything is filed — every move needs your confirmation.",
-                primary: .init("New rule", systemImage: AutomationsGlyph.newRule, handler: newRule)
-            )
+            // Rules before its first rule — the setup card, like every other lens's before-screen.
+            // It was a centred `EmptyStateView` with the same words and no samples, which left
+            // this the one lens where the first real card is also the first sighting of its own
+            // shape. A rule reads as condition chips → destination, and that is what the samples
+            // draw: the two the tree actually earns (a name match, a kind + folder match) and the
+            // one with a `{year}` token, so a dated destination is a familiar idea before someone
+            // meets it in the editor.
+            //
+            // **Its trigger writes a rule rather than starting a scan**, and the words say so —
+            // Rules is the one lens in Organize with no scan of its own.
+            LensSetupCard(
+                intro: LensIntros.rules(providerName: providerName),
+                accent: accent,
+                triggerTitle: "New rule",
+                triggerSymbol: AutomationsGlyph.newRule,
+                triggerHelp: "Write a rule — a condition and where matching files belong. Nothing "
+                    + "runs until you preview it.",
+                samplesTitle: "What a rule looks like",
+                samplesAccessibility: "Example of the rule format: one or more conditions, then "
+                    + "the folder matching files belong in, which can contain a date token. These "
+                    + "are samples, not rules you have written.",
+                onStart: newRule
+            ) {
+                // Deliberately the rule the message above quotes, drawn: the sentence says what a
+                // rule is in words, and the first sample is that exact rule in the shape the
+                // editor will show it. Two different examples would read as two ideas.
+                ruleSample(conditions: [("textformat", "name mentions “invoice”")],
+                           destination: "Documents/Invoices/{year}")
+                ruleSample(conditions: [("doc.text", "PDFs"), ("folder", "in Scans")],
+                           destination: "Documents/Scans")
+                ruleSample(conditions: [("textformat", "name mentions “payslip”")],
+                           destination: "Work/Payslips")
+            }
         } else {
             // No header row here any more: the shared LensHeaderCard above carries this lens's
             // count, its New rule / Preview all controls, and its search. This card renders the

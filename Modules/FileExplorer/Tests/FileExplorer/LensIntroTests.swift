@@ -7,11 +7,26 @@ import Testing
 /// claims about content, so they are testable without rendering anything.
 @Suite struct LensIntroTests {
 
-    private var all: [(name: String, intro: LensIntro)] {
-        [("Duplicates", LensIntros.duplicates(targetName: "Family")),
-         ("Organize", LensIntros.organize(scanTargetName: "TODO")),
-         ("Renames", LensIntros.renames(providerName: "iCloud")),
-         ("Storage", LensIntros.storage(providerName: "iCloud"))]
+    /// **``LensIntros/all``, not a list maintained here.** This used to be a hand-written array
+    /// in this file, which is the shape that cannot catch what it exists to catch: a lens added
+    /// to `LensIntros` and not to the array is a lens with no safety contract and a green suite.
+    /// The roster now lives beside the intros themselves, and `theRosterHoldsEveryIntro` below is
+    /// what keeps *it* honest.
+    private var all: [(name: String, intro: LensIntro)] { LensIntros.all }
+
+    @Test func theRosterHoldsEveryIntro() {
+        // Naming them: the sweep above is only as good as this set, and "6 entries" would pass on
+        // six copies of the same one. Each is checked by identity against the function that
+        // produces it, so a roster entry pointing at the wrong intro fails here rather than
+        // silently double-covering one lens and skipping another.
+        let byName = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0.intro) })
+        #expect(byName["Duplicates"] == LensIntros.duplicates(targetName: "Family"))
+        #expect(byName["Organize"] == LensIntros.organize(scanTargetName: "TODO"))
+        #expect(byName["Renames"] == LensIntros.renames(providerName: "iCloud"))
+        #expect(byName["Restructure"] == LensIntros.restructure(providerName: "iCloud"))
+        #expect(byName["Rules"] == LensIntros.rules(providerName: "iCloud"))
+        #expect(byName["Storage"] == LensIntros.storage(providerName: "iCloud"))
+        #expect(all.count == 6, "A lens gained an intro without being named here")
     }
 
     @Test func everyLensStatesASafetyContract() {
@@ -34,6 +49,16 @@ import Testing
         #expect(LensIntros.organize(scanTargetName: "TODO").safety.contains("undoable"))
         #expect(LensIntros.renames(providerName: nil).safety.contains("undoable"))
         #expect(LensIntros.storage(providerName: nil).safety.contains("Read-only"))
+        // Restructure is the second read-only lens, and for a different reason than Storage: it
+        // has an obvious fix it deliberately does not offer (see `RestructureLens`). Its card is
+        // the one place that promise is made, so it is the one place it can be checked.
+        #expect(LensIntros.restructure(providerName: nil).safety.contains("Read-only"))
+        // Rules never moves a file itself — a rule steers a suggestion, and the suggestion is
+        // still confirmed. Both halves, because either alone overstates or understates it.
+        // ("previewed" belongs to the message, not the contract: what a preview shows you is
+        // part of the pitch, whereas "nothing moves without your confirmation" is the promise.)
+        #expect(LensIntros.rules(providerName: nil).safety.contains("only steer"))
+        #expect(LensIntros.rules(providerName: nil).safety.contains("confirmation"))
     }
 
     @Test func theProviderAndTargetReachTheTitle() {
@@ -47,10 +72,16 @@ import Testing
         // folder-named title would promise a narrower answer than the one given.
         #expect(LensIntros.renames(providerName: "Dropbox").title.contains("Dropbox"))
         #expect(LensIntros.storage(providerName: "Dropbox").title.contains("Dropbox"))
+        // Restructure and Rules name the provider for the same reason Renames does: a family of
+        // sibling folders and a rule are both tree-wide, not folder-scoped.
+        #expect(LensIntros.restructure(providerName: "Dropbox").title.contains("Dropbox"))
+        #expect(LensIntros.rules(providerName: "Dropbox").title.contains("Dropbox"))
     }
 
     @Test func anUnnamedProviderStillReadsAsASentence() {
         #expect(LensIntros.renames(providerName: nil).title.contains("this provider"))
         #expect(LensIntros.storage(providerName: nil).title.contains("this provider"))
+        #expect(LensIntros.restructure(providerName: nil).title.contains("this provider"))
+        #expect(LensIntros.rules(providerName: nil).title.contains("this provider"))
     }
 }

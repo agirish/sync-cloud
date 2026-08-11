@@ -1410,19 +1410,26 @@ import Design
         // rendering — the stand-down would then be deferring to nothing, and the reported bug would
         // be back on the one lens most likely to be browsed to.
         //
-        // Restructure is the control now: Renames' pre-scan state became a setup card of its
-        // own (P12), so it can no longer play blank. With no folder profile, Restructure draws
-        // the leanest content this pane has — a small centred pointer — so this still compares
-        // two content areas that differ in whether one carries the full invitation, and a band
-        // that drifts off the content still hits both sides.
-        let m = { Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil) }
-        let toFile = try #require(strip(mount(m(), lens: .toFile, providerRoot: "/root",
-                                              scanTarget: "/root/Family/Aditi"), Self.contentZone))
-        let renames = try #require(strip(mount(m(), lens: .restructure, providerRoot: "/root",
-                                               scanTarget: "/root/Family/Aditi"), Self.contentZone))
-        let (intro, blank) = (counts(toFile).ink, counts(renames).ink)
-        #expect(intro > blank + 500,
-                "To File's content inked \(intro) against Renames' \(blank) — the setup card the header stands down for is not on screen")
+        // **The control is To File AFTER a clean scan, not another lens.** Renames was the
+        // original control and lost the job when its pre-scan state became a setup card (P12);
+        // Restructure took over and has now lost it the same way, because *every* lens's
+        // pre-scan state is that card. A lens picked for drawing less is a control with a
+        // shelf life — so this compares the two states of the one lens under test instead, and
+        // the difference is exactly the thing being asserted: before a scan To File draws the
+        // full invitation, after a clean one it draws a plain empty state.
+        let toFile = try #require(strip(
+            mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
+                  lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Aditi"),
+            Self.contentZone))
+        let scanned = try #require(strip(
+            mount(Self.manager(queue: 0, names: 0, hasScanned: true, scanFolder: nil),
+                  lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Aditi"),
+            Self.contentZone))
+        let (intro, blank) = (counts(toFile).ink, counts(scanned).ink)
+        #expect(intro > blank + 500, """
+                To File's pre-scan content inked \\(intro) against \\(blank) once scanned — the \\
+                setup card the header stands down for is not on screen.
+                """)
     }
 
     @Test("…and does not, when the pane is at the top of the tree")

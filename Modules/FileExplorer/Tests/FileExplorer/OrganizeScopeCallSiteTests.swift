@@ -325,11 +325,19 @@ import Foundation
         // condition.
         let tidy = try Self.source("TidyView.swift")
 
+        // The gate moved behind a named member (`showsFilingSetupCard`) when the cloud spend row
+        // had to learn whether the card was on screen — two branches needed the same answer, and
+        // two copies of `!hasSuggestedFiling` is what this test exists to prevent. So the chain
+        // is followed rather than the literal: `filingContent` renders the card on that member,
+        // and that member is still `!hasSuggestedFiling`.
         let content = try Self.body(of: "private func filingContent(", in: tidy)
-        #expect(content.contains("else if !syncManager.hasSuggestedFiling {"),
-                "filingContent's intro gate is no longer `!hasSuggestedFiling` — filingIntroOwnsInvitation is now describing a state that does not exist")
+        #expect(content.contains("else if showsFilingSetupCard {"),
+                "filingContent's intro gate is no longer showsFilingSetupCard — filingIntroOwnsInvitation is now describing a state that does not exist")
         #expect(content.contains("filingIntroState"),
                 "filingContent no longer renders the setup card the stand-down defers to")
+        let showsCard = try Self.body(of: "private var showsFilingSetupCard: Bool {", in: tidy)
+        #expect(showsCard.contains("!syncManager.hasSuggestedFiling"),
+                "showsFilingSetupCard no longer tracks the scan flag — the gate and the stand-down have drifted apart")
 
         let owns = try Self.body(of: "private var filingIntroOwnsInvitation: Bool {", in: tidy)
         #expect(owns.contains("organizeLens == .toFile"),

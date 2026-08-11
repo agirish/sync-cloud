@@ -259,6 +259,10 @@ public struct TidyView: View {
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
     /// host that has no Settings to open.
     private let onConfigureCloudRefine: (() -> Void)?
+    /// Opens Settings ▸ Organize, where the folder survey is set up — Restructure's setup-card
+    /// trigger. Optional for the same reason the line above is, and withheld the same way: a host
+    /// with no Settings to open gets a card with no button rather than one that does nothing.
+    private let onOpenSurveySettings: (() -> Void)?
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
@@ -338,6 +342,7 @@ public struct TidyView: View {
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
         onUpdateFolderMemory: (() -> Void)? = nil,
         onConfigureCloudRefine: (() -> Void)? = nil,
+        onOpenSurveySettings: (() -> Void)? = nil,
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
@@ -366,6 +371,7 @@ public struct TidyView: View {
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
         self.onUpdateFolderMemory = onUpdateFolderMemory
         self.onConfigureCloudRefine = onConfigureCloudRefine
+        self.onOpenSurveySettings = onOpenSurveySettings
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
@@ -2741,12 +2747,17 @@ public struct TidyView: View {
                             ? syncManager.filingFolderProfile?.folders.count
                             : scopeFolders,
                         isScoped: scope != nil,
+                        // The PROVIDER, like Renames: the detectors compare sibling families
+                        // across the surveyed tree, so a folder-named setup card would promise a
+                        // narrower answer than the one this lens gives.
+                        providerName: providerName,
                         accent: glassHue.accentColor,
                         onReveal: { relative in
                             guard let root = syncManager.filingFolderProfile?.root else { return }
                             let full = (root as NSString).appendingPathComponent(relative)
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
-                        })
+                        },
+                        onOpenSurveySettings: onOpenSurveySettings)
     }
 
     // MARK: Overview
@@ -3394,7 +3405,14 @@ public struct TidyView: View {
             // a third row of the header: the header is a fixed two-row ladder (that's what makes it
             // 81pt in every lens), and this row is a footnote about what the last scan cost — not a
             // control. It kept its place above the list, and its History button, unchanged.
-            if spendTotals.scans > 0 {
+            //
+            // **Except over the setup card, where it goes underneath instead** (it is handed to
+            // `filingIntroState` as the card's footnote). Every lens is supposed to open with the
+            // same card at the same height; this row is the one thing any lens puts *above* it, so
+            // To File — and only To File, and only on machines with cloud scans on record — opened
+            // ~28pt lower than Duplicates, Renames and Storage. Same information, same History
+            // button, below the pitch rather than in front of it.
+            if spendRowPlacement == .aboveTheList {
                 filingSpendRow
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
@@ -3421,7 +3439,7 @@ public struct TidyView: View {
             Group {
                 if syncManager.isSuggestingFiles {
                     filingScanningState
-                } else if !syncManager.hasSuggestedFiling {
+                } else if showsFilingSetupCard {
                     filingIntroState
                 } else if syncManager.filingSuggestions.isEmpty {
                     filingCleanState
@@ -3639,8 +3657,49 @@ public struct TidyView: View {
         FilingSetupCard(
             intro: LensIntros.organize(scanTargetName: scanTargetName),
             accent: glassHue.accentColor,
+            // Under the card, not above it — see `SpendRowPlacement`.
+            footnote: spendRowPlacement == .underTheSetupCard
+                ? AnyView(filingSpendRow.padding(.top, 2))
+                : nil,
             onStart: onFindFilingSuggestions
         )
+    }
+
+    /// Whether To File is showing its pre-scan setup card — asked by the state switch that draws
+    /// it **and** by the spend row that has to get out of its way, from this one place so the two
+    /// cannot answer differently. A spend row hidden for a card that is not there (or, worse,
+    /// above one that is) is exactly the drift a second copy of this predicate would produce.
+    private var showsFilingSetupCard: Bool {
+        !syncManager.isSuggestingFiles && !syncManager.hasSuggestedFiling
+    }
+
+    /// Where the cloud spend row goes.
+    ///
+    /// A value rather than two `if`s in two view bodies, because the bug this fixes was a
+    /// *placement* bug and placement spread across two sibling branches is how it happened. Both
+    /// call sites read this one answer, so "above the card" cannot come back by one branch being
+    /// edited and not the other — and `LensSetupCardAlignmentTests` can render each case knowing
+    /// it is rendering what the lens really does, rather than a reconstruction that happens to
+    /// agree today.
+    enum SpendRowPlacement: Equatable {
+        /// Above the results, where it has always been.
+        case aboveTheList
+        /// Under the setup card, as its footnote. Every lens opens with the same card at the same
+        /// height, so the one row a lens adds cannot go in front of it.
+        case underTheSetupCard
+        /// No cloud pass on record — a footnote about nothing.
+        case hidden
+    }
+
+    nonisolated static func spendRowPlacement(scansOnRecord: Int,
+                                              showsSetupCard: Bool) -> SpendRowPlacement {
+        guard scansOnRecord > 0 else { return .hidden }
+        return showsSetupCard ? .underTheSetupCard : .aboveTheList
+    }
+
+    private var spendRowPlacement: SpendRowPlacement {
+        Self.spendRowPlacement(scansOnRecord: spendTotals.scans,
+                               showsSetupCard: showsFilingSetupCard)
     }
 
     /// Renames before its first run (P12): the walk's job for this lens, one trigger (the same

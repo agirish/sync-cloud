@@ -38,8 +38,16 @@ struct RestructureLens: View {
     /// Whether Organize is narrowed to a subtree — the clean state says a different thing about a
     /// folder than about the whole tree.
     var isScoped: Bool = false
+    /// The provider this lens's answer covers, for the setup card's title — it compares sibling
+    /// families across the surveyed tree, not inside the focused folder.
+    var providerName: String?
     let accent: Color
     let onReveal: (String) -> Void
+    /// Opens Settings ▸ Organize, where the survey this lens reads is set up. **The setup card's
+    /// trigger, and the reason it is a route rather than a scan:** the folder profile is built
+    /// from the tree once and read from disk at launch; there is no button anywhere that makes
+    /// one, so a "Check structure" trigger here would be a prominent button that cannot run.
+    var onOpenSurveySettings: (() -> Void)?
 
     private var isEmpty: Bool { findings.isEmpty && aboutAncestor.isEmpty }
 
@@ -114,6 +122,26 @@ struct RestructureLens: View {
         .lensCard()
     }
 
+    /// A scheme row for the setup card's sample — `schemeRow`'s two-column shape at sample scale.
+    /// Deliberately a separate body rather than a `StructureFinding.Scheme` fed through the real
+    /// one: the sample is a diagram, and building a fake finding to draw it would put an invented
+    /// family one type-check away from the list of real ones.
+    private func sampleSchemeRow(members: String, vocabulary: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(members)
+                .scaledFont(.system(size: 10.5, weight: .medium))
+                .frame(width: 140, alignment: .leading)
+                .lineLimit(2)
+            Text(vocabulary)
+                .scaledFont(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+    }
+
     private func schemeRow(_ scheme: StructureFinding.Scheme) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(scheme.members.joined(separator: ", "))
@@ -154,10 +182,53 @@ struct RestructureLens: View {
         return "Checked \(folderCount) folder\(folderCount == 1 ? "" : "s"). " + tail
     }
 
+    /// Restructure before it has anything to read — **the setup card, like every other lens.**
+    ///
+    /// This was a centred `EmptyStateView`: the icon, two sentences, and no way to act on them.
+    /// It is this lens's "before" screen, so it wears what the other lenses' before-screens wear
+    /// — the job, the safety contract, one trigger, and sample rows in the shape real findings
+    /// take. The samples matter more here than anywhere else, because a structure finding is the
+    /// least self-explanatory result Organize produces: a family, a count of shapes, and one row
+    /// per shape naming the subfolders that shape's members agree on.
+    ///
+    /// **Its trigger is a route, not a scan** (see ``onOpenSurveySettings``), and it says so —
+    /// "Set up the survey", never a verb that implies this screen can produce the answer itself.
+    /// With no route wired the card still stands and simply drops the button, which is the
+    /// honest rendering of a lens whose input has to arrive from elsewhere.
     private var noProfileState: some View {
-        EmptyStateView(icon: "square.stack.3d.up.slash",
-                       title: "No folder profile yet",
-                       message: "Restructure reads the survey of your tree rather than the disk, so "
-                              + "it needs that survey first. Settings ▸ Organize sets it up.")
+        LensSetupCard(
+            intro: LensIntros.restructure(providerName: providerName),
+            accent: accent,
+            triggerTitle: "Set up the survey",
+            triggerSymbol: "gearshape",
+            triggerHelp: "Restructure reads the survey of your tree rather than the disk, so it "
+                + "needs that survey first. Opens Settings ▸ Organize.",
+            samplesTitle: "What a finding looks like",
+            samplesAccessibility: "Example of the structure-finding format: a family of sibling "
+                + "folders, how many of them use how many different internal shapes, and one row "
+                + "per shape listing the subfolders its members agree on. These are samples, not "
+                + "folders in your tree.",
+            onStart: onOpenSurveySettings
+        ) {
+            // The real card's own shape, at sample scale: the family path, the verdict line, and
+            // one row per shape — members on the left, the subfolders those members AGREE on
+            // (the intersection, never a union) on the right. Drawn rather than described,
+            // because "two internal shapes" means nothing until you have seen the two.
+            LensSetupSampleRow {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Family/Aditi/Events")
+                        .scaledFont(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Text("13 folders, 2 internal shapes")
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    sampleSchemeRow(members: "Naming Ceremony, Birthday",
+                                    vocabulary: "Photos · Invitations")
+                    sampleSchemeRow(members: "Graduation",
+                                    vocabulary: "no shared subfolders")
+                }
+            }
+        }
     }
 }

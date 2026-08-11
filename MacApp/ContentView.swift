@@ -2833,6 +2833,13 @@ struct ContentView: View {
                     settingsTab = .cloudRefineSetup
                     showSettings = true
                 },
+                // Restructure's setup card, on a machine with no folder survey to read. Same
+                // shape as the line above, and a named destination for the same reason: this
+                // file is in no SPM package, so a literal tab here is unreachable by any test.
+                onOpenSurveySettings: {
+                    settingsTab = .folderSurveySetup
+                    showSettings = true
+                },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },

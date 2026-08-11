@@ -26,7 +26,24 @@ struct LensSetupCard<Samples: View>: View {
     /// What VoiceOver says for the whole sample block — read row by row, invented names sound
     /// like real findings, which is the opposite of what they are.
     let samplesAccessibility: String
-    let onStart: () -> Void
+    /// What the trigger does — **nil withholds the button entirely.**
+    ///
+    /// Restructure is the lens that needs this: its input is a survey built outside the app, so
+    /// on a machine that has one there is nothing here to press, and a prominent button wired to
+    /// a no-op is worse than none. Every other lens's before-screen is one click from its answer
+    /// and passes a real action.
+    let onStart: (() -> Void)?
+    /// A lens-specific note that belongs on this screen but **must not sit above the header.**
+    ///
+    /// To File is the one lens with something to say before a scan that isn't part of the pitch:
+    /// what the last cloud pass cost, and the button that opens the spend history. That row used
+    /// to render above this card, inside the lens content and outside the card — which pushed To
+    /// File's header down by its own height and left the one lens that has it opening lower than
+    /// the other five. The card is the thing every lens is supposed to open the same way, so
+    /// anything a single lens adds goes *under* it. `AnyView` deliberately, rather than a second
+    /// generic parameter: it is one small row, and generifying it would rewrite every call site
+    /// that has no footnote at all.
+    var footnote: AnyView? = nil
     @ViewBuilder let samples: () -> Samples
 
     var body: some View {
@@ -35,6 +52,7 @@ struct LensSetupCard<Samples: View>: View {
                 header
                 trigger
                 sampleSection
+                footnote
             }
             .frame(maxWidth: 520, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -67,14 +85,17 @@ struct LensSetupCard<Samples: View>: View {
         }
     }
 
+    @ViewBuilder
     private var trigger: some View {
-        Button(action: onStart) {
-            Label(triggerTitle, systemImage: triggerSymbol)
+        if let onStart {
+            Button(action: onStart) {
+                Label(triggerTitle, systemImage: triggerSymbol)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .chromeHover()
+            .help(triggerHelp)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .chromeHover()
-        .help(triggerHelp)
     }
 
     private var sampleSection: some View {

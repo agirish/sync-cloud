@@ -160,6 +160,12 @@ public struct SettingsView: View {
         /// is the seam that lets `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` check it.
         public static let cloudRefineSetup: SettingsTab = .intelligence
 
+        /// Where Restructure's setup card deep-links to: the tab that holds the folder survey it
+        /// reads. A named destination for exactly the reason above — that call site is in
+        /// `MacApp/` too, so a stale literal there would keep compiling and keep opening the
+        /// wrong tab in silence.
+        public static let folderSurveySetup: SettingsTab = .filing
+
         /// The rail's rows in groups, separated by a hairline.
         ///
         /// Nine flat rows read as a pile — the reason this exists — but the grouping is not free:
