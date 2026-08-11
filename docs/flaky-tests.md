@@ -568,8 +568,8 @@ gates) was a wrong turn — the shared thing was the deadline.
 #### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
 
 A full `Modules/Sync` run went red on **two** tests at once, immediately after a full
-`Modules/FileExplorer` run on the same machine (measured on `main`; both tests are on this line
-too, and nothing about the mechanism is line-specific):
+`Modules/FileExplorer` run on the same machine. Both tests exist on both release lines and nothing
+about the mechanism is line-specific, so this entry is identical on each:
 
 - `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly` —
   `Date().timeIntervalSince(cancelledAt) → 9.985 < 2.0`. A **2-second** budget missed by **5×**.
