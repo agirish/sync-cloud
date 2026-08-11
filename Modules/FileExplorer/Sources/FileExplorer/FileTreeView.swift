@@ -378,16 +378,13 @@ public struct FileTreeView: View, Equatable {
             case .none:
                 EmptyView()
             case .loading:
+                // No card of its own. This is one of the pane's empty states, and every sibling
+                // (`EmptyStateView`, `settingsProblemPlaceholder`) draws straight onto the pane
+                // surface — a material slab here reads as a gray box floating on an empty white
+                // pane, because there is nothing behind it for a material to blur. Cards are for
+                // things that float OVER content: the refresh chip below, and `ProgressDialog`.
                 ProgressView("Scanning Directory...")
                     .padding(16)
-                    .background(.regularMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-                    .shadow(
-                        color: LiquidGlass.subtleShadow.color,
-                        radius: LiquidGlass.subtleShadow.radius,
-                        x: LiquidGlass.subtleShadow.x,
-                        y: LiquidGlass.subtleShadow.y
-                    )
             case .providerDisabled:
                 settingsProblemPlaceholder(
                     icon: "externaldrive.badge.xmark",
