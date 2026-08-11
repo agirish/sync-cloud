@@ -565,6 +565,32 @@ gates) was a wrong turn — the shared thing was the deadline.
 
 **Fix.** Inject the instant (`at:` / `now:`) so the window is a value, not a race.
 
+#### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
+
+A full `Modules/Sync` run went red on **two** tests at once, immediately after a full
+`Modules/FileExplorer` run on the same machine (measured on `main`; both tests are on this line
+too, and nothing about the mechanism is line-specific):
+
+- `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly` —
+  `Date().timeIntervalSince(cancelledAt) → 9.985 < 2.0`. A **2-second** budget missed by **5×**.
+- `FileSyncManagerFilingTests.staleTryAnotherDeferMustNotReleaseTheNewRoundTripsGuard` —
+  its park timed out.
+
+Both passed on re-run with `--filter`, and the **whole package then passed on a quiet machine in
+11.8 s** — against a first run slow enough for a 2 s deadline to overrun by eight. That spread is
+the diagnosis: same suite, same binary, an order of magnitude apart in wall clock.
+
+Two things worth carrying forward. **A 5× miss reads like a hang, not a flake** — the instinct is
+that something is genuinely deadlocked, and 9.98 s against 2 s is far easier to believe as a real
+regression than mechanism 6's 2.4% miss. It is not; the budget is simply absolute. And **two
+unrelated tests failing in one run is evidence for the environment, not against it** — a change
+that broke scan cancellation has no path to a filing-defer park, so a common cause outside both is
+the cheaper hypothesis. Check the machine before the diff.
+
+The change under test that day touched only a new `@Published` flag neither suite reads, which is
+what made the environmental read easy to confirm. When it is not that clear, interleave the arms as
+mechanism 6 describes.
+
 ### 6. Load-scaled benchmarks
 
 **Symptom.** A timing assertion fails on a busy machine and passes on an idle one.
