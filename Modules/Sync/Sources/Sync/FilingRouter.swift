@@ -624,7 +624,9 @@ public extension FilingRouter {
     /// those identically (0.67 each) and picks the wrong folder.
     ///
     /// `namesInFolder` is injected because this module does not touch the filesystem — see
-    /// ``FileSyncManager/rerankByPeerNames(_:fileName:providerRoot:)`` for the listing side.
+    /// ``FileSyncManager/peerNameLookup()`` for the listing side, and `route(_:index:…)` for the one
+    /// call that applies this. (The name written here before, `rerankByPeerNames(_:fileName:
+    /// providerRoot:)`, never existed — the doc link pointed at the caller this helper was missing.)
     static func rerankedByPeerNames(_ ranking: Ranking, fileName: String,
                                     namesInFolder: (String) -> [String]) -> Ranking {
         guard let top = ranking.best?.relativePath else { return ranking }

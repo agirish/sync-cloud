@@ -162,8 +162,24 @@ extension FileSyncManager {
         // was asked about that file against a menu describing every file except it. That is how a
         // T-Mobile bill the router ranks first out of 4,967 folders came back as a new
         // `Finance/US/Accounts` — the router had simply never been asked.
-        let ranking = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
-                                        index: index, excluding: excluded, limit: shortlistLimit)
+        let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
+                                       index: index, excluding: excluded, limit: shortlistLimit)
+        // **The peer-name rerank is applied HERE, and this line is the whole of its effect.** The
+        // lookup was built by every scan and threaded through three signatures to reach this
+        // function, which then ranked without it — so the one case it exists for
+        // (`Divit OCI Photo.jpg`, where a folder and its own subfolder sit 1% apart and only the
+        // filenames already in them can separate the two) went on being decided by the content
+        // score that cannot see the difference. A parameter accepted and not read is worse than one
+        // that was never added: the cache is built, the closure is passed, and every test of the
+        // helper passes, while nothing in the app calls it.
+        //
+        // The router speaks in paths relative to the provider root and the lookup lists real
+        // directories, so the join is the adapter between the two — see `peerNameLookup`.
+        let ranking = peerNames.map { namesIn in
+            FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
+                namesIn(providerRoot + "/" + relative)
+            }
+        } ?? ranked
         let shortlist = ranking.candidates.map(\.relativePath)
         guard let best = ranking.best else { return (s, false, shortlist) }
         let confidence = ranking.confidence
