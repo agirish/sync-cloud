@@ -31,19 +31,94 @@ struct TreemapView: View {
         node.name == "Other" ? .primary : Self.labelPalette[index % Self.labelPalette.count]
     }
 
-    var body: some View {
+    /// The width below which a tile draws no name — and, since the fold landed, the width below
+    /// which it stops being its own tile at all.
+    static let labelMinWidth: CGFloat = 46
+
+    /// What the fold decided: the tiles that keep their identity, and the ones the tail absorbs.
+    struct Fold: Equatable {
+        var visible: [TreemapNode]
+        var folded: [TreemapNode]
+        var tailBytes: Int { folded.reduce(0) { $0 + $1.bytes } }
+    }
+
+    /// Folds the sub-label-width suffix into one tail (v4.0 polish P9). A part-of-whole picture
+    /// that ends in anonymous slivers silently drops its smallest parts; the tail accounts for
+    /// them in words — "+3 more · 6.2 MB" — and every byte stays on screen: visible + folded
+    /// always sum to the input, which is what `TreemapFoldTests` pins.
+    ///
+    /// Two deliberate edges: a fold of ONE would relabel a tile "+1 more" in the same space its
+    /// own name could use, so a single sub-threshold node keeps its identity (the view widens it
+    /// to the label floor instead); and nodes are assumed largest-first, so the fold is a suffix.
+    nonisolated static func fold(nodes: [TreemapNode], availableWidth: CGFloat,
+                                 spacing: CGFloat = 3) -> Fold {
+        guard nodes.count > 1, availableWidth > 0 else { return Fold(visible: nodes, folded: []) }
         let total = max(1, nodes.reduce(0) { $0 + $1.bytes })
+        let available = max(0, availableWidth - spacing * CGFloat(nodes.count - 1))
+        let firstFolded = nodes.firstIndex {
+            available * CGFloat($0.bytes) / CGFloat(total) < labelMinWidth
+        }
+        guard let firstFolded, nodes.count - firstFolded >= 2 else {
+            return Fold(visible: nodes, folded: [])
+        }
+        return Fold(visible: Array(nodes[..<firstFolded]), folded: Array(nodes[firstFolded...]))
+    }
+
+    var body: some View {
         GeometryReader { geo in
             let spacing: CGFloat = 3
-            let available = max(0, geo.size.width - spacing * CGFloat(max(0, nodes.count - 1)))
+            let fold = Self.fold(nodes: nodes, availableWidth: geo.size.width, spacing: spacing)
+            let total = max(1, nodes.reduce(0) { $0 + $1.bytes })
+            let tileCount = fold.visible.count + (fold.folded.isEmpty ? 0 : 1)
+            let available = max(0, geo.size.width - spacing * CGFloat(max(0, tileCount - 1)))
+            // The tail never falls below the label floor — its whole job is to be readable —
+            // and the visible tiles share what remains in their own proportions.
+            let tailWidth = fold.folded.isEmpty ? 0
+                : max(Self.labelMinWidth, available * CGFloat(fold.tailBytes) / CGFloat(total))
+            let visibleBytes = max(1, total - fold.tailBytes)
+            let visibleAvailable = max(0, available - tailWidth)
             HStack(spacing: spacing) {
-                ForEach(Array(nodes.enumerated()), id: \.offset) { idx, node in
-                    let width = available * CGFloat(node.bytes) / CGFloat(total)
-                    tile(node, color: color(for: idx, node: node), label: labelColor(for: idx, node: node), width: width)
+                ForEach(Array(fold.visible.enumerated()), id: \.offset) { idx, node in
+                    // A single sub-threshold straggler was left visible by the fold (a "+1 more"
+                    // would use the space its own name could): hold it at the label floor too.
+                    let proportional = visibleAvailable * CGFloat(node.bytes) / CGFloat(visibleBytes)
+                    let width = idx == fold.visible.count - 1 && fold.folded.isEmpty
+                        ? max(proportional, min(Self.labelMinWidth, visibleAvailable))
+                        : proportional
+                    tile(node, color: color(for: idx, node: node),
+                         label: labelColor(for: idx, node: node), width: width)
+                }
+                if !fold.folded.isEmpty {
+                    tailTile(fold, width: tailWidth)
                 }
             }
         }
         .frame(height: 88)
+    }
+
+    /// The tail: neutral like "Other", labeled with what it absorbed, enumerating on hover.
+    private func tailTile(_ fold: Fold, width: CGFloat) -> some View {
+        let names = fold.folded.map(\.name).joined(separator: ", ")
+        let bytes = FileSyncManager.formatBytes(fold.tailBytes)
+        return RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(Color.secondary.opacity(0.35))
+            .frame(width: width)
+            .overlay(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("+\(fold.folded.count) more")
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                    Text(bytes)
+                        .scaledFont(.system(size: 10, weight: .medium))
+                        .opacity(0.92)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 6)
+            }
+            .help("\(fold.folded.count) more area\(fold.folded.count == 1 ? "" : "s") — \(bytes): \(names)")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(fold.folded.count) more areas, \(bytes): \(names)")
     }
 
     @ViewBuilder
