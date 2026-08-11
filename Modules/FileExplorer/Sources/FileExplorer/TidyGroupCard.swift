@@ -87,8 +87,11 @@ struct TidyGroupCard: View {
     }
 
     private var fileIcon: some View {
-        Image(nsImage: FileIconCache.icon(name: group.name, isDirectory: group.isDirectory))
-            .resizable().frame(width: 17, height: 17)
+        // The shared medium vocabulary (FileTypeGlyph), replacing NSWorkspace's raster icon:
+        // Storage and Duplicates now draw one file the same way, and a 17pt shape reads as
+        // "document / photo / audio" where a shrunken thumbnail read as "rectangle".
+        FileTypeGlyph.view(name: group.name, isDirectory: group.isDirectory, pointSize: 14)
+            .frame(width: 17, height: 17)
     }
 
     private var subtitle: String {

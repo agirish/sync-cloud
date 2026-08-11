@@ -403,9 +403,9 @@ private struct StorageEntryRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "doc.fill")
-                .scaledFont(.system(size: 16))
-                .foregroundStyle(.secondary)
+            // The shared medium vocabulary (FileTypeGlyph): in a ranked list of mixed types,
+            // shape + tint is scent — "that big audio file" is findable without reading rows.
+            FileTypeGlyph.view(name: entry.name, isDirectory: false, pointSize: 16)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
