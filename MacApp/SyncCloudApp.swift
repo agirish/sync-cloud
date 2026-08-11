@@ -519,7 +519,7 @@ struct SyncCloudApp: App {
                 Divider()
                 DeleteSelectionCommand()    // ⌘⌫
             }
-            // View ▸ the workspaces (⌘1–⌘5, checkmarked) and the four show/hide switches. The
+            // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the four show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which
             // surface the window shows — not what the app does to any file.
             CommandGroup(after: .sidebar) {

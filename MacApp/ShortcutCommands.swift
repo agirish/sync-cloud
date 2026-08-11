@@ -220,7 +220,7 @@ struct ShortcutValuePublisher: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .focusedSceneValue(\.workspaceSelection, effectiveWorkspace)     // ⌘1–⌘5
+            .focusedSceneValue(\.workspaceSelection, effectiveWorkspace)     // ⌘1…⌘N, one per workspace
             .focusedSceneValue(\.paneGoBack, effectiveGoBack)                // ⌘[
             .focusedSceneValue(\.paneGoForward, effectiveGoForward)          // ⌘]
             .focusedSceneValue(\.rescanPanes, effectiveRescan)               // ⌘R
@@ -351,7 +351,7 @@ extension ContentView {
 
 // MARK: - The menu items
 
-/// View ▸ the workspaces, ⌘1–⌘4 in bar order. `Toggle`s, so the menu carries the checkmark
+/// View ▸ the workspaces, one ⌘-digit each in bar order. `Toggle`s, so the menu carries the checkmark
 /// a `Picker` would have given for free — a `Picker` can't put a distinct chord on each option.
 ///
 /// The chords come from POSITION in `Workspace.allCases`, so adding Browse at the head shifted

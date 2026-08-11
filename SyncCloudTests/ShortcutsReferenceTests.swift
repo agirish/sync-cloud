@@ -48,8 +48,9 @@ import Testing
         }
     }
 
-    /// ⌘1–⌘5 assumes every workspace fits behind a single digit. A sixth workspace still fits
-    /// (⌘6); a tenth does not — this fails first, before someone ships a ⌘10 that cannot exist.
+    /// Numbering the workspaces by bar position assumes every one fits behind a single digit.
+    /// Another still fits; a tenth does not — this fails first, before someone ships a chord with
+    /// two digits in it, which cannot exist.
     @Test func testEveryWorkspaceIsReachableByASingleDigitChord() {
         #expect(Workspace.allCases.count <= 9)
     }

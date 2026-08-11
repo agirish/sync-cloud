@@ -29,7 +29,7 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// One tree, full width, no lens. The plain file browser.
     ///
     /// Declared FIRST, which is load-bearing twice over: `allCases` is the bar's order, and it is
-    /// also where ⌘1–⌘4 come from (`WorkspaceCommands` and `workspaceSegment` both number the
+    /// also where the workspace chords come from (`WorkspaceCommands` and `workspaceSegment` both number the
     /// segments by position). The raw value is new, so no stored selection can name it — which is
     /// what makes it safe to be the default.
     case browse = "Browse"

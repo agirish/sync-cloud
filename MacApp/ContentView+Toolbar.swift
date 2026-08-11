@@ -182,7 +182,7 @@ extension ContentView {
     ) -> some View {
         let isSelected = selection.wrappedValue == workspace
         // The chord is the segment's 1-based POSITION, the same enumeration `WorkspaceCommands`
-        // binds ⌘1–⌘5 from — both count `Workspace.allCases`, so the badge and the key
+        // binds its chords from — both count `Workspace.allCases`, so the badge and the key
         // equivalent cannot disagree.
         let chord = AppChord.workspace(ordinal).display
         Button {
