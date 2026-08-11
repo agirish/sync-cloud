@@ -3284,12 +3284,28 @@ public struct TidyView: View {
         .padding(30)
     }
 
+    /// The clean state's message, as a value so the scope claim can be asserted without pixels.
+    ///
+    /// **The subject is the folder the scan actually covered**, exactly as the named-reveal
+    /// states one screen over already phrase it via `duplicateScanRoot`. This message used to
+    /// say "Nothing repeats across iCloud" while the results chip beside it said the scan was
+    /// one folder — a clean claim wider than the scan that produced it, which is the class of
+    /// lie the rail badges are engineered never to tell.
+    nonisolated static func duplicatesCleanMessage(scanRootName: String?, providerName: String?) -> String {
+        if let scanRootName {
+            return "Nothing repeats in “\(scanRootName)”. Scan again after adding files."
+        }
+        return "Nothing repeats across \(providerName ?? "this provider"). Scan again after adding files."
+    }
+
     private var cleanState: some View {
         EmptyStateView(
             icon: "checkmark.seal.fill",
             tint: SemanticColor.success,
             title: "No duplicates found",
-            message: "Nothing repeats across \(providerName ?? "this provider"). Scan again after adding files.",
+            message: Self.duplicatesCleanMessage(
+                scanRootName: syncManager.duplicateScanRoot.map { ($0 as NSString).lastPathComponent },
+                providerName: providerName),
             secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
         )
     }
