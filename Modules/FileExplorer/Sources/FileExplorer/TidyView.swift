@@ -2757,7 +2757,16 @@ public struct TidyView: View {
                             let full = (root as NSString).appendingPathComponent(relative)
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                         },
-                        onOpenSurveySettings: onOpenSurveySettings)
+                        onOpenSurveySettings: onOpenSurveySettings,
+                        // The launch gate. Restructure is the only lens whose answer exists
+                        // before anyone asks — see `FileSyncManager.hasReviewedStructure` for why
+                        // it needs a flag the others get from their scan lifecycle.
+                        hasReviewed: syncManager.hasReviewedStructure,
+                        onReview: { syncManager.hasReviewedStructure = true },
+                        // The refresh, and the same value the rescan menu offers: nil on a
+                        // machine with no artifacts to rebuild, which withholds the button
+                        // rather than offering one that would do nothing.
+                        onUpdateSurvey: onUpdateFolderMemory)
     }
 
     // MARK: Overview
@@ -2786,7 +2795,15 @@ public struct TidyView: View {
             inboxShortcut: inboxShortcut,
             ledger: overviewLedger(model, scopeFolders: scopeFolders),
             runnablePasses: runnablePasses,
-            onOpen: { item in withAnimation(listSettle) { railLens = item } },
+            onOpen: { item in
+                // **Arriving from "Open Restructure — 12 ›" skips the reveal card.** That button
+                // states the count and the user pressed it to see those findings; landing them on
+                // a card whose own button says "Show 12 findings" is one intent charged twice.
+                // The launch gate is about opening the lens cold, not about a link that already
+                // told you what is behind it.
+                if item == .restructure { syncManager.hasReviewedStructure = true }
+                withAnimation(listSettle) { railLens = item }
+            },
             onRun: runPass
         )
     }

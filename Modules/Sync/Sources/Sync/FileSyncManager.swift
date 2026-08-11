@@ -760,6 +760,27 @@ public class FileSyncManager: ObservableObject {
     }
 
     private var cachedStructureFindings: [StructureFinding]?
+
+    /// Whether the user has opened Restructure's answer **this launch**.
+    ///
+    /// ## Why this flag exists at all
+    ///
+    /// Every other lens shows its setup card until its scan has run, and the flag that decides
+    /// that (`hasSuggestedFiling`, `hasScannedDuplicates`, `hasScannedNames`, `hasBuiltStorage`)
+    /// is a scan lifecycle that starts false at launch. So all of them open on the card, and a
+    /// relaunch puts them back there.
+    ///
+    /// **Restructure had no such flag, because it has no scan.** Its findings are a pure function
+    /// of the folder profile, which is read off disk during startup — so it arrived at its answer
+    /// before the user had asked anything, and it was the one lens that never showed the card.
+    /// This is the same "has this lens been run this launch" fact the others get for free,
+    /// declared explicitly for the one that cannot derive it.
+    ///
+    /// **Not persisted, deliberately.** The point is the launch boundary: the survey behind the
+    /// answer can be weeks old, and starting the session on the card is what makes "these are
+    /// cached results, here is how to refresh them" a thing the user is told rather than has to
+    /// remember. A stored flag would say "you looked at this once in July" and skip it forever.
+    @Published public var hasReviewedStructure = false
     /// Where those artifacts live, for the one pass that writes one back — see
     /// ``resurveyFilingMemory(root:taxonomy:)``. Injected for the same reason they are: `Sync` does
     /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any

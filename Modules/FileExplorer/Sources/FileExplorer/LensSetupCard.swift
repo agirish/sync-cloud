@@ -33,6 +33,22 @@ struct LensSetupCard<Samples: View>: View {
     /// a no-op is worse than none. Every other lens's before-screen is one click from its answer
     /// and passes a real action.
     let onStart: (() -> Void)?
+    /// A second, quieter action beside the trigger — **the refresh, when the trigger only
+    /// reveals.**
+    ///
+    /// A lens whose answer already exists at launch (Restructure, off the folder survey) opens
+    /// with a trigger that shows it rather than one that computes it. That leaves "and get a more
+    /// current one" with nowhere to go, and the whole reason for opening on the card is to say
+    /// out loud that these results are cached. So the pair is: reveal, and re-derive. nil on
+    /// every lens whose trigger runs the scan itself, because there the two are the same button.
+    var secondary: SecondaryAction? = nil
+
+    struct SecondaryAction {
+        let title: String
+        let symbol: String
+        let help: String
+        let action: () -> Void
+    }
     /// A lens-specific note that belongs on this screen but **must not sit above the header.**
     ///
     /// To File is the one lens with something to say before a scan that isn't part of the pitch:
@@ -85,16 +101,32 @@ struct LensSetupCard<Samples: View>: View {
         }
     }
 
+    /// The trigger row. One prominent button, and at most one quiet companion — both at
+    /// `.large`, so a card that has a secondary is exactly as tall here as one that does not and
+    /// the whole ladder below it stays put (`LensSetupCardAlignmentTests` measures that row).
     @ViewBuilder
     private var trigger: some View {
-        if let onStart {
-            Button(action: onStart) {
-                Label(triggerTitle, systemImage: triggerSymbol)
+        if onStart != nil || secondary != nil {
+            HStack(spacing: 10) {
+                if let onStart {
+                    Button(action: onStart) {
+                        Label(triggerTitle, systemImage: triggerSymbol)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .chromeHover()
+                    .help(triggerHelp)
+                }
+                if let secondary {
+                    Button(action: secondary.action) {
+                        Label(secondary.title, systemImage: secondary.symbol)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .chromeHover()
+                    .help(secondary.help)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .chromeHover()
-            .help(triggerHelp)
         }
     }
 

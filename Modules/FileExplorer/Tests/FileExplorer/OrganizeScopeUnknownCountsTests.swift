@@ -44,6 +44,9 @@ import Foundation
     /// lens did not look at.
     @Test func theCleanStateCountsWhatItActuallyChecked() {
         #expect(RestructureLens.cleanMessage(folderCount: 79).hasPrefix("Checked 79 folders."))
+        // Grouped past a thousand — the real tree is 3,013 folders, and this sentence and the
+        // setup card's footnote both say so the same way.
+        #expect(RestructureLens.cleanMessage(folderCount: 3_013).hasPrefix("Checked 3,013 folders."))
         #expect(RestructureLens.cleanMessage(folderCount: 1).hasPrefix("Checked 1 folder."))
     }
 

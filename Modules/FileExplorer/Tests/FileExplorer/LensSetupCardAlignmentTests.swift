@@ -105,6 +105,25 @@ import Design
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Restructure with a survey behind it and the launch gate still shut — the reveal card,
+    /// which is the state that carries a secondary button and a footnote. Its trigger row has to
+    /// land on the same line as every other lens's despite both.
+    static func restructureReadyPane(findings: [StructureFinding] = [Self.finding()],
+                                     refresh: Bool = true) -> some View {
+        RestructureLens(findings: findings, hasProfile: true, folderCount: 3_013,
+                        providerName: "iCloud", accent: .blue, onReveal: { _ in },
+                        onOpenSurveySettings: {}, hasReviewed: false, onReview: {},
+                        onUpdateSurvey: refresh ? {} : nil)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    static func finding(family: String = "Family/Aditi/Events") -> StructureFinding {
+        StructureFinding(family: family, schemes: [
+            .init(vocabulary: ["Photos", "Invitations"], members: ["Naming Ceremony", "Birthday"]),
+            .init(vocabulary: [], members: ["Graduation"]),
+        ])
+    }
+
     /// Rules **as `AutomationsLens` composes it** — the real lens with no rules written, so the
     /// wording and the trigger under test are the ones the app draws.
     static func rulesPane() -> some View {
@@ -212,6 +231,11 @@ import Design
             ("Duplicates", Self.firstAccentRow(Self.render(Self.duplicatesPane()))),
             ("Renames", Self.firstAccentRow(Self.render(Self.renamesPane()))),
             ("Restructure", Self.firstAccentRow(Self.render(Self.restructurePane()))),
+            // The reveal card too: it is the one with a second button beside the trigger and a
+            // footnote under the samples, and both are places a stray point of padding would
+            // take it off the line.
+            ("Restructure (ready)",
+             Self.firstAccentRow(Self.render(Self.restructureReadyPane()))),
             ("Rules", Self.firstAccentRow(Self.render(Self.rulesPane()))),
             ("Storage", Self.firstAccentRow(Self.render(Self.storagePane()))),
         ]
