@@ -112,6 +112,23 @@ environment's default closes it, and mutation-check that it is the *only* test t
 default changes; if others fail too, they are reading the shipped value by accident and the
 injection is not doing what you think.
 
+**Fixed here too, 2026-08-08 — `PaneColumnsOverscrollReturnCycleTests`.** Three failures in one
+afternoon: twice in loaded local runs and once **in CI**, where it took the whole line red. The tell
+each time was the *duration* — **22.8–25.6 s to give up against 1.4 s isolated**, i.e. it burned its
+entire wait rather than settling on a wrong value, which is starvation and not a bad answer.
+
+The pull home is an `NSAnimationContext` group with `allowsImplicitAnimation`, so it is this
+mechanism exactly, reached through AppKit rather than through `withAnimation`. A grep for the
+SwiftUI shape does not surface it, which is why it sat under mechanism 2's *unconditional pumps*
+list looking harmless. **Match on the hazard — an animation deciding a test's verdict — not on the
+API that starts it.**
+
+Fixed the way this section prescribes: `WatchdogView.pullDuration` is injectable beside the
+`axisLock` seam already there, all seven test mounts set it to **0**, and 0 means *no animation
+group at all* rather than a fast one — a zero-duration group still defers through CoreAnimation and
+starves identically. `thePullHomeShipsAnimated` pins the 0.25 s default, because once every mount
+injects zero nothing reads what the app ships; both halves were mutation-checked.
+
 **See.** `6ecc245d` — *Decide the column reveal's tests by the code, not the machine's power state*;
 `daa88130` — *Pin the reveal animation the app ships* (the default nothing was reading);
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift`.
