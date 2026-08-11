@@ -3355,18 +3355,11 @@ public struct TidyView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
-        // The pane's progress dress, not a bare centered stack: mid-scan the file pane shows
-        // its "Scanning Directory…" material card while this pane showed naked chrome — one
-        // scan, two dialects, side by side in one window. Same material, same radius.
+        // The pane's progress dress, which is now no dress at all: this and the file pane's
+        // "Scanning Directory…" both sit on an empty surface, where a material has nothing to
+        // blur and paints a flat gray slab instead. One scan, one dialect — see the file pane's
+        // `.loading` state for why neither wears a card.
         .padding(24)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-        .shadow(
-            color: LiquidGlass.subtleShadow.color,
-            radius: LiquidGlass.subtleShadow.radius,
-            x: LiquidGlass.subtleShadow.x,
-            y: LiquidGlass.subtleShadow.y
-        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -3752,14 +3745,6 @@ public struct TidyView: View {
         }
         // The same progress dress as the duplicate scan and the file pane — one dialect.
         .padding(24)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-        .shadow(
-            color: LiquidGlass.subtleShadow.color,
-            radius: LiquidGlass.subtleShadow.radius,
-            x: LiquidGlass.subtleShadow.x,
-            y: LiquidGlass.subtleShadow.y
-        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
