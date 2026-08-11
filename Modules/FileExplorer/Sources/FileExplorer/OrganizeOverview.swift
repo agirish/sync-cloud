@@ -900,7 +900,11 @@ struct OrganizeOverview: View {
     /// starting the identical pass would be the old footer's claim in new clothes.
     @ViewBuilder
     private func passLensRow(_ lens: OrganizeLens) -> some View {
+        // The folded Names lens has no section to borrow a blurb from (its findings ride the
+        // Renames card), but this card lists what the WALK answers, and the walk still answers
+        // it — so the row keeps its words rather than dropping to a bare title.
         let blurb = sections.first { $0.lens == lens }?.blurb
+            ?? (lens.isFoldedIntoRenames ? "Names this provider will not accept." : nil)
         HStack(alignment: .top, spacing: 8) {
             RoundedRectangle(cornerRadius: 1)
                 .fill(accent.opacity(0.35))
