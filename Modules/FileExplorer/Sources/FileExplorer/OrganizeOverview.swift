@@ -867,10 +867,20 @@ struct OrganizeOverview: View {
         VStack(alignment: .leading, spacing: 5) {
             Divider()
             if !clean.isEmpty {
-                Text(clean.map { "\($0.lens.title.lowercased()) checked" }
-                        .joined(separator: " · "))
-                    .scaledFont(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                // A tiny checkmark before each entry says "ran and clean" pre-attentively.
+                // Tertiary like the words, deliberately not success-green: clean is quiet
+                // (the tier rule) — a zero is still never drawn, and neither is a celebration.
+                HStack(spacing: 10) {
+                    ForEach(clean) { section in
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle")
+                                .scaledFont(.system(size: 9))
+                            Text("\(section.lens.title.lowercased()) checked")
+                                .scaledFont(.system(size: 11))
+                        }
+                    }
+                }
+                .foregroundStyle(.tertiary)
             }
             ForEach(strandedUnscanned) { section in
                 HStack(spacing: 6) {

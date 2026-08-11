@@ -190,8 +190,11 @@ extension FileSyncManager {
             .map { $0.id }
 
         let total = candidatePaths.count
+        // "Hashing 0 candidates…" read as what it was — a format string. Zero candidates is a
+        // real, common state (no two files share a size), so it gets its own sentence.
         updateScan(\.duplicateScanLifecycle, epoch: epoch,
-                   status: "Hashing \(total) candidate\(total == 1 ? "" : "s")…")
+                   status: total == 0 ? "Looking for candidates…"
+                                      : "Hashing \(total) candidate\(total == 1 ? "" : "s")…")
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
         let hashOutcome = await Self.hashFilesCounting(
             candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash,
@@ -257,8 +260,10 @@ extension FileSyncManager {
                 .filter { ContentFingerprint.canFingerprint(path: $0) }
             if !documentPaths.isEmpty {
                 let documentTotal = documentPaths.count
+                // Named subject: on an empty pane this line is the only thing on screen, and
+                // "Reading 61 documents…" answers neither where nor why.
                 updateScan(\.duplicateScanLifecycle, epoch: epoch,
-                           status: "Reading \(documentTotal) document\(documentTotal == 1 ? "" : "s")…")
+                           status: "Reading \(documentTotal) document\(documentTotal == 1 ? "" : "s") in “\(root.lastPathComponent)”…")
                 duplicateScanProgress = (completed: 0, total: documentTotal)
                 textFingerprints = await Self.fingerprintDocuments(
                     documentPaths, fileManager: fileManager, cache: documentCache,

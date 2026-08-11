@@ -1777,7 +1777,7 @@ public struct TidyView: View {
         HStack(spacing: 8) {
             Image(systemName: "cloud").scaledFont(.system(size: 10))
             if let last = spendLast {
-                Text("Last cloud scan: \(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                Text("Last cloud scan: \(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.files(last.fileCount)) · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
@@ -2404,9 +2404,12 @@ public struct TidyView: View {
             // names the folder a preview would actually walk.
             scannedFolderChip(scanTargetFolder,
                               help: "A preview would run these rules over “\(scanTargetName)”")
-            StatPill(count: rules.count, label: rules.count == 1 ? "automation" : "automations",
-                     color: glassHue.accentColor, systemImage: AutomationsGlyph.lens)
-            StatPill(count: enabled, label: "enabled", color: SemanticColor.success, systemImage: "checkmark.circle")
+            // One pill for one fact and its subset — "1 of 1 enabled" — instead of the former
+            // "1 automation" + "1 enabled" pair. Fewer capsules on a row where capsules are
+            // controls; the green only speaks while something is actually on.
+            StatPill(count: enabled, label: "of \(rules.count) enabled",
+                     color: enabled > 0 ? SemanticColor.success : .secondary,
+                     systemImage: "checkmark.circle")
         }
     }
 
