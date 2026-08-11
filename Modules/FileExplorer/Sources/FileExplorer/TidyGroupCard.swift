@@ -31,6 +31,8 @@ struct TidyGroupCard: View {
     var isMerging: Bool = false
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    /// For the invisible-column slot widths (`TidyGroupColumns`) — measured at the live scale.
+    @Environment(\.appFontScale) private var appFontScale
 
     private var accent: Color { TidyMatchStyle.color(group.matchType) }
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -50,18 +52,24 @@ struct TidyGroupCard: View {
 
     private var header: some View {
         Button(action: onToggle) {
+            // Invisible columns (TidyGroupColumns): the badge sits in a fixed leading slot so
+            // every name starts at one x; the subtitle right-aligns against the verb column;
+            // verb and digits each hold their own slot so "reclaim 157 KB" and "~24.2 MB
+            // shared" share one digit column instead of two ragged endings.
             HStack(spacing: 12) {
                 typeBadge
+                    .frame(minWidth: TidyGroupColumns.badgeSlotWidth(scale: appFontScale),
+                           alignment: .leading)
                 fileIcon
                 Text(group.name)
                     .scaledFont(.system(size: 14, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 8)
                 Text(subtitle)
                     .scaledFont(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
-                Spacer(minLength: 8)
-                reclaimText
+                reclaimColumns
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .scaledFont(.system(size: 12, weight: .semibold))
                     .hoverInk(rest: .tertiary)
@@ -113,25 +121,33 @@ struct TidyGroupCard: View {
         }
     }
 
+    /// The verb + digits columns. The verb dims after the first row taught it ("reclaim" was
+    /// re-set in green on every row — wallpaper); the number is the fact and keeps the ink.
+    /// Overlap still reports "shared", not "reclaim": the figure must not promise a button that
+    /// isn't there (merge deferred) — the difference lives in the verb slot, so the digit
+    /// column holds for every row.
     @ViewBuilder
-    private var reclaimText: some View {
-        if case .overlapping = group.matchType, group.reclaimableBytes > 0 {
-            // Overlap can't be one-click reclaimed yet (merge deferred) — report it as shared, not
-            // as an actionable "reclaim", so the figure doesn't promise a button that isn't there.
-            Text("~\(FileSyncManager.formatBytes(group.reclaimableBytes)) shared")
-                .scaledFont(.system(size: 12, design: .monospaced))
+    private var reclaimColumns: some View {
+        let verbWidth = TidyGroupColumns.verbSlotWidth(scale: appFontScale)
+        let digitsWidth = TidyGroupColumns.digitsSlotWidth(scale: appFontScale)
+        if group.reclaimableBytes > 0 {
+            let isOverlap = { if case .overlapping = group.matchType { return true }
+                              else { return false } }()
+            Text(isOverlap ? "shared" : "reclaim")
+                .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .fixedSize()
-        } else if group.reclaimableBytes > 0 {
-            Text("reclaim \(FileSyncManager.formatBytes(group.reclaimableBytes))")
+                .frame(minWidth: verbWidth, alignment: .trailing)
+            Text(isOverlap ? "~\(FileSyncManager.formatBytes(group.reclaimableBytes))"
+                           : FileSyncManager.formatBytes(group.reclaimableBytes))
                 .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(SemanticColor.success)
-                .fixedSize()
+                .foregroundStyle(isOverlap ? AnyShapeStyle(.secondary)
+                                           : AnyShapeStyle(SemanticColor.success))
+                .frame(minWidth: digitsWidth, alignment: .trailing)
         } else {
             Text("nothing to reclaim")
                 .scaledFont(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.tertiary)
-                .fixedSize()
+                .frame(minWidth: verbWidth + 12 + digitsWidth, alignment: .trailing)
         }
     }
 
