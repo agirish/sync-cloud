@@ -9,11 +9,18 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.0 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v3.1..382b9572` — 117 commits. Claims below were checked
+> be withdrawn. Covers `v3.1..4befc84a` — 163 commits. Claims below were checked
 > against `v3.1`, but the audit must run again before this ships: re-check every
 > claim (`git grep -l "<symbol>" v3.1 -- Modules SyncCloudCLI MacApp`), and keep
 > out the fixes made to features that landed *within* this range — no user of v3.1
 > was ever exposed to those.
+>
+> That rule has already cost this draft one entry, and it is worth naming because
+> the entry read so well: the household section claimed a *fix* — a cross-person
+> check that "refused the correct folder", and over-attribution going "from 36 to
+> 0". Both describe work done inside this range against a baseline built inside it.
+> v3.1 had no person logic in `FilingEngine` at all, so no user ever met either.
+> The feature is real; the before-and-after was ours, not theirs.
 >
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
@@ -80,19 +87,21 @@ section first.
 
 ### A household, not a bag of names
 
-- **SyncCloud now knows who the people in your documents are.** The filing engine
-  had known that people exist since the profile shipped, but only as a flat bag of
-  lowercased words in which `Mom` and `Muktha` were two unrelated strings — so a
-  file you named `Mom - passport.pdf` read as a *contradiction* against the folder
-  whose axis says `Muktha`, and the cross-person check refused the correct folder.
+- **SyncCloud now knows who the people in your documents are.** This is new, not
+  improved: v3.1's filing engine had no notion of people at all — it filed by what
+  a folder's documents were about, and "whose document is this" was not a question
+  it could ask. A household is now a thing you keep: each person with the name
+  forms they answer to, their aliases, and how they are related.
 - **Names are matched phrase-first, longest wins, and a match is consumed.** In a
   real family one word is several people — `abhishek` is one person's given name
   and three others' surname; `girish` is a given name, a surname and a maiden name
   at once. In "Aditi Abhishek" the surname is spent on Aditi and never doubles as
-  evidence for her father. Measured over 1,375 documents whose folder names a
-  person: **over-attribution went from 36 to 0**, with false refusals unchanged at
-  3. Each of those 36 was a document the check would have let into the wrong
-  person's folder — a protection failing open, which is the failure you cannot see.
+  evidence for her father. That rule is what makes the feature safe enough to act
+  on: measured over 1,375 documents whose folder names a person, phrase-first
+  matching attributes 36 fewer of them to the wrong person than matching the same
+  roster word by word, and refuses no more correct ones (3 either way). Both
+  figures are properties of the new matcher — there is no v3.1 number to compare
+  against, because there was nothing to measure.
 - **People is its own place in Settings, and every row says what it buys** — the
   name forms matched against a document in the order they are tried, how many
   folders in the tree are theirs, how many documents are already filed in them. You
@@ -210,6 +219,20 @@ section first.
   anything.** Results are never restored from disk — every row carries an action
   that writes files — so the scan re-runs against the live filesystem instead. An
   automatic scan can never raise a payment dialog.
+
+### ⌘K goes anywhere
+
+- **One field that reaches your whole tree.** ⌘K opens a palette over the window:
+  type a few letters and it offers folders to jump to, people on your roster, your
+  configured sources, and the app's own places — Compare, Organize, Storage,
+  Settings. ↩ goes; Esc, a click outside, or ⌘K again dismisses it. There is a
+  *Go to…* pill on the toolbar for the same thing.
+- **Results are grouped, and the groups are ordered by their best match** rather
+  than the list being one flat ranking with headings sprinkled through it.
+- **It indexes the folders you actually have** — the same tree Organize surveys,
+  so a folder you made this morning is reachable by name this morning.
+- **It stands aside for the destination picker.** While that sheet is up, ⌘K and
+  every other chord it would shadow stay with the sheet.
 
 ### Keyboard and focus
 
