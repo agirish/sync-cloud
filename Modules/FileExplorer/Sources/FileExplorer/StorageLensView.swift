@@ -201,10 +201,10 @@ struct StorageLensView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-                    Text(entries.count.formatted())
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.tertiary)
+                    // The C1 mini pill, not a bare gray numeral floating after the caption —
+                    // the same dress every other section count in the app wears. Neutral tint:
+                    // a list size, never urgency.
+                    Pill(.mini, tint: .secondary, text: entries.count.formatted(), isNumeric: true)
                     Spacer(minLength: 0)
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .scaledFont(.system(size: 11, weight: .semibold))

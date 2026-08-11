@@ -2230,6 +2230,11 @@ public struct TidyView: View {
                 .scaledFont(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                // A provenance claim you cannot read is worse than one that pushes a readout:
+                // this truncated to "Docum…" at Documents scale while the pills kept full
+                // width. Readouts yield first (the workspace-bar shedding rule).
+                .layoutPriority(1)
+                .fixedSize()
                 .help(help)
         }
     }
@@ -2343,7 +2348,6 @@ public struct TidyView: View {
     /// `skipped` stay scan-level facts: they describe what the scan did, not what the query kept.
     private func duplicatesSummary(_ groups: [DuplicateGroup]) -> some View {
         let reclaimable = groups.filter { $0.isRecommendedForBatch }.reduce(0) { $0 + $1.reclaimableBytes }
-        let redundant = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
         let needsReview = groups.filter { $0.matchType.kind == .nameOnly }.count
         return Group {
             duplicateScanRootChip
@@ -2352,7 +2356,6 @@ public struct TidyView: View {
                         freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
                         flashToken: reclaimFlashToken,
                         reduceMotion: reduceMotion)
-            StatPill(count: redundant, label: "redundant", color: .secondary, systemImage: "doc.on.doc")
             if needsReview > 0 {
                 StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
             }
@@ -2527,6 +2530,11 @@ public struct TidyView: View {
             .buttonStyle(.borderedProminent)
             .chromeHover()
             .controlSize(.small)
+            // The row must shed its readouts before its controls: at Documents scale this
+            // button truncated to "Apply…" while five readout capsules kept full width —
+            // the workspace-bar shedding rule inverted. Priority keeps the label whole.
+            .layoutPriority(1)
+            .fixedSize()
             .disabled(syncManager.isFindingDuplicates)
             .help("Moves the redundant copies of \(batch.count) byte-identical group\(batch.count == 1 ? "" : "s")"
                   + (isFiltered ? " — the ones your search left showing —" : "")
@@ -3283,8 +3291,19 @@ public struct TidyView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
+        // The pane's progress dress, not a bare centered stack: mid-scan the file pane shows
+        // its "Scanning Directory…" material card while this pane showed naked chrome — one
+        // scan, two dialects, side by side in one window. Same material, same radius.
+        .padding(24)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+        .shadow(
+            color: LiquidGlass.subtleShadow.color,
+            radius: LiquidGlass.subtleShadow.radius,
+            x: LiquidGlass.subtleShadow.x,
+            y: LiquidGlass.subtleShadow.y
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(30)
     }
 
     /// The clean state's message, as a value so the scope claim can be asserted without pixels.
@@ -3582,8 +3601,17 @@ public struct TidyView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
+        // The same progress dress as the duplicate scan and the file pane — one dialect.
+        .padding(24)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+        .shadow(
+            color: LiquidGlass.subtleShadow.color,
+            radius: LiquidGlass.subtleShadow.radius,
+            x: LiquidGlass.subtleShadow.x,
+            y: LiquidGlass.subtleShadow.y
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(30)
     }
 
     @ViewBuilder
