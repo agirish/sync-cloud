@@ -1,6 +1,7 @@
 import Testing
 import SwiftUI
 import AppKit
+import Design
 import Sync
 @testable import FileExplorer
 
@@ -52,7 +53,14 @@ import Sync
     /// Pixels in the render that are not the magenta backdrop — i.e. everything the pane painted.
     private func paintedPixels(appearance: NSAppearance.Name) throws -> Int {
         let size = CGSize(width: 420, height: 300)
+        // Pinned, not inherited: the pane's own `@AppStorage` reads the Tint slider, and a tint
+        // above 0 washes the whole surface — which is a fill covering the canvas, and would fail
+        // this test for a reason that has nothing to do with the placeholder.
+        let defaults = ScratchDefaults("PaneScanning-\(appearance.rawValue)")
+        defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
+        defaults.set(0.0, forKey: LiquidGlass.tintKey)
         let subject = scanningPane
+            .defaultAppStorage(defaults)
             .frame(width: size.width, height: size.height)
             // Behind the pane, not in front: anything the placeholder fills covers this.
             .background(Color(red: 1, green: 0, blue: 1))
