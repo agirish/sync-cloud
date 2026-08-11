@@ -102,10 +102,38 @@ public struct CommandPaletteView: View {
                 Divider()
                 noResults
             }
+            Divider()
+            keyFooter
         }
         .contentSurface(hue: .blue, tint: 0)
         .groundedGlassCard(level: glassLevel)
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+    }
+
+    /// The palette's whole interaction is three keys, and they were taught nowhere. One quiet
+    /// row, the existing `ShortcutKeycap` dress, costing ~30pt of card — the interaction's
+    /// documentation lives where the interaction happens.
+    private var keyFooter: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 5) {
+                ShortcutKeycap("↑")
+                ShortcutKeycap("↓")
+                Text("Navigate")
+            }
+            HStack(spacing: 5) {
+                ShortcutKeycap("↩")
+                Text("Open")
+            }
+            HStack(spacing: 5) {
+                ShortcutKeycap("esc")
+                Text("Close")
+            }
+            Spacer(minLength: 0)
+        }
+        .scaledFont(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
     }
 
     // MARK: The field
@@ -140,7 +168,7 @@ public struct CommandPaletteView: View {
     // MARK: The list
 
     private var list: some View {
-        PaletteResultsList(rows: rows, selection: $selection, accent: accent, onChoose: { run() })
+        PaletteResultsList(rows: rows, query: query, selection: $selection, accent: accent, onChoose: { run() })
             .frame(maxHeight: Self.listMaxHeight)
     }
 
@@ -191,6 +219,8 @@ public struct CommandPaletteView: View {
 struct PaletteResultsList: View {
 
     let rows: [PaletteRow]
+    /// The live query, for match emphasis only — routing already happened upstream.
+    var query: String = ""
     @Binding var selection: Int?
     let accent: Color
     let onChoose: () -> Void
@@ -228,6 +258,24 @@ struct PaletteResultsList: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The row's text with the matched run set bold — why THIS row answered the query, visible
+    /// without inference. Ranges come from `PaletteRouter.matchRange`, the ranking's own lookup:
+    /// one matcher, never a display-side second tokenizer (those disagree exactly where case
+    /// folds and diacritics make it matter). A row matched via keywords draws no emphasis — the
+    /// visible text genuinely did not match, and pretending otherwise would mislead.
+    ///
+    /// Static and pure over its inputs so `PaletteEmphasisTests` can assert the split without
+    /// a render.
+    static func emphasized(_ string: String, query: String) -> Text {
+        guard let range = PaletteRouter.matchRange(
+            string, query.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return Text(string)
+        }
+        return Text(String(string[..<range.lowerBound]))
+            + Text(String(string[range])).fontWeight(.bold)
+            + Text(String(string[range.upperBound...]))
+    }
+
     @ViewBuilder
     private func row(at index: Int) -> some View {
         let row = rows[index]
@@ -237,11 +285,11 @@ struct PaletteResultsList: View {
                 .scaledFont(.system(size: 13))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(row.title)
+                Self.emphasized(row.title, query: query)
                     .scaledFont(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                 if let detail = row.detail {
-                    Text(detail)
+                    Self.emphasized(detail, query: query)
                         .scaledFont(.system(size: 11))
                         .opacity(isSelected ? 0.85 : 1)
                         .foregroundStyle(isSelected ? AnyShapeStyle(Color.onFillLabel(accent))

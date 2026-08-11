@@ -681,6 +681,18 @@ public enum PaletteRouter {
         candidates.reduce(PaletteMatch.none) { Swift.max($0, match($1, query)) }
     }
 
+    /// The range `match` decided by — the same lookup with the same options, exposed so the row
+    /// can emphasize exactly what matched. **This is the one matcher**: a second tokenizer for
+    /// display would disagree with the ranking in precisely the cases that matter (case folds,
+    /// diacritics), which is the known two-tokenizers failure mode.
+    ///
+    /// nil when the string does not contain the query — a row matched through its keywords or a
+    /// verb parse draws no emphasis, which is honest: the visible text did not match.
+    static func matchRange(_ candidate: String, _ query: String) -> Range<String.Index>? {
+        guard !query.isEmpty, !candidate.isEmpty else { return nil }
+        return candidate.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
+    }
+
     /// A tier as a sortable number. Spread wide so a folder's depth penalty can never lift a
     /// substring hit above a prefix one.
     static func score(_ match: PaletteMatch) -> Int {
