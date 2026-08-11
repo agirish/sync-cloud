@@ -71,9 +71,12 @@ struct PaneBarCustomizeSheet: View {
     // shipped showing a bare cloud glyph where "iCloud" should have been. That is precisely the
     // leading edge the whole arrangement is measured against.
     //
-    // The ceiling is the *window*: `ContentView` sets `minWidth: 600`, and the fix for the first
-    // problem was a 700pt sheet — wider than the window it belongs to, at the size a real user can
-    // drag theirs down to. Fixing an overflow by overflowing something bigger is not a fix.
+    // The ceiling is the *window*: `ContentView` set `minWidth: 600` when this was chosen, and the
+    // fix for the first problem was a 700pt sheet — wider than the window it belongs to, at the
+    // size a real user could drag theirs down to. Fixing an overflow by overflowing something
+    // bigger is not a fix. (That floor is 760 now. The sheet is deliberately left at 600: the
+    // ceiling rising is not a reason to spend the room, and the track's metrics were tightened
+    // around this width.)
     //
     // So: 600, with the row's own metrics tightened until ten items fit inside it, and a horizontal
     // scroll for the arrangements that still do not (nothing stops someone adding six spacers).

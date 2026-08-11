@@ -47,8 +47,10 @@ import Testing
 
     @Test func testTheSheetLaysOutAtAWorkableSize() {
         let size = laidOut(PaneBarCustomizeSheet())
-        // 600 is not a taste call: `ContentView` sets `minWidth: 600`, so anything wider is a sheet
-        // wider than the window it belongs to at the size a user can actually drag theirs down to.
+        // 600 is not a taste call: it was the window's own `minWidth` when this was chosen, so
+        // anything wider was a sheet wider than the window it belongs to at the size a user could
+        // actually drag theirs down to. The window floor is 760 now, which only widens the margin —
+        // the number stays because the track's metrics were tightened around it.
         // (The `<= 600` restatement that sat here was noise — it cannot fail while the line above
         // passes. One assertion, and the reason for the number in prose beside it.)
         #expect(size.width == 600, "the sheet should hold its declared width, got \(size.width)")

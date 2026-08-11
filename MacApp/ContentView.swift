@@ -559,7 +559,28 @@ struct ContentView: View {
         // No provider sidebar: provider choice now rides on each pane/source header (ProviderMenu),
         // so the window is a single content column — the panes fill the space the sidebar used to take.
         mainContentView
-            .frame(minWidth: 600)
+            // The window's floor, and `.windowResizability(.contentMinSize)` is what makes this
+            // frame that floor rather than a suggestion.
+            //
+            // **600 → 760 wide.** At 600 the toolbar was already past its last rung: the workspace
+            // bar needs 708pt of content width to keep its four labels beside even a COMPACT ⌘K
+            // pill at the default text size (`WorkspaceBarMetrics` records the ladder), so the
+            // narrowest window the app allowed showed the only control for switching workspace as
+            // four bare glyphs. 760 keeps the labels at Small, Default and Large, and leaves the
+            // icon-only rung to fire at Larger, which needs 773 — the shedding ladder is still
+            // reachable, it is just no longer the permanent condition of the floor.
+            //
+            // **A height floor at all**, which is the hole rather than the tightening. With no
+            // `minHeight`, the window could be dragged down to the toolbar and nothing else: a
+            // sliver with the pane header, the file list and the action bar all squeezed out —
+            // not a size a user picks so much as one the window cannot refuse. 560 is what keeping
+            // it a window costs, in the panes' own constants: the pane header card takes 86
+            // (`LiquidGlass.headerHeight` 81 inside 2×`cardInset`) and the action bar 44
+            // (`ActionBarMetrics.height` 28 inside 2×8pt of padding), leaving ~430 for the list —
+            // a column header and fifteen-odd rows. It also clears the 428pt below which
+            // `SettingsLayout` stops shrinking its sheet (`floorSize` 380 + `hostMargin` 48) and
+            // starts overflowing the window it is centered in.
+            .frame(minWidth: 760, minHeight: 560)
             // Resolved in the transform, so the action — and the state write behind it — fires
             // only when the answer changes. See `workspaceBarStyle`. The label widths are measured
             // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
@@ -1355,8 +1376,8 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsOverlay: some View {
         // The card is sized in points and grows with the Text size setting, but the window's own
-        // minimum is 600pt wide — narrower than the card wants. Hand it the space it actually
-        // has so it can clamp itself rather than hang off the edge.
+        // minimum is 760×560 — less than the card wants in both axes once `hostMargin` is off it.
+        // Hand it the space it actually has so it can clamp itself rather than hang off the edge.
         GeometryReader { proxy in
             ZStack {
                 Rectangle()

@@ -137,7 +137,8 @@ enum SettingsSheetMetrics {
     ///
     /// Scaling up is the point — Larger type needs a larger sheet, or the taller tabs go straight
     /// back to scrolling — but a sheet must never exceed the space it is centered in. The window's
-    /// own minimum is 600pt wide, narrower than the sheet wants at any text size.
+    /// own minimum is 760×560, and once `hostMargin` is taken off that is narrower and shorter
+    /// than the sheet wants at any text size — so this clamp still does the work.
     ///
     /// **Grow only.** The scale is floored at 1, the same rule and the same reason as
     /// `ListDensity.tableRowHeight`. A tab's height is not proportional to the text scale: its
@@ -367,8 +368,14 @@ struct SettingsRail: View {
             // is nothing. And the case being served is no longer the corner it was: at seven rows
             // the floor-sized sheet clipped the rail only at the largest text size, while at nine
             // it overruns by 47–125pt at EVERY size (`theRailIsWhatTheFloorSizedSheetRunsOutOf`
-            // records the measurements). The window has a 600pt `minWidth` and no minimum HEIGHT
-            // at all, so a short window is something a user can simply drag to.
+            // records the measurements).
+            //
+            // What has changed since is the window, not the rail: it now carries a 760×560 floor,
+            // so the smallest sheet a user can produce is 712×512 and the tabs DO fit there — by
+            // 9.6pt at the largest text size (`theRailFitsTheSheetTheWindowFloorProduces`). The
+            // scroller is therefore a guard rather than the working case, which is the right way
+            // round and no argument for removing it: 9.6pt is one tab from being gone, and the
+            // sheet is also handed to hosts smaller than the main window.
             //
             // Losing the bottom of a fixed rail is silent — the rows are not clipped mid-glyph,
             // they are absent, and nothing says a tab exists below the fold. Scrolling is the

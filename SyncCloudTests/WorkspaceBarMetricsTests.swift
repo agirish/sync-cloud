@@ -18,6 +18,15 @@ import FileExplorer
 /// the old numbers were true of a toolbar this app no longer has.
 @Suite struct WorkspaceBarMetricsTests {
 
+    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 760, …)`, which
+    /// `.windowResizability(.contentMinSize)` makes a floor rather than a preference.
+    ///
+    /// **One constant, because "the floor" is a claim every test here makes.** It was the literal
+    /// 600 in six places until the window was raised, and a literal repeated six times is six
+    /// chances to update five of them — the shape that leaves one assertion quietly measuring a
+    /// width no window can have.
+    private static let windowFloor: CGFloat = 760
+
     /// The real labels at the real weight, so these assertions measure the shipping bar rather
     /// than a hypothetical one. Semibold because that is the selected segment's weight, and the
     /// widest — sizing on `.medium` would under-measure the one segment that is always bold.
@@ -46,17 +55,20 @@ import FileExplorer
 
     /// **What the fourth segment costs, stated as a number rather than discovered.**
     ///
-    /// The history is the point of the number. Three labelled segments fit the window's 600pt
+    /// The history is the point of the number. Three labelled segments fit the window's old 600pt
     /// `minWidth` — the win of folding five workspaces down to three. The ⌘K pill then took part
     /// of that row and left a 17pt band above the floor where the bar is glyphs. Browse takes its
-    /// label, its `segmentChrome` and one more `segmentGap`, and the band is now ~108pt: below
+    /// label, its `segmentChrome` and one more `segmentGap`, and the band grew to ~108pt: below
     /// roughly 708pt the segments are icons.
     ///
-    /// **That is accepted, not a regression to fix by shaving `reservedChrome`.** The alternative
-    /// was shortening a label people navigate by, and under-measuring the row is exactly what
-    /// folds the toolbar behind the overflow chevron — the failure this whole type exists to
-    /// prevent. So the band is pinned from both sides: it may not silently grow, and the ceiling
-    /// names the width at which it stops being a corner case.
+    /// **That band is what raised the window rather than being shaved away.** Shortening a label
+    /// people navigate by was the alternative, and under-measuring the row is exactly what folds
+    /// the toolbar behind the overflow chevron — the failure this whole type exists to prevent.
+    /// So the arithmetic stayed and the floor moved to 760: the labels now survive the narrowest
+    /// window by ~52pt at the default text size, and the band lives entirely below a width no
+    /// window can be dragged to. What is pinned here is that it stays that way — a fifth segment
+    /// or another toolbar control would push the threshold back up through the floor, and this
+    /// fails naming the number rather than letting a glyph-only floor return unannounced.
     @Test func testTheLabelsSurviveToWithinAShortDistanceOfTheFloor() {
         let widths = labelWidths()
         let search = searchWidths()
@@ -66,30 +78,54 @@ import FileExplorer
             + WorkspaceBarMetrics.reservedChrome
         #expect(styles(contentWidth: keepsWords, labelWidths: widths).workspace == .full)
         #expect(styles(contentWidth: keepsWords - 1, labelWidths: widths).workspace == .iconOnly)
-        // The band above the 600pt floor where the labels are gone. A fifth segment or another
-        // toolbar control would push it wider still; this fails and says by how much rather than
-        // letting the labelled bar quietly become the exception instead of the rule.
-        #expect(keepsWords - 600 < 120,
-                "the bar sheds its labels \(keepsWords - 600)pt above the window's floor — the toolbar row has grown enough that a narrow window is glyphs for most of its range")
-        // The floor from the other side: the window opens at ~85% of the screen and can be dragged
-        // to 600pt, so the band has to stay a corner of the range rather than most of it.
+        // The labels have to survive the narrowest window the app allows. This is the assertion
+        // the raise was made for, and the one that fails if the row grows again.
+        #expect(keepsWords <= Self.windowFloor,
+                "the bar sheds its labels at \(keepsWords)pt, above the window's own \(Self.windowFloor)pt floor — the narrowest window is glyphs again")
+        // And from the other side, so the floor is not simply raised to whatever the row wants:
+        // the window opens at ~85% of the screen, so the shedding band has to stay a corner of the
+        // range rather than most of it.
         #expect(keepsWords < 800,
                 "the labels survive only above \(keepsWords)pt — that is no longer a narrow window")
     }
 
     @Test func testTheGlyphRungAndTheCompactPillDoFitTheFloorTogether() {
         // The last rung has to actually solve it, at every text size, or shedding buys nothing and
-        // the row goes behind the chevron anyway.
-        for scale in [FontSize.small.scale, 1, FontSize.large.scale] {
+        // the row goes behind the chevron anyway. Every size, including the largest — that is the
+        // one that still reaches this rung at the floor.
+        for scale in FontSize.allCases.map(\.scale) {
             let search = searchWidths(scale: scale)
             let row = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: Workspace.allCases.count)
                 + CommandPaletteBarMetrics.width(style: .compact, labelWidth: search.label,
                                                  keycapWidth: search.keycap)
-            #expect(row <= 600 - WorkspaceBarMetrics.reservedChrome,
-                    "the narrowest rung does not fit the 600pt floor at text scale \(scale)")
-            #expect(styles(contentWidth: 600, labelWidths: labelWidths(scale: scale),
-                           scale: scale) == ToolbarBarStyles(workspace: .iconOnly, search: .compact),
-                    "the floor must land on the narrowest rung at text scale \(scale)")
+            #expect(row <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome,
+                    "the narrowest rung does not fit the \(Self.windowFloor)pt floor at text scale \(scale)")
+        }
+    }
+
+    /// **What the floor lands on, per text size** — the assertion the raise from 600 to 760 was
+    /// made to change, and the one that would notice it being reverted.
+    ///
+    /// At 600 this was a single answer: `iconOnly` at every size, because the four labels need
+    /// 708pt beside even a compact pill. At 760 it splits, and the split is the point — the
+    /// labelled bar is what a user sees at the narrowest window they can make, unless they have
+    /// also asked for the largest text, where the row genuinely does not fit (773pt needed).
+    @Test func testTheFloorKeepsItsLabelsAtEveryTextSizeButTheLargest() {
+        for size in FontSize.allCases {
+            let resolved = styles(contentWidth: Self.windowFloor,
+                                  labelWidths: labelWidths(scale: size.scale), scale: size.scale)
+            let expected: WorkspaceBarStyle = size == .extraLarge ? .iconOnly : .full
+            #expect(resolved.workspace == expected,
+                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.displayName), expected \(expected)")
+            // What the pill is doing there, which is not one answer either: at Small the whole row
+            // fits spelled out (752pt needed against the 760pt floor), and from Default up the
+            // pill pays first — it is the cheaper word to lose, and it pays before the bar does at
+            // every size including the one where the bar sheds too. Written out per size rather
+            // than asserted as "compact", which is what the first draft of this test claimed and
+            // what the Small case refuted.
+            let expectedPill: CommandPaletteBarStyle = size == .small ? .full : .compact
+            #expect(resolved.search == expectedPill,
+                    "at the floor the ⌘K pill is \(resolved.search) at \(size.displayName), expected \(expectedPill)")
         }
     }
 
@@ -121,17 +157,25 @@ import FileExplorer
 
     @Test func testTheIconOnlyRungIsLiveInTheShippingBar() {
         // **This rung is no longer dormant, and that is the headline of the fourth segment.** It
-        // used to be unreachable: three labelled segments fit the 600pt floor at every text size,
-        // so nothing in the shipping app ever shed a label, and this test could only exercise the
-        // arithmetic against a hypothetical five-segment bar. Browse changed that — at the floor,
-        // the real bar is glyphs.
+        // used to be unreachable: three labelled segments fit the old 600pt floor at every text
+        // size, so nothing in the shipping app ever shed a label, and this test could only
+        // exercise the arithmetic against a hypothetical five-segment bar. Browse changed that.
         //
-        // **Photographed at the floor, not only computed.** This arithmetic says the row fits;
-        // what it cannot say is what macOS does with a toolbar it decides is too wide, which is to
-        // fold the whole thing behind a chevron with no error and no visual cue. So the shipping
-        // build was captured at a 600pt window and the pixels read back: four glyph clusters in
-        // the capsule (the selected Browse pill 73px wide, then three 22–31px glyphs), the compact
-        // ⌘K pill and all three trailing utilities still painted, and nothing folded away.
+        // **What raising the floor to 760 changed is WHERE it is live, not WHETHER.** It is no
+        // longer the state of the narrowest window at every text size — that was the defect the
+        // raise fixed — but the largest text size still needs 773pt, so a floor-sized window at
+        // Larger sheds, and so does any window between 760 and the 708pt threshold at the sizes
+        // below it. This asserts the rung on a real bar rather than a hypothetical one, at the
+        // width where the shipping app still reaches it.
+        //
+        // **Photographed there, not only computed.** This arithmetic says the row fits; what it
+        // cannot say is what macOS does with a toolbar it decides is too wide, which is to fold
+        // the whole thing behind a chevron with no error and no visual cue. So the shipping build
+        // was captured at a 600pt window — then the floor, now below it — and the pixels read
+        // back: four glyph clusters in the capsule (the selected Browse pill 73px wide, then three
+        // 22–31px glyphs), the compact ⌘K pill and all three trailing utilities still painted, and
+        // nothing folded away. The rung the capture photographed is the one asserted here; only
+        // the width at which a user meets it has moved.
         //
         // The same capture settled the one thing no assertion in this file can reach: WHERE the
         // rule is drawn. A 1pt darker column sits at x=365 — inside the Compare→Organize gap — and
@@ -139,23 +183,25 @@ import FileExplorer
         //
         // Asserted with the app's OWN labels first, so the live behaviour is pinned, and then
         // against the queued bar so the arithmetic still has headroom under test.
-        #expect(styles(contentWidth: 600, labelWidths: labelWidths()).workspace == .iconOnly,
-                "the shipping four-segment bar keeps its labels at the window's floor — if that is now true, this test and the band above disagree")
+        #expect(styles(contentWidth: Self.windowFloor,
+                       labelWidths: labelWidths(scale: FontSize.extraLarge.scale),
+                       scale: FontSize.extraLarge.scale).workspace == .iconOnly,
+                "the shipping four-segment bar keeps its labels at the floor even at the largest text size — if that is now true, this test and the band above disagree")
 
         let queued = ["Browse", "Compare", "Organize", "Storage", "Backup", "Home"]
         let font = NSFont.systemFont(ofSize: 12 * FontSize.large.scale, weight: .semibold)
         let widths = queued.map { ($0 as NSString).size(withAttributes: [.font: font]).width }
-        #expect(styles(contentWidth: 600, labelWidths: widths,
+        #expect(styles(contentWidth: Self.windowFloor, labelWidths: widths,
                        scale: FontSize.large.scale).workspace == .iconOnly)
         // And the fallback still solves it, or shedding buys nothing.
         let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: queued.count)
-        #expect(iconOnly <= 600 - WorkspaceBarMetrics.reservedChrome)
+        #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)
     }
 
     @Test func testTheIconOnlyBarDoesFitTheWindowsMinimumWidth() {
         // And the fallback has to actually solve it, or shedding labels buys nothing.
         let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: Workspace.allCases.count)
-        #expect(iconOnly <= 600 - WorkspaceBarMetrics.reservedChrome)
+        #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)
     }
 
     @Test func testAnOrdinaryWindowSpellsTheSegmentsOut() {

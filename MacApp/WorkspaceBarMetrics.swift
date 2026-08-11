@@ -7,7 +7,10 @@ import FileExplorer
 /// Six labelled segments are about 500pt — the bar carries four now, and gained one when Browse
 /// shipped, which moved the icon-only rung to a wider window than before rather than changing any
 /// of this arithmetic. The toolbar also has to seat the traffic lights and the trailing utility
-/// pill. Against the window's 600pt `minWidth` that does not fit, and a
+/// pill. Measured through `styles`, the four labels need 708pt of content width beside a compact
+/// ⌘K pill at the default text size (Small 689, Large 755, Larger 773) — which is why the
+/// window's floor was raised from 600 to 760 rather than this rung being loosened: at 600 the bar
+/// was icon-only at every text size the moment the window sat at its minimum. A
 /// toolbar that does not fit does not wrap or truncate — macOS silently folds the overflow behind
 /// a chevron, which is how the *only* control for switching workspace disappears. The two-level
 /// picker avoided this by keeping the lens tabs out of the toolbar entirely; a flat bar cannot.

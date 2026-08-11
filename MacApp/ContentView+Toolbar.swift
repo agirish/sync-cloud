@@ -123,7 +123,7 @@ extension ContentView {
     ///
     /// This replaces the two-level `Compare | Tidy` picker plus the lens tabs that used to head
     /// the Tidy workspace. The old arrangement kept the lens tabs *out* of here deliberately —
-    /// their ~300pt would have overflowed the window's 600pt `minWidth` and macOS would have
+    /// their ~300pt would have overflowed the window's `minWidth` (600 then, 760 now) and macOS would have
     /// folded them behind a chevron. Flattening does not repeal that constraint, it inherits it,
     /// which is what ``WorkspaceBarMetrics`` is for: below the width where six labels fit, every
     /// segment sheds its label at once and the glyphs carry the bar.

@@ -85,6 +85,13 @@ import Testing
     /// checks degrades gracefully.
     private static let smallDisplayWindow = CGSize(width: 1280, height: 800 - 24 - 36)
 
+    /// The window's own content floor — `ContentView`'s `.frame(minWidth: 760, minHeight: 560)`,
+    /// which `.windowResizability(.contentMinSize)` makes the smallest window there is. Repeated
+    /// as a literal because the Settings module cannot see `MacApp`; the same arrangement
+    /// `sheetClampsToTheSpaceTheHostHas` has always used, and the direction is safe — a floor
+    /// raised in `ContentView` without updating this only ever gives the sheet more room.
+    private static let windowFloor = CGSize(width: 760, height: 560)
+
     /// The version string this branch's builds actually carry, mirroring `project.yml`'s
     /// `CFBundleShortVersionString`. Kept in step by the release procedure in `CLAUDE.md`, which
     /// makes updating it part of cutting a release.
@@ -418,9 +425,11 @@ import Testing
     }
 
     @Test func sheetClampsToTheSpaceTheHostHas() {
-        // The window's own minimum is 600pt wide — narrower than the sheet wants at any text
-        // size — so an unclamped sheet would hang off the edge of a small window.
-        let available = CGSize(width: 600, height: 500)
+        // The window's own minimum is 760×560 — narrower than the sheet wants at any text size
+        // once `hostMargin` is taken off — so an unclamped sheet would hang off the edge of a
+        // small window. The fixture is that floor rather than a smaller invented one: a window
+        // this size is reachable, and the clamp still bites there.
+        let available = Self.windowFloor
         let cramped = SettingsSheetMetrics.resolvedSize(textScale: 1, available: available)
 
         #expect(cramped.width == available.width - SettingsSheetMetrics.hostMargin)
@@ -495,14 +504,47 @@ import Testing
                 """)
     }
 
+    /// The smallest sheet a user can actually produce, which is no longer `floorSize`.
+    ///
+    /// `ContentView` gives the window a 760×560 content floor, so `resolvedSize` is clamped by the
+    /// window (712×512) and stops well above the floor `theRailIsWhatTheFloorSizedSheetRunsOutOf`
+    /// measures. Hard-coding the pair here mirrors what `sheetClampsToTheSpaceTheHostHas` already
+    /// does — the Settings module cannot see `MacApp` — and a floor raised without looking here
+    /// only ever makes this pass.
+    ///
+    /// This is the assertion the floor test cannot make: it records where the layout gives up,
+    /// which is a case the window no longer reaches, so on its own it would leave the rail's real
+    /// worst case unmeasured.
+    ///
+    /// **Measured slack at the floor: 89.4pt at Small, 67.0 at Default, 26.0 at Large, 9.6 at
+    /// Larger.** It fits at every size, and only just at the largest — which is the honest reading
+    /// of a 560pt window, not a margin to spend. Ten more points of rail (a tenth tab is ~32) and
+    /// Larger goes to a scroll here first. The numbers are real: raising the bound to a value
+    /// nothing could satisfy printed all four, so this reports a measurement rather than the
+    /// silence of an assertion that cannot fail.
+    @MainActor
+    @Test(arguments: FontSize.allCases)
+    func theRailFitsTheSheetTheWindowFloorProduces(_ size: FontSize) async throws {
+        let margin = tabListMargin(at: size.scale, available: Self.windowFloor)
+
+        #expect(margin >= 0,
+                """
+                At the window's own floor (\(Self.windowFloor.width)×\(Self.windowFloor.height)) \
+                the tab list overruns its opening by \(-margin)pt at \(size.displayName) — the \
+                rail has to scroll at the smallest window a user can make.
+                """)
+    }
+
     /// Where the rail genuinely binds, recorded honestly rather than trimmed away — the same shape
     /// as `theClampedOpeningFitsTheSmallerTextSizesOnly`, and for the same reason: a boundary that
     /// stays true in BOTH directions beats a one-sided assertion nobody can tell is vacuous.
     ///
-    /// `floorSize` is where `resolvedSize` stops shrinking (a window under ~570×428, which a user
-    /// can drag to — the window carries a 600pt `minWidth` and no minimum height at all). There
-    /// the sheet is 380pt and the opening 335pt at the default text size, and the rail is the part
-    /// that runs out first.
+    /// `floorSize` is where `resolvedSize` stops shrinking (a window under ~570×428). **No user
+    /// can drag a window there any more** — `ContentView`'s floor is 760×560, which is what
+    /// `theRailFitsTheSheetTheWindowFloorProduces` measures instead, and it fits. What is left
+    /// here is the layout's own last stand: the size the sheet takes when a host offers it less
+    /// than the main window ever will. There the sheet is 380pt and the opening 335pt at the
+    /// default text size, and the rail is the part that runs out first.
     ///
     /// **Measured: the tab list overruns the floor-sized opening at every text size — by 42.6pt at
     /// Small, 65.0pt at Default, 88.6pt at Large and 121.2pt at Larger.** At seven rows it fitted
