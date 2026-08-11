@@ -60,13 +60,16 @@ change to `ContentView`'s layout modes. Storage remains the precedent for a read
 workspace, and the shared 81pt `LensHeaderCard` rung applies unchanged.
 
 **The bar-width consequence, which is the only real cost.** Five labelled segments already exceed
-the window's 600pt `minWidth` once the traffic lights and utility pill are counted, and
+the window's 760pt `minWidth` once the traffic lights and utility pill are counted, and
 `WorkspaceBarMetrics` sheds every label at once (`.full` → `.iconOnly`) when they do. A sixth
-segment moves that threshold further out, so the bar spends more of its time icon-only — measured
-on the current segments, labels drop below roughly 890pt at 100% text and 1110pt at 150%. That is a
-real regression in a control every workspace depends on, and it is the thing to weigh against
-Backup being a workspace rather than something reached from Storage. The glyph has to carry the
-whole label at narrow widths, so it must be legible alone rather than decorative.
+segment moves that threshold further out, so the bar spends more of its time icon-only. Measured
+through `WorkspaceBarMetrics.styles` at the default text size, with the ⌘K pill already compact:
+today's four segments need **708pt**, five (+Backup) need **800**, six need **883** — against a
+window floor of 760. So the fourth segment fits the narrowest window and the fifth does not; adding
+Backup means either an icon-only floor again or another raise. (At Large those become 755 / 856 /
+946.) That is a real regression in a control every workspace depends on, and it is the thing to
+weigh against Backup being a workspace rather than something reached from Storage. The glyph has to
+carry the whole label at narrow widths, so it must be legible alone rather than decorative.
 
 **Folders, not files — the decision the feature lives or dies on.** A home folder holds hundreds of
 thousands of files and listing them answers nothing. Report the **highest folder that is entirely

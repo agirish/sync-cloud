@@ -21,10 +21,10 @@ import FileExplorer
     /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 760, …)`, which
     /// `.windowResizability(.contentMinSize)` makes a floor rather than a preference.
     ///
-    /// **One constant, because "the floor" is a claim every test here makes.** It was the literal
-    /// 600 in six places until the window was raised, and a literal repeated six times is six
-    /// chances to update five of them — the shape that leaves one assertion quietly measuring a
-    /// width no window can have.
+    /// **One constant, because "the floor" is a claim every test here makes.** It was the bare
+    /// literal 600, nine times across four tests, until the window was raised — and a literal
+    /// repeated nine times is nine chances to update eight of them, the shape that leaves one
+    /// assertion quietly measuring a width no window can have.
     private static let windowFloor: CGFloat = 760
 
     /// The real labels at the real weight, so these assertions measure the shipping bar rather
@@ -69,7 +69,7 @@ import FileExplorer
     /// window can be dragged to. What is pinned here is that it stays that way — a fifth segment
     /// or another toolbar control would push the threshold back up through the floor, and this
     /// fails naming the number rather than letting a glyph-only floor return unannounced.
-    @Test func testTheLabelsSurviveToWithinAShortDistanceOfTheFloor() {
+    @Test func testTheLabelsSurviveTheNarrowestWindow() {
         let widths = labelWidths()
         let search = searchWidths()
         let keepsWords = WorkspaceBarMetrics.fullWidth(labelWidths: widths)

@@ -488,8 +488,11 @@ import Testing
     /// default text size against a 559pt tab-list opening — 247pt of slack, room for roughly
     /// seven more tabs. (Small 269pt, Large 223pt, Larger 191pt: the margin narrows with the text
     /// size, as it should, and none of the four is close.) The rail is nowhere near its ceiling on
-    /// the display it is budgeted against; where it DOES bind is the sheet's own floor —
-    /// `theRailIsWhatTheFloorSizedSheetRunsOutOf`.
+    /// the display it is budgeted against. Where it binds hardest among the sizes a user can
+    /// actually make is the window's own floor — `theRailFitsTheSheetTheWindowFloorProduces`,
+    /// where the slack is down to 9.6pt at Larger. Below that is `floorSize` itself, which the
+    /// main window can no longer reach: `theRailIsWhatTheFloorSizedSheetRunsOutOf` keeps that
+    /// case honest for hosts smaller than this one.
     @MainActor
     @Test(arguments: FontSize.allCases)
     func theRailFitsItsOpening(_ size: FontSize) async throws {
@@ -508,9 +511,10 @@ import Testing
     ///
     /// `ContentView` gives the window a 760×560 content floor, so `resolvedSize` is clamped by the
     /// window (712×512) and stops well above the floor `theRailIsWhatTheFloorSizedSheetRunsOutOf`
-    /// measures. Hard-coding the pair here mirrors what `sheetClampsToTheSpaceTheHostHas` already
-    /// does — the Settings module cannot see `MacApp` — and a floor raised without looking here
-    /// only ever makes this pass.
+    /// measures. The pair is a literal in `windowFloor` because the Settings module cannot see
+    /// `MacApp`; `sheetClampsToTheSpaceTheHostHas` reads the same constant, so there is one place
+    /// to correct rather than two — and a floor raised in `ContentView` without touching it only
+    /// ever makes this pass.
     ///
     /// This is the assertion the floor test cannot make: it records where the layout gives up,
     /// which is a case the window no longer reaches, so on its own it would leave the rail's real
