@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import Foundation
 @testable import SyncCloud
 
 /// The menu-bar chords' window-side plumbing: the destination-pick suspension, and the ⌘/
@@ -19,12 +20,60 @@ import Testing
             differencesList: .constant(true),
             delete: {},
             switchPaneFocus: PaneFocusSwitch(targetName: "Dropbox", run: {}),
+            commandPalette: {},
             suspended: suspended
         )
     }
 
+    /// **Every `effective…` value is actually published.**
+    ///
+    /// The suspension tests below hold the *rule* and cannot see whether anything reads it: deleting
+    /// a `.focusedSceneValue` line leaves them all green and the menu item permanently disabled,
+    /// which is how a chord dies silently. Measured — removing ⌘K's publication passed the whole
+    /// app suite before this existed.
+    ///
+    /// Derived from the source rather than listed here, so a thirteenth value is covered the moment
+    /// it is added rather than when someone remembers to extend a list.
+    @Test func everyEffectiveValueIsHandedToAFocusedSceneValue() throws {
+        let source = try Self.publisherSource()
+        let names = source.split(separator: "\n")
+            .compactMap { line -> String? in
+                guard let range = line.range(of: "var effective") else { return nil }
+                let rest = line[range.upperBound...]
+                let name = rest.prefix { $0.isLetter || $0.isNumber }
+                return name.isEmpty ? nil : "effective\(name)"
+            }
+        #expect(names.count >= 12,
+                "found only \(names.count) effective values — this scan would be near-vacuous")
+        let body = Self.codeOnly(source)
+        for name in names {
+            #expect(body.contains(".focusedSceneValue(") && body.contains(", \(name))"),
+                    "\(name) is computed and never published — its menu item is permanently disabled")
+        }
+    }
+
+    /// The publisher's own source, named so a rename fails loudly rather than emptying the scan.
+    static func publisherSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ShortcutCommands.swift")
+        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                "cannot read ShortcutCommands.swift — the scan would be vacuous")
+        #expect(text.count > 500, "ShortcutCommands.swift is implausibly short")
+        return text
+    }
+
+    /// Whole-line `//` comments removed — a scan for what the code does must not read the prose
+    /// that describes it. The same helper, and the same reason, as `OrganizeScopeCallSiteTests`.
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     /// While the destination picker is up its overlay blocks the mouse from every control these
-    /// chords mirror; the keyboard must not tunnel under it. One flag silences all eleven.
+    /// chords mirror; the keyboard must not tunnel under it. One flag silences all twelve.
     @Test func suspensionSilencesEveryPublishedValue() {
         let publisher = loadedPublisher(suspended: true)
         #expect(publisher.effectiveWorkspace == nil)
@@ -38,6 +87,9 @@ import Testing
         #expect(publisher.effectiveDifferencesList == nil)
         #expect(publisher.effectiveDelete == nil)
         #expect(publisher.effectiveSwitchPaneFocus == nil)
+        // ⌘K was the one chord published outside this type, and so the one this suspension did not
+        // reach: the palette opened over an in-flight destination pick and could route out of it.
+        #expect(publisher.effectiveCommandPalette == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -56,6 +108,7 @@ import Testing
         #expect(publisher.effectiveDifferencesList != nil)
         #expect(publisher.effectiveDelete != nil)
         #expect(publisher.effectiveSwitchPaneFocus != nil)
+        #expect(publisher.effectiveCommandPalette != nil)
     }
 
     /// The Go menu item names the pane it moves focus TO — and it is the only surface that says

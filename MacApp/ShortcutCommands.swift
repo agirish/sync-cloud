@@ -166,7 +166,7 @@ extension FocusedValues {
 
 // MARK: - ContentView's half
 
-/// The eleven focused-value publications, bundled into one modifier with every field explicitly
+/// The twelve focused-value publications, bundled into one modifier with every field explicitly
 /// typed. Not organizational: chained inline in `ContentView.body` — an expression the compiler
 /// already strains under — the ternaries and property references pushed type-checking past its
 /// time limit and failed the build. Stored properties give inference nothing to solve.
@@ -182,6 +182,16 @@ struct ShortcutValuePublisher: ViewModifier {
     let differencesList: Binding<Bool>?
     let delete: (() -> Void)?
     let switchPaneFocus: PaneFocusSwitch?
+    /// ⌘K. **Published through here rather than on its own**, which is the whole reason this type
+    /// exists: it was hung directly off `ContentView.body` and so was the one chord the suspension
+    /// below did not reach. With the destination picker up — an in-flight file operation waiting on
+    /// an answer — ⌘K still opened the palette over it, and a route from there switched workspace
+    /// mid-pick. Exactly the tunnelling every other chord is suspended to prevent.
+    ///
+    /// It is suspended while the palette itself is up too, and that is correct rather than a side
+    /// effect: the panel owns the chord then, through the event monitor in `CommandPalettePanel`,
+    /// so a live menu item would be a second path to one act.
+    let commandPalette: (() -> Void)?
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
     /// file operation is waiting on an answer — but focused values are published by the still-
@@ -206,6 +216,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveDifferencesList: Binding<Bool>? { suspended ? nil : differencesList }
     var effectiveDelete: (() -> Void)? { suspended ? nil : delete }
     var effectiveSwitchPaneFocus: PaneFocusSwitch? { suspended ? nil : switchPaneFocus }
+    var effectiveCommandPalette: (() -> Void)? { suspended ? nil : commandPalette }
 
     func body(content: Content) -> some View {
         content
@@ -220,6 +231,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.differencesListVisible, effectiveDifferencesList)  // ⌘D
             .focusedSceneValue(\.deleteSelection, effectiveDelete)           // ⌘⌫
             .focusedSceneValue(\.switchPaneFocus, effectiveSwitchPaneFocus)  // ⌃⇥
+            .focusedSceneValue(\.commandPalette, effectiveCommandPalette)     // ⌘K
     }
 }
 
@@ -237,6 +249,7 @@ extension ContentView {
             differencesList: shortcutDifferencesList,
             delete: shortcutDeleteSelection,
             switchPaneFocus: switchPaneFocusAction,
+            commandPalette: toggleCommandPalette,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind

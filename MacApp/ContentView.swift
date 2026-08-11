@@ -2359,9 +2359,6 @@ struct ContentView: View {
         // this window's state; it cannot be `.onKeyPress` at all, since that is focus-scoped and a
         // pane search is invoked precisely when focus is in a file table. See `FindInPaneCommand`.
         .focusedSceneValue(\.beginPaneSearch, beginPaneSearch)
-        // ⌘K, on the same contract and for the same reason: `.onKeyPress` is focus-scoped and the
-        // palette is wanted exactly when focus is in a file table. See `CommandPaletteCommand`.
-        .focusedSceneValue(\.commandPalette, toggleCommandPalette)
         // The rest of the menu-bar chords, on the same contract, bundled into one modifier
         // (`ShortcutValuePublisher` — inlining the ten chained publications here broke the
         // type-checker's time budget): each value recomputes with this body, so a menu item's
