@@ -1463,7 +1463,32 @@ public struct TidyView: View {
         }
     }
 
-    private var railCounts: RailCounts {
+    /// Whether each pass can answer about the subject `scope` describes — **one member, because the
+    /// rail and the overview must not disagree about it and already did.**
+    ///
+    /// The overview learned this question and the rail did not, so for one commit the rail drew a
+    /// quiet "checked, nothing here" badge for a subtree no pass had entered while the overview
+    /// beside it said the lens had never run. The rail's own `scanned` set carries a comment
+    /// promising the two use the same conditions; this is what makes that true again.
+    ///
+    /// **The subject is what the surface CLAIMS to describe** — the scope when set, the provider
+    /// root otherwise. Never the scanned root: that asks whether a scan covered itself.
+    ///
+    /// Names and Renames are absent on purpose. `detectRiskyNames` and `detectRenamePlans` are
+    /// handed the provider-wide taxonomy, so their findings cover any subject inside the provider
+    /// and a gate would only hide real work — see ``overviewModel``.
+    func passCoverage(for scope: OrganizeScope?) -> (filing: Bool, duplicates: Bool) {
+        let subject = scope?.path ?? providerRoot
+        return (filing: OrganizeScopeFilter.looseFileScanCovers(
+                    subject: subject, scannedFolder: syncManager.filingScanFolder),
+                duplicates: OrganizeScopeFilter.scanCovers(
+                    subject: subject, scannedRoot: syncManager.duplicateScanRoot))
+    }
+
+    /// Internal, not private, for the same reason ``overviewModel`` is: `OrganizeOverviewWiringTests`
+    /// asserts what this actually hands the rail, and the render suite is handed its values rather
+    /// than computing them.
+    var railCounts: RailCounts {
         // **The STORED scope, not the applied one, and this is the whole reason the two are
         // separate.** `scope` answers "what is the list on screen narrowed by", which is nil while
         // Rules is selected. The rail draws all six badges whatever is selected, so reading it here
@@ -1493,13 +1518,25 @@ public struct TidyView: View {
             // No scope test, because `appliedScope(for: .rules)` is always nil — a call written
             // here would read like a live narrowing and be one that can never fire.
             rules: syncManager.automationRules.count,
-            // The same conditions ``overviewSections`` uses, so the rail and the overview cannot
-            // disagree about whether a lens has run. Rules is absent because it never scans.
+            // The same conditions ``overviewModel`` uses, so the rail and the overview cannot
+            // disagree about whether a lens has run *here*. Rules is absent because it never scans.
+            //
+            // **"Has run" is not the same question as "has run where this badge is pointed."** A
+            // pass that ran over some other folder leaves these flags true forever, and reading
+            // them alone made the rail draw its quiet checked badge for a subtree nothing had
+            // looked at — the same claim the overview stopped making one commit earlier. Each
+            // item's own applied scope decides its subject, matching the counts above.
             scanned: {
                 var ran: Set<OrganizeLens> = []
-                if syncManager.hasSuggestedFiling { ran.insert(.toFile); ran.insert(.renames) }
-                if syncManager.hasFoundDuplicates { ran.insert(.duplicates) }
+                // Provider-wide walks: their findings cover any subject inside the provider.
+                if syncManager.hasSuggestedFiling { ran.insert(.renames) }
                 if syncManager.hasScannedNames { ran.insert(.names) }
+                if syncManager.hasSuggestedFiling,
+                   passCoverage(for: appliedScope(for: .toFile)).filing { ran.insert(.toFile) }
+                if syncManager.hasFoundDuplicates,
+                   passCoverage(for: appliedScope(for: .duplicates)).duplicates {
+                    ran.insert(.duplicates)
+                }
                 if syncManager.filingFolderProfile != nil { ran.insert(.restructure) }
                 return ran
             }())
@@ -2844,17 +2881,9 @@ public struct TidyView: View {
         //   therefore cover every scope inside the provider, and gating them on the filing folder
         //   hid real findings under any scope the inbox scan did not sit in. If either detector is
         //   ever narrowed to a subtree, it needs a gate here against ITS OWN root.
-        // **The subject is what this screen SAYS it is about, and with no scope that is the whole
-        // tree — not whichever folder was last scanned.** Unscoped, the clean state reads "Nothing
-        // to do here. Every check that has run came back clean.", so browsing into `Photos/2024`
-        // and pressing Rescan claimed the whole tree was clean on the strength of one subfolder.
-        // Asking whether the scan covered the *scanned root* would always answer yes, which is how
-        // that survived the scoped fix.
-        let subject = scope?.path ?? providerRoot
-        let filingCovers = OrganizeScopeFilter.looseFileScanCovers(
-            subject: subject, scannedFolder: syncManager.filingScanFolder)
-        let duplicatesCover = OrganizeScopeFilter.scanCovers(
-            subject: subject, scannedRoot: syncManager.duplicateScanRoot)
+        let covers = passCoverage(for: scope)
+        let filingCovers = covers.filing
+        let duplicatesCover = covers.duplicates
         // Hoisted out of the loop below because the ledger needs it too. Filtering it a second time
         // for the reclaimable total would be a second pass over 722 groups per render — see the
         // type's note.

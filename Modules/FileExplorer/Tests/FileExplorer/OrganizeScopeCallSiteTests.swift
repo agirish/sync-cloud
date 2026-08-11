@@ -129,7 +129,7 @@ import Foundation
 
     @Test func railCountsAreScoped() throws {
         let tidy = try Self.source("TidyView.swift")
-        let start = try #require(tidy.range(of: "private var railCounts: RailCounts {"),
+        let start = try #require(tidy.range(of: "var railCounts: RailCounts {"),
                                  "railCounts is gone — this scan would be vacuous")
         let rest = tidy[start.upperBound...]
         let end = try #require(rest.range(of: "\n    }"), "no closing brace for railCounts")
@@ -556,24 +556,35 @@ import Foundation
     ///   stops that returning.
     @Test func eachScannedLensGatesOnThePredicateItsPassJustifies() throws {
         let tidy = try Self.source("TidyView.swift")
-        let model = try Self.body(of: "var overviewModel: OverviewModel {", in: tidy)
+        // The rule lives in `passCoverage` because the rail asks it too — the two surfaces
+        // disagreed for exactly one commit when only the overview had it.
+        let coverage = try Self.body(of: "func passCoverage(for scope: OrganizeScope?)", in: tidy)
 
-        #expect(model.contains("OrganizeScopeFilter.looseFileScanCovers"),
+        #expect(coverage.contains("OrganizeScopeFilter.looseFileScanCovers"),
                 "To File no longer asks whether the enumerated folder was the subject")
-        #expect(model.contains("scannedFolder: syncManager.filingScanFolder"))
-        #expect(model.contains("OrganizeScopeFilter.scanCovers"),
+        #expect(coverage.contains("scannedFolder: syncManager.filingScanFolder"))
+        #expect(coverage.contains("OrganizeScopeFilter.scanCovers"),
                 "Duplicates no longer asks whether its scan covered the subject")
-        #expect(model.contains("scannedRoot: syncManager.duplicateScanRoot"))
+        #expect(coverage.contains("scannedRoot: syncManager.duplicateScanRoot"))
 
         // **The subject is what the screen CLAIMS, and unscoped that is the provider root.** Written
         // as `scope?.path ?? providerRoot`: falling back to the scanned root instead would ask
         // whether each scan covered itself, which is how the unscoped half of this bug survived the
         // scoped fix — browse into a subfolder, rescan, and the whole tree reads "clean".
-        #expect(model.contains("let subject = scope?.path ?? providerRoot"),
-                "the overview's subject is no longer scope-or-provider-root")
-        let code = Self.codeOnly(model)
-        #expect(!code.contains("subject: scope?.path ?? syncManager.duplicateScanRoot"),
+        #expect(coverage.contains("let subject = scope?.path ?? providerRoot"),
+                "the coverage subject is no longer scope-or-provider-root")
+        #expect(!Self.codeOnly(coverage).contains("syncManager.duplicateScanRoot\n"),
                 "the scanned root is being used as the subject — that asks whether a scan covered itself")
+
+        // Both readers consult it, and the rail is the one that regressed.
+        let model = try Self.body(of: "var overviewModel: OverviewModel {", in: tidy)
+        #expect(model.contains("passCoverage(for: scope)"))
+        let rail = try Self.body(of: "var railCounts: RailCounts {", in: tidy)
+        #expect(rail.contains("passCoverage(for: appliedScope(for: .toFile)).filing"),
+                "the rail's To File badge stopped asking whether the scan covered its subject")
+        #expect(rail.contains("passCoverage(for: appliedScope(for: .duplicates)).duplicates"),
+                "the rail's Duplicates badge stopped asking whether the scan covered its subject")
+        let code = Self.codeOnly(model)
 
         // Exactly ONE arm may consult the loose-file coverage flag — To File's. Comments are
         // stripped first: this file has already had a scan match the prose explaining a rule

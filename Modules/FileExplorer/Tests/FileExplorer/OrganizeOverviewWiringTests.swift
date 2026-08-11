@@ -98,6 +98,62 @@ import SwiftUI
         #expect(count == 1)
     }
 
+    /// **The rail must answer the coverage question the overview answers**, or the two surfaces
+    /// disagree about the same lens on the same screen — the rail drawing its quiet "checked,
+    /// nothing here" badge beside an overview row saying the lens never ran. The rail's `scanned`
+    /// set read `hasFoundDuplicates` alone, which stays true forever once any scan has run.
+    @Test func theRailDoesNotCallALensCleanForASubtreeItsScanNeverCovered() {
+        let m = FileSyncManager()
+        m.duplicateScanRoot = "/root/Photos"
+        m.hasFoundDuplicates = true
+        m.duplicateGroups = []
+        #expect(subject(m).railCounts.state(.duplicates) == .notScanned,
+                "the rail called the whole tree checked on the strength of one subfolder")
+        // The overview says the same thing about the same lens — that agreement is the point.
+        #expect(duplicatesState(m) == .notScanned)
+    }
+
+    /// Both directions, so the rail cannot simply have stopped saying clean.
+    @Test func theRailStillSaysCleanWhenTheScanCoveredTheSubject() {
+        let m = FileSyncManager()
+        m.duplicateScanRoot = "/root"
+        m.hasFoundDuplicates = true
+        m.duplicateGroups = []
+        #expect(subject(m).railCounts.state(.duplicates) == .clean)
+        #expect(duplicatesState(m) == .clean)
+    }
+
+    /// **To File takes the one-level rule, and this is the only behavioural test of it.** Its pass
+    /// enumerates the direct files of one folder, so a scan of the provider root cannot answer for
+    /// anything below it — where Duplicates, being recursive, could.
+    @Test func toFileNeedsTheExactFolderWhileDuplicatesAcceptsAnAncestor() {
+        let m = FileSyncManager()
+        m.filingScanFolder = "/root/TODO"
+        m.hasSuggestedFiling = true
+        m.duplicateScanRoot = "/root/TODO"
+        m.hasFoundDuplicates = true
+
+        // Subject is `/root` (no scope resolves against this fixture's provider root).
+        #expect(subject(m).railCounts.state(.toFile) == .notScanned,
+                "a one-level scan of TODO was allowed to answer for the whole tree")
+        #expect(subject(m).railCounts.state(.duplicates) == .notScanned)
+
+        // Now the pass really did enumerate the subject's own loose files.
+        m.filingScanFolder = "/root"
+        #expect(subject(m).railCounts.state(.toFile) == .clean)
+    }
+
+    /// Names and Renames ride the provider-wide taxonomy walk, so they are covered wherever the
+    /// subject points — gating them would hide findings the scan genuinely made.
+    @Test func namesAndRenamesAreNeverGatedByTheFilingFolder() {
+        let m = FileSyncManager()
+        m.filingScanFolder = "/root/TODO"
+        m.hasSuggestedFiling = true
+        m.hasScannedNames = true
+        #expect(subject(m).railCounts.state(.names) == .clean)
+        #expect(subject(m).railCounts.state(.renames) == .clean)
+    }
+
     /// **The filing walk marks all three of its lenses**, Names included.
     ///
     /// Names rode `isScanningNames` alone, which is never true on this path: the filing scan reaches
