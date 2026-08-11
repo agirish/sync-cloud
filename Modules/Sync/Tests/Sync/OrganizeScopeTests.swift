@@ -327,27 +327,42 @@ import Foundation
     /// the scan having found nothing are different facts, and only the second is "clean" — the
     /// overview claimed the first as the second for any scope the pass never entered.
     @Test func aScanCoversOnlyItsOwnRootAndWhatIsUnderIt() {
-        let legal = Self.scope(Self.legal)
-        // The scan that covers it: the scope itself, and any ancestor of it.
-        #expect(OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.legal))
-        #expect(OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root))
+        // The scan that covers it: the subject itself, and any ancestor of it.
+        #expect(OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.legal))
+        #expect(OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root))
         // The ones that do not — a sibling, and a DESCENDANT, which is the subtle one: scanning
         // `Legal/2024` says nothing about the rest of `Legal`.
-        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root + "/Photos"))
-        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.legal + "/2024"))
+        #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root + "/Photos"))
+        #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.legal + "/2024"))
         // A prefix that is not a path boundary is not an ancestor.
-        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root + "/Leg"))
+        #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root + "/Leg"))
         // Nothing has run at all.
-        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: nil))
+        #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: nil))
     }
 
-    /// With no scope the only question is whether a pass has run — the global view stays on the
-    /// same code path rather than becoming a second branch.
-    @Test func withNoScopeCoverageIsJustWhetherAPassHasRun() {
-        #expect(OrganizeScopeFilter.scanCovers(scope: nil, scannedRoot: Self.root + "/Photos"))
-        #expect(!OrganizeScopeFilter.scanCovers(scope: nil, scannedRoot: nil))
-        #expect(OrganizeScopeFilter.looseFileScanCovers(scope: nil, scannedFolder: Self.root))
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: nil, scannedFolder: nil))
+    /// **The unscoped case is the provider root, not "whatever ran".** With no scope the overview
+    /// says *"Nothing to do here. Every check that has run came back clean."* — about everything —
+    /// so its subject is the tree's top and a scan of one browsed subfolder does not cover it.
+    /// Passing the scanned root in as the subject would ask whether the scan covered itself.
+    @Test func withNoScopeTheSubjectIsTheProviderRootAndASubfolderScanDoesNotCoverIt() {
+        #expect(!OrganizeScopeFilter.scanCovers(subject: Self.root, scannedRoot: Self.root + "/Photos"),
+                "a scan of one subfolder was allowed to answer for the whole tree")
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.root,
+                                                        scannedFolder: Self.root + "/Photos"))
+        // Scanning the tree's top does cover it, which is the ordinary global case.
+        #expect(OrganizeScopeFilter.scanCovers(subject: Self.root, scannedRoot: Self.root))
+        #expect(OrganizeScopeFilter.looseFileScanCovers(subject: Self.root, scannedFolder: Self.root))
+    }
+
+    /// Only with NO subject at all — no scope and no provider — does the question fall back to
+    /// "has anything run", because there is nothing to have covered.
+    @Test func withNoSubjectAtAllCoverageIsJustWhetherAPassHasRun() {
+        for empty in [nil, ""] as [String?] {
+            #expect(OrganizeScopeFilter.scanCovers(subject: empty, scannedRoot: Self.root + "/Photos"))
+            #expect(!OrganizeScopeFilter.scanCovers(subject: empty, scannedRoot: nil))
+            #expect(OrganizeScopeFilter.looseFileScanCovers(subject: empty, scannedFolder: Self.root))
+            #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: empty, scannedFolder: nil))
+        }
     }
 
     /// **A one-level pass can only answer about the folder it enumerated**, and the ancestor case is
@@ -355,25 +370,25 @@ import Foundation
     /// root-level filing scan leaves `Legal`'s count zero by construction. Answering "covered" there
     /// is the false-clean bug one level up, which is what a shared ancestry predicate produced.
     @Test func aOneLevelScanAnswersOnlyForTheFolderItEnumerated() {
-        let legal = Self.scope(Self.legal)
-        #expect(OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.legal))
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.root),
+
+        #expect(OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.legal))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.root),
                 "an ancestor scan enumerated its own loose files, not the scope's")
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal,
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal,
                                                         scannedFolder: Self.legal + "/2024"))
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal,
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal,
                                                         scannedFolder: Self.root + "/Photos"))
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: nil))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: nil))
         // Same folder, spelled two ways — equality has to go through the path rules, not `==`.
-        #expect(OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.legal + "/"))
+        #expect(OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.legal + "/"))
     }
 
     /// The two predicates must not collapse into one another: the recursive pass accepts an
     /// ancestor exactly where the one-level pass refuses it. If a future edit points both at the
     /// same helper, this fails.
     @Test func theRecursiveAndOneLevelRulesDisagreeAboutAnAncestor() {
-        let legal = Self.scope(Self.legal)
-        #expect(OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root))
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(scope: legal, scannedFolder: Self.root))
+
+        #expect(OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.root))
     }
 }

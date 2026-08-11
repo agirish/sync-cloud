@@ -559,16 +559,25 @@ import Foundation
         let model = try Self.body(of: "var overviewModel: OverviewModel {", in: tidy)
 
         #expect(model.contains("OrganizeScopeFilter.looseFileScanCovers"),
-                "To File no longer asks whether the enumerated folder was the scope")
+                "To File no longer asks whether the enumerated folder was the subject")
         #expect(model.contains("scannedFolder: syncManager.filingScanFolder"))
         #expect(model.contains("OrganizeScopeFilter.scanCovers"),
-                "Duplicates no longer asks whether its scan covered the scope")
+                "Duplicates no longer asks whether its scan covered the subject")
         #expect(model.contains("scannedRoot: syncManager.duplicateScanRoot"))
+
+        // **The subject is what the screen CLAIMS, and unscoped that is the provider root.** Written
+        // as `scope?.path ?? providerRoot`: falling back to the scanned root instead would ask
+        // whether each scan covered itself, which is how the unscoped half of this bug survived the
+        // scoped fix — browse into a subfolder, rescan, and the whole tree reads "clean".
+        #expect(model.contains("let subject = scope?.path ?? providerRoot"),
+                "the overview's subject is no longer scope-or-provider-root")
+        let code = Self.codeOnly(model)
+        #expect(!code.contains("subject: scope?.path ?? syncManager.duplicateScanRoot"),
+                "the scanned root is being used as the subject — that asks whether a scan covered itself")
 
         // Exactly ONE arm may consult the loose-file coverage flag — To File's. Comments are
         // stripped first: this file has already had a scan match the prose explaining a rule
         // rather than the rule, and the note above `filingCovers` names every lens.
-        let code = Self.codeOnly(model)
         #expect(code.components(separatedBy: "!filingCovers").count - 1 == 1,
                 "Names or Renames is gating on the filing folder again — their detectors read the provider-wide taxonomy, so that hides findings the scan does have")
         #expect(code.components(separatedBy: "!duplicatesCover").count - 1 == 1)

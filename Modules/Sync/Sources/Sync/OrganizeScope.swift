@@ -249,7 +249,15 @@ public enum OrganizeScopeFilter {
 
     // MARK: Whether an answer about the scope can be given at all
 
-    /// Whether a **recursive** pass rooted at `scannedRoot` looked inside `scope`.
+    /// Whether a **recursive** pass rooted at `scannedRoot` looked inside `subject`.
+    ///
+    /// **`subject` is what the surface CLAIMS to describe — the scope when one is set, otherwise the
+    /// provider root.** It is deliberately NOT ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``,
+    /// whose second rung is the scanned root: that rung is right for "where should the re-aim offer
+    /// point", and circular here. Feeding the scanned root in as the subject asks whether the scan
+    /// covered itself, which is always yes, and that is exactly the hole this pair exists to close —
+    /// with no scope set, browsing into `Photos/2024` and pressing Rescan made the overview report
+    /// *"Nothing to do here. Every check that has run came back clean."* about the whole tree.
     ///
     /// **Filtering to zero and finding nothing are different answers, and only one of them is
     /// "clean".** Every filter below narrows a list the scan produced; none of them can say whether
@@ -258,40 +266,41 @@ public enum OrganizeScopeFilter {
     /// about a subtree nothing had opened, reachable through three ordinary doors that move the
     /// scope without scanning (the inbox shortcut, Open on a single-source row, ⌘K).
     ///
-    /// A scan of an ANCESTOR covers the scope; a sibling or a descendant does not. With no scope
-    /// the question is only whether a pass has a root at all, which keeps the global view on the
-    /// same code path as every other function here.
+    /// A scan of an ANCESTOR covers the subject; a sibling or a descendant does not. With no
+    /// subject at all — no scope and no provider — the question falls back to whether a pass has a
+    /// root, because there is nothing to have covered.
     ///
     /// **Only for passes that walk the whole subtree** — the duplicate scan (`maxDepth: nil`), and
     /// the provider-wide taxonomy walk that produces risky names and rename plans. A pass that
-    /// enumerates ONE level needs ``looseFileScanCovers(scope:scannedFolder:)`` instead; using this
-    /// one for it re-opens the exact bug above, because a root-level scan would claim to cover
-    /// every subfolder while having enumerated none of them.
-    public static func scanCovers(scope: OrganizeScope?, scannedRoot: String?) -> Bool {
-        guard let scope else { return scannedRoot != nil }
+    /// enumerates ONE level needs ``looseFileScanCovers(subject:scannedFolder:)`` instead; using
+    /// this one for it re-opens the same bug, because a root-level scan would claim to cover every
+    /// subfolder while having enumerated none of them.
+    public static func scanCovers(subject: String?, scannedRoot: String?) -> Bool {
+        guard let subject, !subject.isEmpty else { return scannedRoot != nil }
         guard let scannedRoot else { return false }
-        return PathBoundary.contains(scope.path, under: scannedRoot)
+        return PathBoundary.contains(subject, under: scannedRoot)
     }
 
-    /// Whether a **one-level** pass over `scannedFolder` can answer about `scope`.
+    /// Whether a **one-level** pass over `scannedFolder` can answer about `subject`.
     ///
     /// The filing pass enumerates the direct files of one folder (`maxDepth: 1`), so the set it
     /// could possibly report is exactly "the loose files in `scannedFolder`". That set intersects a
-    /// scope only when the scope *is* that folder:
+    /// subject only when the subject *is* that folder:
     ///
-    /// - a **descendant** scope holds none of them (a direct child of the folder that is itself
-    ///   inside the scope would have to be a folder, not a loose file);
-    /// - an **ancestor** scope — including the provider root — contains them, but also contains
+    /// - a **descendant** subject holds none of them (a direct child of the folder that is itself
+    ///   inside the subject would have to be a folder, not a loose file);
+    /// - an **ancestor** subject — including the provider root — contains them, but also contains
     ///   everything else the pass never enumerated, so a zero there is not a clean bill either.
-    ///   This is the case ancestry gets wrong: scan the provider root, scope to `Legal`, and the
-    ///   scoped count is zero by construction while `scanCovers` would call it covered.
+    ///   This is the case ancestry gets wrong in both directions: scan the provider root and scope
+    ///   to `Legal`, or scan one browsed folder with no scope at all, and the count is zero by
+    ///   construction while ancestry would call it covered.
     ///
     /// Hence equality, decided through ``PathBoundary`` rather than `==` so that a trailing slash
     /// or a `.` segment cannot make the same folder read as two.
-    public static func looseFileScanCovers(scope: OrganizeScope?, scannedFolder: String?) -> Bool {
-        guard let scope else { return scannedFolder != nil }
+    public static func looseFileScanCovers(subject: String?, scannedFolder: String?) -> Bool {
+        guard let subject, !subject.isEmpty else { return scannedFolder != nil }
         guard let scannedFolder else { return false }
-        return PathBoundary.relativize(scope.path, under: scannedFolder) == ""
+        return PathBoundary.relativize(subject, under: scannedFolder) == ""
     }
 
     // MARK: To File / Names / Renames — the item is under the scope

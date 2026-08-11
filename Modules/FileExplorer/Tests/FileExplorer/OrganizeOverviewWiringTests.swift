@@ -22,10 +22,13 @@ import SwiftUI
     /// `.defaultAppStorage` can intercept it. Writing a scratch scope to pin it would mean writing
     /// this machine's own domain, which is off limits.
     ///
-    /// It holds because every assertion here is about `isScanning`, which is computed from the
-    /// manager's lifecycle flags alone and cannot vary with a scope. **A test added here that
-    /// asserts a count or an example would not have that guarantee** — the scope filters those —
-    /// and would pass or fail depending on where Organize happened to be pointed.
+    /// It held originally because every assertion was about `isScanning`, which is computed from
+    /// the manager's lifecycle flags alone and cannot vary with a scope. The coverage tests below
+    /// *do* assert states that a scope would change, and they are safe for a second, narrower
+    /// reason: **this fixture's provider root is `/root`**, a real persisted scope points under the
+    /// user's home, and ``OrganizeScope/init(path:providerRoot:)`` refuses a path outside its root —
+    /// so `scope` resolves to nil here whatever the machine has stored, and the subject is `/root`.
+    /// A test added here whose fixture uses a provider root under the home would lose that.
     private func subject(_ manager: FileSyncManager) -> TidyView {
         TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
                  scanTargetFolder: "/root", onFindDuplicates: {}, onFindFilingSuggestions: {},
@@ -34,6 +37,65 @@ import SwiftUI
 
     private func scanning(_ manager: FileSyncManager) -> Set<OrganizeLens> {
         Set(subject(manager).overviewModel.sections.filter(\.isScanning).map(\.lens))
+    }
+
+    // MARK: - What a zero means, and what it must never suppress
+
+    /// **These three are safe to assert against live defaults even though `overviewModel` reads the
+    /// `@AppStorage` scope**, because the fixture's provider root is `/root`: a real persisted scope
+    /// points somewhere under the user's home, `OrganizeScope(path:providerRoot:)` refuses a path
+    /// outside its root, and `scope` is therefore reliably nil here. The subject is then `/root`.
+    private func duplicatesState(_ manager: FileSyncManager) -> OrganizeOverviewState? {
+        subject(manager).overviewModel.sections.first { $0.lens == .duplicates }?.state
+    }
+
+    private func group(at path: String) -> DuplicateGroup {
+        func copy(_ p: String, keeper: Bool) -> DuplicateCopy {
+            DuplicateCopy(id: p, name: (p as NSString).lastPathComponent, isDirectory: false,
+                          size: 10, itemCount: 1, modificationDate: nil, uniqueItemCount: 0,
+                          depth: 2, isRecommendedKeeper: keeper)
+        }
+        return DuplicateGroup(matchType: .identical, name: "x.pdf", isDirectory: false,
+                              copies: [copy(path, keeper: true), copy(path + ".dup", keeper: false)],
+                              reclaimableBytes: 10)
+    }
+
+    /// A scan of one browsed subfolder must not be allowed to call the whole tree clean. Unscoped
+    /// the overview says "Nothing to do here. Every check that has run came back clean." — about
+    /// everything — so its subject is the provider root, and `/root/Photos` does not cover it.
+    @Test func aSubfolderScanDoesNotLetTheOverviewCallTheWholeTreeClean() {
+        let m = FileSyncManager()
+        m.duplicateScanRoot = "/root/Photos"
+        m.hasFoundDuplicates = true
+        m.duplicateGroups = []
+        #expect(duplicatesState(m) == .notScanned,
+                "a scan of one subfolder was reported as a clean bill for the whole tree")
+    }
+
+    /// The other direction, so the guard above cannot be "never clean": a scan of the tree's top
+    /// with nothing found is a real clean bill.
+    @Test func aScanOfTheWholeTreeStillReportsClean() {
+        let m = FileSyncManager()
+        m.duplicateScanRoot = "/root"
+        m.hasFoundDuplicates = true
+        m.duplicateGroups = []
+        #expect(duplicatesState(m) == .clean)
+    }
+
+    /// **Coverage decides what a ZERO means — it must never suppress findings the scan really
+    /// made.** Groups found under `/root/Photos` are real wherever the subject is pointed, and an
+    /// uncovered-therefore-notScanned arm would bury them. This is the same error as gating Names
+    /// on the filing folder, and it was live in the first draft of the subject fix.
+    @Test func anUncoveredScanStillShowsTheFindingsItDidMake() {
+        let m = FileSyncManager()
+        m.duplicateScanRoot = "/root/Photos"
+        m.hasFoundDuplicates = true
+        m.duplicateGroups = [group(at: "/root/Photos/x.pdf")]
+        guard case .findings(let count, _, _) = duplicatesState(m) else {
+            Issue.record("real findings were hidden: \(String(describing: duplicatesState(m)))")
+            return
+        }
+        #expect(count == 1)
     }
 
     /// **The filing walk marks all three of its lenses**, Names included.

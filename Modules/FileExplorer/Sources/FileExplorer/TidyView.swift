@@ -2844,10 +2844,17 @@ public struct TidyView: View {
         //   therefore cover every scope inside the provider, and gating them on the filing folder
         //   hid real findings under any scope the inbox scan did not sit in. If either detector is
         //   ever narrowed to a subtree, it needs a gate here against ITS OWN root.
+        // **The subject is what this screen SAYS it is about, and with no scope that is the whole
+        // tree — not whichever folder was last scanned.** Unscoped, the clean state reads "Nothing
+        // to do here. Every check that has run came back clean.", so browsing into `Photos/2024`
+        // and pressing Rescan claimed the whole tree was clean on the strength of one subfolder.
+        // Asking whether the scan covered the *scanned root* would always answer yes, which is how
+        // that survived the scoped fix.
+        let subject = scope?.path ?? providerRoot
         let filingCovers = OrganizeScopeFilter.looseFileScanCovers(
-            scope: scope, scannedFolder: syncManager.filingScanFolder)
+            subject: subject, scannedFolder: syncManager.filingScanFolder)
         let duplicatesCover = OrganizeScopeFilter.scanCovers(
-            scope: scope, scannedRoot: syncManager.duplicateScanRoot)
+            subject: subject, scannedRoot: syncManager.duplicateScanRoot)
         // Hoisted out of the loop below because the ledger needs it too. Filtering it a second time
         // for the reclaimable total would be a second pass over 722 groups per render — see the
         // type's note.
@@ -2870,16 +2877,22 @@ public struct TidyView: View {
                     blurb: n > 0
                         ? "Loose files and where they belong — \(ready) ready, \(n - ready) unsure."
                         : "Loose files and where they belong.",
-                    state: !syncManager.hasSuggestedFiling || !filingCovers ? .notScanned
-                        : n == 0 ? .clean
-                        : .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
+                    // **Findings first: coverage decides what a ZERO means, never whether real
+                    // findings are shown.** Ordering the gate ahead of the count would hide work the
+                    // scan genuinely found — a duplicate scan of `Legal/2024` while scoped to
+                    // `Legal` produces groups that are really in `Legal`, and an uncovered-therefore-
+                    // notScanned arm would bury them. That is the same mistake as gating Names on
+                    // the filing folder, one line further down the ternary.
+                    state: n > 0 ? .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
                                     // `lazy` before `prefix`, so the limit bounds the SUGGESTIONS
                                     // examined and not merely the ones kept: a plain
                                     // `scoped.prefix(3).compactMap` over three homeless files
                                     // yields nothing at all while the fourth had a home to show.
                                     examples: Array(scoped.lazy.compactMap { s in
                                         s.best.map { "\(s.fileName) → \(($0.path as NSString).lastPathComponent)" }
-                                    }.prefix(OrganizeOverview.exampleLimit))),
+                                    }.prefix(OrganizeOverview.exampleLimit)))
+                        : !syncManager.hasSuggestedFiling || !filingCovers ? .notScanned
+                        : .clean,
                     isScanning: syncManager.isSuggestingFiles)
             case .duplicates:
                 let scoped = scopedDuplicates
@@ -2887,12 +2900,13 @@ public struct TidyView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Identical content under different names or folders.",
-                    state: !syncManager.hasFoundDuplicates || !duplicatesCover ? .notScanned
-                        : n == 0 ? .clean
-                        : .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
+                    // Findings first, for the reason written on To File above.
+                    state: n > 0 ? .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit).map {
                                         "\($0.name) — \($0.copies.count) copies"
-                                    }),
+                                    })
+                        : !syncManager.hasFoundDuplicates || !duplicatesCover ? .notScanned
+                        : .clean,
                     isScanning: syncManager.isFindingDuplicates)
             case .names:
                 let scoped = syncManager.riskyNames.filter {
