@@ -164,7 +164,11 @@ import SwiftUI
     @Test func theFilingWalkMarksAllThreeOfItsLenses() {
         let m = FileSyncManager()
         m.isSuggestingFiles = true
-        #expect(scanning(m) == Set(OrganizePass.file.lenses))
+        // Names is folded into Renames (P10), so its findings have no section of their own —
+        // but the walk still covers it, and its scanning claim rides the Renames card.
+        #expect(OrganizePass.file.lenses.contains(.names),
+                "the walk no longer covers names — the fold's premise is gone")
+        #expect(scanning(m) == Set(OrganizePass.file.lenses.filter { !$0.isFoldedIntoRenames }))
     }
 
     /// The name lifecycle still counts when it is the thing running — the fix widened the condition
@@ -172,7 +176,9 @@ import SwiftUI
     @Test func aStandaloneNameScanStillMarksNames() {
         let m = FileSyncManager()
         m.isScanningNames = true
-        #expect(scanning(m).contains(.names))
+        // Post-fold the Renames card hosts the names findings, so it is the card a standalone
+        // name scan must mark — the claim the old Names card carried, on its new home.
+        #expect(scanning(m).contains(.renames))
         #expect(!scanning(m).contains(.toFile), "a name scan is not the whole filing walk")
     }
 
@@ -215,8 +221,9 @@ import SwiftUI
             case .duplicates: m.isFindingDuplicates = true
             case .folderMemory: m.filingSurveyLifecycle.isRunning = true
             }
-            #expect(scanning(m) == Set(pass.lenses),
-                    "\(pass.rawValue) running marked \(scanning(m)) — expected \(Set(pass.lenses))")
+            let expected = Set(pass.lenses.filter { !$0.isFoldedIntoRenames })
+            #expect(scanning(m) == expected,
+                    "\(pass.rawValue) running marked \(scanning(m)) — expected \(expected)")
         }
     }
 
@@ -224,6 +231,8 @@ import SwiftUI
     @Test func rulesTakesNoSection() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         #expect(!sections.contains { $0.lens == .rules })
-        #expect(sections.count == OrganizeLens.allCases.filter(\.carriesBadge).count)
+        // Rail items only: the folded Names lens takes no section either (its findings ride
+        // the Renames card), so the sections are the badge-carrying RAIL items.
+        #expect(sections.count == OrganizeLens.railItems.filter(\.carriesBadge).count)
     }
 }

@@ -431,7 +431,8 @@ struct OrganizeOverview: View {
         /// cards and the footer cannot disagree about which checks are real here.
         static func countedLenses(runnablePasses: Set<OrganizePass>) -> Set<OrganizeLens> {
             Set(OrganizeLens.allCases.filter { lens in
-                guard lens.carriesBadge, let pass = OrganizePass(producing: lens) else {
+                guard lens.carriesBadge, !lens.isFoldedIntoRenames,
+                      let pass = OrganizePass(producing: lens) else {
                     return false
                 }
                 return runnablePasses.contains(pass)

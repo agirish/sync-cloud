@@ -24,7 +24,10 @@ import Foundation
         #expect(c[.toFile] == 24)
         #expect(c[.duplicates] == 722)
         #expect(c[.names] == 3)
-        #expect(c[.renames] == 126)
+        // The folded lens's badge counts its whole list — folder rows AND the to-fix rows the
+        // Names fold moved in (P10). 126 folders + 3 names; the distinct addends above prove
+        // the sum is a sum and not one of them.
+        #expect(c[.renames] == 126 + 3)
         #expect(c[.restructure] == 2)
         #expect(c[.rules] == 8)
         // And the six are genuinely distinct, so the assertions above discriminate.

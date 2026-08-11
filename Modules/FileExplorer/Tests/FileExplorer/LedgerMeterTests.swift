@@ -11,17 +11,18 @@ import Testing
     }
 
     @Test func reportingCountsOnlyFindings() {
+        // No `.names` section: the folded lens is counted with its host (P10), so the
+        // ledger's world is the four countable rail items.
         let ledger = OrganizeOverview.Ledger.derived(
             from: [section(.duplicates, .findings(count: 943, headline: "943 groups", examples: [])),
                    section(.renames, .findings(count: 132, headline: "132 folders", examples: [])),
                    section(.toFile, .clean),
-                   section(.names, .clean),
                    section(.restructure, .findings(count: 1, headline: "1 finding", examples: []))],
             runnablePasses: Set(OrganizePass.allCases),
             reclaimable: nil, scopeFolders: nil)
-        #expect(ledger.checksRun == 5)
+        #expect(ledger.checksRun == 4)
         #expect(ledger.checksReporting == 3)
-        #expect(ledger.checksClean == 2)
+        #expect(ledger.checksClean == 1)
     }
 
     @Test func aCleanLensIsRunButNotReporting() {

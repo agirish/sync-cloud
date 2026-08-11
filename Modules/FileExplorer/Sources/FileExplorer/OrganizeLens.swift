@@ -53,6 +53,25 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
+    /// Names folded into Renames (v4.0 polish P10): a provider-hostile name is one more kind of
+    /// rename, both answers ride the same file-pass walk, and the backlog's "to fix" section is
+    /// where the findings now live — present only when it reports, like every category there.
+    ///
+    /// **The case stays.** `rawValue` is persisted in ``defaultsKey``, so deleting it would turn
+    /// a stored "Names" selection into silent data loss (the personIs lesson); and the scan
+    /// machinery, counts and coverage questions still key on it. What folds is presentation:
+    /// ``railItems`` omits it, and a stored `.names` selection resolves to `.renames`.
+    public var isFoldedIntoRenames: Bool { self == .names }
+
+    /// The items the rail draws — every lens that presents as its own place.
+    public static var railItems: [OrganizeLens] { allCases.filter { !$0.isFoldedIntoRenames } }
+
+    /// Where a selection of this lens actually lands — `.renames` for the folded lens, itself
+    /// otherwise. The one migration seam for stored selections and programmatic routes alike.
+    public var resolvedForPresentation: OrganizeLens {
+        isFoldedIntoRenames ? .renames : self
+    }
+
     /// The defaults key holding the rail selection. **Absent means the overview** — which is why
     /// the stored type is optional rather than carrying a seventh "overview" case: there is no
     /// value to write for "no lens picked", and inventing one would make the unselected state
@@ -218,8 +237,9 @@ extension OrganizeLens {
         case .duplicates:  what = "Identical content under different names or folders."
         case .names:       what = "Names this provider will not accept, found on the filing scan. "
                                 + "Shows the proposed fixes."
-        case .renames:     what = "Folders that have drifted from their own numbering, and the "
-                                + "files inside them a rename would touch."
+        case .renames:     what = "Names that need changing — to sync, to convention, to order: "
+                                + "provider-hostile names to fix, and folders that have drifted "
+                                + "from their own numbering."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."
         case .rules:       what = "The rules that file things without asking. Configuration, so "

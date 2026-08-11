@@ -20,8 +20,15 @@ import SwiftUI
 struct RenamePassLens: View {
     @ObservedObject var syncManager: FileSyncManager
     let plans: [RenamePlan]
+    /// The folded Names lens (P10): names this provider will not accept, leading the list as a
+    /// "to fix" section — present only when it reports, like every category here. Error-tier
+    /// red, not caution: these names break sync until they change.
+    var riskyNames: [RiskyName] = []
     let accent: Color
     let onApply: ([RenamePlan]) -> Void
+    /// Applies the safe rename to the given risky rows as one undoable batch (the host wires
+    /// `normalizeNames`, exactly as the standalone lens did).
+    var onFix: ([RiskyName]) -> Void = { _ in }
     let onReveal: (String) -> Void
 
     /// Folders opened to show their steps. Collapsed by default — the summary line is the claim,
@@ -32,6 +39,9 @@ struct RenamePassLens: View {
         let sections = RenameCategories.sections(plans)
         let leftAlone = RenameCategories.leftAlone(plans)
         List {
+            if !riskyNames.isEmpty {
+                toFixSection
+            }
             ForEach(sections, id: \.category) { section in
                 Section {
                     ForEach(section.groups, id: \.parent) { group in
@@ -53,6 +63,86 @@ struct RenamePassLens: View {
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
+    }
+
+    // MARK: The to-fix section (the folded Names lens)
+
+    /// Names the provider rejects, above every category: the one kind of rename that isn't
+    /// housekeeping — sync fails until these change — so it opens the list and wears the error
+    /// tier. Rendered only when it reports; a clean name check adds no empty section.
+    private var toFixSection: some View {
+        Section {
+            ForEach(riskyNames) { risky in
+                HStack(spacing: 8) {
+                    Image(systemName: NameNormalizeGlyph.risky)
+                        .scaledFont(.caption)
+                        .foregroundStyle(SemanticColor.error)
+                        .frame(width: 12)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(risky.currentName)
+                                .scaledFont(.callout)
+                                .fontWeight(.medium)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "arrow.right")
+                                .scaledFont(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text(risky.sanitizedName)
+                                .scaledFont(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Text("\(risky.relativePath) — \(risky.reason)")
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    Button { onReveal(risky.id) } label: {
+                        Image(systemName: "arrow.up.forward.app")
+                    }
+                    .buttonStyle(.plain)
+                    .chromeHover()
+                    .help("Reveal in Finder")
+                    Button { onFix([risky]) } label: {
+                        Text("Fix")
+                            .scaledFont(.caption)
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderless)
+                    .tint(accent)
+                    .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+                    .help("Rename to a name every provider can store, as one undoable change")
+                }
+                .padding(.vertical, 2)
+                .padding(.leading, 14)
+            }
+        } header: {
+            HStack(spacing: 8) {
+                Pill(.mini, tint: SemanticColor.error,
+                     count: riskyNames.count, label: "to fix")
+                Text("Names this provider will not accept — sync breaks until they change.")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Button { onFix(riskyNames) } label: {
+                    Text("Fix all \(riskyNames.count)")
+                        .scaledFont(.caption)
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(SemanticColor.error)
+                .layoutPriority(1)
+                .fixedSize()
+                .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+                .help("Rename every listed name to its safe form, as one undoable batch")
+            }
+            .padding(.vertical, 2)
+        }
     }
 
     // MARK: Category sections

@@ -833,9 +833,11 @@ import Design
         let host = mount(manager, lens: .duplicates, width: 1400, scale: size.scale)
         let drawn = try #require(leadingExtent(host, width: 1400),
                                  "row 1 drew no leading cluster at \(size.scale)× — the rail is not on screen at all")
+        // Post-fold, the 17 risky names ride the RENAMES badge (Names is folded into
+        // Renames and off the rail), so the model must be fed what the rail actually draws.
         let model = OrganizeRailMetrics.leadingWidth(
             scale: size.scale,
-            state: Self.states([.toFile: 24, .duplicates: 410, .names: 17]))
+            state: Self.states([.toFile: 24, .duplicates: 410, .renames: 17]))
 
         // Measured, model against drawn: 593.6/586.0 at 0.9, 632.2/627.0 at 1.0, 688.5/682.0 at
         // 1.15, 744.2/733.5 at 1.3. Both numbers fell by exactly 21pt at 1.0 when the intro button

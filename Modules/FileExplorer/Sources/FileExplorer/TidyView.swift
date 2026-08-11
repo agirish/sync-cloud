@@ -466,7 +466,10 @@ public struct TidyView: View {
     /// rail item Organize was last left on. Reading `railLens` unguarded would let that parked
     /// value pick Storage's apparatus — a lens selection leaking across a workspace boundary.
     private var organizeLens: OrganizeLens? {
-        lens == .storage ? nil : railLens
+        // `resolvedForPresentation` migrates a stored `.names` selection to `.renames` — the
+        // lens it folded into. The stored raw value is left alone (nothing to migrate on disk);
+        // it simply lands where the findings now live.
+        lens == .storage ? nil : railLens?.resolvedForPresentation
     }
 
     /// Whether the rail can spell its items out at this width — see ``OrganizeRailMetrics``.
@@ -1214,7 +1217,7 @@ public struct TidyView: View {
     /// and a row of three zeroes says nothing at all.
     @ViewBuilder
     private func overviewSummary(_ counts: RailCounts) -> some View {
-        let states = OrganizeLens.allCases.map(counts.state)
+        let states = OrganizeLens.railItems.map(counts.state)
         let reporting = states.count { if case .reporting = $0 { return true } else { return false } }
         let clean = states.count { $0 == .clean }
         let unscanned = states.count { $0 == .notScanned }
@@ -1325,7 +1328,7 @@ public struct TidyView: View {
         // describes. The item does not add a state; it names one that was already there.
         organizeOverviewRailItem(counts)
         railSeparator
-        ForEach(OrganizeLens.allCases.filter(\.carriesBadge)) { item in
+        ForEach(OrganizeLens.railItems.filter(\.carriesBadge)) { item in
             organizeRailItem(item, counts)
         }
         // **Rules behind a second rule, because it is not a finding.** Five lenses report what a
@@ -1334,7 +1337,7 @@ public struct TidyView: View {
         // the separator says *different kind of thing* structurally instead of leaving it to be
         // inferred from an absence.
         railSeparator
-        ForEach(OrganizeLens.allCases.filter { !$0.carriesBadge }) { item in
+        ForEach(OrganizeLens.railItems.filter { !$0.carriesBadge }) { item in
             organizeRailItem(item, counts)
         }
     }
@@ -1431,7 +1434,8 @@ public struct TidyView: View {
             case .toFile: return toFile
             case .duplicates: return duplicates
             case .names: return names
-            case .renames: return renames
+            // The folded lens's list holds the to-fix rows too, and a badge encodes list size.
+            case .renames: return renames + names
             case .restructure: return restructure
             case .rules: return rules
             }
@@ -2665,17 +2669,28 @@ public struct TidyView: View {
                     organizeOverview(rows: rows, scopeFolders: scopeFolders)
                 } else if organizeLens == .restructure {
                     restructureContent(rows: rows, scopeFolders: scopeFolders)
-                } else if showingRenameBacklog, !syncManager.renamePlans.isEmpty, rows.renames.isEmpty {
-                    noMatchesState(scopedTotal: counts.renames,
-                                   globalTotal: syncManager.renamePlans.count, noun: "folder")
                 } else if showingRenameBacklog {
-                    RenamePassLens(syncManager: syncManager, plans: rows.renames,
-                                   accent: glassHue.accentColor,
-                                   onApply: onApplyRenames,
-                                   onReveal: { path in
-                                       NSWorkspace.shared.activateFileViewerSelecting(
-                                           [URL(fileURLWithPath: path)])
-                                   })
+                    // The to-fix rows (the folded Names lens). Scope-filtered like every list;
+                    // deliberately not query-filtered yet — the backlog grammar is about folder
+                    // plans, and silently applying it to names would hide fixes behind a query
+                    // about something else.
+                    let fixRows = syncManager.riskyNames.filter {
+                        OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames))
+                    }
+                    if !syncManager.renamePlans.isEmpty, rows.renames.isEmpty, fixRows.isEmpty {
+                        noMatchesState(scopedTotal: counts.renames,
+                                       globalTotal: syncManager.renamePlans.count, noun: "folder")
+                    } else {
+                        RenamePassLens(syncManager: syncManager, plans: rows.renames,
+                                       riskyNames: fixRows,
+                                       accent: glassHue.accentColor,
+                                       onApply: onApplyRenames,
+                                       onFix: onNormalizeNames,
+                                       onReveal: { path in
+                                           NSWorkspace.shared.activateFileViewerSelecting(
+                                               [URL(fileURLWithPath: path)])
+                                       })
+                    }
                 } else {
                     filingContent(filing: rows.filing, counts: counts)
                 }
@@ -2949,36 +2964,20 @@ public struct TidyView: View {
                         : .clean,
                     isScanning: syncManager.isFindingDuplicates)
             case .names:
-                let scoped = syncManager.riskyNames.filter {
-                    OrganizeScopeFilter.matches($0, scope: scope)
-                }
-                let n = scoped.count
-                return OrganizeOverviewSection(
-                    lens: item,
-                    blurb: "Names this provider will not accept.",
-                    // Ungated on purpose — the name detector is handed the provider-wide taxonomy,
-                    // so a zero here really is clean for any scope inside the provider. See the
-                    // note where `filingCovers` is computed.
-                    state: !syncManager.hasScannedNames ? .notScanned
-                        : n == 0 ? .clean
-                        : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
-                                    examples: scoped.prefix(OrganizeOverview.exampleLimit)
-                                        .map(\.currentName)),
-                    // **`isSuggestingFiles` too, and it is the flag that matters.** Names rides the
-                    // filing walk — `detectRiskyNames` republishes `riskyNames` from it — but that
-                    // path calls `completeScan` only, never `beginScan`, so `isScanningNames` stays
-                    // false for the whole pass; the lifecycle is begun solely by `scanNames`, which
-                    // has no caller in the app. Alone, this row sat showing a stale count in
-                    // confident bold beside To File and Renames saying "rescanning", during the one
-                    // walk that was republishing all three. Invisible until this commit's
-                    // predecessor made `isScanning` load-bearing: the field existed before and the
-                    // view read it nowhere, so nothing ever checked that its value was true.
-                    isScanning: syncManager.isSuggestingFiles || syncManager.isScanningNames)
+                // Folded into Renames (P10): the risky names are the backlog's "to fix" section
+                // now, so the Renames card below carries them — a separate Names card would say
+                // the same findings twice on one screen.
+                return nil
             case .renames:
                 let scoped = syncManager.renamePlans.filter {
                     OrganizeScopeFilter.matches($0, scope: scope)
                 }
-                let n = scoped.count
+                // The backlog's list now opens with the to-fix section, so this card counts and
+                // previews it too — one list, one card, one number.
+                let scopedRisky = syncManager.riskyNames.filter {
+                    OrganizeScopeFilter.matches($0, scope: scope)
+                }
+                let n = scoped.count + scopedRisky.count
                 // The tally is rebuilt from the SCOPED plans, not the whole backlog — its breakdown
                 // is the section's example line, and quoting the global one under a narrow scope is
                 // the same lie the badge used to tell.
@@ -2994,9 +2993,23 @@ public struct TidyView: View {
                         // ("8 month folders · 3 quarters"), which is a summary of the whole list
                         // rather than a sample from it. Padding it out with three folder names
                         // would put two different kinds of claim in one column.
-                        : .findings(count: n, headline: "\(n) folder\(n == 1 ? "" : "s")",
-                                    examples: tally.breakdown.isEmpty ? [] : [tally.breakdown]),
-                    isScanning: syncManager.isSuggestingFiles)
+                        //
+                        // The headline's unit: "folders" while the list is folders — the common
+                        // case — and the neutral "to change" once to-fix rows share it, because a
+                        // count of folders-plus-names in one number has no honest single noun.
+                        : .findings(count: n,
+                                    headline: scopedRisky.isEmpty
+                                        ? "\(n) folder\(n == 1 ? "" : "s")"
+                                        : "\(n) to change",
+                                    examples: {
+                                        let fix = scopedRisky.isEmpty ? nil
+                                            : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") this provider will not accept"
+                                        return [fix, tally.breakdown.isEmpty ? nil : tally.breakdown]
+                                            .compactMap { $0 }
+                                    }()),
+                    // `isScanningNames` too: this card hosts the folded Names findings, so a
+                    // standalone name scan must mark it — the claim the old Names card carried.
+                    isScanning: syncManager.isSuggestingFiles || syncManager.isScanningNames)
             case .restructure:
                 // `inside` only, matching the badge: a finding about the folder ABOVE the scope is
                 // shown inside the lens and labelled there, but it is not work in this subtree and

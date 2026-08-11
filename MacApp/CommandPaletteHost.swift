@@ -178,7 +178,7 @@ extension ContentView {
         workspaceSelection.wrappedValue = .filing
         // Through `@AppStorage`, never `UserDefaults.standard.set` — see `paletteRailLens` for the
         // write this app has already watched go missing.
-        paletteRailLens = lens
+        paletteRailLens = lens?.resolvedForPresentation
         guard let scope else { return }
         let root = tidyProviderRootExpanded
         // Normalized through `OrganizeScope`, which is the one writer's rule: pointing at the

@@ -374,7 +374,7 @@ import SwiftUI
     @Test func aCleanLensCountsAsRun() {
         let ledger = OrganizeOverview.Ledger.derived(
             from: [section(.toFile, .clean),
-                   section(.names, .findings(count: 2, headline: "2 names", examples: [])),
+                   section(.duplicates, .findings(count: 2, headline: "2 groups", examples: [])),
                    section(.renames, .notScanned)],
             runnablePasses: Set(OrganizePass.allCases),
             reclaimable: nil, scopeFolders: nil)
@@ -389,8 +389,10 @@ import SwiftUI
         let ledger = OrganizeOverview.Ledger.derived(from: [],
                                                      runnablePasses: Set(OrganizePass.allCases),
                                                      reclaimable: nil, scopeFolders: nil)
-        #expect(ledger.checksTotal == 5)
-        #expect(ledger.checksTotal == OrganizeLens.allCases.count - 1)
+        // Four: rules never scans, and the folded Names lens is counted with its host —
+        // a denominator that still counted it would read "4 of 5" forever on a clean tree.
+        #expect(ledger.checksTotal == 4)
+        #expect(ledger.checksTotal == OrganizeLens.railItems.count - 1)
     }
 
     /// Every lens run, and the ratio closes.
@@ -424,25 +426,25 @@ import SwiftUI
     /// drop the same lens as the denominator, or the ratio reads "4 of 4" while one of the four is
     /// the excluded one.
     @Test func theRatioClosesWhenAPassCannotBeRunHere() {
-        let sections = OrganizeLens.allCases.filter(\.carriesBadge).map {
+        let sections = OrganizeLens.railItems.filter(\.carriesBadge).map {
             section($0, $0 == .restructure ? .notScanned : .clean)
         }
         let ledger = OrganizeOverview.Ledger.derived(from: sections,
                                                     runnablePasses: [.file, .duplicates],
                                                     reclaimable: nil, scopeFolders: nil)
-        #expect(ledger.checksTotal == 4, "Restructure is still in the denominator")
-        #expect(ledger.checksRun == 4, "the ratio does not close on a fully-scanned tree")
+        #expect(ledger.checksTotal == 3, "Restructure is still in the denominator")
+        #expect(ledger.checksRun == 3, "the ratio does not close on a fully-scanned tree")
     }
 
     /// And an unrunnable lens that *has* an answer is not counted as a check either — the numerator
     /// and denominator are taken over one set, so neither can include what the other drops.
     @Test func anUnrunnableLensIsCountedInNeitherHalf() {
-        let sections = OrganizeLens.allCases.filter(\.carriesBadge).map { section($0, .clean) }
+        let sections = OrganizeLens.railItems.filter(\.carriesBadge).map { section($0, .clean) }
         let ledger = OrganizeOverview.Ledger.derived(from: sections,
                                                     runnablePasses: [.file, .duplicates],
                                                     reclaimable: nil, scopeFolders: nil)
-        #expect(ledger.checksRun == 4)
-        #expect(ledger.checksTotal == 4)
+        #expect(ledger.checksRun == 3)
+        #expect(ledger.checksTotal == 3)
         #expect(!OrganizeOverview.Ledger.countedLenses(runnablePasses: [.file, .duplicates])
             .contains(.restructure))
     }

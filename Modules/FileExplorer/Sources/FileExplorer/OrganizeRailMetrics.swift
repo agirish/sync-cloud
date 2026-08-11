@@ -231,14 +231,14 @@ enum OrganizeRailMetrics {
     ///     at exactly one.
     ///   - badge: the badge each item is carrying, or nil. **A closure over the enum rather than an
     ///     array**, so the caller cannot hand this a list that has drifted out of step with
-    ///     `OrganizeLens.allCases` — and so a new lens is counted the day it is added. Counted
+    ///     `OrganizeLens.railItems` — and so a new lens is counted the day it is added. Counted
     ///     rather than assumed: the rail is at its widest on the day every finding has something to
     ///     report, which is precisely the day it must still fit.
     static func fullWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
-        let items = OrganizeLens.allCases.reduce(CGFloat.zero) {
+        let items = OrganizeLens.railItems.reduce(CGFloat.zero) {
             $0 + itemWidth($1, state: state($1), scale: scale)
         }
-        return items + CGFloat(max(0, OrganizeLens.allCases.count - 1)) * itemGap
+        return items + CGFloat(max(0, OrganizeLens.railItems.count - 1)) * itemGap
             + overviewItemWidth(scale: scale) + 2 * separatorWidth
     }
 
@@ -262,10 +262,10 @@ enum OrganizeRailMetrics {
 
     /// Width of the rail with every label shed. Badges stay — they are the reason to look.
     static func iconOnlyWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
-        let items = OrganizeLens.allCases.reduce(CGFloat.zero) {
+        let items = OrganizeLens.railItems.reduce(CGFloat.zero) {
             $0 + glyphWidth($1, scale: scale) + itemPadding + stateWidth(state($1), scale: scale)
         }
-        return items + CGFloat(max(0, OrganizeLens.allCases.count - 1)) * itemGap
+        return items + CGFloat(max(0, OrganizeLens.railItems.count - 1)) * itemGap
             + overviewGlyphWidth * scale + itemPadding + itemGap + 2 * separatorWidth
     }
 

@@ -1848,7 +1848,8 @@ struct ContentView: View {
     /// workspace and forget the lens and land on the overview having silently dropped the request.
     func show(_ lens: OrganizeLens) {
         selectedWorkspace = .filing
-        selectedOrganizeLens = lens
+        // A caller asking for the folded lens lands where its findings live now.
+        selectedOrganizeLens = lens.resolvedForPresentation
     }
 
     func buildStorageLensAction() {
