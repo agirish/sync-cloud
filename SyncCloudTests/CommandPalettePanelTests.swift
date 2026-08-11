@@ -118,6 +118,10 @@ import Sync
     @Test func resigningKeyDismissesThePalette() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
+        // Deferred, because the `#require` below can throw past a trailing call: that would leave a
+        // presented panel and its two app-wide event monitors installed for the rest of the process,
+        // which is the exact hazard `theMonitorHelperInstallsAndDismissDrainsThem` names.
+        defer { teardown(host, controller) }
         var dismissed = false
         present(controller, over: host, onDismiss: { dismissed = true })
         #expect(controller.isPresented)
@@ -128,7 +132,6 @@ import Sync
         // deadline rather than passing on timeout.
         await waitUntil("the palette dismissed after resigning key") { !controller.isPresented }
         #expect(dismissed, "onDismiss did not fire, so the chord suspension stays stuck on")
-        teardown(host, controller)
     }
 
     /// Every exit path runs `onDismiss` exactly once. Six things call `dismiss()` and two can
@@ -237,7 +240,7 @@ import Sync
     ///   `return .none` defeats and a trailing `// … return nil …` comment falsely fails. Every
     ///   `return` in the block is now parsed and required to be `event`.
     @Test func theMonitorActuallyInstallsTheClickAwayRule() throws {
-        let source = Self.codeOnly(try Self.panelSource())
+        let source = Self.masked(try Self.panelSource())
         let block = try Self.braceBalancedBlock(after: "addMonitor(matching: [.leftMouseDown",
                                                 in: source,
                                                 what: "the click monitor")
@@ -252,7 +255,7 @@ import Sync
         let maskArgument = String(source[call.lowerBound...].prefix(while: { $0 != ")" }))
         for button in [".leftMouseDown", ".rightMouseDown", ".otherMouseDown"] {
             #expect(maskArgument.contains(button),
-                    "the click monitor's mask lost \(button) — that button no longer dismisses, and for the non-left buttons nothing else does (they change no key window)")
+                    "the click monitor's mask lost \(button) — that button no longer dismisses, and the resign-key observer is not believed to cover the non-left buttons")
         }
 
         // Returned, never swallowed. Every return is parsed rather than string-matched: `return .none`
@@ -263,13 +266,37 @@ import Sync
                 "the click monitor returns \(returns) — anything but `event` swallows the click the user meant for whatever is under the palette")
     }
 
+    /// **⌘K's monitor is now the only way to close the palette from the keyboard.**
+    ///
+    /// `a1c96082` suspended ⌘K along with every other chord while the palette is up, so the menu
+    /// item is disabled exactly when the palette is on screen. Before it, a deleted keyDown monitor
+    /// still left ⌘K working through the menu; now deleting it makes ⌘K appear to do nothing at all,
+    /// and `closesThePalette` is pure and static, so all four chord tests below pass without it.
+    /// Same "extracted for testability, one revert from unused" hazard the click monitor has a scan
+    /// for — and `theMonitorHelperInstallsAndDismissDrainsThem` only covers the shared helper, not
+    /// the existence of this particular caller.
+    @Test func theChordMonitorActuallyInstallsTheClosingChord() throws {
+        let source = Self.masked(try Self.panelSource())
+        let block = try Self.braceBalancedBlock(after: "addMonitor(matching: .keyDown",
+                                                in: source, what: "the ⌘K monitor")
+        #expect(block.contains("Self.closesThePalette("),
+                "the ⌘K monitor no longer consults closesThePalette — the chord rule is extracted and unused")
+        #expect(block.contains("self.dismiss()"), "the ⌘K monitor no longer dismisses")
+        // The chord is SWALLOWED, unlike the click: a returned ⌘K would reach the menu item too.
+        let returns = Self.returnedExpressions(in: block)
+        #expect(returns.contains("event"),
+                "the ⌘K monitor never passes an event on — every keystroke typed into the field would be eaten")
+        #expect(returns.contains("nil"),
+                "the ⌘K monitor returns \(returns) — it must swallow its own chord, or ⌘K reaches the menu item as well")
+    }
+
     /// **The helper the monitors install through must still install and still be drained.**
     ///
     /// Mutation found the previous test's blind spot one level down: gutting `addMonitor`'s body, or
     /// dropping either `eventMonitors.append` or `dismiss()`'s drain, disables **both** monitors —
     /// click-away and ⌘K — with the whole suite green. The deletable point moved below the test.
     @Test func theMonitorHelperInstallsAndDismissDrainsThem() throws {
-        let source = Self.codeOnly(try Self.panelSource())
+        let source = Self.masked(try Self.panelSource())
         let helper = try Self.braceBalancedBlock(after: "private func addMonitor(matching mask:",
                                                  in: source, what: "addMonitor")
         #expect(helper.contains("NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)"),
@@ -284,18 +311,66 @@ import Sync
                 "dismiss() leaves stale tokens in the bag — the next dismiss() would remove them twice")
     }
 
+    /// Source with every comment and every string's **contents** blanked to spaces, same length.
+    ///
+    /// **This is the load-bearing helper, and stripping whole lines was not enough.** Measured, all
+    /// three against a green suite:
+    ///
+    /// - a `{` inside a string literal (`Logger.shared.debug("dismiss {")` — this file logs heavily)
+    ///   pushed `braceBalancedBlock` past `dismiss()`'s real closing brace, so the block swallowed
+    ///   the rest of the class and a drain moved out of `dismiss()` still satisfied its assertion;
+    /// - a `}` in a **trailing** comment truncated the click monitor's block to one line, producing
+    ///   three failures that all blamed production code for things it still did;
+    /// - the word `return` inside a string or a trailing comment was parsed as a return statement.
+    ///
+    /// Offsets are preserved (characters are replaced, never removed) so a range found in the masked
+    /// text indexes the original safely. Delimiters are kept so `""` still reads as a literal.
+    static func masked(_ source: String) -> String {
+        var out = ""
+        out.reserveCapacity(source.count)
+        var inLineComment = false, inBlockComment = false, inString = false, escaped = false
+        var index = source.startIndex
+        while index < source.endIndex {
+            let character = source[index]
+            let next = source.index(after: index)
+            let peek: Character? = next < source.endIndex ? source[next] : nil
+            if inLineComment {
+                if character == "\n" { inLineComment = false; out.append(character) } else { out.append(" ") }
+            } else if inBlockComment {
+                if character == "*", peek == "/" { inBlockComment = false; out += "  "; index = next }
+                else { out.append(character == "\n" ? "\n" : " ") }
+            } else if inString {
+                if escaped { escaped = false; out.append(" ") }
+                else if character == "\\" { escaped = true; out.append(" ") }
+                else if character == "\"" { inString = false; out.append(character) }
+                else { out.append(character == "\n" ? "\n" : " ") }
+            } else if character == "/", peek == "/" { inLineComment = true; out += "  "; index = next }
+            else if character == "/", peek == "*" { inBlockComment = true; out += "  "; index = next }
+            else if character == "\"" { inString = true; out.append(character) }
+            else { out.append(character) }
+            index = source.index(after: index)
+        }
+        return out
+    }
+
     /// The text between an anchor's opening `{` and its matching `}`, found by balancing braces.
     ///
     /// Indentation is not used, deliberately: bounding a block by "the first `}` at column N" is how
-    /// the previous version of the monitor scan came to answer about the wrong text in both
-    /// directions. Call with comment-stripped source — a `{` inside a comment would still count.
+    /// the first version of the monitor scan came to answer about the wrong text in both directions.
+    /// Masks comments and strings itself, so callers cannot forget to.
     static func braceBalancedBlock(after anchor: String, in source: String,
                                    what: String) throws -> String {
-        let start = try #require(source.range(of: anchor), "\(what) is gone — this scan would be vacuous")
+        let code = Self.masked(source)
+        let start = try #require(code.range(of: anchor), "\(what) is gone — this scan would be vacuous")
+        // Uniqueness, for the same reason the FileExplorer helper asserts it: `range(of:)` takes the
+        // first match silently, and a second one means this is answering about text nobody chose.
+        let occurrences = code.components(separatedBy: anchor).count - 1
+        try #require(occurrences == 1,
+                     "\(what)'s anchor occurs \(occurrences)× in code — this scan would read the first")
         // From the START of the match, not its end: an anchor that already carries its own `{`
         // (`func dismiss() {`) would otherwise skip past it and balance the NEXT block instead —
         // which is how this first returned the body of `if let resignObserver` and passed nothing.
-        let rest = source[start.lowerBound...]
+        let rest = code[start.lowerBound...]
         let open = try #require(rest.firstIndex(of: "{"), "no opening brace for \(what)")
         var depth = 0
         var close: String.Index?
@@ -312,26 +387,47 @@ import Sync
         return String(rest[rest.index(after: open)..<end])
     }
 
-    /// Every `return <expr>` in a block, as the expression's own text — **including** the ones
-    /// tucked into a `guard … else { return x }`, which is a swallow just as much as a tail return
-    /// and is where a line-leading match would have looked away.
+    /// Every `return <expr>` written at the block's **own** depth, as the expression's text.
+    ///
+    /// Depth matters both ways. A `guard … else { return x }` is a swallow just as much as a tail
+    /// return, so its return counts even though it sits inside braces — hence the allowance for one
+    /// level. A `return` inside a *nested closure* (`filter { return $0.isVisible }`) belongs to that
+    /// closure and not to this one; counting it failed correct code. Pass an already-masked block.
     static func returnedExpressions(in block: String) -> [String] {
         var expressions: [String] = []
-        for rawLine in block.split(separator: "\n", omittingEmptySubsequences: false) {
-            // Trailing comments are cut FIRST. `return event  // never `return nil` here` is correct
-            // code, and scanning the prose found the comment's own words and failed it — measured.
-            // (`codeOnly` strips only whole-line comments, so it does not reach this.)
-            let line = rawLine.prefix { $0 != "/" }
+        for line in block.split(separator: "\n", omittingEmptySubsequences: false) {
             var tail = Substring(line)
             while let keyword = tail.range(of: "return") {
-                // `returnValue` is not a return statement; require a boundary on both sides.
-                let before = keyword.lowerBound == tail.startIndex ? " " : tail[tail.index(before: keyword.lowerBound)]
-                let after = keyword.upperBound == tail.endIndex ? " " : tail[keyword.upperBound]
-                tail = tail[keyword.upperBound...]
+                let prefix = line[line.startIndex..<keyword.lowerBound]
+                let before = keyword.lowerBound == line.startIndex ? " " : line[line.index(before: keyword.lowerBound)]
+                let after = keyword.upperBound == line.endIndex ? " " : line[keyword.upperBound]
+                tail = line[keyword.upperBound...]
+                // `returnValue` is not a return statement.
                 guard !before.isLetter, !before.isNumber, before != "_",
                       !after.isLetter, !after.isNumber, after != "_" else { continue }
-                let expression = tail.prefix { $0 != "}" && $0 != "/" }
-                expressions.append(expression.trimmingCharacters(in: .whitespaces))
+                // **Whose block does this return belong to?** At depth 0 it is this one's. At depth 1
+                // it depends entirely on what opened the brace: `guard … else { return event }` is a
+                // statement-level return and counts, while `filter { w in return w.isVisible }` is
+                // the closure's and does not — counting it failed correct code. The discriminator is
+                // the keyword in front of the brace, not the depth, which is why depth alone was
+                // wrong here in both directions.
+                var depth = 0
+                for character in prefix {
+                    if character == "{" { depth += 1 }
+                    if character == "}" { depth -= 1 }
+                }
+                var statementLevel = depth == 0
+                if depth == 1, let brace = prefix.lastIndex(of: "{") {
+                    let opener = prefix[..<brace].trimmingCharacters(in: .whitespaces)
+                    statementLevel = opener.hasSuffix("else") || opener.hasPrefix("if ")
+                        || opener.hasPrefix("guard ")
+                }
+                guard statementLevel else { continue }
+                let expression = tail.prefix { $0 != "}" && $0 != ";" }
+                    .trimmingCharacters(in: .whitespaces)
+                // `return(event)` and `return event` are the same statement written twice.
+                expressions.append(expression.hasPrefix("(") && expression.hasSuffix(")")
+                                   ? String(expression.dropFirst().dropLast()) : expression)
             }
         }
         return expressions
@@ -346,16 +442,11 @@ import Sync
             .appendingPathComponent("MacApp/CommandPalettePanel.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read CommandPalettePanel.swift — the scan would be vacuous")
-        #expect(text.count > 500, "CommandPalettePanel.swift is implausibly short")
+        // `#require`, not `#expect`: a truncated file (a bad merge, a half-written checkout) makes
+        // every `contains` below answer false and every `!contains` pass. Continuing past a
+        // known-bad haystack turns one loud issue into a page of quiet green.
+        try #require(text.count > 500, "CommandPalettePanel.swift is implausibly short")
         return text
-    }
-
-    /// Whole-line `//` comments removed, for checks a comment could otherwise satisfy — this file's
-    /// own prose quotes the monitor's shape at length.
-    static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
     }
 
     /// ...and a click **on** the palette must not dismiss it, or the card would close under the

@@ -314,6 +314,12 @@ struct ContentView: View {
     /// Raises the picker, whoever asked for it. The one place `pendingDestination` is set, so the
     /// recents snapshot can never drift out of step with the request it belongs to.
     func presentDestination(_ pending: PendingDestination) {
+        // The palette is a real window that holds key; the picker is an overlay *inside* the host,
+        // so raising one under the other leaves the picker unable to take a keystroke or a click —
+        // its buttons, ↩ and esc all go to the palette's field instead. `toggleCommandPalette`
+        // blocks the other order; this blocks this one, so "the picker owns the keyboard" is true
+        // rather than nearly true. A file operation finishing while the palette is up is the path.
+        palettePanel.dismiss()
         pendingRecents = DestinationRecents.load(providerRoot: pending.request.providerRoot)
         pendingDestination = pending
     }

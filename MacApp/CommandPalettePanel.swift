@@ -137,10 +137,15 @@ final class CommandPalettePanelController: ObservableObject {
         //
         // `isActive` is logged beside `isKeyWindow` because a `.nonactivatingPanel` takes key only
         // while its app is active, so `key=false` alone says nothing: `paletteOnLaunchArmed` raises
-        // the palette when discovery finishes — 1.3–2.1s warm, 10.5–15.4s cold, five launches —
-        // which can land after the user has moved to another app. Without `active=` the two
-        // readings that matter, "the panel refused key" and "SyncCloud was in the background", are
-        // the same line.
+        // the palette when discovery finishes, which can be a very long time after launch: across
+        // the 200 `[load] left #1 walked … in N` lines in `~/sync-cloud.log` that figure runs from
+        // **1.09 s to 9891 s**, so the palette can arm minutes or hours in, long after the user has
+        // moved to another app. Without `active=` the two readings that matter, "the panel refused
+        // key" and "SyncCloud was in the background", are the same line.
+        //
+        // (Two earlier versions of this sentence were wrong in opposite directions, both from
+        // reading `tail -5` of that grep instead of all of it: "minutes" was called invented when
+        // the log supports it, then "10.5–15.4 s cold" replaced it. Read the whole field.)
         //
         // **`childWindows` answers a narrower question than it looks like it does.** It lists only
         // windows *parented* here, and the panel was parented nine lines up, so it is guaranteed to
@@ -202,13 +207,13 @@ final class CommandPalettePanelController: ObservableObject {
 
     /// Installs a local monitor and tracks its token, so `dismiss()` has one bag to drain.
     ///
-    /// **The `if let` is about the bag's element type, not about a failed install.** The local
-    /// variant has no documented failure mode — it is `nullable` in the header only because it
-    /// shares a declaration shape with the *global* variant, which really can fail on accessibility
-    /// trust — but it is typed `Any?`, and an `Any?` appended straight to an `[Any]` bag becomes an
-    /// element of type `Optional<Any>`. A `nil` one bridges to `NSNull`, and `NSEvent.removeMonitor`
-    /// on that traps with `-[NSNull invalidate]: unrecognized selector`. Unwrapping first is what
-    /// keeps the bag drainable.
+    /// **The `if let` is about the bag's element type, not about a failed install.** Both monitor
+    /// factories are declared `nullable id` (`NSEvent.h`) and the header documents no failure mode
+    /// for either, so a nil return is not a case anyone can point to — but the API is typed `Any?`,
+    /// and an `Any?` appended straight to an `[Any]` bag becomes an element of type
+    /// `Optional<Any>`. A `nil` one bridges to `NSNull`, and `NSEvent.removeMonitor` on that traps
+    /// with `-[NSNull invalidate]: unrecognized selector sent to instance` — measured, in
+    /// `+[NSEvent removeMonitor:]`. Unwrapping first is what keeps the bag drainable.
     ///
     /// A failure to install would mean ⌘K silently stops closing the palette, on a surface whose
     /// whole reason for logging is that it is otherwise unobservable — so say so rather than
@@ -254,17 +259,23 @@ final class CommandPalettePanelController: ObservableObject {
     /// scenes (Settings and Help are in-window overlays and are *under* the panel, not other
     /// windows), plus an open/save panel.
     ///
-    /// **It is not redundant with the resign-key observer, and the difference is the mask.** A
+    /// **Probably not redundant with the resign-key observer, and the difference is the mask.** A
     /// left-click in one of those windows makes it key, so the observer would have covered it and
     /// this monitor merely gets there first — synchronously during dispatch, where the observer is
-    /// registered `queue: .main` and lands a turn later. But a **right- or middle-click does not
-    /// change the key window**, so for two of the three masks here this monitor is the *only* thing
-    /// that dismisses. Do not delete it as a duplicate.
+    /// registered `queue: .main` and lands a turn later. A **right- or middle-click is believed not
+    /// to change the key window**, which would make this monitor the only thing that dismisses for
+    /// two of its three masks.
     ///
-    /// A local monitor is also believed not to see events consumed by NSMenu tracking or by a
-    /// window drag/resize tracking loop, so the palette may stay up over a pulled-down menu.
-    /// **Unverified — neither the mechanism nor the behaviour has been observed here.** If you touch
-    /// this, open a menu with the palette up and write down what happens.
+    /// **That belief is UNVERIFIED — no test, no log line, and `event.window` has never been
+    /// recorded.** It is nonetheless the stated reason this monitor is not deletable, so settle it
+    /// before deleting: log `event.window` *and* `NSApp.keyWindow` here for one session and
+    /// right-click another window.
+    ///
+    /// A local monitor also does not see events consumed by nested tracking loops. That much is
+    /// documented — `NSEvent.h`, on `+addLocal`: "your handler will not be called for events that
+    /// are consumed by nested event-tracking loops such as control tracking, menu tracking, or
+    /// window dragging". What follows for the palette — that it stays up over a pulled-down menu —
+    /// is inferred from it and has not been observed here.
     ///
     /// `nil` is a click this app cannot attribute to a window of its own; treating it as outside is
     /// the safe direction, since the alternative is a palette that survives a click it cannot see.

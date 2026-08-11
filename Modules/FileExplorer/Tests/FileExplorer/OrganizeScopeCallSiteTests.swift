@@ -29,7 +29,11 @@ import Foundation
         // every `contains` check quietly answers false and every `!contains` quietly answers true.
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — the scan below would be vacuous")
-        #expect(text.count > 500, "\(name) is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is truncated (a bad merge, a half-written
+        // checkout) records one issue and then hands the short string on, after which every
+        // `contains` here answers false and every `!contains` answers true. One quiet issue against
+        // thirty green tests is the wrong signal — stop instead.
+        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
@@ -45,9 +49,18 @@ import Foundation
         // **Uniqueness, because `range(of:)` silently takes the FIRST match.** Measured: adding a
         // second `public var body: some View {` above `CommandPaletteView`'s — an onboarding variant,
         // say — made the hit-shape scan read the decoy and pass with BOTH of its defects present.
-        // A duplicated declaration means this helper is answering about text nobody chose.
-        #expect(source.components(separatedBy: declaration).count - 1 == 1,
-                "\(declaration) occurs more than once — this scan would silently read the first one")
+        //
+        // **Counted over `codeOnly`, not the raw text.** The first version counted the whole file and
+        // so counted *prose*: one doc comment mentioning a member by name failed a correct
+        // implementation — including a test another session landed the same day. That is the hazard
+        // this file already documents twice, reintroduced by the guard against a different one.
+        //
+        // `#require`, because the case worth catching is a decoy *above* the real declaration: there
+        // the slice is the decoy's body and every downstream check fires with a message blaming
+        // production code that is fine. One true failure beats four false ones.
+        let occurrences = Self.codeOnly(source).components(separatedBy: declaration).count - 1
+        try #require(occurrences == 1,
+                     "\(declaration) occurs \(occurrences)× in code — range(of:) would silently read the first")
         let rest = source[start.upperBound...]
         let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
         return String(rest[..<end.lowerBound])

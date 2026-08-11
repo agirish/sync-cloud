@@ -254,8 +254,17 @@ extension ContentView {
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
             // the field you are typing into. Unlike Settings and Help — ambient panels the app
-            // deliberately keeps its chords live under — this one OWNS the keyboard while it is up,
-            // and ⌘K itself stays live (its own focused value) so the toggle can close it.
+            // deliberately keeps its chords live under — this one OWNS the keyboard while it is up.
+            //
+            // **⌘K is suspended with the rest, not exempt from it.** An earlier version of this note
+            // said ⌘K "stays live (its own focused value) so the toggle can close it"; `a1c96082`
+            // moved ⌘K into this publisher and that stopped being true. Closing the palette is the
+            // panel's own keyDown monitor's job (`CommandPalettePanel.present`), not the menu
+            // item's — the item is disabled for exactly as long as the palette is up.
+            //
+            // Suspending the *publication* is not the same as suspending the *act*:
+            // `toggleCommandPalette` carries its own `pendingDestination` guard, because the toolbar
+            // pill and the armed-on-launch path call it without going through a focused value.
             suspended: pendingDestination != nil || showCommandPalette
         )
     }

@@ -60,14 +60,18 @@ public struct CommandPaletteView: View {
             // changes that cannot be verified from a test (`NSHostingView.hitTest` does not
             // decompose SwiftUI, and this machine refuses assistive access):
             //
-            // - `onTapGesture` is **left-button only**, so a right- or middle-click on the dimmed
-            //   area does nothing at all — the panel is above the host, so it does not fall through
-            //   either. The mouse monitor deliberately ignores these (they are `window === panel`).
-            // - `onTapGesture` also needs down and up within the tap slop, so **press-and-drag on
-            //   the scrim dismisses nothing** — and the window cannot be dragged either, since the
-            //   panel covers the title bar and is `isMovable = false`. Pressing in the strip above
-            //   the card and moving the pointer is a plausible "drag the window" intent that
-            //   currently does nothing.
+            // - `onTapGesture` is believed to be **left-button only**, so a right- or middle-click
+            //   on the dimmed area is expected to do nothing at all — the panel is above the host,
+            //   so it does not fall through either. The mouse monitor ignores these, since the
+            //   click should be attributed to the panel itself.
+            // - `onTapGesture` is also believed to need down and up within the tap slop, so
+            //   **press-and-drag on the scrim would dismiss nothing** — and the window cannot be
+            //   dragged either, since the panel covers the title bar and is `isMovable = false`.
+            //
+            // "Believed": SwiftUI publishes no such guarantee, and neither has been driven here.
+            // The attribution they rest on is itself marked INFERRED at
+            // `CommandPalettePanelController.clickDismissesThePalette` — read that before treating
+            // any of this as settled.
             Rectangle()
                 .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()

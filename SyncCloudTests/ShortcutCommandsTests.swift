@@ -52,6 +52,34 @@ import Foundation
         }
     }
 
+    /// **What FEEDS `suspended:` is not covered by the test above, and it is the whole mechanism.**
+    ///
+    /// `everyEffectiveValueIsHandedToAFocusedSceneValue` proves each `effective…` is published, and
+    /// `loadedPublisher(suspended:)` injects the flag, so nothing asserts the expression at the call
+    /// site. Deleting `pendingDestination != nil` from it — the entire subject of `a1c96082` — passes
+    /// every test in the repo, and so does deleting `showCommandPalette`. Same shape as the defect
+    /// that commit describes ("a value published outside it is a value nobody thinks to suspend"),
+    /// one layer down.
+    ///
+    /// Both terms by name rather than the whole expression, so reordering them or adding a third
+    /// reason to suspend is not a failure.
+    @Test func bothReasonsToSuspendTheChordsSurviveInTheExpression() throws {
+        let source = Self.codeOnly(try Self.publisherSource())
+        // EVERY `suspended:` line, not the first one. `range(of:)` found the *parameter declaration*
+        // (`suspended: Bool`) and asserted against the word "Bool" — the same first-match hazard
+        // these scans keep being fixed for, reintroduced by the fix. Which line carries the
+        // expression is not the point; that some line does is.
+        let mentions = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.contains("suspended:") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        #expect(!mentions.isEmpty, "the chord publisher no longer takes a suspension at all")
+        let expression = mentions.joined(separator: " ")
+        #expect(expression.contains("pendingDestination != nil"),
+                "no `suspended:` argument mentions the destination picker — ⌘R would rescan underneath it and ⇧⌘. flip filters behind the field being typed into. Found: \(mentions)")
+        #expect(expression.contains("showCommandPalette"),
+                "no `suspended:` argument mentions the command palette — every mirrored chord would fire behind it. Found: \(mentions)")
+    }
+
     /// The publisher's own source, named so a rename fails loudly rather than emptying the scan.
     static func publisherSource() throws -> String {
         let url = URL(fileURLWithPath: #filePath)

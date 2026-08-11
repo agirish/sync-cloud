@@ -55,6 +55,16 @@ extension ContentView {
             palettePanel.dismiss()
             return
         }
+        // **The suspension has to be on the act, not on one publication.** `a1c96082` suspended ⌘K
+        // by nilling `effectiveCommandPalette`, which reaches the menu item — and nothing else. The
+        // toolbar pill calls this directly (`ContentView+Toolbar.swift`), and so does
+        // `paletteOnLaunchArmed`, so two of the three ways in walked straight past it and could
+        // raise the palette over a pending destination pick: ↩ on a workspace row then switches
+        // workspace mid-pick, which is the defect that commit set out to stop.
+        guard pendingDestination == nil else {
+            Logger.shared.debug("⌘K ignored: the destination picker owns the keyboard")
+            return
+        }
         guard let host = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first(where: \.isVisible)
         else {
             // No window to hang it on. Said out loud rather than silently doing nothing: ⌘K

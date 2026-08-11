@@ -58,13 +58,36 @@ import Foundation
         }
         let cardLine = try #require(lines.firstIndex(where: isCardLine),
                                     "the palette's body no longer declares `card` on its own line at the ZStack's top level — this scan has lost its anchor and would answer about the wrong text")
-        // The card's half ends at the ZStack's own closing brace — everything after it (`.transition`
-        // and friends) belongs to the stack, not to the card, and letting it in would make
-        // "nothing follows the card's inset" unsatisfiable.
-        let stackClose = try #require(lines[cardLine...].firstIndex { $0.trimmingCharacters(in: .whitespaces) == "}" },
-                                      "no closing brace for the palette's ZStack")
+        // **The card's half ends where the ZStack closes, found by BALANCING BRACES.** Stopping at
+        // "the first line that is just `}`" was measured wrong: wrapping the card's chain in a
+        // `VStack { … }` made that line the VStack's close, the region ended right after the
+        // padding, and a hit-testable `.background` appended to the VStack — the shipped bug — went
+        // unseen with all three tests green.
+        var depth = 0
+        var stackClose: Int?
+        for index in cardLine..<lines.count {
+            for character in lines[index].prefix(while: { $0 != "/" }) {
+                if character == "{" { depth += 1 }
+                if character == "}" {
+                    if depth == 0 { stackClose = index; break }
+                    depth -= 1
+                }
+            }
+            if stackClose != nil { break }
+        }
+        let close = try #require(stackClose, "no closing brace for the palette's ZStack")
+        // Exactly two children, so a third one sweeping into the "card" region fails loudly here
+        // rather than being mis-blamed on the card by the assertions downstream.
+        let topLevel = lines[..<close].filter { line in
+            let code = line.prefix { $0 != "/" }
+            return code.hasPrefix("            ") && !code.hasPrefix("             ")
+                && !code.trimmingCharacters(in: .whitespaces).hasPrefix(".")
+                && !code.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        #expect(topLevel.count == 2,
+                "the palette's ZStack has \(topLevel.count) top-level children, not the scrim and the card this scan assumes — the split below would attribute a sibling's modifiers to the card")
         return (lines[..<cardLine].joined(separator: "\n"),
-                lines[cardLine..<stackClose].joined(separator: "\n"))
+                lines[cardLine..<close].joined(separator: "\n"))
     }
 
     @Test func theCardsHitShapeIsTheCardAndNotItsPadding() throws {
@@ -82,13 +105,23 @@ import Foundation
     /// `.contentShape` before `.padding` only makes the strip scrim if the padding is the *end* of
     /// the chain. Any hit-testable modifier appended after it re-inflates the hit region to the
     /// padded frame and restores the exact 620×96pt dead block.
-    @Test func nothingIsAppliedAfterTheCardsTopInset() throws {
+    @Test func nothingHitTestableIsAppliedAfterTheCardsTopInset() throws {
         let card = try Self.halves(try Self.paletteSource()).card
         let padding = try #require(card.range(of: ".padding(.top, Self.cardTopInset)"),
                                    "the card's top inset is gone — see cardTopInset")
-        let after = card[padding.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        // Inert modifiers are allowed through by name. Demanding *nothing* at all follow the padding
+        // was measured over-strict: `.accessibilityLabel("Command palette")` changes no hit region
+        // and failed the suite. Anything not on this list is treated as hit-testable, so the default
+        // for an unrecognised modifier is to fail — the safe direction for this particular bug.
+        let inert = ["accessibility", "help(", "zIndex(", "animation(", "transition(", "id(",
+                     "opacity(", "shadow(", "blur(", "compositingGroup("]
+        let after = card[padding.upperBound...]
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.prefix { $0 != "/" }.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .filter { modifier in !inert.contains { modifier.hasPrefix(".\($0)") } }
         #expect(after.isEmpty,
-                "`\(after)` is applied after the card's top inset, which re-inflates its hit region to the padded frame — the strip above the card becomes a dead hit target again")
+                "\(after) is applied after the card's top inset; anything hit-testable there re-inflates the hit region to the padded frame and the strip above the card becomes a dead hit target again")
     }
 
     /// The scrim is what the strip above the card must fall through to, so it has to be the thing
@@ -107,9 +140,10 @@ import Foundation
         // only way a click on the card could reach `onClose`, and forbidding the gesture catches
         // `.onTapGesture { onClose() }` as well as `.onTapGesture(perform: onClose)`.
         //
-        // `.onExitCommand(perform: onClose)` inside `private var card` is deliberately NOT covered:
-        // it is esc, not a click, and it is how the palette is meant to close from the keyboard.
-        // Banning every mention of `onClose` here would fail on it — measured.
+        // Gestures rather than `onClose`, because `onClose` is legitimately reachable from the
+        // keyboard: `.onExitCommand(perform: onClose)` is esc. It happens to live in
+        // `private var field`, outside both regions scanned here — an earlier version of this
+        // comment placed it in `private var card` and called that "measured", which it was not.
         let cardDeclaration = Scan.codeOnly(try Scan.body(of: "    private var card: some View {", in: source))
         for (region, name) in [(card, "the card's branch of the body"),
                                (cardDeclaration, "`private var card`")] {
