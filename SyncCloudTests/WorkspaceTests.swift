@@ -90,8 +90,13 @@ import FileExplorer
                 == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
         #expect(Workspace.destination(for: .filing)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
+        // `.renames`, not `.names`: `destination(for:)` goes through `resolvedForPresentation`,
+        // so the folded lens can never be minted into a selection from outside the migration seam
+        // (`testARenameLensDestinationLandsOnTheFoldedHost` is where that has its own reasons).
+        // This row asserted `.names` for one commit after the resolve landed — the two tests in
+        // this file contradicted each other, and this is the half that was wrong.
         #expect(Workspace.destination(for: .rename)
-                == WorkspaceSelection(workspace: .filing, organizeLens: .names))
+                == WorkspaceSelection(workspace: .filing, organizeLens: .renames))
         #expect(Workspace.destination(for: .automations)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .rules))
         // Storage is the one lens that is still a workspace, so it takes no rail item.
