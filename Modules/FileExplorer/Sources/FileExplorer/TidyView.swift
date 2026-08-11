@@ -2822,6 +2822,21 @@ public struct TidyView: View {
         let scope = scope
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
         var model = OverviewModel()
+        // **A count of zero under a scope the scan never covered is not "clean", it is "unasked".**
+        // The filing pass enumerates the direct children of ONE folder and the duplicate pass hashes
+        // ONE root, so under any other scope the scoped count is zero by construction — and the
+        // overview then said "Nothing to do in Legal. Every check that has run came back clean."
+        // about a subtree nothing had looked at. Three doors reach that state without scanning:
+        // the inbox shortcut, Open on a single-source row, and ⌘K.
+        //
+        // The predicate is the one the inbox offer already uses for the same reason (see
+        // `inboxOffer`, which refuses to print a count it cannot support). Absent beats a wrong
+        // zero; here that means falling back to `notScanned`, which is also the state that puts the
+        // run offer back on screen — the honest answer and the useful one are the same.
+        let filingCovers = OrganizeScopeFilter.scanCovers(scope: scope,
+                                                          scannedRoot: syncManager.filingScanFolder)
+        let duplicatesCover = OrganizeScopeFilter.scanCovers(scope: scope,
+                                                            scannedRoot: syncManager.duplicateScanRoot)
         // Hoisted out of the loop below because the ledger needs it too. Filtering it a second time
         // for the reclaimable total would be a second pass over 722 groups per render — see the
         // type's note.
@@ -2844,7 +2859,7 @@ public struct TidyView: View {
                     blurb: n > 0
                         ? "Loose files and where they belong — \(ready) ready, \(n - ready) unsure."
                         : "Loose files and where they belong.",
-                    state: !syncManager.hasSuggestedFiling ? .notScanned
+                    state: !syncManager.hasSuggestedFiling || !filingCovers ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
                                     // `lazy` before `prefix`, so the limit bounds the SUGGESTIONS
@@ -2861,7 +2876,7 @@ public struct TidyView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Identical content under different names or folders.",
-                    state: !syncManager.hasFoundDuplicates ? .notScanned
+                    state: !syncManager.hasFoundDuplicates || !duplicatesCover ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit).map {
@@ -2876,7 +2891,10 @@ public struct TidyView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Names this provider will not accept.",
-                    state: !syncManager.hasScannedNames ? .notScanned
+                    // Names and Renames ride the same filing walk To File does, so they inherit its
+                    // coverage question too: one folder was enumerated, and a scope outside it was
+                    // never looked at.
+                    state: !syncManager.hasScannedNames || !filingCovers ? .notScanned
                         : n == 0 ? .clean
                         : .findings(count: n, headline: "\(n) name\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit)
@@ -2903,7 +2921,7 @@ public struct TidyView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Folders that have drifted from their own numbering.",
-                    state: !syncManager.hasSuggestedFiling ? .notScanned
+                    state: !syncManager.hasSuggestedFiling || !filingCovers ? .notScanned
                         : n == 0 ? .clean
                         // One line, and not three: the backlog's evidence is its *breakdown*
                         // ("8 month folders · 3 quarters"), which is a summary of the whole list

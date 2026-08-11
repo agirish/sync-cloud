@@ -320,4 +320,31 @@ import Foundation
         #expect(OrganizeScopeFilter.matches(Self.plan("/anywhere/at/all"), scope: nil))
         #expect(OrganizeScopeFilter.matches(Self.group(["/anywhere/a.pdf"]), scope: nil))
     }
+
+    // MARK: - Whether an answer can be given at all
+
+    /// **The question every filter above is unable to ask.** Filtering a scan's results to zero and
+    /// the scan having found nothing are different facts, and only the second is "clean" — the
+    /// overview claimed the first as the second for any scope the pass never entered.
+    @Test func aScanCoversOnlyItsOwnRootAndWhatIsUnderIt() {
+        let legal = Self.scope(Self.legal)
+        // The scan that covers it: the scope itself, and any ancestor of it.
+        #expect(OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.legal))
+        #expect(OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root))
+        // The ones that do not — a sibling, and a DESCENDANT, which is the subtle one: scanning
+        // `Legal/2024` says nothing about the rest of `Legal`.
+        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root + "/Photos"))
+        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.legal + "/2024"))
+        // A prefix that is not a path boundary is not an ancestor.
+        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: Self.root + "/Leg"))
+        // Nothing has run at all.
+        #expect(!OrganizeScopeFilter.scanCovers(scope: legal, scannedRoot: nil))
+    }
+
+    /// With no scope the only question is whether a pass has run — the global view stays on the
+    /// same code path rather than becoming a second branch.
+    @Test func withNoScopeCoverageIsJustWhetherAPassHasRun() {
+        #expect(OrganizeScopeFilter.scanCovers(scope: nil, scannedRoot: Self.root + "/Photos"))
+        #expect(!OrganizeScopeFilter.scanCovers(scope: nil, scannedRoot: nil))
+    }
 }

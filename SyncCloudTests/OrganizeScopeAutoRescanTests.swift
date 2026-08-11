@@ -49,6 +49,27 @@ import Foundation
                 "an arm is still resolving the pane's folder as its scan target")
     }
 
+    /// **The same rule for the scans the user starts by hand, which never had it.** The auto-rescan
+    /// was corrected for exactly this hazard while `findDuplicatesAction` and
+    /// `findFilingSuggestionsAction` — the closures behind every run control on the All screen —
+    /// went on targeting the pane. Scoped to `Legal` with the pane in `Photos/2024`, the Rescan
+    /// whose tooltip promises "every file in scope is hashed" hashed `Photos/2024`, replaced the
+    /// duplicate list, and left the overview reporting "clean" for `Legal`.
+    @Test func theManualScansPreferTheScopeOverThePaneToo() throws {
+        let source = try Self.contentView()
+
+        let duplicates = try Self.body(of: "func findDuplicatesAction() {", in: source)
+        #expect(duplicates.contains("let root = organizeScope?.path ?? tidyScanRootExpanded"),
+                "Find Duplicates is aimed at the pane again — a scoped scan will answer about wherever the user last browsed")
+
+        let filing = try Self.body(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {",
+                                   in: source)
+        #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
+                "the filing scan is aimed at the pane again")
+        // The provider root stays the taxonomy root in both, for the reason below.
+        #expect(filing.contains("let root = tidyProviderRootExpanded"))
+    }
+
     @Test func theProviderRootIsStillTheTaxonomyRoot() throws {
         // The scope narrows what is *scanned*; destinations still anchor at the provider root, or a
         // rule's "Home/Utilities/…" would nest under whatever subtree happened to be scoped.

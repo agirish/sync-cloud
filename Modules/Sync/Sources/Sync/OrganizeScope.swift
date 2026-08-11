@@ -247,6 +247,28 @@ public enum OrganizeAim {
 /// absence of a scope filters nothing.
 public enum OrganizeScopeFilter {
 
+    // MARK: Whether an answer about the scope can be given at all
+
+    /// Whether a pass rooted at `scannedRoot` actually looked inside `scope`.
+    ///
+    /// **Filtering to zero and finding nothing are different answers, and only one of them is
+    /// "clean".** Every function below narrows a list the scan produced; none of them can say
+    /// whether the scan covered the subtree being narrowed to. It usually did not: the filing pass
+    /// enumerates the direct children of ONE folder and the duplicate pass hashes ONE root, so
+    /// under any other scope the filtered count is zero *by construction*. The overview read that
+    /// zero as a verdict and reported "Nothing to do in Legal. Every check that has run came back
+    /// clean." about a subtree nothing had opened — while three ordinary doors (the inbox shortcut,
+    /// Open on a single-source row, ⌘K) move the scope without scanning.
+    ///
+    /// A scan of an ANCESTOR covers the scope; a scan of a sibling or a descendant does not. With
+    /// no scope the question is only whether a pass has a root at all, which keeps the global view
+    /// on the same code path as every other function here.
+    public static func scanCovers(scope: OrganizeScope?, scannedRoot: String?) -> Bool {
+        guard let scope else { return scannedRoot != nil }
+        guard let scannedRoot else { return false }
+        return PathBoundary.contains(scope.path, under: scannedRoot)
+    }
+
     // MARK: To File / Names / Renames — the item is under the scope
 
     /// A loose file is in scope when the file itself is under it.

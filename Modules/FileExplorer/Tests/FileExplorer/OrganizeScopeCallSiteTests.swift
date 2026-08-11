@@ -524,4 +524,32 @@ import Foundation
         #expect(!code.contains("older version"),
                 "apply() is composing the removal wording inline again")
     }
+
+    // MARK: A "clean" verdict needs a scan that covered the scope
+
+    /// `OrganizeScopeFilter.scanCovers` is pure and fully tested next door, and the overview would
+    /// go straight back to its bug the moment `overviewModel` stopped consulting it — a scoped count
+    /// of zero rendering as *"Nothing to do in Legal. Every check that has run came back clean."*
+    /// over a subtree nothing had opened.
+    ///
+    /// Asserted per lens rather than by a total, because the four are independently deletable and
+    /// three of them ride one walk: To File, Names and Renames all come back from the filing pass,
+    /// so they share its coverage question and each has its own line that can lose it.
+    @Test func everyScannedLensGatesItsCleanVerdictOnCoverage() throws {
+        let tidy = try Self.source("TidyView.swift")
+        let model = try Self.body(of: "var overviewModel: OverviewModel {", in: tidy)
+
+        #expect(model.contains("OrganizeScopeFilter.scanCovers"),
+                "overviewModel no longer asks whether the scan covered the scope")
+        // The three filing-fed lenses and the duplicate lens, each by the flag its own arm reads.
+        // A bare count would pass with one arm reverted.
+        #expect(model.components(separatedBy: "!filingCovers").count - 1 == 3,
+                "one of To File / Names / Renames stopped gating on the filing pass's coverage")
+        #expect(model.contains("!duplicatesCover"),
+                "the duplicate lens stopped gating on its scan's coverage")
+        // Both flags must come from the manager's real scanned roots — a flag hard-wired true is
+        // the same bug with a longer name.
+        #expect(model.contains("scannedRoot: syncManager.filingScanFolder"))
+        #expect(model.contains("scannedRoot: syncManager.duplicateScanRoot"))
+    }
 }

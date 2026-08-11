@@ -1473,9 +1473,24 @@ struct ContentView: View {
         revealCoordinator.findDuplicates(of: node, isLeft: isLeft)
     }
 
-    /// Switches to the Tidy tab and kicks off a duplicate scan of the focused provider.
+    /// Switches to the Tidy tab and kicks off a duplicate scan of **the subject** — the scope when
+    /// one is set, the focused pane's folder otherwise.
+    ///
+    /// **The scope, not the pane, for the same reason `autoRescanTidyLensIfShowing` targets it.**
+    /// The scan target is browse-aware and moves on every column click, so a pane-targeted scan
+    /// answers about wherever the user last clicked while every control that starts it is captioned
+    /// for the scope — the overview's Rescan help says "every file in scope is hashed". Scoped to
+    /// `Legal` with the pane in `Photos/2024`, that click hashed `Photos/2024`, REPLACED the
+    /// duplicate list (results are never merged), and the Legal filter then showed zero: the
+    /// overview flipped to "clean" for a subtree nothing had hashed, and a 722-group working list
+    /// was gone.
+    ///
+    /// The header's own Rescan is unaffected in the case it appears — `targetMoved` keeps it off
+    /// screen once the pane leaves the subject — and this is what its docstring already claimed it
+    /// did ("re-runs the current subject's scan"). The re-aim branch sets the scope first and then
+    /// calls this, so it targets the folder it just aimed at.
     func findDuplicatesAction() {
-        let root = tidyScanRootExpanded
+        let root = organizeScope?.path ?? tidyScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Find Duplicates in \(root)")
         show(.duplicates)
@@ -1957,9 +1972,19 @@ struct ContentView: View {
     }
 
     /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy.
+    ///
+    /// Aimed at the subject — the scope when set — for the reasons written out on
+    /// ``findDuplicatesAction()``. The shape of the miss here is sharper than Duplicates', because
+    /// the filing pass enumerates the direct children of ONE folder: scoped to `TODO` from a pane
+    /// at the root, the card said "The file pass hasn't run here", the click scanned the root's
+    /// loose files, and To File then reported "Nothing to do in TODO" without TODO ever having been
+    /// enumerated.
     func findFilingSuggestionsAction(ignoringCache: Bool = false) {
         let root = tidyProviderRootExpanded
-        guard let folder = filingScanTargetFolder else { return }
+        // The provider root is the taxonomy the scan files AGAINST, so it is required whichever
+        // folder is being enumerated. `filingScanTargetFolder` folded that check in; the scope
+        // branch needs it stated.
+        guard !root.isEmpty, let folder = organizeScope?.path ?? filingScanTargetFolder else { return }
         Logger.shared.info("User requested Filing suggestions for \(folder)"
             + (ignoringCache ? " (ignoring saved suggestions)" : ""))
         selectedWorkspace = .filing
