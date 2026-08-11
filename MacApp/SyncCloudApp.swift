@@ -287,8 +287,8 @@ struct SyncCloudApp: App {
         .windowStyle(.hiddenTitleBar)
         // Open at ~85% of the screen (the two-pane + Differences layout needs room); without a
         // defaultSize, `.contentSize` resizability collapsed the first launch to the content's
-        // 600pt minimum. `.contentMinSize` keeps that minimum as a floor but lets the window
-        // take (and remember) any larger size.
+        // own minimum (600×560 — see `ContentView.chromedContent`). `.contentMinSize` keeps that
+        // minimum as a floor but lets the window take (and remember) any larger size.
         .defaultSize(
             width: (NSScreen.main?.visibleFrame.width ?? 1600) * 0.85,
             height: (NSScreen.main?.visibleFrame.height ?? 1000) * 0.85
