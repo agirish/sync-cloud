@@ -357,6 +357,11 @@ struct OrganizeOverview: View {
         /// never scans. The one number that describes the *screen* rather than the tree.
         var checksRun = 0
         var checksTotal = 0
+        /// Of `checksRun`, the lenses with findings. The meter tints this many segments accent;
+        /// the remainder of the run segments fill quiet — clean is a completed check, not a blank.
+        var checksReporting = 0
+        /// Ran and found nothing.
+        var checksClean: Int { checksRun - checksReporting }
         /// Reclaimable bytes, **pre-formatted by the caller**, or nil when Duplicates has not run
         /// or has nothing to reclaim.
         ///
@@ -394,8 +399,21 @@ struct OrganizeOverview: View {
                     counted.contains($0.lens) && $0.state != .notScanned
                 }.count,
                 checksTotal: counted.count,
+                checksReporting: sections.filter {
+                    guard counted.contains($0.lens) else { return false }
+                    if case .findings = $0.state { return true } else { return false }
+                }.count,
                 reclaimable: reclaimable,
                 scopeFolders: scopeFolders)
+        }
+
+        /// The checks tile's caption: the run's composition when something has run, the plain
+        /// gloss before then. Absent parts rather than zeroes, the rule every badge follows.
+        static func meterCaption(run: Int, reporting: Int, clean: Int) -> String {
+            guard run > 0 else { return "checks have run" }
+            let parts = [reporting > 0 ? "\(reporting) reporting" : nil,
+                         clean > 0 ? "\(clean) clean" : nil].compactMap { $0 }
+            return parts.isEmpty ? "checks have run" : parts.joined(separator: " · ")
         }
 
         /// The lenses the ratio is over: those that can report **and** whose pass this host can
@@ -547,38 +565,88 @@ struct OrganizeOverview: View {
 
     // MARK: The ledger
 
-    /// "2 of 5 · checks have run   4.2 GB · reclaimable   3,013 · folders in scope".
+    /// The ledger as tiles: each fact its own quiet card, sized to its content — the former
+    /// full-width gray band left the numbers adrift on a metre of trailing emptiness. The checks
+    /// tile carries a per-lens meter (accent = reporting, quiet-filled = clean, empty = not run)
+    /// captioned with the run's composition, so the fraction reads visually without inventing a
+    /// number — and still no total across lenses, ever.
     private var ledgerStrip: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 18) {
-            ledgerStat("\(ledger.checksRun) of \(ledger.checksTotal)", "checks have run",
-                       emphasised: false)
+        HStack(alignment: .top, spacing: 8) {
+            checksTile
             if let reclaimable = ledger.reclaimable {
-                ledgerStat(reclaimable, "reclaimable", emphasised: true)
+                ledgerTile(reclaimable, "reclaimable", emphasised: true)
             }
             if let folders = ledger.scopeFolders {
-                ledgerStat(folders.formatted(),
+                ledgerTile(folders.formatted(),
                            folders == 1 ? "folder in scope" : "folders in scope",
                            emphasised: false)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.35)))
     }
 
-    private func ledgerStat(_ value: String, _ caption: String, emphasised: Bool) -> some View {
+    /// Meter segment geometry — shared with nothing, named so the render test can reason in it.
+    static let meterSegmentSize = CGSize(width: 16, height: 4)
+
+    private var checksTile: some View {
+        let caption = Ledger.meterCaption(run: ledger.checksRun,
+                                          reporting: ledger.checksReporting,
+                                          clean: ledger.checksClean)
+        return VStack(alignment: .leading, spacing: 0) {
+            (Text("\(ledger.checksRun) ")
+                .fontWeight(.bold)
+             + Text("of \(ledger.checksTotal)")
+                .foregroundStyle(.secondary))
+                .scaledFont(.system(size: 17))
+                .monospacedDigit()
+            HStack(spacing: 3) {
+                ForEach(0..<max(ledger.checksTotal, 0), id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(meterColor(for: index))
+                        .frame(width: Self.meterSegmentSize.width,
+                               height: Self.meterSegmentSize.height)
+                }
+            }
+            .padding(.vertical, 5)
+            .accessibilityHidden(true)   // the caption + value say everything the meter draws
+            Text(caption)
+                .scaledFont(.system(size: 10))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .lensCard()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(ledger.checksRun) of \(ledger.checksTotal) checks have run, \(caption)")
+    }
+
+    /// Segment ink by position: reporting first, then clean, then not-run. The order carries no
+    /// per-lens identity — this is a fraction, not a map — accent for "wants you", a quiet fill
+    /// for "ran, nothing", near-ground for "never looked".
+    private func meterColor(for index: Int) -> Color {
+        if index < ledger.checksReporting { return accent }
+        if index < ledger.checksRun { return Color.primary.opacity(0.30) }
+        return Color.primary.opacity(0.10)
+    }
+
+    private func ledgerTile(_ value: String, _ caption: String, emphasised: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(value)
                 .scaledFont(.system(size: 17, weight: .bold))
                 .monospacedDigit()
                 .foregroundStyle(emphasised ? accent : Color.primary)
+            Spacer(minLength: 0)
             Text(caption)
                 .scaledFont(.system(size: 10))
                 .foregroundStyle(.secondary)
         }
-        .fixedSize()
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxHeight: .infinity)
+        .lensCard()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(value) \(caption)")
     }
