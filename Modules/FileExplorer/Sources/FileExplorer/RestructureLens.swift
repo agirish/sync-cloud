@@ -43,16 +43,16 @@ struct RestructureLens: View {
     var providerName: String?
     let accent: Color
     let onReveal: (String) -> Void
-    /// Opens Settings ▸ Organize, where the survey this lens reads is set up. **The setup card's
-    /// trigger, and the reason it is a route rather than a scan:** the folder profile is built
-    /// from the tree once and read from disk at launch; there is no button anywhere that makes
-    /// one, so a "Check structure" trigger here would be a prominent button that cannot run.
-    var onOpenSurveySettings: (() -> Void)?
     /// Whether the user has opened this answer **this launch** — see
     /// ``FileSyncManager/hasReviewedStructure``. False puts the setup card in front of a result
     /// that already exists, which is the whole point: it is read off a survey that may be weeks
     /// old, and the card is where that gets said.
-    var hasReviewed: Bool = true
+    ///
+    /// **No default**, unlike the other optional inputs here. A defaulted `true` is a gate that
+    /// switches itself off for any call site that forgets the argument, and nothing would fail —
+    /// which is the whole failure mode this flag exists to prevent. The compiler is a better
+    /// guard than a comment.
+    let hasReviewed: Bool
     /// Reveals the findings — the setup card's trigger once there is a survey to read.
     var onReview: (() -> Void)?
     /// Re-derives the folder memory from the tree as it stands now. The card's *secondary*
@@ -206,10 +206,15 @@ struct RestructureLens: View {
     /// least self-explanatory result Organize produces: a family, a count of shapes, and one row
     /// per shape naming the subfolders that shape's members agree on.
     ///
-    /// **Its trigger is a route, not a scan** (see ``onOpenSurveySettings``), and it says so —
-    /// "Set up the survey", never a verb that implies this screen can produce the answer itself.
-    /// With no route wired the card still stands and simply drops the button, which is the
-    /// honest rendering of a lens whose input has to arrive from elsewhere.
+    /// **It has no trigger, and that is the honest rendering.** The first draft put a prominent
+    /// "Set up the survey" button here, routed at Settings ▸ Organize — which is where the state
+    /// this replaced told people to go, and which **has no survey control on it**: an inbox path,
+    /// a kept-names list, and pointers to two other tabs. The folder profile is an artifact built
+    /// against the tree and read from disk at launch; no screen in the app makes one. A big blue
+    /// button landing on a page with nothing to do is worse than no button, and worse than the
+    /// sentence it was promoted from, because a button is a promise. So the card states where the
+    /// answer would come from and stops — `LensSetupCard` draws without a trigger for exactly
+    /// this.
     private var noProfileState: some View {
         LensSetupCard(
             intro: LensIntros.restructure(providerName: providerName),
@@ -220,10 +225,31 @@ struct RestructureLens: View {
                 + "needs that survey first. Opens Settings ▸ Organize.",
             samplesTitle: "What a finding looks like",
             samplesAccessibility: samplesAccessibility,
-            onStart: onOpenSurveySettings,
+            onStart: nil,
+            footnote: AnyView(noSurveyNote),
             samples: { samples }
         )
     }
+
+    /// Why there is nothing to press. Sits in the same slot the reveal card puts its "read from a
+    /// survey of N folders" line in — a fact about the input, under the card.
+    @ViewBuilder
+    private var noSurveyNote: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle").scaledFont(.system(size: 10))
+            Text(Self.noSurveyNoteText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .scaledFont(.system(size: 11))
+        .foregroundStyle(.secondary)
+    }
+
+    /// **Says what is missing, and does not say where to get it.** The state this replaced ended
+    /// "Settings ▸ Organize sets it up", which was not true then either — see ``noProfileState``.
+    /// Naming a destination that cannot help is the part worth not repeating.
+    static let noSurveyNoteText =
+        "This tree has no folder survey yet, so there is nothing to compare. "
+        + "Organize's other lenses read the disk directly and work without one."
 
     /// Restructure with a survey to read, **before the user has asked for the answer this
     /// launch** — the same card, over results that already exist.
@@ -269,8 +295,13 @@ struct RestructureLens: View {
 
     /// The reveal trigger's words. **A count, because the badge beside it carries one** — a
     /// button reading "Show findings" next to a rail badge reading 12 invites the question of
-    /// whether they are the same twelve. Zero is its own phrasing rather than "Show 0 findings",
-    /// which reads as a button that does nothing; what it opens is the earned clean state.
+    /// whether they are the same twelve, and the badge counts exactly this: `findings`, never the
+    /// ancestor list (which is context about the surroundings, not work in the scope).
+    ///
+    /// Zero is its own phrasing rather than "Show 0 findings", which reads as a button that does
+    /// nothing. What it opens is usually the clean state — but not always, because a scope with
+    /// no findings of its own can still have ancestor ones, and those do render. "Check the
+    /// shapes" is deliberately the one wording that is true of both.
     static func revealTitle(findingCount: Int) -> String {
         guard findingCount > 0 else { return "Check the shapes" }
         return "Show \(findingCount) finding\(findingCount == 1 ? "" : "s")"
@@ -283,6 +314,13 @@ struct RestructureLens: View {
     /// that has not moved in a month has a stamp from whenever it last did, and "surveyed 3 days
     /// ago" would be a date about the last change rather than the last look. The folder count is
     /// a fact this view actually holds.
+    ///
+    /// **And the count is what this ANSWER covers, not how big the survey is.** `folderCount` is
+    /// scoped (see its own doc), so under a narrowing it is 79 where the survey is 3,013 — and
+    /// the first draft read "Read from a survey of 79 folders", which attaches the scoped number
+    /// to the artifact and describes neither. That is the same too-wide/too-narrow slip
+    /// ``cleanMessage`` was already fixed for one state over, which is why it says "Checked N"
+    /// rather than naming the survey. This says "Covers N" for the same reason.
     @ViewBuilder
     private var surveyNote: some View {
         HStack(spacing: 6) {
@@ -295,10 +333,9 @@ struct RestructureLens: View {
     }
 
     static func surveyNoteText(folderCount: Int?) -> String {
-        let tail = "Update it if the tree has changed since."
-        guard let folderCount else { return "Read from a folder survey, not from your disk. " + tail }
-        return "Read from a survey of \(folderCount.formatted()) folder\(folderCount == 1 ? "" : "s"), "
-            + "not from your disk. " + tail
+        let tail = "Read from the folder survey, not from your disk. Update it if the tree has changed since."
+        guard let folderCount else { return tail }
+        return "Covers \(folderCount.formatted()) folder\(folderCount == 1 ? "" : "s"). " + tail
     }
 
     private var samplesAccessibility: String {

@@ -108,6 +108,37 @@ import Design
         #expect(m.hasReviewedStructure, "a re-survey re-closed the launch gate mid-session")
     }
 
+    // MARK: The call site
+
+    /// **The gate is wired, not merely available.**
+    ///
+    /// Everything above tests a flag and a view input. Neither notices if `TidyView` stops passing
+    /// the flag to the view — and that is the whole change. `hasReviewed` is deliberately a `let`
+    /// with no default so the compiler catches an omitted argument; this catches the other half,
+    /// an argument still present but fed something that is not the launch flag (a literal `true`
+    /// while debugging, say, or a different manager property).
+    ///
+    /// A source scan, for the reason `OrganizeScopeCallSiteTests` gives: the alternative is
+    /// mounting `TidyView` with a live manager and reading pixels back to infer which state it
+    /// chose, which is a lot of machinery to answer a question the call site states outright.
+    @Test func tidyViewFeedsTheGateToTheLens() throws {
+        let tidy = try OrganizeScopeCallSiteTests.source("TidyView.swift")
+        let content = try OrganizeScopeCallSiteTests.body(
+            of: "private func restructureContent(rows: FilteredRows,", in: tidy)
+        #expect(content.contains("hasReviewed: syncManager.hasReviewedStructure"), """
+                restructureContent no longer feeds the launch flag to RestructureLens — the gate \
+                still exists and no longer decides anything.
+                """)
+        #expect(content.contains("onReview:"), "the card has no way to open the answer it gates")
+        // The overview's exception, which is a decision rather than an accident: arriving from
+        // "Open Restructure — 12 ›" skips the card, because that button already stated the count.
+        // If it stops being deliberate it should fail here rather than drift.
+        let overview = try OrganizeScopeCallSiteTests.body(
+            of: "private func organizeOverview(rows: FilteredRows,", in: tidy)
+        #expect(overview.contains("if item == .restructure { syncManager.hasReviewedStructure = true }"),
+                "the overview's Open-Restructure link no longer skips the reveal card")
+    }
+
     // MARK: The reveal trigger's words
 
     @Test func theTriggerCountsWhatItWouldShow() {
@@ -127,6 +158,12 @@ import Design
         #expect(known.contains("3,013 folders"))
         #expect(known.contains("not from your disk"))
         #expect(known.contains("Update it"))
+        // **The count is what the ANSWER covers, never the size of the survey.** `folderCount` is
+        // scoped, so under a narrowing it is 79 where the survey is 3,013 — and "a survey of 79
+        // folders" would attach the scoped number to the artifact and describe neither. Same slip
+        // `cleanMessage` was fixed for one state over.
+        #expect(known.hasPrefix("Covers 3,013 folders."))
+        #expect(!known.contains("survey of"))
         // **No date, deliberately.** The survey's stamp is rewritten only when a re-survey
         // changes something, so on a settled tree it names the last change rather than the last
         // look — "surveyed 3 days ago" would be a claim this view cannot back. If a real
@@ -143,7 +180,7 @@ import Design
     }
 
     @Test func oneFolderReadsAsASentence() {
-        #expect(RestructureLens.surveyNoteText(folderCount: 1).contains("1 folder,"))
+        #expect(RestructureLens.surveyNoteText(folderCount: 1).contains("1 folder."))
         #expect(!RestructureLens.surveyNoteText(folderCount: 1).contains("1 folders"))
     }
 }

@@ -98,10 +98,14 @@ import Design
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Restructure with no survey — the one card in the set with **no trigger at all**, because
+    /// nothing in the app can build a folder profile (see `RestructureLens.noProfileState`). It
+    /// is therefore excluded from `everyLensTriggerLandsAtTheSameHeight`, which measures triggers;
+    /// `restructureDrawsItsCardWithoutATrigger` is what covers it instead.
     static func restructurePane() -> some View {
         RestructureLens(findings: [], hasProfile: false, folderCount: nil,
                         providerName: "iCloud", accent: .blue, onReveal: { _ in },
-                        onOpenSurveySettings: {})
+                        hasReviewed: false)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -112,7 +116,7 @@ import Design
                                      refresh: Bool = true) -> some View {
         RestructureLens(findings: findings, hasProfile: true, folderCount: 3_013,
                         providerName: "iCloud", accent: .blue, onReveal: { _ in },
-                        onOpenSurveySettings: {}, hasReviewed: false, onReview: {},
+                        hasReviewed: false, onReview: {},
                         onUpdateSurvey: refresh ? {} : nil)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -230,12 +234,11 @@ import Design
             ("To File", Self.firstAccentRow(Self.render(Self.toFilePane(.underTheSetupCard)))),
             ("Duplicates", Self.firstAccentRow(Self.render(Self.duplicatesPane()))),
             ("Renames", Self.firstAccentRow(Self.render(Self.renamesPane()))),
-            ("Restructure", Self.firstAccentRow(Self.render(Self.restructurePane()))),
-            // The reveal card too: it is the one with a second button beside the trigger and a
-            // footnote under the samples, and both are places a stray point of padding would
-            // take it off the line.
-            ("Restructure (ready)",
-             Self.firstAccentRow(Self.render(Self.restructureReadyPane()))),
+            // Restructure's REVEAL card, not its no-survey one — that state deliberately has no
+            // trigger to measure (`restructureDrawsItsCardWithoutATrigger` covers it). This is
+            // also the one card with a second button beside the trigger and a footnote under the
+            // samples, both places a stray point of padding would take it off the line.
+            ("Restructure", Self.firstAccentRow(Self.render(Self.restructureReadyPane()))),
             ("Rules", Self.firstAccentRow(Self.render(Self.rulesPane()))),
             ("Storage", Self.firstAccentRow(Self.render(Self.storagePane()))),
         ]
@@ -261,7 +264,9 @@ import Design
             ("To File", Self.firstInkRow(Self.render(Self.toFilePane(.underTheSetupCard)))),
             ("Duplicates", Self.firstInkRow(Self.render(Self.duplicatesPane()))),
             ("Renames", Self.firstInkRow(Self.render(Self.renamesPane()))),
-            ("Restructure", Self.firstInkRow(Self.render(Self.restructurePane()))),
+            ("Restructure", Self.firstInkRow(Self.render(Self.restructureReadyPane()))),
+            ("Restructure (no survey)", Self.firstInkRow(Self.render(Self.restructurePane()))),
+            ("Rules", Self.firstInkRow(Self.render(Self.rulesPane()))),
             ("Storage", Self.firstInkRow(Self.render(Self.storagePane()))),
         ]
         for (name, row) in panes {
@@ -347,24 +352,47 @@ import Design
         return differing
     }
 
-    /// Restructure's card is the one whose trigger is a route, so it is the one that can be
-    /// mounted with nothing to press — and it must still draw the pitch and the samples rather
-    /// than collapsing to a header.
-    @Test func restructureDrawsItsCardWithAndWithoutARoute() {
-        let withRoute = Self.render(Self.restructurePane())
-        let withoutRoute = Self.render(
-            RestructureLens(findings: [], hasProfile: false, folderCount: nil,
-                            providerName: "iCloud", accent: .blue, onReveal: { _ in },
-                            onOpenSurveySettings: nil)
-                .frame(maxWidth: .infinity, maxHeight: .infinity))
-        #expect(Self.firstInkRow(withRoute) != nil)
-        #expect(Self.firstInkRow(withoutRoute) != nil)
-        // The button is the whole difference, and it is a large filled control: dropping it has
-        // to move a lot of pixels. Equal renders would mean the trigger never drew in either.
-        let differing = Self.differingPixels(withRoute, withoutRoute)
-        #expect(differing > 1_000, """
-                Only \(differing) pixels differ between a card with a trigger and one without — \
-                the trigger is not being drawn.
+    /// The no-survey card **draws no trigger, and still draws everything else.**
+    ///
+    /// Both halves matter. It carries no button because nothing in the app can produce a folder
+    /// profile, and the button that used to be here pointed at a Settings tab with no survey
+    /// control on it. But "no button" must not have quietly become "no card": the pitch, the
+    /// samples and the note are what is left, and a state that collapsed to a bare header would
+    /// satisfy a test that only checked the button was gone.
+    @Test func restructureDrawsItsCardWithoutATrigger() {
+        let noSurvey = Self.render(Self.restructurePane())
+        #expect(Self.firstInkRow(noSurvey) != nil, "the no-survey card drew nothing at all")
+        // No accent band: `firstAccentRow` only reports a run wide enough to be a filled control,
+        // so the header icon does not trip it. A hit here is a button that should not exist.
+        #expect(Self.firstAccentRow(noSurvey) == nil, """
+                The no-survey card drew a trigger. Nothing in the app can build a folder survey, \
+                so any button here lands the user somewhere that cannot help.
                 """)
+        // And it is still a card: compare against the same lens with a survey and a reveal
+        // trigger. Equal renders would mean one of the two is drawing nothing.
+        let ready = Self.render(Self.restructureReadyPane())
+        #expect(Self.differingPixels(noSurvey, ready) > 1_000)
+        // The floor as well as the ceiling — the samples and the note carry real ink of their own,
+        // well past what a lone header and two sentences would.
+        #expect(Self.inkPixels(noSurvey) > 3_000, """
+                The no-survey card inked \(Self.inkPixels(noSurvey)) — too little for a card with \
+                a sample finding and a note under it; it has collapsed to a header.
+                """)
+    }
+
+    /// Pixels differing from the flat backdrop — the card's own ink.
+    static func inkPixels(_ rep: NSBitmapImageRep) -> Int {
+        guard let base = rep.colorAt(x: 2, y: 2) else { return 0 }
+        var ink = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard let px = rep.colorAt(x: x, y: y) else { continue }
+                let delta = abs(px.redComponent - base.redComponent)
+                    + abs(px.greenComponent - base.greenComponent)
+                    + abs(px.blueComponent - base.blueComponent)
+                if delta > 0.06 { ink += 1 }
+            }
+        }
+        return ink
     }
 }

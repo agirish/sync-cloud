@@ -259,10 +259,6 @@ public struct TidyView: View {
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
     /// host that has no Settings to open.
     private let onConfigureCloudRefine: (() -> Void)?
-    /// Opens Settings ▸ Organize, where the folder survey is set up — Restructure's setup-card
-    /// trigger. Optional for the same reason the line above is, and withheld the same way: a host
-    /// with no Settings to open gets a card with no button rather than one that does nothing.
-    private let onOpenSurveySettings: (() -> Void)?
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
@@ -342,7 +338,6 @@ public struct TidyView: View {
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
         onUpdateFolderMemory: (() -> Void)? = nil,
         onConfigureCloudRefine: (() -> Void)? = nil,
-        onOpenSurveySettings: (() -> Void)? = nil,
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
@@ -371,7 +366,6 @@ public struct TidyView: View {
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
         self.onUpdateFolderMemory = onUpdateFolderMemory
         self.onConfigureCloudRefine = onConfigureCloudRefine
-        self.onOpenSurveySettings = onOpenSurveySettings
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
@@ -2757,7 +2751,6 @@ public struct TidyView: View {
                             let full = (root as NSString).appendingPathComponent(relative)
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                         },
-                        onOpenSurveySettings: onOpenSurveySettings,
                         // The launch gate. Restructure is the only lens whose answer exists
                         // before anyone asks — see `FileSyncManager.hasReviewedStructure` for why
                         // it needs a flag the others get from their scan lifecycle.
