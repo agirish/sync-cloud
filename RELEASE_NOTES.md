@@ -9,30 +9,44 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.0 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v3.1..4befc84a` — 163 commits. Claims below were checked
+> be withdrawn. Covers `v3.1..6c56768a` — 202 commits. Claims below were checked
 > against `v3.1`, but the audit must run again before this ships: re-check every
 > claim (`git grep -l "<symbol>" v3.1 -- Modules SyncCloudCLI MacApp`), and keep
 > out the fixes made to features that landed *within* this range — no user of v3.1
 > was ever exposed to those.
 >
-> That rule has already cost this draft one entry, and it is worth naming because
-> the entry read so well: the household section claimed a *fix* — a cross-person
+> That rule has already cost this draft three entries, and each is worth naming
+> because each read well. The household section claimed a *fix* — a cross-person
 > check that "refused the correct folder", and over-attribution going "from 36 to
-> 0". Both describe work done inside this range against a baseline built inside it.
+> 0". Both describe work done inside this range against a baseline built inside it;
 > v3.1 had no person logic in `FilingEngine` at all, so no user ever met either.
-> The feature is real; the before-and-after was ours, not theirs.
+> A Storage entry crediting the treemap's unlabelled slivers being folded into an
+> accountable tail came out when `git show v3.1:…/TreemapView.swift` turned out to
+> have a tail already. And "the pane bar gains Delete" came out because delete was
+> already there on ⌘⌫ and in the context menu — a new *button* dressed as a new
+> capability. The work is real in all three; the before-and-afters were ours.
 >
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
 
 A major, and for the reason v2.0 was one: the shape of the app changed. The
-workspace bar goes from five segments to three, because Duplicates and Automations
-were never peers of Compare and Storage — they are things you do to a single tree,
-and Organize is now the one place a single tree is changed. Underneath that,
-SyncCloud learns who the people in your documents are, and files by that.
+workspace bar goes from five segments to four, and two of them are new answers to
+"what is this place for". Duplicates and Automations are gone as places — they
+were never peers of Compare and Storage, they are things you do to a single tree,
+and **Organize** is now the one place a single tree is changed. **Browse** arrives
+as the plain file browser the app has always contained and never let you look at
+directly. The bar reads Browse, Compare | Organize, Storage: the first two look at
+trees, the last two act on one. Underneath all of it, SyncCloud learns who the
+people in your documents are, and files by that.
 
 Still the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0
 section first.
+
+### Browse — one tree, the whole window
+
+- **A fourth workspace with no lens and no opinion.** One tree at full width,
+  nothing proposing anything: where you go when you do not want a lens's view of
+  your files. A fresh window opens here.
 
 ### Before you upgrade: this is a one-way door for automation rules
 
@@ -49,27 +63,33 @@ section first.
 
 ### Organize is the one place a single tree is changed
 
-- **Three segments, not five.** Compare holds two trees side by side, Storage reads
-  one and changes nothing, Organize changes one. Duplicates and Automations are
-  lenses inside Organize now — the journey risky names already made in v3.0. Your
-  stored workspace migrates forward.
-- **A six-item rail inside Organize**: To File, Duplicates, Names, Renames,
-  Restructure, Rules. These are permanent items, not the chips that came before:
-  a chip only exists once a scan has found something, so there was nowhere for
-  *"organize this folder"* to land before running anything. The badge keeps the old
-  behaviour — a count when there is one, nothing at zero, never a greyed "0".
+- **Organize changes one tree, and it is the only place that does.** Compare holds
+  two side by side, Browse looks at one, Storage reads one and changes nothing.
+  Duplicates and Automations are lenses inside Organize now — the journey risky
+  names already made in v3.0. Your stored workspace migrates forward.
+- **A five-item rail inside Organize**: To File, Duplicates, Renames, Restructure,
+  Rules. These are permanent items, not the chips that came before: a chip only
+  exists once a scan has found something, so there was nowhere for *"organize this
+  folder"* to land before running anything. The badge keeps the old behaviour — a
+  count when there is one, nothing at zero, never a greyed "0".
+- **Risky names are part of Renames now**, as a *to fix* section at the top of the
+  backlog: a name your provider will not accept is one more kind of rename, and
+  both answers already came off the same walk. It appears only when it has
+  something to report, with per-row Fix and a Fix-all. A stored Names selection
+  resolves to Renames.
+- **The rename backlog is organised category-first**, grouped by parent folder,
+  with one Rename column and a tree to review by — a backlog of 126 folders and
+  1,192 renames is not a flat list anyone can read.
 - **The rail's unselected state is an overview** — every lens's answer for the
   current scope on one page, with three states each that never borrow one another's
   words: never ran, ran and clean, or findings. It is not a seventh item, so it
   cannot become the tab you forget to visit; you land on it.
-- **One scope, which you set.** The six lenses used to answer about four different
-  territories behind one row of peers — To File about the scanned folder (or the
-  TODO inbox, whenever the pane happened to sit at the provider root), Duplicates
-  about wherever the pane was when its scan ran, and Names, Renames and Restructure
-  about the whole tree. With the left pane on `Documents/Legal`, the Renames badge
-  read 126 folders and 611 renames, **every one of them outside what was on
-  screen**. Scope is now explicit, sticky across launches, and browsing never moves
-  it on its own. Global — no scope — is the default.
+- **One scope, which you set.** Every lens answers about the same territory, and
+  you choose it: a folder you point Organize at, or the whole tree. It is explicit,
+  it survives a relaunch, and **browsing never moves it on its own** — a row of
+  peers each quietly answering about a different folder is how a badge comes to
+  read 126 folders and 611 renames with none of them on screen. Global is the
+  default, and the scope chip says which you are in.
 - **Scope filters, it does not rescan.** Filing, names and renames come off one
   walk and Restructure reads the folder profile, so narrowing is instant. A
   duplicate group is in scope if *any* copy is, and the out-of-scope copies stay
@@ -231,6 +251,8 @@ section first.
   than the list being one flat ranking with headings sprinkled through it.
 - **It indexes the folders you actually have** — the same tree Organize surveys,
   so a folder you made this morning is reachable by name this morning.
+- **Every row says why it matched**, and the palette teaches its own keys rather
+  than expecting you to know them.
 - **It stands aside for the destination picker.** While that sheet is up, ⌘K and
   every other chord it would shadow stay with the sheet.
 
@@ -378,6 +400,20 @@ Each of those now keeps its work, on disk, across launches.
   outside what was last scanned gets "*wasn't in the last scan*" and a button
   that scans its own folder — not a confident all-clear borrowed from results
   that never saw it.
+
+### The window, and what the chrome claims
+
+- **The window's smallest size is 760×560.** v3.1 would shrink to a 600pt floor,
+  which is past the point where the workspace bar has shed its labels — a window
+  small enough to stop telling you where you are. The new floor keeps the labels
+  at Small, Default and Large text.
+- **A clean check says what it actually checked.** "No duplicates found" is a claim
+  about a whole tree, and a scan of one folder cannot make it; clean states now
+  name the folder they covered, and a lens that has never run here says so instead
+  of borrowing the words for "ran and found nothing".
+- **One vocabulary across the lens rows** — medium file-type symbols with identity
+  tints, counts in one pill, one progress dialect, and headers aligned on shared
+  columns, so a row means the same thing whichever lens you are reading.
 
 ### Appearance
 
