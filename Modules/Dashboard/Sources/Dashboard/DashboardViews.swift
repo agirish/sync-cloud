@@ -903,15 +903,20 @@ public struct PaneHeader: View {
                     }
                 } label: {
                     Image(systemName: "magnifyingglass")
-                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                        // Tinted whenever a query is live, so a search narrowing what you are
+                        // looking at can never be silently on behind a quiet glyph — the rule
+                        // `ExpandingSearchToggle` applies everywhere else.
+                        //
+                        // Through `ink:`, NOT a `.foregroundStyle` on the button. That is where
+                        // this started, and it painted nothing: `paneNavChrome` sets the glyph's
+                        // colour on the glyph itself, and the application closest to the leaf
+                        // wins, so a colour set further out never arrived. The promise in the
+                        // comment above was three lines from the code that broke it, and no test
+                        // looked — `PaneBarSearchTintTests` counts the pixels now.
+                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize,
+                                       ink: searchText.wrappedValue.isEmpty ? nil : glassHue.accentColor)
                 }
                 .buttonStyle(navButtonStyle)
-                // Tinted whenever a query is live, so a search narrowing what you are looking at
-                // can never be silently on behind a quiet glyph — the rule
-                // `ExpandingSearchToggle` applies everywhere else.
-                .foregroundStyle(searchText.wrappedValue.isEmpty
-                                 ? AnyShapeStyle(Color.primary.opacity(0.75))
-                                 : AnyShapeStyle(glassHue.accentColor))
                 // Centred, not trailing: a ⌘F keycap is nearly as wide as this button, and
                 // anything overhanging would foul the nav glyphs either side of it. Covering the
                 // magnifier for the length of an ⌥ hold is fine — the badge IS the answer to the
