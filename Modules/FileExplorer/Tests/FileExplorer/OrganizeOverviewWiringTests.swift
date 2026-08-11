@@ -228,6 +228,34 @@ import SwiftUI
     }
 
     /// Rules takes no section at all, so it can never be reported as scanning or as unscanned.
+    /// **The ledger counts exactly the lenses the host hands it sections for.**
+    ///
+    /// Two independent expressions decide that today and nothing tied them together: this switch
+    /// returns `nil` for Rules and for the folded Names lens, while
+    /// ``OrganizeOverview/Ledger/countedLenses(runnablePasses:)`` filters on `carriesBadge` and
+    /// `isFoldedIntoRenames`. They agree by coincidence of authorship, and either direction of
+    /// drift is a defect this screen has already shipped once in another form:
+    ///
+    /// - **Counted with no section** — `checksRun` can never reach `checksTotal`, so the ratio
+    ///   stands open forever. That is exactly the "4 of 5 permanently" defect the runnable-pass
+    ///   narrowing was added to fix, arriving through a different door.
+    /// - **A section that is not counted** — the rows and the footer describe a check the ledger
+    ///   refuses to count, so one screen gives two answers to "how many came back clean". Rendered
+    ///   during review, from a fixture that supplied the folded lens by hand.
+    ///
+    /// Asserted at the full runnable set, because that is the only configuration in which the two
+    /// are meant to be equal; narrowing is the ledger's own business and is covered separately.
+    @Test func theLedgerCountsExactlyTheLensesThatTakeSections() {
+        let emitted = Set(subject(FileSyncManager()).overviewModel.sections.map(\.lens))
+        let counted = OrganizeOverview.Ledger
+            .countedLenses(runnablePasses: Set(OrganizePass.allCases))
+        let emittedNames = emitted.map(\.rawValue).sorted()
+        let countedNames = counted.map(\.rawValue).sorted()
+        #expect(emitted == counted, "sections \(emittedNames) vs counted \(countedNames)")
+        // Non-vacuity: an equality between two empty sets would satisfy the line above.
+        #expect(!emitted.isEmpty)
+    }
+
     @Test func rulesTakesNoSection() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         #expect(!sections.contains { $0.lens == .rules })
