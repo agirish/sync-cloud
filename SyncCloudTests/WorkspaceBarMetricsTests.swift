@@ -126,6 +126,17 @@ import FileExplorer
         // arithmetic against a hypothetical five-segment bar. Browse changed that — at the floor,
         // the real bar is glyphs.
         //
+        // **Photographed at the floor, not only computed.** This arithmetic says the row fits;
+        // what it cannot say is what macOS does with a toolbar it decides is too wide, which is to
+        // fold the whole thing behind a chevron with no error and no visual cue. So the shipping
+        // build was captured at a 600pt window and the pixels read back: four glyph clusters in
+        // the capsule (the selected Browse pill 73px wide, then three 22–31px glyphs), the compact
+        // ⌘K pill and all three trailing utilities still painted, and nothing folded away.
+        //
+        // The same capture settled the one thing no assertion in this file can reach: WHERE the
+        // rule is drawn. A 1pt darker column sits at x=365 — inside the Compare→Organize gap — and
+        // the Browse→Compare gap has no darker column anywhere in it.
+        //
         // Asserted with the app's OWN labels first, so the live behaviour is pinned, and then
         // against the queued bar so the arithmetic still has headroom under test.
         #expect(styles(contentWidth: 600, labelWidths: labelWidths()).workspace == .iconOnly,
