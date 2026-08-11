@@ -143,6 +143,10 @@ public enum FilingSpendFormat {
     public static func tokens(_ n: Int) -> String {
         n >= 1000 ? String(format: "%.1fk tok", Double(n) / 1000) : "\(n) tok"
     }
+    /// "1 file" / "3 files" — the spend row used to hard-code "\(n) files" and print "1 files".
+    public static func files(_ n: Int) -> String {
+        "\(n) file\(n == 1 ? "" : "s")"
+    }
     public static func model(_ id: String) -> String {
         if id.contains("haiku") { return "Haiku" }
         if id.contains("sonnet") { return "Sonnet" }

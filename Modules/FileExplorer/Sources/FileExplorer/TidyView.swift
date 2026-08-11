@@ -879,9 +879,12 @@ public struct TidyView: View {
         let enabled = rules.filter(\.enabled).count
         return Group {
             scannedFolderChip(scanTargetFolder)
-            StatPill(count: rules.count, label: rules.count == 1 ? "automation" : "automations",
-                     color: glassHue.accentColor, systemImage: AutomationsGlyph.lens)
-            StatPill(count: enabled, label: "enabled", color: SemanticColor.success, systemImage: "checkmark.circle")
+            // One pill for one fact and its subset — "1 of 1 enabled" — instead of the former
+            // "1 automation" + "1 enabled" pair. Fewer capsules on a row where capsules are
+            // controls; the green only speaks while something is actually on.
+            StatPill(count: enabled, label: "of \(rules.count) enabled",
+                     color: enabled > 0 ? SemanticColor.success : .secondary,
+                     systemImage: "checkmark.circle")
         }
     }
 

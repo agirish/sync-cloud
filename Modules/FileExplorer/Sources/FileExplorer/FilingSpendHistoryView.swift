@@ -77,7 +77,7 @@ struct FilingSpendHistoryView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
                     .scaledFont(.system(size: 12))
-                Text("\(FilingSpendFormat.model(entry.model)) · \(entry.fileCount) files · placed \(entry.placedCount)")
+                Text("\(FilingSpendFormat.model(entry.model)) · \(FilingSpendFormat.files(entry.fileCount)) · placed \(entry.placedCount)")
                     .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
