@@ -797,6 +797,72 @@ import Design
         #expect(lead(twoBadges) > lead(Self.states([:])))
     }
 
+    /// **The width the rail gets is the COLUMN's, not the window's** — and that difference is why
+    /// the rung above sat unreached for so long while the row overlapped the pane beside it.
+    ///
+    /// `theShedRuleIsComputed` feeds `style(contentWidth:)` numbers like 900 and 1400 and calls
+    /// them "the real header widths this app produces". They are window-sized. Organize's header
+    /// card lives in the workspace half of `singleSourceLayout`, beside a source pane that is
+    /// draggable from 220pt up, so a 900pt window hands this row somewhere near 500 — below the
+    /// threshold, every time. The arithmetic was right and the number it was given was a different
+    /// quantity.
+    ///
+    /// So this is the same rule asked in the units a caller can actually supply. Measured at the
+    /// default text size with two findings reporting: labels need a **623pt column**, which a
+    /// 760pt window cannot give while the source pane holds its own 220pt floor (540). Organize is
+    /// therefore a glyph rail at the narrowest window, exactly as the workspace bar is — and the
+    /// tooltips it sheds into are why that rung exists.
+    @Test("The column, not the window, is what the rail has to fit")
+    func theShedRuleIsAskedInColumnWidths() {
+        let twoBadges = Self.states([.toFile: 24, .names: 17])
+        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, state: twoBadges)
+
+        // The card's own inset and padding are charged — the difference between the two entry
+        // points, and the 29pt the old measurement silently spent.
+        #expect(OrganizeRailMetrics.cardChrome == 29)
+        #expect(OrganizeRailMetrics.style(columnWidth: 700, leadingWidth: leading)
+                == OrganizeRailMetrics.style(contentWidth: 700 - OrganizeRailMetrics.cardChrome,
+                                             leadingWidth: leading))
+
+        // The boundary from both sides, so a chrome constant cannot move it unnoticed.
+        let threshold = leading + OrganizeRailMetrics.searchToggleWidth + OrganizeRailMetrics.cardChrome
+        #expect(OrganizeRailMetrics.style(columnWidth: threshold, leadingWidth: leading) == .full)
+        #expect(OrganizeRailMetrics.style(columnWidth: threshold - 1, leadingWidth: leading) == .iconOnly)
+
+        // What the window's own floor produces: 760 content, less the source pane's 220pt minimum.
+        #expect(OrganizeRailMetrics.style(columnWidth: 760 - 220, leadingWidth: leading) == .iconOnly,
+                """
+                the rail spells itself out in a 540pt column — if that is now true the threshold has \
+                moved and the window floor's consequence recorded here is out of date
+                """)
+        // And a comfortable window still spells it out, or the shed has swallowed the normal case.
+        #expect(OrganizeRailMetrics.style(columnWidth: 1000, leadingWidth: leading) == .full)
+    }
+
+    /// **Shedding cannot always solve it, which is why the row also scrolls.**
+    ///
+    /// Every other assertion here ends at "and the glyph rung fits". At the workspace column's own
+    /// 340pt floor (`singleSourceLayout`'s `minWorkspace`) it does not: six three-digit badges at
+    /// the largest text size measure 474.7 with the labels already gone, against 275pt of usable
+    /// row. There is nothing left to shed, and an `HStack` that runs out of room draws over its
+    /// neighbour rather than clipping — which is the defect the screenshots showed.
+    ///
+    /// Recorded as a measurement so the horizontal scroll in `TidyView.lensTitle` reads as the
+    /// answer to a case that exists rather than as belt-and-braces someone can tidy away.
+    @Test("The glyph rung can still overrun the narrowest column")
+    func theGlyphRungCanStillOverrunTheNarrowestColumn() {
+        let busy = Self.states([.toFile: 410, .duplicates: 410, .names: 410,
+                                .renames: 410, .restructure: 410])
+        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: FontSize.extraLarge.scale, state: busy)
+        let usable = 340 - OrganizeRailMetrics.cardChrome - OrganizeRailMetrics.searchToggleWidth
+
+        #expect(shed > usable,
+                """
+                the glyph rail now fits the 340pt workspace floor at \(shed)pt against \(usable) — \
+                the scroll in `lensTitle` has stopped being reachable and this test has lost its subject
+                """)
+    }
+
     @Test("A wider badge costs more than a narrower one")
     func theBadgeIsMeasuredByItsDigits() {
         // **`410` is not `24`.** The model charged a flat two-digit figure per badge, and the

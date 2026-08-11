@@ -343,4 +343,26 @@ enum OrganizeRailMetrics {
     static func style(contentWidth: CGFloat, leadingWidth: CGFloat) -> OrganizeRailStyle {
         contentWidth - searchToggleWidth >= leadingWidth ? .full : .iconOnly
     }
+
+    /// What the card's own frame costs the row: the inset it floats on plus its internal padding,
+    /// both sides of each.
+    ///
+    /// Only the caller measuring the COLUMN needs this. It was missing entirely while the decision
+    /// was made from the card's own geometry — that measurement started inside the inset and
+    /// outside the padding, so the model believed the rail had 24pt more room than it draws in,
+    /// which is a truncation waiting for a rail 24pt short of the edge.
+    static var cardChrome: CGFloat { 2 * LiquidGlass.cardInset + 2 * LensHeaderMetrics.padding }
+
+    /// The style a **column** of this width can seat — the entry point the view uses.
+    ///
+    /// Separate from ``style(contentWidth:leadingWidth:)`` rather than replacing it: that one
+    /// answers "what fits inside this row", which is the arithmetic and is worth testing on its
+    /// own, and this one converts the only width a caller can honestly measure into it. The
+    /// distinction is not pedantry — it is the whole defect. A view can measure what it was
+    /// PROPOSED (this) or what it DREW (the card), and the second is a number the rail itself
+    /// helped decide, so feeding it back in makes the test "is the rail as wide as the rail",
+    /// which is true at every window size.
+    static func style(columnWidth: CGFloat, leadingWidth: CGFloat) -> OrganizeRailStyle {
+        style(contentWidth: columnWidth - cardChrome, leadingWidth: leadingWidth)
+    }
 }

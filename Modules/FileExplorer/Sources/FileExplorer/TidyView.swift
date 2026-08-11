@@ -728,19 +728,38 @@ public struct TidyView: View {
             ? OrganizeRailMetrics.storageLeadingWidth(scale: appFontScale, state: storageRailState)
             : OrganizeRailMetrics.leadingWidth(scale: appFontScale, state: counts.state)
         return VStack(spacing: 0) {
-            // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
-            // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
-            // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
-            // is collapsed, i.e. when there's no pane left to line up with anyway).
-            lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
+            // **The shedding rule is measured HERE, on a zero-height probe, and not on the card.**
+            //
+            // It was on the card, and that made it unable to ever fire. A card whose row cannot
+            // compress does not shrink to the width it is offered — it draws at the width it needs
+            // and overflows, and `.onGeometryChange` then reports *that* width, because a geometry
+            // proxy answers "how big am I" and never "how much was I given". Measured: offered
+            // 400pt, a `LensHeaderCard` with a rigid 700pt title reports 768
+            // (`theCardReportsTheWidthItDrewAtNotTheWidthItWasOffered` pins it). So the model was
+            // asked "does 768 hold a 693pt rail?", answered yes, and stayed `.full` at every window
+            // size — while the card it was describing hung over the source pane on its left and off
+            // the window on its right. Every unit test of `style(...)` passed throughout: they call
+            // the arithmetic directly, and the arithmetic was never wrong.
+            //
+            // A `Color.clear` of zero height is flexible in width, so it takes the width the VStack
+            // was PROPOSED — the workspace column — and no sibling's overflow can widen it. That is
+            // the number the rail has to fit inside, which is why `style(columnWidth:)` charges the
+            // card's own inset and padding on top of the search toggle.
+            Color.clear
+                .frame(height: 0)
                 // The STYLE, not the width — `.onGeometryChange` only calls its action when the
                 // transformed value changes, so a live resize writes state twice (once each way)
                 // rather than on every point. Same reason the workspace bar resolves its own
                 // shedding inside the transform.
                 .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
-                    OrganizeRailMetrics.style(contentWidth: proxy.size.width,
+                    OrganizeRailMetrics.style(columnWidth: proxy.size.width,
                                               leadingWidth: railLeading)
                 } action: { railStyle = $0 }
+            // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
+            // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
+            // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
+            // is collapsed, i.e. when there's no pane left to line up with anyway).
+            lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }
@@ -899,7 +918,21 @@ public struct TidyView: View {
     /// to the whole report rather than to one list.
     @ViewBuilder
     private func lensTitle(_ counts: RailCounts) -> some View {
-        HStack(spacing: 6) {
+        // **Scrolls only when even the glyph rung does not fit**, which is a narrower case than it
+        // sounds and a reachable one: the workspace column's own floor is 340pt
+        // (`singleSourceLayout`), the source pane beside it is draggable, and an icon-only rail
+        // with six three-digit badges measures 474.7 at the largest text size. Shedding labels
+        // cannot save that row — there is nothing left to shed — and what an `HStack` does when it
+        // runs out of room is draw over its neighbours, which is exactly the defect this row just
+        // had. `.basedOnSize` keeps it perfectly still at every width where the rail fits, so the
+        // ordinary case pays nothing; the indicator is off because a 27pt row cannot spare it.
+        //
+        // This is the second half of a pair, and deliberately independent of the first: the probe
+        // in `body` decides WHICH rung to draw, and this makes the drawn rung unable to overflow
+        // whatever that decision was. A shedding rule fed a wrong width is a bug; a shedding rule
+        // fed a wrong width AND a row that overlaps the pane next to it is the screenshot.
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
             // **Promoting Storage's readout here was tried and was worse**, and the rail below is
             // not that: the readout is prose whose width is a property of the data, so "Documents"
             // truncated to a bare folder glyph and row 2 went empty. A rail is four fixed-width
@@ -916,11 +949,14 @@ public struct TidyView: View {
                 // a place, counts all three (the header used to count two — `stale` had a full
                 // section in the body and no pill above it), and gives Storage the same idiom
                 // Organize has rather than a second one.
-                storageRail
-            } else {
-                organizeRail(counts)
+                    storageRail
+                } else {
+                    organizeRail(counts)
+                }
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(.never)
     }
 
     /// What each of Storage's sections has to say — the one accessor the rail and the width model
