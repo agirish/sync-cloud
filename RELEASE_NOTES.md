@@ -9,39 +9,52 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.0 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v3.1..6965ed11` — 223 commits. Claims below were checked
-> against `v3.1`, but the audit must run again before this ships: re-check every
-> claim (`git grep -l "<symbol>" v3.1 -- Modules SyncCloudCLI MacApp`), and keep
-> out the fixes made to features that landed *within* this range — no user of v3.1
-> was ever exposed to those.
+> be withdrawn. **Delete this whole block when the release is cut**, and re-derive
+> the commit count against the tagged commit — it moves with every push.
 >
-> That rule has already cost this draft three entries, and each is worth naming
-> because each read well. The household section claimed a *fix* — a cross-person
-> check that "refused the correct folder", and over-attribution going "from 36 to
-> 0". Both describe work done inside this range against a baseline built inside it;
-> v3.1 had no person logic in `FilingEngine` at all, so no user ever met either.
-> A Storage entry crediting the treemap's unlabelled slivers being folded into an
-> accountable tail came out when `git show v3.1:…/TreemapView.swift` turned out to
-> have a tail already. And "the pane bar gains Delete" came out because delete was
-> already there on ⌘⌫ and in the context menu — a new *button* dressed as a new
-> capability. The work is real in all three; the before-and-afters were ours.
+> The audit this block used to say still needed running **has now run**, against
+> the shipped code rather than against commit messages. It cost five more entries
+> and corrected four hard facts, and the four are worth naming because every one
+> of them came from a commit message that the code then contradicted:
 >
-> A fourth correction is a different failure and worth its own line: this draft
-> briefly said a fresh window opens on Browse, taken from the wording of the commit
-> that added it. The code in that same commit defaults `selectedWorkspace` to
-> `.compare`, and no commit since has changed it. **A commit message is not a
-> source for a release note** — the claim has to come from the code that ships.
+> - The fold-all chord was written **⌥⌘F**. The shipped chord is **⇧⌘F**, and
+>   `AppChord` forbids ⌥ chords by test — an ⌥ chord fires from inside the ⌥-hold
+>   reveal, which is the bug that rule exists to prevent. The notes were about to
+>   advertise, as a feature, the exact chord the codebase removed as a defect.
+> - The person offer said **↩ takes it**. The shipped chord is **⌘↩**; plain ↩ and
+>   ⇧↩ are the find's own next/previous. Three stale source comments still assert
+>   the old design, which is almost certainly where the note came from.
+> - The concurrency divergence was quoted at **1.69%**. That is the figure for the
+>   five-page reader; through the reader this release actually ships it is
+>   **0.83%**, and the note claimed "that exact reader".
+> - The same-text replay was quoted at **251 groups, identically across two runs**.
+>   251 was measured before the PDFKit lane landed; the shipped lane gives **248,
+>   twice**, and about five groups in 250 move between full runs. The commit that
+>   retired the figure says so in terms.
 >
-> The `v3.0..HEAD` review wave that closes this range was checked the same way and
-> earns no entries: its two most serious findings — a file's identity riding on the
-> per-launch hash seed, and surnames parsed as month names — are both in
+> Five entries came out because the defect they describe was **created inside this
+> range**: the 1,375-document person measurement (a re-dressing of the "36 → 0"
+> claim already cut once), ⌘K standing aside for the destination picker, Organize's
+> ledger tiles, the "Reading 61 documents…" clause, and the welcome tour's
+> "workspaces that did not exist" — `Workspace.swift` at v3.1 still declares
+> `case duplicates`, so the tour was right about it and this range made it wrong.
+>
+> Earlier passes had already cut four the same way: the cross-person check and its
+> "36 → 0", the treemap's accountable tail (`v3.1:…/TreemapView.swift` had one
+> already), "the pane bar gains Delete" (a new *button* dressed as a new capability),
+> and "a fresh window opens on Browse". The work is real in all of them; the
+> before-and-afters were ours.
+>
+> The `v3.0..HEAD` review waves that close this range were checked the same way and
+> earn no entries: their most serious findings — a file's identity riding on the
+> per-launch hash seed, and surnames parsed as month names — are in
 > `ContentFingerprint.swift` and `FileNameDate.swift`, **neither of which exists at
 > `v3.1`**. Fixes to this range's own work, however alarming they read.
 >
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
 
-**The largest release SyncCloud has had** — 223 commits, against v3.0's 181 and
+**The largest release SyncCloud has had** — 234 commits, against v3.0's 181 and
 v1.0's 142 — and a major for the reason v2.0 was one: the shape of the app
 changed. The workspace bar goes from five segments
 to four, and two of them are new answers to "what is this place for". Duplicates
@@ -65,10 +78,10 @@ section first.
 | **Organize** | Five lenses, one scope you set, one overview you land on |
 | **Restructure** | A new lens that reports where your tree's shape disagrees with itself |
 | **Same-text duplicates** | Finds the re-downloaded copies a byte hash cannot see |
-| **Filing** | Routes by what a folder already contains — 12.6% → 58.2% first-try |
+| **Filing** | Routes by what a folder already contains — 12.6% → 61.9% first-try |
 | **Renaming** | Names the file for the folder it lands in, with a backlog pass |
-| **⌘K** | One field that reaches folders, people, sources and places |
-| **Shortcuts** | Twelve menu-bar chords, plus ⌃⇥ between panes |
+| **⌘K** | One field that reaches folders, people, sources, places and actions |
+| **Shortcuts** | A menu bar full of chords, plus ⌃⇥ between panes |
 | **Look** | One file-type vocabulary, one setup card, one pill family |
 | **Free** | The Organize scan no longer spends money — Refine does |
 
@@ -81,12 +94,13 @@ section first.
 
 ### Before you upgrade: this is a one-way door for automation rules
 
-- **Rules you create in v4.0 cannot be read by v3.x, and opening them there
-  destroys the rest.** Rules persist as one JSON blob, and older builds throw on a
-  condition they do not recognise — which does not skip that rule, it takes the
-  whole array with it, and the next edit writes the empty set back over them. A
-  rule using the new *is <person>'s document* condition will do exactly that on
-  v3.1 or earlier.
+- **Rules you create in v4.0 cannot be read by v3.x, and opening them there hides
+  the rest.** Rules persist as one JSON blob, and older builds throw on a condition
+  they do not recognise — which does not skip that rule, it takes the whole array
+  with it, and the next edit writes the empty set back over them. The raw bytes do
+  survive, copied aside under `automationRules.unreadable`, but there is no in-app
+  way back from there. A rule using the new *is <person>'s document* condition will
+  do exactly that on v3.1 or earlier.
 - v4.0 fixes this going forward: an unrecognised condition is now preserved
   verbatim, shown in the editor as *written by a newer version*, and never allowed
   to file anything. **That protects the next upgrade, not this one.** Export your
@@ -109,23 +123,23 @@ section first.
   something to report, with per-row Fix and a Fix-all. A stored Names selection
   resolves to Renames.
 - **The rename backlog is organised category-first**, grouped by parent folder,
-  with one Rename column and a tree to review by — a backlog of 126 folders and
-  1,192 renames is not a flat list anyone can read.
+  with one Rename column and a tree to review by — on a real tree the pass has four
+  figures in it, which is not a flat list anyone can read.
 - **The rail's unselected state is an overview** — every lens's answer for the
   current scope on one page, with three states each that never borrow one another's
-  words: never ran, ran and clean, or findings. It is not a seventh item, so it
+  words: never ran, ran and clean, or findings. It is not a sixth item, so it
   cannot become the tab you forget to visit; you land on it.
 - **One scope, which you set.** Every lens answers about the same territory, and
   you choose it: a folder you point Organize at, or the whole tree. It is explicit,
   it survives a relaunch, and **browsing never moves it on its own** — a row of
   peers each quietly answering about a different folder is how a badge comes to
-  read 126 folders and 611 renames with none of them on screen. Global is the
-  default, and the scope chip says which you are in.
+  report a count with none of what it counted on screen. Global is the default, and
+  the scope chip says which you are in.
 - **Scope filters, it does not rescan.** Filing, names and renames come off one
   walk and Restructure reads the folder profile, so narrowing is instant. A
   duplicate group is in scope if *any* copy is, and the out-of-scope copies stay
-  visible and labelled — hiding half a group turns a two-copy decision into a
-  one-copy one, which is how the wrong copy gets trashed.
+  visible — hiding half a group turns a two-copy decision into a one-copy one,
+  which is how the wrong copy gets trashed.
 - **Right-click any folder and choose "Organize This Folder…"** — in either Compare
   pane, or Organize's own rail, list or columns. It opens on that folder's filing
   queue and scans it.
@@ -148,11 +162,8 @@ section first.
   and three others' surname; `girish` is a given name, a surname and a maiden name
   at once. In "Aditi Abhishek" the surname is spent on Aditi and never doubles as
   evidence for her father. That rule is what makes the feature safe enough to act
-  on: measured over 1,375 documents whose folder names a person, phrase-first
-  matching attributes 36 fewer of them to the wrong person than matching the same
-  roster word by word, and refuses no more correct ones (3 either way). Both
-  figures are properties of the new matcher — there is no v3.1 number to compare
-  against, because there was nothing to measure.
+  on at all — without it, every shared surname in a real family is evidence for
+  everyone who carries it.
 - **People is its own place in Settings, and every row says what it buys** — the
   name forms matched against a document in the order they are tried, how many
   folders in the tree are theirs, how many documents are already filed in them. You
@@ -183,10 +194,10 @@ section first.
   and the page, because an account number is the strongest evidence in an
   unlabelled document and the most surprising thing to be filed by.
 - **Search resolves a person.** Type a name into ⌘F and a row appears beneath the
-  field — *"Aditi — everything that is theirs"*, ↩ to take it — turning the find
-  into a gather of everything of hers across the whole source. The find is
-  unchanged when the query names nobody: ↩ falls through to the plain find, and ⇧↩
-  always keeps it.
+  field — *"Aditi — everything that is theirs"*, **⌘↩** to take it — turning the
+  find into a gather of everything of hers across the whole source. The find itself
+  is untouched: ↩ still walks to the next match and ⇧↩ back to the previous one,
+  whether or not the query names somebody, so the offer costs the find nothing.
 
 ### Filing that reads your tree
 
@@ -195,7 +206,9 @@ section first.
   distinguishing words of the documents already filed there. Measured on 9,558 real
   filed documents choosing among ~2,950 folders: a bare folder list gets 12.6%
   right first try, adding what the folder is takes it to 28.9%, and adding what it
-  has received takes it to **58.2%** (77.5% in the top three).
+  has received takes it to 58.2% (77.4% in the top three). Two further rules found
+  by measuring — inheritance kept in scale, and the document's own years — bring
+  the shipped router to **61.9% first try, 81.8% in the top three**.
 - **The model re-ranks that shortlist instead of answering past it**, and is shown
   only folders the file could actually go in — listing an inbox teaches a
   classifier to file into the place things go when they have nowhere to go.
@@ -209,12 +222,13 @@ section first.
   2× plus Vision takes 0.5–2.1 seconds each — a click for the card in front of you,
   and not ten minutes of fans for a 500-file inbox.
 - **A suggestion that would file one person's document into another's folder is
-  refused**, on the cloud pass as well as the free one, and consulting the page the
-  scan already read when the filename names nobody. The filename outranks the page:
+  refused**, consulting the page the scan already read when the filename names
+  nobody. The filename outranks the page:
   a page-1 mention is testimony — an application prints its sponsor, a report card
   names a sibling — while a filename is your own label.
 - **A backend can declare a new folder**, and you can rename it before it is made.
-- **Organize learns the folders you have added since the last survey.**
+  The survey keeps up with folders you add, so a destination made this week is a
+  destination the router knows about.
 
 ### Naming files for the folder they land in
 
@@ -226,9 +240,9 @@ section first.
   as a result. The ordinal is a *position*, not a month — across 327 such folders,
   118 of the 132 that can tell the readings apart number by position, so the scheme
   is inferred per folder and per extension. And padding is the backlog: 567 files
-  carry a one-digit ordinal, which misorders past September.
-- **An inbox's filenames are left alone** — they are still routing the file.
-- **The rename backlog has its own search**, and its scan clears it.
+  carry a one-digit ordinal, which misorders past September. An inbox's filenames
+  are left alone throughout — they are still routing the file — and the backlog has
+  its own search, which its scan clears.
 
 ### Duplicates finds the copies a hash cannot see
 
@@ -243,9 +257,13 @@ section first.
   than identical, with their own badge, their own note, and a standing exclusion
   from *Apply recommended* — a content match is evidence, not a byte-for-byte
   guarantee, and it should never be resolved without a look.
-- **Replayed over a real tree of 10,569 PDFs** it finds **251 groups** the content
-  hash cannot see, identically across two runs, and never splits a byte-identical
-  pair: of 586 such pairs, 485 fingerprinted on both sides and 0 disagreed.
+- **Replayed over a real tree of 10,569 PDFs** it finds about 250 groups the
+  content hash cannot see — **248 on each of two replays**, with a handful moving
+  between full runs, because a pair that groups when read alone can fail to group
+  inside a whole-tree pass. The direction is one-way and that is the part that
+  matters: the residue costs an unreported duplicate, never a false claim about
+  one. It never splits a byte-identical pair — of 586 such pairs, 485 fingerprinted
+  on both sides and 0 disagreed, in every configuration tried.
 - **The copies about to be trashed are re-verified, not just the keeper.** The
   resolve had re-checked the keeper's existence and size since it was written —
   half a guarantee, protecting the half being *kept*. A duplicate group is a
@@ -266,8 +284,8 @@ section first.
 - **It says how long it has been running.** Not a percentage: counting the total
   first would mean instrumenting the walk's hottest loop, and a fraction that isn't
   measured is worse than a number that is.
-- **Compare opens on what the last scan found** — a count and a date, in the past
-  tense — instead of "Nothing scanned yet". Never the rows: every action Compare
+- **Compare opens on what the last scan found** — a count and how long ago, in the
+  past tense — instead of "Nothing scanned yet". Never the rows: every action Compare
   offers against a row writes files, and a three-day-old *"Copy 412 to →"* is
   exactly the stale-world apply the caches exist to prevent. The only button stays
   **Scan**, and the summary appears only for the exact comparison the panes are
@@ -293,40 +311,41 @@ section first.
   the setup card because the button beneath it could spend; that button is free now.
   The estimate you approve is the Refine pre-flight, which prices a batch it has in
   hand rather than one it is predicting.
-- **Duplicates and Organize re-scan when you open them, when that cannot cost
-  anything.** Results are never restored from disk — every row carries an action
-  that writes files — so the scan re-runs against the live filesystem instead. An
-  automatic scan can never raise a payment dialog.
+- **Duplicates and Organize re-scan when you open them.** Results are never restored
+  from disk — every row carries an action that writes files — so the scan re-runs
+  against the live filesystem instead. It costs nothing to do that now, because the
+  scan itself is free: spending is Refine's, and Refine is a button you press.
 
 ### ⌘K goes anywhere
 
 - **One field that reaches your whole tree.** ⌘K opens a palette over the window:
   type a few letters and it offers folders to jump to, people on your roster, your
-  configured sources, and the app's own places — Compare, Organize, Storage,
-  Settings. ↩ goes; Esc, a click outside, or ⌘K again dismisses it. There is a
-  *Go to…* pill on the toolbar for the same thing.
+  configured sources, the app's own places — Browse, Compare, Organize's overview
+  and each of its lenses, Storage — and its actions: Rescan, New Folder…, Choose
+  Folder…, Find in Pane…, Settings, Keyboard Shortcuts, Activity Log. ↩ goes; Esc,
+  a click outside, or ⌘K again dismisses it. There is a *Go to…* pill on the
+  toolbar for the same thing.
 - **Results are grouped, and the groups are ordered by their best match** rather
   than the list being one flat ranking with headings sprinkled through it.
 - **It indexes the folders you actually have** — the same tree Organize surveys,
   so a folder you made this morning is reachable by name this morning.
 - **Every row says why it matched**, and the palette teaches its own keys rather
   than expecting you to know them.
-- **It stands aside for the destination picker.** While that sheet is up, ⌘K and
-  every other chord it would shadow stay with the sheet.
 
 ### Keyboard and focus
 
-- **Menu-bar shortcuts for the things you were already doing**, all appearing as
-  keycaps during the ⌥-hold reveal: ⌘1–⌘4 switch workspaces in the bar's order,
-  ⌘[ / ⌘] walk the focused pane's history, ⌘R rescans, ⇧⌘N creates a folder,
-  ⇧⌘. and ⇧⌘P toggle hidden files and the Columns preview, ⌘⌫ deletes the
-  selection, ⇧⌘R and ⇧⌘V start Review and Verify, ⌘D shows the differences list,
-  ⌥⌘F folds every folder, and ⌘I / ⌘L open the inspector and the Activity Log.
-  Chords follow Finder wherever Finder has one.
-- **⌃⇥ moves keyboard focus between the panes.** Six shortcuts resolved through
-  whichever pane held the selection — nothing, on a cold window, where the rule fell
-  back to the left pane. So aiming any of them at the right pane meant clicking a
-  row in it first; there was no keyboard path to the right pane at all.
+- **Menu-bar shortcuts for the things you were already doing**, and the ones on a
+  control appear as keycaps during the ⌥-hold reveal: ⌘1–⌘4 switch workspaces in
+  the bar's order, ⌘[ / ⌘] walk the focused pane's history, ⌘R rescans, ⇧⌘N
+  creates a folder, ⇧⌘. and ⇧⌘P toggle hidden files and the Columns preview, ⌘⌫
+  deletes the selection, ⇧⌘R and ⇧⌘V start Review and Verify, ⌘D shows the
+  differences list, ⇧⌘F folds every folder, and ⌘I / ⌘L open the inspector and the
+  Activity Log. Chords follow Finder wherever Finder has one.
+- **⌃⇥ moves keyboard focus between the panes.** The pane-scoped chords — ⌘F, and
+  the four that join it here — resolve through whichever pane holds the selection,
+  which on a cold window is nothing, and the rule fell back to the left pane. So
+  aiming any of them at the right pane meant clicking a row in it first; there was
+  no keyboard path to the right pane at all.
 - **The focused pane's provider capsule is ringed**, because the panes' only
   existing "which one is active" cue modulates *selected rows* — saying nothing in
   exactly the case ⌃⇥ exists for.
@@ -335,8 +354,8 @@ section first.
   button while the glyph sets its own colour, and the inner one wins. So a search
   that was narrowing what you could see sat behind a glyph that looked idle —
   exactly the state the tint existed for, since a collapsed field has no other
-  carrier on screen. Measured at 0 accent pixels either way before, 186 against 0
-  now.
+  carrier on screen. Measured: zero accent pixels either way before, and genuinely
+  tinted now.
 
 ### Windows, panes and previews
 
@@ -380,47 +399,47 @@ section first.
   as "rectangle". There is one map now: an SF symbol plus an identity tint per kind
   — red document for PDF, purple photo, teal note, indigo film, blue for word
   processing, green grid for spreadsheets, orange presentation, brown archive.
-- **Every scanning lens opens the way To File opens** — the setup card, with the job
-  and the safety contract up top, one trigger, and **sample rows in the shape real
-  results take**, which is what makes the first real result list legible. Duplicates,
-  Renames, Restructure and Storage all adopt it, each with sample rows in their own
-  row shape, all at the same height so the card stops jumping as you move the rail.
-- **Organize's ledger gets tiles and a meter.** It was two bare numbers on a
-  full-width gray band with a metre of trailing emptiness. Each fact is its own
-  quiet tile now, and the checks tile carries a per-lens segment meter — accent for
-  lenses that report, a quiet fill for ran-and-clean, near-ground for never-ran,
-  captioned with the split. The fraction reads visually without inventing a number.
+- **Every lens opens the way To File opens** — the setup card, with the job and the
+  safety contract up top, one trigger, and **sample rows in the shape real results
+  take**, which is what makes the first real result list legible. All six adopt it,
+  each with sample rows in their own row shape, at one height so the card stops
+  jumping as you move the rail. For a v3.1 user the ones that change are Duplicates
+  and Storage; Renames and Restructure arrive wearing it.
 - **The quiet chrome says true, whole sentences.** *"Hashing 0 candidates…"* becomes
-  *"Looking for candidates…"* when no two files share a size; *"Reading 61
-  documents…"* now names its subject, because on an empty pane that line is the only
-  thing on screen; and the spend rows no longer print *"1 files"*.
-- **One counting pill, one progress dialect**, across the overview cards, Storage's
-  counts and the Duplicates toolbar.
-- **The welcome tour describes the app you actually installed**, including the
-  workspaces that did not exist when it was written.
+  *"Looking for candidates…"* when no two files share a size, and the spend rows no
+  longer print *"1 files"*.
+- **One counting pill, one progress dialect**, across Storage's counts and the
+  Duplicates toolbar.
+- **The welcome tour describes the app you actually installed.** It offered
+  "iCloud, OneDrive, Google Drive, or Dropbox" as the things a source can be —
+  written before v3.0 made *any folder* a source, and never updated. The one
+  screen a new user is guaranteed to read was the last place still describing the
+  app as cloud-only.
 
 ### Settings, and text that scales properly
 
 - **Organize's Settings tab becomes three**: Organize, **People**, and
-  **Intelligence**. It had become five subjects under one rail row, and the tell was
-  its caption — one paragraph of nine sentences, because one caption had to explain
-  all five. Intelligence holds the engine and its cost: the free on-device pass, the
-  opt-in Claude pass with its key and model, the spend, and the cache. Searching
-  Settings for "api key", "anthropic" or "claude" finds it.
+  **Intelligence**. It had become several subjects under one rail row, and the tell
+  was its caption — one paragraph of eight sentences, because one caption had to
+  explain all of them. Intelligence holds the engine and its cost: the free
+  on-device pass, the opt-in Claude pass with its key and model, the spend, and the
+  cache. Searching Settings for "api key", "anthropic" or "claude" already worked;
+  now it lands on a tab about that and nothing else.
 - **The text-size setting now has a knee curve.** It was one flat multiplier applied
   to every font alike, which produced exactly the complaint it drew: the 10pt
   captions that most needed help barely moved at Large, while 17–27pt titles
   ballooned. The full multiplier now applies through 11pt, the surplus above grows
   at half a point per point, and nothing ever renders smaller than its default — so
   captions get the whole boost and titles past the crossover keep their size.
-- **Settings prose moves to 11pt.** 45 of about 80 font calls in the sheet set 10pt
-  captions on full sentences of explanation — the majority of its readable text at
-  the smallest legible size.
+- **Settings prose moves to 11pt.** Most of the sheet's explanatory text — full
+  sentences, not labels — was set as 10pt captions, which put the majority of its
+  readable text at the smallest legible size.
 
 ### Storage
 
-- **Storage gets the same rail**, in the half its intro button left empty, and its
-  header counts untouched files the way its other two sections do.
+- **Storage gets the same rail**, and every one of its three sections is counted on
+  its rail item — including the untouched-files list, which nothing above it had
+  ever announced.
 - Its ranked lists join the app's one file-type vocabulary, and its counts wear the
   same pill as everything else that counts.
 
@@ -429,7 +448,7 @@ section first.
 - **A document is read once, and says the same thing twice.** PDFKit's text
   extraction is not thread-safe, and SyncCloud was driving it from a concurrent
   queue — four at a time during a scan. Measured through that exact reader over a
-  real 10,286-document tree at six at a time, **1.69% of documents came back with
+  real 10,286-document tree at six at a time, **0.83% of documents came back with
   different text than a serial pass**, and two concurrent passes disagreed with each
   other as well as with the serial one. Every content signal downstream — the filing
   suggestion, the learned rule, the same-text fingerprint — was being computed from
