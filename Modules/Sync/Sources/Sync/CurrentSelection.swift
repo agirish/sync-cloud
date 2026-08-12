@@ -65,4 +65,45 @@ public enum CurrentSelection {
             return panePath ?? differencesPath
         }
     }
+
+    /// What an ALREADY-OPEN Quick Look panel should do when the pane selection moves under it.
+    ///
+    /// Finder's behaviour, and the reason it is worth copying: the panel is a view of "the current
+    /// file", not a snapshot of the file that happened to be current when you pressed Space. Left
+    /// alone, the panel sat there naming a file the user had long since navigated away from —
+    /// through a re-root, a search walk, an entire change of workspace — while looking exactly like
+    /// a live preview of whatever is selected now.
+    ///
+    /// **`.close` on an empty selection is deliberate and is the case worth stating.** Deselecting
+    /// leaves nothing for a preview to be *of*, and the alternatives are both worse: keeping the
+    /// last file up is the stale panel again in its purest form, and blanking the panel's contents
+    /// leaves an empty window the user has to dismiss by hand. Finder closes it.
+    ///
+    /// A table rather than three lines at the call site, because the call site is an `onChange` in
+    /// a SwiftUI body — unreachable from a test — and two of the five rows are `.stay` for entirely
+    /// different reasons that a reader will otherwise collapse into one.
+    public static func previewFollow(
+        showing: String?,
+        followsPane: Bool,
+        panePath: String?
+    ) -> PreviewFollow {
+        // Nothing open. Opening a preview because a selection moved would be the *original* bug
+        // reported — a preview nobody asked for — so this arm must never do anything else.
+        guard let showing else { return .stay }
+        // Open, but not the pane's to move: a Differences row or the Info inspector put it there,
+        // and a pane selection is not a statement about either.
+        guard followsPane else { return .stay }
+        guard let panePath else { return .close }
+        return panePath == showing ? .stay : .retarget(panePath)
+    }
+}
+
+/// What ``CurrentSelection/previewFollow(showing:followsPane:panePath:)`` decided.
+public enum PreviewFollow: Equatable, Sendable {
+    /// Point the open panel at this path instead.
+    case retarget(String)
+    /// Close the panel: there is no current file for it to be showing.
+    case close
+    /// Leave it exactly as it is — including "there is nothing open", which is most of the time.
+    case stay
 }

@@ -89,4 +89,52 @@ import Foundation
                 "token \(String(describing: token)) should resolve to nil")
         }
     }
+
+    // MARK: - Following the selection with the panel already open
+
+    /// The whole point: an open panel is a view of the CURRENT file, not a snapshot of the file
+    /// that was current when Space was pressed.
+    @Test func anOpenPanelFollowsThePaneSelection() {
+        #expect(CurrentSelection.previewFollow(
+            showing: "/pane/old.txt", followsPane: true, panePath: "/pane/new.txt")
+            == .retarget("/pane/new.txt"))
+    }
+
+    /// Deselecting leaves nothing for a preview to be OF. Keeping the last file up is the stale
+    /// panel; blanking it leaves a window to dismiss by hand. Finder closes it.
+    @Test func clearingTheSelectionClosesThePanel() {
+        #expect(CurrentSelection.previewFollow(
+            showing: "/pane/old.txt", followsPane: true, panePath: nil) == .close)
+    }
+
+    /// **The arm that must never do anything else.** A selection change with no panel open must not
+    /// OPEN one — a preview nobody asked for is the defect this whole area was fixed for.
+    @Test func aClosedPanelIsNeverOpenedByASelection() {
+        for follows in [true, false] {
+            #expect(CurrentSelection.previewFollow(
+                showing: nil, followsPane: follows, panePath: "/pane/new.txt") == .stay,
+                "followsPane \(follows) opened a panel nobody asked for")
+            #expect(CurrentSelection.previewFollow(
+                showing: nil, followsPane: follows, panePath: nil) == .stay)
+        }
+    }
+
+    /// A preview a Differences row or the Info inspector put up is not the pane's to move. Both
+    /// selections can be live at once (that is why `quickLookPath` exists at all), so a pane click
+    /// is not a statement about what the other surface is showing.
+    @Test func aPanelOpenedElsewhereIsLeftAlone() {
+        #expect(CurrentSelection.previewFollow(
+            showing: "/diff/row.txt", followsPane: false, panePath: "/pane/new.txt") == .stay)
+        #expect(CurrentSelection.previewFollow(
+            showing: "/diff/row.txt", followsPane: false, panePath: nil) == .stay,
+            "clearing the PANE selection must not close a DIFFERENCES preview")
+    }
+
+    /// Re-selecting the file already showing is not a change. Without this the panel is handed the
+    /// same URL on every republish that touches the selection, and `QLPreviewView` restarts its
+    /// extension's render for each one.
+    @Test func reselectingTheSameFileIsNotAMove() {
+        #expect(CurrentSelection.previewFollow(
+            showing: "/pane/same.txt", followsPane: true, panePath: "/pane/same.txt") == .stay)
+    }
 }

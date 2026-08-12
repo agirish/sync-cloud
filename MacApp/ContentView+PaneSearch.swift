@@ -182,6 +182,11 @@ extension ContentView {
     /// `singleSource` follows the layout for the same reason it always did: on a one-pane workspace
     /// the hidden Compare pane's leftover right-hand selection must not hijack the preview.
     ///
+    /// `followsPane: true` marks the preview as the PANES': it re-targets as the selection moves
+    /// and closes when the selection is cleared, which is `CurrentSelection.previewFollow`'s job.
+    /// A Differences row or a lens card opens the same panel WITHOUT that claim — both surfaces
+    /// hold selections at once, so a pane click is not a statement about the other one's preview.
+    ///
     /// Takes no side, deliberately, though both of Compare's lists install it: the target is
     /// `CurrentSelection`'s answer across both panes, which is what the single column-wide handler
     /// resolved before. Whichever list holds focus fires, and both get the same answer — so moving
@@ -192,7 +197,7 @@ extension ContentView {
             right: syncManager.selectedRightPaths,
             singleSource: layoutMode == .singleSource
         ) else { return .ignored }
-        toggleQuickLook(URL(fileURLWithPath: targetPath))
+        toggleQuickLook(URL(fileURLWithPath: targetPath), followsPane: true)
         return .handled
     }
 

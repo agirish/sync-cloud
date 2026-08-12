@@ -82,6 +82,7 @@ import Design
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         onColumnNavigate: ((PaneBrowsePath) -> Void)? = { _ in },
         onBackgroundDeselect: ((Int?) -> Void)? = { _ in },
+        onQuickLook: ((URL) -> Void)? = { _ in },
         downloadChannel: NotificationCenter = .default
     ) -> FileTreeView {
         FileTreeView(
@@ -95,7 +96,8 @@ import Design
             search: search, searchHitIndex: searchHitIndex, searchRevealNonce: searchRevealNonce, isActivePane: isActivePane,
             viewMode: viewMode, childrenIndex: childrenIndex,
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
-            onBackgroundDeselect: onBackgroundDeselect, downloadChannel: downloadChannel)
+            onBackgroundDeselect: onBackgroundDeselect, onQuickLook: onQuickLook,
+            downloadChannel: downloadChannel)
     }
 
     @Test("An unchanged pane compares equal — otherwise the gate never engages at all")
@@ -306,5 +308,17 @@ import Design
             func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
         }
         #expect(pane(delegate: Bare()) != pane(delegate: Bare()))
+    }
+
+    /// Presence of the host's Quick Look callback decides where the row menu's preview goes — the
+    /// host's panel, or this pane's own fallback state. A pane that gained or lost it renders a
+    /// materially different menu action, so the gate has to notice.
+    @Test("Gaining or losing the host's Quick Look presenter is noticed")
+    func quickLookPresenterPresenceIsCompared() {
+        #expect(pane() != pane(onQuickLook: nil))
+        // …and presence ONLY: two different closures are the same pane, or the gate would open on
+        // every render (the host builds a fresh closure each time), which is the whole hazard the
+        // callback comparisons are written this way to avoid.
+        #expect(pane(onQuickLook: { _ in }) == pane(onQuickLook: { _ in }))
     }
 }

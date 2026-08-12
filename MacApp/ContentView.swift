@@ -94,6 +94,11 @@ struct ContentView: View {
 
     @State var actionHandler: FileActionHandler?
     @State var quickLookURL: URL? = nil
+    /// Whether the open Quick Look panel belongs to the PANES, and so should follow their
+    /// selection. Set by every pane entry point (Space, the row menu), cleared by every other one
+    /// (a Differences row, the Info inspector) and by the panel closing. See
+    /// `CurrentSelection.previewFollow`, which is the rule this flag is an input to.
+    @State var quickLookFollowsPane = false
     @State private var isBootstrappingProviders: Bool = true
     /// The `openCommandPaletteOnLaunch` diagnostic, waiting for provider discovery — see the
     /// bootstrap case that sets it.
@@ -640,6 +645,13 @@ struct ContentView: View {
             if isOpen { showHelp = false }
         }
         .quickLookPreview($quickLookURL)
+        // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
+        // The rule is `CurrentSelection.previewFollow`; this only supplies the trigger.
+        .onChange(of: paneQuickLookTarget) { _, _ in followPaneSelectionWithQuickLook() }
+        // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`,
+        // so the origin flag has to be cleared here or the NEXT preview — opened from a Differences
+        // row — would inherit "follows the panes" from this one and be yanked by a pane click.
+        .onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }
         .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
         // The theme is the one Appearance control no view can render on its own: it lives on
         // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
@@ -1986,8 +1998,39 @@ struct ContentView: View {
     /// (Space and Esc close it too). Clicking a *different* file re-targets the open panel rather than
     /// closing it. `.quickLookPreview($quickLookURL)` resets the binding to nil on manual dismissal,
     /// keeping this toggle in step with the panel's real state.
-    func toggleQuickLook(_ url: URL) {
-        quickLookURL = (quickLookURL == url) ? nil : url
+    /// - Parameter followsPane: whether this preview is the PANES' — in which case it re-targets as
+    ///   the pane selection moves, and closes when that selection is cleared. False for a preview a
+    ///   Differences row or the Info inspector opened: both surfaces hold selections at the same
+    ///   time, so a pane click is not a statement about what the other one is showing.
+    func toggleQuickLook(_ url: URL, followsPane: Bool = false) {
+        let closing = quickLookURL == url
+        quickLookURL = closing ? nil : url
+        quickLookFollowsPane = closing ? false : followsPane
+    }
+
+    /// The pane selection the open panel follows — the same resolution Space uses to pick a target
+    /// in the first place, so the panel can never come to rest on a file Space would not have
+    /// previewed.
+    var paneQuickLookTarget: String? {
+        CurrentSelection.primaryPanePath(
+            left: syncManager.selectedLeftPaths,
+            right: syncManager.selectedRightPaths,
+            singleSource: layoutMode == .singleSource)
+    }
+
+    /// Applies `CurrentSelection.previewFollow` to the panel that is open right now.
+    ///
+    /// Called from an `onChange` on `paneQuickLookTarget`, which is derived from two `@Published`
+    /// sets — so it fires for a click, a search reveal, a re-root and a background republish alike,
+    /// and the `.stay` arms are what keep all but the first of those free.
+    func followPaneSelectionWithQuickLook() {
+        switch CurrentSelection.previewFollow(showing: quickLookURL?.path,
+                                              followsPane: quickLookFollowsPane,
+                                              panePath: paneQuickLookTarget) {
+        case .retarget(let path): quickLookURL = URL(fileURLWithPath: path)
+        case .close: quickLookURL = nil; quickLookFollowsPane = false
+        case .stay: break
+        }
     }
 
     /// N2 — dry-runs the enabled automation rules over the focused folder. Preview only: the manager
@@ -2671,7 +2714,10 @@ struct ContentView: View {
             childrenIndex: pane.childrenIndex,
             browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath,
             onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) },
-            onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) }
+            onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) },
+            // The row menu's preview goes through the HOST's panel, not the pane's own: there is
+            // one Quick Look panel and only the host can keep it pointed at the current file.
+            onQuickLook: { toggleQuickLook($0, followsPane: true) }
         )
         // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
         // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built
