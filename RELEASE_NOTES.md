@@ -9,7 +9,7 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.0 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v3.1..b6bfe2a8` — 208 commits. Claims below were checked
+> be withdrawn. Covers `v3.1..6965ed11` — 223 commits. Claims below were checked
 > against `v3.1`, but the audit must run again before this ships: re-check every
 > claim (`git grep -l "<symbol>" v3.1 -- Modules SyncCloudCLI MacApp`), and keep
 > out the fixes made to features that landed *within* this range — no user of v3.1
@@ -32,21 +32,45 @@ User-facing changes, newest first. For the full commit history see the
 > `.compare`, and no commit since has changed it. **A commit message is not a
 > source for a release note** — the claim has to come from the code that ships.
 >
+> The `v3.0..HEAD` review wave that closes this range was checked the same way and
+> earns no entries: its two most serious findings — a file's identity riding on the
+> per-launch hash seed, and surnames parsed as month names — are both in
+> `ContentFingerprint.swift` and `FileNameDate.swift`, **neither of which exists at
+> `v3.1`**. Fixes to this range's own work, however alarming they read.
+>
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
 
-A major, and for the reason v2.0 was one: the shape of the app changed. The
-workspace bar goes from five segments to four, and two of them are new answers to
-"what is this place for". Duplicates and Automations are gone as places — they
-were never peers of Compare and Storage, they are things you do to a single tree,
-and **Organize** is now the one place a single tree is changed. **Browse** arrives
-as the plain file browser the app has always contained and never let you look at
-directly. The bar reads Browse, Compare | Organize, Storage: the first two look at
-trees, the last two act on one. Underneath all of it, SyncCloud learns who the
-people in your documents are, and files by that.
+**The largest release SyncCloud has had** — 223 commits, against v3.0's 181 and
+v1.0's 142 — and a major for the reason v2.0 was one: the shape of the app
+changed. The workspace bar goes from five segments
+to four, and two of them are new answers to "what is this place for". Duplicates
+and Automations are gone as places — they were never peers of Compare and Storage,
+they are things you do to a single tree, and **Organize** is now the one place a
+single tree is changed. **Browse** arrives as the plain file browser the app has
+always contained and never let you look at directly. The bar reads Browse,
+Compare | Organize, Storage: the first two look at trees, the last two act on one.
+Underneath all of it, SyncCloud learns who the people in your documents are, and
+files by that.
 
 Still the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0
 section first.
+
+### At a glance
+
+| | |
+|---|---|
+| **Browse** | A fourth workspace: one tree, the whole window, no lens |
+| **People** | A household SyncCloud knows by name, and files by |
+| **Organize** | Five lenses, one scope you set, one overview you land on |
+| **Restructure** | A new lens that reports where your tree's shape disagrees with itself |
+| **Same-text duplicates** | Finds the re-downloaded copies a byte hash cannot see |
+| **Filing** | Routes by what a folder already contains — 12.6% → 58.2% first-try |
+| **Renaming** | Names the file for the folder it lands in, with a backlog pass |
+| **⌘K** | One field that reaches folders, people, sources and places |
+| **Shortcuts** | Twelve menu-bar chords, plus ⌃⇥ between panes |
+| **Look** | One file-type vocabulary, one setup card, one pill family |
+| **Free** | The Organize scan no longer spends money — Refine does |
 
 ### Browse — one tree, the whole window
 
@@ -206,6 +230,33 @@ section first.
 - **An inbox's filenames are left alone** — they are still routing the file.
 - **The rename backlog has its own search**, and its scan clears it.
 
+### Duplicates finds the copies a hash cannot see
+
+- **The same document downloaded twice is now found.** Providers re-generate a PDF
+  on every download, so the same bill fetched twice is byte-different with
+  identical content — and the duplicate scan reported a clean result that was
+  wrong, silently, because those files hash fine and simply fail to match, so no
+  counter moved. SyncCloud now also fingerprints what a document *says*: the sorted
+  token multiset of its extracted text and form-field values, plus its page count
+  and page geometry.
+- **It is a weaker claim, and it says so.** Matches group as **same text** rather
+  than identical, with their own badge, their own note, and a standing exclusion
+  from *Apply recommended* — a content match is evidence, not a byte-for-byte
+  guarantee, and it should never be resolved without a look.
+- **Replayed over a real tree of 10,569 PDFs** it finds **251 groups** the content
+  hash cannot see, identically across two runs, and never splits a byte-identical
+  pair: of 586 such pairs, 485 fingerprinted on both sides and 0 disagreed.
+- **The copies about to be trashed are re-verified, not just the keeper.** The
+  resolve had re-checked the keeper's existence and size since it was written —
+  half a guarantee, protecting the half being *kept*. A duplicate group is a
+  point-in-time snapshot whose results outlive the scan, and the same-text phase
+  alone takes minutes on a real tree; rewrite one of the copies in that window — a
+  re-export, a provider re-download, an edit — and its path still exists, so it was
+  trashed under a banner calling it redundant when it was the only instance of its
+  new content.
+- **Duplicate group headers align on invisible columns**, so a page of groups reads
+  down the page instead of each header setting its own margins.
+
 ### Compare
 
 - **You can stop a scan.** Every lens has had a Cancel since it shipped; the Compare
@@ -287,6 +338,67 @@ section first.
   carrier on screen. Measured at 0 accent pixels either way before, 186 against 0
   now.
 
+### Windows, panes and previews
+
+- **The window has a floor: 760 × 560.** It carried a 600pt minimum width and *no
+  minimum height at all*, and `.contentMinSize` makes that frame the floor — so the
+  window could be dragged down to the toolbar and nothing else, a sliver with the
+  pane header, the file list and the action bar all squeezed out. 560 is what
+  refusing that costs, read off the panes' own constants rather than picked.
+- **An open Quick Look panel follows the selection.** It was a snapshot, not a
+  view: Space opened a preview of whatever was selected at that instant and then
+  nothing ever moved it — click another file, walk a search, re-root the pane,
+  switch workspace, and the panel sat there naming a file long gone while looking
+  exactly like a live preview of the current selection. It now follows the
+  selection and closes when the selection is cleared, which is Finder's rule.
+- **A space typed into the pane search field is a space.** It reached the ancestor
+  Space handler and opened Quick Look instead, so ⌘F could not be used for any
+  query of more than one word.
+- **Clicking through columns moves what a scan will walk.** Every Tidy scan action
+  and the *"Scan '<folder>'"* offer read only the pane's comparison focus, so
+  browsing the columns never moved the target: the offer sat dead at the provider
+  root no matter which folder was selected, and a scan launched from the toolbar
+  walked a folder the pane was not looking at.
+- **An empty tree is captioned once.** The column stack overlaid its own small
+  *"Empty"* caption on any column with no rows — including the first column, which
+  already draws the pane's full "Folder is empty" placeholder — so the two rendered
+  stacked, the caption drawn through the placeholder's folder glyph and clipped.
+- **Organize no longer opens on an inbox nobody asked for.** Switching to Organize
+  moved the source rail into the loose-files inbox, which defaults to `TODO` on a
+  fresh install — so the first switch jumped the pane into a folder that might not
+  exist, with nothing on screen saying why. The setting can also now say *off*.
+- **The scanning placeholder stops drawing a gray slab.** Its loading card wore a
+  material, and a material blurs what is behind it — on an empty pane there is
+  nothing behind it, so what it actually painted was a flat gray rectangle in the
+  middle of a white surface.
+
+### A look that holds together
+
+- **One file-type vocabulary everywhere.** Storage's ranked lists drew every file as
+  the same gray document glyph while Duplicates drew raster icons — two surfaces,
+  one file, two vocabularies, and at 17pt a shrunken raster thumbnail reads mostly
+  as "rectangle". There is one map now: an SF symbol plus an identity tint per kind
+  — red document for PDF, purple photo, teal note, indigo film, blue for word
+  processing, green grid for spreadsheets, orange presentation, brown archive.
+- **Every scanning lens opens the way To File opens** — the setup card, with the job
+  and the safety contract up top, one trigger, and **sample rows in the shape real
+  results take**, which is what makes the first real result list legible. Duplicates,
+  Renames, Restructure and Storage all adopt it, each with sample rows in their own
+  row shape, all at the same height so the card stops jumping as you move the rail.
+- **Organize's ledger gets tiles and a meter.** It was two bare numbers on a
+  full-width gray band with a metre of trailing emptiness. Each fact is its own
+  quiet tile now, and the checks tile carries a per-lens segment meter — accent for
+  lenses that report, a quiet fill for ran-and-clean, near-ground for never-ran,
+  captioned with the split. The fraction reads visually without inventing a number.
+- **The quiet chrome says true, whole sentences.** *"Hashing 0 candidates…"* becomes
+  *"Looking for candidates…"* when no two files share a size; *"Reading 61
+  documents…"* now names its subject, because on an empty pane that line is the only
+  thing on screen; and the spend rows no longer print *"1 files"*.
+- **One counting pill, one progress dialect**, across the overview cards, Storage's
+  counts and the Duplicates toolbar.
+- **The welcome tour describes the app you actually installed**, including the
+  workspaces that did not exist when it was written.
+
 ### Settings, and text that scales properly
 
 - **Organize's Settings tab becomes three**: Organize, **People**, and
@@ -309,6 +421,19 @@ section first.
 
 - **Storage gets the same rail**, in the half its intro button left empty, and its
   header counts untouched files the way its other two sections do.
+- Its ranked lists join the app's one file-type vocabulary, and its counts wear the
+  same pill as everything else that counts.
+
+### Under the hood
+
+- **A document is read once, and says the same thing twice.** PDFKit's text
+  extraction is not thread-safe, and SyncCloud was driving it from a concurrent
+  queue — four at a time during a scan. Measured through that exact reader over a
+  real 10,286-document tree at six at a time, **1.69% of documents came back with
+  different text than a serial pass**, and two concurrent passes disagreed with each
+  other as well as with the serial one. Every content signal downstream — the filing
+  suggestion, the learned rule, the same-text fingerprint — was being computed from
+  text that could change between runs. Extraction now runs in one lane.
 
 ---
 
