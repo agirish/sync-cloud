@@ -876,7 +876,7 @@ public struct PaneHeader: View {
                         // changes nothing at all; this one moves files. Disabled it greys out with
                         // the rest, so the red appears only when there is something to act on.
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize,
-                                       ink: SemanticColor.error)
+                                       ink: ChromeInk.semantic(colorScheme, SemanticColor.error))
                 }
                 .buttonStyle(navButtonStyle)
                 .disabled(selectionCount == 0)
@@ -903,18 +903,27 @@ public struct PaneHeader: View {
                     }
                 } label: {
                     Image(systemName: "magnifyingglass")
-                        // Tinted whenever a query is live, so a search narrowing what you are
-                        // looking at can never be silently on behind a quiet glyph — the rule
-                        // `ExpandingSearchToggle` applies everywhere else.
+                        // **No live-query tint, and its absence is the decision.** This rung
+                        // carried one — "tinted whenever a query is live, so a search narrowing
+                        // what you are looking at can never be silently on behind a quiet glyph" —
+                        // written as a `.foregroundStyle` on the Button, outside the label, where
+                        // `paneNavChrome`'s own glyph colour outranked it. It painted nothing:
+                        // 0 accent pixels in both states, measured.
                         //
-                        // Through `ink:`, NOT a `.foregroundStyle` on the button. That is where
-                        // this started, and it painted nothing: `paneNavChrome` sets the glyph's
-                        // colour on the glyph itself, and the application closest to the leaf
-                        // wins, so a colour set further out never arrived. The promise in the
-                        // comment above was three lines from the code that broke it, and no test
-                        // looked — `PaneBarSearchTintTests` counts the pixels now.
-                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize,
-                                       ink: searchText.wrappedValue.isEmpty ? nil : glassHue.accentColor)
+                        // Wiring it up was the wrong repair, and finding out why is the useful
+                        // part: **the state it guards cannot happen.** This magnifier is drawn
+                        // only in the `else` of `isExpanded`, and every path that collapses the
+                        // field clears the query with it — `ExpandingSearch.collapse` does it in
+                        // one transaction, for the reason stated there ("a query left live behind
+                        // a hidden field is a filter you can't see or undo"), and this button's
+                        // own toggle does it too. A live query is therefore always accompanied by
+                        // a visible field holding it. There is no silent filter to signal, so
+                        // there is nothing here to tint.
+                        //
+                        // `PaneBarSearchTintTests` pins that invariant, so a future change that
+                        // lets a query outlive its field fails there rather than silently
+                        // re-creating the hidden state this tint was written for.
+                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
                 // Centred, not trailing: a ⌘F keycap is nearly as wide as this button, and

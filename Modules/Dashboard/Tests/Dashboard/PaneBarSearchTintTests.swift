@@ -5,47 +5,57 @@ import Sync
 import Design
 @testable import Dashboard
 
-/// The Search rung's "a query is live" tint, measured in paint.
+/// Why the Search rung has no "a query is live" tint, pinned as the invariant that makes one
+/// unnecessary rather than as an absence.
 ///
-/// The rung's own comment promises it: "Tinted whenever a query is live, so a search narrowing what
-/// you are looking at can never be silently on behind a quiet glyph." Whether it arrives is not
-/// something the source can be read for — `paneNavChrome` applies its own `.foregroundStyle` to the
-/// glyph, and the application closest to the leaf wins — so this counts accent pixels in the two
-/// states and compares them.
+/// The rung used to carry one, and it painted nothing — a `.foregroundStyle` on the Button, outside
+/// the label, which `paneNavChrome`'s own glyph colour outranked. The tempting repair was to wire it
+/// up. The reason that was wrong is the thing worth testing: **the magnifier is drawn only while the
+/// field is collapsed, and collapsing always clears the query**, so the state the tint was written to
+/// signal — a filter running behind a hidden field — cannot occur.
 ///
-/// It did not arrive. As shipped, the tint was a `.foregroundStyle` on the BUTTON, outside the
-/// label, and both states measured **0 accent pixels**: the promise in the rung's comment had been
-/// false since the day it was written, three lines above the code that broke it. Through `ink:` the
-/// live query measures **186**. The same mistake in the same file was caught in the Delete rung by
-/// the same kind of count — which is the argument for this file existing rather than a source scan
-/// asserting that some `.foregroundStyle` is present somewhere.
+/// A test asserting "no accent pixels appear" would pass for the wrong reason forever. These assert
+/// the mechanism instead, so a change that lets a query outlive its field fails here and the tint
+/// becomes necessary again with a test already saying so.
 @MainActor
 @Suite(.serialized) struct PaneBarSearchTintTests {
 
-    /// A live query must make the magnifier wear the accent. Same fixture, same size, same
-    /// appearance; the ONLY difference between the two renders is the query string.
-    @Test func testALiveQueryTintsTheMagnifier() throws {
-        let quiet = try Self.accentPixels(query: "")
-        let live = try Self.accentPixels(query: "invoice")
-
-        #expect(live > quiet + 20,
-                "a live query paints \(live) accent px against \(quiet) with no query — the rung's tint is not reaching the glyph")
+    /// Collapsing clears the query, in one transaction. This is the whole invariant.
+    @Test func testCollapsingClearsTheQuery() {
+        var text = "invoice"
+        var expanded = true
+        ExpandingSearch.collapse(
+            text: Binding(get: { text }, set: { text = $0 }),
+            isExpanded: Binding(get: { expanded }, set: { expanded = $0 })
+        )
+        #expect(expanded == false)
+        #expect(text.isEmpty, "a query survived its field being hidden — it is now a filter with no visible carrier, and the Search rung needs a tint again")
     }
 
-    /// The guard on the comparison above: both renders must actually contain a magnifier, or
-    /// "no difference" would be measuring two empty crops.
-    @Test func testTheRungIsDrawnInBothStates() throws {
-        for query in ["", "invoice"] {
-            #expect(try Self.inkPixels(query: query) > 40,
-                    "no glyph painted in the search cell for query '\(query)'")
-        }
+    /// The other half: the magnifier and the field are alternatives, never both. If the bar ever
+    /// draws the magnifier *beside* an open field, "collapsed implies empty" stops covering the
+    /// case where a user is typing and the glyph is also on screen.
+    ///
+    /// Measured as ink, because this is a question about what is drawn: the expanded header must
+    /// not contain the collapsed header's bar.
+    @Test func testTheFieldReplacesTheBarRatherThanJoiningIt() throws {
+        let collapsed = try Self.inkPixels(expanded: false, query: "")
+        let expanded = try Self.inkPixels(expanded: true, query: "invoice")
+
+        #expect(collapsed > 40, "the collapsed header draws no bar — this comparison would be vacuous")
+        #expect(expanded != collapsed,
+                "the expanded and collapsed headers paint identically, so this is not measuring the swap it claims to")
+    }
+
+    /// And the guard that keeps the pair above honest: the rung IS drawn when collapsed, so
+    /// "collapsed implies empty" is a statement about a control that exists.
+    @Test func testTheMagnifierIsDrawnWhenCollapsed() throws {
+        #expect(try Self.inkPixels(expanded: false, query: "") > 40)
     }
 
     // MARK: - Fixtures
 
-    /// Collapsed field, live query — the state the tint exists for. `searchIsExpanded` false is not
-    /// a contrivance: it is precisely when the query has no other carrier on screen.
-    private static func header(query: String) -> PaneHeader {
+    private static func header(expanded: Bool, query: String) -> PaneHeader {
         PaneHeader(
             title: "Left",
             provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
@@ -54,15 +64,15 @@ import Design
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
             onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
-            searchText: .constant(query), searchIsExpanded: .constant(false))
+            searchText: .constant(query), searchIsExpanded: .constant(expanded))
     }
 
-    private static func rendered(query: String) throws -> NSBitmapImageRep {
+    private static func inkPixels(expanded: Bool, query: String) throws -> Int {
         let defaults = ScratchDefaults("PaneBarSearchTintTests-render")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
         let size = CGSize(width: 700, height: LiquidGlass.headerHeight)
         let host = NSHostingView(rootView: AnyView(
-            header(query: query)
+            header(expanded: expanded, query: query)
                 .defaultAppStorage(defaults)
                 .frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -77,30 +87,11 @@ import Design
         host.layoutSubtreeIfNeeded()
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
-    }
-
-    /// Blue-leaning pixels in the bar's half of the header. The trailing half only: the provider
-    /// capsule carries iCloud's own blue, and a crop spanning it would drown the signal.
-    private static func accentPixels(query: String) throws -> Int {
-        try count(query: query) { px in
-            px.blueComponent - px.redComponent > 0.15 && px.blueComponent - px.greenComponent > 0.05
-        }
-    }
-
-    private static func inkPixels(query: String) throws -> Int {
-        try count(query: query) { px in
-            px.redComponent < 0.72 || px.greenComponent < 0.72 || px.blueComponent < 0.72
-        }
-    }
-
-    private static func count(query: String, where matches: (NSColor) -> Bool) throws -> Int {
-        let rep = try rendered(query: query)
         var hits = 0
         for x in (rep.pixelsWide / 2)..<rep.pixelsWide {
             for y in 0..<rep.pixelsHigh {
                 guard let px = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if matches(px) { hits += 1 }
+                if px.redComponent < 0.72 || px.greenComponent < 0.72 || px.blueComponent < 0.72 { hits += 1 }
             }
         }
         return hits

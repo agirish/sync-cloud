@@ -2236,7 +2236,15 @@ struct ContentView: View {
                 // a permanently visible rung between Hidden Files and Search, not a menu item
                 // chosen by name. The row menu and ⌘⌫ still honour the setting; the tooltip says
                 // this one does not, so the prompt cannot read as the setting being broken.
-                onDelete: { actionHandler?.confirmDelete(ownNodes, alwaysConfirm: true) },
+                // **Resolved at FIRE time, not captured.** `ownNodes` below is a snapshot taken
+                // during this render, and it is the right thing for the COUNT — enabling a button
+                // is a question about the render it is drawn in. It is the wrong thing for the
+                // act: this same closure is what the ⋯ menu's Delete entry runs, and a menu held
+                // open in menu-tracking mode is not re-armed by a republish, so a snapshot could
+                // name rows a background bulk sync has since replaced. `shortcutDeleteSelection`
+                // documents this for ⌘⌫ and resolves at fire for it; so does this.
+                onDelete: { actionHandler?.confirmDelete(paneSelectionNodes(isLeft: isLeft),
+                                                         alwaysConfirm: true) },
                 selectionCount: ownNodes.count,
                 // Search inside THIS pane's tree. Every workspace with a pane browser gets it from
                 // here — Compare's two panes and the single-source rail — because they are all this

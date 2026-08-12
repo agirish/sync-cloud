@@ -27,6 +27,27 @@ public enum ChromeInk {
         scheme == .dark ? .primary : light
     }
 
+    /// A glyph whose COLOUR is the meaning — a destructive control's red — kept legible in both
+    /// appearances.
+    ///
+    /// `label(_:light:)` is wrong for these: it flattens to white in dark, which is exactly right
+    /// for chrome whose job is legibility and throws away the one thing this glyph is saying. So
+    /// the colour survives, and what changes is its DEPTH in light.
+    ///
+    /// **Measured, because the obvious version ships a glyph nobody can see.** System red on the
+    /// pane bar's `.primary.opacity(0.075)` pill renders (1.000, 0.320, 0.298) on a 0.95 field —
+    /// **2.87:1**, under the 3:1 a non-text control carrying meaning needs, while the untinted
+    /// glyphs beside it measure 4.84:1 on the same surface. Deepening for light clears it. Dark
+    /// needs no help (3.71:1 measured) and must not be deepened: `AccentFill.deepened` never
+    /// lightens, so applying it there would push the same red down to ~2.5:1 — fixing one
+    /// appearance by breaking the other.
+    ///
+    /// `PaneBarInkContrastTests` measures both appearances against the floor rather than trusting
+    /// any of the numbers in this comment.
+    public static func semantic(_ scheme: ColorScheme, _ color: Color) -> Color {
+        scheme == .dark ? color : AccentFill.deepened(color)
+    }
+
     /// The optional-tint form, for a control whose dark treatment is not a flat colour but a
     /// *fallback to the standard label hierarchy* — `PaneBreadcrumb`'s root crumb, which without a
     /// tint distinguishes the current folder from its ancestors by `.primary` vs `.secondary`.

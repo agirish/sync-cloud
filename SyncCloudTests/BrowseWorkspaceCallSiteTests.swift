@@ -121,8 +121,15 @@ import FileExplorer
     @Test func testTheHeaderDeleteTakesThisPanesSelection() throws {
         let content = try Self.source("ContentView.swift")
         #expect(content.contains("let ownNodes = paneSelectionNodes(isLeft: isLeft)"))
-        #expect(content.contains("onDelete: { actionHandler?.confirmDelete(ownNodes, alwaysConfirm: true) }"),
-                "the header's Delete is wired to something other than this pane's own selection")
+        // **Resolved at fire time, not captured.** The same closure runs from the ⋯ menu's Delete
+        // entry, and a menu held open in menu-tracking mode is not re-armed by a republish — so a
+        // captured array could name rows a background sync has since replaced. `ownNodes` is still
+        // right for the COUNT, which is a question about the render the button is drawn in.
+        #expect(content.contains("actionHandler?.confirmDelete(paneSelectionNodes(isLeft: isLeft),"),
+                "the header's Delete captures a snapshot instead of resolving its nodes when clicked")
+        #expect(content.contains("alwaysConfirm: true)"))
+        #expect(!content.contains("confirmDelete(ownNodes"),
+                "the captured-snapshot form is back")
         #expect(content.contains("selectionCount: ownNodes.count"))
         // The two must not be confused: `barNodes` still exists and still feeds the floating bar.
         #expect(content.contains("let barNodes = barSelectionNodes(isLeft: isLeft)"),
