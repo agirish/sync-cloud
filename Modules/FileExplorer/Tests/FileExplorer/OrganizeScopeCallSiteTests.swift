@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import FileExplorer
+import Sync
 
 /// **The call sites.** `OrganizeScopeFilter` and `ScopeChipLabel` are both extracted for
 /// testability, and a rule extracted for testability is one revert away from being unused — a
@@ -431,14 +432,32 @@ import Foundation
                 "an unsurveyed scope renders as a zero folder count again")
     }
 
+    /// **Gated on the right predicate**, which is not the same claim as "gated".
+    ///
+    /// This test used to pin `PathBoundary.contains(inbox, under: $0)` — ancestry — and so
+    /// enshrined the bug it was written to prevent. The filing pass enumerates ONE folder's direct
+    /// files, so the only subject it can answer about is that folder; a scan of the provider root
+    /// (the file pass run there, or "Organize everything") satisfied ancestry and made the offer
+    /// read "Inbox (TODO) — 0 loose files" while TODO held fifty. `looseFileScanCovers` is the
+    /// rule written for exactly this pass, and `OrganizeScope` says so in its own doc.
     @Test func theInboxCountIsGatedOnTheScanHavingCoveredIt() throws {
         let tidy = try Self.source("TidyView.swift")
         let body = try Self.body(of: "private var inboxShortcut: OrganizeOverview.InboxShortcut? {",
                                  in: tidy)
-        #expect(body.contains("PathBoundary.contains(inbox, under: $0)"),
-                "the inbox offer counts a queue that may never have looked at the inbox")
+        #expect(body.contains("OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned)"),
+                "the inbox offer decides coverage by ancestry, so a scan above the inbox claims a zero it never counted")
+        #expect(!Self.codeOnly(body).contains("PathBoundary.contains(inbox, under:"),
+                "the ancestry test is still in this member")
         #expect(body.contains("let loose = covered"),
                 "the count is not gated on the scan having covered the inbox")
+    }
+
+    /// And the predicate itself answers the two cases the call site depends on, so the scan above
+    /// is not merely pinning a spelling.
+    @Test func looseFileScanCoverageIsEqualityNotAncestry() {
+        #expect(OrganizeScopeFilter.looseFileScanCovers(subject: "/p/TODO", scannedFolder: "/p/TODO"))
+        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: "/p/TODO", scannedFolder: "/p"),
+                "a one-level scan of the parent claimed to have counted the inbox's loose files")
     }
 
     @Test func restructuresCleanStateGetsTheScopedFolderCount() throws {

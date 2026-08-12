@@ -159,10 +159,7 @@ extension FileSyncManager {
                                                 folderFiles: filesByFolder[dest.path] ?? [],
                                                 profile: profile))
             }
-            return FilingSuggestion(filePath: suggestion.filePath, fileName: suggestion.fileName,
-                                    size: suggestion.size,
-                                    modificationDate: suggestion.modificationDate,
-                                    candidates: named, providerRoot: suggestion.providerRoot)
+            return suggestion.replacingCandidates(named)
         }
     }
 

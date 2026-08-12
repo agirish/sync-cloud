@@ -132,6 +132,43 @@ import Sync
                                        fullNames: ["Aditi Abhishek"])])
     }
 
+    // MARK: The scope is cleared by every workspace switch, not only the bar's
+
+    /// **`workspaceSelection` is the bar; `selectedWorkspace` is the workspace.**
+    ///
+    /// The clear lived in the binding's setter, which only the bar, the ⌘1–⌘N chords and ⌘K route
+    /// through. Every programmatic switch wrote `selectedWorkspace` directly and went around it —
+    /// `show(_:)` (behind "Find duplicates of this" and the automation preview),
+    /// `findFilingSuggestionsAction`, `buildStorageLensAction`, and both duplicate coordinators. So
+    /// right-clicking a file for its duplicates while a gather was open landed on Organize with the
+    /// gather still holding the lens slot: the list of someone's files sat where the duplicates
+    /// list belongs and the click looked dead. `onChange` fires for every writer.
+    ///
+    /// Source-level because `ContentView`'s state has no seam — the same reason this suite already
+    /// gives for `acceptPersonScope`.
+    @Test func everyWorkspaceSwitchClearsTheGatherNotJustTheBars() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView.swift")
+        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                   "cannot read ContentView.swift — this scan would be vacuous")
+        try #require(content.count > 500, "ContentView.swift is implausibly short")
+
+        let onChange = try #require(content.range(of: ".onChange(of: selectedWorkspace) { _, _ in"),
+                                    "the workspace onChange handler is gone — this scan is vacuous")
+        let end = try #require(content[onChange.upperBound...].range(of: "\n        }"))
+        let body = String(content[onChange.upperBound..<end.lowerBound])
+        #expect(body.contains("clearPersonScope()"),
+                "the gather is not cleared on every workspace change, so a programmatic switch leaves it holding the slot")
+
+        // And it is not ALSO left in the bar's binding — two clears is two owners, and the binding
+        // is the one that cannot see a programmatic write.
+        let setter = try #require(content.range(of: "if newWorkspace != previous {"))
+        let setterEnd = try #require(content[setter.upperBound...].range(of: "}"))
+        #expect(!content[setter.upperBound..<setterEnd.lowerBound].contains("clearPersonScope()"),
+                "the bar's setter still clears the scope too")
+    }
+
     @Test func aMissingCorpusIsNilRatherThanAnEmptyAnswer() async throws {
         // **nil and "nobody has anything" must not look alike.** The slot renders the first as
         // `.failed` ("nothing has been surveyed") and the second as the empty state ("nothing is

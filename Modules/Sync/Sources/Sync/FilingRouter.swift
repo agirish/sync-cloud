@@ -448,14 +448,37 @@ public enum FilingRouter {
             best.insert((entry.key, entry.value), at: i)
             if best.count > want { best.removeLast() }
         }
-        let top = best[0].value
-        let margin = best.count > 1 && top > 0 ? (top - best[1].value) / top : 1.0
+        let margin = Self.margin(top: best[0].value, runnerUp: best.count > 1 ? best[1].value : nil)
         let candidates = best.prefix(limit).map { entry -> Candidate in
             let (token, hits) = evidence(for: entry.key, tokens: contentTokens, index: index)
             return Candidate(relativePath: entry.key, score: entry.value,
                              evidenceToken: token, sharedAnchors: hits)
         }
         return Ranking(candidates: Array(candidates), margin: margin)
+    }
+
+    /// How separated the winner is: `(top − runnerUp) / top`, and 1.0 when it runs unopposed.
+    ///
+    /// **A top score of zero or less is not a winner, it is the last folder standing**, and that is
+    /// the case this is a named function for. Name scores go negative — a wrong-year `yearFit` and
+    /// a person contradiction both subtract — and a negative folder still enters the blend whenever
+    /// some *other* folder scored positively. Normally that other folder is the top one and the
+    /// question never arises; but `excluding` (what "Try another" has been told no about) is
+    /// applied after the blend, so in principle the positives can all be removed and leave a folder
+    /// the scorer actively penalised at the top. The expression this replaces answered 1.0 there —
+    /// `.high` — for a folder whose own evidence argues against it, and `route` promotes a `.high`
+    /// with no evidence token as `fromContent == false`, which is blind-batch eligible. Zero is
+    /// `.low`: still offered, never filed unseen.
+    ///
+    /// Honest about its own status: **no fixture reached `top <= 0` through `rank`** — several were
+    /// tried, and the blend's normalisation keeps pulling the survivor back above zero. So this is
+    /// a guard on an arithmetic rule that is wrong on its face rather than a fix for a reproduced
+    /// bug, and it is a named function so the rule can be stated and tested without needing a
+    /// scorer fixture that may not exist. Where `top > 0` it is the same arithmetic as before.
+    static func margin(top: Double, runnerUp: Double?) -> Double {
+        guard top > 0 else { return 0 }
+        guard let runnerUp else { return 1.0 }
+        return (top - runnerUp) / top
     }
 
     /// The heaviest anchor this file shares with `folder`, and how many it shares.

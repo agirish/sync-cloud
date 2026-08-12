@@ -73,6 +73,30 @@ import Sync
                 "the scope is being stored verbatim, so the provider root would be saved as a scope")
     }
 
+    // MARK: One pane, asked once
+
+    /// **The palette describes one pane, and must act on that same pane.**
+    ///
+    /// `tidyProviderRootExpanded` follows the *focused* pane in Compare, so with the right pane
+    /// focused every folder and recent row in the index is relative to the right provider's tree.
+    /// Three places then assumed the left one: the reveal focused `isLeft: true` (handing a path
+    /// from one provider's tree to the other's, so the pane jumped to a folder that most likely
+    /// does not exist there), "The current source" was marked by comparing to `leftProviderId`, and
+    /// choosing a source switched the left pane. `paletteProviderId` names the rule once.
+    @Test func thePaletteRevealsIntoThePaneItIndexed() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        #expect(host.contains("var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }"),
+                "there is no single answer for which pane the palette is aimed at")
+        #expect(host.contains("syncManager.focusOn(relativePath: relative, isLeft: !tidyTargetIsRight)"),
+                "the reveal always targets the left pane, even when the index came from the right one")
+        #expect(!Self.codeOnly(host).contains("isLeft: true"),
+                "a reveal still hard-codes the left pane")
+        #expect(host.contains("isCurrent: provider.id == paletteProviderId"),
+                "\"The current source\" is decided against the left pane rather than the aimed one")
+        #expect(host.contains("if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }"),
+                "choosing a source from ⌘K switches the pane the palette was not describing")
+    }
+
     /// Every route case is applied. A `default:` arm would let a case added to `PaletteRoute` — a
     /// public enum in another module — compile here and silently do nothing.
     @Test func everyRouteCaseIsHandledWithoutADefaultArm() throws {

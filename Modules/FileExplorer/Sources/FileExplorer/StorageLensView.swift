@@ -209,10 +209,19 @@ struct StorageLensView: View {
     ///   the rail item look broken: click "Untouched", get a lone collapsed header and an otherwise
     ///   empty page, with the thing you asked for hidden by a decision you made somewhere else.
     ///   The set is remembered rather than cleared, so going back to All restores the folds.
+    ///
+    ///   **Both halves, not just the read.** Gating only the display left the header still writing:
+    ///   on a narrowed page `isCollapsed` is false by construction, so every click ran the `insert`
+    ///   arm. Nothing happened where the user clicked — the chevron kept pointing down and the list
+    ///   stayed open — and the section was folded on the All page by a click they never experienced
+    ///   as one, which no second click there could undo. A control that cannot act does not offer
+    ///   to: the header is a plain row on a narrowed page, with no hover wash and no chevron.
     private func listSection(_ section: StorageSection, entries: [StorageEntry]) -> some View {
-        let isCollapsed = self.section == nil && collapsed.contains(section)
+        let canCollapse = self.section == nil
+        let isCollapsed = canCollapse && collapsed.contains(section)
         return VStack(alignment: .leading, spacing: 8) {
             Button {
+                guard canCollapse else { return }
                 if isCollapsed { collapsed.remove(section) } else { collapsed.insert(section) }
             } label: {
                 HStack(spacing: 8) {
@@ -235,12 +244,23 @@ struct StorageLensView: View {
                     // a list size, never urgency.
                     Pill(.mini, tint: .secondary, text: entries.count.formatted(), isNumeric: true)
                     Spacer(minLength: 0)
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .hoverInk()
+                    if canCollapse {
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .hoverInk()
+                    }
                 }
+                // The chevron's width is not given back when it goes: the row keeps its shape, so
+                // narrowing to a section does not shuffle the title line sideways.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
+            // Disabled is exactly right here, and for the reason it is usually wrong:
+            // `HoverAffordanceStyle` reads `isEnabled` *only* to suppress its wash and draws no
+            // dimming of its own. So a narrowed page keeps a header that looks like every other
+            // header and simply stops lighting up under the pointer — which is what it should
+            // say, since there is nothing on this page to fold past.
+            .disabled(!canCollapse)
 
             if !isCollapsed {
                 if entries.isEmpty {

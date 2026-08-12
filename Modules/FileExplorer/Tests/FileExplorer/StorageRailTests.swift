@@ -144,10 +144,37 @@ import Design
             .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
                                   "cannot read StorageLensView.swift — this scan would be vacuous")
-        #expect(source.contains("let isCollapsed = self.section == nil && collapsed.contains(section)"),
+        #expect(source.contains("let canCollapse = self.section == nil"),
                 "the fold no longer consults the rail's selection, so selecting a folded section shows an empty page")
+        #expect(source.contains("let isCollapsed = canCollapse && collapsed.contains(section)"))
         // Non-vacuity: the fold still exists and is still a thing the All page can do.
         #expect(source.contains("collapsed.insert(section)"))
+    }
+
+    @Test("The header cannot fold a section it is not allowed to fold")
+    func aNarrowedPagesHeaderNeitherWritesNorInvitesAClick() throws {
+        // **Gating the read was only half of it.** `isCollapsed` is false by construction on a
+        // narrowed page, so the header's action always took the `insert` arm: the click did
+        // nothing visible where it was made — chevron still down, list still open — and folded the
+        // section on the All page, where the user never folded anything. No second click on the
+        // narrowed page could undo it, because that one inserted too.
+        //
+        // Both halves are asserted: the action refuses, and the control stops advertising. The
+        // chevron goes (there is nothing to point at) and the row is `.disabled`, which under
+        // `HoverAffordanceStyle` suppresses exactly the hover wash and draws no dimming — so the
+        // header still looks like a header and simply stops lighting up.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        try #require(source.count > 500, "StorageLensView.swift is implausibly short")
+        #expect(source.contains("guard canCollapse else { return }"),
+                "the header's action still writes `collapsed` on a page where the fold does not apply")
+        #expect(source.contains(".disabled(!canCollapse)"),
+                "a narrowed page's header still offers a hover affordance for a fold it will not perform")
+        #expect(source.contains("if canCollapse {"),
+                "the chevron is still drawn on a page that cannot fold")
     }
 
     @Test("Before a scan the rail says it has not looked, rather than claiming zero")

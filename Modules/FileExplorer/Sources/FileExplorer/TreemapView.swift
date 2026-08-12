@@ -33,7 +33,11 @@ struct TreemapView: View {
 
     /// The width below which a tile draws no name — and, since the fold landed, the width below
     /// which it stops being its own tile at all.
-    static let labelMinWidth: CGFloat = 46
+    ///
+    /// `nonisolated` because the two functions that decide widths from it — `fold` and
+    /// `visibleWidths` — are pure arithmetic and say so. Reading a main-actor constant from them
+    /// warned at every call site while changing nothing about the value.
+    nonisolated static let labelMinWidth: CGFloat = 46
 
     /// What the fold decided: the tiles that keep their identity, and the ones the tail absorbs.
     struct Fold: Equatable {
@@ -95,16 +99,12 @@ struct TreemapView: View {
                 : max(Self.labelMinWidth, available * CGFloat(fold.tailBytes) / CGFloat(total))
             let visibleBytes = max(1, total - fold.tailBytes)
             let visibleAvailable = max(0, available - tailWidth)
+            let widths = Self.visibleWidths(fold.visible, floorLastTile: fold.folded.isEmpty,
+                                            available: visibleAvailable, visibleBytes: visibleBytes)
             HStack(spacing: spacing) {
                 ForEach(Array(fold.visible.enumerated()), id: \.offset) { idx, node in
-                    // A single sub-threshold straggler was left visible by the fold (a "+1 more"
-                    // would use the space its own name could): hold it at the label floor too.
-                    let proportional = visibleAvailable * CGFloat(node.bytes) / CGFloat(visibleBytes)
-                    let width = idx == fold.visible.count - 1 && fold.folded.isEmpty
-                        ? max(proportional, min(Self.labelMinWidth, visibleAvailable))
-                        : proportional
                     tile(node, color: color(for: idx, node: node),
-                         label: labelColor(for: idx, node: node), width: width)
+                         label: labelColor(for: idx, node: node), width: widths[idx])
                 }
                 if !fold.folded.isEmpty {
                     tailTile(fold, width: tailWidth)
@@ -112,6 +112,36 @@ struct TreemapView: View {
             }
         }
         .frame(height: 88)
+    }
+
+    /// The visible tiles' widths, which **sum to `available`** — that is the whole point of doing
+    /// it here rather than per-tile inside the `ForEach`.
+    ///
+    /// A single sub-threshold straggler left visible by the fold (a "+1 more" would use the space
+    /// its own name could) is held at the label floor, same as the tail. It was widened in place,
+    /// though, without the extra being taken from anyone: the other tiles had already been sized to
+    /// fill the row, so `[10 000, 8 000, 100]` at 900pt drew about 941pt of tiles. An `HStack` of
+    /// fixed-width children does not compress and a `GeometryReader` does not clip, so the excess
+    /// was simply painted past the card's right edge.
+    ///
+    /// The floored tile is paid for exactly the way the tail is: it takes its width first, and the
+    /// rest share what remains in their own proportions.
+    nonisolated static func visibleWidths(_ visible: [TreemapNode], floorLastTile: Bool,
+                                          available: CGFloat, visibleBytes: Int) -> [CGFloat] {
+        guard !visible.isEmpty else { return [] }
+        func proportional(_ nodes: ArraySlice<TreemapNode>, of space: CGFloat, bytes: Int) -> [CGFloat] {
+            nodes.map { space * CGFloat($0.bytes) / CGFloat(max(1, bytes)) }
+        }
+        guard floorLastTile, let last = visible.last else {
+            return proportional(visible[...], of: available, bytes: visibleBytes)
+        }
+        let lastProportional = available * CGFloat(last.bytes) / CGFloat(max(1, visibleBytes))
+        let lastWidth = max(lastProportional, min(labelMinWidth, available))
+        // Nothing left to redistribute from — one tile, or the floor has eaten the row.
+        guard visible.count > 1 else { return [lastWidth] }
+        let rest = visible.dropLast()
+        let restBytes = rest.reduce(0) { $0 + $1.bytes }
+        return proportional(rest, of: max(0, available - lastWidth), bytes: restBytes) + [lastWidth]
     }
 
     /// The tail: neutral like "Other", labeled with what it absorbed, enumerating on hover.

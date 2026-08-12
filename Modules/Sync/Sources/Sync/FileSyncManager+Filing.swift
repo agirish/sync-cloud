@@ -1281,9 +1281,7 @@ extension FileSyncManager {
                 for: s.fileName, destination: dest.path, providerRoot: s.providerRoot,
                 profile: filingFolderProfile, fileManager: fileManager))
         }
-        filingSuggestions[i] = FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
-                                                modificationDate: s.modificationDate, candidates: named,
-                                                providerRoot: s.providerRoot)
+        filingSuggestions[i] = s.replacingCandidates(named)
     }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.

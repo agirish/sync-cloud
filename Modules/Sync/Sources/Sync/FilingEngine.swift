@@ -164,6 +164,24 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                          modificationDate: modificationDate, candidates: candidates,
                          providerRoot: providerRoot, alreadyFiledAt: folders)
     }
+
+    /// The same document with a **new list of homes** — and everything else about it intact.
+    ///
+    /// The one way to re-answer a suggestion, because there are four places that do it (a verdict
+    /// promotion, a route, a re-ask, a rename re-naming) and every one of them was rebuilding the
+    /// value member by member. Each therefore silently dropped `alreadyFiledAt`, which only
+    /// `markingAlreadyFiled` produces and which runs once, at the end of the scan: refine a marked
+    /// list, or press "Try another", and `isAlreadyFiled` flipped back to false. The card lost the
+    /// one warning that stops a second copy being filed — and losing it is not undone by moving
+    /// the file back, because the copy lands under a name of its own in a folder that fits.
+    ///
+    /// A rebuild that wants to drop the marker has to say so; the default is to keep what was
+    /// learned about the document, since none of these callers learned anything to the contrary.
+    public func replacingCandidates(_ candidates: [FilingDestination]) -> FilingSuggestion {
+        FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
+                         modificationDate: modificationDate, candidates: candidates,
+                         providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt)
+    }
 }
 
 public struct FilingOptions: Sendable {
@@ -1043,9 +1061,7 @@ public enum FilingEngine {
             // heuristic home untouched (its alternates already include what the model might pick).
             guard dest.confidence >= (s.best?.confidence ?? .low) else { return s }
             let others = s.candidates.filter { $0.path != dest.path }
-            return FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
-                                    modificationDate: s.modificationDate, candidates: [dest] + others,
-                                    providerRoot: s.providerRoot)
+            return s.replacingCandidates([dest] + others)
         }
     }
 

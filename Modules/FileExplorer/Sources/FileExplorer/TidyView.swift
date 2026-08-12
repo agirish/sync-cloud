@@ -2918,8 +2918,15 @@ public struct TidyView: View {
         // every render. Not claiming is: `looseFileCount` is optional and the offer falls back to
         // naming the inbox, which is the same rule the rail badges follow. Absent beats a wrong
         // zero.
+        // **Equality, not ancestry** — `looseFileScanCovers`, the rule written for exactly this
+        // pass. The filing scan enumerates one folder's direct files, so the only subject it can
+        // answer about is that folder. Asking `PathBoundary.contains` said yes whenever the scan
+        // had run anywhere *above* the inbox: run the file pass at the provider root, or click
+        // "Organize everything", and this read "Inbox (TODO) — 0 loose files" while TODO held
+        // fifty. That is the same wrong zero the paragraph above describes, arrived at by the one
+        // predicate that cannot see the difference.
         let scanned = syncManager.filingScanFolder
-        let covered = scanned.map { PathBoundary.contains(inbox, under: $0) } ?? false
+        let covered = OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned)
         let loose = covered
             ? syncManager.filingSuggestions.count { PathBoundary.contains($0.filePath, under: inbox) }
             : nil

@@ -21,6 +21,7 @@ import Foundation
             delete: {},
             switchPaneFocus: PaneFocusSwitch(targetName: "Dropbox", run: {}),
             commandPalette: {},
+            beginPaneSearch: {},
             suspended: suspended
         )
     }
@@ -179,6 +180,37 @@ import Foundation
     /// twelve menu-bar chords nearly doubled the row count, and nothing failed: the ScrollView
     /// swallowed the overflow. Measured on the laid-out content, at the window's width, against
     /// the window's height; the floor guards against a render that measured nothing.
+    /// **⌘F is published through the publisher, and nowhere else.**
+    ///
+    /// It was hung straight off `ContentView.body` — never nil, never suspended — the exact shape
+    /// `a1c96082` moved ⌘K out of, and for the same consequence: with the destination picker up,
+    /// ⌘F opened the focused pane's search field under the scrim and `ExpandingSearchField` took
+    /// focus on appear, so the typing and the ↩ and the esc meant for the pick went to a field the
+    /// mouse cannot reach. Both halves are asserted, because "the new publication exists" stays
+    /// true if the old one is left beside it.
+    @Test func findInPaneIsPublishedOnlyThroughTheSuspendablePublisher() throws {
+        let publisher = Self.codeOnly(try Self.publisherSource())
+        #expect(publisher.contains(".focusedSceneValue(\\.beginPaneSearch, effectiveBeginPaneSearch)"),
+                "⌘F is not published through the publisher, so nothing suspends it")
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView.swift")
+        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                   "cannot read ContentView.swift — this scan would be vacuous")
+        try #require(content.count > 500, "ContentView.swift is implausibly short")
+        #expect(!Self.codeOnly(content).contains(".focusedSceneValue(\\.beginPaneSearch"),
+                "ContentView still publishes ⌘F on its own, outside the suspension")
+    }
+
+    /// And the suspension actually reaches it — the property, not just the publication.
+    @Test func findInPaneIsSilencedWhileThePickerIsUp() {
+        #expect(loadedPublisher(suspended: true).effectiveBeginPaneSearch == nil,
+                "⌘F tunnels under the destination picker")
+        #expect(loadedPublisher(suspended: false).effectiveBeginPaneSearch != nil,
+                "⌘F is dead even with nothing suspending it")
+    }
+
     @Test func theReferenceFitsItsWindowWithoutScrolling() {
         let host = NSHostingView(rootView:
             ShortcutsReferenceContent().frame(width: ShortcutsReferenceView.windowSize.width))

@@ -84,6 +84,22 @@ public final class PeopleStore: ObservableObject {
     /// understand, and rewriting it is the loss this flag exists to prevent.
     @Published public private(set) var rosterIsUnreadable = false
 
+    /// Bumped **after** each successful write of `people.json`, and never otherwise.
+    ///
+    /// Exists because `$people` is the wrong signal for anything that reads the *file*. Publishing
+    /// happens when the array is assigned; the write happens after, at the end of `sortAndSave()`.
+    /// A subscriber refreshing the filing artifact fingerprint from `$people` therefore hashed the
+    /// bytes of the roster **before** this edit — so every edit left the fingerprint one save
+    /// stale, and `FilingVerdictCache`, keyed on it, went on replaying classifications composed
+    /// against the previous household until a relaunch or a re-survey. Silently serving answers
+    /// from the old roster is the exact thing the fingerprint was introduced to prevent.
+    ///
+    /// A counter rather than a `Void` subject so it composes with `@Published` like everything
+    /// else here, and so a test can assert "the write happened" rather than only observe it. Not
+    /// bumped when the save is declined (no profile, or an unreadable roster): nothing changed on
+    /// disk, so nothing downstream needs to re-read it.
+    @Published public private(set) var savedRevision: Int = 0
+
     /// Decides the above from two independent facts: did the registry come from the file (`source`
     /// is `.file` only on a successful decode), and is there JSON in the file at all.
     private static func rosterIsUnreadable(at url: URL, loaded: PersonRegistry,
@@ -254,6 +270,9 @@ public final class PeopleStore: ObservableObject {
             // Atomic: the engine reads this file at launch and the fingerprint hashes it, so a
             // torn write would be a half-household that looks like a whole one.
             try data.write(to: fileURL, options: .atomic)
+            // **Only now are the bytes on disk what this roster says**, which is what anything
+            // hashing the file has to wait for. See `savedRevision`.
+            savedRevision &+= 1
         } catch {
             Logger.shared.warning("Couldn't save people.json — the change is in memory only "
                                   + "this session: \(error.localizedDescription)")

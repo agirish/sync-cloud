@@ -848,9 +848,16 @@ public class FileSyncManager: ObservableObject {
     /// The editable roster, when the app has somewhere to keep one.
     ///
     /// Unlike the profile and the memory, this artifact is *written* — see ``PeopleStore``. The
-    /// subscription below is what makes an edit take effect without a relaunch: it recompiles the
-    /// registry, drops the router index built from the old one, and re-derives the artifact
+    /// subscriptions below are what make an edit take effect without a relaunch: they recompile
+    /// the registry, drop the router index built from the old one, and re-derive the artifact
     /// fingerprint so cached verdicts composed against the previous roster are not replayed.
+    ///
+    /// **Two subscriptions, because they answer to different moments.** The registry is compiled
+    /// from the roster *in memory*, so `$people` is exactly its trigger. The fingerprint hashes
+    /// the roster *on disk*, and `$people` publishes before `save()` writes — reading it there
+    /// hashed the previous household's bytes and left every edit one save stale, which is the
+    /// replay the fingerprint exists to stop. It follows `$savedRevision` instead, which bumps
+    /// only after the write lands.
     public var filingPeopleStore: PeopleStore? {
         didSet {
             filingPersonRegistry = filingPeopleStore?.registry ?? filingPersonRegistry
@@ -863,11 +870,14 @@ public class FileSyncManager: ObservableObject {
                     // only the manager sees nothing.
                     self.objectWillChange.send()
                     self.filingPersonRegistry = store.registry
-                    self.refreshFilingArtifactFingerprint()
                 }
+            peopleSaveCancellable = filingPeopleStore?.$savedRevision
+                .dropFirst()
+                .sink { [weak self] _ in self?.refreshFilingArtifactFingerprint() }
         }
     }
     private var peopleCancellable: AnyCancellable?
+    private var peopleSaveCancellable: AnyCancellable?
 
     /// His verdicts on whose document is whose — see ``PersonTagStore``.
     ///

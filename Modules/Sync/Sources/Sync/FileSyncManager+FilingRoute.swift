@@ -217,9 +217,7 @@ extension FileSyncManager {
             newSegments: [], fromContent: fromContent, remembered: false, fromAI: false,
             evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0)
         let others = s.candidates.filter { $0.path != dest.path }
-        return (FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
-                                 modificationDate: s.modificationDate, candidates: [dest] + others,
-                                 providerRoot: s.providerRoot), true, shortlist)
+        return (s.replacingCandidates([dest] + others), true, shortlist)
     }
 }
 

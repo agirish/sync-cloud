@@ -837,6 +837,21 @@ struct ContentView: View {
         .onChange(of: rightProviderId) { _, _ in infoPath = nil }
         .onChange(of: selectedWorkspace) { _, _ in
             infoPath = nil
+            // **A person gather does not survive leaving the workspace it was opened from.** It
+            // takes the lens slot in every workspace, so without this, switching to Compare showed
+            // a list of someone's files where the differences table belongs — nothing on screen
+            // explaining why, and the only way out a ✕ on a view you would not connect to Compare.
+            //
+            // Here rather than in `workspaceSelection`'s setter, which is where it was: that
+            // binding is only the *bar* (and the chords and ⌘K that route through it). Every
+            // programmatic switch went around it — `show(_:)` behind "Find duplicates of this" and
+            // the automation preview, `findFilingSuggestionsAction`, `buildStorageLensAction`, and
+            // both duplicate coordinators — so right-clicking a file and asking for its duplicates
+            // while a gather was open landed on Organize with the gather still holding the slot,
+            // and the click looked dead. `onChange` fires for every writer, which is the property
+            // that matters. It also fires only on a real change, so re-selecting the workspace you
+            // are already on still does not throw the gather away.
+            clearPersonScope()
             restoreStorageLensIfShowing()
             autoRescanTidyLensIfShowing()
         }
@@ -2538,14 +2553,12 @@ struct ContentView: View {
         .onChange(of: syncManager.showHiddenFiles) { _, newValue in
             Logger.shared.info("User toggled hidden files to: \(newValue)")
         }
-        // ⌘F. Published from here because the menu item lives in the App scope and can see none of
-        // this window's state; it cannot be `.onKeyPress` at all, since that is focus-scoped and a
-        // pane search is invoked precisely when focus is in a file table. See `FindInPaneCommand`.
-        .focusedSceneValue(\.beginPaneSearch, beginPaneSearch)
-        // The rest of the menu-bar chords, on the same contract, bundled into one modifier
-        // (`ShortcutValuePublisher` — inlining the ten chained publications here broke the
+        // The menu-bar chords, on one contract, bundled into one modifier
+        // (`ShortcutValuePublisher` — inlining the chained publications here broke the
         // type-checker's time budget): each value recomputes with this body, so a menu item's
-        // enabled-ness tracks the same facts the control it mirrors renders from.
+        // enabled-ness tracks the same facts the control it mirrors renders from. ⌘F is in there
+        // too now; it was the last one published on its own, and so the last one the picker's
+        // suspension did not reach.
         .modifier(shortcutValuePublisher)
         // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
         // drilling in, a crumb, back/forward, or a scan — is recorded against its provider root.
@@ -2775,16 +2788,6 @@ struct ContentView: View {
                 // the loose-files inbox and the rest want the provider root, so carrying one lens's
                 // folder into the next would scan the wrong place.
                 if newWorkspace != previous {
-                    // **A person gather does not survive leaving the workspace it was opened
-                    // from.** It takes the lens slot in every workspace, so without this,
-                    // switching to Compare showed a list of someone's files where the differences
-                    // table belongs — nothing on screen explaining why, and the only way out a ✕
-                    // on a view you would not connect to Compare at all.
-                    //
-                    // Inside the `newWorkspace != previous` guard deliberately: re-selecting the
-                    // workspace you are already on is not leaving it, and should not throw the
-                    // gather away.
-                    clearPersonScope()
                     presentTidyRail(for: newWorkspace)
                 }
             }

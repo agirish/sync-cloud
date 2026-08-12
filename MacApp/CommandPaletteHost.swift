@@ -106,6 +106,12 @@ extension ContentView {
     ///
     /// Read once, when the palette opens — `CommandPaletteState` holds the result for the life of
     /// that session — so this is not on the keystroke path at all.
+    /// The provider whose tree the palette is describing — the focused pane's in Compare, the
+    /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
+    /// index's rows, its "current source" mark and its provider switch cannot disagree about which
+    /// pane they mean.
+    var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }
+
     var paletteIndex: PaletteIndex {
         let root = tidyProviderRootExpanded
         let profile = syncManager.filingFolderProfile
@@ -120,7 +126,11 @@ extension ContentView {
                                 // folder is simply not there right now (an unplugged SSD, an iCloud
                                 // account signed out), which is a fact worth showing.
                                 isMounted: FileManager.default.fileExists(atPath: provider.path),
-                                isCurrent: provider.id == leftProviderId)
+                                // "The current source" means the pane this palette is aimed at —
+                                // the focused one in Compare — for the same reason the folder rows
+                                // are indexed from its root. Asking `leftProviderId` had a
+                                // right-root index calling the left provider current.
+                                isCurrent: provider.id == paletteProviderId)
             },
             providerRoot: root.isEmpty ? nil : root,
             folders: folders,
@@ -160,7 +170,9 @@ extension ContentView {
             else { return }
             acceptPersonScope(person)
         case .provider(let id):
-            leftProviderId = id
+            // Switched on the pane the palette is aimed at, so choosing a source from ⌘K changes
+            // the one whose folders it was just listing.
+            if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }
         case .folder(let path):
             revealInSourcePane(path)
         case .action(let action):
@@ -190,16 +202,24 @@ extension ContentView {
         revealInSourcePane(scope)
     }
 
-    /// Points the source rail (the left pane) at an absolute folder inside the current provider.
+    /// Points the source pane at an absolute folder inside the current provider.
     ///
     /// Silently does nothing for a path outside the root — a relative path computed against the
     /// wrong root would focus the pane on a folder that does not exist, which looks exactly like a
     /// broken palette rather than like a stale index.
+    ///
+    /// **The pane it points at is the one the index was built from**, which is not always the left
+    /// one. `tidyProviderRootExpanded` follows the focused pane in Compare, so every folder row in
+    /// the palette is relative to the *right* provider's tree when the right pane has focus. This
+    /// revealed into the left pane regardless: the guard passed (the path really is under that
+    /// root), a relative path from one provider's tree was handed to the other's, and the pane
+    /// jumped to a folder that most likely does not exist there — the exact "looks like a broken
+    /// palette" outcome the guard above was written to avoid, reached by a different route.
     private func revealInSourcePane(_ absolutePath: String) {
         let root = tidyProviderRootExpanded
         guard !root.isEmpty,
               let relative = PathBoundary.relativize(absolutePath, under: root) else { return }
-        syncManager.focusOn(relativePath: relative, isLeft: true)
+        syncManager.focusOn(relativePath: relative, isLeft: !tidyTargetIsRight)
     }
 
     private func runPaletteAction(_ action: PaletteAction) {

@@ -166,10 +166,15 @@ extension FocusedValues {
 
 // MARK: - ContentView's half
 
-/// The twelve focused-value publications, bundled into one modifier with every field explicitly
-/// typed. Not organizational: chained inline in `ContentView.body` — an expression the compiler
-/// already strains under — the ternaries and property references pushed type-checking past its
-/// time limit and failed the build. Stored properties give inference nothing to solve.
+/// Every focused-value publication `ContentView` makes, bundled into one modifier with each field
+/// explicitly typed. Not organizational: chained inline in `ContentView.body` — an expression the
+/// compiler already strains under — the ternaries and property references pushed type-checking
+/// past its time limit and failed the build. Stored properties give inference nothing to solve.
+///
+/// **Everything belongs in here**, which is the other half of the reason it exists: a value
+/// published outside it is a value nobody thinks to suspend, and both chords that have been found
+/// tunnelling under the destination picker (⌘K, then ⌘F) were published on their own. No count is
+/// stated — the list below is the content, and a number beside it only goes stale.
 struct ShortcutValuePublisher: ViewModifier {
     let workspace: Binding<Workspace>
     let goBack: (() -> Void)?
@@ -192,6 +197,17 @@ struct ShortcutValuePublisher: ViewModifier {
     /// effect: the panel owns the chord then, through the event monitor in `CommandPalettePanel`,
     /// so a live menu item would be a second path to one act.
     let commandPalette: (() -> Void)?
+    /// ⌘F, here for the same reason ⌘K is. It was published straight off `ContentView.body` —
+    /// never nil, never suspended — which is precisely the shape `commandPalette`'s note above
+    /// condemns. With the destination picker up, ⌘F expanded the focused pane's search field
+    /// underneath the scrim and `ExpandingSearchField` took focus on appear, so the typing, the ↩
+    /// and the esc that were meant for the pick went to a field the mouse is blocked from
+    /// reaching.
+    ///
+    /// The convention that ⌘F stays live under Settings, Help and the first-run tour is untouched:
+    /// those are ambient panels and do not set `suspended`. This is about the overlay that owns
+    /// the keyboard.
+    let beginPaneSearch: (() -> Void)?
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
     /// file operation is waiting on an answer — but focused values are published by the still-
@@ -217,6 +233,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveDelete: (() -> Void)? { suspended ? nil : delete }
     var effectiveSwitchPaneFocus: PaneFocusSwitch? { suspended ? nil : switchPaneFocus }
     var effectiveCommandPalette: (() -> Void)? { suspended ? nil : commandPalette }
+    var effectiveBeginPaneSearch: (() -> Void)? { suspended ? nil : beginPaneSearch }
 
     func body(content: Content) -> some View {
         content
@@ -232,6 +249,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.deleteSelection, effectiveDelete)           // ⌘⌫
             .focusedSceneValue(\.switchPaneFocus, effectiveSwitchPaneFocus)  // ⌃⇥
             .focusedSceneValue(\.commandPalette, effectiveCommandPalette)     // ⌘K
+            .focusedSceneValue(\.beginPaneSearch, effectiveBeginPaneSearch)   // ⌘F
     }
 }
 
@@ -250,6 +268,7 @@ extension ContentView {
             delete: shortcutDeleteSelection,
             switchPaneFocus: switchPaneFocusAction,
             commandPalette: toggleCommandPalette,
+            beginPaneSearch: beginPaneSearch,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind

@@ -85,6 +85,21 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
     /// into a different answer than the one that was cached. Decoded with a default so entries
     /// written before this existed still load rather than discarding the whole file.
     public let proposesNewFolder: Bool
+    /// **Where `relativePath` actually resolved to when this was recorded**, provider-relative —
+    /// the comparand for the staleness test below it, and nothing else.
+    ///
+    /// Separate from `relativePath` because that one is the *served answer*: the entry
+    /// reconstructs `verdict` from it, so overwriting it with the resolution would change what a
+    /// hit returns. And it has to exist, because the two differ for a whole class of verdicts —
+    /// exactly the class the sanitizer was written for. `Immigration/OCI/Divit/eOCI.pdf` resolves
+    /// to `Immigration/OCI/Divit` (the trailing file name is stripped); comparing the resolution
+    /// against the raw string therefore failed *every* time, with nothing changed and nothing
+    /// wrong, so those answers could never be served and were re-billed on every refine — the one
+    /// thing this cache exists to prevent.
+    ///
+    /// Optional: entries written before this field existed have only the raw string, and for them
+    /// the test below behaves exactly as it did. They heal on their next record.
+    public let resolvedRelativePath: String?
     /// When this entry was written. Used only to decide eviction order; never to expire an entry.
     public let cachedAt: Date
 
@@ -95,7 +110,7 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
 
     public init(key: FilingVerdictKey, relativePath: String, confidence: FilingConfidence,
                 reason: String, newSegmentCount: Int, cachedAt: Date,
-                proposesNewFolder: Bool = false) {
+                proposesNewFolder: Bool = false, resolvedRelativePath: String? = nil) {
         self.key = key
         self.relativePath = relativePath
         self.confidence = confidence
@@ -103,6 +118,7 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
         self.newSegmentCount = newSegmentCount
         self.cachedAt = cachedAt
         self.proposesNewFolder = proposesNewFolder
+        self.resolvedRelativePath = resolvedRelativePath
     }
 
     public init(from decoder: Decoder) throws {
@@ -114,6 +130,7 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
         newSegmentCount = try c.decode(Int.self, forKey: .newSegmentCount)
         cachedAt = try c.decode(Date.self, forKey: .cachedAt)
         proposesNewFolder = try c.decodeIfPresent(Bool.self, forKey: .proposesNewFolder) ?? false
+        resolvedRelativePath = try c.decodeIfPresent(String.self, forKey: .resolvedRelativePath)
     }
 }
 
@@ -185,8 +202,14 @@ public struct FilingVerdictCache: Sendable, Equatable {
                                                       existingRelative: existingRelative)
         else { return nil }   // no longer resolves to a usable path at all
         guard resolved.newSegments.count <= entry.newSegmentCount else { return nil }
-        guard FilingEngine.relative(resolved.path, under: providerRoot) == entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        else { return nil }
+        // Compared against **where it resolved when it was recorded**, not against the model's raw
+        // string. Those are the same for most answers and deliberately different for the ones the
+        // resolver sanitizes; comparing against the raw string made that whole class unservable.
+        // Legacy entries carry no resolution and fall back to the old comparand — no worse than
+        // before, and rewritten with one the next time they are recorded.
+        let recorded = entry.resolvedRelativePath
+            ?? entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard FilingEngine.relative(resolved.path, under: providerRoot) == recorded else { return nil }
         return entry.verdict
     }
 
@@ -203,7 +226,8 @@ public struct FilingVerdictCache: Sendable, Equatable {
         entries[key] = FilingVerdictCacheEntry(
             key: key, relativePath: verdict.relativePath, confidence: verdict.confidence,
             reason: verdict.reason, newSegmentCount: resolved.newSegments.count, cachedAt: now,
-            proposesNewFolder: verdict.proposesNewFolder)
+            proposesNewFolder: verdict.proposesNewFolder,
+            resolvedRelativePath: FilingEngine.relative(resolved.path, under: providerRoot))
     }
 
     /// Drops the oldest-written entries until at most `limit` remain.
