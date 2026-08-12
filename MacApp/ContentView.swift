@@ -2820,6 +2820,39 @@ struct ContentView: View {
             storedCollapse: bottomPaneCollapsed, isReviewing: reviewStore.isReviewing)
     }
 
+    /// The gather's card, as its own member because **two layouts mount it**.
+    ///
+    /// `bottomPaneView` is one of them. The other is Browse, which draws no bottom pane at all —
+    /// and so, while this lived inline here, an offer accepted from Browse's pane search started
+    /// the whole-source sweep and rendered nowhere: no list, no ✕, no Esc target, and switching
+    /// workspace to look for it cleared the scope. The one surface that exists to stop an accept
+    /// from doing nothing visible was doing exactly that. See `browseLayout`.
+    @ViewBuilder
+    func personGatherSection(_ scope: PersonScope) -> some View {
+        PersonView(displayName: scope.person.displayName,
+                   phase: scope.phase,
+                   accent: glassHue.accentColor,
+                   onOpenFolder: { relative in
+                       guard let root = syncManager.filingFolderProfile?.root else { return }
+                       let full = (root as NSString).appendingPathComponent(relative)
+                       NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                   },
+                   onReveal: { relative in
+                       guard let root = syncManager.filingFolderProfile?.root else { return }
+                       let full = (root as NSString).appendingPathComponent(relative)
+                       NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                   },
+                   onClear: { clearPersonScope() },
+                   onVerdict: { relative, isTheirs in
+                       recordPersonVerdict(scope.person, path: relative, isTheirs: isTheirs)
+                   })
+            // **Esc clears it, which the ✕'s own tooltip has been promising.** Nothing was
+            // wired to the key: the help text said "(Esc)" and the only way out was the ✕ —
+            // a control describing a shortcut that does not exist.
+            .onExitCommand { clearPersonScope() }
+            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+    }
+
     /// The tabbed workspace at the bottom of the file explorer.
     /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
@@ -2840,28 +2873,7 @@ struct ContentView: View {
         // would invite reading it as that lens's output; and it is temporary, so it takes the slot
         // rather than replacing anything. Clearing gives the slot straight back.
         if let scope = personScope {
-            PersonView(displayName: scope.person.displayName,
-                       phase: scope.phase,
-                       accent: glassHue.accentColor,
-                       onOpenFolder: { relative in
-                           guard let root = syncManager.filingFolderProfile?.root else { return }
-                           let full = (root as NSString).appendingPathComponent(relative)
-                           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
-                       },
-                       onReveal: { relative in
-                           guard let root = syncManager.filingFolderProfile?.root else { return }
-                           let full = (root as NSString).appendingPathComponent(relative)
-                           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
-                       },
-                       onClear: { clearPersonScope() },
-                       onVerdict: { relative, isTheirs in
-                           recordPersonVerdict(scope.person, path: relative, isTheirs: isTheirs)
-                       })
-                // **Esc clears it, which the ✕'s own tooltip has been promising.** Nothing was
-                // wired to the key: the help text said "(Esc)" and the only way out was the ✕ —
-                // a control describing a shortcut that does not exist.
-                .onExitCommand { clearPersonScope() }
-                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+            personGatherSection(scope)
         } else if let lens = selectedLens {
             // The lens workspaces' right-hand slot. ONE construction site for all of them, and
             // deliberately so: a `switch` with a branch per lens would give each its own view

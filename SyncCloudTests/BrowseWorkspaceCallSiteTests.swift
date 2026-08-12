@@ -185,4 +185,43 @@ import FileExplorer
         #expect(!toolbar.contains("if index == 1 {"),
                 "the old separator position is still in the file")
     }
+
+    // MARK: A person gather has somewhere to land
+
+    /// **Browse offers the gather, so Browse has to be able to show it.**
+    ///
+    /// `paneColumn` hands every pane header a `personOffer` and an `onAcceptPerson`, ungated by
+    /// workspace — and Browse draws that same column. But the gather's card was written inline in
+    /// `bottomPaneView`, which `browseLayout` never mounts: accepting the offer in Browse started
+    /// the whole-source sweep and changed no pixel, with no ✕, no Esc target, and no way to reach
+    /// the answer (switching workspace clears the scope). An accept doing nothing visible is the
+    /// one failure the offer exists to prevent.
+    ///
+    /// Checked as "both layouts mount the same member", which is the property that made it
+    /// impossible to fix one and leave the other telling the old lie.
+    @Test func testBothLayoutsMountThePersonGather() throws {
+        let content = try Self.source("ContentView.swift")
+        let split = try Self.source("ContentView+SplitLayout.swift")
+        #expect(content.contains("func personGatherSection(_ scope: PersonScope)"),
+                "the gather's card is not a shared member — only one layout can mount it")
+        #expect(content.contains("personGatherSection(scope)"),
+                "bottomPaneView no longer mounts the gather")
+        #expect(split.contains("personGatherSection(scope)"),
+                "browseLayout does not mount the gather — an accept in Browse renders nowhere")
+    }
+
+    /// The gather takes a **resizable** slot in Browse, the same shape and remembered share it
+    /// takes everywhere else — not a fixed strip, and not the whole window.
+    @Test func testTheBrowseGatherSlotIsTheSharedResizableOne() throws {
+        let split = try Self.source("ContentView+SplitLayout.swift")
+        let start = try #require(split.range(of: "func browseLayout(geo: GeometryProxy)"),
+                                 "browseLayout is gone — this scan would be vacuous")
+        let body = String(split[start.upperBound...].prefix(1_600))
+        #expect(body.contains("if let scope = personScope"),
+                "browseLayout does not branch on a live gather")
+        #expect(body.contains("verticalResizeDivider"),
+                "the Browse gather slot cannot be resized, unlike every other workspace's")
+        #expect(body.contains("bottomPaneFraction"),
+                "the Browse gather slot does not use the shared remembered share")
+    }
 }

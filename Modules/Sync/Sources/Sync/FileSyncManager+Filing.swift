@@ -372,9 +372,19 @@ extension FileSyncManager {
                 }
                 if Task.isCancelled { return }
                 if !content.isEmpty {
+                    // **Every argument phase 1 passed, plus the tokens.** This re-suggest replaces
+                    // the whole list rather than patching the homeless entries, so an argument
+                    // omitted here is an argument withdrawn from files that were already answered.
+                    // `registry`/`identity` were: without them `automationFacts` attributes nobody,
+                    // so every `personIs` condition reads false and every `{person}` destination
+                    // resolves unresolved — the candidate is dropped. A rule the user wrote by hand
+                    // stopped steering the moment any file in the scan needed its contents read,
+                    // which is the default setting and the common case.
                     suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                        providerRoot: providerRoot.path, contentTokens: content,
                                                        rules: rules, automations: automations,
+                                                       registry: filingPersonRegistry,
+                                                       identity: filingPersonIdentity,
                                                        providerName: providerName,
                                                        automationSnippets: automationSnippets, now: scanClock,
                                                        rejectedByFile: rejectedByFile, options: options)

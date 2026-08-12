@@ -559,8 +559,14 @@ public struct TidyView: View {
     }
 
     /// A chip's ✕ edits its exact word back out of THIS lens's raw query.
+    ///
+    /// `effectiveLens`, not `lens`, for the reason every other member of this section says so:
+    /// inside Organize the workspace's `lens` is `.filing` whatever the rail is showing, so keying
+    /// the write on it edited To File's parked query while leaving the chip the user clicked in
+    /// place. Read and write must name the same slot or the ✕ removes nothing and corrupts a
+    /// query the user cannot see.
     private func removeSearchChip(_ word: String) {
-        searchQueries[lens] = TokenQuery.removing(query, word: word)
+        searchQueries[effectiveLens] = TokenQuery.removing(query, word: word)
     }
 
     // MARK: Filtered rows
@@ -1410,12 +1416,13 @@ public struct TidyView: View {
     /// One rail item.
     @ViewBuilder
     private func organizeRailItem(_ item: OrganizeLens, _ counts: RailCounts) -> some View {
-        // `counts.badge(_:)`, not the rule restated — the same answer today, and deliberately the
-        // same *call* the width model makes. The model measures the badge it is told this item
-        // wears; if the two reach that answer down separate paths, a later rule (suppress a badge
-        // past four digits, say) moves one and not the other, and the arithmetic starts sizing a
-        // rail nobody draws. That divergence is this type's whole failure mode.
-        let badge = counts.badge(item)
+        // The badge reaches the label through `counts.state(_:)`, which calls `counts.badge(_:)`
+        // itself — deliberately the same call the width model makes. The model measures the badge
+        // it is told this item wears; if the two reach that answer down separate paths, a later
+        // rule (suppress a badge past four digits, say) moves one and not the other, and the
+        // arithmetic starts sizing a rail nobody draws. That divergence is this type's whole
+        // failure mode. A second, direct `counts.badge(item)` binding sat here unread — it looked
+        // like the coupling this comment describes while contributing nothing to it.
         let isSelected = organizeLens == item
         Button {
             // Clicking the selected item widens back out to the overview. That still works and is
@@ -3240,15 +3247,28 @@ public struct TidyView: View {
         }
     }
 
+    /// - Note: **Everything here keys on `effectiveLens`.** Keyed on `lens` — the workspace's,
+    ///   always `.filing` inside Organize — the button cleared To File's parked query and left the
+    ///   Duplicates or Rules query that was actually hiding the rows standing, so the empty state
+    ///   redrew unchanged on every click. That is the same dead-end this whole apparatus was
+    ///   written to remove, reintroduced by the fold that made Duplicates a rail item.
+    ///
+    ///   The narrowing can also be the **type filter alone**, with no query at all — `isFiltered`
+    ///   has said so since Duplicates got one. The wording follows the cause rather than asserting
+    ///   a search that isn't running, and the button clears whichever it names.
     private func searchHidesAllState(total: Int, noun: String) -> some View {
-        EmptyStateView(
+        let plural = "\(total) \(noun)\(total == 1 ? "" : "s")"
+        let filterOnly = query.isEmpty && effectiveLens == .duplicates && filter != .all
+        return EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",
             title: "Nothing matches",
-            message: "The current search hides all \(total) \(noun)\(total == 1 ? "" : "s"). Clear it to see the results again.",
-            primary: .init("Clear Search", systemImage: "xmark.circle") {
-                searchQueries[lens] = ""
-                searchExpandedLenses.remove(lens)
-                if lens == .duplicates { filter = .all }
+            message: filterOnly
+                ? "The “\(filter.label)” filter hides all \(plural). Show all kinds to see them again."
+                : "The current search hides all \(plural). Clear it to see the results again.",
+            primary: .init(filterOnly ? "Show All Kinds" : "Clear Search", systemImage: "xmark.circle") {
+                searchQueries[effectiveLens] = ""
+                searchExpandedLenses.remove(effectiveLens)
+                if effectiveLens == .duplicates { filter = .all }
             }
         )
     }

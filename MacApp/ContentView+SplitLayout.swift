@@ -179,11 +179,42 @@ extension ContentView {
     /// What it deliberately keeps is everything that makes that column a pane rather than a list:
     /// the same `paneColumn(isLeft: true)` and the same region frame — and, inside that column,
     /// the same Space → Quick Look handler every other pane gets (`paneQuickLook()`).
+    ///
+    /// **Except while a person gather is up.** Browse's pane search offers "everything that is
+    /// theirs" like every other pane does, so Browse has to be able to *show* the answer — with
+    /// nothing else in the window, an accept here started the sweep and changed no pixel, and the
+    /// only exit (switching workspace) threw the answer away. The gather takes a resizable bottom
+    /// slot, the same shape and the same remembered share (`mainBottomPaneFraction`) it takes in
+    /// Compare and in the lens workspaces. No collapse rung: this slot is temporary and the ✕ and
+    /// Esc already give the window back, where Compare's bottom pane is permanent furniture.
     @ViewBuilder
     func browseLayout(geo: GeometryProxy) -> some View {
-        paneColumn(isLeft: true)
+        let column = paneColumn(isLeft: true)
             .panesRegionFrame(surfaceStyle, level: glassLevel)
+        if let scope = personScope {
+            let minTop: CGFloat = 220
+            let minBottom: CGFloat = 150
+            let panesHeight = PaneLogic.verticalPanesHeight(totalHeight: geo.size.height, dividerHeight: 1)
+            let minFraction = PaneLogic.verticalMinFraction(panesHeight: panesHeight, minBottom: minBottom)
+            let maxFraction = PaneLogic.verticalMaxFraction(panesHeight: panesHeight, minTop: minTop,
+                                                            minFraction: minFraction)
+            let fraction = PaneLogic.clampedFraction(verticalDragFraction ?? bottomPaneFraction,
+                                                     lower: minFraction, upper: maxFraction)
+            VStack(spacing: 0) {
+                column
+                    .frame(maxHeight: .infinity)
+                verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
+                                      maxFraction: maxFraction)
+                    .frame(height: 1)
+                personGatherSection(scope)
+                    .frame(height: panesHeight * fraction)
+            }
             .frame(width: geo.size.width, height: geo.size.height)
+            .coordinateSpace(.named(Self.verticalStackSpace))
+        } else {
+            column
+                .frame(width: geo.size.width, height: geo.size.height)
+        }
     }
 
     /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the
