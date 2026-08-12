@@ -1,9 +1,10 @@
 # SyncCloud — v4.x roadmap
 
 **Scope:** the 4.x line after v4.0 ships — the **Browse** workspace starting with Finder-style tabs
-(§1), pane chrome that spans every workspace (§2), the Finder borrowings worth taking (§3), and the
-storage-layer gaps behind **Organize ▸ Restructure** (§4). `main` only, with one stated exception:
-§2's code exists on `v2.x` too, and that item says what follows from it.
+(§1), pane chrome that spans every workspace (§2), the Finder borrowings worth taking (§3), the
+storage-layer gaps behind **Organize ▸ Restructure** (§4) and the plan surface that lens was
+deliberately shipped without (§5). `main` only, with one stated exception: §2's code exists on
+`v2.x` too, and that item says what follows from it.
 
 Distinct from `ROADMAP.md` (the standing feature backlog across all surfaces),
 `DEFERRED_ENHANCEMENTS.md` (accepted limits) and `REFACTOR.md` (internal shape). An item graduates
@@ -12,14 +13,17 @@ the record.
 
 Designed and mocked on **2026-08-12**; every constraint below was read out of the code that day.
 
-An **illustrated companion** covers all four items — same decisions, same Order, same Open
-questions, with 20 figures in both appearances:
+An **illustrated companion** covers all five items — same decisions, same Order, same Open
+questions, with 24 figures in both appearances:
 <https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. **This file is the one that
 ships** — if it disagrees with the companion, the companion is the stale one. Figures are cited by
-number below where one settles a question faster than a paragraph. §2's figures are numbered last
-(17–20) and its section sits after §3 there, so that adding them could not move a number this file
-already cites. §4's figures are **real renders** through the shipping `LensSetupCard`, not
-re-creations, and are unnumbered for that reason.
+number below where one settles a question faster than a paragraph. Figures are **appended, never
+renumbered**: §2's are 17–20 and its section sits after §3 there, §5's are 21–24, so adding either
+could not move a number this file already cites. §4's figures are **real renders** through the
+shipping `LensSetupCard`, not re-creations, and are unnumbered for that reason.
+
+§5 has a **second companion** — its own eight-screen mockup set, in more detail than the four
+figures the main one carries: <https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>.
 
 ---
 
@@ -308,6 +312,144 @@ The pattern is on the real tree — `Finance/US/Income Tax` reports three shapes
 `IRS Docs - 2023, IRS Docs - 2024` beside bare years. Its own detector, not a wider `isBareYear`:
 widening that would start swallowing real role names containing digits.
 
+**This is one of §5.2's eight detectors.** Build it once, there — it is listed here because it is
+storage-side and needs neither the plan surface nor a scoped read.
+
+---
+
+## 5. Restructure: propose the fix, not just the finding
+
+**Why:** the lens reports and stops. A finding names a disagreement and offers `Reveal`; acting on
+one means Finder, by hand, for an afternoon. `ROADMAP.md` item 20 designed the plan surface and
+deferred it behind six safety invariants — this is that surface, **scoped to the selected folder**,
+plus the detectors it needs to be non-empty at a leaf. §4 is the storage underneath the same lens
+and is independent of this.
+
+The flagship case has been accumulating for thirteen years, and the whole flow was **run by hand
+once** — `immigration_reorg_2026-08-06.json`: 132 file moves, 4 folder renames, 39 empty-folder
+removals, 2 of them mistakes. That log is the worked example, and most of the constraints below are
+scars from it.
+
+### Context
+
+| Fact | Where | Consequence |
+|---|---|---|
+| **Restructure compares sibling *families*.** Under a scope pointed at a leaf the `inside` list is frequently empty and the lens falls back to showing the ancestor's findings, faintly — its own doc calls this out. | `RestructureLens.aboutAncestor` | The detectors that read **one subtree alone** (§5.2) are what make a scoped answer non-empty. Without them the plan surface has nothing to open at the depth people scope to. |
+| **One detector of eight shipped.** Dead weight, backlog, mirrored inbox, echo names and shadow axes are designed and unbuilt. | `StructureDivergence` | A 1,200-folder branch with 52 pass-throughs gets the same answer as a tidy one: silence. §4.3 is one of these eight — build it as part of §5.2, not twice. |
+| **`memberCount` sums the *vouched* schemes only** — a scheme of one is dropped as drift before the card is drawn. | `StructureFinding.memberCount` | The card reads `12 folders` on a 13-year family and the odd year out is invisible. **A scheme dropped as evidence is still a folder the plan must find a home for.** |
+| **The rename pass already owns a review-and-apply path** — per-folder plans, "as one undoable change", and a *left alone, for a stated reason* tail. | `RenamePassLens`, `onApply` | The plan shares it rather than growing a second one. `ROADMAP.md` 20 makes that its scheduling constraint. |
+| **The one paid control names its model, names its batch size, and raises a spend pre-flight with a real estimate.** Its branch is *is a key stored*, not *is cloud switched on*. | `TidyView.refineButton` | §5.6 reuses it verbatim — same slot, same words up to the ellipsis, same billing sentence. Nothing new to design. |
+| **Answers and applied plans both invalidate the check that asked them.** | v3.1 review; `Refine` is already a generation-bumper | §5.3 and §5.5 must bump a structure generation and recompute, or the lens re-suggests what it was just told. |
+
+### 5.1 The scoped read — small
+
+Display-only, no new machinery. Fig. 21.
+
+- Each finding card gains a **kind tag carrying the verb** — *Shape* renames folders, *Series* moves
+  files, *Ask* asks — so the class of change is legible before the sheet opens.
+- The card states its blast radius: for the flagship family, *a plan here is folder renames, no file
+  would move*.
+- **The count stops undercounting** (see Context): the subtitle counts the family and renders the
+  dropped scheme greyed as drift.
+- `Reveal` demotes to a link; `Plan…` takes the primary slot.
+- **The rail badge counts only the kinds that carry a plan.** A badge you cannot drive to zero is a
+  badge people stop reading, which is why *Ask* is excluded.
+
+### 5.2 The remaining detectors, and the crowding strip — medium
+
+Each is a finding kind before it is a plan, and each is worth landing on its own. Fig. 22.
+
+Detectors, all specified in `ROADMAP.md` 20: **backlog** (the newest instance of a recurring series
+has no folders yet — worth saying the month it happens rather than thirteen years later),
+**shadow axis** (= §4.3), **echo name** (`PG&E/PGE`), **mirrored inbox** (`Health/TODO/Dental` beside
+`Health/Dental`), **dead weight** (52 pass-through folders, 434 single-file leaves).
+
+The crowding strip is the answer to *"it sees a lot of folders"*: three counts above the findings,
+each a filter into a list. **Crowding is a property of the scope, not a finding** — always non-zero
+on a real tree — so it never takes a badge.
+
+**Only sub-classes with a stated rule get an Apply.** The 434 single-file leaves get a number and
+nothing else: a folder can look like debt and be a destination waiting for its next file, and
+nothing in its own shape separates the two. That is the same mistake that had
+`Supporting Documents/Resume` and `Supporting Docs/HPE/Payslips` put back on 6 Aug.
+
+### 5.3 Ask findings — medium
+
+A finding with **no Apply button**, for a disagreement no fact in the tree settles —
+`Health/Kaiser - PG&E` versus `Health/Medical/Kaiser`, coverage-through-an-employer versus care
+records. Two answers and a *don't ask again*; the answer is written into the profile's
+`folderSemantics` and never asked again, including after a re-survey.
+
+Needs the profile **write** path and the generation bump — which every item after it also needs, so
+it is worth doing here rather than inside the plan work.
+
+### 5.4 Choose → map → manifest, with Export and no Apply — large
+
+The whole plan surface, ending in a file rather than in a disk write. Figs. 23–24.
+
+1. **Choose the target shape — nothing pre-selected.** The schemes found, labelled by what they are
+   (*the largest group*, *the most recent*), with **Name it myself among them, not behind them**.
+   Neither recency nor majority is the authority: the 6 Aug fix went **both ways at once**, because
+   H-1B is filed on Form I-129 (a *petition*) and H-4 / H-4 EAD on I-539 / I-765 (*applications*) —
+   a fact that exists nowhere in the tree.
+2. **Tabulate the family group first** where parallel families share a vocabulary. Fixing H-4 alone
+   would have left it disagreeing with its two siblings; laid out as a table the cause was visible
+   in one glance (each filing lands flat and is foldered later).
+3. **The mapping editor** — one row per distinct source folder name across the family, target
+   dropdown, **default keep**, never a guessed mapping. This is where the leverage is: edited once,
+   applied to every member. Two sources onto one target inside one year is a **merge** and is
+   refused on the row (see Open questions).
+4. **The manifest** — ordered typed operations (`create-dir`, `rename-dir`, `move-dir`, `move-file`,
+   `keep`), each with its own written justification, and a ledger that separates **files moved from
+   files carried** and **folders changed from folders kept**. On the flagship family that reads
+   8 renames · 0 files moved · 92 carried · 5 kept.
+   **Prefer the rename whenever a mapping is one folder to one folder**: it is atomic, preserves
+   file identity and cannot half-finish. The 6 Aug run brought fourteen eras into agreement with
+   4 renames carrying 58 files each and moving none.
+5. **`Export plan…`** writes the manifest beside the profile in the shape the 6 Aug log used —
+   reviewable in a text editor with nothing at risk. This is the natural stopping point: everything
+   above is worth landing before any Apply exists.
+
+### 5.5 Apply — large, and the only destructive item here
+
+Shares `RenamePassLens`'s review-and-apply path. **Renames first as their own landing** — the
+flagship case needs no file to move — then file moves, then the removal step.
+
+The six invariants from `ROADMAP.md` 20 are the acceptance criteria, three of them rendered on the
+manifest where the decision happens (every moving file listed by full path first; the inverse plan
+written to disk before the first operation; a folder holding an unlisted file skipped **and
+reported**, with the rest of the plan still running) and three enforced (apply closed over the
+manifest; every claim re-derived at the moment of the action, because he edits this tree while the
+work is open; never hand an operation a parent folder as a proxy for its contents — that one sent
+**69 files classified *keep*** to the Trash, and what caught the matching verifier bug was an
+independent count from a different code path).
+
+**Removal is a separate sheet, opt-in, scoped to folders the plan itself emptied**, and split by the
+shape of the name: an empty **date bucket** is debt and is ticked; an empty **category** is a
+destination and is not, with its paths printed inline because there are few enough to read. No file
+is ever deleted; folders go to the Trash.
+
+### 5.6 Refine with Claude — small once §5.4 exists
+
+**On the mapping, never on the apply.** The plan is derived mechanically from the mapping, so by
+then there is no judgement left; the judgement is *what should these folders be called* — the one
+question the tree cannot answer and a model can.
+
+Reuses `TidyView.refineButton` wholesale: the invitation when no key is stored, `Ask Opus about N
+folder names` when one is, and the existing spend pre-flight. Three things it adds:
+
+- **An itemised payload disclosure** — folder paths and candidate vocabularies always; *up to 5 file
+  names per folder* as a **toggle** (that is the evidence that settled I-129 vs I-539); file
+  contents never.
+- **A row-by-row diff against the user's mapping**, each proposal carrying a written justification.
+  **`declined` must be a first-class rendered outcome** — a model that answers every row is guessing
+  on some of them. A proposal that *reverses* another is shown adjacent and labelled, or a reviewer
+  reads it as a bug.
+- **No path to the disk that skips the manifest.** Accepting a row edits the mapping; the plan is
+  re-derived and reviewed exactly as before.
+
+Deliberately last: a paid pass must not be the only way to get a good answer.
+
 ---
 
 ## Order
@@ -322,7 +464,15 @@ widening that would start swallowing real role names containing digits.
    and the ladder, and nothing tabs touch.
 5. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
    screen v4.0 ships. Schedulable against any of the above.
-6. Everything else on its own merits. **§4.2 when a second machine or a second tree makes it real**
+6. **§5.1 + §5.2** — the scoped read and the remaining detectors. Pure reporting off a survey
+   already in memory, and §5.1 fixes the leaf-scope emptiness on its own. §4.3 lands here rather
+   than separately.
+7. **§5.3, then §5.4 up to `Export plan…`** — the whole plan surface with no Apply, reviewable
+   against the 6 Aug log with nothing at risk.
+8. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
+   the app; it waits on the rename pass's review-and-apply path.
+9. **§5.6, Claude on the mapping** — last, deliberately.
+10. Everything else on its own merits. **§4.2 when a second machine or a second tree makes it real**
    — it cannot fire on this one; drop-on-tab last.
 
 ## Open questions
@@ -340,3 +490,12 @@ widening that would start swallowing real role names containing digits.
 - **§4.2: stopgap or replacement?** A stopgap for fresh machines is the ~400 lines above. Replacing
   the offline builder means axis inference, role detection and naming-convention mining in-app —
   a different project, and the reason the profile is hand-built today. Recommendation: stopgap.
+- **§5.4: merges.** Two source folders mapping onto one target inside a single year is refused on
+  the row rather than designed. A real family will eventually want one, and it is the case where
+  *rename* stops being available and files genuinely have to move.
+- **§5.4: does a drafted plan survive a re-survey?** The mockups say no and say so on the card. If
+  plans are to be kept, they need identity keyed on **detector × folder path** — the same key
+  *never suggest this again* needs (`ROADMAP.md` 20), stored beside `folderSemantics`.
+- **§5.2: does the crowding strip render in the clean state?** *The tree agrees with itself* and
+  *this scope has 52 pass-through folders* are both true at once; the mockups show both, which means
+  the seal is no longer the only thing on that screen.
