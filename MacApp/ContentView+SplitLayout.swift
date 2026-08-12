@@ -52,27 +52,9 @@ extension ContentView {
             }
             .coordinateSpace(.named(Self.paneRowSpace))
         }
-        // Quick Look on plain Space, scoped to the pane trees — NOT a window-level
-        // `.keyboardShortcut(.space)`: a key equivalent is consulted before the first responder
-        // and a match consumes the event outright (a no-op action still swallows it), which ate
-        // spaces typed in the Differences search field and Settings-overlay fields. onKeyPress
-        // only fires while key focus is inside this subtree (the pane Lists; rename/new-folder
-        // prompts are separate NSAlert panels), so text fields elsewhere get Space normally.
-        //
-        // That focus scoping is strict, and measured: only the handler in the subtree holding the
-        // window's first responder ever runs. This one and the Differences table's are SIBLINGS —
-        // they never both see a Space, `.ignored` from one never reaches the other, and with
-        // nothing focused neither fires. So this handler does not need to defer to the Differences
-        // selection: if it is running at all, focus is in a pane. The reverse is not true, which is
-        // why the Differences handler is the one that consults `CurrentSelection`.
-        .onKeyPress(.space) {
-            guard let targetPath = CurrentSelection.primaryPanePath(
-                left: syncManager.selectedLeftPaths,
-                right: syncManager.selectedRightPaths
-            ) else { return .ignored }
-            toggleQuickLook(URL(fileURLWithPath: targetPath))
-            return .handled
-        }
+        // The Space → Quick Look handler is NOT here any more. It hangs off each pane's file list
+        // instead — see `paneQuickLook()` in `ContentView+PaneSearch.swift` for why the whole column
+        // was the wrong subtree.
     }
 
     /// Invisible 12pt-wide drag handle centered on the pane boundary (the shared `ResizeHandle`).
@@ -173,26 +155,11 @@ extension ContentView {
                 : lower
             let railWidth = totalWidth * fraction
             HStack(spacing: 0) {
+                // Space → Quick Look rides inside `paneColumn`, on the file list — not out here on
+                // the whole column. See `paneQuickLook()`.
                 paneColumn(isLeft: true)
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: railWidth)
-                    // The same Space → Quick Look the comparison panes get (ShortcutsReference
-                    // promises it "in the panes", and the rail IS a pane) — scoped to the rail
-                    // column so the workspace's own Space handlers are untouched.
-                    //
-                    // `singleSource: true` is the rail's one difference, and it is now the shared
-                    // resolver's flag rather than a hand-passed empty set: the hidden Compare
-                    // pane's leftover right-hand selection must not hijack the preview. The Info
-                    // inspector spells out the identical rule, and now spells it via the same call.
-                    .onKeyPress(.space) {
-                        guard let targetPath = CurrentSelection.primaryPanePath(
-                            left: syncManager.selectedLeftPaths,
-                            right: syncManager.selectedRightPaths,
-                            singleSource: true
-                        ) else { return .ignored }
-                        toggleQuickLook(URL(fileURLWithPath: targetPath))
-                        return .handled
-                    }
                 bottomPaneView
                     .frame(width: totalWidth - railWidth)
             }
@@ -210,23 +177,13 @@ extension ContentView {
     /// This is `singleSourceLayout(collapsed: false, …)` with the workspace half, the divider and
     /// the fraction arithmetic taken out — there is no second region for a fraction to divide.
     /// What it deliberately keeps is everything that makes that column a pane rather than a list:
-    /// the same `paneColumn(isLeft: true)`, the same region frame, and the same Space → Quick Look
-    /// handler resolved with `singleSource: true` so a stale selection left in the hidden right
-    /// pane cannot hijack the preview.
+    /// the same `paneColumn(isLeft: true)` and the same region frame — and, inside that column,
+    /// the same Space → Quick Look handler every other pane gets (`paneQuickLook()`).
     @ViewBuilder
     func browseLayout(geo: GeometryProxy) -> some View {
         paneColumn(isLeft: true)
             .panesRegionFrame(surfaceStyle, level: glassLevel)
             .frame(width: geo.size.width, height: geo.size.height)
-            .onKeyPress(.space) {
-                guard let targetPath = CurrentSelection.primaryPanePath(
-                    left: syncManager.selectedLeftPaths,
-                    right: syncManager.selectedRightPaths,
-                    singleSource: true
-                ) else { return .ignored }
-                toggleQuickLook(URL(fileURLWithPath: targetPath))
-                return .handled
-            }
     }
 
     /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the

@@ -30,3 +30,35 @@ public enum PaneSearchSubmit {
         return .advance(reverse: modifiers.contains(.shift))
     }
 }
+
+/// The two buttons beside the counter, as a value.
+///
+/// Same reason as the table above: the buttons cannot be pressed from a test (a SwiftUI `Button` is
+/// not an `NSControl`), and they differ from each other only by the Bool they hand
+/// `onSearchAdvance`. A copy-paste that walked forward twice would draw a correct-looking ▲ and ▼
+/// and be wrong about half the control — so the direction, the glyph, the name and the chord live
+/// here together, where `PaneHeaderSearchTests` can assert they line up.
+///
+/// The chords are stated rather than derived. They are the *same* keys `PaneSearchSubmit` routes,
+/// and a button whose tooltip named a chord the field does not honour would teach a shortcut that
+/// does nothing — so `theButtonChordsMatchWhatSubmitActuallyDoes` checks the two against each other.
+public enum PaneSearchStep: CaseIterable, Sendable {
+    case previous
+    case next
+
+    /// What `onSearchAdvance` is called with — its parameter is `reverse`.
+    public var reverse: Bool { self == .previous }
+
+    /// Up for previous, down for next. Deliberately NOT the ‹ › this same header uses for
+    /// Back/Forward: the search row replaces the pane bar rather than joining it, so the two pairs
+    /// are never on screen together, and one pair of left/right chevrons meaning "history" in one
+    /// state and "match" in the other is exactly the sort of thing nobody reports and everybody
+    /// misreads.
+    public var systemImage: String { self == .previous ? "chevron.up" : "chevron.down" }
+
+    /// The tooltip's sentence and the accessibility label.
+    public var label: String { self == .previous ? "Previous match" : "Next match" }
+
+    /// The keyboard equivalent the tooltip advertises.
+    public var chord: String { self == .previous ? "⇧↩" : "↩" }
+}

@@ -97,6 +97,10 @@ public struct PaneHeader: View {
     /// The “2 of 7” the field carries, or nil while nothing is being searched. A string rather than
     /// a count pair because the empty-result case is a sentence, not a number.
     public var searchSummary: String?
+    /// How many hits that summary is counting. Passed alongside the sentence rather than parsed back
+    /// out of it: the ▲▼ buttons need to know whether there is anything to walk, and “No matches”
+    /// contains no number to read.
+    public var searchMatchCount: Int = 0
     /// Walks to the next (`false`) or previous (`true`) hit — ↩ and ⇧↩.
     public var onSearchAdvance: ((Bool) -> Void)?
     /// The person this query names, if it names exactly one — see `PersonSearchOffer`. Supplied as
@@ -168,6 +172,7 @@ public struct PaneHeader: View {
         searchText: Binding<String>? = nil,
         searchIsExpanded: Binding<Bool>? = nil,
         searchSummary: String? = nil,
+        searchMatchCount: Int = 0,
         onSearchAdvance: ((Bool) -> Void)? = nil,
         personOffer: ((String) -> Person?)? = nil,
         onAcceptPerson: ((Person) -> Void)? = nil
@@ -200,6 +205,7 @@ public struct PaneHeader: View {
         self.searchText = searchText
         self.searchIsExpanded = searchIsExpanded
         self.searchSummary = searchSummary
+        self.searchMatchCount = searchMatchCount
         self.onSearchAdvance = onSearchAdvance
         self.personOffer = personOffer
         self.onAcceptPerson = onAcceptPerson
@@ -964,6 +970,27 @@ public struct PaneHeader: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .fixedSize()
+                    // **The counter is not an affordance.** "1 of 101" said where the walk stood
+                    // and offered no way to move it: ↩/⇧↩ were written in the placeholder, which is
+                    // gone the moment there is a query to count — so by the time the count appears,
+                    // the only thing that taught the chords has been replaced by it. Reported as
+                    // the search having no next/previous at all, which from the screen is true.
+                    //
+                    // Up/down rather than the ‹ › this bar uses for Back/Forward: those two live in
+                    // this very header (`standardHeaderControls`), and a pair of left/right chevrons
+                    // that means "history" in one state and "match" in the other is the ambiguity
+                    // worth spending two glyphs to avoid. Up/down is also what ⇧↩/↩ do to a walk
+                    // down an ordered list of hits, and what every find bar with a count uses.
+                    //
+                    // Gated on the walk callback as well as the count: a host that supplies no way
+                    // to walk must not be given two buttons that do nothing. It is also what lets
+                    // `PaneHeaderSearchTests` render the same field with and without them and count
+                    // the difference — an ink threshold with no such control measures the counter
+                    // and the ✕ and passes with no arrows at all.
+                    if onSearchAdvance != nil {
+                        searchStepButton(.previous)
+                        searchStepButton(.next)
+                    }
                 }
                 // **Unconditional, and that is the whole point.** The field's own clear button
                 // (`ExpandingSearchField`) appears only once there is text to clear, and this row
@@ -1023,6 +1050,37 @@ public struct PaneHeader: View {
                 onSearchAdvance?(reverse)
             }
         }
+    }
+
+    /// One of the two walk buttons beside the counter.
+    ///
+    /// Disabled on zero hits rather than hidden: "No matches" beside a live pair of arrows would
+    /// read as "there is somewhere to go, this just is not it". Deliberately still enabled at
+    /// exactly one hit — the walk wraps (`PaneSearchWalk.advance`), so pressing it re-reveals that
+    /// hit, which is what someone who has scrolled away from it is asking for.
+    ///
+    /// Everything that differs between the two buttons is in `PaneSearchStep`, not here. The two
+    /// otherwise differ only by a Bool, and a copy-paste that walked the same direction twice would
+    /// look entirely right on screen — the enum is what a test can hold instead.
+    @ViewBuilder
+    func searchStepButton(_ step: PaneSearchStep) -> some View {
+        Button {
+            onSearchAdvance?(step.reverse)
+        } label: {
+            Image(systemName: step.systemImage)
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .hoverInk()
+        }
+        .buttonStyle(.hoverAffordance(.inline))
+        .disabled(searchMatchCount == 0)
+        // **`.disabled` alone is invisible here, and that was measured.** `HoverAffordanceStyle`
+        // reads `isEnabled` only to suppress the hover wash (see its `resolve`); the glyph keeps
+        // its resting colour, so a disabled arrow rendered pixel-for-pixel identical to a live one
+        // — 630 ink either way. "No matches" beside two arrows that look pressable is the state
+        // this whole pair was added to avoid, so the dimming is drawn rather than inherited.
+        .opacity(searchMatchCount == 0 ? 0.35 : 1)
+        .help(ShortcutHint.tooltip(step.label, step.chord))
+        .accessibilityLabel(step.label)
     }
 
     /// Closes the search: the field goes away and the query goes with it.

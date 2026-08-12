@@ -2253,6 +2253,9 @@ struct ContentView: View {
                 searchIsExpanded: paneSearchState(isLeft: isLeft).isExpanded,
                 searchSummary: paneSearchResults(isLeft: isLeft)
                     .summary(at: paneSearchState(isLeft: isLeft).wrappedValue.hitIndex),
+                // What the ▲▼ buttons are enabled by. The same collection `advancePaneSearch` walks,
+                // so a disabled button and a no-op walk can never disagree.
+                searchMatchCount: paneSearchResults(isLeft: isLeft).hits.count,
                 onSearchAdvance: { reverse in advancePaneSearch(isLeft: isLeft, reverse: reverse) },
                 personOffer: { query in
                     guard let registry = syncManager.filingPersonRegistry else { return nil }
@@ -2270,6 +2273,8 @@ struct ContentView: View {
             .paneCardIfNeeded(surfaceStyle, level: glassLevel)
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+                // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.
+                .onKeyPress(.space) { paneQuickLook() }
                 // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
                 // contextual bar on whichever pane holds the selection, so the buttons name their
                 // target. (New Folder stays on the right-click menu to keep the bar compact.) The

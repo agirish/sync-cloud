@@ -158,6 +158,44 @@ extension ContentView {
         state.wrappedValue.revealNonce &+= 1
     }
 
+    /// Space → Quick Look for one pane, hung off that pane's FILE LIST rather than its column.
+    ///
+    /// **The subtree is the whole fix.** This handler used to sit on the pane column — on
+    /// `panesSplit` in Compare, on `paneColumn(isLeft: true)` in the rail and in Browse — back when
+    /// a pane column was a header of buttons over a list, and a column-wide scope was the same thing
+    /// as a list-wide one. Its own comment said as much: onKeyPress "only fires while key focus is
+    /// inside this subtree (the pane Lists) … so text fields elsewhere get Space normally."
+    ///
+    /// Pane search put a text field INSIDE that subtree, and "elsewhere" stopped covering it. Every
+    /// Space typed into a pane's search field was therefore intercepted here: the space never
+    /// reached the query, and the Quick Look panel opened over the app on whatever the pane happened
+    /// to have selected — the hit the walk had just revealed, which is why it read as "a random
+    /// match", or a row from before the search, which is why it sometimes was not a match at all.
+    /// The panel then takes key focus, so the next keystroke went nowhere: typing simply stopped.
+    /// (`.quickLookPreview` clears its binding only on manual dismissal, so the panel also sat there
+    /// naming a stale file through every later query.)
+    ///
+    /// Scoping to the list restores the original intent rather than adding a special case: the pane
+    /// header — search field, breadcrumb, every button on it — is now genuinely "elsewhere", and
+    /// Space in the list previews exactly as it always did.
+    ///
+    /// `singleSource` follows the layout for the same reason it always did: on a one-pane workspace
+    /// the hidden Compare pane's leftover right-hand selection must not hijack the preview.
+    ///
+    /// Takes no side, deliberately, though both of Compare's lists install it: the target is
+    /// `CurrentSelection`'s answer across both panes, which is what the single column-wide handler
+    /// resolved before. Whichever list holds focus fires, and both get the same answer — so moving
+    /// one handler to two changes where Space is heard and nothing about what it previews.
+    func paneQuickLook() -> KeyPress.Result {
+        guard let targetPath = CurrentSelection.primaryPanePath(
+            left: syncManager.selectedLeftPaths,
+            right: syncManager.selectedRightPaths,
+            singleSource: layoutMode == .singleSource
+        ) else { return .ignored }
+        toggleQuickLook(URL(fileURLWithPath: targetPath))
+        return .handled
+    }
+
     /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘], ⇧⌘N and ⇧⌘P act on. The
     /// rule itself is `PaneLogic.searchTargetIsLeft`, where it can be tested; this only supplies
     /// the three live facts.

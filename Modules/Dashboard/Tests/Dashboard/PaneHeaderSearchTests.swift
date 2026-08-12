@@ -17,6 +17,7 @@ import Sync
     }
 
     private static func header(_ box: Box, summary: String? = nil,
+                               matchCount: Int = 0, canAdvance: Bool = true,
                                withSearch: Bool = true) -> some View {
         PaneHeader(
             title: "Left",
@@ -34,7 +35,8 @@ import Sync
             searchText: withSearch ? Binding(get: { box.query }, set: { box.query = $0 }) : nil,
             searchIsExpanded: withSearch ? Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }) : nil,
             searchSummary: summary,
-            onSearchAdvance: withSearch ? { box.advances.append($0) } : nil
+            searchMatchCount: matchCount,
+            onSearchAdvance: (withSearch && canAdvance) ? { box.advances.append($0) } : nil
         )
     }
 
@@ -275,6 +277,98 @@ import Sync
             #expect(walked.held, "submitting should have walked the hits (\(walked.pumps) pumps)")
             #expect(box.advances == [expected],
                     "modifiers \(modifiers) should walk \(expected ? "backward" : "forward")")
+        }
+    }
+
+    // MARK: - Walking with the mouse
+
+    /// **The reported defect: "searching doesn't show NEXT / PREV".** The field drew the count and
+    /// nothing to move it. ↩/⇧↩ were advertised only in the placeholder — which the query replaces
+    /// the moment there is anything to count — so the two chords were documented exclusively in the
+    /// state where they are useless, and from the screen the search genuinely had no walk at all.
+    ///
+    /// Counted in painted pixels against a control that differs by the arrows and nothing else:
+    /// same summary string, same ✕, same width, `onSearchAdvance` withheld. An unconditional ink
+    /// threshold here would be measuring the counter and the dismiss button and would pass with no
+    /// arrows drawn — which is precisely the state being fixed.
+    @Test("The counter comes with buttons to move it")
+    func theFieldDrawsWalkButtons() async {
+        let width: CGFloat = 900
+        func trailingInk(canAdvance: Bool) async -> (ink: Int, shown: Bool) {
+            let box = Box()
+            box.isExpanded = true
+            box.query = "tax"
+            let window = Self.mount(Self.header(box, summary: "2 of 7", matchCount: 7,
+                                                canAdvance: canAdvance), width: width)
+            let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+            guard shown.held, let editor = Self.fieldEditor(window), let host = window.contentView
+            else { return (0, false) }
+            // The controls band: from the end of the text editor to the field's cap. Located from
+            // the laid-out editor for the reason `anEmptyFieldStillHasAWayOut` spells out — most of
+            // a 900pt header is dead zone, and a guessed band measures it.
+            let text = editor.convert(editor.bounds, to: host)
+            let band = NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height)
+            return (Self.ink(in: band, of: host), true)
+        }
+
+        let with = await trailingInk(canAdvance: true)
+        let without = await trailingInk(canAdvance: false)
+        #expect(with.shown && without.shown, "both fields should have revealed")
+        #expect(without.ink > 0, "the control band reads zero even for the counter and ✕ — it is aimed wrong")
+        #expect(with.ink > without.ink + 20,
+                "the walk buttons paint nothing: \(with.ink) vs \(without.ink) with them withheld")
+    }
+
+    /// …and they go dim when there is nowhere to walk. Same summary string in both arms, so the
+    /// text's own pixels are held constant and the only thing that can move the count is the pair
+    /// of arrows changing state. "No matches" with two live-looking arrows says there is somewhere
+    /// to go and this merely is not it.
+    @Test("With no hits the buttons are visibly disabled")
+    func theButtonsDimWithNothingToWalk() async {
+        let width: CGFloat = 900
+        func trailingInk(matchCount: Int) async -> Int {
+            let box = Box()
+            box.isExpanded = true
+            box.query = "tax"
+            let window = Self.mount(Self.header(box, summary: "2 of 7", matchCount: matchCount),
+                                    width: width)
+            let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+            guard shown.held, let editor = Self.fieldEditor(window), let host = window.contentView
+            else { return -1 }
+            let text = editor.convert(editor.bounds, to: host)
+            return Self.ink(in: NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height),
+                            of: host)
+        }
+
+        let live = await trailingInk(matchCount: 7)
+        let dead = await trailingInk(matchCount: 0)
+        #expect(live >= 0 && dead >= 0, "both fields should have revealed")
+        #expect(dead < live, "the buttons look identical with 0 hits and with 7: \(dead) vs \(live)")
+    }
+
+    /// The two buttons differ only in a Bool, and the wrong one is invisible on screen — a ▲ that
+    /// walks forward draws exactly like a ▲ that walks back.
+    @Test("Previous walks back, next walks forward, and they say so")
+    func theStepsPointOppositeWays() {
+        #expect(PaneSearchStep.previous.reverse)
+        #expect(!PaneSearchStep.next.reverse)
+        #expect(PaneSearchStep.allCases.count == 2)
+        #expect(Set(PaneSearchStep.allCases.map(\.systemImage)).count == 2, "both buttons draw the same glyph")
+        #expect(Set(PaneSearchStep.allCases.map(\.label)).count == 2)
+        #expect(PaneSearchStep.previous.label.contains("Previous"))
+        #expect(PaneSearchStep.next.label.contains("Next"))
+    }
+
+    /// A tooltip that names a chord the field does not honour teaches a shortcut that does nothing.
+    /// So each button's advertised chord is checked against `PaneSearchSubmit` — the table that
+    /// actually routes ↩ and ⇧↩ — rather than against a second copy of the intent.
+    @Test("The button chords match what submitting actually does")
+    func theButtonChordsMatchWhatSubmitActuallyDoes() {
+        for step in PaneSearchStep.allCases {
+            let modifiers: NSEvent.ModifierFlags = step.chord.hasPrefix("⇧") ? .shift : []
+            #expect(PaneSearchSubmit.action(modifiers: modifiers, hasOffer: false)
+                    == .advance(reverse: step.reverse),
+                    "\(step.label) advertises \(step.chord), which submits the other direction")
         }
     }
 

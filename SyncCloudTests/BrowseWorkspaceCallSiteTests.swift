@@ -56,18 +56,19 @@ import FileExplorer
     }
 
     /// The full-width layout keeps the two things that make the column a pane rather than a list.
-    @Test func testTheBrowseLayoutKeepsTheRegionFrameAndQuickLook() throws {
+    ///
+    /// Space → Quick Look used to be checked here too, as a `singleSource: true` handler written
+    /// out in this function. It has moved inside `paneColumn`, onto the file list — a handler on the
+    /// whole column also covered that pane's search field and ate the spaces typed into it. Browse
+    /// still gets it, by getting the same column; `PaneQuickLookScopeTests` is where that now lives,
+    /// including the `singleSource` resolution this used to pin.
+    @Test func testTheBrowseLayoutKeepsTheRegionFrame() throws {
         let split = try Self.source("ContentView+SplitLayout.swift")
         let start = try #require(split.range(of: "func browseLayout(geo: GeometryProxy)"),
                                  "there is no Browse layout")
         let body = String(split[start.upperBound...].prefix(900))
         #expect(body.contains("paneColumn(isLeft: true)"))
         #expect(body.contains(".panesRegionFrame(surfaceStyle, level: glassLevel)"))
-        // `singleSource: true` is not decoration: without it a selection left in the hidden right
-        // pane from a previous Compare session hijacks the preview.
-        #expect(body.contains("singleSource: true"),
-                "Space → Quick Look in Browse can be aimed at the hidden right pane's selection")
-        #expect(body.contains("toggleQuickLook"))
     }
 
     /// Nothing to collapse to: the header's collapse rung is nil in Browse, so `railSpine` — which
