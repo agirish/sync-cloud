@@ -106,6 +106,15 @@ extension ContentView {
     ///
     /// Read once, when the palette opens — `CommandPaletteState` holds the result for the life of
     /// that session — so this is not on the keystroke path at all.
+    /// Whether a source's folder is there right now. Expanded first, and required to be a
+    /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
+    static func isMountedFolder(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        let expanded = (path as NSString).expandingTildeInPath
+        let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
+    }
+
     /// The provider whose tree the palette is describing — the focused pane's in Compare, the
     /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
     /// index's rows, its "current source" mark and its provider switch cannot disagree about which
@@ -125,7 +134,11 @@ extension ContentView {
                                 // The reason an unmounted source is DIMMED rather than dropped: the
                                 // folder is simply not there right now (an unplugged SSD, an iCloud
                                 // account signed out), which is a fact worth showing.
-                                isMounted: FileManager.default.fileExists(atPath: provider.path),
+                                // Tilde-expanded, and a directory: the Settings field accepts a
+                                // hand-typed `~/…` verbatim and validates it expanded, so without
+                                // this a Location showed green in Settings and dimmed "Not
+                                // mounted" here — about the same folder.
+                                isMounted: Self.isMountedFolder(provider.path),
                                 // "The current source" means the pane this palette is aimed at —
                                 // the focused one in Compare — for the same reason the folder rows
                                 // are indexed from its root. Asking `leftProviderId` had a

@@ -156,10 +156,16 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
 
     /// The offer's glyph — each borrowed from the control that already runs this pass elsewhere,
     /// so the card and the toolbar button that do the same thing look like the same thing.
+    ///
+    /// Duplicates **asks the rail item** rather than restating it. It said `wand.and.stars`, which
+    /// is Rules' glyph: the overview drew the duplicate-pass card and the rail's Rules item with
+    /// the same symbol, on one screen, meaning two different things — while the control this card
+    /// is supposed to look like sat a few points away wearing `doc.on.doc`. Restating a glyph is
+    /// how it drifts from the thing it is quoting; this cannot.
     var symbol: String {
         switch self {
         case .file: return FilingGlyph.lens
-        case .duplicates: return "wand.and.stars"
+        case .duplicates: return OrganizeLens.duplicates.symbol
         case .folderMemory: return "brain"
         }
     }

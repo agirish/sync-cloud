@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+import Foundation
 @testable import Design
 
 /// Pins every chord's rendered display. The display is derived from the registration, so these
@@ -35,14 +36,10 @@ import Testing
     /// (the first cut's ⌥⌘F folded every folder under a user pressing "⌘F"). Guard the invariant
     /// itself, not the one case that violated it.
     @Test func noChordContainsOptionSoNothingFiresThroughTheReveal() {
-        let all: [AppChord] = [
-            .settings, .infoInspector, .activityLog, .shortcutsReference, .commandPalette,
-            .findInPane,
-            .paneBack, .paneForward, .rescan, .newFolder, .hiddenFiles, .previewColumn,
-            .deleteSelection, .switchPaneFocus, .reviewDifferences, .verifyDifferences,
-            .differencesList, .foldAllDifferences,
-            .workspace(1), .workspace(2), .workspace(3), .workspace(4), .workspace(5),
-        ]
+        // `AppChord.registry` plus the workspace family, which is parameterised and so is not in
+        // it. Re-typing the members here is what let a chord be added without every "for every
+        // chord" test seeing it — the same hand-copy this type exists to remove.
+        let all: [AppChord] = AppChord.registry + (1...9).map { AppChord.workspace($0) }
         for chord in all {
             #expect(!chord.modifiers.contains(.option),
                     "\(chord.display) contains ⌥ and would fire from inside the ⌥-hold reveal")
@@ -52,17 +49,42 @@ import Testing
     /// Every chord's spoken form contains no bare punctuation — the speech table must keep pace
     /// with the keys the chords actually use ("Command ." is announced as just "Command").
     @Test func everyChordSpeaksWithoutBarePunctuation() {
-        let all: [AppChord] = [
-            .settings, .infoInspector, .activityLog, .shortcutsReference, .commandPalette,
-            .findInPane,
-            .paneBack, .paneForward, .rescan, .newFolder, .hiddenFiles, .previewColumn,
-            .deleteSelection, .switchPaneFocus, .reviewDifferences, .verifyDifferences,
-            .differencesList, .foldAllDifferences,
-        ]
-        for chord in all {
+        for chord in AppChord.registry {
             let spoken = ShortcutKeycapSpeech.spoken(chord.display)
             #expect(!spoken.contains(where: { "[]./,⌫⇥".contains($0) }),
                     "\(chord.display) speaks as “\(spoken)” — add the key to ShortcutKeycapSpeech")
         }
+    }
+
+    /// **The registry holds every chord that is declared.**
+    ///
+    /// `AppChord.registry` is a hand-written array, which is the one seam left in a type whose
+    /// argument is that a chord is written down once: a `static let` added below it would be
+    /// registered, rendered, and invisible to all three "for every chord" tests that read the
+    /// registry. Counted from the source, so adding a member without listing it fails here rather
+    /// than silently narrowing what the other tests cover.
+    @Test func everyDeclaredChordIsInTheRegistry() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Design/AppChord.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read AppChord.swift — this scan would be vacuous")
+        try #require(source.count > 500, "AppChord.swift is implausibly short")
+
+        // Every `static let <name> = AppChord(` declaration — the parameterised `workspace(_:)` is
+        // a `static func` and so is correctly not counted.
+        var declared: Set<String> = []
+        for line in source.split(separator: "\n") {
+            let code = line.trimmingCharacters(in: .whitespaces)
+            guard code.hasPrefix("static let "), code.contains("= AppChord(") else { continue }
+            let name = code.dropFirst("static let ".count).prefix { $0.isLetter || $0.isNumber }
+            declared.insert(String(name))
+        }
+        #expect(declared.contains("settings"), "the scan found no declarations — it is vacuous")
+        #expect(declared.count == AppChord.registry.count,
+                """
+                \(declared.count) chords are declared but the registry holds \(AppChord.registry.count) \
+                — declared: \(declared.sorted().joined(separator: ", "))
+                """)
     }
 }

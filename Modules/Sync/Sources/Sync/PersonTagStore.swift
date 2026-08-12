@@ -60,6 +60,15 @@ public final class PersonTagStore: ObservableObject {
     /// **Replaces rather than appends**, because the user changing their mind is ordinary: a
     /// rejection followed by a confirmation must leave one tag saying yes, not two disagreeing ones
     /// whose winner depends on read order.
+    ///
+    /// **Matched on the document, not only on the key.** The key is decided at judgement time —
+    /// a fingerprint where the document has one, the path otherwise — and that answer can change
+    /// between two judgements of the same file: it is evicted to iCloud, or locked, and the
+    /// extractor declines. Matching on `(personId, key)` alone then stored the reversal *beside*
+    /// the original as a differently-keyed tag, and `PersonTagIndex.verdict` prefers the
+    /// fingerprint one — so the older "yes" shadowed the newer "no" on every gather afterwards.
+    /// That is exactly the "two disagreeing ones whose winner depends on read order" this method's
+    /// own rule forbids; it just arrived by the other door.
     public func record(personId: String, key: PersonTagKey, verdict: PersonTagVerdict,
                        path: String) {
         let tag = PersonTag(personId: personId, key: key, verdict: verdict, recordedPath: path)
@@ -69,6 +78,10 @@ public final class PersonTagStore: ObservableObject {
         } else {
             tags.append(tag)
         }
+        // Any other tag this person holds on the same document, under the other kind of key, is a
+        // superseded answer to the question just answered. Dropped rather than left to lose a
+        // precedence contest it should never have been in.
+        tags.removeAll { $0.personId == personId && $0.key != key && $0.recordedPath == path }
         save()
         Logger.shared.info("People: \(path) is \(verdict == .rejected ? "NOT " : "")\(personId)'s "
                            + "— \(keyKind(key))")
@@ -86,7 +99,13 @@ public final class PersonTagStore: ObservableObject {
 
     private func keyKind(_ key: PersonTagKey) -> String {
         switch key {
-        case .fingerprint: return "keyed to the document's text, so it survives a move"
+        // Says what the KEY is, not what the lookup currently does with it. `PersonFiles.gather`
+        // asks `verdict(personId:path:)` and passes no fingerprint, so today a fingerprint-keyed
+        // tag is still found by its recorded path and a move does re-open the question. The key
+        // is the durable half and is what makes closing that gap possible; the gather needs a
+        // path→digest source it can consult without fingerprinting every document it walks, which
+        // is a change of a different size. Not claimed here until it is true.
+        case .fingerprint: return "keyed to the document's text"
         case .path: return "keyed to its path, so moving the file loses the verdict"
         }
     }

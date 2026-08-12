@@ -100,8 +100,10 @@ struct PeopleTester: View {
     private var consequence: String? {
         let ids = registry.explain(in: stem).matches.map(\.personId)
         guard ids.count == 1, let id = ids.first, let facts = factsById[id] else {
+            // Counted, not assumed: three household members in one filename is an ordinary
+            // scanned document, and "Two people are named" about three of them is simply wrong.
             return ids.count > 1
-                ? "Two people are named, so no folder is refused on either's behalf."
+                ? "\(ids.count) people are named, so no folder is refused on anyone's behalf."
                 : nil
         }
         guard facts.folderCount > 0 else {

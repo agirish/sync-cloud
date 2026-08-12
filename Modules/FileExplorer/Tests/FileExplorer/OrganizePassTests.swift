@@ -453,4 +453,40 @@ import SwiftUI
     @Test func theExampleLimitIsThree() {
         #expect(OrganizeOverview.exampleLimit == 3)
     }
+
+    /// **No two things on the overview wear the same glyph.**
+    ///
+    /// The overview draws the pass cards and the rail together, so a symbol shared between a pass
+    /// and an unrelated lens is two meanings for one picture on one screen. The duplicate pass
+    /// carried `wand.and.stars` — Rules' glyph — while the Duplicates rail item it is quoting sat
+    /// beside it wearing `doc.on.doc`.
+    @Test func noPassSharesAGlyphWithAnUnrelatedLens() {
+        var byGlyph: [String: [String]] = [:]
+        for pass in OrganizePass.allCases { byGlyph[pass.symbol, default: []].append("pass.\(pass)") }
+        for lens in OrganizeLens.allCases { byGlyph[lens.symbol, default: []].append("lens.\(lens)") }
+        #expect(byGlyph.count > 5, "the tables are implausibly small — this scan would be near-vacuous")
+
+        // The pairs that legitimately share, each because one is quoting the other:
+        //  • the duplicate pass card and the Duplicates rail item are the same act;
+        //  • the file pass card wears `FilingGlyph.lens`, the filing surfaces' signature — which
+        //    `OrganizeLens.renames` also wears. That second overlap is NOT a quote: Renames is a
+        //    different act, and on the overview the two sit together meaning different things.
+        //    Pinned as it stands rather than silently changed, because choosing the rail item's
+        //    new glyph is a visual decision, not a mechanical one. Recorded here so it is a known
+        //    pair rather than an unnoticed one, and so the NEXT collision fails this test.
+        let quoted: Set<Set<String>> = [
+            ["pass.duplicates", "lens.duplicates"],
+            ["pass.file", "lens.renames"],
+        ]
+        for (glyph, owners) in byGlyph where owners.count > 1 {
+            #expect(quoted.contains(Set(owners)),
+                    "\(glyph) is worn by \(owners.sorted().joined(separator: " and ")) — one picture, two meanings")
+        }
+    }
+
+    /// And the quote is a quote: the pass reads the lens rather than restating its glyph.
+    @Test func theDuplicatePassWearsTheDuplicatesLensGlyph() {
+        #expect(OrganizePass.duplicates.symbol == OrganizeLens.duplicates.symbol)
+        #expect(OrganizePass.duplicates.symbol != OrganizeLens.rules.symbol)
+    }
 }

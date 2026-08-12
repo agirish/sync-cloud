@@ -311,8 +311,12 @@ extension FileSyncManager {
         let blank = FilingSuggestion(filePath: live.filePath, fileName: live.fileName, size: live.size,
                                      modificationDate: live.modificationDate, candidates: [],
                                      providerRoot: live.providerRoot)
+        // `peerNames:` too, because the scan passes it — without it this pass and the scan can
+        // answer differently about the same file in the one case peer names exist for (a folder
+        // against its own subfolder, a percent apart), which is two answers to one question.
         let outcome = Self.route(blank, index: index, snippets: [live.filePath: text],
-                                 providerRoot: root, rejectedByFile: rejectedByFile)
+                                 providerRoot: root, rejectedByFile: rejectedByFile,
+                                 peerNames: peerNameLookup())
         filingUnreadableScans.remove(suggestion.filePath)
         // The scan recorded nothing for this file — it had no text to record. Now it has, and a
         // rule offered after filing it should key on what the OCR found rather than on a filename

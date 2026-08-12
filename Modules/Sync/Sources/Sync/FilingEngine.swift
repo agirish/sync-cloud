@@ -1070,7 +1070,7 @@ public enum FilingEngine {
     static func looksLikeAFileName(_ segment: String) -> Bool {
         guard let dot = segment.lastIndex(of: "."), dot != segment.startIndex else { return false }
         let ext = segment[segment.index(after: dot)...]
-        return (1...5).contains(ext.count) && ext.allSatisfy { $0.isASCII && $0.isLetter || $0.isNumber }
+        return (1...5).contains(ext.count) && ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
     }
 
     /// `path` expressed relative to `providerRoot`, or the path unchanged when it is not under it.

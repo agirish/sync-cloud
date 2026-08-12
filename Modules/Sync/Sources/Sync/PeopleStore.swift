@@ -162,6 +162,12 @@ public final class PeopleStore: ObservableObject {
     public func dismissSuggestion(_ suggestion: PersonNameSuggestion) {
         guard !dismissedSuggestions.contains(suggestion.id) else { return }
         dismissedSuggestions.insert(suggestion.id)
+        // `source = .file` for the reason `sortAndSave()` sets it: this writes the whole roster,
+        // seed and all, so from here on the file is the household of record. Without it the
+        // roster claimed to be "seeded from your folder names" for the rest of the session and
+        // "from the file you wrote" on the next launch — two answers about one roster, and the
+        // provenance the Settings list shows was the wrong one in whichever session you asked.
+        source = .file
         save()
         Logger.shared.info("People: “\(suggestion.form)” is not \(suggestion.personId)'s — "
                            + "it will not be suggested again")

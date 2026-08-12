@@ -269,7 +269,11 @@ public struct PersonRegistry: Sendable {
 
         for (i, t) in tokens.enumerated() where consumedBy[i] == nil && t.count >= 2 {
             guard let id = strong[t] ?? given[t] else { continue }
-            if matches.contains(where: { $0.personId == id && !$0.isPhrase && $0.form == t }) { continue }
+            // Compared on `words`, not on `form`: `form` is the roster's spelling (`Mom`) and `t`
+            // is the lowercased token (`mom`), so this only ever matched a roster that happens to
+            // be all lowercase — and `Mom - Mom passport.pdf` produced the same match twice in a
+            // list whose whole purpose is to be shown to the user.
+            if matches.contains(where: { $0.personId == id && !$0.isPhrase && $0.words == [t] }) { continue }
             matches.append(PersonMatch(personId: id, form: displayForm(of: t, person: id),
                                        words: [t], isPhrase: false))
         }

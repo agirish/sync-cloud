@@ -1845,8 +1845,10 @@ struct ContentView: View {
     /// writing the file — follows on a task, because deciding the key means reading the document.
     ///
     /// **The key is the fingerprint where the document has one.** A digest over what a PDF *says*
-    /// survives the file being renamed and moved, which is exactly what Organize is for and exactly
-    /// what a path-keyed verdict would not survive. It costs one PDF read of one file, here, at the
+    /// identifies it independently of where it sits, which is the durable half of the record and
+    /// the reason it is worth one read to compute. (The gather does not yet *look up* by
+    /// fingerprint — see `PersonTagStore.keyKind` — so a move still re-opens the question today;
+    /// what this buys now is that the verdict written down is not merely a path.) It costs one PDF read of one file, here, at the
     /// moment of the decision — never for the 10,171 documents a gather walks. Anything that is not
     /// a fingerprintable PDF (a photo, a `.docx`, a locked or image-only scan) falls back to the
     /// path, which is the weaker promise honestly made rather than no verdict at all.
@@ -2835,10 +2837,24 @@ struct ContentView: View {
         PersonView(displayName: scope.person.displayName,
                    phase: scope.phase,
                    accent: glassHue.accentColor,
+                   // **Open opens it here**, which is what the button says and what this
+                   // parameter has always been documented to do ("reveals a folder in the pane").
+                   // It was wired to the identical Finder call as `onReveal` below, so the two
+                   // differently named, differently documented callbacks did one thing — and
+                   // "Open" on a folder selected it in its Finder *parent* without the app's own
+                   // file view moving at all. Falls back to Finder for a folder outside the pane's
+                   // provider, where there is no pane to open it in.
                    onOpenFolder: { relative in
                        guard let root = syncManager.filingFolderProfile?.root else { return }
-                       let full = (root as NSString).appendingPathComponent(relative)
-                       NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                       let full = ((root as NSString).expandingTildeInPath as NSString)
+                           .appendingPathComponent(relative)
+                       let paneRoot = tidyProviderRootExpanded
+                       if !paneRoot.isEmpty,
+                          let inPane = PathBoundary.relativize(full, under: paneRoot) {
+                           syncManager.focusOn(relativePath: inPane, isLeft: !tidyTargetIsRight)
+                       } else {
+                           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                       }
                    },
                    onReveal: { relative in
                        guard let root = syncManager.filingFolderProfile?.root else { return }

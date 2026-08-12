@@ -14,8 +14,22 @@ import Design
 /// Compare.
 public enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
-    /// The former Name Normalizer, its own lens again (was briefly folded into Organize) — finds and
-    /// fixes cloud-hostile names. Shown as "Rename".
+    /// The former Name Normalizer — finds and fixes cloud-hostile names.
+    ///
+    /// **Nothing presents this case any more, and the type cannot drop it.** `OrganizeLens.names`
+    /// is the only thing whose `searchLens` returns it, and `TidyView.organizeLens` puts every
+    /// rail selection through `resolvedForPresentation`, which folds `.names` into `.renames`
+    /// (whose search lens is `.filing`). So `effectiveLens` is never `.rename`, and the arms that
+    /// switch on it — `renameContent`, the `RenameLens` view, the `.names` arms in `lensActions`
+    /// and `organizeSummary` — are unreachable in the shipping app. Risky names are shown by
+    /// `RenamePassLens.toFixSection` instead.
+    ///
+    /// They are deliberately **not** deleted: `.names` still exists so a stored rail selection can
+    /// migrate, so these switches still need arms to be exhaustive, and replacing working bodies
+    /// with empty ones would cost the un-fold its implementation while gaining nothing. The
+    /// comment is the fix — the old one read "its own lens again", which is the opposite of true.
+    /// `TidyLensFoldReachabilityTests` pins the chain that makes it unreachable, so anyone
+    /// deleting this later can see at a glance what they are relying on.
     case rename = "Rename"
     case filing = "Filing"
     case automations = "Automations"

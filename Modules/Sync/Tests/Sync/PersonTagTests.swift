@@ -223,4 +223,48 @@ import Foundation
         #expect(index.verdict(personId: "aditi", path: "a.pdf") == nil)
         #expect(index.confirmedPaths(for: "aditi").isEmpty)
     }
+
+    // MARK: One document, one verdict — whichever key each judgement happened to use
+
+    /// **A reversal supersedes the original even when the key changed underneath it.**
+    ///
+    /// `recordPersonVerdict` picks the key at judgement time: a fingerprint when the PDF can be
+    /// read, the path when it cannot. Both are live states for the same file — evicted to iCloud,
+    /// or locked — so the two judgements of one document can land under different keys. Matching
+    /// only on `(personId, key)` then stored the reversal beside the original, and `verdict(...)`
+    /// prefers the fingerprint: the older "yes" won every gather after the user said "no".
+    @MainActor @Test func aReversalUnderADifferentKeySupersedesTheOriginal() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        // The same document judged again, this time unreadable, so the key falls back to the path.
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+
+        #expect(store.tags.count == 1,
+                "two tags for one document: \(store.tags.map { "\($0.key)=\($0.verdict)" })")
+        let index = PersonTagIndex(tags: store.tags)
+        #expect(index.verdict(personId: "aditi", path: "a.pdf") == .rejected,
+                "the superseded confirmation still wins the lookup")
+        #expect(index.verdict(personId: "aditi", path: "a.pdf", fingerprint: "d1") == .rejected,
+                "the superseded confirmation is still found by its fingerprint")
+    }
+
+    /// And the other direction, so the sweep is not simply deleting whatever it finds: a verdict on
+    /// a **different** document is untouched, and so is another person's on the same one.
+    @MainActor @Test func supersedingLeavesOtherDocumentsAndOtherPeopleAlone() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "aditi", key: .fingerprint("d2"), verdict: .confirmed, path: "b.pdf")
+        store.record(personId: "divit", key: .fingerprint("d3"), verdict: .confirmed, path: "a.pdf")
+
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+
+        #expect(store.tags.count == 3, "the sweep took a tag it had no business taking")
+        let index = PersonTagIndex(tags: store.tags)
+        #expect(index.verdict(personId: "aditi", path: "b.pdf") == .confirmed)
+        #expect(index.verdict(personId: "divit", path: "a.pdf") == .confirmed)
+    }
 }

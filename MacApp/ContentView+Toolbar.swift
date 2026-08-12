@@ -291,6 +291,12 @@ extension ContentView {
                 showInspector ? "Hide the Info inspector" : "Show details for the selected item",
                 AppChord.infoInspector.display))
             .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
+            // **The two halves of one control agree.** ⌘I is silenced during a destination pick
+            // (`ShortcutValuePublisher.suspended`), while this button — which the picker's scrim
+            // deliberately blocks the mouse from reaching everywhere else — stayed live in the
+            // toolbar, so a mouse user could toggle the inspector under the overlay and a keyboard
+            // user could not. Same rule for both, like the workspace bar and the ⌘K pill above.
+            .disabled(pendingDestination != nil)
 
             Button(action: { openWindow(id: "activity-log") }) {
                 Label("Logs", systemImage: "list.bullet.rectangle")
@@ -307,6 +313,12 @@ extension ContentView {
                     .shortcutKeycap(AppChord.settings.display)
             }
             .help(ShortcutHint.tooltip("Settings", AppChord.settings.display))
+            // Settings is an ambient panel and ⌘, deliberately stays live under it — but not
+            // *under a pick*: the picker renders above Settings in the overlay order, so clicking
+            // this mid-pick did nothing visible and then surprised the user with Settings the
+            // instant they answered. A control that cannot act until later should not look like it
+            // acted now.
+            .disabled(pendingDestination != nil)
         }
     }
 }

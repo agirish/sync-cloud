@@ -191,7 +191,7 @@ enum HelpBook {
                 intro: "Duplicates finds files with identical contents under different names or folders and offers to trash the extra copies — keeping the best one.",
                 blocks: [
                     .bullets([
-                        "Scan a folder for duplicates from the Duplicates workspace.",
+                        "Scan a folder for duplicates from Organize \u{25B8} Duplicates.",
                         "SyncCloud picks a keeper — shortest path, cleanest name — and marks the rest.",
                         "Review the groups, then move the extras to the Trash.",
                     ]),

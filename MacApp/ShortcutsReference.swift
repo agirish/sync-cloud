@@ -103,7 +103,11 @@ struct ShortcutsReferenceView: View {
     /// is for. Raising the window is the right half of its "raise windowSize or trim rows": every
     /// row here documents a chord that exists, so trimming would mean hiding one. 600pt still fits
     /// a 13" display's usable height with room to spare.
-    static let windowSize = CGSize(width: 880, height: 600)
+    ///
+    /// **600 → 640 when ⌘? was listed.** Same column, same story, and the test caught it the same
+    /// way: the content went to 614pt the moment the Help chord got the row it should always have
+    /// had. 640 keeps a comparable margin and still clears a 13" display's usable height.
+    static let windowSize = CGSize(width: 880, height: 640)
 
     var body: some View {
         ScrollView {
