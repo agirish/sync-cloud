@@ -9,7 +9,7 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.0 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v3.1..6c56768a` — 202 commits. Claims below were checked
+> be withdrawn. Covers `v3.1..b6bfe2a8` — 208 commits. Claims below were checked
 > against `v3.1`, but the audit must run again before this ships: re-check every
 > claim (`git grep -l "<symbol>" v3.1 -- Modules SyncCloudCLI MacApp`), and keep
 > out the fixes made to features that landed *within* this range — no user of v3.1
@@ -271,6 +271,13 @@ section first.
 - **The focused pane's provider capsule is ringed**, because the panes' only
   existing "which one is active" cue modulates *selected rows* — saying nothing in
   exactly the case ⌃⇥ exists for.
+- **The pane bar's magnifier now really does tint while a query is live.** It has
+  claimed to since ⌘F shipped in v3.1, and it never did: the tint was set on the
+  button while the glyph sets its own colour, and the inner one wins. So a search
+  that was narrowing what you could see sat behind a glyph that looked idle —
+  exactly the state the tint existed for, since a collapsed field has no other
+  carrier on screen. Measured at 0 accent pixels either way before, 186 against 0
+  now.
 
 ### Settings, and text that scales properly
 
