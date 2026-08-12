@@ -1023,8 +1023,15 @@ public struct PaneHeader: View {
                             Text("\(person.displayName) — everything that is theirs")
                                 .scaledFont(.system(size: 11.5, weight: .medium))
                             Spacer(minLength: 6)
+                            // **Bigger than the sentence it sits beside, not smaller.** ⌘ and ↩ are
+                            // symbols, not letters: at a given point size they carry far less ink
+                            // than a glyph like "e", and a monospaced face thins them further to
+                            // fit a letter's advance. Set to 10.5 against the label's 11.5 — the
+                            // arithmetic of a quiet trailing hint — they read as a smudge, which is
+                            // what was reported. The app's own precedent for a chord shown as text
+                            // is `ShortcutsReference`, at `.callout`; this matches that scale.
                             Text("⌘↩")
-                                .scaledFont(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                .scaledFont(.system(size: 13, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
                     }
