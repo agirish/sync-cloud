@@ -11,12 +11,13 @@ the record.
 
 Designed and mocked on **2026-08-12**; every constraint below was read out of the code that day.
 
-An **illustrated companion** covers §1 and §3 — same decisions, same Order, same Open questions,
-with 16 figures in both appearances:
-<https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. §2 carries its own mockup,
-linked in that section. **This file is the one that ships** — if a companion disagrees with it, the
-companion is the stale one. Figures are cited by number below where one settles a question faster
-than a paragraph.
+An **illustrated companion** covers all three items — same decisions, same Order, same Open
+questions, with 20 figures in both appearances:
+<https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. **This file is the one that
+ships** — if it disagrees with the companion, the companion is the stale one. Figures are cited by
+number below where one settles a question faster than a paragraph. §2's figures are numbered last
+(17–20) and its section sits after §3 there, so that adding them could not move a number this file
+already cites.
 
 ---
 
@@ -28,7 +29,7 @@ than a paragraph.
 | **Browse is one pane at full width.** `paneColumn(isLeft: true)` and nothing beside it. | `MacApp/ContentView+SplitLayout.swift` (`browseLayout`) | A tab is a *location for that pane*, not a second pane. |
 | **Two browse paths exist in the whole app** — `leftBrowsePath` / `rightBrowsePath`, swapped wholesale by ⇄. Browse is the left one full width; the Organize rail is the left one narrow; Compare is both. | `Modules/Sync/Sources/Sync/FileSyncManager+Navigation.swift:461` | **Two tab lists, left and right.** Every cross-workspace question follows from this. |
 | **The pane header height is pinned at 81pt** so its bottom edge shares the 83.5 rule with Organize's `LensHeaderCard`; cards inset by half of a 5pt gutter. | `Modules/Design/Sources/Design/LiquidGlassStyle.swift:392,410` | Nothing may add a row to the header. New pane chrome is a new card in the gutter rhythm. |
-| **There is one `PaneHeader` call site**, and the pane bar's preferences are app-wide `@AppStorage` (`paneBarArrangement`, `paneBarIconSize`). Compare's two panes, Browse's one and the Organize/Storage rail are all that same header. | `MacApp/ContentView.swift:2253` (`paneColumn`) | Anything added to the pane bar is identical in every workspace with no plumbing. But `availableItems` already varies it: **Collapse** only on the Organize/Storage rail, **Preview** only in Columns. |
+| **There is one `PaneHeader` call site**, and the pane bar's preferences are app-wide `@AppStorage` (`paneBarArrangement`, `paneBarIconSize`). Compare's two panes, Browse's one and the Organize/Storage rail are all that same header. | `MacApp/ContentView.swift` (`paneColumn`) | Anything added to the pane bar is identical in every workspace with no plumbing. But `availableItems` already varies it: **Collapse** only on the Organize/Storage rail, **Preview** only in Columns. |
 | **The rail clamps at 220pt**, the workspace at 340. | `MacApp/ContentView+SplitLayout.swift:148` | Any pane-level bar needs a shedding ladder down to 220pt. |
 | **⌘1–⌘4 are the workspaces; ⌘[ / ⌘] are pane back/forward; ⌃⇥ is `switchPaneFocus`.** | `Modules/Design/Sources/Design/AppChord.swift` | No ⌘-digit is available. ⌃⇥ is dead in Browse (one pane), so it can be scoped there. |
 | **View-menu switches are `Toggle("<Noun>")` with a checkmark** — Hidden Files, Preview Column, Info Inspector, Differences List — and each is `.disabled` when its focused value is `nil`. Flipping titles are reserved for *actions* with two directions (`FoldAllDifferencesCommand`). | `MacApp/ShortcutCommands.swift:494–535` | New view switches are nouns with a tick. No "Show X" / "Hide X" pairs. |
@@ -159,7 +160,8 @@ is layout work, not naming work.
 as an inline `Picker` in the bar's right-click menu beside the existing Icon Size picker. Menu only,
 as in Finder; nothing in Settings.
 
-Mockup and measured constraints: <https://claude.ai/code/artifact/6b716126-171c-45a8-8a53-4977986571f3>
+Illustrated in the companion, Figs. 17–20 — the titled bar (17), the shedding rung (18), the mode
+menu (19), and the same thing rendered at true point size rather than drawn (20).
 
 ### It fits the pinned header with nothing to spare
 
