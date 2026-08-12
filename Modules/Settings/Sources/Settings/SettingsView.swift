@@ -2851,6 +2851,15 @@ struct AdvancedSettingsTab: View {
                             .foregroundStyle(.secondary)
                         Button("Clear") {
                             Task {
+                                // **Said before it happens.** What this deletes is derived and
+                                // recomputable, which is why the button is safe — but it is also
+                                // why its effect surfaces much later and somewhere else: a cold
+                                // duplicate scan that reads every byte again, and a launch line
+                                // reporting "0 digest(s) reloaded". Without this the log offers
+                                // nothing to connect either back to a deliberate act, and the
+                                // deletion itself is silent (`ContentHashIndexStore` logs only
+                                // the failure to delete).
+                                Logger.shared.info("User cleared the saved file digests")
                                 await ContentHashCache.forgetAllPersistedIndexes()
                                 // The barrier is a blocking `writeQueue.sync`, and this Task runs
                                 // on the main actor — parked behind a queued multi-megabyte index
@@ -2873,6 +2882,9 @@ struct AdvancedSettingsTab: View {
                         Text(storageLensSizeText ?? "None")
                             .foregroundStyle(.secondary)
                         Button("Clear") {
+                            // Same reason as the digests' Clear above: the next Storage panel
+                            // opening empty is the only visible trace otherwise.
+                            Logger.shared.info("User cleared the saved Storage reports")
                             syncManager?.forgetStoredStorageLens()
                             Task {
                                 // Off the main actor for the same reason as the digests' Clear

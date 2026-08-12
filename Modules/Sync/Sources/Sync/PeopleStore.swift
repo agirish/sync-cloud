@@ -282,7 +282,20 @@ public final class PeopleStore: ObservableObject {
                 PeopleFileOut(schemaVersion: FilingProfileStore.currentSchema, people: people,
                               notNames: dismissedSuggestions.isEmpty ? nil
                                                                      : dismissedSuggestions.sorted()))
-            data = Self.merging(carriedKeys, into: data) ?? data
+            if let merged = Self.merging(carriedKeys, into: data) {
+                data = merged
+            } else if !carriedKeys.isEmpty {
+                // **The loss is said, even though the write proceeds.** Writing the unmerged bytes
+                // is the deliberate trade (see `merging`) — the roster is what this file is for —
+                // but the whole carried-keys mechanism exists *because* silently dropping a
+                // hand-written `_note` from people.json was a defect once. Nil is also the
+                // ordinary "nothing to carry" case, which is lossless and must stay quiet; only
+                // the case that actually drops something speaks.
+                Logger.shared.warning("Saving people.json dropped \(carriedKeys.count) hand-added "
+                                      + "key(s) it could not re-attach "
+                                      + "(\(carriedKeys.keys.sorted().joined(separator: ", "))) — "
+                                      + "the roster was saved")
+            }
             // Atomic: the engine reads this file at launch and the fingerprint hashes it, so a
             // torn write would be a half-household that looks like a whole one.
             try data.write(to: fileURL, options: .atomic)

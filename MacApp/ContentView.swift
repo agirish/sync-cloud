@@ -847,7 +847,14 @@ struct ContentView: View {
         // above don't cover the no-selection case.
         .onChange(of: leftProviderId) { _, _ in infoPath = nil }
         .onChange(of: rightProviderId) { _, _ in infoPath = nil }
-        .onChange(of: selectedWorkspace) { _, _ in
+        .onChange(of: selectedWorkspace) { _, workspace in
+            // The context every later line is read against. v4.0 added Browse as a fourth
+            // workspace, and "User focused folder …" means a different thing in each — so without
+            // this the log cannot tell a Browse move from a Compare one. Fires only on a real
+            // change (see below), so it is one line per switch, not per re-selection.
+            // `title`, not `rawValue`: the log should name what the bar names. The raw values are
+            // a pinned persistence format that says "Filing" where the user reads "Organize".
+            Logger.shared.info("User switched to \(workspace.title)")
             infoPath = nil
             // **A person gather does not survive leaving the workspace it was opened from.** It
             // takes the lens slot in every workspace, so without this, switching to Compare showed
@@ -1765,6 +1772,12 @@ struct ContentView: View {
             // screen whose accept did *nothing*, with no message — the exact "nothing happened"
             // this whole feature exists to remove, surviving in the one path it had not covered.
             personScope = PersonScope(person: person, phase: .failed(Self.noSurveyToGather))
+            // Said in the log too, and *why*. On screen this is one sentence in the slot; to
+            // someone reading `~/sync-cloud.log` afterwards the accept would otherwise leave no
+            // trace at all — no "User asked…" line, because that is logged past this guard — and a
+            // feature that did nothing looks identical to one that was never used.
+            Logger.shared.warning("Could not gather \(person.displayName)'s files: this tree has no "
+                                  + "readable survey (profile, roster or corpus missing)")
             return
         }
         Logger.shared.info("User asked for everything that is \(person.displayName)'s")
@@ -1794,6 +1807,18 @@ struct ContentView: View {
                 // invariant that actually protects the pixels, and it is what stops Aditi's answer
                 // landing under Girish's name.
                 guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
+                // The sweep's own outcome. The "User asked…" line above opens a walk of every
+                // surveyed document — 10,171 on the real tree — and until now nothing closed it,
+                // so a slow gather and a wedged one read the same in the log. Both branches speak:
+                // nil is the corpus going missing between the guard above and the read.
+                if let files {
+                    Logger.shared.info("Gathered \(files.total) file(s) for \(person.displayName) "
+                                       + "across \(files.folderCount) folder(s), "
+                                       + "\(files.review.count) to review")
+                } else {
+                    Logger.shared.warning("Gathered nothing for \(person.displayName): the survey "
+                                          + "corpus could not be read")
+                }
                 personScope = PersonScope(
                     person: person,
                     phase: files.map { .ready($0) } ?? .failed(Self.noSurveyToGather))
@@ -1867,12 +1892,24 @@ struct ContentView: View {
     ///
     /// Nothing here moves a file. Filing stays Organize's verb.
     func recordPersonVerdict(_ person: Person, path: String, isTheirs: Bool) {
-        guard let store = syncManager.filingPersonTagStore else { return }
+        guard let store = syncManager.filingPersonTagStore else {
+            Logger.shared.warning("Could not record that “\(path)” is "
+                                  + "\(isTheirs ? "" : "not ")\(person.displayName)'s: no tag store")
+            return
+        }
         if let scope = personScope, scope.person == person, case .ready(let files) = scope.phase {
             personScope = PersonScope(person: person,
                                       phase: .ready(files.applying(verdict: isTheirs, to: path)))
         }
-        guard let root = syncManager.filingFolderProfile?.root else { return }
+        // **After the display has already moved.** Everything above this line is on screen; if the
+        // profile is gone the row has changed and nothing will be written, so the verdict comes
+        // back as a question next gather. Near-unreachable (the gather that produced this row
+        // required the profile), which is exactly why it must not be silent when it does happen.
+        guard let root = syncManager.filingFolderProfile?.root else {
+            Logger.shared.warning("Recorded nothing for “\(path)”: the folder profile went away "
+                                  + "mid-review, so this verdict will be asked again")
+            return
+        }
         let full = ((root as NSString).expandingTildeInPath as NSString)
             .appendingPathComponent(path)
         Task {

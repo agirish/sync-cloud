@@ -162,7 +162,12 @@ import Sync
                                    "cannot read ContentView.swift — this scan would be vacuous")
         try #require(content.count > 500, "ContentView.swift is implausibly short")
 
-        let onChange = try #require(content.range(of: ".onChange(of: selectedWorkspace) { _, _ in"),
+        // Anchored on the handler, not on its parameter list: the closure binds its new value when
+        // something in the body needs it (the workspace breadcrumb does), and a scan that fixes the
+        // names `_, _` fails on that rename while the invariant it guards is untouched. What makes
+        // the window non-vacuous is this `#require` plus the body assertions below, neither of
+        // which cares what the parameters are called.
+        let onChange = try #require(content.range(of: ".onChange(of: selectedWorkspace) {"),
                                     "the workspace onChange handler is gone — this scan is vacuous")
         let end = try #require(content[onChange.upperBound...].range(of: "\n        }"))
         // Comments stripped: the window is dominated by the note explaining why the clear moved
