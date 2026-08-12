@@ -98,6 +98,13 @@ public final class PeopleStore: ObservableObject {
     /// else here, and so a test can assert "the write happened" rather than only observe it. Not
     /// bumped when the save is declined (no profile, or an unreadable roster): nothing changed on
     /// disk, so nothing downstream needs to re-read it.
+    ///
+    /// **"The household changed", not "the file changed".** Its one subscriber re-derives the
+    /// filing artifact fingerprint, which keys `FilingVerdictCache` — so a bump costs a full paid
+    /// re-classification of every file. `dismissSuggestion` writes this file too, and what it
+    /// writes (`notNames`) is not part of the compiled registry and cannot change a single
+    /// classification; announcing it re-billed the user for a name they declined to add. Writes
+    /// that cannot move an answer pass `rosterChanged: false`.
     @Published public private(set) var savedRevision: Int = 0
 
     /// Decides the above from two independent facts: did the registry come from the file (`source`
@@ -162,9 +169,15 @@ public final class PeopleStore: ObservableObject {
     public func dismissSuggestion(_ suggestion: PersonNameSuggestion) {
         guard !dismissedSuggestions.contains(suggestion.id) else { return }
         dismissedSuggestions.insert(suggestion.id)
-        save()
+        let before = writeCount
+        save(rosterChanged: false)
+        // "again" is a claim about the next launch, and `save()` refuses outright when the roster
+        // on disk is one this build could not read. Said only when the write actually landed —
+        // the in-memory dismissal still holds for this session, and the sentence now says which.
+        let persisted = writeCount != before
         Logger.shared.info("People: “\(suggestion.form)” is not \(suggestion.personId)'s — "
-                           + "it will not be suggested again")
+                           + (persisted ? "it will not be suggested again"
+                                        : "not suggested again this session; the roster could not be written"))
     }
 
     /// Accepts a suggested form onto the person it was found for.
@@ -244,7 +257,11 @@ public final class PeopleStore: ObservableObject {
         static let modelledKeys: Set<String> = ["schemaVersion", "people", "notNames"]
     }
 
-    private func save() {
+    /// Every successful write, whether or not it changed the household — the honest answer to
+    /// "did this reach the disk", which `savedRevision` deliberately is not.
+    public private(set) var writeCount: Int = 0
+
+    private func save(rosterChanged: Bool = true) {
         guard isPersistent else { return }
         // **A file this build could not read is a file it must not rewrite.** Everything below is a
         // whole-file atomic write of the roster now in memory, and when the load fell back to the
@@ -271,14 +288,19 @@ public final class PeopleStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
             // **Only now are the bytes on disk what this roster says**, which is what anything
             // hashing the file has to wait for. See `savedRevision`.
-            savedRevision &+= 1
+            writeCount &+= 1
+            if rosterChanged { savedRevision &+= 1 }
             // And only now is the file the household of record. Set here rather than by the
             // callers — `sortAndSave()` set it before `save()`, and `dismissSuggestion` was given
             // the same shape — so a save this build REFUSES (an unreadable roster, which is the
             // one case that matters) can no longer leave the list claiming "saved in people.json"
             // beside the banner saying edits will not be saved. Provenance follows the write, for
             // the same reason the fingerprint does.
-            source = .file
+            //
+            // Guarded because `source` is `@Published` and this runs on every save: assigning the
+            // value it already holds would announce a change on each edit, waking every observer
+            // of the store for nothing.
+            if source != .file { source = .file }
         } catch {
             Logger.shared.warning("Couldn't save people.json — the change is in memory only "
                                   + "this session: \(error.localizedDescription)")

@@ -230,6 +230,15 @@ import FileExplorer
         let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)", in: split)
         #expect(body.contains("if let scope = personScope"),
                 "browseLayout does not branch on a live gather")
+        // **The property the restructure is about**: ONE structure, so the file column keeps its
+        // identity when a gather opens or clears. Both assertions above were true of the
+        // two-branch version this replaced — the column appeared in each arm — so neither could
+        // see the teardown. A single mount of the column, and no `else`, is what cannot.
+        let mounts = body.components(separatedBy: "paneColumn(isLeft: true)").count - 1
+        #expect(mounts == 1,
+                "the column is mounted \(mounts)× in browseLayout; two positions is two identities")
+        #expect(!body.contains("} else {"),
+                "browseLayout branches structurally again, so the pane column has two identities")
         #expect(body.contains("verticalResizeDivider"),
                 "the Browse gather slot cannot be resized, unlike every other workspace's")
         #expect(body.contains("bottomPaneFraction"),

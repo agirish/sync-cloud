@@ -42,10 +42,10 @@ public enum FilingRouter {
 
     public struct Ranking: Sendable, Equatable {
         public let candidates: [Candidate]
-        /// How separated the winner is — see ``FilingRouter/margin(top:runnerUp:)``, which is the one
-    /// place the rule lives. `(top − runnerUp) / top`; 1.0 for a lone candidate that scored above
-    /// zero, and **0 when the top score is zero or less**, because a folder the scorer penalised
-    /// is the last one standing rather than a winner.
+        /// How separated the winner is — see ``FilingRouter/margin(top:runnerUp:)``, which is the
+        /// one place the rule lives. `(top − runnerUp) / top`; 1.0 for a lone candidate that
+        /// scored above zero, and **0 when the top score is zero or less**, because a folder the
+        /// scorer penalised is the last one standing rather than a winner.
         ///
         /// **This is the only honest confidence Organize has had.** Measured on the held-out split:
         /// a margin ≥ 0.5 is right 94% of the time and covers 15% of files; below 0.2 it is right

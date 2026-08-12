@@ -235,28 +235,40 @@ public enum FileNameDate {
     /// The "held in check by requiring a plausible year" the comment above claims is exactly the
     /// check a `<Name> <Year>.pdf` satisfies.
     ///
-    /// So the suffix must begin where a word begins. Inside a single letter run the only boundary
-    /// there can be is a capital: `…Bill|Apr` has one, `Ku|mar` does not. An all-lowercase glued
-    /// run (`detailedbillapr`) is no longer read as a month, which is the deliberate cost —
-    /// provider names carry their capitals, and family names are the population being protected.
+    /// So the suffix must begin where a word begins, and inside a single letter run the only thing
+    /// that marks a word boundary is a change of case. Two shapes qualify:
+    ///
+    /// - a **title-cased month** — `…Bill|Apr`, `HDFC|Apr`, `IRS|Mar`. The month's own casing is
+    ///   the boundary, so an acronym in front of it does not hide one.
+    /// - an **all-caps month** preceded by a lowercase character. `KU|MAR` has no such character
+    ///   and is a surname; nothing in an all-caps run separates a word from a month.
+    ///
+    /// The deliberate cost is the fully caseless run: `detailedbillapr` and `BILLAPR` are no longer
+    /// read as months. Provider names carry their casing one way or the other; family names are the
+    /// population being protected.
     static func monthSuffix(_ run: String) -> Int? {
         let lower = run.lowercased()
         if let m = OrdinalMonthName.monthIndex(lower) { return m }
 
-        /// Whether `name` ends `run` at a **camel transition** — a lowercase character followed by
-        /// the uppercase one the month starts with — or is the whole run.
+        /// Whether `name` ends `run` at a word boundary, or is the whole run.
         ///
-        /// Both halves are needed and the first draft had only the second. "The month starts with
-        /// a capital" is unconditionally true inside an ALL-CAPS run, so `KUMAR` was still March,
-        /// `RAJAN` still January, `MAPR` still April — every example this rule was written to stop,
-        /// surviving in upper case. Measured on the real tree: 1,749 files carry an all-caps letter
-        /// run of four or more characters, three of them the token `MAPR`, so the hole was one
-        /// filename with a year in it away from mining a date out of a vendor name.
+        /// The first draft asked only that the month start with a capital, which is unconditionally
+        /// true inside an ALL-CAPS run — so `KUMAR` was still March, `RAJAN` still January, `MAPR`
+        /// still April: every example the rule was written to stop, surviving in upper case. (1,749
+        /// files on the real tree carry an all-caps run of four or more characters, three of them
+        /// the token `MAPR`.) The second asked for a lowercase character *before* the month, which
+        /// fixed those and took `HDFCApr`, `AMEXApr` and `IRSMar` with them — an acronym in front of
+        /// a title-cased month is a boundary a reader has no trouble seeing.
+        ///
+        /// So: a title-cased month carries its own boundary; an all-caps month needs a lowercase
+        /// character in front of it.
         func endsAtAWordBoundary(_ name: String) -> Bool {
             guard lower.hasSuffix(name) else { return false }
             guard name.count < run.count else { return true }
             let start = run.index(run.endIndex, offsetBy: -name.count)
-            return run[start].isUppercase && run[run.index(before: start)].isLowercase
+            guard run[start].isUppercase else { return false }
+            let titleCased = !run[run.index(after: start)...].contains { $0.isUppercase }
+            return titleCased || run[run.index(before: start)].isLowercase
         }
 
         // Longest candidate first, so `...September` is not read as the `Sep` inside it — same

@@ -98,7 +98,7 @@ enum HelpBook {
                     .bullets([
                         "The two panes — pick any two cloud folders, or two folders inside the same provider.",
                         "The differences list — what a scan found, and which way a copy would go.",
-                        "Cleanup tools — Duplicates removes redundant copies; Organize sorts loose files into folders.",
+                        "Cleanup tools — Organize sorts loose files into folders, and its Duplicates lens removes redundant copies.",
                     ]),
                     .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z."),
                 ],

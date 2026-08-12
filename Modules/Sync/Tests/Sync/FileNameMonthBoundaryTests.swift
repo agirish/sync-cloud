@@ -14,8 +14,14 @@ import Testing
 /// reads convincingly enough to accept. The check the old comment leaned on ("held in check by
 /// requiring a plausible year") is precisely what a `<Name> <Year>.pdf` file satisfies.
 ///
-/// The rule is a word boundary, and inside one letter run the only boundary available is a
-/// capital.
+/// The rule is a word boundary, and inside one letter run the only thing that marks one is a
+/// change of case: a title-cased month carries its own boundary (`HDFC|Apr`), an all-caps month
+/// needs a lowercase character in front of it (`KU|MAR` has none).
+///
+/// **Every case below that separates one candidate rule from another is here on purpose.** An
+/// earlier version of this suite asserted only `Mar`/`March`/`Kumar`/`DetailedBillApr`, all of
+/// which answer identically under the three rules this went through — so the fix could be reverted
+/// with the whole suite green. The uppercase and acronym rows are what make it a test.
 @Suite struct FileNameMonthBoundaryTests {
 
     // MARK: What must still be read as a month
@@ -37,6 +43,33 @@ import Testing
     }
 
     // MARK: What must not be
+
+    /// **The upper-case half.** These are the cases that separate "starts with a capital" from a
+    /// real boundary: inside an all-caps run every character is a capital, so the first rule read
+    /// all of these as months. `MAPR` is a vendor token that is actually on this tree.
+    @Test func anAllCapsRunIsNotAMonthHoweverItEnds() {
+        for run in ["KUMAR", "RAJAN", "CODEC", "MAPR", "MAPRDB", "BILLAPR", "BILLSEPTEMBER"] {
+            #expect(FileNameDate.monthSuffix(run) == nil, "“\(run)” was read as a month")
+        }
+    }
+
+    /// **The acronym half.** These separate "a lowercase character must precede the month" from the
+    /// rule that ships: an acronym in front of a title-cased month is a boundary a reader sees, and
+    /// requiring lowercase there dropped real provider names.
+    @Test func anAcronymBeforeATitleCasedMonthIsStillABoundary() {
+        #expect(FileNameDate.monthSuffix("HDFCApr") == 4)
+        #expect(FileNameDate.monthSuffix("AMEXApr") == 4)
+        #expect(FileNameDate.monthSuffix("IRSMar") == 3)
+        #expect(FileNameDate.monthSuffix("ATTApr") == 4)
+    }
+
+    /// And the end-to-end consequence of the upper-case half, at the level the user sees.
+    @Test func anAllCapsNameAndAYearMineNoDate() {
+        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("SANJAY KUMAR 2023")) == nil,
+                "an all-caps surname and a year still mine a date out of nothing")
+        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("MAPR export 2024")) == nil,
+                "a vendor token and a year still mine a date out of nothing")
+    }
 
     @Test func aSurnameEndingInAMonthAbbreviationIsNotAMonth() {
         #expect(FileNameDate.monthSuffix("Kumar") == nil, "Kumar was read as March")

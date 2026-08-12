@@ -277,4 +277,34 @@ import Testing
         #expect(out.routed == 0)
         #expect(out.suggestions == files)
     }
+
+    /// **And the refine pass applies it too**, which is the third consumer and the one that had no
+    /// test at all.
+    ///
+    /// `refineFilingSuggestions` builds the classifier's folder menu by ranking these same files
+    /// again — its comment calls it "the same folder menu the scan builds" — and it was ranking
+    /// raw. So the scan shortlisted the child (peer names separate the pair) and a refine of the
+    /// same unchanged file shortlisted the parent, handing the paid backend a differently ordered
+    /// menu for one question. Asserted at the source because the behavioural setup needs a live
+    /// classifier, a spend budget and peer files on disk; the rule itself is proven above, and what
+    /// is unproven without this is that the second caller reaches it.
+    @Test func theRefinePassAlsoRanksThroughThePeerNameRerank() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync/FileSyncManager+FilingRefine.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read FileSyncManager+FilingRefine.swift — this scan is vacuous")
+        try #require(source.count > 500, "FileSyncManager+FilingRefine.swift is implausibly short")
+
+        #expect(source.contains("FilingRouter.rerankedByPeerNames("),
+                "the refine pass ranks raw again, so its menu can disagree with the scan's")
+        #expect(source.contains("peerNameLookup()"),
+                "the rerank is called without the lookup that makes it do anything")
+        // Both consumers reach the rerank; neither is allowed to be the only one.
+        let route = try #require(try? String(contentsOf: url.deletingLastPathComponent()
+                                                .appendingPathComponent("FileSyncManager+FilingRoute.swift"),
+                                             encoding: .utf8))
+        #expect(route.contains("FilingRouter.rerankedByPeerNames("),
+                "the scan no longer reranks — this pair is what has to agree")
+    }
 }

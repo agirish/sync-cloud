@@ -229,7 +229,8 @@ struct StorageLensView: View {
                 Button {
                     if isCollapsed { collapsed.remove(section) } else { collapsed.insert(section) }
                 } label: {
-                    listSectionHeader(section, count: entries.count, isCollapsed: isCollapsed)
+                    listSectionHeader(section, count: entries.count,
+                                      canCollapse: true, isCollapsed: isCollapsed)
                 }
                 .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
             } else {
@@ -238,7 +239,8 @@ struct StorageLensView: View {
                 // to skip it, and the title, caption and count are only reachable through it. On a
                 // page where the fold does not apply there is nothing to announce: the same row,
                 // drawn as the plain header `treemapSection` already uses.
-                listSectionHeader(section, count: entries.count, isCollapsed: false)
+                listSectionHeader(section, count: entries.count,
+                                  canCollapse: false, isCollapsed: false)
             }
 
             if !isCollapsed {
@@ -275,9 +277,13 @@ struct StorageLensView: View {
     /// not apply — a control that cannot act does not offer to. Its width is not given back: the
     /// trailing `Spacer` already claims the row, so the title line does not shuffle sideways when
     /// the page narrows.
+    ///
+    /// `canCollapse` is a parameter rather than a re-read of the view's own `section`, because the
+    /// unlabelled first parameter shadows it: `self.` was load-bearing and invisible, and dropping
+    /// it compiles with only a warning while silently taking the chevron off the All page.
     @ViewBuilder
     private func listSectionHeader(_ section: StorageSection, count: Int,
-                                   isCollapsed: Bool) -> some View {
+                                   canCollapse: Bool, isCollapsed: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: section.icon)
                 .scaledFont(.system(size: 13, weight: .semibold))
@@ -298,7 +304,7 @@ struct StorageLensView: View {
             // never urgency.
             Pill(.mini, tint: .secondary, text: count.formatted(), isNumeric: true)
             Spacer(minLength: 0)
-            if self.section == nil {
+            if canCollapse {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .hoverInk()

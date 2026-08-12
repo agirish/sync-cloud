@@ -839,7 +839,6 @@ public struct TidyView: View {
                 // launch that restored Names started a scan and immediately yanked the selection
                 // to To File. Names and Renames could not survive a relaunch at all. Only the
                 // parked query goes, because it described the previous scan's rows.
-                searchQueries[.rename] = ""
             } else {
                 // Finished: a cloud call may have recorded spend, and both the spend row and the
                 // setup card quote it. Deliberately this handler's `else` rather than a second
@@ -1089,8 +1088,8 @@ public struct TidyView: View {
                 rescanDuplicatesButton
                 applyAllButton(rows.duplicates)
             }
-        // Both of Organize's states, through one path — see `lensSummary` for why `.rename` reaches
-        // here only as an EFFECTIVE lens.
+        // Both of Organize's states, through one path. `.rename` is carried for exhaustiveness
+        // only — see `TidyLens.rename`, which nothing can present since the fold.
         case .rename, .filing:
             if !syncManager.isSuggestingFiles {
                 // **Rescan belongs to the SCAN, not to any one of its answers.** It used to be
@@ -1189,12 +1188,12 @@ public struct TidyView: View {
             if hasResults {
                 duplicatesSummary(rows.duplicates)
             }
-        // Both of Organize's states, through one path. `.rename` reaches here only as an EFFECTIVE
-        // lens, from Organize: no workspace claims it, which `WorkspaceTests` pins directly
-        // (`Workspace.allCases.compactMap(\.lens)` excludes `.rename`), so `lens` is never `.rename`
-        // to begin with. The other four sites in this file switch on `effectiveLens` on exactly that
-        // understanding — a `lens == .filing` guard on this one alone would not make the invariant
-        // any truer, it would just make this the one place that disagrees about who enforces it.
+        // Both of Organize's states, through one path. `.rename` is carried for exhaustiveness and
+        // nothing more: no workspace claims it (`WorkspaceTests` pins that
+        // `Workspace.allCases.compactMap(\.lens)` excludes it), and since Names folded into Renames
+        // no rail selection presents it either — see `TidyLens.rename` and
+        // `TidyLensFoldReachabilityTests`. The other four sites in this file switch on
+        // `effectiveLens` on exactly that understanding.
         case .rename, .filing:
             organizeSummary(rows: rows, counts: counts)
         case .automations:
@@ -2603,7 +2602,8 @@ public struct TidyView: View {
             .fixedSize()
             .disabled(syncManager.isFindingDuplicates)
             .help("Moves the redundant copies of \(batch.count) byte-identical group\(batch.count == 1 ? "" : "s")"
-                  + (isFiltered ? " — the ones your search left showing —" : "")
+                  + (isFiltered ? (query.isEmpty ? " — the ones the filter left showing —"
+                                       : " — the ones your search left showing —") : "")
                   + " to the Trash. Undo with ⌘Z.")
         }
     }
@@ -3271,7 +3271,15 @@ public struct TidyView: View {
         // picked, a lens holding 27 groups none of which are versions fell to the scope's sentence
         // and reported that all of them were somewhere else, while they were right there behind
         // the filter. It also made the filter-only wording below unreachable under any scope.
-        if query.isEmpty, !filterIsNarrowing, let scope {
+        //
+        // **The filter can only be the cause when the scope holds something for it to hide.**
+        // Nothing resets `filter` when the scope changes, so a filter left on from an earlier
+        // session over a scope that holds nothing blamed the filter for an empty list it had no
+        // part in: "hides all 0 duplicate groups", with a button that cleared the filter onto a
+        // list still empty — the loop dressed as a recovery this apparatus exists to remove, and
+        // one this chooser used to get right. `scopedTotal` is the scope-only count, so it asks
+        // exactly that question.
+        if query.isEmpty, !(filterIsNarrowing && scopedTotal > 0), let scope {
             // Reached only when the scoped list is empty, so everything there is is elsewhere.
             scopeHidesAllState(total: globalTotal - scopedTotal, noun: noun, scope: scope)
         } else {
@@ -3287,17 +3295,21 @@ public struct TidyView: View {
     ///
     ///   The narrowing can also be the **type filter alone**, with no query at all — `isFiltered`
     ///   has said so since Duplicates got one. The wording follows the cause rather than asserting
-    ///   a search that isn't running, and the button clears whichever it names.
+    ///   a search that isn't running. The button clears **both** whichever it names — one press
+    ///   should end the dead end rather than hand back a second one — so it is labelled for the
+    ///   cause, not for everything it does.
     private func searchHidesAllState(total: Int, noun: String) -> some View {
         let plural = "\(total) \(noun)\(total == 1 ? "" : "s")"
-        let filterOnly = query.isEmpty && filterIsNarrowing
+        // `total > 0` for the reason the chooser above gives: a filter cannot be hiding rows that
+        // are not there, and "hides all 0" is not a sentence.
+        let filterOnly = query.isEmpty && filterIsNarrowing && total > 0
         return EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",
             title: "Nothing matches",
             message: filterOnly
-                ? "The “\(filter.label)” filter hides all \(plural). Show all kinds to see them again."
+                ? "The “\(filter.label)” filter hides all \(plural). Switch it to “All” to see them again."
                 : "The current search hides all \(plural). Clear it to see the results again.",
-            primary: .init(filterOnly ? "Show All Kinds" : "Clear Search", systemImage: "xmark.circle") {
+            primary: .init(filterOnly ? "Show All" : "Clear Search", systemImage: "xmark.circle") {
                 searchQueries[effectiveLens] = ""
                 searchExpandedLenses.remove(effectiveLens)
                 if effectiveLens == .duplicates { filter = .all }

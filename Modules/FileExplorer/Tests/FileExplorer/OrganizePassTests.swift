@@ -485,8 +485,20 @@ import SwiftUI
     }
 
     /// And the quote is a quote: the pass reads the lens rather than restating its glyph.
-    @Test func theDuplicatePassWearsTheDuplicatesLensGlyph() {
-        #expect(OrganizePass.duplicates.symbol == OrganizeLens.duplicates.symbol)
-        #expect(OrganizePass.duplicates.symbol != OrganizeLens.rules.symbol)
+    ///
+    /// Asserting `OrganizePass.duplicates.symbol == OrganizeLens.duplicates.symbol` would compare
+    /// the model to itself — production is literally `return OrganizeLens.duplicates.symbol`, so a
+    /// hard-coded copy of the same string passes it too. What carries the claim is that the glyph
+    /// is NOT the one it used to restate, plus the source reading as a delegation.
+    @Test func theDuplicatePassWearsTheDuplicatesLensGlyph() throws {
+        #expect(OrganizePass.duplicates.symbol != OrganizeLens.rules.symbol,
+                "the duplicate pass card wears the Rules glyph again")
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/OrganizePass.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read OrganizePass.swift — this scan would be vacuous")
+        #expect(source.contains("case .duplicates: return OrganizeLens.duplicates.symbol"),
+                "the pass restates a glyph instead of asking the lens for it")
     }
 }

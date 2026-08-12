@@ -93,8 +93,16 @@ import Sync
                 "a reveal still hard-codes the left pane")
         #expect(host.contains("isCurrent: provider.id == paletteProviderId"),
                 "\"The current source\" is decided against the left pane rather than the aimed one")
-        #expect(host.contains("if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }"),
+        // One writer, so the rule cannot be restated differently at the next site: both routes
+        // that change the source go through it.
+        #expect(host.contains("func aimProvider(_ id: String)"),
+                "there is no single writer for the aimed pane")
+        #expect(host.contains("case .provider(let id):") && host.contains("aimProvider(id)"),
                 "choosing a source from ⌘K switches the pane the palette was not describing")
+        #expect(host.contains("chooseFolderSource { id in aimProvider(id) }"),
+                "adding a source from ⌘K still points a pane the palette was not describing")
+        #expect(Self.codeOnly(host).components(separatedBy: "tidyTargetIsRight ? rightProviderId").count - 1 == 1,
+                "the aimed-pane rule is stated in more than one place again")
     }
 
     /// Every route case is applied. A `default:` arm would let a case added to `PaletteRoute` — a

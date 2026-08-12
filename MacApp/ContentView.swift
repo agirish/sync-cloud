@@ -642,7 +642,19 @@ struct ContentView: View {
         // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
         // left lingering underneath a Settings card the user opened on top of it.
         .onChange(of: showSettings) { _, isOpen in
-            if isOpen { showHelp = false }
+            guard isOpen else { return }
+            // **Refused while a destination pick is up, whichever path asked.** `showSettings` is a
+            // plain latch and the overlay chain renders the picker above Settings, so setting it
+            // mid-pick did nothing visible and then produced Settings the instant the pick was
+            // answered. Both entry points flip this same binding — the toolbar button here and ⌘,
+            // in the App scene, which cannot see this window's state — so refusing here is the one
+            // place that covers both, and it is why the button is NOT separately disabled: a
+            // disabled button with a live chord is the split this is avoiding.
+            if pendingDestination != nil {
+                showSettings = false
+                return
+            }
+            showHelp = false
         }
         .quickLookPreview($quickLookURL)
         // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
@@ -2849,12 +2861,19 @@ struct ContentView: View {
                        let full = ((root as NSString).expandingTildeInPath as NSString)
                            .appendingPathComponent(relative)
                        let paneRoot = tidyProviderRootExpanded
-                       if !paneRoot.isEmpty,
-                          let inPane = PathBoundary.relativize(full, under: paneRoot) {
-                           syncManager.focusOn(relativePath: inPane, isLeft: !tidyTargetIsRight)
-                       } else {
+                       guard !paneRoot.isEmpty,
+                             let inPane = PathBoundary.relativize(full, under: paneRoot) else {
+                           // Outside this pane's provider — there is no pane to open it in.
                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                           return
                        }
+                       // **Open the rail if it is closed**, or this is a dead click: the lens
+                       // workspaces can collapse the source pane to a spine, `focusOn` only pushes
+                       // history, and the Finder fallback above does not fire for a folder that IS
+                       // under the root. Nothing on screen changed — which is worse than the Finder
+                       // reveal this replaced.
+                       if panesHiddenForCurrentTab { togglePanesForCurrentTab() }
+                       syncManager.focusOn(relativePath: inPane, isLeft: !tidyTargetIsRight)
                    },
                    // Expanded, like every other reader of `FolderProfile.root` — it is stored
                    // tilde-form ("~/Documents"), so the unexpanded join produced a path that

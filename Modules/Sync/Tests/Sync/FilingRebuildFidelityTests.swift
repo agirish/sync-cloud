@@ -73,8 +73,11 @@ import Testing
         let dir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/Sync")
-        for (file, declaration) in [("FilingEngine.swift", "applyVerdicts"),
-                                    ("FileSyncManager+Filing.swift", "replaceFilingSuggestion"),
+        // `FilingEngine.swift` is deliberately absent: it DECLARES `replacingCandidates`, so a
+        // whole-file `contains` there is satisfied by the declaration whatever `applyVerdicts`
+        // does. That site is covered behaviourally by `promotingAVerdictKeepsTheAlreadyFiledMarker`
+        // below, which is the stronger check anyway.
+        for (file, declaration) in [("FileSyncManager+Filing.swift", "replaceFilingSuggestion"),
                                     ("FileSyncManager+FilingRoute.swift", "routed"),
                                     ("FileSyncManager+FilingRename.swift", "naming")] {
             let source = try #require(try? String(contentsOf: dir.appendingPathComponent(file),

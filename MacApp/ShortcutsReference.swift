@@ -37,7 +37,7 @@ enum ShortcutsReference {
             Item(keys: "⌘ L", action: "Open the Activity Log"),
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
-            Item(keys: "⌘ ?", action: "Open the Help book"),
+            Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation"),
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),

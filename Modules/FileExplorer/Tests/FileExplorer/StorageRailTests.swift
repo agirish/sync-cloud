@@ -182,14 +182,18 @@ import Design
         // the fold applies, and the same row is drawn plain otherwise.
         #expect(source.contains("if canCollapse {\n                Button {"),
                 "the header is a button on a page where the fold does not apply")
-        #expect(source.contains("listSectionHeader(section, count: entries.count, isCollapsed: false)"),
+        #expect(source.contains("canCollapse: false, isCollapsed: false)"),
                 "a narrowed page draws no plain header row")
         // Not a DISABLED button — that still announces an unavailable control and still costs
         // Full Keyboard Access a stop, and the title, caption and count are only reachable
         // through it.
         #expect(!Self.codeOnly(source).contains(".disabled(!canCollapse)"),
                 "the narrowed header is a disabled button rather than a plain row")
-        #expect(source.contains("if self.section == nil {"),
+        // The chevron follows the parameter the caller passes, not a re-read of the view's own
+        // `section` through a shadowing name.
+        #expect(source.contains("canCollapse: Bool, isCollapsed: Bool"),
+                "the header row re-derives whether it can fold instead of being told")
+        #expect(source.contains("            if canCollapse {\n                Image(systemName: isCollapsed"),
                 "the chevron is still drawn on a page that cannot fold")
     }
 

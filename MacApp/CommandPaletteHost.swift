@@ -170,7 +170,7 @@ extension ContentView {
         case .provider(let id):
             // Switched on the pane the palette is aimed at, so choosing a source from ⌘K changes
             // the one whose folders it was just listing.
-            if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }
+            aimProvider(id)
         case .folder(let path):
             revealInSourcePane(path)
         case .action(let action):
@@ -180,9 +180,19 @@ extension ContentView {
 
     /// The provider whose tree the palette is describing — the focused pane's in Compare, the
     /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
-    /// index's rows, its "current source" mark and both of its provider writes cannot disagree
-    /// about which pane they mean.
+    /// index's rows and its "current source" mark cannot disagree about which pane they mean; the
+    /// writes go through `aimProvider(_:)`, which reads this.
     var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }
+
+    /// Points the aimed pane at `id` — the write half of `paletteProviderId`.
+    ///
+    /// Its own member because the rule was restated at each write, which is the drift this session
+    /// removed in three other places by delegating instead of repeating: `paletteProviderId` could
+    /// say "the index's rows and its provider writes cannot disagree" only because someone had
+    /// typed the same ternary three times.
+    func aimProvider(_ id: String) {
+        if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }
+    }
 
     /// Whether a source's folder is there right now. Expanded first, and required to be a
     /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
@@ -201,7 +211,8 @@ extension ContentView {
     /// the folder the lenses are answering about rather than wherever it happened to be parked.
     private func aimOrganize(lens: OrganizeLens?, scope: String?) {
         // Through the bar's own binding, so entering Organize does everything entering Organize
-        // does — the review teardown, the person-scope clear, the rail presentation.
+        // does — the review teardown and the rail presentation. (The person-scope clear moved to
+        // `onChange(of: selectedWorkspace)`, so it now happens for this route either way.)
         workspaceSelection.wrappedValue = .filing
         // Through `@AppStorage`, never `UserDefaults.standard.set` — see `paletteRailLens` for the
         // write this app has already watched go missing.
@@ -243,9 +254,7 @@ extension ContentView {
         // a source from ⌘K while the right pane is focused pointed the LEFT one at it, which also
         // fires that pane's provider-switch teardown on the side the user was not working in.
         case .chooseFolder:
-            chooseFolderSource { id in
-                if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }
-            }
+            chooseFolderSource { id in aimProvider(id) }
         case .findInPane: beginPaneSearch()
         case .settings: showSettings = true
         case .shortcuts: openWindow(id: "keyboard-shortcuts")

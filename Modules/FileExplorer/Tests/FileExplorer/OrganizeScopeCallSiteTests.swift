@@ -367,7 +367,7 @@ import Sync
         // filter — the other control the user just set — and only then the scope. The filter was
         // missing, so a scoped list narrowed to zero by "Versions" was reported as "nothing in
         // Legal, 695 elsewhere" while 27 sat behind the filter.
-        #expect(tidy.contains("if query.isEmpty, !filterIsNarrowing, let scope {"))
+        #expect(tidy.contains("if query.isEmpty, !(filterIsNarrowing && scopedTotal > 0), let scope {"))
         // And the scoped state must state the outside total and offer the clearing action —
         // "0 here" reading as "0 anywhere" is the whole complaint.
         #expect(tidy.contains("elsewhere in the tree"))

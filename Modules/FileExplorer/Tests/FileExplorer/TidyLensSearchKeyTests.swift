@@ -85,9 +85,9 @@ import Foundation
             in: tidy)
         // The cause, not the spelling: whichever way the predicate is written, the branch must be
         // decided by "no query AND the type filter is narrowing" and must name the filter.
-        #expect(body.contains("let filterOnly = query.isEmpty && filterIsNarrowing"),
+        #expect(body.contains("let filterOnly = query.isEmpty && filterIsNarrowing && total > 0"),
                 "the empty state no longer distinguishes a filter-only narrowing from a search")
-        #expect(body.contains("Show All Kinds"),
+        #expect(body.contains("Show All"),
                 "a filter-only dead-end still offers to clear a search that isn't running")
         #expect(body.contains("filter.label"), "the filter-only message does not name the filter")
 
@@ -95,10 +95,17 @@ import Foundation
         // query, so routing the empty-query case straight to `scopeHidesAllState` made this branch
         // unreachable under any scope — and told the reader that all N groups were somewhere else
         // while they were right there behind the filter.
-        #expect(tidy.contains("if query.isEmpty, !filterIsNarrowing, let scope {"),
+        #expect(tidy.contains("if query.isEmpty, !(filterIsNarrowing && scopedTotal > 0), let scope {"),
                 "a filter-narrowed scoped list still blames the scope, and the branch above is dead there")
         // One predicate, so the chooser and the wording cannot drift apart.
         #expect(tidy.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
+        // **A filter cannot be the cause of an empty list it had no part in.** With a scope holding
+        // nothing and a filter left set from an earlier session, blaming the filter produced "hides
+        // all 0 duplicate groups" and a button that cleared the filter onto a list still empty —
+        // while the scope's own sentence, which names the 695 elsewhere and offers the one click
+        // that shows them, is what that state has always needed.
+        #expect(tidy.contains("scopedTotal > 0"),
+                "the filter can be blamed for an empty scope again")
         #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: tidy)
                     .contains("filterIsNarrowing"),
                 "`isFiltered` restates the filter rule instead of sharing it")

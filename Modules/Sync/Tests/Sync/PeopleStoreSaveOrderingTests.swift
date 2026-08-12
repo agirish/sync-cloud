@@ -115,18 +115,41 @@ import Testing
         #expect(store.source == .file)
     }
 
-    /// Dismissing a suggestion writes the whole roster, so it claims the file the same way an edit
-    /// does — it was the one writer that set `source` without going through `sortAndSave`.
-    @Test func dismissingASuggestionClaimsTheFileToo() throws {
+    /// **A dismissal writes the file but does not announce a household change.**
+    ///
+    /// `savedRevision`'s only subscriber re-derives the filing artifact fingerprint, which keys the
+    /// verdict cache — so a bump costs a full paid re-classification. What a dismissal writes
+    /// (`notNames`) is not part of the compiled registry and cannot change any classification, so
+    /// announcing it re-billed the user for a name they declined to add. `writeCount` is the
+    /// honest "did this reach the disk" counter.
+    @Test func dismissingASuggestionWritesWithoutInvalidatingCachedVerdicts() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         store.add(displayName: "Muktha")
+        let writes = store.writeCount
         let revision = store.savedRevision
+
         store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Mukta",
                                                      occurrences: 3, exampleFile: "Mukta bill.pdf"))
-        #expect(store.savedRevision > revision, "the dismissal did not write")
-        #expect(store.source == .file)
+
+        #expect(store.writeCount > writes, "the dismissal did not reach the disk")
+        #expect(store.savedRevision == revision,
+                "a dismissal announced a household change and invalidated every cached verdict")
+        // It really did land — read it back rather than trusting the counter.
+        let data = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/people.json")))
+        let object = try #require(try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((object["notNames"] as? [String])?.isEmpty == false, "the dismissal was not written")
+    }
+
+    /// And an edit that DOES change the household still announces one.
+    @Test func anEditStillAnnouncesAHouseholdChange() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        let revision = store.savedRevision
+        store.add(displayName: "Muktha")
+        #expect(store.savedRevision > revision)
     }
 
     /// **The call site**, because nothing in the repo builds a `FileSyncManager` with a

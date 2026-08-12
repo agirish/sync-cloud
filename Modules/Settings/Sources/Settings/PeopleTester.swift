@@ -60,7 +60,10 @@ struct PeopleTester: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(report.matches, id: \.personId) { match in
+                // Keyed on the match, not the person: one person can legitimately match twice
+                // (a phrase and a token), and a duplicated `id` makes SwiftUI collapse the rows
+                // unpredictably — in the list whose whole purpose is to show what matched.
+                ForEach(Array(report.matches.enumerated()), id: \.offset) { _, match in
                     Label(line(for: match), systemImage: "person.fill.checkmark")
                         .scaledFont(.subheadline)
                         .foregroundStyle(SemanticColor.success)
@@ -98,7 +101,13 @@ struct PeopleTester: View {
 
     /// What identifying them actually does, in this tree, with real numbers.
     private var consequence: String? {
-        let ids = registry.explain(in: stem).matches.map(\.personId)
+        // **Distinct people.** `matches` can hold two entries for ONE person — a phrase match plus
+        // a token match, or two different strong tokens — and the dedupe in `explain` only removes
+        // exact repeats of the same word. Counting rows made `Mom - Muktha Girish Passport.pdf`
+        // report "2 people are named, so no folder is refused", while `detect` (a Set) returns one
+        // person and the cross-person veto does fire. The diagnostic contradicted the engine it
+        // exists to explain.
+        let ids = Set(registry.explain(in: stem).matches.map(\.personId))
         guard ids.count == 1, let id = ids.first, let facts = factsById[id] else {
             // Counted, not assumed: three household members in one filename is an ordinary
             // scanned document, and "Two people are named" about three of them is simply wrong.
