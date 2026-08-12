@@ -714,7 +714,7 @@ public struct TidyView: View {
         HStack(spacing: 8) {
             Image(systemName: "cloud").scaledFont(.system(size: 10))
             if let last = spendLast {
-                Text("Last cloud scan: \(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                Text("Last cloud scan: \(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.files(last.fileCount)) · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)

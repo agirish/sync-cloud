@@ -18,6 +18,7 @@ enum ShortcutsReference {
         Group(title: "General", items: [
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
+            Item(keys: "⌘ ?", action: "Open the Help book"),
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation"),
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),

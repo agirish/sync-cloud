@@ -1582,7 +1582,7 @@ struct TidySettingsTab: View {
                 SettingsRow("Cloud scans") { Text("\(spendTotals.scans)") }
                 if let last = spendLast {
                     SettingsRow("Last scan") {
-                        Text("\(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                        Text("\(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.files(last.fileCount)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
                     }
                 }
                 HStack {
@@ -1648,7 +1648,7 @@ struct TidySpendHistorySheet: View {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened)).scaledFont(.system(size: 12))
-                            Text("\(FilingSpendFormat.model(entry.model)) · \(entry.fileCount) files · placed \(entry.placedCount)")
+                            Text("\(FilingSpendFormat.model(entry.model)) · \(FilingSpendFormat.files(entry.fileCount)) · placed \(entry.placedCount)")
                                 .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)
