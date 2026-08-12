@@ -62,11 +62,38 @@ import Foundation
         #expect(registered.contains(","), "the scan found no ⌘, — it is not reading the menus")
         #expect(registered.contains("/"), "the scan found no ⌘/ — it is not reading the menus")
 
-        let listed = ShortcutsReference.groups.flatMap { $0.items }.map(\.keys).joined(separator: " ")
+        // **Equality against each key a row names, not a substring of them all joined.** Searching
+        // the joined string for "⌘ X" is satisfied by any row that merely contains those
+        // characters — `⇧⌘ Z` contains `⌘ Z` — so a registered chord could lose its row and this
+        // would still pass, which is the one failure it exists to catch. A row may name a pair
+        // (`⌘ Z / ⇧⌘ Z`), so the keys are split on the separator first; the split is on `" / "`
+        // and not on `"/"` because a slash is also a KEY — the row for this very panel is `⌘ /`.
+        let listed = Self.listedChordKeys()
         for key in registered.sorted() {
-            #expect(listed.contains("⌘ \(key)"),
+            #expect(listed.contains("⌘\(key)"),
                     "⌘\(key) is registered in the menus but has no row in the ⌘/ reference")
         }
+    }
+
+    /// Every chord a reference row names, one per element, whitespace removed.
+    static func listedChordKeys() -> Set<String> {
+        Set(ShortcutsReference.groups.flatMap { $0.items }.flatMap { item in
+            item.keys.components(separatedBy: " / ")
+                .map { $0.replacingOccurrences(of: " ", with: "") }
+        })
+    }
+
+    /// The guard on the guard: the matcher must be able to say no, and must not confuse a chord
+    /// with a modified version of it.
+    @Test func testTheChordMatcherRejectsAChordThatIsNotListed() {
+        let listed = Self.listedChordKeys()
+        #expect(!listed.contains("⌘⌥Q"), "the matcher accepts a chord nothing lists")
+        #expect(listed.contains("⌘/"), "splitting the keys lost the chord whose key IS a slash")
+        #expect(!listed.contains(""), "an empty key survived the split")
+        // `⌘ Z` and `⇧⌘ Z` are different chords and the reference lists them in one row; each must
+        // be found as itself, and neither may stand in for the other.
+        #expect(listed.contains("⌘Z"))
+        #expect(listed.contains("⇧⌘Z"))
     }
 
     /// No row may advertise dragging or dropping.
