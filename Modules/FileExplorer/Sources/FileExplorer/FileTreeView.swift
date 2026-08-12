@@ -136,10 +136,27 @@ public struct FileTreeView: View, Equatable {
     /// Defaults true — the Tidy rail is the only pane on screen.
     public let isActivePane: Bool
 
-    /// Item previewed via the row context menu's Quick Look. Presented by this pane's own
-    /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
-    /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
+    /// Presents the row menu's Quick Look through the HOST's panel, when the host offers one.
+    ///
+    /// **There is one Quick Look panel on the screen, so there has to be one owner of it.** This
+    /// pane used to present the row menu's preview from its own `@State` while Space presented from
+    /// the host's — two bindings driving the single shared `QLPreviewPanel`, on the reasoning that
+    /// "the shared QL panel only ever shows one preview at a time anyway". That is true and is
+    /// exactly the problem: neither owner can see what the other put up, so neither can keep it
+    /// current, and a preview opened from the row menu went stale the moment the selection moved
+    /// (see `CurrentSelection.previewFollow`). The host can see both surfaces; the pane cannot.
+    ///
+    /// Optional, so a caller with no panel of its own — every test, and any future embedder — keeps
+    /// the self-contained behaviour rather than losing Quick Look entirely.
+    private let onQuickLook: ((URL) -> Void)?
+
+    /// The fallback presenter, used only when `onQuickLook` is nil.
     @State private var quickLookItem: URL?
+
+    /// Where a row menu's preview goes: the host if it offered a panel, this pane's own otherwise.
+    private func presentQuickLook(_ url: URL) {
+        if let onQuickLook { onQuickLook(url) } else { quickLookItem = url }
+    }
     /// The downloads THIS pane is watching, keyed by path — see `PaneDownloadWatch`. While a path is
     /// in there, the row showing that file re-resolves its badge and the preview column showing it
     /// says "Downloading…"; both read it from here rather than watching anything themselves.
@@ -197,7 +214,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -227,6 +244,7 @@ public struct FileTreeView: View, Equatable {
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
         self.onBackgroundDeselect = onBackgroundDeselect
+        self.onQuickLook = onQuickLook
         self.downloadChannel = downloadChannel
     }
 
@@ -268,6 +286,10 @@ public struct FileTreeView: View, Equatable {
             && (lhs.onBarEdgeFlip == nil) == (rhs.onBarEdgeFlip == nil)
             && (lhs.onColumnNavigate == nil) == (rhs.onColumnNavigate == nil)
             && (lhs.onBackgroundDeselect == nil) == (rhs.onBackgroundDeselect == nil)
+            // Presence only, like its neighbours — but presence here is load-bearing rather than
+            // incidental: it is what decides whether the row menu presents through the host's panel
+            // or this pane's own fallback, so a pane that gained or lost it must re-render.
+            && (lhs.onQuickLook == nil) == (rhs.onQuickLook == nil)
             && lhs.delegate.isEquivalent(to: rhs.delegate)
     }
 
@@ -465,7 +487,7 @@ public struct FileTreeView: View, Equatable {
                 isLeft: isLeft, delegate: delegate, diffIndex: diffIndex, otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource, density: density, isActivePane: isActivePane,
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
-                onQuickLook: { quickLookItem = $0 },
+                onQuickLook: { presentQuickLook($0) },
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
                 awaitingDownloads: downloads.requests,
                 fonts: rowFonts,
@@ -592,7 +614,7 @@ public struct FileTreeView: View, Equatable {
                 delegate: delegate,
                 otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource,
-                onQuickLook: { quickLookItem = $0 },
+                onQuickLook: { presentQuickLook($0) },
                 downloadChannel: downloadChannel
             )
         }

@@ -70,7 +70,7 @@ extension ContentView {
                 left: syncManager.selectedLeftPaths,
                 right: syncManager.selectedRightPaths
             ) else { return .ignored }
-            toggleQuickLook(URL(fileURLWithPath: targetPath))
+            toggleQuickLook(URL(fileURLWithPath: targetPath), followsPane: true)
             return .handled
         }
     }
@@ -188,7 +188,7 @@ extension ContentView {
                             right: syncManager.selectedRightPaths,
                             singleSource: true
                         ) else { return .ignored }
-                        toggleQuickLook(URL(fileURLWithPath: targetPath))
+                        toggleQuickLook(URL(fileURLWithPath: targetPath), followsPane: true)
                         return .handled
                     }
                 bottomPaneView
