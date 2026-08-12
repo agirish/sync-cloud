@@ -61,7 +61,6 @@ struct StorageLensView: View {
     }
 
     private var report: StorageLensReport? { syncManager.storageLensReport }
-    private var hasReport: Bool { report != nil }
 
     var body: some View {
         // The toolbar card that used to head this view is gone: Tidy's shared LensHeaderCard now
