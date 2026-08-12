@@ -10,7 +10,13 @@ out of this file the way it does out of `ROADMAP.md`: deleted when it ships, bec
 the record.
 
 Designed and mocked on **2026-08-12**; every constraint below was read out of the code that day.
-Mockups (16 figures, both appearances): <https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>
+
+An **illustrated companion** covers §1 and §3 — same decisions, same Order, same Open questions,
+with 16 figures in both appearances:
+<https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. §2 carries its own mockup,
+linked in that section. **This file is the one that ships** — if a companion disagrees with it, the
+companion is the stale one. Figures are cited by number below where one settles a question faster
+than a paragraph.
 
 ---
 
@@ -37,16 +43,19 @@ things between two clouds — need two. In a single-window app there is no other
 
 ### The strip
 
-A **34pt card at the top of the pane**, in the 5pt gutter rhythm, above the pane header. It belongs
-to the *pane*, so Browse shows one, Compare shows one per side, and the Organize/Storage rail shows
-one; in Browse it looks like window chrome only because there the pane is the window.
+A **34pt card at the top of the pane** (Fig. 2), in the 5pt gutter rhythm, above the pane header.
+It belongs to the *pane*, so Browse shows one, Compare shows one per side, and the Organize/Storage
+rail shows one; in Browse it looks like window chrome only because there the pane is the window.
 
-Hidden at one tab (Finder's behaviour), so an install that never opens a second tab is unchanged.
+Hidden at one tab (Fig. 6, Finder's behaviour), so an install that never opens a second tab is
+unchanged. Past the width that fits them, tabs compress to a 96pt floor and the surplus folds behind
+a count chevron (Fig. 7).
 
 Rejected, and why, so they are not re-proposed:
 
-- **Inside the pane header** — the header is pinned at 81pt and shares a line with `LensHeaderCard`.
-- **Welded to the toolbar** — reads as a second row of the workspace bar, and breaks the gap model.
+- **Inside the pane header** (Fig. 3) — pinned at 81pt, and it shares a line with `LensHeaderCard`.
+- **Welded to the toolbar** (Fig. 4) — reads as a second row of the workspace bar, and breaks the
+  gap model.
 - **In the breadcrumb row's empty width** — that row is *per-tab content*; a switcher cannot live
   inside a description of one of its own items.
 
@@ -61,11 +70,11 @@ Parked tabs are inert values.
 
 ### Anatomy and rungs
 
-Provider mark · leaf folder name (middle-truncated) · ✕ on hover or when active. The mark is
+Fig. 5. Provider mark · leaf folder name (middle-truncated) · ✕ on hover or when active. The mark is
 load-bearing: two tabs can both read "Documents" from different clouds. Active tab = raised surface
 + 2pt accent rule beneath; **not** the accent fill, which the workspace bar 40pt above already owns.
 
-Three width rungs, matching the widths the layout produces:
+Three width rungs (Fig. 15), matching the widths the layout produces:
 
 | Rung | Width | Shows |
 |---|---|---|
@@ -77,26 +86,27 @@ Tabs never shrink to mark-only — five identical cloud marks name nothing.
 
 ### Cold start — exactly one ＋, on the tab bar
 
-At one tab there is no strip and therefore **no ＋ anywhere**. That is accepted rather than patched:
-a ＋ on the pane bar would be redundant the moment the strip appears, and every item on that bar acts
-on the pane's *contents* (view, sort, hidden files, new folder, delete, search) while a new tab acts
-on its container. So the pane bar is untouched — no new `PaneBarItem`, no `PaneBarMigration` step,
-nothing new in the customize sheet, and the 250pt snapshots and ladder tests keep asserting the bar
-they assert today.
+At one tab there is no strip and therefore **no ＋ anywhere** (Fig. 9). That is accepted rather than
+patched: a ＋ on the pane bar would be redundant the moment the strip appears, and every item on that
+bar acts
+on the pane's *contents* (view, sort, hidden files, new folder, delete, search) while a new tab
+acts on its container. So the pane bar is untouched — no new `PaneBarItem`, no `PaneBarMigration`
+step, nothing new in the customize sheet, and the 250pt snapshots and ladder tests keep asserting
+the bar they assert today.
 
-Entry points instead: **right-click a folder ▸ Open in New Tab** (the discovery route, and the one
-that creates a second tab *somewhere different*), **File ▸ New Tab (⌘T)**, and **⌘-double-click** a
-folder row.
+Entry points instead: **right-click a folder ▸ Open in New Tab** (Fig. 11 — the discovery route,
+and the one that creates a second tab *somewhere different*), **File ▸ New Tab (⌘T)**, and
+**⌘-double-click** a folder row.
 
 ⌘T opens the **current folder**, and the control says so ("New tab here"), because the result is two
-tabs with the same name and the strip's arrival is the only feedback. Opening at the provider root
-would look more different and throw away the folder you pressed ⌘T from.
+tabs with the same name (Fig. 10) and the strip's arrival is the only feedback. Opening at the
+provider root would look more different and throw away the folder you pressed ⌘T from.
 
 **Trade to accept with open eyes:** someone who never right-clicks a folder never learns tabs exist.
 Finder accepts the same trade. If the feature should announce itself, the lever is shipping
-**View ▸ Tab Bar ticked by default** — one tab, one ＋, permanently — at the cost of a 39pt row that
-restates the folder name the header already shows. Recommendation: ship it unticked; the default is
-one line to change and the strip already renders correctly at one tab.
+**View ▸ Tab Bar ticked by default** (Fig. 12) — one tab, one ＋, permanently — at the cost of a
+39pt row that restates the folder name the header already shows. Recommendation: ship it unticked;
+the default is one line to change and the strip already renders correctly at one tab.
 
 ### Menus and keyboard
 
@@ -115,7 +125,7 @@ one line to change and the strip already renders correctly at one tab.
 
 Tab context menu: New Tab · Close Tab · Close Other Tabs · Duplicate · Copy Path.
 
-### Cross-workspace behaviour
+### Cross-workspace behaviour (Figs. 13–15)
 
 | Question | Answer |
 |---|---|
@@ -134,8 +144,8 @@ folder it closed on.
 
 ### Out of scope for the first landing
 
-Drag files onto a tab (needs the removed row `.draggable` — see the context table), and dragging a
-tab out of the window (there is no second window).
+Drag files onto a tab (Fig. 8, right — needs the removed row `.draggable`; see the context table),
+and dragging a tab out of the window (there is no second window).
 
 ---
 
