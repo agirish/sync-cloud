@@ -28,8 +28,10 @@ enum ShortcutsReference {
             Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)",
                  action: "Switch workspace, in the bar's order"),
             // Second: it is the one shortcut that can reach a place not currently on screen — a
-            // workspace, one of Organize's six lenses, a folder, a person, or an action — so it is
-            // the entry that makes the rest of this list optional.
+            // workspace, one of Organize's lenses, a folder, a person, or an action — so it is
+            // the entry that makes the rest of this list optional. (Unnumbered on purpose: the
+            // count above is derived for exactly this reason, and Names folding into Renames took
+            // the rail from six to five.)
             Item(keys: "⌘ K", action: "Command palette — go to any place, folder or person"),
             Item(keys: "⌘ I", action: "Show or hide the Info inspector"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),

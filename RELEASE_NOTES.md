@@ -26,6 +26,12 @@ User-facing changes, newest first. For the full commit history see the
 > already there on ⌘⌫ and in the context menu — a new *button* dressed as a new
 > capability. The work is real in all three; the before-and-afters were ours.
 >
+> A fourth correction is a different failure and worth its own line: this draft
+> briefly said a fresh window opens on Browse, taken from the wording of the commit
+> that added it. The code in that same commit defaults `selectedWorkspace` to
+> `.compare`, and no commit since has changed it. **A commit message is not a
+> source for a release note** — the claim has to come from the code that ships.
+>
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
 
@@ -46,7 +52,8 @@ section first.
 
 - **A fourth workspace with no lens and no opinion.** One tree at full width,
   nothing proposing anything: where you go when you do not want a lens's view of
-  your files. A fresh window opens here.
+  your files. The app still opens where it always has, on Compare, and remembers
+  wherever you leave it.
 
 ### Before you upgrade: this is a one-way door for automation rules
 
@@ -258,12 +265,13 @@ section first.
 
 ### Keyboard and focus
 
-- **Twelve menu-bar shortcuts**, all appearing as keycaps during the ⌥-hold reveal:
-  ⌘1–⌘5 switch workspaces, ⌘[ / ⌘] walk the focused pane's history, ⌘R rescans,
-  ⇧⌘N creates a folder, ⇧⌘. and ⇧⌘P toggle hidden files and the Columns preview,
-  ⌘⌫ deletes the selection, ⇧⌘R and ⇧⌘V start Review and Verify, ⌘D shows the
-  differences list, ⌥⌘F folds every folder, and ⌘I / ⌘L open the inspector and the
-  Activity Log. Chords follow Finder wherever Finder has one.
+- **Menu-bar shortcuts for the things you were already doing**, all appearing as
+  keycaps during the ⌥-hold reveal: ⌘1–⌘4 switch workspaces in the bar's order,
+  ⌘[ / ⌘] walk the focused pane's history, ⌘R rescans, ⇧⌘N creates a folder,
+  ⇧⌘. and ⇧⌘P toggle hidden files and the Columns preview, ⌘⌫ deletes the
+  selection, ⇧⌘R and ⇧⌘V start Review and Verify, ⌘D shows the differences list,
+  ⌥⌘F folds every folder, and ⌘I / ⌘L open the inspector and the Activity Log.
+  Chords follow Finder wherever Finder has one.
 - **⌃⇥ moves keyboard focus between the panes.** Six shortcuts resolved through
   whichever pane held the selection — nothing, on a cold window, where the rule fell
   back to the left pane. So aiming any of them at the right pane meant clicking a
@@ -410,14 +418,17 @@ Each of those now keeps its work, on disk, across launches.
 
 ### The window, and what the chrome claims
 
-- **The window's smallest size is 760×560.** v3.1 would shrink to a 600pt floor,
-  which is past the point where the workspace bar has shed its labels — a window
-  small enough to stop telling you where you are. The new floor keeps the labels
-  at Small, Default and Large text.
-- **A clean check says what it actually checked.** "No duplicates found" is a claim
-  about a whole tree, and a scan of one folder cannot make it; clean states now
-  name the folder they covered, and a lens that has never run here says so instead
-  of borrowing the words for "ran and found nothing".
+- **The window's smallest size is 760×560.** v3.1 held a 600pt floor on width and
+  **none at all on height** — narrow enough that the workspace bar has shed its
+  labels, and short enough to lose the content under the toolbar. The new floor
+  keeps the labels at Small, Default and Large text.
+- **A clean duplicate scan says which folder it checked.** "Nothing repeats across
+  iCloud" is a claim about a whole provider, and a scan of one folder cannot make
+  it; it now reads *"Nothing repeats in 'TODO'"* when the scan had a root, and
+  keeps the provider-wide sentence only when it did not.
+- **And a lens that has never run here says so**, rather than borrowing the words
+  for "ran and found nothing" — on the overview and on the rail badge alike, since
+  a count filtered to zero is not a check that came back clean.
 - **One vocabulary across the lens rows** — medium file-type symbols with identity
   tints, counts in one pill, one progress dialect, and headers aligned on shared
   columns, so a row means the same thing whichever lens you are reading.
