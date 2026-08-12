@@ -1,8 +1,9 @@
 # SyncCloud — v4.x roadmap
 
-**Scope:** interface work for the 4.x line — the **Browse** workspace, starting with Finder-style
-tabs, plus pane chrome that spans every workspace. `main` only, with one stated exception: §2's code
-exists on `v2.x` too, and that item says what follows from it.
+**Scope:** the 4.x line after v4.0 ships — the **Browse** workspace starting with Finder-style tabs
+(§1), pane chrome that spans every workspace (§2), the Finder borrowings worth taking (§3), and the
+storage-layer gaps behind **Organize ▸ Restructure** (§4). `main` only, with one stated exception:
+§2's code exists on `v2.x` too, and that item says what follows from it.
 
 Distinct from `ROADMAP.md` (the standing feature backlog across all surfaces),
 `DEFERRED_ENHANCEMENTS.md` (accepted limits) and `REFACTOR.md` (internal shape). An item graduates
@@ -11,13 +12,14 @@ the record.
 
 Designed and mocked on **2026-08-12**; every constraint below was read out of the code that day.
 
-An **illustrated companion** covers all three items — same decisions, same Order, same Open
+An **illustrated companion** covers all four items — same decisions, same Order, same Open
 questions, with 20 figures in both appearances:
 <https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. **This file is the one that
 ships** — if it disagrees with the companion, the companion is the stale one. Figures are cited by
 number below where one settles a question faster than a paragraph. §2's figures are numbered last
 (17–20) and its section sits after §3 there, so that adding them could not move a number this file
-already cites.
+already cites. §4's figures are **real renders** through the shipping `LensSetupCard`, not
+re-creations, and are unnumbered for that reason.
 
 ---
 
@@ -237,7 +239,80 @@ Ordered by value against what Browse already has. Each is independent of tabs un
 
 ---
 
+## 4. Restructure: a cached answer, and no way to build one
+
+**Why:** the lens opens on its setup card and says its answer is cached (shipped `6c56768a`). It
+cannot say *how* cached, and on a machine with no folder survey it cannot offer to build one —
+because nothing in the app can. Both are storage-layer gaps behind a view that is already done.
+
+### Context
+
+| Fact | Where | Consequence |
+|---|---|---|
+| **The survey's `generated` stamp is write-only.** It is set on a private `Encodable` struct; `FilingMemory`, the type actually decoded at launch, has no such field. | `Modules/Sync/Sources/Sync/FilingSurveyStore.swift` | Nothing can read a date back today, which is why the card claims coverage only. |
+| **And it means "last changed", not "last surveyed"** — the memory is written only when `memory != previousMemory`. | same, `write(corpus:memory:previousMemory:…)` | A survey run this morning on a settled tree leaves last month's stamp. Showing that would be worse than showing nothing. |
+| **The corpus is written unconditionally, and is NOT hashed into the fingerprint** — which covers `folder-profile.json`, `filing-memory.json`, `people.json`. | `FilingProfileStore.fingerprint(id:in:)` | The corpus is the one artifact that moves on every survey *and* costs nothing to move. A per-survey timestamp in a hashed file changes `FilingVerdictKey` and re-bills every cached cloud classification. |
+| **`isAxisValued` already falls back to `isBareYear` and `isInboxPath`** — its own doc says the fallbacks exist "for a profile that records no axes at all". | `Modules/Sync/Sources/Sync/StructureDivergence.swift` | A name-only profile is enough to make **this lens** work. What it misses is exact: non-year axis values (`Family/Mom`, `Finance/US`) read as vocabulary, so two eras can look different when they differ only by whose folder they are. |
+| **The folder profile is never written**, deliberately: it records judgements about names a walk cannot re-derive, and `role` / `naming` / `anchors` / `acceptsNewFiles` feed the router, the rename planner and the classifier's destination list. | `FilingSurveyStore` (doc), `FilingRouter`, `RenamePlanner` | A name-only profile must never land on top of a hand-built one — it would degrade To File and Renames with nothing failing. |
+
+### 4.1 A truthful "last surveyed" — small
+
+Display-only. Five files, ~150 lines.
+
+1. `FilingCorpus` — add `public var surveyedAt: Date?`. Optional, so a corpus written earlier or by
+   the offline builder still decodes.
+2. `FileSyncManager+FilingSurvey` — stamp it before `FilingSurveyStore.write(…)`, and take `now` as
+   a parameter (`docs/flaky-tests.md` mechanism 5: inject the instant, don't race the clock).
+3. `FileSyncManager` — `@Published var filingSurveyedAt: Date?`, so the footnote updates the moment
+   a re-survey finishes.
+4. `MacApp/SyncCloudApp.swift` — read it in the block that already loads the profile, memory and
+   fingerprint; `Sync` does not reach into a home directory.
+5. `RestructureLens` — widen to `surveyNoteText(folderCount:surveyedAt:now:)`, plus a caution
+   variant past a threshold. **Only the glyph takes the tint** — amber on 11pt body text is a
+   contrast trap this repo has hit before.
+
+**Test the pair that pulls both ways:** the stamp must move when a survey changes nothing, and the
+fingerprint must *not* move with it.
+
+**The threshold is unmeasured.** 30 days is a guess. Ship the plain variant first and pick the
+number from real stamps.
+
+### 4.2 Building a survey in the app — medium
+
+Three new files, ~400 lines. Fires only where `filingFolderProfile == nil`, so it is worth nothing
+on a tree that already has one.
+
+1. `FolderSurveyBuilder` (new) — pure `[FileNode] → [String: FolderProfileEntry]`: `path`, counts,
+   `acceptsNewFiles` and `role: .inbox` from `isInboxPath`. Leaves `naming`, `anchors` and `axes`
+   empty rather than guessing; a wrong `naming` would have the rename pass propose renames toward a
+   convention nobody has.
+2. `FilingProfileStore` — its first write path. Refuses over an existing profile, writes atomically,
+   and touches `profiles.json` only when nothing is active.
+3. `FileSyncManager+FolderSurvey` (new) — `buildFolderSurvey(root:)` on its own `ScanLifecycle`,
+   which is what gets it progress, cancellation and the same scanning dress as every other pass.
+4. `RestructureLens` — the no-survey card gets its trigger back, this time wired to something that
+   runs. The card's footnote carries the name-only caveat.
+
+**Tests:** builder purity over a fixture tree; the never-overwrite guard **in both directions** (the
+refusing one is what a happy-path test skips); and the degradation asserted rather than described —
+same synthetic tree with and without axes, identical findings for a bare-year fixture, *different*
+for a person-axis one.
+
+### 4.3 Shadow axis values — medium, independent of both
+
+`StructureDivergence` names this gap and explicitly does not claim it: a year-bearing folder name
+that is not a *bare* year (`IRS Docs - 2023`) is treated as a role, so it joins its parent's
+vocabulary and makes that parent's shape look unique.
+
+The pattern is on the real tree — `Finance/US/Income Tax` reports three shapes, one of which is
+`IRS Docs - 2023, IRS Docs - 2024` beside bare years. Its own detector, not a wider `isBareYear`:
+widening that would start swallowing real role names containing digits.
+
+---
+
 ## Order
+
+**Everything here is post-v4.0.** §4.1 is the only item that improves a screen already shipping.
 
 1. **Tabs**, all three rungs, so Compare and the rail arrive in the same motion rather than as a
    follow-up.
@@ -245,7 +320,10 @@ Ordered by value against what Browse already has. Each is independent of tabs un
 3. **Sidebar** of pins and recents, ⌘-click opening a new tab.
 4. **Pane bar titles** — independent of all of the above and schedulable whenever; it touches the bar
    and the ladder, and nothing tabs touch.
-5. Everything else on its own merits; drop-on-tab last.
+5. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
+   screen v4.0 ships. Schedulable against any of the above.
+6. Everything else on its own merits. **§4.2 when a second machine or a second tree makes it real**
+   — it cannot fire on this one; drop-on-tab last.
 
 ## Open questions
 
@@ -256,3 +334,9 @@ Ordered by value against what Browse already has. Each is independent of tabs un
 - Whether the tab bar's tick is one app-wide preference or per pane. App-wide matches the other
   reading preferences (`paneColumnShowsPreview`); per pane matches `paneViewModeBrowse`.
 - Whether a tab shows a scan/download spinner when work is running in a folder it is not showing.
+- **§4.2: should a name-only survey ever be offered where a hand-built profile exists?** It could
+  pick up folders added since — only by overwriting judgements the walk cannot re-derive.
+  Recommendation: no; `resurveyFilingMemory` already refreshes the half that is safe to refresh.
+- **§4.2: stopgap or replacement?** A stopgap for fresh machines is the ~400 lines above. Replacing
+  the offline builder means axis inference, role detection and naming-convention mining in-app —
+  a different project, and the reason the profile is hand-built today. Recommendation: stopgap.
