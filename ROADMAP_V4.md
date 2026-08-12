@@ -1,7 +1,8 @@
 # SyncCloud — v4.x roadmap
 
-**Scope:** interface work on the **Browse** workspace for the 4.x line, starting with Finder-style
-tabs. `main` only — 4.x is the v3 line's successor and `v2.x` carries none of it.
+**Scope:** interface work for the 4.x line — the **Browse** workspace, starting with Finder-style
+tabs, plus pane chrome that spans every workspace. `main` only, with one stated exception: §2's code
+exists on `v2.x` too, and that item says what follows from it.
 
 Distinct from `ROADMAP.md` (the standing feature backlog across all surfaces),
 `DEFERRED_ENHANCEMENTS.md` (accepted limits) and `REFACTOR.md` (internal shape). An item graduates
@@ -21,6 +22,7 @@ Mockups (16 figures, both appearances): <https://claude.ai/code/artifact/929eb3d
 | **Browse is one pane at full width.** `paneColumn(isLeft: true)` and nothing beside it. | `MacApp/ContentView+SplitLayout.swift` (`browseLayout`) | A tab is a *location for that pane*, not a second pane. |
 | **Two browse paths exist in the whole app** — `leftBrowsePath` / `rightBrowsePath`, swapped wholesale by ⇄. Browse is the left one full width; the Organize rail is the left one narrow; Compare is both. | `Modules/Sync/Sources/Sync/FileSyncManager+Navigation.swift:461` | **Two tab lists, left and right.** Every cross-workspace question follows from this. |
 | **The pane header height is pinned at 81pt** so its bottom edge shares the 83.5 rule with Organize's `LensHeaderCard`; cards inset by half of a 5pt gutter. | `Modules/Design/Sources/Design/LiquidGlassStyle.swift:392,410` | Nothing may add a row to the header. New pane chrome is a new card in the gutter rhythm. |
+| **There is one `PaneHeader` call site**, and the pane bar's preferences are app-wide `@AppStorage` (`paneBarArrangement`, `paneBarIconSize`). Compare's two panes, Browse's one and the Organize/Storage rail are all that same header. | `MacApp/ContentView.swift:2253` (`paneColumn`) | Anything added to the pane bar is identical in every workspace with no plumbing. But `availableItems` already varies it: **Collapse** only on the Organize/Storage rail, **Preview** only in Columns. |
 | **The rail clamps at 220pt**, the workspace at 340. | `MacApp/ContentView+SplitLayout.swift:148` | Any pane-level bar needs a shedding ladder down to 220pt. |
 | **⌘1–⌘4 are the workspaces; ⌘[ / ⌘] are pane back/forward; ⌃⇥ is `switchPaneFocus`.** | `Modules/Design/Sources/Design/AppChord.swift` | No ⌘-digit is available. ⌃⇥ is dead in Browse (one pane), so it can be scoped there. |
 | **View-menu switches are `Toggle("<Noun>")` with a checkmark** — Hidden Files, Preview Column, Info Inspector, Differences List — and each is `.disabled` when its focused value is `nil`. Flipping titles are reserved for *actions* with two directions (`FoldAllDifferencesCommand`). | `MacApp/ShortcutCommands.swift:494–535` | New view switches are nouns with a tick. No "Show X" / "Hide X" pairs. |
@@ -137,7 +139,74 @@ tab out of the window (there is no second window).
 
 ---
 
-## 2. Finder borrowings, ranked
+## 2. Pane bar: Icon and Text
+
+**Why:** the pane bar is glyph-only; Finder's toolbar names its controls. The vocabulary already
+exists — `PaneBarItem.displayName` is what the ⋯ menu and the customize palette already show — so this
+is layout work, not naming work.
+
+**Shape:** Finder's three modes — **Icon and Text** (the new default) / **Icon Only** / **Text Only** —
+as an inline `Picker` in the bar's right-click menu beside the existing Icon Size picker. Menu only,
+as in Finder; nothing in Settings.
+
+Mockup and measured constraints: <https://claude.ai/code/artifact/6b716126-171c-45a8-8a53-4977986571f3>
+
+### It fits the pinned header with nothing to spare
+
+| | |
+|---|---|
+| **Row height** | 20pt pill + 2pt + 12pt title = **34pt**, which is exactly the provider capsule's 34pt. The header stays 81pt and the 83.5 line holds. |
+| **The one break** | `viewMode` wears a 3pt capsule ground (26pt) → 40pt titled. **Titled, the ground goes** and the shared title groups its two segments, as Finder does. Most fragile part of the change. |
+| **Width** | the default 11-item bar goes **453pt → 537pt**. A 640pt pane has ~508pt of track, so two items fold into ⋯; a 900pt Browse pane fits everything. |
+| **Short titles** | the bar needs a `barTitle` separate from `displayName` — "Collapse Pane" is 68pt of text under a 33pt pill. Palette and ⋯ menu keep the long name. |
+
+Titles shed **all together as one rung**, ahead of the step down to `.mini` glyphs — the rule
+`WorkspaceBarMetrics` already applies to the workspace bar, for the reason written down there: a bar
+where some items are words and others are glyphs reads as two controls.
+
+The other header on the same 83.5 line — Organize/Storage's `LensHeaderCard` — already draws
+icon+text and sheds its text as it narrows (`HeaderLadder`). Titles make the two agree.
+
+### Text Only: three things the glyph is currently doing
+
+| | |
+|---|---|
+| **Hidden Files** | swaps `eye` ↔ `eye.slash` to carry its own state. A fixed word carries none of it, so the title has to swap too — both sentences already exist in the tooltip. |
+| **Scan → Stop** | the word swap survives; the spinning arrow does not. The title becomes a sixth member of `ScanRungMode`, which already resolves the five differing properties in one place. |
+| **`PaneNavChrome`** | takes an `Image` and applies ink, font and pill to it. It has to wrap a label of either kind, or Delete's red lands at the wrong level — recorded there as a measured bug ("painted zero red pixels"). |
+
+View and Preview carry their state in the fill, which survives text-only untouched.
+
+### Prep
+
+1. **The ladder needs the font scale.** `PaneBarLayout.width(of:)` and `PaneBarLadder` are constant
+   arithmetic with no `scale`; titles are measured type and the app scales its own. `PaneHeader`
+   already reads `@Environment(\.appFontScale)` and never passes it down. `HeaderLadder` is the
+   working precedent — a text-carrying ladder priced from `Design.LabelMetrics`.
+2. **One more rung, and the searched ladder must grow with it.** Icon+Text → Icon Only sits ahead of
+   the `.mini` step, so `terminal` grows by one and `PaneBarLadder.searchedSlotCount` (`maxItems + 1`)
+   becomes `maxItems + 2` — and `PaneHeader.searchedLadder` must declare one more **literal** child,
+   because a `ForEach` inside `ViewThatFits` collapses to a single child.
+   `theSearchedLadderDeclaresOneChildPerSlot` catches it.
+3. **Text Only cannot take that rung** — shedding text leaves an empty pill, so it folds into ⋯
+   straight away. `maxDepth` becomes mode-aware.
+4. **Re-baseline.** `DashboardSnapshotTests` holds three `PaneHeader` reference images (560 / 400 /
+   250) × light+dark, machine-pinned; `PaneHeaderHeightTests`, `PaneBarCanvasTests` and
+   `PaneBarInkContrastTests` all build the default bar.
+5. **`ShortcutKeycapFitTests` needs its premise restated**, not just re-run: it measures the ⌥-keycap's
+   overhang against the *pill* width, and a titled item's box is wider than its pill.
+
+### The one item here whose code `v2.x` carries
+
+`LabelMetrics.swift` and `LiquidGlassStyle.swift` are byte-identical across the lines;
+`PaneBarArrangement.swift` differs by 116 lines and `DashboardViews.swift` by 583, and `v2.x`'s bar has
+no Search and no Delete (a 9-item default, so titles fit it more easily). By `CLAUDE.md` this is a
+minor feature on code the maintenance line carries, so it lands on `v2.x` first and is **ported** —
+not cherry-picked — to `main`. Settle whether `v2.x` is still open before starting, not after.
+
+---
+
+## 3. Finder borrowings, ranked
 
 Ordered by value against what Browse already has. Each is independent of tabs unless noted.
 
@@ -162,11 +231,16 @@ Ordered by value against what Browse already has. Each is independent of tabs un
    follow-up.
 2. **Status bar** — small, and it makes tabs feel finished because each tab then reports its contents.
 3. **Sidebar** of pins and recents, ⌘-click opening a new tab.
-4. Everything else on its own merits; drop-on-tab last.
+4. **Pane bar titles** — independent of all of the above and schedulable whenever; it touches the bar
+   and the ladder, and nothing tabs touch.
+5. Everything else on its own merits; drop-on-tab last.
 
 ## Open questions
 
 - Ship `View ▸ Tab Bar` ticked or unticked by default (see *Cold start*).
+- Whether ⋯ takes a title in the titled bar. Finder's » does not; recommendation: leave it unlabelled
+  and centred on the pill row.
+- Whether `v2.x` is still open when §2 is picked up — it decides which line that work starts on.
 - Whether the tab bar's tick is one app-wide preference or per pane. App-wide matches the other
   reading preferences (`paneColumnShowsPreview`); per pane matches `paneViewModeBrowse`.
 - Whether a tab shows a scan/download spinner when work is running in a folder it is not showing.
