@@ -182,7 +182,11 @@ extension ContentView {
     /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
     /// index's rows and its "current source" mark cannot disagree about which pane they mean; the
     /// writes go through `aimProvider(_:)`, which reads this.
-    var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }
+    var paletteProviderId: String { aimedAtRight ? rightProviderId : leftProviderId }
+
+    /// Which pane the palette is aimed at, as a value that can be captured before a route changes
+    /// the workspace out from under it.
+    var aimedAtRight: Bool { tidyTargetIsRight }
 
     /// Points the aimed pane at `id` — the write half of `paletteProviderId`.
     ///
@@ -191,7 +195,7 @@ extension ContentView {
     /// say "the index's rows and its provider writes cannot disagree" only because someone had
     /// typed the same ternary three times.
     func aimProvider(_ id: String) {
-        if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }
+        if aimedAtRight { rightProviderId = id } else { leftProviderId = id }
     }
 
     /// Whether a source's folder is there right now. Expanded first, and required to be a
@@ -210,6 +214,15 @@ extension ContentView {
     /// Organize feature is anchored on. The pane follows the scope, so the source rail is showing
     /// the folder the lenses are answering about rather than wherever it happened to be parked.
     private func aimOrganize(lens: OrganizeLens?, scope: String?) {
+        // **The aim is read BEFORE the workspace moves, because moving it changes the aim.**
+        // `tidyProviderRootExpanded` follows the focused pane, and only Compare has two — so
+        // switching to Organize makes it the left pane's root unconditionally. The scope string in
+        // hand came from an index built against the *aimed* pane when the palette opened, so
+        // resolving it afterwards measured it against a different provider: `OrganizeScope` failed
+        // and `paletteScopePath` was written `""`, silently clearing the scope instead of setting
+        // it. The object of "organize legal" was discarded, which is the one thing the verb rows
+        // exist to prevent.
+        let root = tidyProviderRootExpanded
         // Through the bar's own binding, so entering Organize does everything entering Organize
         // does — the review teardown and the rail presentation. (The person-scope clear moved to
         // `onChange(of: selectedWorkspace)`, so it now happens for this route either way.)
@@ -218,12 +231,11 @@ extension ContentView {
         // write this app has already watched go missing.
         paletteRailLens = lens?.resolvedForPresentation
         guard let scope else { return }
-        let root = tidyProviderRootExpanded
         // Normalized through `OrganizeScope`, which is the one writer's rule: pointing at the
         // provider root CLEARS the scope rather than storing the root as one, so ⌘K cannot mint the
         // second encoding of the global view that the type is failable to prevent.
         paletteScopePath = OrganizeScope(path: scope, providerRoot: root)?.path ?? ""
-        revealInSourcePane(scope)
+        revealInSourcePane(scope, root: root, isLeft: !aimedAtRight)
     }
 
     /// Points the source pane at an absolute folder inside the current provider.
@@ -239,11 +251,16 @@ extension ContentView {
     /// root), a relative path from one provider's tree was handed to the other's, and the pane
     /// jumped to a folder that most likely does not exist there — the exact "looks like a broken
     /// palette" outcome the guard above was written to avoid, reached by a different route.
-    private func revealInSourcePane(_ absolutePath: String) {
-        let root = tidyProviderRootExpanded
+    /// - Parameters:
+    ///   - root: the provider root the path is relative to, and `isLeft` the pane that owns it.
+    ///     Passed in rather than re-read, because a caller may already have changed the workspace
+    ///     — and both values follow it. See `aimOrganize`.
+    private func revealInSourcePane(_ absolutePath: String,
+                                    root: String? = nil, isLeft: Bool? = nil) {
+        let root = root ?? tidyProviderRootExpanded
         guard !root.isEmpty,
               let relative = PathBoundary.relativize(absolutePath, under: root) else { return }
-        syncManager.focusOn(relativePath: relative, isLeft: !tidyTargetIsRight)
+        syncManager.focusOn(relativePath: relative, isLeft: isLeft ?? !aimedAtRight)
     }
 
     private func runPaletteAction(_ action: PaletteAction) {

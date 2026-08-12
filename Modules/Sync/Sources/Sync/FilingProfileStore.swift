@@ -131,10 +131,38 @@ public enum FilingProfileStore {
             guard let data = try? Data(contentsOf: directory.appendingPathComponent("\(id)/\(name)"))
             else { continue }
             any = true
-            hasher.update(data: data)
+            hasher.update(data: name == "people.json" ? classifyingBytes(ofPeople: data) : data)
         }
         guard any else { return "" }
         return hasher.finalize().prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The part of `people.json` that can actually change a classification: the roster, and the
+    /// schema that says how to read it.
+    ///
+    /// **Hashing the whole file made things that cannot move an answer cost money.** The file also
+    /// carries `notNames` — the name suggestions the user has declined, which feed nothing but the
+    /// suggestion list — and any keys a future build or the user's own editor left in it (a
+    /// `_note`, a comment). Every one of those changed the digest, and the digest keys
+    /// `FilingVerdictCache`: declining a suggested spelling, or adding a note to the file, invalidated
+    /// every cached verdict and re-billed a full paid re-classification for something the engine
+    /// cannot even see.
+    ///
+    /// Re-serialised canonically rather than hashed as written, so whitespace and key order in a
+    /// hand-edited file do not move it either. Falls back to the raw bytes when the file is not
+    /// JSON this can read — the conservative direction: an unreadable roster invalidates, rather
+    /// than silently serving answers composed against a household this could not parse.
+    static func classifyingBytes(ofPeople data: Data) -> Data {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return data }
+        var classifying: [String: Any] = [:]
+        for key in ["schemaVersion", "people"] where object[key] != nil {
+            classifying[key] = object[key]
+        }
+        guard let canonical = try? JSONSerialization.data(withJSONObject: classifying,
+                                                          options: [.sortedKeys])
+        else { return data }
+        return canonical
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, at url: URL, what: String) -> T? {

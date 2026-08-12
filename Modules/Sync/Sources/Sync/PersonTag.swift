@@ -72,7 +72,10 @@ public struct PersonTag: Sendable, Equatable, Identifiable {
     public let verdict: PersonTagVerdict
     /// The path the verdict was made at — carried even for a fingerprint key, because a list of
     /// verdicts the user can audit has to say *which file*, and a digest is not a file to a reader.
-    /// Advisory only: never matched on, so a moved file does not lose its tag.
+    /// Where the verdict was recorded. Advisory for identity — the KEY is what identifies the
+    /// document — but it is what `PersonTagIndex.byRecordedPath` answers a path lookup from, and
+    /// `PersonTagStore.record` both refreshes it when a document is re-answered somewhere new and
+    /// matches on it to supersede a differently-keyed verdict on the same document.
     public let recordedPath: String
 
     public var id: String { "\(personId)|\(keyDescription)" }

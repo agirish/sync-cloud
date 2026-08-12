@@ -85,7 +85,14 @@ public final class PersonTagStore: ObservableObject {
                        path: String) {
         let tag = PersonTag(personId: personId, key: key, verdict: verdict, recordedPath: path)
         if let i = tags.firstIndex(where: { $0.personId == personId && $0.key == key }) {
-            guard tags[i].verdict != verdict else { return }
+            // **Nothing to do only when the path is unchanged too.** The early return used to key
+            // on the verdict alone, which made re-answering a MOVED document a permanent no-op:
+            // the gather looks a fingerprint-keyed tag up by path (`byRecordedPath`), so after
+            // Organize files the file the row comes back as an open question — and pressing the
+            // same answer again computed the same key, saw the same verdict, and returned without
+            // ever updating `recordedPath`. The row reappeared on every gather and the button did
+            // nothing, for as long as the document stayed where it had been put.
+            guard tags[i].verdict != verdict || tags[i].recordedPath != path else { return }
             tags[i] = tag
         } else {
             tags.append(tag)

@@ -84,8 +84,13 @@ import FileExplorer
         #expect(body.contains(".panesRegionFrame(surfaceStyle, level: glassLevel)"))
     }
 
-    /// Nothing to collapse to: the header's collapse rung is nil in Browse, so `railSpine` — which
-    /// is the only other way to reach `togglePanesForCurrentTab` — can never be drawn either.
+    /// Nothing to collapse to: the header's collapse rung is nil in Browse, and `railSpine` — the
+    /// only control that could otherwise reach `togglePanesForCurrentTab` — is drawn by
+    /// `singleSourceLayout`, which Browse never takes.
+    ///
+    /// The gather's "Open" calls it too now, but only behind `contentLayout == .singleCollapsed`,
+    /// a layout Browse resolves before the flag is read — so Browse still writes no override, and
+    /// `contentLayout`'s assumption that it never does still holds.
     @Test func testTheCollapseRungIsNotOfferedInBrowse() throws {
         let content = try Self.source("ContentView.swift")
         #expect(content.contains("onCollapse: layoutMode == .singleSource && selectedWorkspace != .browse"),

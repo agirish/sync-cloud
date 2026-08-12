@@ -3272,14 +3272,14 @@ public struct TidyView: View {
         // and reported that all of them were somewhere else, while they were right there behind
         // the filter. It also made the filter-only wording below unreachable under any scope.
         //
-        // **The filter can only be the cause when the scope holds something for it to hide.**
-        // Nothing resets `filter` when the scope changes, so a filter left on from an earlier
-        // session over a scope that holds nothing blamed the filter for an empty list it had no
-        // part in: "hides all 0 duplicate groups", with a button that cleared the filter onto a
-        // list still empty — the loop dressed as a recovery this apparatus exists to remove, and
-        // one this chooser used to get right. `scopedTotal` is the scope-only count, so it asks
-        // exactly that question.
-        if query.isEmpty, !(filterIsNarrowing && scopedTotal > 0), let scope {
+        // **Nothing in the scope means the scope owns the emptiness, whatever else is set.**
+        // A query and a type filter can only hide rows that are there; over a scope holding none,
+        // both of the other sentences degenerate to "hides all 0 …" with a button that clears the
+        // control and re-renders the same empty list — the loop dressed as a recovery this
+        // apparatus exists to remove. The first attempt asked this of the filter alone and left
+        // the identical dead end one branch over, on the query. `scopedTotal` is the scope-only
+        // count (it sees neither the query nor the filter), which is exactly the right question.
+        if scopedTotal == 0, let scope {
             // Reached only when the scoped list is empty, so everything there is is elsewhere.
             scopeHidesAllState(total: globalTotal - scopedTotal, noun: noun, scope: scope)
         } else {
@@ -3300,8 +3300,9 @@ public struct TidyView: View {
     ///   cause, not for everything it does.
     private func searchHidesAllState(total: Int, noun: String) -> some View {
         let plural = "\(total) \(noun)\(total == 1 ? "" : "s")"
-        // `total > 0` for the reason the chooser above gives: a filter cannot be hiding rows that
-        // are not there, and "hides all 0" is not a sentence.
+        // `total > 0` belongs to the chooser above, which routes an empty scope to the scope's own
+        // sentence — but this state is also reachable with no scope at all, and "hides all 0" is
+        // not a sentence in either.
         let filterOnly = query.isEmpty && filterIsNarrowing && total > 0
         return EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",

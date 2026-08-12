@@ -33,6 +33,23 @@ import Foundation
     /// the sweep actually needs is on its RESULT — that it found call sites at all — which
     /// `testTheScanFindsTheCallSites` asserts, and on the named file `testTheScanCanActuallyFail`
     /// reads through `source(_:)`.
+    /// The balanced argument list following `opening`, so a scan of one call cannot read the next.
+    static func argumentList(after opening: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: opening), "\(opening) is gone — the scan is vacuous")
+        var depth = 1
+        var out = ""
+        for character in source[start.upperBound...] {
+            if character == "(" { depth += 1 }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { return out }
+            }
+            out.append(character)
+        }
+        Issue.record("\(opening) never closes — the scan would read the rest of the file")
+        return out
+    }
+
     static func readable(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

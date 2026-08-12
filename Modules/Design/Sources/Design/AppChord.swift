@@ -96,7 +96,12 @@ public extension AppChord {
     /// all — the documented look-release-press contract, restored.
     static let foldAllDifferences = AppChord("f", [.shift, .command])
 
-    /// **Every fixed chord this app registers, once.**
+    /// **Every fixed chord declared as an `AppChord`, once.**
+    ///
+    /// Not every chord the app registers: ⌘? is written straight onto its menu item and has no
+    /// member here, which is exactly why `ShortcutsReferenceTests` reads the `.keyboardShortcut`
+    /// literals out of `MacApp/` as well as sweeping this list. A registry-driven test cannot see
+    /// a chord that is not in the registry.
     ///
     /// The type's whole argument is "one chord, one truth", and three "for every chord" tests were
     /// each re-typing the list to make it — two in `AppChordTests` (the no-⌥ invariant and the

@@ -9,12 +9,17 @@ import Design
 @MainActor
 @Suite struct TidyGroupColumnsTests {
 
-    /// - Note: The `width <= slot` half is **true by construction** — `badgeSlotWidth` is the
-    ///   maximum of this very expression over this very vocabulary, so it can only fail if the two
-    ///   stop being the same formula. That is worth keeping (it is exactly the drift that would
-    ///   break the columns) but it is not evidence that any badge *fits* anything. The half below
-    ///   it — the slot equals a real member — is the one that can fail on a bad measurement, and
-    ///   `theSlotIsWideEnoughForTheWidestBadgeDrawnAtSize` measures the drawn text independently.
+    /// - Note: **Both halves are true by construction, and nothing here measures a drawn badge.**
+    ///   `badgeSlotWidth` is the maximum of this very expression over this very vocabulary, so
+    ///   `width <= slot` cannot fail while the two remain the same formula — and a maximum is
+    ///   always attained, so "the slot equals a real member" cannot fail either. What that buys is
+    ///   real but narrow: the slot and the drawing stay the same arithmetic.
+    ///
+    ///   It is NOT evidence that a badge fits. If `LabelMetrics` under-measured by a fifth, slot
+    ///   and assertions would shrink together and every badge would overflow with this green. An
+    ///   earlier version of this note claimed a sibling test measured the drawn text
+    ///   independently; **no such test exists** — the name appeared only in the note. Closing it
+    ///   means rendering a badge and reading its painted width back, which is not done here.
     @Test func everyBadgeFitsItsSlot() {
         let slot = TidyGroupColumns.badgeSlotWidth(scale: 1)
         for type in TidyGroupColumns.badgeVocabulary {

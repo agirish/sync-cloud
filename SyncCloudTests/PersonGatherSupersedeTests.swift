@@ -185,6 +185,38 @@ import Sync
                 "the bar's setter still clears the scope too")
     }
 
+    /// **Open opens the rail — and only where opening it means anything.**
+    ///
+    /// Rewiring the gather's "Open" from a Finder reveal to a pane focus made it a dead click when
+    /// the source rail is collapsed: `focusOn` only pushes history, and the Finder fallback does
+    /// not fire for a folder that IS under the provider root. The fix asks `contentLayout`, not
+    /// `panesHiddenForCurrentTab` — that flag is honoured only by the single-source layout, so
+    /// keying on it would write a persisted layout preference in Compare and Browse, where the
+    /// layout is resolved before the flag is consulted and nothing visible would change.
+    @Test func theGathersOpenExpandsACollapsedRailOnly() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView.swift")
+        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                   "cannot read ContentView.swift — this scan would be vacuous")
+        try #require(content.count > 500, "ContentView.swift is implausibly short")
+
+        let start = try #require(content.range(of: "onOpenFolder: { relative in"),
+                                 "the gather's Open handler is gone — this scan is vacuous")
+        let rest = content[start.upperBound...]
+        let end = try #require(rest.range(of: "\n                   },"))
+        let body = Self.codeOnly(String(rest[..<end.lowerBound]))
+
+        #expect(body.contains("if contentLayout == .singleCollapsed { togglePanesForCurrentTab() }"),
+                "Open no longer opens a collapsed rail, or keys on a flag two layouts ignore")
+        #expect(body.contains("syncManager.focusOn(relativePath: inPane"),
+                "Open no longer focuses the pane")
+        // And it still falls back to Finder for a folder outside this pane's provider, which is
+        // the case no pane can show.
+        #expect(body.contains("activateFileViewerSelecting"),
+                "a folder outside the provider has no fallback and would be a silent no-op")
+    }
+
     @Test func aMissingCorpusIsNilRatherThanAnEmptyAnswer() async throws {
         // **nil and "nobody has anything" must not look alike.** The slot renders the first as
         // `.failed` ("nothing has been surveyed") and the second as the empty state ("nothing is

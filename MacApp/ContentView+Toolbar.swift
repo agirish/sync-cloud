@@ -313,18 +313,13 @@ extension ContentView {
                     .shortcutKeycap(AppChord.settings.display)
             }
             .help(ShortcutHint.tooltip("Settings", AppChord.settings.display))
-            // **Deliberately NOT disabled during a destination pick, unlike Info above.** The two
-            // are not the same case: ⌘I is published through `ShortcutValuePublisher` and is
-            // suspended with the rest, so disabling its button keeps the halves of one control in
-            // step. ⌘, is registered in the App scene, sees none of this window's state, and
-            // cannot be suspended from here — so disabling only the button would create exactly
-            // the keyboard-can/mouse-cannot split the Info comment gives as the reason for its
-            // own gating.
-            //
-            // Both halves are answered where they meet instead: `ContentView`'s
-            // `onChange(of: showSettings)` refuses to open Settings while a pick is up, so neither
-            // the button nor the chord latches it behind the picker and neither ambushes the user
-            // when the pick resolves.
+            // Disabled during a destination pick, like the bar and the ⌘K pill. ⌘, is registered
+            // in the App scene and cannot be suspended from this window, so the parity that makes
+            // this correct is not the button's: `ContentView`'s `onChange(of: showSettings)`
+            // refuses the latch itself, for every caller. With the act already refused, an enabled
+            // button would be a control that silently does nothing — which the ⌘K pill above calls
+            // its own bug — and the toolbar is the one surface the picker's scrim does not cover.
+            .disabled(pendingDestination != nil)
         }
     }
 }

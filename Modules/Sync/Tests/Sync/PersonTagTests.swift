@@ -288,4 +288,41 @@ import Foundation
         #expect(index.verdict(personId: "aditi", path: "b.pdf") == .confirmed)
         #expect(index.verdict(personId: "divit", path: "a.pdf") == .confirmed)
     }
+
+    /// **Re-answering a document that has since moved takes.**
+    ///
+    /// The gather looks a fingerprint-keyed tag up by path, so once Organize files the document
+    /// the row comes back as an open question — that much is expected, and `keyKind` says so. What
+    /// was not expected: pressing the same answer again did nothing at all. `record` computed the
+    /// same key, found the tag, saw the same verdict and returned before touching `recordedPath`,
+    /// so the row reappeared on every gather afterwards and the button never took.
+    @MainActor @Test func reAnsweringAMovedDocumentUpdatesWhereItWasRecorded() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed,
+                     path: "Family/Aditi/OCI.pdf")
+        // Organize files it; the user answers the re-opened question the same way.
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed,
+                     path: "Immigration/OCI/Aditi/OCI.pdf")
+
+        #expect(store.tags.count == 1, "the re-answer appended a second tag")
+        let index = PersonTagIndex(tags: store.tags)
+        #expect(index.verdict(personId: "aditi", path: "Immigration/OCI/Aditi/OCI.pdf") == .confirmed,
+                "the answer did not follow the document to where it now lives")
+        #expect(index.confirmedPaths(for: "aditi") == ["Immigration/OCI/Aditi/OCI.pdf"],
+                "the confirmed set still names the old path")
+    }
+
+    /// And the early return still does its job: re-recording the SAME answer at the SAME path
+    /// writes nothing, which is what keeps a gather from rewriting the file on every pass.
+    @MainActor @Test func reAnsweringTheSameDocumentIdenticallyIsANoOp() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        let before = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/person-tags.json")))
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        let after = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/person-tags.json")))
+        #expect(before == after, "an identical re-answer rewrote the file")
+    }
 }

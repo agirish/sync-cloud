@@ -211,6 +211,52 @@ import Foundation
                 "⌘F is dead even with nothing suspending it")
     }
 
+    /// **The ambient panels cannot latch behind a destination pick.**
+    ///
+    /// `showSettings` and `showHelp` are plain `Bool` latches and the overlay chain renders the
+    /// picker in front of both, so setting either mid-pick did nothing visible and then produced
+    /// the panel the instant the pick resolved. ⌘, and ⌘? are registered in the App scene and see
+    /// none of this window's state, so the refusal has to live at the latch — which is also why
+    /// the toolbar button can be disabled without creating a keyboard/mouse split.
+    ///
+    /// Source-level because `ContentView`'s overlays need a live manager and a render pass; what
+    /// is pinned is that each latch has a guard and that the guard reads the picker.
+    @Test func theAmbientPanelsRefuseToOpenDuringADestinationPick() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView.swift")
+        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                   "cannot read ContentView.swift — this scan would be vacuous")
+        try #require(content.count > 500, "ContentView.swift is implausibly short")
+        let code = Self.codeOnly(content)
+
+        // The welcome tour is the third member of the chain and the one with a persisted flag,
+        // so it is guarded too — inverted, because its "open" is a *cleared* dismissal.
+        #expect(code.contains(".onChange(of: welcomeDismissedThisSession)"),
+                "the welcome tour can still latch behind the destination picker")
+        #expect(code.contains("hasSeenFirstRunWelcome = true"),
+                "a refused tour leaves the persisted seen-flag cleared, so it returns next launch")
+
+        for latch in ["showSettings", "showHelp"] {
+            let start = try #require(code.range(of: ".onChange(of: \(latch)) { _, isOpen in"),
+                                     "\(latch) has no open-guard at all")
+            let rest = code[start.upperBound...]
+            let end = try #require(rest.range(of: "\n        }"))
+            let body = String(rest[..<end.lowerBound])
+            #expect(body.contains("pendingDestination != nil"),
+                    "\(latch) can still latch behind the destination picker")
+            #expect(body.contains("\(latch) = false"),
+                    "\(latch)'s guard notices the pick but does not refuse the open")
+        }
+
+        // And the mouse half says so rather than no-opping silently.
+        let toolbar = try #require(try? String(contentsOf: url.deletingLastPathComponent()
+                                                  .appendingPathComponent("ContentView+Toolbar.swift"),
+                                               encoding: .utf8))
+        #expect(Self.codeOnly(toolbar).components(separatedBy: ".disabled(pendingDestination != nil)").count - 1 >= 4,
+                "a toolbar control that cannot act during a pick still looks like it can")
+    }
+
     @Test func theReferenceFitsItsWindowWithoutScrolling() {
         let host = NSHostingView(rootView:
             ShortcutsReferenceContent().frame(width: ShortcutsReferenceView.windowSize.width))

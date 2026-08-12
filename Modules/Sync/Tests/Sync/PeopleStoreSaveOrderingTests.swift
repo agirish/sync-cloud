@@ -115,31 +115,65 @@ import Testing
         #expect(store.source == .file)
     }
 
-    /// **A dismissal writes the file but does not announce a household change.**
+    /// **A dismissal changes the file without changing the fingerprint that costs money.**
     ///
-    /// `savedRevision`'s only subscriber re-derives the filing artifact fingerprint, which keys the
-    /// verdict cache — so a bump costs a full paid re-classification. What a dismissal writes
-    /// (`notNames`) is not part of the compiled registry and cannot change any classification, so
-    /// announcing it re-billed the user for a name they declined to add. `writeCount` is the
-    /// honest "did this reach the disk" counter.
-    @Test func dismissingASuggestionWritesWithoutInvalidatingCachedVerdicts() throws {
+    /// The fingerprint keys `FilingVerdictCache`, so anything that moves it re-bills a paid pass.
+    /// A declined name suggestion lands in `notNames`, which feeds nothing but the suggestion list
+    /// — the compiled registry is `PersonRegistry(people:source:)` and cannot see it. Asserted on
+    /// the digest itself rather than on a counter: an earlier attempt suppressed the *signal*
+    /// instead, which only deferred the re-bill to the next launch (the fingerprint is recomputed
+    /// from disk there) while leaving the session's verdicts keyed to a digest that no longer
+    /// described the file.
+    @Test func dismissingASuggestionDoesNotMoveTheFilingFingerprint() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         store.add(displayName: "Muktha")
-        let writes = store.writeCount
+
+        let before = FilingProfileStore.fingerprint(id: "p", in: dir)
+        #expect(!before.isEmpty, "the fixture produced no fingerprint to compare")
         let revision = store.savedRevision
 
         store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Mukta",
                                                      occurrences: 3, exampleFile: "Mukta bill.pdf"))
 
-        #expect(store.writeCount > writes, "the dismissal did not reach the disk")
-        #expect(store.savedRevision == revision,
-                "a dismissal announced a household change and invalidated every cached verdict")
-        // It really did land — read it back rather than trusting the counter.
+        // It really did land — read it back rather than trusting a counter.
         let data = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/people.json")))
         let object = try #require(try? JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect((object["notNames"] as? [String])?.isEmpty == false, "the dismissal was not written")
+        #expect(store.savedRevision > revision, "the write was not announced")
+
+        #expect(FilingProfileStore.fingerprint(id: "p", in: dir) == before,
+                "a declined name suggestion moved the filing fingerprint and re-billed every file")
+    }
+
+    /// And a real roster change still moves it — the direction that must keep working, or the
+    /// cache would serve answers composed against a household that has changed.
+    @Test func addingAPersonDoesMoveTheFilingFingerprint() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.add(displayName: "Muktha")
+        let before = FilingProfileStore.fingerprint(id: "p", in: dir)
+
+        store.add(displayName: "Divit")
+        #expect(FilingProfileStore.fingerprint(id: "p", in: dir) != before,
+                "adding a person left the fingerprint unchanged; cached verdicts would survive it")
+    }
+
+    /// Neither does an unmodelled key a hand-edit or a future build left in the file.
+    @Test func aCarriedCommentDoesNotMoveTheFilingFingerprint() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/people.json")
+        try Data(#"{"schemaVersion":1,"people":[{"id":"a","displayName":"Abhishek"}]}"#.utf8)
+            .write(to: url)
+        let before = FilingProfileStore.fingerprint(id: "p", in: dir)
+
+        try Data(#"{"schemaVersion":1,"_note":"Anuraag files here too","people":[{"id":"a","displayName":"Abhishek"}]}"#.utf8)
+            .write(to: url)
+        #expect(FilingProfileStore.fingerprint(id: "p", in: dir) == before,
+                "a comment in people.json re-billed a full classification")
     }
 
     /// And an edit that DOES change the household still announces one.

@@ -99,12 +99,17 @@ public final class PeopleStore: ObservableObject {
     /// bumped when the save is declined (no profile, or an unreadable roster): nothing changed on
     /// disk, so nothing downstream needs to re-read it.
     ///
-    /// **"The household changed", not "the file changed".** Its one subscriber re-derives the
-    /// filing artifact fingerprint, which keys `FilingVerdictCache` — so a bump costs a full paid
-    /// re-classification of every file. `dismissSuggestion` writes this file too, and what it
-    /// writes (`notNames`) is not part of the compiled registry and cannot change a single
-    /// classification; announcing it re-billed the user for a name they declined to add. Writes
-    /// that cannot move an answer pass `rosterChanged: false`.
+    /// **Every successful write, including ones that cannot move a classification.** An earlier
+    /// version of this split the counter in two so that `dismissSuggestion` would not re-derive the
+    /// filing artifact fingerprint (which keys `FilingVerdictCache`, so refreshing it re-bills a
+    /// paid pass). That was the wrong layer and it was worse than the problem: the fingerprint is
+    /// recomputed from disk at every launch and re-survey anyway, so the re-bill was only deferred
+    /// — and in the meantime verdicts were recorded against a digest that no longer described the
+    /// file and could never be reproduced, which makes them permanently unreachable.
+    ///
+    /// The fingerprint now hashes only the part of `people.json` that can change an answer (see
+    /// ``FilingProfileStore/classifyingBytes(ofPeople:)``), so a dismissal produces the same digest
+    /// and this counter can go back to meaning exactly what it says.
     @Published public private(set) var savedRevision: Int = 0
 
     /// Decides the above from two independent facts: did the registry come from the file (`source`
@@ -169,12 +174,12 @@ public final class PeopleStore: ObservableObject {
     public func dismissSuggestion(_ suggestion: PersonNameSuggestion) {
         guard !dismissedSuggestions.contains(suggestion.id) else { return }
         dismissedSuggestions.insert(suggestion.id)
-        let before = writeCount
-        save(rosterChanged: false)
+        let before = savedRevision
+        save()
         // "again" is a claim about the next launch, and `save()` refuses outright when the roster
         // on disk is one this build could not read. Said only when the write actually landed —
         // the in-memory dismissal still holds for this session, and the sentence now says which.
-        let persisted = writeCount != before
+        let persisted = savedRevision != before
         Logger.shared.info("People: “\(suggestion.form)” is not \(suggestion.personId)'s — "
                            + (persisted ? "it will not be suggested again"
                                         : "not suggested again this session; the roster could not be written"))
@@ -257,11 +262,7 @@ public final class PeopleStore: ObservableObject {
         static let modelledKeys: Set<String> = ["schemaVersion", "people", "notNames"]
     }
 
-    /// Every successful write, whether or not it changed the household — the honest answer to
-    /// "did this reach the disk", which `savedRevision` deliberately is not.
-    public private(set) var writeCount: Int = 0
-
-    private func save(rosterChanged: Bool = true) {
+    private func save() {
         guard isPersistent else { return }
         // **A file this build could not read is a file it must not rewrite.** Everything below is a
         // whole-file atomic write of the roster now in memory, and when the load fell back to the
@@ -301,8 +302,7 @@ public final class PeopleStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
             // **Only now are the bytes on disk what this roster says**, which is what anything
             // hashing the file has to wait for. See `savedRevision`.
-            writeCount &+= 1
-            if rosterChanged { savedRevision &+= 1 }
+            savedRevision &+= 1
             // And only now is the file the household of record. Set here rather than by the
             // callers — `sortAndSave()` set it before `save()`, and `dismissSuggestion` was given
             // the same shape — so a save this build REFUSES (an unreadable roster, which is the

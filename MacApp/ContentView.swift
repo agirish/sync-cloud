@@ -641,20 +641,36 @@ struct ContentView: View {
         // The overlays are mutually exclusive; Settings wins the precedence above. Close Help
         // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
         // left lingering underneath a Settings card the user opened on top of it.
+        // **The ambient panels are refused while a destination pick is up, whichever path asked.**
+        //
+        // `showSettings` and `showHelp` are plain latches and the overlay chain above renders the
+        // picker in front of both, so setting either mid-pick did nothing visible and then produced
+        // the panel the instant the pick was answered. Each has entry points this window cannot
+        // gate — ⌘, and ⌘? live in the App scene and see none of this state — so refusing at the
+        // latch is the one place that covers every caller of both.
+        //
+        // The toolbar buttons are ALSO disabled, which is not a contradiction: with the latch
+        // refusing, an enabled button would be a control that silently does nothing, which this
+        // file's own ⌘K pill calls "its own bug". Disabled says so.
         .onChange(of: showSettings) { _, isOpen in
             guard isOpen else { return }
-            // **Refused while a destination pick is up, whichever path asked.** `showSettings` is a
-            // plain latch and the overlay chain renders the picker above Settings, so setting it
-            // mid-pick did nothing visible and then produced Settings the instant the pick was
-            // answered. Both entry points flip this same binding — the toolbar button here and ⌘,
-            // in the App scene, which cannot see this window's state — so refusing here is the one
-            // place that covers both, and it is why the button is NOT separately disabled: a
-            // disabled button with a live chord is the split this is avoiding.
             if pendingDestination != nil {
                 showSettings = false
                 return
             }
             showHelp = false
+        }
+        .onChange(of: showHelp) { _, isOpen in
+            guard isOpen, pendingDestination != nil else { return }
+            showHelp = false
+        }
+        // The welcome tour is the third member of the same chain, and the one with a persisted
+        // flag: "Welcome to SyncCloud" clears `hasSeenFirstRunWelcome` on disk, so latching it
+        // behind a pick would both do nothing now and re-show the tour on the next launch.
+        .onChange(of: welcomeDismissedThisSession) { _, dismissed in
+            guard !dismissed, pendingDestination != nil else { return }
+            welcomeDismissedThisSession = true
+            hasSeenFirstRunWelcome = true
         }
         .quickLookPreview($quickLookURL)
         // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
@@ -2909,7 +2925,18 @@ struct ContentView: View {
                        // history, and the Finder fallback above does not fire for a folder that IS
                        // under the root. Nothing on screen changed — which is worse than the Finder
                        // reveal this replaced.
-                       if panesHiddenForCurrentTab { togglePanesForCurrentTab() }
+                       //
+                       // Asked as `contentLayout`, not as `panesHiddenForCurrentTab`: that flag is
+                       // only honoured by the single-source layout. Compare and Browse resolve
+                       // their layout before it is consulted, so keying on it would write a
+                       // remembered layout preference — persisted, for the whole workspace — that
+                       // changes nothing anyone can see.
+                       //
+                       // It does discard a deliberate collapse, and permanently: the override is
+                       // `@AppStorage` and nothing restores it when the gather clears. That is the
+                       // same trade `presentTidyRail` already makes on entering a lens from the
+                       // bar, and the alternative is a click that does nothing.
+                       if contentLayout == .singleCollapsed { togglePanesForCurrentTab() }
                        syncManager.focusOn(relativePath: inPane, isLeft: !tidyTargetIsRight)
                    },
                    // Expanded, like every other reader of `FolderProfile.root` — it is stored

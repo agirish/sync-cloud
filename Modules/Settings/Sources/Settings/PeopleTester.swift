@@ -122,7 +122,7 @@ struct PeopleTester: View {
         let folders = facts.folderCount == 1 ? "their 1 folder" : "their \(facts.folderCount) folders"
         return others == 0
             ? "Prefers \(folders)."
-            : "Prefers \(folders); refuses the other \(others) people's."
+            : "Prefers \(folders); refuses the other \(others == 1 ? "person's" : "\(others) people's")."
     }
 
     private func absorbedLine(_ absorbed: AbsorbedWord) -> String {

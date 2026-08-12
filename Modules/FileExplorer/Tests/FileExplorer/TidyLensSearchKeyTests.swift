@@ -87,25 +87,29 @@ import Foundation
         // decided by "no query AND the type filter is narrowing" and must name the filter.
         #expect(body.contains("let filterOnly = query.isEmpty && filterIsNarrowing && total > 0"),
                 "the empty state no longer distinguishes a filter-only narrowing from a search")
-        #expect(body.contains("Show All"),
+        // The exact label, quoted: `"Show All Kinds".contains("Show All")` is true, so the loose
+        // form could not see the copy fix it was updated for. "Kinds" appears nowhere in the
+        // control — the filter's own name for that option is "All".
+        #expect(body.contains("\"Show All\" : \"Clear Search\""),
                 "a filter-only dead-end still offers to clear a search that isn't running")
+        #expect(!body.contains("Show All Kinds"), "the button names a choice the filter does not offer")
         #expect(body.contains("filter.label"), "the filter-only message does not name the filter")
 
         // **And the cause is resolved before the scope's sentence.** `filterOnly` requires an empty
         // query, so routing the empty-query case straight to `scopeHidesAllState` made this branch
         // unreachable under any scope — and told the reader that all N groups were somewhere else
         // while they were right there behind the filter.
-        #expect(tidy.contains("if query.isEmpty, !(filterIsNarrowing && scopedTotal > 0), let scope {"),
+        #expect(tidy.contains("if scopedTotal == 0, let scope {"),
                 "a filter-narrowed scoped list still blames the scope, and the branch above is dead there")
         // One predicate, so the chooser and the wording cannot drift apart.
         #expect(tidy.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
-        // **A filter cannot be the cause of an empty list it had no part in.** With a scope holding
-        // nothing and a filter left set from an earlier session, blaming the filter produced "hides
-        // all 0 duplicate groups" and a button that cleared the filter onto a list still empty —
-        // while the scope's own sentence, which names the 695 elsewhere and offers the one click
-        // that shows them, is what that state has always needed.
-        #expect(tidy.contains("scopedTotal > 0"),
-                "the filter can be blamed for an empty scope again")
+        // **Neither a query nor a filter can be the cause of an empty list it had no part in.**
+        // Over a scope holding nothing, both sentences degenerate to "hides all 0 …" with a button
+        // that clears the control and re-renders the same empty list, while the scope's own
+        // sentence names what is elsewhere and offers the one click that shows it. Asserted as a
+        // behaviour of the message text below, not only as the predicate above.
+        #expect(body.contains("total == 1 ? \"\" : \"s\""),
+                "the empty state no longer counts what it claims to be hiding")
         #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: tidy)
                     .contains("filterIsNarrowing"),
                 "`isFiltered` restates the filter rule instead of sharing it")

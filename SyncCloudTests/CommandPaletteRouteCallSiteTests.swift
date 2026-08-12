@@ -85,9 +85,11 @@ import Sync
     /// choosing a source switched the left pane. `paletteProviderId` names the rule once.
     @Test func thePaletteRevealsIntoThePaneItIndexed() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        #expect(host.contains("var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }"),
+        #expect(host.contains("var aimedAtRight: Bool { tidyTargetIsRight }"),
                 "there is no single answer for which pane the palette is aimed at")
-        #expect(host.contains("syncManager.focusOn(relativePath: relative, isLeft: !tidyTargetIsRight)"),
+        #expect(host.contains("var paletteProviderId: String { aimedAtRight ? rightProviderId : leftProviderId }"),
+                "the provider read no longer goes through the aim")
+        #expect(host.contains("isLeft: isLeft ?? !aimedAtRight"),
                 "the reveal always targets the left pane, even when the index came from the right one")
         #expect(!Self.codeOnly(host).contains("isLeft: true"),
                 "a reveal still hard-codes the left pane")
@@ -101,8 +103,37 @@ import Sync
                 "choosing a source from ⌘K switches the pane the palette was not describing")
         #expect(host.contains("chooseFolderSource { id in aimProvider(id) }"),
                 "adding a source from ⌘K still points a pane the palette was not describing")
-        #expect(Self.codeOnly(host).components(separatedBy: "tidyTargetIsRight ? rightProviderId").count - 1 == 1,
+        #expect(Self.codeOnly(host).components(separatedBy: "tidyTargetIsRight").count - 1 == 1,
                 "the aimed-pane rule is stated in more than one place again")
+    }
+
+    /// **The aim is read before the workspace moves.**
+    ///
+    /// `tidyProviderRootExpanded` and `tidyTargetIsRight` both follow the focused pane, and only
+    /// Compare has two panes — so switching to Organize makes them the LEFT pane's answers. A
+    /// scope string taken from a right-pane index and resolved afterwards fails `OrganizeScope`,
+    /// which writes `""` and silently clears the scope instead of setting it: "organize legal"
+    /// loses its folder. Ordering is the whole fix, so ordering is what this asserts.
+    @Test func theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        let body = try #require(Self.aimOrganizeBody(host), "aimOrganize is gone — this scan is vacuous")
+        let read = try #require(body.range(of: "let root = tidyProviderRootExpanded"),
+                                "aimOrganize no longer resolves a provider root")
+        let move = try #require(body.range(of: "workspaceSelection.wrappedValue = .filing"),
+                                "aimOrganize no longer enters Organize")
+        #expect(read.lowerBound < move.lowerBound,
+                "the root is read after the workspace changes, so it names the wrong pane")
+        // And the reveal is given that captured aim rather than re-reading it.
+        #expect(body.contains("revealInSourcePane(scope, root: root, isLeft: !aimedAtRight)"),
+                "the reveal re-reads an aim the workspace switch has already moved")
+    }
+
+    static func aimOrganizeBody(_ host: String) -> String? {
+        guard let start = host.range(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {")
+        else { return nil }
+        let rest = host[start.upperBound...]
+        guard let end = rest.range(of: "\n    }") else { return nil }
+        return String(rest[..<end.lowerBound])
     }
 
     /// Every route case is applied. A `default:` arm would let a case added to `PaletteRoute` — a

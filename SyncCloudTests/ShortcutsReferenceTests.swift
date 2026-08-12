@@ -87,12 +87,6 @@ import Design
         #expect(!listed.contains(""), "an empty key survived the split")
     }
 
-    /// The workspace range is a family rather than a chord, so it is checked on its own.
-    @Test func testTheWorkspaceRangeHasARow() {
-        let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
-        #expect(keys.contains("⌘ 1 – ⌘ \(Workspace.allCases.count)"))
-    }
-
     /// **And every chord registered OUTSIDE `AppChord` has a row too.**
     ///
     /// The registry cannot see a `.keyboardShortcut("?", modifiers: .command)` written directly on
@@ -140,6 +134,9 @@ import Design
 
     /// ...and the reference's workspace row must count the same list: a sixth workspace would
     /// otherwise ship with a row still reading "⌘ 1 – ⌘ 3" and every shape test green.
+    ///
+    /// This is also where the range is checked on `AppChord.registry`'s behalf: `workspace(_:)` is
+    /// a family rather than a member, so the registry sweep cannot see it.
     @Test func testTheWorkspaceRowCountsEveryWorkspace() {
         let expected = "⌘ 1 – ⌘ \(Workspace.allCases.count)"
         let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
