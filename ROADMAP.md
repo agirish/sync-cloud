@@ -7,7 +7,9 @@ carries its own finished work stops being scannable — by the last pass, five o
 existed mainly to say they were done. Status re-checked against the code on **2026-08-02**.
 
 Distinct from `DEFERRED_ENHANCEMENTS.md` (hardening / coverage consciously punted) and `REFACTOR.md`
-(internal shape that is correct but worth restructuring).
+(internal shape that is correct but worth restructuring). `ROADMAP_V4.md` holds the 4.x Browse
+interface work — tabs and the rest of what is worth taking from Finder — which is scoped to one
+workspace and carries its own shared constraints, so it reads better as a file than as an item here.
 
 Numbers here are positional and change as the list does — **cite items by name, not by number.**
 
