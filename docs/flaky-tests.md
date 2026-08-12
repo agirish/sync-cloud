@@ -21,6 +21,12 @@ favour of a wrong conclusion.
 none of the steps below apply: they all assume a failure you can read. Go straight to
 [mechanism 8](#8-the-wait-that-hangs-instead-of-failing).
 
+**Several failures at once, all with the same expectation and all at the same wall clock?** A
+cluster whose membership changes between runs is the signature of
+[mechanism 10](#10-every-gate-parks-at-once-on-the-pool-their-releases-need), and it is settled by
+`--no-parallel` rather than by any of the steps below. Note the exception it makes to step 4:
+there, passing in isolation *is* evidence.
+
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
 *spends* its whole ceiling — 25s or 32s per test — before failing. Real geometry bugs fail
@@ -891,6 +897,103 @@ mechanism 8's signature, from a line that looks like tidying up.
 `Modules/FileExplorer/Tests/FileExplorer/CloudDownloadWiringTests.swift` (`mount`, `teardown(_:)`),
 `Modules/FileExplorer/Tests/FileExplorer/CloudDownloadRoutingTests.swift`
 (`theDefaultChannelIsTheAppsOwn`).
+
+---
+
+### 10. Every gate parks at once, on the pool their releases need
+
+**Symptom.** Several Sync tests fail together, all with the same expectation and all at ~12.5 s
+wall clock:
+
+```
+✘ testPrefetchFastPathClearsStaleLoadingSpinner()  DifferenceResolutionTests.swift:399
+    Expectation failed: !((gate → SyncTests.ParkGate).releasedByTimeout → true → true)
+```
+
+They arrive in a cluster (4 and 7 issues in two runs here), the cluster's membership changes from
+run to run, and every member is a `ParkGate` or `FirstStatGate` user. Seen across
+`DifferenceResolutionTests`, `AutoVerifyOnScanTests`, `BulkCopyExclusionTests` and
+`FileSyncManagerTests`.
+
+**This is the honest half of mechanism 8 doing its job, not a regression.** `releasedByTimeout` is
+the recorded-expiry flag that section argues for: the parked call gave up at its 10 s bound instead
+of being released, and says so, rather than resuming quietly and letting the test assert against
+state it never held. So the failure is real — it just is not about the code under test.
+
+**Mechanism.** `ParkGate.park()` blocks a **real thread** on a `DispatchSemaphore` for up to 10 s,
+and the async side of the test is what signals `release` — so the release needs a thread to get
+there. swift-testing starts its suites together, which means the gated tests all park at
+*the same moment*, near the very start of the run.
+
+Sampled 1 s into a full parallel run: **9 threads simultaneously blocked inside
+`ParkGate.park` / `FirstStatGate.gateIfFirst`, 8 of them on `com.apple.root.*.cooperative`
+queues** — the Swift cooperative pool, whose width is the core count (10 logical here). The parks
+are holding very nearly the whole pool, and every release has to be scheduled on what is left,
+alongside the ~1,900 other tests that also just started. In a run that passes they all clear within
+about 4 s (sampled at t≈4 s: none left). In a run that fails, some are still waiting at their 10 s
+bound — which is why every failure lands on the same number: the bound, not the work, is what ends
+the wait.
+
+It is therefore a function of **how many tests run concurrently**, not of how busy the machine is —
+and those two are easy to confuse, because both correlate with "the suite is slow right now".
+
+**The measurements that separate them** (2026-08-11; `main` at `375d98f5`, `v2.x` at `faf23c13`;
+10 logical cores):
+
+| What was run | Result |
+|---|---|
+| The four affected suites alone, in parallel, ×3 | pass, 0.12 s |
+| The same four suites alone under 8 `yes` spinners | pass, 0.124 s |
+| The whole Sync suite (170 suites), in parallel, ×4 | 1 pass / 3 fail (4, 4, 7 issues) |
+| The whole Sync suite, `--no-parallel` | pass, 27.6 s |
+| The whole **v2.x** Sync suite (109 suites), in parallel, ×4 | pass, ×4 |
+
+CPU saturation does not reproduce it and serialising cures it, which is what makes this a shortage
+of *threads* rather than of cycles. The v2.x row is the same point from the other side: that line
+carries the same gates and the same 10 s bound and simply runs 61 fewer suites, so it currently
+sits under the threshold — below it, not immune to it.
+
+**Confirming it on a given run.** Sample the test binary in the first second — that is the only
+window in which the parks are all in flight, and a sample taken at t≈6 s finds nothing and looks
+like a refutation:
+
+```bash
+(arch -arm64 swift test --package-path Modules/Sync &)
+for i in $(seq 1 60); do PID=$(pgrep -f SyncPackageTests | head -1); [ -n "$PID" ] && break; sleep 1; done
+sample "$PID" 1 -file /tmp/s.txt
+grep -cE 'ParkGate.park|gateIfFirst' /tmp/s.txt        # how many are parked right now
+grep -B99 'ParkGate.park' /tmp/s.txt | grep -c cooperative   # …and how many hold a pool thread
+```
+
+**Diagnosing it.** Before reading any diff, run the suite twice more, and run it once from a clean
+checkout of the line's tip — the primary checkout is already sitting there:
+
+```bash
+arch -arm64 swift test --package-path Modules/Sync                      # again: does the set change?
+arch -arm64 swift test --package-path Modules/Sync --no-parallel        # serial: does it clear?
+```
+
+A cluster whose membership moves between runs, and a clean serial pass, together mean the commit in
+front of you is not the cause. A single member that fails **every** time, serial included, is a
+genuine gate regression: something stopped signalling `release`.
+
+**Fix.** None applied — this is registered rather than fixed, because every candidate has a cost
+worth weighing first, and the failure is loud and self-describing when it happens:
+
+- Raising the 10 s bound trades a false failure for a slower one and does not remove the starvation;
+  it only moves the threshold, which is what the growing suite count will find again.
+- `.serialized` on the six gated suites is the targeted version of the `--no-parallel` result above,
+  and costs only those suites their overlap.
+- Not blocking a pool thread at all is the real fix: the park exists to hold a **synchronous** seam
+  call in flight, so it needs a thread of its own (a dedicated `Thread`/`DispatchQueue` outside the
+  cooperative pool) rather than whichever one the seam happened to be called on.
+
+Whichever is taken, mutation-test it: a gate that no longer engages and a gate that engages and is
+released look identical from the outside — that is the whole reason `releasedByTimeout` exists.
+
+**See.** `Modules/Sync/Tests/Sync/TestSupport.swift` (`ParkGate.park`, `FirstStatGate`,
+`awaitSignal`); mechanism 8 above for why the bound records its own expiry; mechanism 3 for the
+other way suites-in-parallel decides a verdict.
 
 ---
 
