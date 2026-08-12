@@ -75,7 +75,7 @@ import Design
     static var spendRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "cloud").scaledFont(.system(size: 10))
-            Text("Last cloud scan: Opus · 1 file · 4.7k tok · ~$0.04").lineLimit(1)
+            Text("Last refine: Opus · 1 file · 4.7k tok · ~$0.04").lineLimit(1)
             Spacer(minLength: 8)
             Text("Total ~$0.24")
             Button("History") {}.controlSize(.mini)

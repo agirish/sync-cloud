@@ -23,7 +23,7 @@ struct FilingSpendHistoryView: View {
             HStack(spacing: 24) {
                 stat(FilingSpendFormat.cost(totals.costUSD), "total")
                 stat(FilingSpendFormat.tokens(totals.tokens), "tokens")
-                stat("\(totals.scans)", "cloud scans")
+                stat("\(totals.scans)", "cloud refines")
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
@@ -35,7 +35,7 @@ struct FilingSpendHistoryView: View {
                 // sheets share one empty state.
                 EmptyStateView(
                     icon: "cloud",
-                    title: "No cloud scans yet",
+                    title: "No cloud refines yet",
                     layout: .compact
                 )
             } else {

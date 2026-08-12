@@ -225,18 +225,41 @@ public enum FileNameDate {
         return days.count == 1 ? days.first : nil
     }
 
-    /// 1–12 when a letter run is, or ends with, a month name.
+    /// 1–12 when a letter run **is** a month name, or ends with one *at a word boundary*.
+    ///
+    /// The suffix rule exists to reach glued provider names — `DetailedBillApr` — and it read any
+    /// letter run ending in those three letters, which ordinary words do: `Kumar` was March,
+    /// `Rajan` was January, `codec` was December. That is not hypothetical in this household's
+    /// tree; `Sanjay Kumar 2023.pdf` has a lone plausible year beside it, which is all
+    /// ``spelledMonth`` needs to mine a whole date and propose renaming the file `03. Mar 2023`.
+    /// The "held in check by requiring a plausible year" the comment above claims is exactly the
+    /// check a `<Name> <Year>.pdf` satisfies.
+    ///
+    /// So the suffix must begin where a word begins. Inside a single letter run the only boundary
+    /// there can be is a capital: `…Bill|Apr` has one, `Ku|mar` does not. An all-lowercase glued
+    /// run (`detailedbillapr`) is no longer read as a month, which is the deliberate cost —
+    /// provider names carry their capitals, and family names are the population being protected.
     static func monthSuffix(_ run: String) -> Int? {
         let lower = run.lowercased()
         if let m = OrdinalMonthName.monthIndex(lower) { return m }
+
+        /// Whether `name` ends `run` at a capital — or is the whole run, which the exact tests
+        /// above have mostly taken already but which keeps this honest on its own.
+        func endsAtAWordBoundary(_ name: String) -> Bool {
+            guard lower.hasSuffix(name) else { return false }
+            guard name.count < run.count else { return true }
+            let start = run.index(run.endIndex, offsetBy: -name.count)
+            return run[start].isUppercase
+        }
+
         // Longest candidate first, so `...September` is not read as the `Sep` inside it — same
         // month here, but the abbreviation would be the reported evidence for a spelled-out name.
         for name in OrdinalMonthName.monthFullNames.sorted(by: { $0.count > $1.count })
-        where lower.hasSuffix(name) {
+        where endsAtAWordBoundary(name) {
             return OrdinalMonthName.monthFullNames.firstIndex(of: name).map { $0 + 1 }
         }
         for (i, abbr) in OrdinalMonthName.monthAbbreviations.enumerated()
-        where lower.hasSuffix(abbr.lowercased()) {
+        where endsAtAWordBoundary(abbr.lowercased()) {
             return i + 1
         }
         return nil

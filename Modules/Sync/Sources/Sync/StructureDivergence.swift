@@ -209,17 +209,30 @@ public enum StructureDivergence {
     /// complete linkage, because an era grows a stray extra folder in its later years and each
     /// year is still recognisably the same scheme as the one before it. Complete linkage would
     /// split the 2016–2023 era at the first year that added a folder.
+    /// **A bridging item merges the groups it bridges**, which is what makes this single linkage
+    /// rather than "join the first group that will have you". It joined the first match and moved
+    /// on: with A and B seeded apart and C close to both, C landed in A and B stayed its own
+    /// group — two schemes reported for a family that agrees transitively, and which of them you
+    /// got depended on the order the children were walked in. The finding this feeds says "these
+    /// folders disagree about how they are organised", so a split that is an artefact of iteration
+    /// order is a divergence the user is asked to look at and cannot see.
     static func cluster(_ items: [(name: String, words: Set<String>)])
         -> [[(name: String, words: Set<String>)]] {
         var groups: [[(name: String, words: Set<String>)]] = []
         for item in items {
-            if let index = groups.firstIndex(where: { group in
-                group.contains { jaccard($0.words, item.words) >= AgreementRule.similarity }
-            }) {
-                groups[index].append(item)
-            } else {
-                groups.append([item])
+            let bridged = groups.indices.filter { i in
+                groups[i].contains { jaccard($0.words, item.words) >= AgreementRule.similarity }
             }
+            guard let home = bridged.first else {
+                groups.append([item])
+                continue
+            }
+            // Highest index first, so removing does not shift the ones still to be moved.
+            for other in bridged.dropFirst().reversed() {
+                groups[home].append(contentsOf: groups[other])
+                groups.remove(at: other)
+            }
+            groups[home].append(item)
         }
         return groups
     }

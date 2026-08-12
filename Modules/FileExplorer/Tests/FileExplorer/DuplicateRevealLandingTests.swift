@@ -63,6 +63,21 @@ import Sync
     /// The window background is not decoration: without one the content composites against the
     /// borderless window's own buffer and every comparison below reads as zero difference —
     /// "nothing painted", whatever the code did.
+    ///
+    /// **`lens: .duplicates` is not a configuration the app can produce, and that matters beyond
+    /// this file.** Since Duplicates folded from a workspace into an Organize rail item, the app
+    /// always builds `TidyView` with `lens: .filing` and selects Duplicates through
+    /// `@AppStorage(OrganizeLens.defaultsKey)` — so here `lens` and `effectiveLens` are equal,
+    /// where in the app they differ. Two real bugs lived in exactly that gap (a chip's ✕ and the
+    /// "Nothing matches" button both wrote `searchQueries[lens]`), and this suite was green
+    /// throughout, because in this mount the wrong key *is* the right one.
+    ///
+    /// Left as it is on purpose: reproducing the app's configuration means writing the standard
+    /// defaults domain and re-baselining the pixel comparisons below, which is a large change to a
+    /// render suite whose subject is the reveal landing, not the search state. What closes that
+    /// gap instead is `TidyLensSearchKeyTests`, which holds every search-slot access to
+    /// `effectiveLens` and is mutation-checked. **Do not read this suite's green as coverage of
+    /// anything Organize hosts.**
     private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?,
                        onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
         let subject = TidyView(syncManager: manager, lens: .duplicates,

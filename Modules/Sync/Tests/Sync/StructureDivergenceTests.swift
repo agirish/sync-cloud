@@ -215,4 +215,53 @@ import Foundation
         let p = Self.profile([])
         #expect(StructureDivergence.findings(in: p).isEmpty)
     }
+
+    // MARK: Single linkage means single linkage
+
+    /// **A bridging sibling joins the two groups it bridges.**
+    ///
+    /// `cluster` joined the first group that would have an item and never merged, so A and B
+    /// seeded apart stayed apart even when C was close enough to both — and the finding reported
+    /// two schemes for a family that agrees transitively. Which grouping you got depended on the
+    /// order the children happened to be walked in.
+    @Test func aBridgingSiblingMergesTheGroupsItBridges() {
+        // A and B share nothing; C shares heavily with each, so single linkage puts all three
+        // together. (`StructureDivergence.AgreementRule.similarity` is the threshold each pair is measured against.)
+        let a = (name: "2019", words: Set(["statements", "notices"]))
+        let b = (name: "2020", words: Set(["receipts", "invoices"]))
+        let c = (name: "2021", words: Set(["statements", "notices", "receipts", "invoices"]))
+
+        // The premise, so this cannot pass by the thresholds having drifted apart: C really is
+        // close to both ends, and the ends really are not close to each other.
+        #expect(StructureDivergence.jaccard(a.words, c.words) >= StructureDivergence.AgreementRule.similarity)
+        #expect(StructureDivergence.jaccard(b.words, c.words) >= StructureDivergence.AgreementRule.similarity)
+        #expect(StructureDivergence.jaccard(a.words, b.words) < StructureDivergence.AgreementRule.similarity)
+
+        let groups = StructureDivergence.cluster([a, b, c])
+        let shown = groups.map { $0.map(\.name).joined(separator: "+") }.joined(separator: " | ")
+        #expect(groups.count == 1,
+                "\(groups.count) schemes for a family that agrees transitively: \(shown)")
+        #expect(groups.first?.count == 3)
+    }
+
+    /// And membership no longer depends on the walk order — the same three folders in any order
+    /// give the same grouping.
+    @Test func theGroupingDoesNotDependOnTheOrderTheChildrenAreWalkedIn() {
+        let a = (name: "2019", words: Set(["statements", "notices"]))
+        let b = (name: "2020", words: Set(["receipts", "invoices"]))
+        let c = (name: "2021", words: Set(["statements", "notices", "receipts", "invoices"]))
+        for ordering in [[a, b, c], [c, a, b], [b, c, a], [b, a, c]] {
+            let names = StructureDivergence.cluster(ordering).map { Set($0.map(\.name)) }
+            #expect(names == [Set(["2019", "2020", "2021"])],
+                    "order \(ordering.map(\.name)) produced \(names)")
+        }
+    }
+
+    /// The other direction, so the merge is not simply collapsing everything: two genuinely
+    /// unrelated schemes with nothing bridging them stay two.
+    @Test func twoSchemesWithNothingBetweenThemStayTwo() {
+        let a = (name: "2019", words: Set(["statements", "notices"]))
+        let b = (name: "2020", words: Set(["receipts", "invoices"]))
+        #expect(StructureDivergence.cluster([a, b]).count == 2)
+    }
 }

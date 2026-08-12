@@ -30,9 +30,14 @@ import Foundation
     }
 
     /// Every call to `toggleQuickLook(` across the app, as written.
+    ///
+    /// **Swept over the whole of `MacApp/`, not a named three.** The doc above promises "a NEW
+    /// entry point cannot be added without deciding this question", and a fixed file list cannot
+    /// keep that promise: a fifth call in a fourth file is exactly the new entry point it is
+    /// about, and it was invisible here.
     static func callSites() throws -> [String] {
         var sites: [String] = []
-        for file in ["ContentView.swift", "ContentView+SplitLayout.swift", "ContentView+PaneSearch.swift"] {
+        for file in try Self.macAppSwiftFiles() {
             for line in try source(file).components(separatedBy: "\n") {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 // The definition and the doc comment are not call sites.
@@ -45,6 +50,19 @@ import Foundation
         return sites
     }
 
+    /// Every Swift file in `MacApp/`, by name, so the sweep above cannot silently narrow.
+    static func macAppSwiftFiles() throws -> [String] {
+        let dir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp")
+        let urls = try #require(try? FileManager.default.contentsOfDirectory(at: dir,
+                                                                            includingPropertiesForKeys: nil),
+                                "cannot list MacApp/ — every check below would be vacuous")
+        let names = urls.filter { $0.pathExtension == "swift" }.map { $0.lastPathComponent }
+        try #require(names.count > 10, "MacApp/ listed \(names.count) files — the reader is broken")
+        return names.sorted()
+    }
+
     @Test func testTheScanCanActuallyFail() throws {
         #expect(try Self.source("ContentView.swift").contains("func toggleQuickLook("),
                 "this is not ContentView, or the presenter has been renamed")
@@ -55,7 +73,16 @@ import Foundation
     /// empty array — the classic way a source scan passes with the bug present.
     @Test func testTheScanFindsTheCallSites() throws {
         let sites = try Self.callSites()
-        #expect(sites.count >= 4, "found only \(sites.count) Quick Look call sites — the reader is broken")
+        // **Exact, not a floor.** `>= 4` over a fixed three-file list was the weaker of two
+        // promises this suite makes: a fifth site passed it in silence, which is the one event the
+        // suite exists for. Raising this number is the deliberate act of having decided what the
+        // new entry point does about `followsPane`.
+        #expect(sites.count == 4,
+                """
+                \(sites.count) Quick Look call sites, expected 4 — if you added one, decide whether \
+                it owns the pane preview (`followsPane:`) and then update this count:
+                \(sites.joined(separator: "\n"))
+                """)
         #expect(sites.contains { $0.contains("followsPane: true") },
                 "no site claims a pane preview — Space and the row menu both should")
         #expect(sites.contains { !$0.contains("followsPane") },
