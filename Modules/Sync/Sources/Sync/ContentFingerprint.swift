@@ -75,8 +75,20 @@ public struct ExtractedDocument: Sendable, Equatable {
 public enum ContentFingerprint {
 
     /// Bumped when any rule below changes. It is the first thing in the canonical string, so a
-    /// digest computed under an older rule can never be mistaken for one computed under this one —
-    /// which matters because these are cached across launches.
+    /// digest computed under an older rule can never COLLIDE with one computed under this one.
+    ///
+    /// **That is not the same as being safe to bump, and the difference is the cache.** The
+    /// persisted index is keyed on (path, mtime, size) — the scheme is nowhere in the key — so
+    /// after a bump every unchanged file keeps being served the digest it was given under the old
+    /// rule, while anything new or edited gets one under the new rule. The two never collide; they
+    /// simply never match, so a re-stamped pair straddling the bump goes unreported until the old
+    /// entries age out under ``ContentHashCache/maxEntryAge`` (30 days). One-way toward a missed
+    /// group rather than a false one, and self-healing — but silent, and up to a month long.
+    ///
+    /// So bumping this means deleting the fingerprint index with it. It has its own file precisely
+    /// so that costs nothing else: Settings ▸ Saved scan data already clears it, or delete
+    /// ``ContentHashIndexStore/defaultFingerprintURL(fileManager:)``. Budget one full re-read of
+    /// the tree afterwards (~5.5 minutes for 10,569 documents).
     public static let scheme = "pdf-text-1"
 
     /// How many pages are read. Nothing downstream needs more, and a 500-page document would
@@ -139,6 +151,16 @@ public enum ContentFingerprint {
     /// asking *identity*, where every character the document contains is evidence and throwing any
     /// of it away only makes two documents easier to confuse. The two never meet — no fingerprint
     /// is ever compared against a corpus anchor — so they are free to disagree.
+    ///
+    /// **ASCII, and that IS throwing something away — measured, and it costs nothing here.** A
+    /// document in a non-Latin script contributes only its ASCII residue (dates, amounts, form
+    /// numbers), which is a recall risk and, if two different such documents shared that residue,
+    /// a precision one. Ablated against a Unicode-aware tokenizer over the frozen serial extraction
+    /// of the real tree: 7 documents of 10,280 are a quarter or more non-ASCII words, **none** of
+    /// them falls under the token floor that a Unicode rule would clear, and the two tokenizers
+    /// find the **same 253 groups** — no group unique to either, recall 485/485 with 0
+    /// disagreements both ways. So this stays, on a tree that cannot tell the difference; a corpus
+    /// with real non-Latin documents in it would be a reason to re-measure, not to assume.
     static func tokens(in text: String) -> [String] {
         var out: [String] = []
         var current = ""

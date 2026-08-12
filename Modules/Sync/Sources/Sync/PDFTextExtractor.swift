@@ -55,15 +55,32 @@ public enum PDFTextExtractor {
     /// **Call it on ``PDFKitSerialAccess``'s lane, or from a test that is the only reader.** It is
     /// the parse itself, with none of the serialization — the lane is taken by ``read(atPath:)``
     /// above, not here.
-    static func readSync(_ path: String) -> ExtractedDocument? {
+    ///
+    /// `isAvailable` is a parameter for the same reason `findDuplicates` takes `isCloudOnly` as
+    /// one: a genuinely evicted file cannot be fabricated in a test, and this is the guard whose
+    /// absence would cost the most — see below. A defaulted parameter rather than a settable
+    /// static, so two tests running in parallel cannot see each other's substitution.
+    static func readSync(_ path: String,
+                         isAvailable: (String) -> Bool = FilingSurvey.isAvailable) -> ExtractedDocument? {
         guard ContentFingerprint.canFingerprint(path: path) else { return nil }
         let url = URL(fileURLWithPath: path)
         // Never force-download an evicted iCloud file to fingerprint it. `FilingSurvey.isAvailable`
         // makes the same call for the same reason: the extractor would come back with nothing and
         // the absence would be indistinguishable from an image-only scan.
-        guard FilingSurvey.isAvailable(path) else { return nil }
+        //
+        // **The one guard here with a cost behind it.** The scan hands this every PDF in the tree,
+        // so on a tree that lives in iCloud Documents, losing this line does not degrade an answer
+        // — it downloads the user's entire offloaded library, once per cold scan.
+        guard isAvailable(path) else { return nil }
         // A locked document yields no text, and "no text" is a claim we must not make about it —
         // returning nil declines instead, which is what the skip counter reports.
+        //
+        // **Measured INERT, and kept for the same reason ``ContentFingerprint/minimumTokens`` is.**
+        // A PDF written with a user password reports `pageCount` 1 and `isLocked` true, and PDFKit
+        // hands back nothing through it: 0 characters of page text AND 0 widget values (checked
+        // separately, because form fields are the one channel that could reach the token floor
+        // without any page text). So the floor declines every locked document on its own, and no
+        // test can tell this line from its absence — which is why there is no test pretending to.
         guard let document = PDFDocument(url: url), !document.isLocked else { return nil }
 
         var pages: [String] = []

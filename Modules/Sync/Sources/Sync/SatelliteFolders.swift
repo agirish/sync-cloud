@@ -42,8 +42,8 @@ public struct DocumentIdentityIndex: Sendable {
         var identity: [String: String] = [:]
         // Byte hashes first, fingerprints second, so a PDF that is in both ends up keyed by what it
         // SAYS. Prefixed rather than bare so the two namespaces can never collide.
-        for r in hashes where r.path.hasPrefix(prefix) { identity[r.path] = "b:" + r.hex }
-        for r in fingerprints where r.path.hasPrefix(prefix) { identity[r.path] = "f:" + r.hex }
+        for (path, r) in newestPerPath(hashes, under: prefix) { identity[path] = "b:" + r.hex }
+        for (path, r) in newestPerPath(fingerprints, under: prefix) { identity[path] = "f:" + r.hex }
 
         var foldersByIdentity: [String: Set<String>] = [:]
         var pathsByIdentity: [String: [String]] = [:]
@@ -59,6 +59,35 @@ public struct DocumentIdentityIndex: Sendable {
         return DocumentIdentityIndex(foldersByIdentity: foldersByIdentity,
                                      pathsByIdentity: pathsByIdentity,
                                      documentCounts: documentCounts)
+    }
+
+    /// The newest record for each path under `prefix`.
+    ///
+    /// **A content index is an append-only log, not a map from path to digest.** Its key is
+    /// (path, mtime, size), so editing a file adds a SECOND record for the same path and the old
+    /// one survives until it ages out — 30 days, per ``ContentHashCache/maxEntryAge``. Reading the
+    /// records straight into a dictionary therefore let the last one in array order win, and that
+    /// order is `ContentHashCache.save`'s `entries.map` over a Swift `Dictionary`: arbitrary, and
+    /// reseeded every launch. Measured on the real index, 13 paths under the provider root carry
+    /// two records with DIFFERENT digests — so which identity those files had was decided by the
+    /// hash seed, and could differ between two launches over an unchanged tree.
+    ///
+    /// Today all 13 are `.DS_Store`, which changes no relation this feeds (checked: removing every
+    /// dotfile from the index leaves the satellite set identical, 19 folders either way). The shape
+    /// is not special to them, though — any document edited or re-downloaded in place leaves the
+    /// same pair behind, and the fingerprint index exists precisely because re-downloads happen.
+    ///
+    /// Newest wins, and the tie-breaks are only there to make the answer total: `storedAt` first
+    /// (when the digest was computed), then `mtime` (which state of the file it describes), then
+    /// the digest itself, so equal-in-every-way records still resolve the same way twice.
+    private static func newestPerPath(_ records: [ContentHashRecord],
+                                      under prefix: String) -> [String: ContentHashRecord] {
+        var out: [String: ContentHashRecord] = [:]
+        for r in records where r.path.hasPrefix(prefix) {
+            guard let held = out[r.path] else { out[r.path] = r; continue }
+            if (r.storedAt, r.mtime, r.hex) > (held.storedAt, held.mtime, held.hex) { out[r.path] = r }
+        }
+        return out
     }
 
     /// The folders already holding this document, other than `excluding`.

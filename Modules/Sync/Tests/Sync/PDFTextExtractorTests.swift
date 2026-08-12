@@ -114,6 +114,26 @@ import Testing
         #expect(PDFTextExtractor.readSync(dir.appendingPathComponent("absent.pdf").path) == nil)
     }
 
+    @Test func anEvictedICloudFileIsDeclinedRatherThanDownloaded() throws {
+        // The scan hands the reader every PDF in the tree. On a tree that lives in iCloud
+        // Documents, a reader that opened whatever it was given would force-download the user's
+        // entire offloaded library on the first cold scan — the one guard here whose absence costs
+        // more than a missed group.
+        //
+        // A real dataless file cannot be fabricated, so availability is the injected half. The
+        // fixture is a document that reads perfectly well when it IS available: the expected value
+        // (nil) and the fallback (a real ExtractedDocument) are different answers, so the
+        // assertion cannot pass by accident.
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("statement.pdf")
+        try writePDF(["Chase statement account 2809 balance due 1234.56 thank you"], to: url)
+
+        let present = try #require(PDFTextExtractor.readSync(url.path))
+        #expect(present.pages.first?.contains("2809") == true)
+        #expect(PDFTextExtractor.readSync(url.path, isAvailable: { _ in false }) == nil)
+    }
+
     @Test func anImageOnlyPDFYieldsNoFingerprintRatherThanAnEmptyOne() throws {
         // A scan with no text layer: PDFKit parses it happily and returns nothing. "Nothing" must
         // not become a digest that every other textless scan of the same shape also has.

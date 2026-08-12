@@ -191,7 +191,7 @@ import Testing
                 .isDisjoint(with: Set(sameText[0].recommendedRemovalPaths)))
     }
 
-    @Test func reAimingTheKeeperCannotSmuggleTheAnchorOntoTheRemovalList() {
+    @Test func reAimingTheKeeperCannotSmuggleTheAnchorOntoTheRemovalList() throws {
         // `choosingKeeper` relabels by id, and the protected flag is what stops it turning the
         // identical group's keeper into this group's removal candidate.
         let tree = [
@@ -207,7 +207,7 @@ import Testing
             tree: tree, fileHashes: hashes,
             textFingerprints: ["/root/A/bill.pdf": "FP", "/root/Copy/bill.pdf": "FP",
                                "/root/B/restamped.pdf": "FP"])
-        let sameText = groups.first { $0.matchType == .sameText }!
+        let sameText = try #require(groups.first { $0.matchType == .sameText })
         let anchor = sameText.keeper.path
 
         let reAimed = sameText.choosingKeeper("/root/B/restamped.pdf")
@@ -251,6 +251,53 @@ import Testing
                 == ["/root/Aaa/restamped.pdf", "/root/Bbb/restamped-2.pdf"])
         // And nothing anywhere in the batch may take a file out of the folder being kept whole.
         #expect(groups.flatMap { $0.recommendedRemovalPaths }.contains("/root/Zzz/bill.pdf") == false)
+    }
+
+    @Test func aMemberThisGroupCouldNotOfferIsStillMarkedAgainstTheVersionsPass() throws {
+        // EVERY member is marked as grouped, protected ones included — the rule `identicalFileGroups`
+        // follows, for the reason its comment gives. The member it matters for is the one that
+        // cannot appear on this group's removal list: `/root/Zzz/bill.pdf` sits inside the folder
+        // the identical pass is keeping whole, so it anchors the group and is never offered.
+        //
+        // Left unmarked it is simply an ungrouped file to the versions pass, which knows nothing
+        // about the text match. Both it and `/root/Loose/bill (1).pdf` carry a version marker and
+        // are alone in their folders, so the versions pass pools them across folders; the kept
+        // folder's copy is the newer, so it anchors a "keep newest, Trash older" offer aimed at
+        // Loose's file — a different document sharing nothing but a stem. That is the story the
+        // pass ordering exists to prevent, arriving through the back door.
+        //
+        // The shape is this specific because the versions pass is well defended: an UNMARKED
+        // cross-folder member is dropped for want of its own marker, and two members inside the
+        // kept folder are both protected. Two lone marker-bearers in different folders is the one
+        // arrangement in which the missing mark actually costs a file.
+        let older = Date(timeIntervalSince1970: 1_000_000)
+        let newer = Date(timeIntervalSince1970: 2_000_000)
+        let tree = [
+            dir("/root/Backup", [file("/root/Backup/bill copy.pdf")]),
+            dir("/root/Zzz", [file("/root/Zzz/bill copy.pdf", modified: newer)]),
+            dir("/root/Aaa", [file("/root/Aaa/restamped.pdf")]),
+            dir("/root/Loose", [file("/root/Loose/bill (1).pdf", modified: older)]),
+        ]
+        let hashes = ["/root/Backup/bill copy.pdf": "H", "/root/Zzz/bill copy.pdf": "H",
+                      "/root/Aaa/restamped.pdf": "H2", "/root/Loose/bill (1).pdf": "H4"]
+        let groups = DuplicateFinder.findGroups(
+            tree: tree, fileHashes: hashes,
+            // The two identical copies read alike (they are the same bytes) and so does Aaa's
+            // re-stamp. Loose's file is a different document.
+            textFingerprints: ["/root/Backup/bill copy.pdf": "FP", "/root/Zzz/bill copy.pdf": "FP",
+                               "/root/Aaa/restamped.pdf": "FP"])
+
+        // The fixture is doing what it claims: Zzz is the kept folder, and its file anchors a
+        // same-text group it can never be removed from.
+        #expect(groups.first { $0.matchType == .identical && $0.isDirectory }?.keeper.path == "/root/Zzz")
+        let sameText = try #require(groups.first { $0.matchType == .sameText })
+        #expect(sameText.keeper.path == "/root/Zzz/bill copy.pdf")
+        #expect(sameText.recommendedRemovalPaths == ["/root/Aaa/restamped.pdf"])
+
+        // The rule itself: no versions group forms over a file this group already accounted for,
+        // and nothing anywhere offers to trash the unrelated document that shares the stem.
+        #expect(groups.contains { $0.matchType == .versions } == false)
+        #expect(groups.flatMap { $0.recommendedRemovalPaths }.contains("/root/Loose/bill (1).pdf") == false)
     }
 
     @Test func aHardLinkNeverJoinsASameTextGroup() {

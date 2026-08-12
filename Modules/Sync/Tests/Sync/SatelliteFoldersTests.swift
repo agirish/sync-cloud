@@ -50,6 +50,35 @@ import Testing
         #expect(bytesOnly.foldersByIdentity["b:bytes1"] == ["A"])
     }
 
+    @Test("A path with two records is read at its newest, whatever order they arrive in")
+    func supersededRecordsLoseToTheNewest() {
+        // An index is an append-only log keyed by (path, mtime, size): editing a file adds a second
+        // record and the old one survives for 30 days. They reach `build` in the order
+        // `ContentHashCache.save` happened to enumerate its dictionary — arbitrary, and reseeded
+        // every launch — so reading them straight into a map made the file's identity depend on the
+        // hash seed. Measured on the real index: 13 paths under the provider root carry two records
+        // with different digests.
+        //
+        // Both orderings are run because ONE ordering is what a fixture would accidentally pin: the
+        // buggy "last wins" agrees with the fix on whichever order puts the newest last.
+        func index(_ recs: [ContentHashRecord]) -> DocumentIdentityIndex {
+            DocumentIdentityIndex.build(hashes: recs, fingerprints: [],
+                                        providerRoot: root, existsOnDisk: { _ in true })
+        }
+        let stale = ContentHashRecord(path: "/P/A/x.pdf", mtime: 100, size: 1, hex: "old",
+                                      storedAt: Date(timeIntervalSince1970: 1_000))
+        let fresh = ContentHashRecord(path: "/P/A/x.pdf", mtime: 200, size: 2, hex: "new",
+                                      storedAt: Date(timeIntervalSince1970: 2_000))
+        for (label, recs) in [("newest last", [stale, fresh]), ("newest first", [fresh, stale])] {
+            let built = index(recs)
+            #expect(built.foldersByIdentity["b:new"] == ["A"], "\(label): the newest digest is the file's identity")
+            #expect(built.foldersByIdentity["b:old"] == nil, "\(label): the superseded digest identifies nothing")
+            // Counted once, not once per record. This half always held — the map is keyed by path
+            // — and is pinned here so the de-duplication cannot be lost while fixing the ordering.
+            #expect(built.documentCounts["A"] == 1, "\(label)")
+        }
+    }
+
     @Test("A record whose file is gone does not vouch for anything")
     func staleRecordsAreDropped() {
         // The indexes are a cache and outlive what they describe. A stale record would both invent
