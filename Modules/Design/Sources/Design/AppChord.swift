@@ -95,4 +95,24 @@ public extension AppChord {
     /// of finding anything. With no ⌥-chords registered, nothing fires through the reveal at
     /// all — the documented look-release-press contract, restored.
     static let foldAllDifferences = AppChord("f", [.shift, .command])
+
+    /// **Every fixed chord this app registers, once.**
+    ///
+    /// The type's whole argument is "one chord, one truth", and three "for every chord" tests were
+    /// each re-typing the list to make it — two in `AppChordTests` (the no-⌥ invariant and the
+    /// speakable-display one) and one in `ShortcutsReferenceTests`, which is how a registered ⌘?
+    /// came to have no row in the ⌘/ reference with everything green. A hand-copied list of the
+    /// members of a hand-copied-list-shaped bug is the wrong place to stop.
+    ///
+    /// A plain array rather than `CaseIterable`, because these are `static let`s on a struct and
+    /// there is nothing to enumerate; adding a member without adding it here is the residual gap,
+    /// and `everyDeclaredChordIsInTheRegistry` closes it by counting the declarations in the
+    /// source. `workspace(_:)` is excluded on purpose — it is a family, not a chord, and the
+    /// reference lists it as the range `⌘ 1 – ⌘ N`, which its own test pins.
+    static let registry: [AppChord] = [
+        settings, infoInspector, activityLog, shortcutsReference, commandPalette,
+        findInPane, paneBack, paneForward, rescan, newFolder, hiddenFiles, previewColumn,
+        deleteSelection, switchPaneFocus,
+        reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,
+    ]
 }

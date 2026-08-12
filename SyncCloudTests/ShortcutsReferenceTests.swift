@@ -1,4 +1,6 @@
 import Testing
+import Foundation
+import Design
 @testable import SyncCloud
 
 /// Pins the shortcuts reference's shape: the three expected groups exist, every row has
@@ -27,24 +29,66 @@ import Testing
         }
     }
 
-    /// Every chord the menu bar registers is listed in the reference.
+    /// **Every chord in `AppChord.registry` has a row here.**
     ///
-    /// The shape tests above cannot notice a dropped row (see `testNoRowAdvertisesDragAndDrop`'s
-    /// history for how that goes wrong in the other direction), so the chords themselves are
-    /// pinned: each key string here must appear in some row. Hand-maintained alongside
-    /// `ShortcutCommands.swift` — a chord added there without a row here fails this, which is
-    /// the point.
-    @Test func testEveryMenuChordHasAReferenceRow() {
-        let allKeys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
-        // The workspace range moves with the bar — Browse arriving at its head made every other
-        // segment's digit shift by one. Derived rather than retyped, so this list cannot be the
-        // thing that has to be remembered; `testTheWorkspaceRowCountsEveryWorkspace` below is what
-        // pins the row's own text against the same count.
-        let chords = ["⌘ 1 – ⌘ \(Workspace.allCases.count)",
-                      "⌘ [ / ⌘ ]", "⌘ R", "⇧⌘ N", "⇧⌘ .", "⇧⌘ P", "⌘ ⌫", "⌃ ⇥",
-                      "⇧⌘ R", "⇧⌘ V", "⌘ D", "⇧⌘ F", "⌘ I", "⌘ L", "⌘ F", "⌘ ,", "⌘ /", "⌘ K"]
-        for chord in chords {
-            #expect(allKeys.contains(chord), "no reference row lists “\(chord)”")
+    /// Not a hand-typed list of chords, which is what this was: `AppChord` exists so a chord is
+    /// declared once, and a test that re-types them all to check them is the same hand-copy the
+    /// type was introduced to remove — it can only ever pin what someone remembered to add to it.
+    /// The registry is the list; this compares against it.
+    ///
+    /// Whitespace-insensitive, because the reference spaces its keys for reading (`⇧⌘ N`) while a
+    /// chord renders tight (`⇧⌘N`): one chord, formatted for two places.
+    @Test func testEveryRegisteredChordHasAReferenceRow() {
+        let listed = ShortcutsReference.groups.flatMap(\.items)
+            .map { $0.keys.replacingOccurrences(of: " ", with: "") }
+        #expect(listed.count > 10, "the reference is implausibly short — this scan would be near-vacuous")
+        for chord in AppChord.registry {
+            let display = chord.display.replacingOccurrences(of: " ", with: "")
+            #expect(listed.contains { $0.contains(display) },
+                    "no reference row lists \u{201C}\(chord.display)\u{201D}")
+        }
+    }
+
+    /// The workspace range is a family rather than a chord, so it is checked on its own.
+    @Test func testTheWorkspaceRangeHasARow() {
+        let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
+        #expect(keys.contains("⌘ 1 – ⌘ \(Workspace.allCases.count)"))
+    }
+
+    /// **And every chord registered OUTSIDE `AppChord` has a row too.**
+    ///
+    /// The registry cannot see a `.keyboardShortcut("?", modifiers: .command)` written directly on
+    /// a menu item, and ⌘? — "SyncCloud Help" — was exactly that: registered, unlisted, in the
+    /// panel a person opens to find out what the app can do. Read out of the source, so the answer
+    /// comes from what is registered rather than from what someone remembered.
+    @Test func testEveryLiterallyRegisteredCommandChordHasAReferenceRow() throws {
+        let macApp = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp")
+        let files = try #require(try? FileManager.default.contentsOfDirectory(at: macApp,
+                                                                             includingPropertiesForKeys: nil),
+                                 "cannot list MacApp/ — this scan would be vacuous")
+        var registered: Set<String> = []
+        for url in files where url.pathExtension == "swift" {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            for line in text.split(separator: "\n") {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"), code.contains(".keyboardShortcut(\"") else { continue }
+                guard let open = code.range(of: ".keyboardShortcut(\""),
+                      let close = code[open.upperBound...].firstIndex(of: "\"") else { continue }
+                let key = String(code[open.upperBound..<close])
+                guard key.count == 1, code.contains("modifiers: .command") else { continue }
+                registered.insert(key)
+            }
+        }
+        // Non-vacuity: the reader found the literal registration that certainly exists.
+        #expect(registered.contains("?"), "the scan found no ⌘? — it is not reading the menus")
+
+        let listed = ShortcutsReference.groups.flatMap(\.items)
+            .map { $0.keys.replacingOccurrences(of: " ", with: "") }
+        for key in registered.sorted() {
+            #expect(listed.contains { $0.contains("⌘\(key.uppercased())") },
+                    "⌘\(key) is registered in the menus but has no row in the ⌘/ reference")
         }
     }
 
