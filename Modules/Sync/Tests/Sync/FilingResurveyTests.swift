@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Events
 @testable import Sync
 
 /// The re-survey end to end, against a real directory tree.
@@ -131,6 +132,27 @@ import Testing
         // Deliberately NOT re-surveyed.
         let memory = try #require(manager.filingMemory)
         #expect(memory.folders["Home/Xfinity/2026"] == nil)
+    }
+
+    // MARK: - What the survey says in the log
+
+    /// The closing line counts folders, and it must count them the way every other line in this app
+    /// does: `N folder(s)`, never a bare plural that renders "1 folders".
+    ///
+    /// Worth a test rather than a careful reading because the count is interpolated — the wrong form
+    /// is invisible on the tree this fixture builds (two folders learned, so "2 folders" reads fine)
+    /// and only shows itself on the one-folder tree nobody writes a fixture for. So the assertion is
+    /// on the literal house form, which is wrong in both cases or right in both.
+    @Test func theResurveyLineCountsFoldersInTheHouseForm() async throws {
+        let (manager, docs, _, _) = try Self.makeTree()
+        let report = await manager.resurveyFilingMemory(root: docs)
+        #expect(report.foldersLearned > 0, "fixture: the survey must have learned something to count")
+
+        await Logger.shared.debug("resurvey-log flush marker").value
+        let line = Logger.shared.entries.last { $0.message.hasPrefix("Folder memory re-surveyed") }
+        let message = try #require(line?.message, "the survey logged no closing line at all")
+        #expect(message.contains("\(report.foldersLearned) folder(s) now have learned content"),
+                "house plural form missing — got: \(message)")
     }
 
     // MARK: - The cost claim

@@ -385,9 +385,9 @@ struct SyncCloudApp: App {
             manager.filingArtifactFingerprint =
                 FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: profiles)
             Logger.shared.info("Filing profile '\(loaded.profile.profileId)' loaded — "
-                               + "\(loaded.profile.folders.count) folders, "
+                               + "\(loaded.profile.folders.count) folder(s), "
                                + "\(loaded.memory?.folders.count ?? 0) with filing memory, "
-                               + "\(manager.filingPeopleStore?.people.count ?? 0) people, "
+                               + "\(manager.filingPeopleStore?.people.count ?? 0) person(s), "
                                + "\(manager.filingPersonTagStore?.tags.count ?? 0) person tag(s)")
         }
         if OnDeviceFilingClassifier.isAvailable {

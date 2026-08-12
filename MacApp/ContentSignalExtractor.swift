@@ -4,6 +4,7 @@ import Vision
 import NaturalLanguage
 import ImageIO
 import Sync
+import Events
 
 /// On-device content signals for Filing (F2). Given a file, it reads a bounded amount of text —
 /// PDF text via PDFKit, image/scan text via Vision OCR, or a plain-text head — and pulls
@@ -77,7 +78,22 @@ enum ContentSignalExtractor {
                 guard let image else { return continuation.resume(returning: nil) }
                 let request = VNRecognizeTextRequest()
                 request.recognitionLevel = .accurate
-                try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+                do {
+                    try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+                } catch {
+                    // **Said here because here is the only place the cause exists.** This returns
+                    // nil for a recognizer that never ran and for a page that genuinely carries no
+                    // text alike, and the caller — `FileSyncManager.readScan(for:)` — logs
+                    // "OCR found no text in …" for both. So a Vision pipeline that is broken on
+                    // every file read exactly like a folder of blank scans, which is the one thing
+                    // an operator most needs to tell apart. Warning, not error: it is a per-file
+                    // read failure and the button stays offered, so nothing is lost but this file.
+                    Logger.shared.warning("Filing: OCR failed on “\(url.lastPathComponent)”: "
+                                          + "\(error.localizedDescription)")
+                }
+                // Deliberately falls through rather than returning early: `perform` may leave
+                // partial results behind, and those were used before this catch existed. The log
+                // line is the whole change here — the answer this path gives is untouched.
                 let text = (request.results ?? [])
                     .compactMap { $0.topCandidates(1).first?.string }
                     .joined(separator: "\n")
@@ -203,7 +219,15 @@ enum ContentSignalExtractor {
         request.recognitionLevel = .fast
         request.usesLanguageCorrection = false
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        do { try handler.perform([request]) } catch { return "" }
+        // Same reason as the OCR path above: an empty return here is indistinguishable from an
+        // image that simply holds no words, so the file contributes no tokens and no excerpt and
+        // nothing anywhere says why. Warning for a benign per-item read failure; if it fires on
+        // every image in a scan, that repetition is itself the diagnosis.
+        do { try handler.perform([request]) } catch {
+            Logger.shared.warning("Filing: OCR failed on “\(url.lastPathComponent)”: "
+                                  + "\(error.localizedDescription)")
+            return ""
+        }
         let joined = (request.results ?? [])
             .compactMap { $0.topCandidates(1).first?.string }
             .joined(separator: " ")

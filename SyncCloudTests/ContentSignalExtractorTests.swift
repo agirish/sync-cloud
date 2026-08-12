@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import Events
 import Foundation
 import ImageIO
 import Sync
@@ -186,6 +187,36 @@ import UniformTypeIdentifiers
         let tokens = await ContentSignalExtractor.tokens(forFileAt: path)
         #expect(tokens.contains("invoice"))
         #expect(tokens.contains("1099"))
+    }
+
+    /// A scan Vision reads must not also report that Vision failed.
+    ///
+    /// The "OCR failed on …" warning exists so an operator can tell a broken recognizer from a
+    /// folder of blank scans — which only works if it is confined to the throwing branch. A line
+    /// emitted unconditionally (logged beside the `perform` rather than inside its `catch`) would
+    /// destroy exactly the distinction it was added for, and nothing else in this suite would
+    /// notice: the extracted text is identical either way.
+    ///
+    /// **The failing direction is deliberately not tested.** `VNImageRequestHandler.perform` throws
+    /// only for a recognizer that cannot run at all, there is no seam to inject a stub handler, and
+    /// every image this suite can construct that CoreGraphics decodes is one Vision accepts — the
+    /// corrupt-image fixture above never reaches `perform`, it fails at `CGImageSourceCreate…`. So
+    /// this pins the half that a test can actually reach and says so rather than pretending.
+    @MainActor
+    @Test func aScanThatOCRsCleanlyReportsNoOCRFailure() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("clean-scan.png")
+        try Self.writeTextImage("INVOICE 1099", to: path)
+
+        // The fixture must really OCR, or the no-warning assertion below proves nothing.
+        let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
+        #expect(snippet.uppercased().contains("INVOICE"))
+
+        await Logger.shared.debug("ocr-failure-log flush marker").value
+        let failures = Logger.shared.entries.filter {
+            $0.level == .warning && $0.message.contains("OCR failed on “clean-scan.png”")
+        }
+        #expect(failures.isEmpty, "a successful OCR logged a failure: \(failures.map(\.message))")
     }
 
     // MARK: PDF extraction is serialized

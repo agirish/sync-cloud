@@ -1822,7 +1822,20 @@ struct ContentView: View {
                 // `awaits` — the slot must still be waiting for this person at all. It is the
                 // invariant that actually protects the pixels, and it is what stops Aditi's answer
                 // landing under Girish's name.
-                guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
+                guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else {
+                    // Routine coalescing, so debug — but not silence. The "User asked…" line above
+                    // opens a walk of every surveyed document and the "Gathered N file(s)…" line
+                    // below closes it; with this branch mute, a superseded accept leaves an opened
+                    // sweep that never closes, which reads in the log exactly like the wedged
+                    // gather that line was added to rule out. Says which of the two guards fired,
+                    // because a cancel and a slot that moved on are different stories about the
+                    // same discarded answer.
+                    Logger.shared.debug("People: discarded a finished gather for "
+                                        + "\(person.displayName) — "
+                                        + (Task.isCancelled ? "it was cancelled"
+                                           : "the view is no longer waiting for it"))
+                    return
+                }
                 // The sweep's own outcome. The "User asked…" line above opens a walk of every
                 // surveyed document — 10,171 on the real tree — and until now nothing closed it,
                 // so a slow gather and a wedged one read the same in the log. Both branches speak:

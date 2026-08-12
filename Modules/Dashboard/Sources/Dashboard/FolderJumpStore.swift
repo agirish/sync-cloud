@@ -123,9 +123,19 @@ enum FolderJump {
                 options: showHidden ? [] : [.skipsHiddenFiles])
         } catch {
             // Don't silently read as "no other folders" — a permission/IO failure is worth a
-            // breadcrumb (debug level: this can fire on every menu-open). Logged via the injected
-            // closure because this runs off-main and `Logger.shared` is main-actor isolated; the
-            // caller captures it on the main actor.
+            // breadcrumb.
+            //
+            // **Debug, not warning, even though house style puts benign per-item read failures at
+            // warning.** Those fire once per item per scan; this fires once per *navigation*. The
+            // caller re-enumerates on every folder change (`.task(id:)` keyed on root/path/hidden),
+            // so one unreadable parent emits a line every time the user steps into any of its
+            // children — without bound, for as long as they browse. And nothing is actually lost:
+            // the menu says "No other folders", and sibling hops are a lateral convenience the
+            // breadcrumb and back/forward already cover. A repeating line about a working app at
+            // the default level is how a log stops being read.
+            //
+            // Logged via the injected closure so this stays `nonisolated` and pure — the tests call
+            // it with no logger at all, and the caller supplies one captured on the main actor.
             logError?("Folder jump: couldn't list siblings under \(parentAbsolute): \(error.localizedDescription)")
             return []
         }
@@ -174,6 +184,9 @@ struct FolderJumpMenu: View {
             let root = rootPath, rel = relativePath, hidden = showHidden
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             siblings = await Task.detached(priority: .userInitiated) {
+                // `.debug` deliberately — this runs on every folder change, so the failure it
+                // reports repeats per navigation rather than per item. Reasoning in full at the
+                // `logError?(…)` call inside `siblings`.
                 FolderJump.siblings(rootPath: root, relativePath: rel, showHidden: hidden,
                                     logError: { logger.debug($0) })
             }.value

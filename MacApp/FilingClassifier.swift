@@ -211,7 +211,16 @@ enum OnDeviceFilingClassifier {
     #if canImport(FoundationModels)
     @available(macOS 26.0, *)
     private static func classifyOnDevice(taxonomyFolders: [String], files: [FilingCandidateFile]) async -> [String: FilingVerdict] {
-        guard case .available = SystemLanguageModel.default.availability else { return [:] }
+        guard case .available = SystemLanguageModel.default.availability else {
+            // Systemic, and previously mute. The caller gates on `isAvailable`, so reaching here
+            // means the model went away between that check and this call — every file in the scan
+            // is about to get no on-device answer for one reason, and "on-device Filing quietly
+            // did nothing" has no other trace. One line for the whole batch, naming the state.
+            Logger.shared.warning("On-device Filing unavailable "
+                                  + "(\(SystemLanguageModel.default.availability)) — skipping "
+                                  + "\(files.count) file(s)")
+            return [:]
+        }
         guard !taxonomyFolders.isEmpty else { return [:] }
 
         let folderList = taxonomyFolders.joined(separator: "\n")
@@ -219,19 +228,44 @@ enum OnDeviceFilingClassifier {
 
         var verdicts: [String: FilingVerdict] = [:]
         let batch = files.prefix(maxFiles)
-        Logger.shared.info("On-device Filing: classifying \(batch.count) file(s) against \(taxonomyFolders.count) folders")
+        Logger.shared.info("On-device Filing: classifying \(batch.count) file(s) against \(taxonomyFolders.count) folder(s)")
+        // Kept only to name a systemic cause below — the per-file line in `pick` stays the place
+        // one file's declination is reported.
+        var lastFailure: Error?
+        var declined = 0
         for file in batch {
             if Task.isCancelled { break }
-            guard let verdict = await pick(file: file, folderList: folderList, instructions: instructions) else { continue }
-            verdicts[file.filePath] = verdict
+            let outcome = await pick(file: file, folderList: folderList, instructions: instructions)
+            if let verdict = outcome.verdict {
+                verdicts[file.filePath] = verdict
+                continue
+            }
+            declined += 1
+            lastFailure = outcome.failure ?? lastFailure
         }
         Logger.shared.info("On-device Filing: model chose a home for \(verdicts.count) of \(batch.count) file(s)"
                            + (files.count > maxFiles ? " (capped from \(files.count))" : ""))
+        // **One file declining is routine; every file declining is a fault.** `pick` is right to
+        // report a single declination at debug — but debug is dropped at the default level, so a
+        // systemic cause (the model unloaded mid-scan, an instruction set the runtime rejects)
+        // left nothing behind but the "0 of 40" above, which says that nothing was filed and never
+        // says why. Named once for the batch rather than once per file, because on this path the
+        // cause is the same on every one of them.
+        if verdicts.isEmpty, declined > 0, let lastFailure {
+            Logger.shared.warning("On-device Filing: the model placed none of \(declined) file(s) — "
+                                  + "last cause: \(lastFailure.localizedDescription)")
+        }
         return verdicts
     }
 
+    /// One file's answer, plus the error behind a declination when there was one.
+    ///
+    /// The `failure` half exists only so the caller can tell a batch where the model declined every
+    /// file apart from a batch where it merely declined this one — see `classifyOnDevice`. It is
+    /// nil when the ladder simply ran out without throwing, which is not a failure to report.
     @available(macOS 26.0, *)
-    private static func pick(file: FilingCandidateFile, folderList: String, instructions: String) async -> FilingVerdict? {
+    private static func pick(file: FilingCandidateFile, folderList: String,
+                             instructions: String) async -> (verdict: FilingVerdict?, failure: Error?) {
         // Walk the budget ladder: a prompt that does not fit the context window is retried smaller
         // rather than abandoned. See ``PromptBudget`` for why abandoning it is the worst outcome.
         for (attempt, budget) in PromptBudget.ladder.enumerated() {
@@ -242,19 +276,21 @@ enum OnDeviceFilingClassifier {
                 let response = try await session.respond(to: prompt, generating: FolderPick.self)
                 if attempt > 0 {
                     Logger.shared.info("On-device Filing: “\(file.fileName)” needed a smaller prompt "
-                                       + "(\(budget.folders) folders, \(budget.snippetChars) excerpt chars)")
+                                       + "(\(budget.folders) folder(s), \(budget.snippetChars) excerpt chars)")
                 }
-                return response.content.asVerdict()
+                return (response.content.asVerdict(), nil)
             } catch {
                 guard isContextOverflow(error), attempt < PromptBudget.ladder.count - 1 else {
                     // Per-file, benign, and routine (the model declines some files) — a diagnostic
-                    // detail, not an operational event. Debug keeps it out of the default log.
+                    // detail, not an operational event. Debug keeps it out of the default log; the
+                    // error travels back so a batch that declined *every* file can say why once.
                     Logger.shared.debug("On-device Filing skipped “\(file.fileName)”: \(error.localizedDescription)")
-                    return nil
+                    return (nil, error)
                 }
             }
         }
-        return nil
+        // Ladder exhausted without a throw reaching the guard above. No error to carry.
+        return (nil, nil)
     }
 
     /// Whether an error means "the prompt was too long" rather than "the model declined".

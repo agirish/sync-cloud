@@ -200,7 +200,7 @@ extension FileSyncManager {
                                         documentsUnavailable: unavailable,
                                         foldersLearned: memory.folders.count, changed: wrote)
         Logger.shared.info("Folder memory re-surveyed — \(report.summary) "
-                           + "\(report.foldersLearned) folders now have learned content.")
+                           + "\(report.foldersLearned) folder(s) now have learned content.")
         filingSurveyReport = report
         completeScan(\.filingSurveyLifecycle, root: root)
         return report
