@@ -243,13 +243,20 @@ public enum FileNameDate {
         let lower = run.lowercased()
         if let m = OrdinalMonthName.monthIndex(lower) { return m }
 
-        /// Whether `name` ends `run` at a capital — or is the whole run, which the exact tests
-        /// above have mostly taken already but which keeps this honest on its own.
+        /// Whether `name` ends `run` at a **camel transition** — a lowercase character followed by
+        /// the uppercase one the month starts with — or is the whole run.
+        ///
+        /// Both halves are needed and the first draft had only the second. "The month starts with
+        /// a capital" is unconditionally true inside an ALL-CAPS run, so `KUMAR` was still March,
+        /// `RAJAN` still January, `MAPR` still April — every example this rule was written to stop,
+        /// surviving in upper case. Measured on the real tree: 1,749 files carry an all-caps letter
+        /// run of four or more characters, three of them the token `MAPR`, so the hole was one
+        /// filename with a year in it away from mining a date out of a vendor name.
         func endsAtAWordBoundary(_ name: String) -> Bool {
             guard lower.hasSuffix(name) else { return false }
             guard name.count < run.count else { return true }
             let start = run.index(run.endIndex, offsetBy: -name.count)
-            return run[start].isUppercase
+            return run[start].isUppercase && run[run.index(before: start)].isLowercase
         }
 
         // Longest candidate first, so `...September` is not read as the `Sep` inside it — same

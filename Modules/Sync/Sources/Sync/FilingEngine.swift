@@ -167,13 +167,19 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
 
     /// The same document with a **new list of homes** — and everything else about it intact.
     ///
-    /// The one way to re-answer a suggestion, because there are four places that do it (a verdict
-    /// promotion, a route, a re-ask, a rename re-naming) and every one of them was rebuilding the
-    /// value member by member. Each therefore silently dropped `alreadyFiledAt`, which only
-    /// `markingAlreadyFiled` produces and which runs once, at the end of the scan: refine a marked
-    /// list, or press "Try another", and `isAlreadyFiled` flipped back to false. The card lost the
-    /// one warning that stops a second copy being filed — and losing it is not undone by moving
-    /// the file back, because the copy lands under a name of its own in a folder that fits.
+    /// The one way to re-answer a suggestion. Four places do it — a verdict promotion, a route, a
+    /// re-ask, a rename re-naming — and every one was rebuilding the value member by member, so
+    /// none of them carried `alreadyFiledAt`.
+    ///
+    /// **Two of the four could actually lose it**, which is worth stating precisely rather than
+    /// counting call sites as defects: the marker is produced by `markingAlreadyFiled` at the very
+    /// end of the scan, and `route`/`namingSuggestions` both run before that (and `readScan` hands
+    /// `route` a deliberately blank suggestion), so neither ever held a marker to drop. The two
+    /// that did are `applyVerdicts` reached from a refine and `replaceFilingSuggestion` behind
+    /// "Try another": refine a marked list or press that button, and `isAlreadyFiled` flipped back
+    /// to false. The card lost the one warning that stops a second copy being filed — and losing
+    /// it is not undone by moving the file back, because the copy lands under a name of its own in
+    /// a folder that fits. Unifying all four is still right; only the count of defects is two.
     ///
     /// A rebuild that wants to drop the marker has to say so; the default is to keep what was
     /// learned about the document, since none of these callers learned anything to the contrary.

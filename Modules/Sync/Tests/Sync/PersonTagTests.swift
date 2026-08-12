@@ -230,24 +230,45 @@ import Foundation
     ///
     /// `recordPersonVerdict` picks the key at judgement time: a fingerprint when the PDF can be
     /// read, the path when it cannot. Both are live states for the same file — evicted to iCloud,
-    /// or locked — so the two judgements of one document can land under different keys. Matching
-    /// only on `(personId, key)` then stored the reversal beside the original, and `verdict(...)`
-    /// prefers the fingerprint: the older "yes" won every gather after the user said "no".
+    /// or locked — so two judgements of one document can land under different keys, and matching
+    /// only on `(personId, key)` stored the second beside the first.
+    ///
+    /// **This is the ordering that actually went stale.** `PersonFiles.gather` asks
+    /// `verdict(personId:path:)` with no fingerprint, so the index consults `.path` FIRST — a
+    /// path-keyed tag therefore beats a fingerprint-keyed one, and a path-keyed "yes" followed by
+    /// a fingerprint-keyed "no" kept serving the withdrawn confirmation. (The first version of
+    /// this test staged the reverse, which that same precedence already answered correctly.)
     @MainActor @Test func aReversalUnderADifferentKeySupersedesTheOriginal() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
-        // The same document judged again, this time unreadable, so the key falls back to the path.
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        // Judged while the file was evicted, so the key fell back to the path…
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        // …then judged again once it could be read, so the key is the fingerprint.
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .rejected, path: "a.pdf")
 
         #expect(store.tags.count == 1,
                 "two tags for one document: \(store.tags.map { "\($0.key)=\($0.verdict)" })")
         let index = PersonTagIndex(tags: store.tags)
         #expect(index.verdict(personId: "aditi", path: "a.pdf") == .rejected,
-                "the superseded confirmation still wins the lookup")
-        #expect(index.verdict(personId: "aditi", path: "a.pdf", fingerprint: "d1") == .rejected,
-                "the superseded confirmation is still found by its fingerprint")
+                "the withdrawn confirmation still wins the lookup the gather actually makes")
+    }
+
+    /// The other ordering, which the lookup precedence already answered — but which still left the
+    /// confirmation in `confirmedPaths`, so the `unseenConfirmations` sweep re-listed a document
+    /// the user had rejected as "theirs". That is the outcome on screen, and it is what this
+    /// asserts rather than the tag count.
+    @MainActor @Test func aRejectionAlsoWithdrawsTheDocumentFromTheConfirmedSet() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        #expect(PersonTagIndex(tags: store.tags).confirmedPaths(for: "aditi") == ["a.pdf"],
+                "the fixture never confirmed anything")
+
+        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        #expect(PersonTagIndex(tags: store.tags).confirmedPaths(for: "aditi").isEmpty,
+                "a rejected document is still listed as confirmed, so the gather re-lists it as theirs")
     }
 
     /// And the other direction, so the sweep is not simply deleting whatever it finds: a verdict on

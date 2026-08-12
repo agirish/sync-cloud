@@ -128,6 +128,15 @@ import Design
                 "the query narrowed the denominator too — M must be the list before the search")
     }
 
+    /// Whole-line `//` comments removed — a scan for what the code does must not be satisfied or
+    /// falsified by the prose describing it. Only for the negative checks, per the convention in
+    /// `OrganizeScopeCallSiteTests`.
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     @Test("A fold made on the All page cannot empty a section the rail selected")
     func collapsingAppliesToTheAllPageOnly() throws {
         // **The rail and the fold are two ways to hide the same list, and together they hid it
@@ -169,11 +178,18 @@ import Design
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
                                   "cannot read StorageLensView.swift — this scan would be vacuous")
         try #require(source.count > 500, "StorageLensView.swift is implausibly short")
-        #expect(source.contains("guard canCollapse else { return }"),
-                "the header's action still writes `collapsed` on a page where the fold does not apply")
-        #expect(source.contains(".disabled(!canCollapse)"),
-                "a narrowed page's header still offers a hover affordance for a fold it will not perform")
-        #expect(source.contains("if canCollapse {"),
+        // The write is unreachable because the Button is: the header is only wrapped in one where
+        // the fold applies, and the same row is drawn plain otherwise.
+        #expect(source.contains("if canCollapse {\n                Button {"),
+                "the header is a button on a page where the fold does not apply")
+        #expect(source.contains("listSectionHeader(section, count: entries.count, isCollapsed: false)"),
+                "a narrowed page draws no plain header row")
+        // Not a DISABLED button — that still announces an unavailable control and still costs
+        // Full Keyboard Access a stop, and the title, caption and count are only reachable
+        // through it.
+        #expect(!Self.codeOnly(source).contains(".disabled(!canCollapse)"),
+                "the narrowed header is a disabled button rather than a plain row")
+        #expect(source.contains("if self.section == nil {"),
                 "the chevron is still drawn on a page that cannot fold")
     }
 

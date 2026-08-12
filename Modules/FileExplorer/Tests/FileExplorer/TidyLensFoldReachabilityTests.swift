@@ -35,6 +35,27 @@ import Foundation
                 "nothing maps to .rename any more — this suite is asserting nothing")
     }
 
+    /// **The call site, which is what actually applies the fold.**
+    ///
+    /// The three tests above are about `OrganizeLens`. `effectiveLens` is
+    /// `organizeLens?.searchLens ?? lens`, and `organizeLens` is where `resolvedForPresentation` is
+    /// invoked — drop it there (`railLens?.resolvedForPresentation` → `railLens`) and a stored
+    /// `.names` selection reaches `.rename`, waking the whole apparatus, with every assertion above
+    /// still green. A rule is only unreachable if the call site keeps making it so.
+    @Test func theRailSelectionIsResolvedBeforeItBecomesASearchLens() throws {
+        let tidy = try OrganizeScopeCallSiteTests.source("TidyView.swift")
+        let body = try OrganizeScopeCallSiteTests.body(of: "private var organizeLens: OrganizeLens? {",
+                                                       in: tidy)
+        #expect(body.contains("railLens?.resolvedForPresentation"),
+                "the rail selection reaches `effectiveLens` unresolved — `.names` can present again")
+        // And the other half of `effectiveLens`: its fallback is the workspace's lens, which is
+        // `MacApp`'s to supply. This module cannot see `Workspace`, so what is pinned here is that
+        // the fallback exists and is the workspace value rather than something rail-derived.
+        #expect(try OrganizeScopeCallSiteTests.body(of: "private var effectiveLens: TidyLens {", in: tidy)
+                    .contains("organizeLens?.searchLens ?? lens"),
+                "effectiveLens no longer resolves through organizeLens")
+    }
+
     /// The lens that actually shows risky names now, so "unreachable" is paired with "and here is
     /// what replaced it" rather than leaving the feature unaccounted for.
     @Test func riskyNamesAreShownByTheRenamePass() {

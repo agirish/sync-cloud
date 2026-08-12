@@ -363,8 +363,11 @@ import Sync
         let tidy = try Self.source("TidyView.swift")
         #expect(tidy.contains("private func scopeHidesAllState"))
         #expect(tidy.contains("private func searchHidesAllState"))
-        // The chooser: a live query owns the emptiness, otherwise the scope does.
-        #expect(tidy.contains("if query.isEmpty, let scope {"))
+        // The chooser, in precedence order: a live query owns the emptiness, then a live type
+        // filter — the other control the user just set — and only then the scope. The filter was
+        // missing, so a scoped list narrowed to zero by "Versions" was reported as "nothing in
+        // Legal, 695 elsewhere" while 27 sat behind the filter.
+        #expect(tidy.contains("if query.isEmpty, !filterIsNarrowing, let scope {"))
         // And the scoped state must state the outside total and offer the clearing action —
         // "0 here" reading as "0 anywhere" is the whole complaint.
         #expect(tidy.contains("elsewhere in the tree"))

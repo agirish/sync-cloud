@@ -183,9 +183,12 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
 
     /// Whether the user may pick a different keeper — whatever `isFullyResolvableByRemoval` admits,
     /// which is identical, versions **and same-text** (`DuplicateFinderSameTextTests` pins that
-    /// last one deliberately). Overlapping groups are the exclusion: changing their keeper would
-    /// re-shuffle which items are "unique", which needs the content hashes we don't retain after a
-    /// scan. The list used to be spelled out here and stopped matching when same-text arrived.
+    /// last one deliberately). Overlapping and name-only groups are the exclusions: changing an
+    /// overlapping keeper would re-shuffle which items are "unique", which needs the content hashes
+    /// we don't retain after a scan, and a name-only group is not known to hold one document at all.
+    /// Read off `isFullyResolvableByRemoval` rather than restated — the list was spelled out here
+    /// and stopped matching when same-text arrived, and restating it in the fix reproduced the same
+    /// drift by forgetting name-only.
     public var allowsKeeperChoice: Bool { isFullyResolvableByRemoval }
 
     /// Returns this group with a different keeper chosen (no-op unless `allowsKeeperChoice` and the

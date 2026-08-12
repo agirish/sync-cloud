@@ -184,37 +184,47 @@ extension ContentView {
     /// theirs" like every other pane does, so Browse has to be able to *show* the answer — with
     /// nothing else in the window, an accept here started the sweep and changed no pixel, and the
     /// only exit (switching workspace) threw the answer away. The gather takes a resizable bottom
-    /// slot, the same shape and the same remembered share (`mainBottomPaneFraction`) it takes in
-    /// Compare and in the lens workspaces. No collapse rung: this slot is temporary and the ✕ and
-    /// Esc already give the window back, where Compare's bottom pane is permanent furniture.
+    /// slot of the same shape Compare's is, and shares its remembered fraction
+    /// (`mainBottomPaneFraction`) — so dragging it here does move Compare's divider, which is one
+    /// remembered "bottom share" rather than two. **Not** the lens workspaces: those lay out
+    /// horizontally (`singleSourceLayout`, sized by `railFraction`) and give the gather the whole
+    /// workspace column. No collapse rung either: this slot is temporary and the ✕ and Esc already
+    /// give the window back, where Compare's bottom pane is permanent furniture.
+    /// **One structure whether or not a gather is up**, for the reason `.compareSplit` gives a few
+    /// lines above: the column is a ~40k-node selection walk feeding a `List`, and putting it in
+    /// two branches of an `if` gives it two identities — so accepting a person offer would tear
+    /// the file column down and rebuild it, losing its scroll position and its expanded folders,
+    /// and clearing the gather would do it again. Only the divider's height and the third child's
+    /// presence change; the column stays the first child of the same `VStack` throughout.
     @ViewBuilder
     func browseLayout(geo: GeometryProxy) -> some View {
-        let column = paneColumn(isLeft: true)
-            .panesRegionFrame(surfaceStyle, level: glassLevel)
-        if let scope = personScope {
-            let minTop: CGFloat = 220
-            let minBottom: CGFloat = 150
-            let panesHeight = PaneLogic.verticalPanesHeight(totalHeight: geo.size.height, dividerHeight: 1)
-            let minFraction = PaneLogic.verticalMinFraction(panesHeight: panesHeight, minBottom: minBottom)
-            let maxFraction = PaneLogic.verticalMaxFraction(panesHeight: panesHeight, minTop: minTop,
-                                                            minFraction: minFraction)
-            let fraction = PaneLogic.clampedFraction(verticalDragFraction ?? bottomPaneFraction,
-                                                     lower: minFraction, upper: maxFraction)
-            VStack(spacing: 0) {
-                column
-                    .frame(maxHeight: .infinity)
-                verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
-                                      maxFraction: maxFraction)
-                    .frame(height: 1)
+        let hasGather = personScope != nil
+        let minTop: CGFloat = 220
+        let minBottom: CGFloat = 150
+        let dividerHeight: CGFloat = hasGather ? 1 : 0
+        let panesHeight = PaneLogic.verticalPanesHeight(totalHeight: geo.size.height,
+                                                        dividerHeight: dividerHeight)
+        let minFraction = PaneLogic.verticalMinFraction(panesHeight: panesHeight, minBottom: minBottom)
+        let maxFraction = PaneLogic.verticalMaxFraction(panesHeight: panesHeight, minTop: minTop,
+                                                        minFraction: minFraction)
+        let fraction = PaneLogic.clampedFraction(verticalDragFraction ?? bottomPaneFraction,
+                                                 lower: minFraction, upper: maxFraction)
+        VStack(spacing: 0) {
+            paneColumn(isLeft: true)
+                .panesRegionFrame(surfaceStyle, level: glassLevel)
+                .frame(maxHeight: .infinity)
+            verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
+                                  maxFraction: maxFraction)
+                .frame(height: dividerHeight)
+                .opacity(hasGather ? 1 : 0)
+                .allowsHitTesting(hasGather)
+            if let scope = personScope {
                 personGatherSection(scope)
                     .frame(height: panesHeight * fraction)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .coordinateSpace(.named(Self.verticalStackSpace))
-        } else {
-            column
-                .frame(width: geo.size.width, height: geo.size.height)
         }
+        .frame(width: geo.size.width, height: geo.size.height)
+        .coordinateSpace(.named(Self.verticalStackSpace))
     }
 
     /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the

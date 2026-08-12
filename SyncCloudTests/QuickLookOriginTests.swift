@@ -18,15 +18,28 @@ import Foundation
 /// be added without deciding this question.
 @Suite struct QuickLookOriginTests {
 
+    /// One named file, length-checked — for the checks that assert something about *that* file.
     static func source(_ name: String) throws -> String {
+        let text = try readable(name)
+        #expect(text.count > 500, "\(name) is implausibly short")
+        return text
+    }
+
+    /// Any file in `MacApp/`, without the length guard.
+    ///
+    /// The sweep below reads every Swift file in the directory, and a plausible-length assertion
+    /// per file is a tripwire on the wrong thing: adding a twenty-line enum to `MacApp/` would fail
+    /// this suite with "implausibly short" rather than anything about Quick Look. The non-vacuity
+    /// the sweep actually needs is on its RESULT — that it found call sites at all — which
+    /// `testTheScanFindsTheCallSites` asserts, and on the named file `testTheScanCanActuallyFail`
+    /// reads through `source(_:)`.
+    static func readable(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check below would be vacuous")
-        #expect(text.count > 500, "\(name) is implausibly short")
-        return text
+        return try #require(try? String(contentsOf: url, encoding: .utf8),
+                            "cannot read \(name) — every check below would be vacuous")
     }
 
     /// Every call to `toggleQuickLook(` across the app, as written.
@@ -38,7 +51,7 @@ import Foundation
     static func callSites() throws -> [String] {
         var sites: [String] = []
         for file in try Self.macAppSwiftFiles() {
-            for line in try source(file).components(separatedBy: "\n") {
+            for line in try readable(file).components(separatedBy: "\n") {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 // The definition and the doc comment are not call sites.
                 guard trimmed.contains("toggleQuickLook("),

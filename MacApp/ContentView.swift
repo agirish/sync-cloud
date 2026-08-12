@@ -2856,9 +2856,15 @@ struct ContentView: View {
                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                        }
                    },
+                   // Expanded, like every other reader of `FolderProfile.root` — it is stored
+                   // tilde-form ("~/Documents"), so the unexpanded join produced a path that
+                   // `URL(fileURLWithPath:)` resolved against the process's working directory and
+                   // Finder could not find: Reveal did nothing at all. Missed when its sibling
+                   // above was fixed, which is how the two came to differ in the other direction.
                    onReveal: { relative in
                        guard let root = syncManager.filingFolderProfile?.root else { return }
-                       let full = (root as NSString).appendingPathComponent(relative)
+                       let full = ((root as NSString).expandingTildeInPath as NSString)
+                           .appendingPathComponent(relative)
                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                    },
                    onClear: { clearPersonScope() },

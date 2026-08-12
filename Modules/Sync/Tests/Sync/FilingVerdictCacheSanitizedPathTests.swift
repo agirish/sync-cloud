@@ -79,6 +79,30 @@ import Testing
                 == "Immigration/OCI")
     }
 
+    /// **A resolution that got BETTER is still a hit.** A verdict for `Documents/Family/Divit`
+    /// recorded while `Divit` did not exist is stored with the trimmed resolution
+    /// `Documents/Family`; when the user then creates `Divit`, the resolution becomes the model's
+    /// own answer. Comparing only against the recorded resolution called that stale and re-billed
+    /// it — the exact inverse of what this type promises ("the answer got better, not worse"), and
+    /// a direction the first version of the comparand fix silently reversed.
+    @Test func aVerdictWhoseFolderHasSinceBeenCreatedIsStillServed() throws {
+        var cache = FilingVerdictCache()
+        let k = Self.key("card.pdf")
+        let verdict = FilingVerdict(relativePath: "Documents/Family/Divit", confidence: .high,
+                                    reason: "family", proposesNewFolder: false)
+        let before: Set<String> = ["Documents", "Documents/Family"]
+        cache.record(verdict, for: k, providerRoot: Self.root, existingRelative: before, now: Self.now)
+
+        // The premise: recorded against a TRIMMED resolution, not the raw answer.
+        let recorded = try #require(cache.entries[k]?.resolvedRelativePath)
+        #expect(recorded == "Documents/Family", "the fixture did not record a trimmed resolution")
+
+        let after: Set<String> = ["Documents", "Documents/Family", "Documents/Family/Divit"]
+        #expect(cache.verdict(for: k, providerRoot: Self.root, existingRelative: after)?.relativePath
+                == "Documents/Family/Divit",
+                "the answer improved toward the verdict's own path and was thrown away")
+    }
+
     /// **Entries written before the field existed still work**, on the comparand they were written
     /// with. Decoding a legacy record must not discard it, and must not start serving a stale
     /// answer either — it behaves exactly as it did.

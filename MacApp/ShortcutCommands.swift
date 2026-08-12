@@ -207,6 +207,11 @@ struct ShortcutValuePublisher: ViewModifier {
     /// The convention that ⌘F stays live under Settings, Help and the first-run tour is untouched:
     /// those are ambient panels and do not set `suspended`. This is about the overlay that owns
     /// the keyboard.
+    ///
+    /// It is now also suspended **while the palette itself is up**, which the move brought with it:
+    /// `suspended` carries both reasons. That is right rather than incidental — the panel owns the
+    /// keyboard then, and the palette offers its own Find action that calls `beginPaneSearch()`
+    /// after it dismisses — but it is a second behaviour change and worth naming.
     let beginPaneSearch: (() -> Void)?
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight

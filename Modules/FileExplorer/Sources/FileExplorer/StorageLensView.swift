@@ -214,53 +214,32 @@ struct StorageLensView: View {
     ///   on a narrowed page `isCollapsed` is false by construction, so every click ran the `insert`
     ///   arm. Nothing happened where the user clicked — the chevron kept pointing down and the list
     ///   stayed open — and the section was folded on the All page by a click they never experienced
-    ///   as one, which no second click there could undo. A control that cannot act does not offer
-    ///   to: the header is a plain row on a narrowed page, with no hover wash and no chevron.
+    ///   as one, which no second click there could undo.
+    ///
+    ///   A control that cannot act does not offer to, and on a narrowed page this one is not a
+    ///   control at all: no button, no hover wash, no chevron. Not a *disabled* button, which was
+    ///   the first attempt — that still announces an unavailable control to VoiceOver and still
+    ///   makes Full Keyboard Access step over the row, and the title, caption and count are only
+    ///   reachable through it.
     private func listSection(_ section: StorageSection, entries: [StorageEntry]) -> some View {
         let canCollapse = self.section == nil
         let isCollapsed = canCollapse && collapsed.contains(section)
         return VStack(alignment: .leading, spacing: 8) {
-            Button {
-                guard canCollapse else { return }
-                if isCollapsed { collapsed.remove(section) } else { collapsed.insert(section) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: section.icon)
-                        .scaledFont(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(section.tint)
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(section.title)
-                            .scaledFont(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.primary)
-                        Text(section.subtitle)
-                            .scaledFont(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    // The C1 mini pill, not a bare gray numeral floating after the caption —
-                    // the same dress every other section count in the app wears. Neutral tint:
-                    // a list size, never urgency.
-                    Pill(.mini, tint: .secondary, text: entries.count.formatted(), isNumeric: true)
-                    Spacer(minLength: 0)
-                    if canCollapse {
-                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                            .scaledFont(.system(size: 11, weight: .semibold))
-                            .hoverInk()
-                    }
+            if canCollapse {
+                Button {
+                    if isCollapsed { collapsed.remove(section) } else { collapsed.insert(section) }
+                } label: {
+                    listSectionHeader(section, count: entries.count, isCollapsed: isCollapsed)
                 }
-                // The chevron's width is not given back when it goes: the row keeps its shape, so
-                // narrowing to a section does not shuffle the title line sideways.
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
+            } else {
+                // **Not a disabled button — not a button.** A `.disabled` `Button` still announces
+                // itself to VoiceOver as an unavailable control and Full Keyboard Access still has
+                // to skip it, and the title, caption and count are only reachable through it. On a
+                // page where the fold does not apply there is nothing to announce: the same row,
+                // drawn as the plain header `treemapSection` already uses.
+                listSectionHeader(section, count: entries.count, isCollapsed: false)
             }
-            .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
-            // Disabled is exactly right here, and for the reason it is usually wrong:
-            // `HoverAffordanceStyle` reads `isEnabled` *only* to suppress its wash and draws no
-            // dimming of its own. So a narrowed page keeps a header that looks like every other
-            // header and simply stops lighting up under the pointer — which is what it should
-            // say, since there is nothing on this page to fold past.
-            .disabled(!canCollapse)
 
             if !isCollapsed {
                 if entries.isEmpty {
@@ -286,6 +265,43 @@ struct StorageLensView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// One list-section header row, drawn identically whether or not it is wrapped in a button.
+    ///
+    /// The chevron is the only part that depends on the fold, and it is absent where the fold does
+    /// not apply — a control that cannot act does not offer to. Its width is not given back: the
+    /// trailing `Spacer` already claims the row, so the title line does not shuffle sideways when
+    /// the page narrows.
+    @ViewBuilder
+    private func listSectionHeader(_ section: StorageSection, count: Int,
+                                   isCollapsed: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: section.icon)
+                .scaledFont(.system(size: 13, weight: .semibold))
+                .foregroundStyle(section.tint)
+                .symbolRenderingMode(.hierarchical)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(section.title)
+                    .scaledFont(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(section.subtitle)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            // The C1 mini pill, not a bare gray numeral floating after the caption — the same
+            // dress every other section count in the app wears. Neutral tint: a list size,
+            // never urgency.
+            Pill(.mini, tint: .secondary, text: count.formatted(), isNumeric: true)
+            Spacer(minLength: 0)
+            if self.section == nil {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .hoverInk()
             }
         }
     }

@@ -30,6 +30,17 @@ import Testing
         Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
     ])
 
+    /// Counts the content extractor's calls, so "the content pass ran" is an observation instead of
+    /// an inference. The first version of this suite asserted `filingSuggestions.count == 2`, which
+    /// only says both files were scanned — true whether or not the re-suggest fired. Any future
+    /// change that gives the second file a confident home would empty `unsure`, skip phase 2, and
+    /// leave these tests passing with the bug reintroduced.
+    final class Reads: @unchecked Sendable {
+        private let lock = NSLock()
+        private(set) var paths: [String] = []
+        func record(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
+    }
+
     static func write(_ url: URL, bytes: Int = 5000) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
@@ -44,7 +55,8 @@ import Testing
     ///
     /// - Parameter destinationTemplate: the rule's destination, so the same fixture exercises both
     ///   the `personIs` condition and the `{person}` token.
-    static func makeScan(destinationTemplate: String) throws -> (FileSyncManager, URL) {
+    static func makeScan(destinationTemplate: String,
+                         reads: Reads = Reads()) throws -> (FileSyncManager, URL, Reads) {
         let root = try makeCanonicalTempRoot(prefix: "FilingPersonRule")
         try write(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Archive/Muktha/.keep"), bytes: 1)
@@ -54,7 +66,7 @@ import Testing
         let m = FileSyncManager()
         // Contents-reading on (the default) with an extractor that yields tokens, so phase 2 both
         // runs and produces a non-empty `content` — the branch that re-suggests.
-        m.filingContentExtractor = { _ in ["utility", "statement"] }
+        m.filingContentExtractor = { path in reads.record(path); return ["utility", "statement"] }
         m.filingPersonRegistry = household
         // Bypass UserDefaults and drive these rules directly — `ensureAutomationRulesLoaded()`
         // otherwise replaces them with the persisted (empty) set at scan start, which is how the
@@ -64,7 +76,7 @@ import Testing
             AutomationRule(name: "Mum's paperwork", conditions: [.personIs("muktha")],
                            destinationTemplate: destinationTemplate),
         ]
-        return (m, root)
+        return (m, root, reads)
     }
 
     /// The destination the card would act on, **relative to the provider root** — `best.path` is
@@ -79,15 +91,17 @@ import Testing
     /// The vaccination record is answered by the rule in phase 1; the bill sends the scan into
     /// phase 2. The rule's answer has to still be there afterwards.
     @Test func aPersonRuleStillSteersAfterTheContentPassReSuggests() async throws {
-        let (m, root) = try Self.makeScan(destinationTemplate: "Archive/Records")
+        let (m, root, reads) = try Self.makeScan(destinationTemplate: "Archive/Records")
         defer { try? FileManager.default.removeItem(at: root) }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
                                       providerRoot: root)
 
-        // The premise: phase 2 really ran, over both files. Without this the assertion below could
-        // pass by the second pass never having happened — a fixture that cannot fail.
+        // **The premise, observed.** `count == 2` alone says both files were scanned, not that the
+        // content pass re-suggested — and the re-suggest is the only place the defect lives.
         #expect(m.filingSuggestions.count == 2,
                 "expected both loose files in the scan, got \(m.filingSuggestions.map(\.fileName))")
+        #expect(!reads.paths.isEmpty,
+                "the content extractor was never called, so phase 2 did not run")
         let bill = Self.best(m, named: "9829custbill.pdf", root: root)
         #expect(bill != "Archive/Records", "the fixture's homeless file was itself pulled into the rule")
 
@@ -101,11 +115,12 @@ import Testing
     ///
     /// `Archive/Muktha` is reachable only by resolving the token: the file is named "Mom".
     @Test func aPersonTokenDestinationStillResolvesAfterTheContentPass() async throws {
-        let (m, root) = try Self.makeScan(destinationTemplate: "Archive/{person}")
+        let (m, root, reads) = try Self.makeScan(destinationTemplate: "Archive/{person}")
         defer { try? FileManager.default.removeItem(at: root) }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
                                       providerRoot: root)
 
+        #expect(!reads.paths.isEmpty, "phase 2 did not run — this fixture cannot see the defect")
         let record = Self.best(m, named: "Mom - vaccination.pdf", root: root)
         #expect(record == "Archive/Muktha",
                 "{person} resolved to nothing after the content pass — best was \(record ?? "nil")")
@@ -131,6 +146,11 @@ import Testing
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
                                       providerRoot: root)
 
+        // The suggestion has to EXIST for `!=` to mean anything: `best` returns nil for a file the
+        // scan never enumerated, and `nil != "Archive/Records"` is true for the wrong reason — the
+        // fallback-equals-expected shape this repo keeps being bitten by.
+        #expect(m.filingSuggestions.contains { $0.fileName == "Mom - vaccination.pdf" },
+                "the scan enumerated no suggestion for the document under test")
         #expect(Self.best(m, named: "Mom - vaccination.pdf", root: root) != "Archive/Records",
                 "a rule about Divit claimed Muktha's document")
     }

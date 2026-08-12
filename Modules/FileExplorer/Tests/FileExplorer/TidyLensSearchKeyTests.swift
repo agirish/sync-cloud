@@ -31,7 +31,11 @@ import Foundation
     /// that is the one spelling that silently means "some other lens's slot".
     @Test func noSearchSlotIsAddressedByTheWorkspacesLens() throws {
         let source = OrganizeScopeCallSiteTests.codeOnly(try Self.tidy())
+        // `[lens, default: ""]` is in the list because that subscript form is the one the file
+        // actually uses elsewhere (`searchQueries[.duplicates, default: ""]`), so it is the most
+        // likely way a bare `lens` comes back — and the four-spelling sweep did not catch it.
         for spelling in ["searchQueries[lens]",
+                         "searchQueries[lens,",
                          "searchExpandedLenses.insert(lens)",
                          "searchExpandedLenses.remove(lens)",
                          "searchExpandedLenses.contains(lens)"] {
@@ -75,12 +79,28 @@ import Foundation
     /// all, the old wording asserted a search that was not running and offered to clear it. The
     /// cause is resolved first, and the control names what it will actually do.
     @Test func aFilterOnlyEmptyStateSaysSoRatherThanBlamingASearch() throws {
+        let tidy = try Self.tidy()
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
-            in: try Self.tidy())
-        #expect(body.contains("let filterOnly = query.isEmpty && effectiveLens == .duplicates && filter != .all"),
+            in: tidy)
+        // The cause, not the spelling: whichever way the predicate is written, the branch must be
+        // decided by "no query AND the type filter is narrowing" and must name the filter.
+        #expect(body.contains("let filterOnly = query.isEmpty && filterIsNarrowing"),
                 "the empty state no longer distinguishes a filter-only narrowing from a search")
         #expect(body.contains("Show All Kinds"),
                 "a filter-only dead-end still offers to clear a search that isn't running")
+        #expect(body.contains("filter.label"), "the filter-only message does not name the filter")
+
+        // **And the cause is resolved before the scope's sentence.** `filterOnly` requires an empty
+        // query, so routing the empty-query case straight to `scopeHidesAllState` made this branch
+        // unreachable under any scope — and told the reader that all N groups were somewhere else
+        // while they were right there behind the filter.
+        #expect(tidy.contains("if query.isEmpty, !filterIsNarrowing, let scope {"),
+                "a filter-narrowed scoped list still blames the scope, and the branch above is dead there")
+        // One predicate, so the chooser and the wording cannot drift apart.
+        #expect(tidy.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
+        #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: tidy)
+                    .contains("filterIsNarrowing"),
+                "`isFiltered` restates the filter rule instead of sharing it")
     }
 }

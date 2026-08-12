@@ -257,6 +257,51 @@ import Foundation
         }
     }
 
+    /// **Three groups bridged at once**, which is the only shape that exercises the descending
+    /// removal. Every other fixture bridges exactly two, so `bridged.dropFirst()` has one element
+    /// and `.reversed()` is a no-op — delete it and nothing notices. With three, removing at
+    /// ascending indices shifts the ones still to be moved and either loses a group or traps.
+    @Test func oneItemCanMergeThreeGroupsAtOnce() {
+        // Each end shares exactly half of the bridge's vocabulary (0.5, the threshold) while no two
+        // ends reach it between themselves (0 and 0.33). A bridge cannot reach three ends that are
+        // mutually DISJOINT — each would need half the bridge and three halves do not fit — so the
+        // ends overlap each other a little, below the bar. The premise checks below prove both.
+        let a = (name: "2019", words: Set(["statements", "notices"]))
+        let b = (name: "2020", words: Set(["receipts", "invoices"]))
+        let c = (name: "2021", words: Set(["notices", "receipts"]))
+        let bridge = (name: "2022", words: Set(["statements", "notices", "receipts", "invoices"]))
+        for pair in [(a, b), (a, c), (b, c)] {
+            #expect(StructureDivergence.jaccard(pair.0.words, pair.1.words)
+                    < StructureDivergence.AgreementRule.similarity,
+                    "\(pair.0.name) and \(pair.1.name) already agree — nothing to bridge")
+        }
+        for end in [a, b, c] {
+            #expect(StructureDivergence.jaccard(end.words, bridge.words)
+                    >= StructureDivergence.AgreementRule.similarity,
+                    "the bridge does not reach \(end.name)")
+        }
+
+        let groups = StructureDivergence.cluster([a, b, c, bridge])
+        #expect(groups.count == 1,
+                "three groups bridged by one sibling came out as \(groups.map { $0.map(\.name) })")
+        #expect(groups.first?.map(\.name) == ["2019", "2020", "2021", "2022"],
+                "the merged members are not in profile order: \(groups.first?.map(\.name) ?? [])")
+    }
+
+    /// Members come back in the order the survey walked them, which
+    /// ``StructureFinding/Scheme/members`` documents and the scheme sort's tiebreaker reads.
+    /// Appending merged groups end to end gave `[A₀, A₂, B₁, B₃, C₄]` for two alternating schemes.
+    @Test func mergedMembersKeepProfileOrder() {
+        let items = [(name: "A0", words: Set(["alpha"])),
+                     (name: "B1", words: Set(["beta"])),
+                     (name: "A2", words: Set(["alpha"])),
+                     (name: "B3", words: Set(["beta"])),
+                     (name: "C4", words: Set(["alpha", "beta"]))]
+        let groups = StructureDivergence.cluster(items)
+        #expect(groups.count == 1)
+        #expect(groups.first?.map(\.name) == ["A0", "B1", "A2", "B3", "C4"])
+    }
+
     /// The other direction, so the merge is not simply collapsing everything: two genuinely
     /// unrelated schemes with nothing bridging them stay two.
     @Test func twoSchemesWithNothingBetweenThemStayTwo() {

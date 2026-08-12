@@ -313,12 +313,14 @@ extension ContentView {
                     .shortcutKeycap(AppChord.settings.display)
             }
             .help(ShortcutHint.tooltip("Settings", AppChord.settings.display))
-            // Settings is an ambient panel and ⌘, deliberately stays live under it — but not
-            // *under a pick*: the picker renders above Settings in the overlay order, so clicking
-            // this mid-pick did nothing visible and then surprised the user with Settings the
-            // instant they answered. A control that cannot act until later should not look like it
-            // acted now.
-            .disabled(pendingDestination != nil)
+            // **Deliberately NOT disabled during a destination pick, unlike Info above.** The two
+            // are not the same case: ⌘I is published through `ShortcutValuePublisher` and is
+            // suspended with the rest, so disabling its button keeps the halves of one control in
+            // step. ⌘, is registered in the App scene, sees none of this window's state, and
+            // cannot be suspended from here — so disabling only the button would create exactly
+            // the keyboard-can/mouse-cannot split the Info comment gives as the reason for its
+            // own gating. Settings is an ambient panel by the app's own convention (see
+            // `ShortcutValuePublisher.suspended`); it stays reachable both ways.
         }
     }
 }

@@ -71,12 +71,20 @@ import Sync
         #expect(zeros.allSatisfy { $0.isFinite }, "a zero denominator produced a non-finite width")
     }
 
-    /// The floor cannot push the siblings negative: with a floor wider than the whole row's share,
-    /// the others clamp at zero rather than going negative and inverting the layout.
+    /// The floor cannot push the siblings negative.
+    ///
+    /// **The fixture has to make `lastProportional` exceed `available`**, which needs a
+    /// `visibleBytes` smaller than the tiles sum to — the first version passed `1_000_001` for
+    /// tiles of `[1, 1_000_000]`, so the last tile's share was already 29.99997 of 30 and the
+    /// remainder was exactly zero. Deleting the `max(0, …)` left it green. The caller cannot
+    /// currently produce an inconsistent total (`visibleBytes = max(1, total - tailBytes)` is
+    /// always at least the visible sum), so this guards the function against a future caller
+    /// rather than a reachable state today — worth saying rather than implying otherwise.
     @Test func anOversizedFloorClampsTheSiblingsAtZero() {
-        let widths = TreemapView.visibleWidths(Self.nodes([1, 1_000_000]), floorLastTile: true,
-                                               available: 30, visibleBytes: 1_000_001)
-        #expect(widths.allSatisfy { $0 >= 0 }, "a tile was given a negative width")
-        #expect(Self.sum(widths) <= 30.001)
+        let widths = TreemapView.visibleWidths(Self.nodes([1, 100]), floorLastTile: true,
+                                               available: 30, visibleBytes: 50)
+        #expect(widths.count == 2)
+        #expect(widths.allSatisfy { $0 >= 0 },
+                "a tile was given a negative width: \(widths)")
     }
 }

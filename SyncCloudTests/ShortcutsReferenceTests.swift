@@ -38,15 +38,53 @@ import Design
     ///
     /// Whitespace-insensitive, because the reference spaces its keys for reading (`⇧⌘ N`) while a
     /// chord renders tight (`⇧⌘N`): one chord, formatted for two places.
+    ///
+    /// **Matched by equality against each key a row lists, not by substring.** A row can name two
+    /// chords (`⌘ [ / ⌘ ]`), which is why the keys are split on `/` first — but asking `contains`
+    /// on the whole string made the check strictly weaker than the hand-typed list it replaced:
+    /// `⌘F` is a substring of the Differences row's `⇧⌘ F`, and `⌘R` of `⇧⌘ R`, so **deleting the
+    /// ⌘F or ⌘R row passed**. That is the one failure this test exists to catch.
     @Test func testEveryRegisteredChordHasAReferenceRow() {
-        let listed = ShortcutsReference.groups.flatMap(\.items)
-            .map { $0.keys.replacingOccurrences(of: " ", with: "") }
+        let listed = Self.listedChordKeys()
         #expect(listed.count > 10, "the reference is implausibly short — this scan would be near-vacuous")
         for chord in AppChord.registry {
-            let display = chord.display.replacingOccurrences(of: " ", with: "")
-            #expect(listed.contains { $0.contains(display) },
+            #expect(listed.contains(Self.normalized(chord.display)),
                     "no reference row lists \u{201C}\(chord.display)\u{201D}")
         }
+    }
+
+    /// Every chord a reference row names, one per element: keys split on the pair **separator**
+    /// and whitespace removed, so they compare against `AppChord.display` as equals.
+    ///
+    /// Split on `" / "` and not on `"/"`, because a slash is also a KEY: the row for the reference
+    /// itself is `⌘ /`. Splitting on the bare character turned that into `⌘` plus an empty string
+    /// and lost the chord entirely — caught by the strictness this helper exists for, on the first
+    /// run after it was tightened.
+    static func listedChordKeys() -> Set<String> {
+        Set(ShortcutsReference.groups.flatMap(\.items).flatMap { item in
+            item.keys.components(separatedBy: " / ").map(Self.normalized)
+        })
+    }
+
+    static func normalized(_ keys: String) -> String {
+        keys.replacingOccurrences(of: " ", with: "")
+    }
+
+    /// The guard on the guard: the matcher must actually be able to say no.
+    ///
+    /// Every other test here asserts a presence, so a matcher that answered "yes" to everything
+    /// would leave the suite green — which is exactly what substring matching did for two rows.
+    @Test func testTheChordMatcherRejectsAChordThatIsNotListed() {
+        let listed = Self.listedChordKeys()
+        #expect(!listed.contains(Self.normalized("⌘ ⌥ Q")), "the matcher accepts a chord nothing lists")
+        // And the near-miss that the old substring form accepted: a bare ⌘F must be matched by the
+        // ⌘F row and NOT by the ⇧⌘F one.
+        #expect(listed.contains("⌘F"))
+        #expect(listed.contains("⇧⌘F"))
+        #expect(!listed.contains("⌘⇧F"), "the reference spells a modifier order the app never renders")
+        // A slash is a key as well as a separator; the row for this very panel is `⌘ /`.
+        #expect(listed.contains("⌘/"), "splitting the keys lost the chord whose key IS a slash")
+        #expect(!listed.contains(""), "an empty key survived the split")
     }
 
     /// The workspace range is a family rather than a chord, so it is checked on its own.
@@ -84,10 +122,11 @@ import Design
         // Non-vacuity: the reader found the literal registration that certainly exists.
         #expect(registered.contains("?"), "the scan found no ⌘? — it is not reading the menus")
 
-        let listed = ShortcutsReference.groups.flatMap(\.items)
-            .map { $0.keys.replacingOccurrences(of: " ", with: "") }
+        // Equality on split keys, for the reason the registry check above gives — substring
+        // matching would let `⇧⌘ F` stand in for a missing `⌘ F` row.
+        let listed = Self.listedChordKeys()
         for key in registered.sorted() {
-            #expect(listed.contains { $0.contains("⌘\(key.uppercased())") },
+            #expect(listed.contains("⌘\(key.uppercased())"),
                     "⌘\(key) is registered in the menus but has no row in the ⌘/ reference")
         }
     }

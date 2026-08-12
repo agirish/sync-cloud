@@ -207,9 +207,17 @@ public struct FilingVerdictCache: Sendable, Equatable {
         // resolver sanitizes; comparing against the raw string made that whole class unservable.
         // Legacy entries carry no resolution and fall back to the old comparand — no worse than
         // before, and rewritten with one the next time they are recorded.
-        let recorded = entry.resolvedRelativePath
-            ?? entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard FilingEngine.relative(resolved.path, under: providerRoot) == recorded else { return nil }
+        let now = FilingEngine.relative(resolved.path, under: providerRoot)
+        let raw = entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        // **Either the resolution it was recorded with, or the answer itself.** Comparing only
+        // against the recorded resolution turned a case that used to hit into a miss: a verdict
+        // for `Documents/Family/Divit` recorded while `Divit` did not exist resolves to
+        // `Documents/Family` and is stored as such — then the user CREATES `Divit`, the resolution
+        // becomes the model's actual answer, and a strict comparison called that stale. It is the
+        // opposite: the offer got better, which the paragraph above already promises is a hit.
+        // A verdict that now resolves somewhere neither of those names — `Family` deleted, so it
+        // trims to `Documents` — still misses, which is what the guard is for.
+        guard now == entry.resolvedRelativePath || now == raw else { return nil }
         return entry.verdict
     }
 

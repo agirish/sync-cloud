@@ -547,8 +547,13 @@ public struct TidyView: View {
     private var query: String { searchQueries[effectiveLens] ?? "" }
     /// True when this lens's list is narrowed by anything — the cue for the "N of M" readout.
     private var isFiltered: Bool {
-        !query.isEmpty || (effectiveLens == .duplicates && filter != .all)
+        !query.isEmpty || filterIsNarrowing
     }
+
+    /// True when the **type filter** — as opposed to a query — is narrowing this lens's list.
+    /// Its own member because three places ask it and one of them (`noMatchesState`) decides which
+    /// cause the empty state names; restating it was how the two got out of step.
+    private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }
 
     /// The parsed tokens of this lens's query, as chips. Each lens's own grammar answers, so a
     /// chip is only ever offered for a token that lens can actually bind.
@@ -3260,7 +3265,13 @@ public struct TidyView: View {
     ///   - globalTotal: how many exist in the whole tree, for the scope's own message.
     @ViewBuilder
     private func noMatchesState(scopedTotal: Int, globalTotal: Int, noun: String) -> some View {
-        if query.isEmpty, let scope {
+        // **Three causes, in the order the reader would blame them**: a live query owns the
+        // emptiness, then a live type filter — the other control they just set — and only then the
+        // scope. The filter was missing from this chooser: scoped to `Legal` with "Versions"
+        // picked, a lens holding 27 groups none of which are versions fell to the scope's sentence
+        // and reported that all of them were somewhere else, while they were right there behind
+        // the filter. It also made the filter-only wording below unreachable under any scope.
+        if query.isEmpty, !filterIsNarrowing, let scope {
             // Reached only when the scoped list is empty, so everything there is is elsewhere.
             scopeHidesAllState(total: globalTotal - scopedTotal, noun: noun, scope: scope)
         } else {
@@ -3279,7 +3290,7 @@ public struct TidyView: View {
     ///   a search that isn't running, and the button clears whichever it names.
     private func searchHidesAllState(total: Int, noun: String) -> some View {
         let plural = "\(total) \(noun)\(total == 1 ? "" : "s")"
-        let filterOnly = query.isEmpty && effectiveLens == .duplicates && filter != .all
+        let filterOnly = query.isEmpty && filterIsNarrowing
         return EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",
             title: "Nothing matches",

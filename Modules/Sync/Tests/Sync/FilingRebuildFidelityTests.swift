@@ -64,6 +64,48 @@ import Testing
         #expect(fresh.isBatchEligible)
     }
 
+    /// **Every rebuild site goes through the member**, asserted at the source because three of the
+    /// four cannot be driven from here (they need a live `FileSyncManager`, a provider root and a
+    /// published list). Without this the member is one revert from being unused on those paths:
+    /// reverting `replaceFilingSuggestion` — the "Try another" path the defect was reported
+    /// against — reproduces the symptom exactly with every behavioural test below still green.
+    @Test func everyRebuildSiteGoesThroughTheMember() throws {
+        let dir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync")
+        for (file, declaration) in [("FilingEngine.swift", "applyVerdicts"),
+                                    ("FileSyncManager+Filing.swift", "replaceFilingSuggestion"),
+                                    ("FileSyncManager+FilingRoute.swift", "routed"),
+                                    ("FileSyncManager+FilingRename.swift", "naming")] {
+            let source = try #require(try? String(contentsOf: dir.appendingPathComponent(file),
+                                                  encoding: .utf8),
+                                      "cannot read \(file) — this scan would be vacuous")
+            try #require(source.count > 500, "\(file) is implausibly short")
+            #expect(source.contains("replacingCandidates("),
+                    "\(file) rebuilds a suggestion without the member (\(declaration)); alreadyFiledAt drops there")
+        }
+    }
+
+    /// And the shape that lost it is gone: no rebuild names the initialiser member by member.
+    ///
+    /// Scoped to the two files that only ever *re-answer*. `FilingEngine` builds the original
+    /// suggestion and `+FilingRoute` builds a deliberately blank one for routing, so a bare
+    /// initialiser there is legitimate.
+    @Test func noReAnsweringSiteCallsTheInitialiserDirectly() throws {
+        let dir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync")
+        for file in ["FileSyncManager+Filing.swift", "FileSyncManager+FilingRename.swift"] {
+            let source = try #require(try? String(contentsOf: dir.appendingPathComponent(file),
+                                                  encoding: .utf8))
+            let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            #expect(!code.contains("FilingSuggestion(filePath:"),
+                    "\(file) builds a FilingSuggestion member by member again")
+        }
+    }
+
     /// `applyVerdicts` promotes a model answer over the heuristic's. It rebuilds, so it is one of
     /// the four — driven here through the real entry point rather than asserted about the source.
     @Test func promotingAVerdictKeepsTheAlreadyFiledMarker() throws {

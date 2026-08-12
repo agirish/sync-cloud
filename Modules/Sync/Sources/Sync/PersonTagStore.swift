@@ -65,10 +65,22 @@ public final class PersonTagStore: ObservableObject {
     /// a fingerprint where the document has one, the path otherwise — and that answer can change
     /// between two judgements of the same file: it is evicted to iCloud, or locked, and the
     /// extractor declines. Matching on `(personId, key)` alone then stored the reversal *beside*
-    /// the original as a differently-keyed tag, and `PersonTagIndex.verdict` prefers the
-    /// fingerprint one — so the older "yes" shadowed the newer "no" on every gather afterwards.
-    /// That is exactly the "two disagreeing ones whose winner depends on read order" this method's
-    /// own rule forbids; it just arrived by the other door.
+    /// the original as a differently-keyed tag, which is the "two disagreeing ones whose winner
+    /// depends on read order" this method's own rule forbids, arriving by the other door.
+    ///
+    /// **Which one wins, precisely:** `PersonFiles.gather` asks `verdict(personId:path:)` with no
+    /// fingerprint, so `PersonTagIndex` consults `.path` first and falls back to the recorded path.
+    /// A *path*-keyed tag therefore beats a fingerprint-keyed one on the same document — so the
+    /// direction that went stale is a path-keyed "yes" followed by a fingerprint-keyed "no", where
+    /// the withdrawn confirmation kept winning. (An earlier version of this note had it the other
+    /// way round.) The reverse order was already answered correctly by that precedence, but it
+    /// left the confirmation in `confirmedPaths`, so the `unseenConfirmations` sweep re-listed a
+    /// rejected document as "theirs" — the same wrong answer by a different route. Both are gone.
+    ///
+    /// Two limits, deliberate: a tag written before the `at` field existed decodes with an empty
+    /// `recordedPath` and so is never matched here, and a path the user re-uses (a scanner writing
+    /// `Inbox/Scan.pdf` again) will supersede the previous document's tag. Both need document
+    /// identity to do better, which is the same thing `keyKind` says the gather does not yet have.
     public func record(personId: String, key: PersonTagKey, verdict: PersonTagVerdict,
                        path: String) {
         let tag = PersonTag(personId: personId, key: key, verdict: verdict, recordedPath: path)

@@ -42,7 +42,10 @@ public enum FilingRouter {
 
     public struct Ranking: Sendable, Equatable {
         public let candidates: [Candidate]
-        /// `(top − runnerUp) / top`, 1.0 when there is only one candidate.
+        /// How separated the winner is — see ``FilingRouter/margin(top:runnerUp:)``, which is the one
+    /// place the rule lives. `(top − runnerUp) / top`; 1.0 for a lone candidate that scored above
+    /// zero, and **0 when the top score is zero or less**, because a folder the scorer penalised
+    /// is the last one standing rather than a winner.
         ///
         /// **This is the only honest confidence Organize has had.** Measured on the held-out split:
         /// a margin ≥ 0.5 is right 94% of the time and covers 15% of files; below 0.2 it is right
@@ -677,7 +680,7 @@ public extension FilingRouter {
             a.1 == b.1 ? a.0.relativePath < b.0.relativePath : a.1 > b.1
         }
         guard sorted.count > 1, sorted[0].1 > 0 else { return ranking }
-        let margin = (sorted[0].1 - sorted[1].1) / sorted[0].1
+        let margin = Self.margin(top: sorted[0].1, runnerUp: sorted[1].1)
         return Ranking(candidates: sorted.map { Candidate(relativePath: $0.0.relativePath,
                                                           score: $0.1,
                                                           evidenceToken: $0.0.evidenceToken,

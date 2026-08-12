@@ -218,13 +218,18 @@ public enum StructureDivergence {
     /// order is a divergence the user is asked to look at and cannot see.
     static func cluster(_ items: [(name: String, words: Set<String>)])
         -> [[(name: String, words: Set<String>)]] {
-        var groups: [[(name: String, words: Set<String>)]] = []
-        for item in items {
+        // Grouped by POSITION, so a merge can put the members back in profile order — which
+        // ``StructureFinding/Scheme/members`` documents and the scheme sort's tiebreaker reads.
+        // Appending merged groups end-to-end gave `[A₀, A₂, B₁, B₃, C₄]` for two alternating
+        // schemes joined by a bridge: every member present, none of them in the order the survey
+        // walked them.
+        var groups: [[Int]] = []
+        for (index, item) in items.enumerated() {
             let bridged = groups.indices.filter { i in
-                groups[i].contains { jaccard($0.words, item.words) >= AgreementRule.similarity }
+                groups[i].contains { jaccard(items[$0].words, item.words) >= AgreementRule.similarity }
             }
             guard let home = bridged.first else {
-                groups.append([item])
+                groups.append([index])
                 continue
             }
             // Highest index first, so removing does not shift the ones still to be moved.
@@ -232,9 +237,9 @@ public enum StructureDivergence {
                 groups[home].append(contentsOf: groups[other])
                 groups.remove(at: other)
             }
-            groups[home].append(item)
+            groups[home].append(index)
         }
-        return groups
+        return groups.map { members in members.sorted().map { items[$0] } }
     }
 
     /// Overlap over union. Two empty sets never reach here — an empty vocabulary is dropped before

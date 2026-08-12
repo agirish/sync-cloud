@@ -191,11 +191,22 @@ extension FileSyncManager {
         var preferred: [String] = []
         var shortlists: [String: [String]] = [:]
         if let index = filingRouterIndex {
+            // **Through the peer-name rerank, because the scan is.** The sentence above says "the
+            // same folder menu the scan builds", and the scan's menu comes out of `Self.route`,
+            // which reranks. Ranking raw here made that sentence false in the one case the rerank
+            // exists for — a folder against its own subfolder, a percent apart — so the scan
+            // shortlisted the child first and a refine of the same unchanged file shortlisted the
+            // parent, handing the paid classifier a differently ordered menu for one question.
+            let peerNames = peerNameLookup()
             shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
-                (s.filePath, FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
+                let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
                                                index: index,
                                                excluding: Set(excludedByFile[s.filePath] ?? []),
-                                               limit: 8).candidates.map(\.relativePath))
+                                               limit: 8)
+                let ranking = FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
+                    peerNames(root + "/" + relative)
+                }
+                return (s.filePath, ranking.candidates.map(\.relativePath))
             })
             preferred = Self.preferredFolders(for: files, shortlists: shortlists,
                                               in: eligible, providerRoot: root)

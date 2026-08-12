@@ -146,6 +146,14 @@ import Sync
     ///
     /// Source-level because `ContentView`'s state has no seam — the same reason this suite already
     /// gives for `acceptPersonScope`.
+    /// Whole-line `//` comments removed, so a scan for what the code does is not answered by the
+    /// prose describing it.
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     @Test func everyWorkspaceSwitchClearsTheGatherNotJustTheBars() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -157,7 +165,10 @@ import Sync
         let onChange = try #require(content.range(of: ".onChange(of: selectedWorkspace) { _, _ in"),
                                     "the workspace onChange handler is gone — this scan is vacuous")
         let end = try #require(content[onChange.upperBound...].range(of: "\n        }"))
-        let body = String(content[onChange.upperBound..<end.lowerBound])
+        // Comments stripped: the window is dominated by the note explaining why the clear moved
+        // here, and one reword mentioning `clearPersonScope()` would satisfy this with the call
+        // deleted.
+        let body = Self.codeOnly(String(content[onChange.upperBound..<end.lowerBound]))
         #expect(body.contains("clearPersonScope()"),
                 "the gather is not cleared on every workspace change, so a programmatic switch leaves it holding the slot")
 
@@ -165,7 +176,7 @@ import Sync
         // is the one that cannot see a programmatic write.
         let setter = try #require(content.range(of: "if newWorkspace != previous {"))
         let setterEnd = try #require(content[setter.upperBound...].range(of: "}"))
-        #expect(!content[setter.upperBound..<setterEnd.lowerBound].contains("clearPersonScope()"),
+        #expect(!Self.codeOnly(String(content[setter.upperBound..<setterEnd.lowerBound])).contains("clearPersonScope()"),
                 "the bar's setter still clears the scope too")
     }
 

@@ -28,6 +28,21 @@ import FileExplorer
         return text
     }
 
+    /// One declaration's body, bounded by its **closing brace** rather than a character count.
+    ///
+    /// Two scans here took fixed windows (900 and 1,600 characters) of `browseLayout`. Both were
+    /// silently wrong the moment that member grew: the 1,600 one already overran the body into the
+    /// next doc comment, and the 900 one stopped covering its own assertions. A window that has to
+    /// be re-tuned whenever the code it reads changes length is a spurious failure waiting to
+    /// happen — the same argument `OrganizeScopeCallSiteTests.body(of:in:)` makes.
+    static func body(of declaration: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: declaration),
+                                 "\(declaration) is gone — the scan would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
+        return String(rest[..<end.lowerBound])
+    }
+
     /// The positive control. Every other test here asserts that some string is present; if the
     /// reader silently returned the wrong file they would all fail loudly — but the several that
     /// assert an ABSENCE would pass, which is the direction that goes unnoticed.
@@ -64,9 +79,7 @@ import FileExplorer
     /// including the `singleSource` resolution this used to pin.
     @Test func testTheBrowseLayoutKeepsTheRegionFrame() throws {
         let split = try Self.source("ContentView+SplitLayout.swift")
-        let start = try #require(split.range(of: "func browseLayout(geo: GeometryProxy)"),
-                                 "there is no Browse layout")
-        let body = String(split[start.upperBound...].prefix(900))
+        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)", in: split)
         #expect(body.contains("paneColumn(isLeft: true)"))
         #expect(body.contains(".panesRegionFrame(surfaceStyle, level: glassLevel)"))
     }
@@ -214,9 +227,7 @@ import FileExplorer
     /// takes everywhere else — not a fixed strip, and not the whole window.
     @Test func testTheBrowseGatherSlotIsTheSharedResizableOne() throws {
         let split = try Self.source("ContentView+SplitLayout.swift")
-        let start = try #require(split.range(of: "func browseLayout(geo: GeometryProxy)"),
-                                 "browseLayout is gone — this scan would be vacuous")
-        let body = String(split[start.upperBound...].prefix(1_600))
+        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)", in: split)
         #expect(body.contains("if let scope = personScope"),
                 "browseLayout does not branch on a live gather")
         #expect(body.contains("verticalResizeDivider"),

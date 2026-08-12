@@ -73,14 +73,24 @@ import Foundation
 
         // Every `static let <name> = AppChord(` declaration — the parameterised `workspace(_:)` is
         // a `static func` and so is correctly not counted.
+        // Counted over the whitespace-collapsed whole file rather than line by line, so a
+        // declaration whose initialiser wraps (`static let x =` / newline / `AppChord(…)`) is still
+        // seen. Line-scoped, such a member would be invisible here AND absent from the registry —
+        // the count would balance and the chord would reach none of the three sweeps.
+        let flattened = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         var declared: Set<String> = []
-        for line in source.split(separator: "\n") {
-            let code = line.trimmingCharacters(in: .whitespaces)
-            guard code.hasPrefix("static let "), code.contains("= AppChord(") else { continue }
-            let name = code.dropFirst("static let ".count).prefix { $0.isLetter || $0.isNumber }
+        for fragment in flattened.components(separatedBy: "static let ").dropFirst() {
+            let name = fragment.prefix { $0.isLetter || $0.isNumber }
+            guard fragment.dropFirst(name.count).hasPrefix(" = AppChord(") else { continue }
             declared.insert(String(name))
         }
         #expect(declared.contains("settings"), "the scan found no declarations — it is vacuous")
+        // **Distinct first, or the count proves nothing.** `registry` is a plain array: listing one
+        // member twice balances the count while a genuinely new chord is missing, which is exactly
+        // the omission this test exists to catch. Every chord this app registers renders a
+        // different display, so uniqueness there is a real property and not an accident.
+        #expect(Set(AppChord.registry.map(\.display)).count == AppChord.registry.count,
+                "two registry entries render the same display — a duplicate can mask an omission")
         #expect(declared.count == AppChord.registry.count,
                 """
                 \(declared.count) chords are declared but the registry holds \(AppChord.registry.count) \

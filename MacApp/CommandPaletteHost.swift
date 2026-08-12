@@ -106,21 +106,6 @@ extension ContentView {
     ///
     /// Read once, when the palette opens — `CommandPaletteState` holds the result for the life of
     /// that session — so this is not on the keystroke path at all.
-    /// Whether a source's folder is there right now. Expanded first, and required to be a
-    /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
-    static func isMountedFolder(_ path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        let expanded = (path as NSString).expandingTildeInPath
-        let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory)
-        return exists && isDirectory.boolValue
-    }
-
-    /// The provider whose tree the palette is describing — the focused pane's in Compare, the
-    /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
-    /// index's rows, its "current source" mark and its provider switch cannot disagree about which
-    /// pane they mean.
-    var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }
-
     var paletteIndex: PaletteIndex {
         let root = tidyProviderRootExpanded
         let profile = syncManager.filingFolderProfile
@@ -193,6 +178,21 @@ extension ContentView {
         }
     }
 
+    /// The provider whose tree the palette is describing — the focused pane's in Compare, the
+    /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
+    /// index's rows, its "current source" mark and both of its provider writes cannot disagree
+    /// about which pane they mean.
+    var paletteProviderId: String { tidyTargetIsRight ? rightProviderId : leftProviderId }
+
+    /// Whether a source's folder is there right now. Expanded first, and required to be a
+    /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
+    static func isMountedFolder(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        let expanded = (path as NSString).expandingTildeInPath
+        let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
+    }
+
     /// Organize, at a rail item, optionally re-aimed.
     ///
     /// The scope is written to the defaults key `TidyView` reads, because that is where the scope
@@ -239,7 +239,13 @@ extension ContentView {
         switch action {
         case .rescan: shortcutRescan?()
         case .newFolder: shortcutNewFolder?()
-        case .chooseFolder: chooseFolderSource { leftProviderId = $0 }
+        // The aimed pane, like every other provider write here — see `paletteProviderId`. Adding
+        // a source from ⌘K while the right pane is focused pointed the LEFT one at it, which also
+        // fires that pane's provider-switch teardown on the side the user was not working in.
+        case .chooseFolder:
+            chooseFolderSource { id in
+                if tidyTargetIsRight { rightProviderId = id } else { leftProviderId = id }
+            }
         case .findInPane: beginPaneSearch()
         case .settings: showSettings = true
         case .shortcuts: openWindow(id: "keyboard-shortcuts")

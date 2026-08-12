@@ -87,6 +87,77 @@ import Testing
                 "a save that refused to write still announced one")
     }
 
+    /// **Provenance follows the write too.** `source = .file` was set by the callers, before a
+    /// `save()` that refuses outright when the roster on disk is one this build could not read — so
+    /// the list claimed "saved in people.json" beside the banner saying edits would not be saved.
+    /// The same "two answers about one roster" the flag was introduced to remove.
+    @Test func aRefusedSaveDoesNotClaimTheFile() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(#"{"schemaVersion":1,"people":{"not":"an array"}}"#.utf8)
+            .write(to: dir.appendingPathComponent("p/people.json"))
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        #expect(store.rosterIsUnreadable, "the fixture did not produce a locked roster")
+        let before = store.source
+        store.add(displayName: "Muktha")
+        #expect(store.source == before,
+                "a save that refused to write still claimed the file as the household of record")
+    }
+
+    /// And a save that DOES land claims it — the other direction, so the test above is not passing
+    /// on `source` simply never changing.
+    @Test func aSaveThatLandsClaimsTheFile() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.add(displayName: "Muktha")
+        #expect(store.source == .file)
+    }
+
+    /// Dismissing a suggestion writes the whole roster, so it claims the file the same way an edit
+    /// does — it was the one writer that set `source` without going through `sortAndSave`.
+    @Test func dismissingASuggestionClaimsTheFileToo() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.add(displayName: "Muktha")
+        let revision = store.savedRevision
+        store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Mukta",
+                                                     occurrences: 3, exampleFile: "Mukta bill.pdf"))
+        #expect(store.savedRevision > revision, "the dismissal did not write")
+        #expect(store.source == .file)
+    }
+
+    /// **The call site**, because nothing in the repo builds a `FileSyncManager` with a
+    /// `filingPeopleStore` — so deleting the `$savedRevision` subscription restores the original
+    /// bug exactly and leaves every behavioural test above green. What the tests prove is that the
+    /// two signals differ; this proves the fingerprint is driven by the right one.
+    @Test func theFingerprintRefreshFollowsTheWriteNotThePublish() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync/FileSyncManager.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read FileSyncManager.swift — this scan would be vacuous")
+        try #require(source.count > 500, "FileSyncManager.swift is implausibly short")
+
+        // Two subscriptions, each on the publisher that answers its question.
+        #expect(source.contains("filingPeopleStore?.$savedRevision"),
+                "the artifact fingerprint is not driven by the post-write signal")
+        #expect(source.contains("peopleSaveCancellable"),
+                "the post-write subscription is not retained, so it is cancelled immediately")
+        #expect(source.contains("filingPeopleStore?.$people"),
+                "the registry is no longer recompiled when the roster changes in memory")
+
+        // And the refresh is NOT still hanging off `$people`, which is the shape that was one save
+        // stale. Bounded to the `$people` sink's own closure.
+        let start = try #require(source.range(of: "filingPeopleStore?.$people"))
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n                }"))
+        #expect(!rest[..<end.lowerBound].contains("refreshFilingArtifactFingerprint"),
+                "the fingerprint is refreshed from the pre-save publish again")
+    }
+
     /// A store with no profile has nowhere to write, and must not announce either.
     @Test func aNonPersistentStoreDoesNotBumpTheRevision() {
         let store = PeopleStore(people: [Person(id: "a", displayName: "Abhishek")])

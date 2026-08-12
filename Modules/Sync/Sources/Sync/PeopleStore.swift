@@ -162,12 +162,6 @@ public final class PeopleStore: ObservableObject {
     public func dismissSuggestion(_ suggestion: PersonNameSuggestion) {
         guard !dismissedSuggestions.contains(suggestion.id) else { return }
         dismissedSuggestions.insert(suggestion.id)
-        // `source = .file` for the reason `sortAndSave()` sets it: this writes the whole roster,
-        // seed and all, so from here on the file is the household of record. Without it the
-        // roster claimed to be "seeded from your folder names" for the rest of the session and
-        // "from the file you wrote" on the next launch — two answers about one roster, and the
-        // provenance the Settings list shows was the wrong one in whichever session you asked.
-        source = .file
         save()
         Logger.shared.info("People: “\(suggestion.form)” is not \(suggestion.personId)'s — "
                            + "it will not be suggested again")
@@ -232,7 +226,6 @@ public final class PeopleStore: ObservableObject {
         // Sorted by display name so the file and the list agree, and a diff of `people.json` shows
         // what changed rather than where a record moved to.
         people.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-        source = .file            // the moment a person is edited, the roster is the user's
         save()
     }
 
@@ -279,6 +272,13 @@ public final class PeopleStore: ObservableObject {
             // **Only now are the bytes on disk what this roster says**, which is what anything
             // hashing the file has to wait for. See `savedRevision`.
             savedRevision &+= 1
+            // And only now is the file the household of record. Set here rather than by the
+            // callers — `sortAndSave()` set it before `save()`, and `dismissSuggestion` was given
+            // the same shape — so a save this build REFUSES (an unreadable roster, which is the
+            // one case that matters) can no longer leave the list claiming "saved in people.json"
+            // beside the banner saying edits will not be saved. Provenance follows the write, for
+            // the same reason the fingerprint does.
+            source = .file
         } catch {
             Logger.shared.warning("Couldn't save people.json — the change is in memory only "
                                   + "this session: \(error.localizedDescription)")

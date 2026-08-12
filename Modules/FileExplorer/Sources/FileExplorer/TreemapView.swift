@@ -126,6 +126,11 @@ struct TreemapView: View {
     ///
     /// The floored tile is paid for exactly the way the tail is: it takes its width first, and the
     /// rest share what remains in their own proportions.
+    ///
+    /// One exception to "sum to `available`", stated so the invariant is not read as wider than it
+    /// is: an all-zero-byte visible set has no proportions to divide, so the floored tile takes the
+    /// label floor and the rest take nothing. That is under-fill, never overflow, and a report with
+    /// zero-byte areas has nothing to draw anyway.
     nonisolated static func visibleWidths(_ visible: [TreemapNode], floorLastTile: Bool,
                                           available: CGFloat, visibleBytes: Int) -> [CGFloat] {
         guard !visible.isEmpty else { return [] }
