@@ -819,10 +819,16 @@ import Design
 
         // The card's own inset and padding are charged — the difference between the two entry
         // points, and the 29pt the old measurement silently spent.
+        //
+        // Asserted as a CONSEQUENCE rather than as `style(columnWidth: w) == style(contentWidth: w
+        // - cardChrome)`, which was this test's first draft and is the function body restated: a
+        // model compared to itself agrees no matter what either side is doing. What can actually
+        // fail is this — a column holding exactly the rail and the toggle is still too narrow,
+        // because the card spends 29 of it before the row starts.
         #expect(OrganizeRailMetrics.cardChrome == 29)
-        #expect(OrganizeRailMetrics.style(columnWidth: 700, leadingWidth: leading)
-                == OrganizeRailMetrics.style(contentWidth: 700 - OrganizeRailMetrics.cardChrome,
-                                             leadingWidth: leading))
+        #expect(OrganizeRailMetrics.style(columnWidth: leading + OrganizeRailMetrics.searchToggleWidth,
+                                          leadingWidth: leading) == .iconOnly,
+                "the card's own inset and padding have stopped being charged — the rail will draw 29pt past the room it has")
 
         // The boundary from both sides, so a chrome constant cannot move it unnoticed.
         let threshold = leading + OrganizeRailMetrics.searchToggleWidth + OrganizeRailMetrics.cardChrome
@@ -849,6 +855,37 @@ import Design
     ///
     /// Recorded as a measurement so the horizontal scroll in `TidyView.lensTitle` reads as the
     /// answer to a case that exists rather than as belt-and-braces someone can tidy away.
+    /// **A rail item has to fit the row, now that the row clips.**
+    ///
+    /// Before the horizontal `ScrollView` in `lensTitle` an over-tall item simply drew outside the
+    /// 27pt row — untidy, and nobody's bug. A scroll view clips its content, so the same overflow
+    /// would now cut a badge or a selected item's capsule off at the top and bottom instead. That
+    /// is the cost of the fix, and this is what keeps it paid.
+    ///
+    /// **Measured: 20 / 22 / 25 / 26pt against `LensHeaderMetrics.tabRow`'s 27**, so the margin at
+    /// the largest text size is a single point. It is not slack to spend — anything that adds
+    /// vertical padding to `RailItemLabel` fails here first.
+    @MainActor
+    @Test("Every rail item fits the row the scroll clips it to")
+    func theRailItemFitsTheRowItIsClippedTo() {
+        for size in FontSize.allCases {
+            let host = NSHostingView(rootView:
+                RailItemLabel(title: "Duplicates", systemImage: "doc.on.doc", state: .reporting(410),
+                              isSelected: true, accent: .blue)
+                    .environment(\.appFontScale, size.scale))
+            host.layoutSubtreeIfNeeded()
+            let height = host.fittingSize.height
+
+            #expect(height > 0, "the rail item laid out at 0pt at \(size.displayName) — this measurement is fiction")
+            #expect(height <= LensHeaderMetrics.tabRow,
+                    """
+                    a rail item is \(height)pt at \(size.displayName), taller than the \
+                    \(LensHeaderMetrics.tabRow)pt row — the scroll view in `lensTitle` clips it now, \
+                    so this shows as a badge cut off top and bottom
+                    """)
+        }
+    }
+
     @Test("The glyph rung can still overrun the narrowest column")
     func theGlyphRungCanStillOverrunTheNarrowestColumn() {
         let busy = Self.states([.toFile: 410, .duplicates: 410, .names: 410,
