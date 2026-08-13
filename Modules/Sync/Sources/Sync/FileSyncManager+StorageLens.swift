@@ -68,7 +68,7 @@ extension FileSyncManager {
         // Age in whole minutes rather than through `ScanFreshness`: that lives in Design, and Sync
         // stays free of the UI modules. The view renders the same instant properly.
         let ageMinutes = Int(Date().timeIntervalSince(snapshot.completedAt) / 60)
-        Logger.shared.info("Storage Lens: showing the saved report for \(root.lastPathComponent) "
+        Logger.shared.info("Storage: showing the saved report for \(root.lastPathComponent) "
             + "(scanned \(ageMinutes) minute(s) ago) — re-analyze for current numbers")
         return true
     }
@@ -138,6 +138,6 @@ extension FileSyncManager {
                 StorageLensSnapshot(root: root.path, report: report, completedAt: completedAt),
                 to: url)
         }
-        Logger.shared.info("Storage Lens: analyzed \(root.lastPathComponent) — \(Self.formatBytes(report.totalBytes)) across \(report.treemap.count) area(s), \(report.reclaimCandidates.count) reclaim candidate(s)")
+        Logger.shared.info("Storage: analyzed \(root.lastPathComponent) — \(Self.formatBytes(report.totalBytes)) across \(report.treemap.count) area(s), \(report.reclaimCandidates.count) reclaim candidate(s)")
     }
 }

@@ -156,8 +156,11 @@ public enum DisplayCycleTrace {
     /// The raw count for the cycle in progress, for the one test that has to prove the swizzle
     /// landed. `endCycle` deliberately reports only what crossed the floor, so it cannot answer
     /// "did the hook fire at all" — which is exactly the question worth asking of an instrument.
+    /// Compiled in rather than `#if DEBUG`-gated (a dictionary read; a DEBUG-only seam could not
+    /// be asserted against under `swift test -c release` — see `RiskyNameBadgeCache`).
     static func endCycleCountForTesting(window: Int) -> Int { passesThisCycle[window] ?? 0 }
 
+    /// Compiled in rather than `#if DEBUG`-gated for the same reason as `endCycleCountForTesting`.
     static func resetForTesting() {
         passesThisCycle.removeAll()
         highWater.removeAll()

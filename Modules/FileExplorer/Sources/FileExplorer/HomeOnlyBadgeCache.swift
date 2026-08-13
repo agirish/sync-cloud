@@ -50,7 +50,8 @@ public enum HomeOnlyBadgeCache {
 
     /// Drops every entry. Only the tests need it — production invalidates by handing in a different
     /// `Coverage` — but a memo that outlived a test case would let one case's answers decide
-    /// another's.
+    /// another's. Compiled in rather than `#if DEBUG`-gated: a DEBUG-only seam could not be
+    /// asserted against under `swift test -c release` — see `RiskyNameBadgeCache`.
     static func resetForTesting() { table.resetForTesting() }
 }
 
@@ -106,6 +107,8 @@ final class Table {
         return answer
     }
 
+    /// Compiled in rather than `#if DEBUG`-gated for the same reason as the static
+    /// `HomeOnlyBadgeCache.resetForTesting()` above.
     func resetForTesting() {
         known.removeAll()
         coverage = nil

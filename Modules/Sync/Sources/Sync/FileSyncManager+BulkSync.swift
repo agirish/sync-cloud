@@ -553,13 +553,16 @@ extension FileSyncManager {
 
 // ProgressRef and WeakSyncManagerRef are internal (not private) because the verify machinery
 // in FileSyncManager+Verify.swift shares the parallel-worker scaffolding.
+// @unchecked: NSProgress is itself thread-safe; the ref exists only to be the Sendable wrapper.
 final class ProgressRef: @unchecked Sendable {
     let progress: Progress
     init(_ progress: Progress) { self.progress = progress }
 }
 
 final class WeakSyncManagerRef: @unchecked Sendable {
-    weak var value: FileSyncManager?
+    // `weak let`: never reassigned after init (all construction sites pass `self` once), so the
+    // only mutation is the runtime nil-ing on deallocation — which is what makes this Sendable-safe.
+    weak let value: FileSyncManager?
     init(_ value: FileSyncManager?) { self.value = value }
 }
 

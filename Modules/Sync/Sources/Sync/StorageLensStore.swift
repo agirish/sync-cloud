@@ -61,7 +61,7 @@ public enum StorageLensStore {
     public static func load(from url: URL) -> [StorageLensSnapshot] {
         guard let data = try? Data(contentsOf: url) else { return [] }
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
-            Logger.shared.warning("Storage Lens snapshots at \(url.lastPathComponent) could not be read — starting fresh")
+            Logger.shared.warning("Storage snapshots at \(url.lastPathComponent) could not be read — starting fresh")
             return []
         }
         guard payload.schema == currentSchema else { return [] }
@@ -122,7 +122,7 @@ public enum StorageLensStore {
             let data = try JSONEncoder().encode(Payload(schema: currentSchema, snapshots: snapshots))
             try data.write(to: url, options: .atomic)
         } catch {
-            Logger.shared.warning("Couldn't save the Storage Lens snapshot: \(error.localizedDescription)")
+            Logger.shared.warning("Couldn't save the Storage snapshot: \(error.localizedDescription)")
         }
     }
 

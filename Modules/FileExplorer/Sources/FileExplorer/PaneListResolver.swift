@@ -32,12 +32,6 @@ enum PaneListResolver {
     /// rectangles are identical; this is slack for rounding, not for near misses.
     private static let matchFraction: CGFloat = 0.9
 
-    /// Single-column tables in `view`'s subtree. A multi-column table is a `Table` — the differences
-    /// list — and never a pane list.
-    static func singleColumnTables(in view: NSView) -> [NSTableView] {
-        tables(in: view, multiColumn: false)
-    }
-
     /// Tables in `view`'s subtree, split by column count: the pane lists are the single-column
     /// tables SwiftUI backs a `List` with, and the differences list is the one multi-column
     /// `Table`. The split is the disambiguator — the pane stylers must never touch the

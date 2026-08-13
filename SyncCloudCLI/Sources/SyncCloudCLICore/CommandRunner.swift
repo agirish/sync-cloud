@@ -93,8 +93,6 @@ public struct CommandRunner {
 
     /// `print(line)` — one stdout line, newline appended.
     private func printOut(_ line: String) { env.writeOut(line + "\n") }
-    /// `fputs(line + "\n", stderr)` — one stderr line, newline appended.
-    private func printErr(_ line: String) { env.writeErr(line + "\n") }
 
     // MARK: Shared plumbing
 

@@ -121,7 +121,7 @@ extension FileSyncManager {
               !isFindingDuplicates, !hasFoundDuplicates,
               duplicateAutoRescanAttempted != root.path else { return false }
         duplicateAutoRescanAttempted = root.path
-        Logger.shared.info("Tidy: auto-rescanning \(root.lastPathComponent) for duplicates (scanned before, free to repeat)")
+        Logger.shared.info("Duplicates: auto-rescanning \(root.lastPathComponent) for duplicates (scanned before, free to repeat)")
         startFindDuplicates(root: root, options: options)
         return true
     }
@@ -160,7 +160,7 @@ extension FileSyncManager {
         let documentCache: ContentHashCache? =
             (fingerprintCache != nil && fingerprintCache === cache) ? nil : fingerprintCache
         if documentCache == nil, fingerprintCache != nil {
-            Logger.shared.warning("Tidy: the document-fingerprint cache and the content-hash cache are the same instance — reading documents without a cache rather than letting one serve the other's digests")
+            Logger.shared.warning("Duplicates: the document-fingerprint cache and the content-hash cache are the same instance — reading documents without a cache rather than letting one serve the other's digests")
         }
         let epoch = beginScan(\.duplicateScanLifecycle, status: "Scanning \(root.lastPathComponent)…")
         duplicateScanProgress = nil   // walk phase — total unknown until candidates are counted
@@ -327,13 +327,13 @@ extension FileSyncManager {
         // user scanned exactly this before", and a cancelled scan is not that.
         rememberLensScanTarget(root.path, forKey: Self.lastDuplicatesScanRootKey)
         let summary = duplicateSummary
-        Logger.shared.info("Tidy: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
+        Logger.shared.info("Duplicates: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
         let skips = duplicateScanSkips
         if skips.total > 0 {
-            Logger.shared.info("Tidy: \(skips.total) file(s) outside duplicate detection — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded), \(skips.multiLink) hard-linked (trashing a link frees nothing); duplicates among them are not detected")
+            Logger.shared.info("Duplicates: \(skips.total) file(s) outside duplicate detection — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded), \(skips.multiLink) hard-linked (trashing a link frees nothing); duplicates among them are not detected")
         }
         if skips.textUnreadable > 0 {
-            Logger.shared.info("Tidy: \(skips.textUnreadable) document(s) said too little to fingerprint (image-only scan, locked, or under \(ContentFingerprint.minimumTokens) tokens) — a re-stamped copy of one of them is not detected")
+            Logger.shared.info("Duplicates: \(skips.textUnreadable) document(s) said too little to fingerprint (image-only scan, locked, or under \(ContentFingerprint.minimumTokens) tokens) — a re-stamped copy of one of them is not detected")
         }
     }
 
@@ -552,7 +552,7 @@ extension FileSyncManager {
         }
         if let drifted = driftedRemovalCandidates(group).first {
             banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
-            Logger.shared.warning("Tidy: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
+            Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
             return false
         }
         let bytes = group.reclaimableBytes
@@ -569,7 +569,7 @@ extension FileSyncManager {
         if currentError == nil {
             banner = .success("Reclaimed \(Self.formatBytes(bytes)) — press ⌘Z to undo")
         }
-        Logger.shared.info("Tidy: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
+        Logger.shared.info("Duplicates: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
         return true
     }
 
@@ -609,7 +609,7 @@ extension FileSyncManager {
         guard removed > 0 else { return }
         let done = dropFullyRemovedGroups(from: batch)
         let bytes = done.reduce(0) { $0 + $1.reclaimableBytes }
-        Logger.shared.info("Tidy: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
+        Logger.shared.info("Duplicates: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
         if currentError == nil {
             if done.count == batch.count, batch.count == eligible.count {
                 banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s") — press ⌘Z to undo")
@@ -637,7 +637,7 @@ extension FileSyncManager {
         // " 2" junk copies of all of them. Claimed synchronously on the main actor BEFORE the
         // first suspension point, so two rapid clicks can never both pass.
         guard !mergingGroupIDs.contains(group.id) else {
-            Logger.shared.info("Tidy merge: “\(group.name)” is already merging — duplicate request dropped")
+            Logger.shared.info("Duplicates merge: “\(group.name)” is already merging — duplicate request dropped")
             return false
         }
         mergingGroupIDs.insert(group.id)
@@ -727,7 +727,7 @@ extension FileSyncManager {
             // copied or trashed, the group stays listed, and the banner names the link.
             guard plan.blockedLinkedDirs.isEmpty else {
                 let dirs = plan.blockedLinkedDirs.map { "“\($0)”" }.joined(separator: ", ")
-                Logger.shared.warning("Tidy merge: “\(redundant.name)” needs files under \(dirs) in \(keeperURL.lastPathComponent), which \(plan.blockedLinkedDirs.count == 1 ? "is a symlinked folder" : "are symlinked folders") — refusing to write through the link")
+                Logger.shared.warning("Duplicates merge: “\(redundant.name)” needs files under \(dirs) in \(keeperURL.lastPathComponent), which \(plan.blockedLinkedDirs.count == 1 ? "is a symlinked folder" : "are symlinked folders") — refusing to write through the link")
                 banner = .warning("Can't merge “\(group.name)”: \(dirs) in “\(keeperURL.lastPathComponent)” \(plan.blockedLinkedDirs.count == 1 ? "is a symbolic link" : "are symbolic links") — the fold would write through it. Resolve the link, then rescan.")
                 allTrashed = false
                 continue
@@ -762,7 +762,7 @@ extension FileSyncManager {
                     } catch {
                         // Record the underlying cause: the user-facing alert only says "some files
                         // couldn't be merged", so without this the reason is unrecoverable.
-                        logger.warning("Tidy merge: copying “\(step.src.lastPathComponent)” into \(keeperURL.lastPathComponent) failed: \(error.localizedDescription)")
+                        logger.warning("Duplicates merge: copying “\(step.src.lastPathComponent)” into \(keeperURL.lastPathComponent) failed: \(error.localizedDescription)")
                         failed = true
                         break
                     }
@@ -797,7 +797,7 @@ extension FileSyncManager {
             let currentSnapshot = Self.fileSnapshotsByRelativePath(
                 await Self.buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil))
             if Self.mergeSourceDrifted(planned: plan.sourceSnapshot, current: currentSnapshot) {
-                Logger.shared.warning("Tidy merge: “\(redundant.name)” changed after the merge was planned — left in place, not trashed")
+                Logger.shared.warning("Duplicates merge: “\(redundant.name)” changed after the merge was planned — left in place, not trashed")
                 driftedCopies.append(redundant.name)
                 allTrashed = false
                 continue
@@ -825,7 +825,7 @@ extension FileSyncManager {
         }
         duplicateGroups.removeAll { $0.id == group.id }
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name). Press ⌘Z to undo")
-        Logger.shared.info("Tidy: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
+        Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         return true
     }
 
