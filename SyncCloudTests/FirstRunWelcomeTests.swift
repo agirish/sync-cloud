@@ -46,7 +46,7 @@ import Testing
     /// exactly like a working tour.
     @Test func testEveryIllustrationIsUsedByExactlyOnePage() {
         let used = FirstRunWelcome.pages.map(\.art)
-        for art in [FirstRunWelcome.Art.welcome, .browse, .compare, .transfer, .tidy, .filing] {
+        for art in [FirstRunWelcome.Art.welcome, .browse, .compare, .transfer, .duplicates, .filing] {
             #expect(used.filter { $0 == art }.count == 1,
                     "\(art) is not used by exactly one page")
         }

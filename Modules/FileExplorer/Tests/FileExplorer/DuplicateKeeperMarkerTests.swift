@@ -4,67 +4,67 @@ import Testing
 
 /// Pins the pure marker mapping behind the Tidy card's keeper column: only rows the user can
 /// actually pick draw a radio; groups without a keeper choice get a plain dot instead.
-@Suite struct TidyKeeperMarkerTests {
+@Suite struct DuplicateKeeperMarkerTests {
     @Test func keeperShowsFilledRadioRegardlessOfChoice() {
-        #expect(TidyKeeperMarker.style(allowsKeeperChoice: true, isKeeper: true) == .keeper)
-        #expect(TidyKeeperMarker.style(allowsKeeperChoice: false, isKeeper: true) == .keeper)
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: true) == .keeper)
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: true) == .keeper)
     }
 
     @Test func nonKeeperIsSelectableOnlyWhenGroupAllowsChoice() {
-        #expect(TidyKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false) == .selectable)
-        #expect(TidyKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false) == .selectable)
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
     }
 
     @Test func accessibilityLabelsReadSensibly() {
-        #expect(TidyKeeperMarker.keeper.accessibilityLabel == "Kept copy")
-        #expect(TidyKeeperMarker.selectable.accessibilityLabel == "Keep this copy")
-        #expect(TidyKeeperMarker.inert.accessibilityLabel == nil)
+        #expect(DuplicateKeeperMarker.keeper.accessibilityLabel == "Kept copy")
+        #expect(DuplicateKeeperMarker.selectable.accessibilityLabel == "Keep this copy")
+        #expect(DuplicateKeeperMarker.inert.accessibilityLabel == nil)
     }
 }
 
 /// Pins the wording gate for the card's unverified-content caveat: it appears only when a group
 /// really contains copies whose hash was skipped (too large / cloud-only / unreadable), pluralizes
 /// correctly, and never fires for a fully verified group.
-@Suite struct TidyUnverifiedNoteTests {
+@Suite struct DuplicateUnverifiedNoteTests {
     @Test func noNoteWhenEveryCopyIsVerified() {
-        #expect(TidyUnverifiedNote.text(unverifiedCount: 0) == nil)
+        #expect(DuplicateUnverifiedNote.text(unverifiedCount: 0) == nil)
     }
 
     @Test func singularAndPluralWording() {
-        let one = TidyUnverifiedNote.text(unverifiedCount: 1)
+        let one = DuplicateUnverifiedNote.text(unverifiedCount: 1)
         #expect(one?.hasPrefix("1 copy couldn't be content-verified") == true)
-        let three = TidyUnverifiedNote.text(unverifiedCount: 3)
+        let three = DuplicateUnverifiedNote.text(unverifiedCount: 3)
         #expect(three?.hasPrefix("3 copies couldn't be content-verified") == true)
     }
 }
 
 /// Pins the scan-level "skipped" pill tooltip: nil (pill hidden) for a clean scan, per-reason
 /// breakdown listing only the reasons that occurred, singular/plural on the total.
-@Suite struct TidyScanSkipNoteTests {
+@Suite struct DuplicateScanSkipNoteTests {
     private typealias Skips = FileSyncManager.DuplicateScanSkips
 
     @Test func nilWhenNothingWasSkipped() {
-        #expect(TidyScanSkipNote.text(Skips()) == nil)
+        #expect(DuplicateScanSkipNote.text(Skips()) == nil)
     }
 
     @Test func listsOnlyTheReasonsThatOccurred() {
-        let largeOnly = TidyScanSkipNote.text(Skips(tooLarge: 2, cloudOnly: 0))
+        let largeOnly = DuplicateScanSkipNote.text(Skips(tooLarge: 2, cloudOnly: 0))
         #expect(largeOnly == "2 files outside duplicate detection: 2 too large to hash. Duplicates among them are not detected.")
-        let cloudOnly = TidyScanSkipNote.text(Skips(tooLarge: 0, cloudOnly: 3))
+        let cloudOnly = DuplicateScanSkipNote.text(Skips(tooLarge: 0, cloudOnly: 3))
         #expect(cloudOnly == "3 files outside duplicate detection: 3 cloud-only (not downloaded). Duplicates among them are not detected.")
         // Hard links joined the ledger in round 6: dropped files must never just quietly
         // shrink the results ("over-report beats hide" applies to the accounting too).
-        let links = TidyScanSkipNote.text(Skips(multiLink: 2))
+        let links = DuplicateScanSkipNote.text(Skips(multiLink: 2))
         #expect(links == "2 files outside duplicate detection: 2 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
     }
 
     @Test func combinesBothReasonsWithATotal() {
-        let both = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3))
+        let both = DuplicateScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3))
         #expect(both == "6 files outside duplicate detection: 1 too large to hash, 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
     }
 
     @Test func singularTotalDropsThePluralS() {
-        let one = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 0))
+        let one = DuplicateScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 0))
         #expect(one?.hasPrefix("1 file outside duplicate detection") == true)
     }
 
@@ -72,7 +72,7 @@ import Testing
         // These files WERE hashed and grouped; only the weaker same-text comparison was declined.
         // Folding them into the total would make the pill claim a much larger blindness than the
         // scan actually has — 853 of 10,569 on the tree this was measured against.
-        let note = TidyScanSkipNote.text(Skips(tooLarge: 1, textUnreadable: 853))
+        let note = DuplicateScanSkipNote.text(Skips(tooLarge: 1, textUnreadable: 853))
         #expect(note?.hasPrefix("1 file outside duplicate detection") == true)
         #expect(note?.contains("A further 853 documents were hashed but said too little") == true)
     }
@@ -81,11 +81,11 @@ import Testing
         // The pill counts files outside detection, and there are none — so no pill, and the
         // declined-text sentence has nowhere to hang. Deliberate: an image-only scan not being
         // comparable by text is the ordinary state of a tree full of scans, not a warning.
-        #expect(TidyScanSkipNote.text(Skips(textUnreadable: 853)) == nil)
+        #expect(DuplicateScanSkipNote.text(Skips(textUnreadable: 853)) == nil)
     }
 
     @Test func oneDeclinedDocumentReadsSingular() {
-        let note = TidyScanSkipNote.text(Skips(cloudOnly: 1, textUnreadable: 1))
+        let note = DuplicateScanSkipNote.text(Skips(cloudOnly: 1, textUnreadable: 1))
         #expect(note?.contains("A further 1 document was hashed but said too little") == true)
         #expect(note?.contains("a re-downloaded copy of it is not detected") == true)
     }
@@ -110,13 +110,13 @@ import Testing
 
 /// The destructive confirmation's wording. Pure, so it can be held to the claim the group actually
 /// makes — which is the whole reason it was lifted out of the view.
-@Suite struct TidyRemovalPromptTests {
+@Suite struct DuplicateRemovalPromptTests {
 
     @Test func aSameTextCopyIsNeverCalledRedundant() {
         // The card refuses that word (badge, subtitle, thumbnail caption); the confirmation is the
         // point of no return and must refuse it too.
-        let one = TidyRemovalPrompt.itemWord(for: .sameText, count: 1)
-        let many = TidyRemovalPrompt.itemWord(for: .sameText, count: 3)
+        let one = DuplicateRemovalPrompt.itemWord(for: .sameText, count: 1)
+        let many = DuplicateRemovalPrompt.itemWord(for: .sameText, count: 3)
         #expect(one == "matching copy")
         #expect(many == "matching copies")
         #expect(!one.contains("redundant"))
@@ -124,14 +124,14 @@ import Testing
     }
 
     @Test func theOtherKindsKeepTheirOwnWords() {
-        #expect(TidyRemovalPrompt.itemWord(for: .identical, count: 1) == "redundant copy")
-        #expect(TidyRemovalPrompt.itemWord(for: .identical, count: 2) == "redundant copies")
-        #expect(TidyRemovalPrompt.itemWord(for: .versions, count: 1) == "older version")
-        #expect(TidyRemovalPrompt.itemWord(for: .versions, count: 2) == "older versions")
+        #expect(DuplicateRemovalPrompt.itemWord(for: .identical, count: 1) == "redundant copy")
+        #expect(DuplicateRemovalPrompt.itemWord(for: .identical, count: 2) == "redundant copies")
+        #expect(DuplicateRemovalPrompt.itemWord(for: .versions, count: 1) == "older version")
+        #expect(DuplicateRemovalPrompt.itemWord(for: .versions, count: 2) == "older versions")
     }
 
     @Test func theSameTextConfirmationSaysWhatIsBeingAgreedTo() {
-        let sameText = TidyRemovalPrompt.informativeText(
+        let sameText = DuplicateRemovalPrompt.informativeText(
             kind: .sameText, keeperName: "Jul 2023.pdf",
             keeperLocation: "Utilities ▸ PG&E", reclaimText: "402 KB")
         #expect(sameText.contains("weaker than a byte-for-byte match"))
@@ -139,7 +139,7 @@ import Testing
         #expect(sameText.hasSuffix("This can be undone with ⌘Z."))
 
         // …and does not lecture where the claim IS byte-identity.
-        let identical = TidyRemovalPrompt.informativeText(
+        let identical = DuplicateRemovalPrompt.informativeText(
             kind: .identical, keeperName: "Jul 2023.pdf",
             keeperLocation: "Utilities ▸ PG&E", reclaimText: "402 KB")
         #expect(!identical.contains("weaker"))
@@ -150,7 +150,7 @@ import Testing
         // A new match type must not fall through to a default that borrows another's vocabulary —
         // the failure this whole helper exists to prevent.
         for kind in DuplicateMatchType.Kind.allCases {
-            let word = TidyRemovalPrompt.itemWord(for: kind, count: 1)
+            let word = DuplicateRemovalPrompt.itemWord(for: kind, count: 1)
             #expect(!word.isEmpty)
             #expect(!word.hasSuffix("s"), "count 1 must read singular for \(kind)")
         }

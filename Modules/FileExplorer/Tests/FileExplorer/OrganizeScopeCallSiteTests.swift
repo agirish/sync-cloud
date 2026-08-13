@@ -572,14 +572,14 @@ import Sync
 
     // MARK: The destructive confirmation speaks the group's own vocabulary
 
-    @Test func theRemovalConfirmationGetsItsWordsFromTidyRemovalPrompt() throws {
-        // `TidyRemovalPrompt` is pure and fully tested, and would stay green if `apply` went back
+    @Test func theRemovalConfirmationGetsItsWordsFromDuplicateRemovalPrompt() throws {
+        // `DuplicateRemovalPrompt` is pure and fully tested, and would stay green if `apply` went back
         // to composing the sentence inline — which is exactly how a same-text copy came to be
         // called a "redundant copy" in the one dialog that precedes a delete.
         let tidy = try Self.source("TidyView.swift")
         let apply = try Self.body(of: "private func apply(_ group: DuplicateGroup) {", in: tidy)
-        #expect(apply.contains("TidyRemovalPrompt.itemWord"))
-        #expect(apply.contains("TidyRemovalPrompt.informativeText"))
+        #expect(apply.contains("DuplicateRemovalPrompt.itemWord"))
+        #expect(apply.contains("DuplicateRemovalPrompt.informativeText"))
         // And the literal it replaced is gone from that body. Comment lines are stripped first:
         // a scan that matches the doc comment explaining a removed string is a scan that can never
         // fail. The assertion above proves the haystack is non-empty either way.

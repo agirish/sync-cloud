@@ -15,7 +15,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesDetectsIdenticalFileEndToEnd() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
 
         // Two identical report.pdf files under different folders; distinct siblings keep the two
@@ -39,7 +39,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesFindsNothingWhenTreeIsUnique() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("one.bin"), bytes: 5000, fill: 0x01)
         try write(root.appendingPathComponent("two.bin"), bytes: 5000, fill: 0x02)  // same size, different bytes
@@ -81,7 +81,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesCountsCandidatesSkippedForSize() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Two byte-identical files over the (injected) hash cap: they are size-collision
         // candidates, but hashing skips both — so no group can form, and the scan must SAY so
@@ -117,7 +117,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesSkipsAndCountsCloudOnlyCandidatesWithoutReadingThem() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Two identical files "flagged" dataless via the injected seam (a real SF_DATALESS file
         // can't be fabricated), plus a genuinely local identical pair that must still group.
@@ -424,11 +424,11 @@ import Combine
     /// cancelled rescan of a different folder must not relabel the previous results.
     @MainActor
     @Test func duplicateScanRootLabelsResultsNotTheInFlightScan() async throws {
-        let rootA = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let rootA = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: rootA) }
         try write(rootA.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
         try write(rootA.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
-        let rootB = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let rootB = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
 
         let manager = FileSyncManager()
@@ -447,7 +447,7 @@ import Combine
 
     @MainActor
     @Test func keepSeparatePersistsAcrossRescans() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
@@ -455,7 +455,7 @@ import Combine
         try write(root.appendingPathComponent("B/b-only.txt"), bytes: 12, fill: 0x62)
 
         let manager = FileSyncManager()
-        let suite = "TidyIgnoreTest-\(UUID().uuidString)"
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
         manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
 
@@ -475,7 +475,7 @@ import Combine
 
     @MainActor
     @Test func startFindDuplicatesRunsToCompletionViaTask() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
@@ -503,7 +503,7 @@ import Combine
 
     @MainActor
     @Test func duplicateScanProgressPublishesMonotonicallyThenResets() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // 120 same-size files with pairwise-distinct content: every one is a size-collision
         // hash candidate, so the every-50 progress cadence fires mid-scan (50, 100) as well
@@ -547,7 +547,7 @@ import Combine
 
     @MainActor
     @Test func duplicateScanProgressResetsOnCancel() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<8 {
             try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
@@ -574,7 +574,7 @@ import Combine
     /// epoch guard should have dropped.
     @MainActor
     @Test func cancelMidHashRepublishesNoNumericProgress() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Same-size, pairwise-distinct files: every one is a hash candidate, so total == 120.
         for i in 0..<120 {
@@ -619,7 +619,7 @@ import Combine
     // MARK: Overlapping merge
 
     @Test func planMergeCopiesUniqueButNotProvablySharedFiles() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -651,7 +651,7 @@ import Combine
         // scratch — it must recognize the content already landed IN THAT FOLDER and skip,
         // not mint "a 3.txt" on every retry (the cancel banner promises "a retry skips what
         // landed").
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -666,7 +666,7 @@ import Combine
     @Test func planMergeStillCopiesOnAFreshCollision() async throws {
         // The complement: the name is taken by different content and the source's bytes are
         // NOT yet anywhere in that folder — the fold must still copy (landing uniquified).
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -683,7 +683,7 @@ import Combine
         // anyway. Losing a meaningfully-named file is the worse surprise; a later Tidy scan
         // reconciles byte-duplicates. (The retry skip applies ONLY when the name is taken,
         // where the fold could never have kept the name anyway.)
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -701,7 +701,7 @@ import Combine
         // rode into a versions bucket as an unknown-hash member, and was recommended for
         // removal with its bytes counted reclaimable — trashing a link frees nothing (its
         // sibling entry here lies OUTSIDE the scan root, which only nlink can see).
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let root = base.appendingPathComponent("Root")
         try write(root.appendingPathComponent("Docs/report.pdf"), bytes: 9_000, fill: 0x41)
@@ -727,7 +727,7 @@ import Combine
         // End-to-end on a real volume: link(2) entries carry linkCount 2, land in
         // multiLinkPaths, and the finder drops them — no group, zero phantom reclaimable.
         // A singly-linked file is NOT flagged (the negative control).
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let a = base.appendingPathComponent("Docs/a.bin")
         let b = base.appendingPathComponent("Docs/b.bin")
@@ -759,7 +759,7 @@ import Combine
         // copied anyway and uniquified to a junk "a 2.txt" on the FIRST run — and the retry
         // skip missed it too, so retries kept minting more. Folded keys treat it as the
         // same-location duplicate it is.
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -775,7 +775,7 @@ import Combine
         // The retry shape of the case fold: run 1 collided "a.txt" against keeper "A.txt"
         // (different content) and landed "a 2.txt"; the retry must see the folded name as
         // taken AND the bytes as present, and plan nothing.
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -793,7 +793,7 @@ import Combine
         // NFC and NFD forms — the diff engine's nearNameKey precomposes for the same reason),
         // so an NFD keeper name and an NFC source rel are one on-disk name: byte-identical
         // content must hit the same-location skip, not copy-and-uniquify a junk sibling.
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -807,7 +807,7 @@ import Combine
     @Test func planMergeKeepsExactCaseSemanticsOnSensitiveVolumes() async throws {
         // The default (case-sensitive) path is untouched: "A.txt" and "a.txt" are distinct
         // names there, so the byte-identical source still copies under its own name.
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -827,7 +827,7 @@ import Combine
         // link into the source minted junk per retry and the fold could never complete). Any
         // step descending through a keeper symlink dir now refuses the merge up front: nothing
         // is copied, nothing is trashed, the group stays, and the banner names the link.
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -866,7 +866,7 @@ import Combine
         // the keeper's view — and the step is returned BLOCKED, not planned: a planned copy
         // would write THROUGH the link (round 6's finding — here straight back into the
         // source, where the self-collision minted junk per retry).
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -886,7 +886,7 @@ import Combine
         // the retry skip would fire for content whose only real copy is the redundant folder —
         // the fold "completes", the trash step removes the redundant copy, and the keeper is
         // left holding a dangling link. Links must contribute to neither keeper map.
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -907,7 +907,7 @@ import Combine
         // with — any on-disk entry, including a directory (which the hash maps can never
         // hold). Run 1: source file "sub" collided with keeper DIRECTORY "sub", landed
         // uniquified as "sub 2". The retry must skip, not mint "sub 3".
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -952,7 +952,7 @@ import Combine
 
     @MainActor
     @Test func mergeRefusesToTrashARedundantCopyThatChangedMidMerge() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Changing")
@@ -992,7 +992,7 @@ import Combine
 
     @MainActor
     @Test func mergeFoldsUniqueFilesThenTrashesRedundant() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let rName = "Folded-\(UUID().uuidString)"
@@ -1140,7 +1140,7 @@ import Combine
 
     @MainActor
     @Test func mergeRefusesARedundantNestedInsideTheKeeper() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Data")
         let nested = keeper.appendingPathComponent("old/Data")   // inside the keeper
@@ -1165,7 +1165,7 @@ import Combine
 
     @MainActor
     @Test func clearDuplicatesCancelsAnInFlightScan() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)

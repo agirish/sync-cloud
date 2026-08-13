@@ -72,7 +72,7 @@ import Foundation
 
     @MainActor
     @Test func cancellingBetweenTheCopyPhaseAndTheTrashStepNeverTrashesTheHalfFoldedCopy() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "TidyCancelTest")
+        let base = try makeCanonicalTempRoot(prefix: "DuplicatesCancelTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         // Unique folder name so the assertion below can also prove nothing reached ~/.Trash, and

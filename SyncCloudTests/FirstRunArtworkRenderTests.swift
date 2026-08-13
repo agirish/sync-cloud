@@ -15,7 +15,7 @@ import AppKit
 /// obliged to run `onAppear`, so a blank result here would be indistinguishable from art that is
 /// genuinely broken — and "assert ink > 0" against a renderer that paints nothing is a test that
 /// can only ever fail for the wrong reason. `testTheRendererSeesAShippedIllustration` is the
-/// control: if the renderer cannot see `TidyArt`, which has shipped since the tour existed, then
+/// control: if the renderer cannot see `DuplicatesArt`, which has shipped since the tour existed, then
 /// it cannot see any of them and the Browse check below is not evidence.
 @Suite struct FirstRunArtworkRenderTests {
 
@@ -56,9 +56,9 @@ import AppKit
     /// The control. If this fails, nothing else in this file is evidence of anything.
     @MainActor
     @Test func testTheRendererSeesAShippedIllustration() throws {
-        let (painted, _) = Self.ink(try Self.render(.tidy))
+        let (painted, _) = Self.ink(try Self.render(.duplicates))
         #expect(painted > 500,
-                "the renderer cannot see TidyArt, which ships — every check below would be vacuous")
+                "the renderer cannot see DuplicatesArt, which ships — every check below would be vacuous")
     }
 
     /// Browse's own art paints, and paints its tint.

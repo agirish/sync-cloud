@@ -36,7 +36,7 @@ enum FirstRunWelcome {
     /// ``pages``, because an art case is unusually easy to strand: nothing outside this file
     /// references one, so a case added without a page — or a page deleted without its case —
     /// compiles and renders exactly as before.
-    enum Art: Hashable { case welcome, browse, compare, transfer, tidy, filing }
+    enum Art: Hashable { case welcome, browse, compare, transfer, duplicates, filing }
 
     /// One page of the welcome tour. Pure data so the sequence is testable.
     struct Page: Equatable {
@@ -75,7 +75,7 @@ enum FirstRunWelcome {
         Page(art: .transfer,
              title: "Copy & move differences",
              blurb: "Send files either direction with a click. SyncCloud confirms before it writes, resolves name collisions, and every action can be undone with ⌘Z."),
-        Page(art: .tidy,
+        Page(art: .duplicates,
              title: "Clear out duplicates",
              blurb: "Organize's Duplicates lens finds files with identical contents and picks which copies to remove — and never trashes the last copy of anything."),
         // TWO lines, not three, and that is a layout constraint rather than a style preference:
@@ -351,7 +351,7 @@ struct TourArtwork: View {
         case .browse:   BrowseArt()
         case .compare:  CompareArt(leftName: leftName, rightName: rightName)
         case .transfer: TransferArt(leftName: leftName, rightName: rightName)
-        case .tidy:     TidyArt()
+        case .duplicates: DuplicatesArt()
         case .filing:   FilingArt()
         }
     }
@@ -558,7 +558,7 @@ private struct TransferArt: View {
 
 /// A fanned stack of identical documents with the keeper checked — duplicate detection. The
 /// duplicates fan out and the check pops in on appear.
-private struct TidyArt: View {
+private struct DuplicatesArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 

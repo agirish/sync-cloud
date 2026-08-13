@@ -776,7 +776,7 @@ import Testing
     }
 
     @Test func optionsFromDefaultsFallsBackThenReadsOverrides() {
-        let suite = "TidyOptTest-\(UUID().uuidString)"
+        let suite = "DuplicatesOptTest-\(UUID().uuidString)"
         let d = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
 

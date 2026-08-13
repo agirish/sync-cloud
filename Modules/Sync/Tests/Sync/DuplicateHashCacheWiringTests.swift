@@ -10,7 +10,7 @@ import Foundation
 /// Wiring it up is a one-argument change, which is exactly the kind that can be made and then
 /// quietly not take effect; these tests plant a digest the file does not really have and show the
 /// grouping decision follows the PLANTED value, which is only possible if the cache was read.
-@Suite struct TidyHashCacheWiringTests {
+@Suite struct DuplicateHashCacheWiringTests {
 
     private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -30,7 +30,7 @@ import Foundation
     /// the group must not form — proof the scan read the cache instead of the bytes.
     @MainActor
     @Test func findDuplicatesReadsTheSessionCache() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyCacheWiring")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheWiring")
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/report.pdf")
         let b = root.appendingPathComponent("B/report.pdf")
@@ -61,7 +61,7 @@ import Foundation
     /// a cache (see `hashFilesCounting`).
     @MainActor
     @Test func aCachedDigestIsServedDespiteTheSizeCap() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyCacheCap")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheCap")
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/movie.mp4")
         let b = root.appendingPathComponent("B/movie.mp4")
@@ -91,7 +91,7 @@ import Foundation
     /// Proved the same way — by what Verify leaves behind being the thing Tidy answers from.
     @MainActor
     @Test func aVerifyPopulatesTheCacheThatTidyThenReadsFrom() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyCacheCrossFeature")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheCrossFeature")
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/report.pdf")
         let b = root.appendingPathComponent("B/report.pdf")
@@ -126,7 +126,7 @@ import Foundation
     /// and it re-hashes the WHOLE keeper tree once per redundant copy — the merge path's real cost.
     /// Plant matching digests for a keeper/copy pair and the step disappears from the plan.
     @Test func planMergeReadsTheSessionCache() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "TidyCacheMerge")
+        let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheMerge")
         defer { try? FileManager.default.removeItem(at: root) }
         let keeper = root.appendingPathComponent("Keeper")
         let copy = root.appendingPathComponent("Copy")

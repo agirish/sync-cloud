@@ -6,7 +6,7 @@ import Sync
 @testable import FileExplorer
 
 /// Visual snapshot net over FileExplorer's composite surfaces: StatPill, the Storage treemap's
-/// tile-label pairing (the AccentLabel light-hue fix), TidyGroupCard, and ConditionChip
+/// tile-label pairing (the AccentLabel light-hue fix), DuplicateGroupCard, and ConditionChip
 /// wrapping inside FlowLayout. Fixed sizes, frozen dates, light + dark; workflow and caveats
 /// in Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
 @MainActor
@@ -282,7 +282,7 @@ import Sync
             named: "tile-labels")
     }
 
-    // MARK: TidyGroupCard
+    // MARK: DuplicateGroupCard
 
     /// Collapsed file "Versions" group: type badge, middle-truncating name, subtitle,
     /// green reclaim figure, disclosure chevron. Collapsed deliberately — expansion would
@@ -299,7 +299,7 @@ import Sync
             ],
             reclaimableBytes: 4_812_000)
         assertViewSnapshot(
-            of: TidyGroupCard(
+            of: DuplicateGroupCard(
                 group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
@@ -325,7 +325,7 @@ import Sync
             ],
             reclaimableBytes: 402_394)
         assertViewSnapshot(
-            of: TidyGroupCard(
+            of: DuplicateGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
@@ -350,7 +350,7 @@ import Sync
             ],
             reclaimableBytes: 96_400_000)
         assertViewSnapshot(
-            of: TidyGroupCard(
+            of: DuplicateGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
@@ -374,7 +374,7 @@ import Sync
             ],
             reclaimableBytes: 96_400_000)
         assertViewSnapshot(
-            of: TidyGroupCard(
+            of: DuplicateGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.compact.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},

@@ -5,7 +5,7 @@ import Design
 /// One duplicate group rendered as an expandable card, matching the Tidy mockup: a type badge,
 /// the common name, a reclaim figure, and — when expanded — each copy with its location, the
 /// recommended keeper, and the resolve actions.
-struct TidyGroupCard: View {
+struct DuplicateGroupCard: View {
     let group: DuplicateGroup
     let isExpanded: Bool
     let providerName: String?
@@ -31,11 +31,11 @@ struct TidyGroupCard: View {
     var isMerging: Bool = false
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    /// For the invisible-column slot widths (`TidyGroupColumns`) — measured at the live scale.
+    /// For the invisible-column slot widths (`DuplicateGroupColumns`) — measured at the live scale.
     @Environment(\.appFontScale) private var appFontScale
 
-    // `accent` — `TidyMatchStyle.color(group.matchType)` — lived here for the type badge alone, and
-    // went with it into `TidyTypeBadge`, which asks the match type itself.
+    // `accent` — `DuplicateMatchStyle.color(group.matchType)` — lived here for the type badge alone, and
+    // went with it into `DuplicateTypeBadge`, which asks the match type itself.
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     var body: some View {
@@ -53,13 +53,13 @@ struct TidyGroupCard: View {
 
     private var header: some View {
         Button(action: onToggle) {
-            // Invisible columns (TidyGroupColumns): the badge sits in a fixed leading slot so
+            // Invisible columns (DuplicateGroupColumns): the badge sits in a fixed leading slot so
             // every name starts at one x; the subtitle right-aligns against the verb column;
             // verb and digits each hold their own slot so "reclaim 157 KB" and "~24.2 MB
             // shared" share one digit column instead of two ragged endings.
             HStack(spacing: 12) {
                 typeBadge
-                    .frame(minWidth: TidyGroupColumns.badgeSlotWidth(scale: appFontScale),
+                    .frame(minWidth: DuplicateGroupColumns.badgeSlotWidth(scale: appFontScale),
                            alignment: .leading)
                 fileIcon
                 Text(group.name)
@@ -83,7 +83,7 @@ struct TidyGroupCard: View {
     }
 
     private var typeBadge: some View {
-        TidyTypeBadge(matchType: group.matchType)
+        DuplicateTypeBadge(matchType: group.matchType)
     }
 
     private var fileIcon: some View {
@@ -120,8 +120,8 @@ struct TidyGroupCard: View {
     /// column holds for every row.
     @ViewBuilder
     private var reclaimColumns: some View {
-        let verbWidth = TidyGroupColumns.verbSlotWidth(scale: appFontScale)
-        let digitsWidth = TidyGroupColumns.digitsSlotWidth(scale: appFontScale)
+        let verbWidth = DuplicateGroupColumns.verbSlotWidth(scale: appFontScale)
+        let digitsWidth = DuplicateGroupColumns.digitsSlotWidth(scale: appFontScale)
         if group.reclaimableBytes > 0 {
             let isOverlap = { if case .overlapping = group.matchType { return true }
                               else { return false } }()
@@ -244,14 +244,14 @@ struct TidyGroupCard: View {
     /// advertises a pick that isn't there.
     @ViewBuilder
     private func radio(_ copy: DuplicateCopy) -> some View {
-        switch TidyKeeperMarker.style(allowsKeeperChoice: group.allowsKeeperChoice,
+        switch DuplicateKeeperMarker.style(allowsKeeperChoice: group.allowsKeeperChoice,
                                       isKeeper: copy.isRecommendedKeeper) {
         case .keeper:
             Image(systemName: "largecircle.fill.circle")
                 .scaledFont(.system(size: 15))
                 .foregroundStyle(SemanticColor.success)
                 .padding(.top, 1)
-                .accessibilityLabel(TidyKeeperMarker.keeper.accessibilityLabel ?? "")
+                .accessibilityLabel(DuplicateKeeperMarker.keeper.accessibilityLabel ?? "")
         case .selectable:
             SelectableKeeperRadio(accent: hueAccent) { onChooseKeeper(copy.id) }
         case .inert:
@@ -345,7 +345,7 @@ struct TidyGroupCard: View {
         case .sameText:
             base = "These documents read exactly the same but their bytes differ — usually one document downloaded twice, since providers re-stamp each copy. Weaker than a byte-for-byte match: a signed copy, a redacted copy or a purely visual revision would also read the same, so open them before removing anything. Excluded from “Apply recommended” for that reason. Removed copies go to the Trash and can be restored with Undo."
         }
-        if let caveat = TidyUnverifiedNote.text(
+        if let caveat = DuplicateUnverifiedNote.text(
             unverifiedCount: group.copies.filter { $0.contentUnverified }.count) {
             return base + " " + caveat
         }
@@ -497,7 +497,7 @@ struct TidyGroupCard: View {
 /// Pure wording for the card's caveat when some copies in a group could not be content-verified
 /// (hash skipped: too large, cloud-only, unreadable) — the group's content claim rests on less
 /// than full verification, and the note must say so before the user trusts a one-click resolve.
-enum TidyUnverifiedNote {
+enum DuplicateUnverifiedNote {
     static func text(unverifiedCount count: Int) -> String? {
         guard count > 0 else { return nil }
         let plural = count != 1
@@ -505,11 +505,11 @@ enum TidyUnverifiedNote {
     }
 }
 
-/// The scan-level counterpart to ``TidyUnverifiedNote``: wording for the summary row's "skipped"
+/// The scan-level counterpart to ``DuplicateUnverifiedNote``: wording for the summary row's "skipped"
 /// pill tooltip when the duplicate scan skipped candidate files during hashing entirely, spelling
 /// out the per-reason split. Only reasons that actually occurred are listed, so the tooltip never
 /// mentions an empty category.
-enum TidyScanSkipNote {
+enum DuplicateScanSkipNote {
     static func text(_ skips: FileSyncManager.DuplicateScanSkips) -> String? {
         guard skips.total > 0 else { return nil }
         var reasons: [String] = []
@@ -543,7 +543,7 @@ enum TidyScanSkipNote {
 /// deliberately does NOT say "duplicate". The confirmation then called the other file a *redundant
 /// copy* — the identical group's word, asserting the very thing this group has not proved — at the
 /// point of no return. Inline in the view it was also untestable, which is why it went unnoticed.
-enum TidyRemovalPrompt {
+enum DuplicateRemovalPrompt {
 
     /// What the copies being removed are called. Never "redundant" unless redundancy is proven.
     static func itemWord(for kind: DuplicateMatchType.Kind, count: Int) -> String {
@@ -576,7 +576,7 @@ enum TidyRemovalPrompt {
 
 /// Pure mapping from (does this group allow picking a keeper?, is this copy the keeper?) to the
 /// marker its row shows, so inert rows never draw a radio that looks pickable.
-enum TidyKeeperMarker: Equatable {
+enum DuplicateKeeperMarker: Equatable {
     /// Green filled radio — this copy is kept.
     case keeper
     /// Hollow radio, clickable — the user may keep this copy instead.
@@ -584,7 +584,7 @@ enum TidyKeeperMarker: Equatable {
     /// Small tertiary dot — no keeper choice exists in this group.
     case inert
 
-    static func style(allowsKeeperChoice: Bool, isKeeper: Bool) -> TidyKeeperMarker {
+    static func style(allowsKeeperChoice: Bool, isKeeper: Bool) -> DuplicateKeeperMarker {
         if isKeeper { return .keeper }
         return allowsKeeperChoice ? .selectable : .inert
     }
@@ -638,7 +638,7 @@ private struct SelectableKeeperRadio: View {
         }
         .buttonStyle(.plain)
         .help("Keep this copy instead")
-        .accessibilityLabel(TidyKeeperMarker.selectable.accessibilityLabel ?? "")
+        .accessibilityLabel(DuplicateKeeperMarker.selectable.accessibilityLabel ?? "")
         .onHover { inside in
             // NSCursor's stack is global and SwiftUI may repeat onHover(true) without an
             // intervening false (layout thrash), so push/pop only on real transitions:

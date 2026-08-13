@@ -49,7 +49,7 @@ public enum TidyLens: String, CaseIterable, Identifiable {
 }
 
 /// Filter over the match type of duplicate groups.
-enum TidyFilter: String, CaseIterable, Identifiable {
+enum DuplicateMatchFilter: String, CaseIterable, Identifiable {
     case all, identical, sameText, overlapping, nameOnly, versions
     var id: String { rawValue }
 
@@ -78,7 +78,7 @@ enum TidyFilter: String, CaseIterable, Identifiable {
 
 /// The symbol/color/label vocabulary for a match type — reuses SyncCloud's difference palette
 /// (green seal = certain, orange = attention, yellow = name conflict, purple = versions).
-enum TidyMatchStyle {
+enum DuplicateMatchStyle {
     static func symbol(_ type: DuplicateMatchType) -> String {
         switch type {
         case .identical: return "checkmark.seal.fill"
@@ -122,8 +122,8 @@ enum TidyMatchStyle {
 /// search* and offers to clear it — advice that fixes nothing when no search is active. Both
 /// narrowings are one narrowing to the user (the same empty state's button clears both), so both
 /// belong to the results they were aimed at and neither may outlive them.
-enum TidyScanReset {
-    static func duplicatesScanStarted(filter: inout TidyFilter,
+enum DuplicateScanReset {
+    static func duplicatesScanStarted(filter: inout DuplicateMatchFilter,
                                       searchQuery: inout String,
                                       reclaim: inout ReclaimTally) {
         filter = .all
@@ -184,7 +184,7 @@ public struct TidyView: View {
     /// nothing in here selects a lens any more — the workspace bar does — so a writable binding
     /// would be a write path with no writer.
     private let lens: TidyLens
-    @State private var filter: TidyFilter = .all
+    @State private var filter: DuplicateMatchFilter = .all
     /// Each lens's live query, kept SEPARATELY rather than as one shared field.
     ///
     /// Not tidiness — correctness. The grammars are deliberately per-lens, so a query carried
@@ -770,7 +770,7 @@ public struct TidyView: View {
     }
 
     /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups — the menu
-    /// used to run a full filter per `TidyFilter` case on every render.
+    /// used to run a full filter per `DuplicateMatchFilter` case on every render.
     ///
     /// **Counted within the scope**, and that is a different question from the one the search
     /// raises. Counting all groups rather than the *search-narrowed* ones is deliberate and stays —
@@ -783,10 +783,10 @@ public struct TidyView: View {
     /// this builder is not lazy and runs on every render (see `filterMenu`), so the pass stays one
     /// pass.
     private static func filterCounts(_ groups: [DuplicateGroup],
-                                     scope: OrganizeScope?) -> [TidyFilter: Int] {
-        var counts = Dictionary(uniqueKeysWithValues: TidyFilter.allCases.map { ($0, 0) })
+                                     scope: OrganizeScope?) -> [DuplicateMatchFilter: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: DuplicateMatchFilter.allCases.map { ($0, 0) })
         for group in groups where OrganizeScopeFilter.matches(group, scope: scope) {
-            for f in TidyFilter.allCases where f.matches(group) { counts[f, default: 0] += 1 }
+            for f in DuplicateMatchFilter.allCases where f.matches(group) { counts[f, default: 0] += 1 }
         }
         return counts
     }
@@ -909,11 +909,11 @@ public struct TidyView: View {
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
         // counts the current results' work (H5). The search and the type filter reset too: either one
         // typed against the previous results silently pre-filtering (or hiding) the new scan's groups
-        // is a dead end. The list lives in ``TidyScanReset`` so it can be tested — the defect was an
+        // is a dead end. The list lives in ``DuplicateScanReset`` so it can be tested — the defect was an
         // omission from it.
         .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
             if isScanning {
-                TidyScanReset.duplicatesScanStarted(filter: &filter,
+                DuplicateScanReset.duplicatesScanStarted(filter: &filter,
                                                     searchQuery: &searchQueries[.duplicates, default: ""],
                                                     reclaim: &reclaim)
                 // A landing belongs to the results it landed in. Both of these name a group or a
@@ -2534,11 +2534,11 @@ public struct TidyView: View {
             if needsReview > 0 {
                 StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
             }
-            // Scan-level counterpart to the per-group unverified note (TidyUnverifiedNote): files
+            // Scan-level counterpart to the per-group unverified note (DuplicateUnverifiedNote): files
             // the scan never content-verified at all, so identical copies among them are absent
             // from every group below — without this pill the scan is silently blind to them. Not
             // filtered: these files aren't rows, so no query can include or exclude them.
-            if let skipNote = TidyScanSkipNote.text(syncManager.duplicateScanSkips) {
+            if let skipNote = DuplicateScanSkipNote.text(syncManager.duplicateScanSkips) {
                 StatPill(count: syncManager.duplicateScanSkips.total, label: "skipped",
                          color: SemanticColor.warning, systemImage: "eye.slash")
                     .help(skipNote)
@@ -2675,7 +2675,7 @@ public struct TidyView: View {
             // scope is the one narrowing it does honour.
             let counts = Self.filterCounts(syncManager.duplicateGroups, scope: scope)
             Picker("Filter", selection: $filter) {
-                ForEach(TidyFilter.allCases) { f in
+                ForEach(DuplicateMatchFilter.allCases) { f in
                     Text("\(f.label) (\(counts[f] ?? 0))").tag(f)
                 }
             }
@@ -3468,7 +3468,7 @@ public struct TidyView: View {
         ScrollView {
             LazyVStack(spacing: densityMetrics.cardListSpacing) {
                 ForEach(dupGroups) { group in
-                    TidyGroupCard(
+                    DuplicateGroupCard(
                         group: group,
                         isExpanded: expanded.contains(group.id),
                         providerName: providerName,
@@ -4211,7 +4211,7 @@ public struct TidyView: View {
         var revealedGroupID: UUID?
         var landing: DuplicateReveal.Landing?
         var query: String
-        var filter: TidyFilter
+        var filter: DuplicateMatchFilter
     }
 
     var revealState: RevealState {
@@ -4233,10 +4233,10 @@ public struct TidyView: View {
     private func apply(_ group: DuplicateGroup) {
         let count = group.recommendedRemovalPaths.count
         guard count > 0 else { return }
-        let itemWord = TidyRemovalPrompt.itemWord(for: group.matchType.kind, count: count)
+        let itemWord = DuplicateRemovalPrompt.itemWord(for: group.matchType.kind, count: count)
         let ok = NativeAlerts.confirmDestructive(
             messageText: "Move \(count) \(itemWord) of \"\(group.name)\" to the Trash?",
-            informativeText: TidyRemovalPrompt.informativeText(
+            informativeText: DuplicateRemovalPrompt.informativeText(
                 kind: group.matchType.kind,
                 keeperName: group.keeper.name,
                 keeperLocation: displayPath(group.keeper.path),

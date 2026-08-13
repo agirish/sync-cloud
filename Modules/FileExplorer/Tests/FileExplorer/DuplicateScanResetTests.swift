@@ -6,15 +6,15 @@ import Testing
 /// tally were cleared on scan start but the type filter was not, so a "Versions" pick silently
 /// pre-filtered the next scan — showing a partial list with no visible cause, or the "Nothing
 /// matches" dead end, which blames the *search* and offers to clear one that isn't even set.
-@Suite struct TidyScanResetTests {
+@Suite struct DuplicateScanResetTests {
 
     @Test func aFreshDuplicatesScanClearsEveryNarrowing() {
-        var filter: TidyFilter = .versions
+        var filter: DuplicateMatchFilter = .versions
         var query = "kind:pdf"
         var reclaim = ReclaimTally()
         reclaim.credit(4_096)
 
-        TidyScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
+        DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
 
         // The filter is the one that used to survive — a scan whose results are pre-narrowed by a
         // choice made against the PREVIOUS scan is a lie about what it found.
@@ -25,11 +25,11 @@ import Testing
     }
 
     @Test func resettingAnAlreadyCleanSessionIsANoOp() {
-        var filter: TidyFilter = .all
+        var filter: DuplicateMatchFilter = .all
         var query = ""
         var reclaim = ReclaimTally()
 
-        TidyScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
+        DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
 
         #expect(filter == .all)
         #expect(query.isEmpty)
@@ -39,11 +39,11 @@ import Testing
     /// The filter reset has to hold for every kind, not just the one that prompted the report —
     /// each of these hides most groups, and any of them surviving a rescan is the same defect.
     @Test func everyFilterKindIsRetiredByAScan() {
-        for stale: TidyFilter in TidyFilter.allCases {
+        for stale: DuplicateMatchFilter in DuplicateMatchFilter.allCases {
             var filter = stale
             var query = ""
             var reclaim = ReclaimTally()
-            TidyScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
+            DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
             #expect(filter == .all, "\(stale) survived a fresh scan")
         }
     }

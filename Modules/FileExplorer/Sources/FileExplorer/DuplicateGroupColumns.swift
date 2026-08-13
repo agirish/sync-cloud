@@ -13,7 +13,7 @@ import Design
 /// Callers apply them as `minWidth`, so an outlier string still lays out instead of truncating;
 /// alignment holds everywhere the vocabulary does.
 @MainActor
-enum TidyGroupColumns {
+enum DuplicateGroupColumns {
 
     /// The badge's own metrics, spelled out once so ``badgeSlotWidth(scale:)`` and the view that
     /// draws the badge cannot disagree about what a badge is made of.
@@ -31,7 +31,7 @@ enum TidyGroupColumns {
     static let badgeVocabulary: [DuplicateMatchType] =
         [.identical, .sameText, .overlapping(sharedFraction: 1.0), .nameOnly, .versions]
 
-    /// The badge fonts, matching `TidyGroupCard.typeBadge` exactly — a slot measured in any
+    /// The badge fonts, matching `DuplicateGroupCard.typeBadge` exactly — a slot measured in any
     /// other font is a slot measured for some other view.
     private static let badgeFont = ScaledFont.system(size: 11, weight: .bold)
 
@@ -42,9 +42,9 @@ enum TidyGroupColumns {
 
     /// One badge's modelled width — the same arithmetic ``badgeSlotWidth(scale:)`` maximises over.
     static func badgeWidth(_ type: DuplicateMatchType, scale: CGFloat) -> CGFloat {
-        LabelMetrics.symbolWidth(TidyMatchStyle.symbol(type), font: badgeFont, scale: scale)
+        LabelMetrics.symbolWidth(DuplicateMatchStyle.symbol(type), font: badgeFont, scale: scale)
             + badgeGlyphGap
-            + LabelMetrics.width(of: TidyMatchStyle.label(type), font: badgeFont, scale: scale)
+            + LabelMetrics.width(of: DuplicateMatchStyle.label(type), font: badgeFont, scale: scale)
             + 2 * badgePadding
     }
 
@@ -69,26 +69,26 @@ enum TidyGroupColumns {
 /// The duplicate group's type badge: the match type's glyph and label in a mini pill.
 ///
 /// **Its own view so it can be drawn on its own.** It was a private computed property of
-/// `TidyGroupCard`, which meant the only way to check that a badge fits the slot the card gives it
+/// `DuplicateGroupCard`, which meant the only way to check that a badge fits the slot the card gives it
 /// was to re-measure the model — the tautology `everyBadgeFitsItsSlot` documented in its own note.
 /// A test can render this and read the paint back (`aDrawnBadgeStaysInsideItsSlot`), and it renders
 /// the badge the card draws rather than a reconstruction of it, which is the only version of that
 /// test worth having.
 ///
-/// The colour is the match type's, asked for here rather than passed in: `TidyGroupCard.accent` is
-/// `TidyMatchStyle.color(group.matchType)` and nothing else, so a parameter would only be an
+/// The colour is the match type's, asked for here rather than passed in: `DuplicateGroupCard.accent` is
+/// `DuplicateMatchStyle.color(group.matchType)` and nothing else, so a parameter would only be an
 /// opportunity for a caller to draw a badge in some other type's colour.
-struct TidyTypeBadge: View {
+struct DuplicateTypeBadge: View {
     let matchType: DuplicateMatchType
 
-    private var accent: Color { TidyMatchStyle.color(matchType) }
+    private var accent: Color { DuplicateMatchStyle.color(matchType) }
 
     var body: some View {
-        HStack(spacing: TidyGroupColumns.badgeGlyphGap) {
-            Image(systemName: TidyMatchStyle.symbol(matchType))
+        HStack(spacing: DuplicateGroupColumns.badgeGlyphGap) {
+            Image(systemName: DuplicateMatchStyle.symbol(matchType))
                 .scaledFont(.system(size: 11, weight: .bold))
                 .symbolRenderingMode(.hierarchical)
-            Text(TidyMatchStyle.label(matchType))
+            Text(DuplicateMatchStyle.label(matchType))
                 .scaledFont(.system(size: 11, weight: .bold))
         }
         .foregroundStyle(accent)

@@ -9,7 +9,7 @@ import Design
 /// slot is exactly wide enough for the widest member of its vocabulary — derived by measuring,
 /// so no badge or verb can overflow its slot and break the columns downstream of it.
 @MainActor
-@Suite struct TidyGroupColumnsTests {
+@Suite struct DuplicateGroupColumnsTests {
 
     /// - Note: **Both halves are true by construction, and nothing here measures a drawn badge.**
     ///   `badgeSlotWidth` is the maximum of this very expression over this very vocabulary, so
@@ -19,20 +19,20 @@ import Design
     ///
     ///   It is NOT evidence that a badge fits. If `LabelMetrics` under-measured by a fifth, slot
     ///   and assertions would shrink together and every badge would overflow with this green.
-    ///   `TidyGroupBadgeRenderTests` is what closes that: it draws the badge and reads its painted
+    ///   `DuplicateGroupBadgeRenderTests` is what closes that: it draws the badge and reads its painted
     ///   width back, so the model has to agree with a renderer that never saw it. An earlier
     ///   version of this note said such a sibling existed when none did — kept here, corrected,
     ///   because "there is a test that measures the paint" is exactly the claim worth being able
     ///   to check.
     @Test func everyBadgeFitsItsSlot() {
-        let slot = TidyGroupColumns.badgeSlotWidth(scale: 1)
-        for type in TidyGroupColumns.badgeVocabulary {
-            #expect(TidyGroupColumns.badgeWidth(type, scale: 1) <= slot,
+        let slot = DuplicateGroupColumns.badgeSlotWidth(scale: 1)
+        for type in DuplicateGroupColumns.badgeVocabulary {
+            #expect(DuplicateGroupColumns.badgeWidth(type, scale: 1) <= slot,
                     "\(type) overflows the badge slot")
         }
         // And the slot is spent on a real member, not padding — it equals the widest one.
-        #expect(TidyGroupColumns.badgeVocabulary.contains {
-            TidyGroupColumns.badgeWidth($0, scale: 1) == slot
+        #expect(DuplicateGroupColumns.badgeVocabulary.contains {
+            DuplicateGroupColumns.badgeWidth($0, scale: 1) == slot
         })
     }
 
@@ -44,10 +44,10 @@ import Design
     /// a sixth case left both stale together and this test green — a "every X does Y" scan that
     /// cannot see the X it is missing.
     @Test func theVocabularyCoversEveryMatchType() {
-        let represented = Set(TidyGroupColumns.badgeVocabulary.map { TidyMatchStyle.label($0) })
+        let represented = Set(DuplicateGroupColumns.badgeVocabulary.map { DuplicateMatchStyle.label($0) })
         for kind in DuplicateMatchType.Kind.allCases {
             let type = Self.sample(of: kind)
-            #expect(represented.contains(TidyMatchStyle.label(type)),
+            #expect(represented.contains(DuplicateMatchStyle.label(type)),
                     "\(kind) is not represented in the badge vocabulary")
         }
     }
@@ -67,9 +67,9 @@ import Design
 
     @Test func slotsScaleWithTheFont() {
         // At a larger scale every slot must grow — a fixed slot under a grown font truncates.
-        #expect(TidyGroupColumns.badgeSlotWidth(scale: 1.35) > TidyGroupColumns.badgeSlotWidth(scale: 1))
-        #expect(TidyGroupColumns.verbSlotWidth(scale: 1.35) > TidyGroupColumns.verbSlotWidth(scale: 1))
-        #expect(TidyGroupColumns.digitsSlotWidth(scale: 1.35) > TidyGroupColumns.digitsSlotWidth(scale: 1))
+        #expect(DuplicateGroupColumns.badgeSlotWidth(scale: 1.35) > DuplicateGroupColumns.badgeSlotWidth(scale: 1))
+        #expect(DuplicateGroupColumns.verbSlotWidth(scale: 1.35) > DuplicateGroupColumns.verbSlotWidth(scale: 1))
+        #expect(DuplicateGroupColumns.digitsSlotWidth(scale: 1.35) > DuplicateGroupColumns.digitsSlotWidth(scale: 1))
     }
 }
 
@@ -78,7 +78,7 @@ import Design
 /// That test compares `badgeSlotWidth` against the expression `badgeSlotWidth` maximises, so it is
 /// two readings of one formula: an error in the ingredients moves the slot and the assertion
 /// together and every badge overflows with the suite green. This one never evaluates the formula.
-/// It draws `TidyTypeBadge` — the view `TidyGroupCard` draws, not a copy of it — and finds the
+/// It draws `DuplicateTypeBadge` — the view `DuplicateGroupCard` draws, not a copy of it — and finds the
 /// rightmost painted pixel, so what the model claims has to agree with what AppKit actually inked.
 ///
 /// The canvas is deliberately wider than the slot: the card applies the slot as a `minWidth`, so a
@@ -89,7 +89,7 @@ import Design
 /// belongs to the Mac that recorded it. Its own suite rather than a marker on the pure tests above,
 /// which need no such pinning and must keep running wherever they are selected.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct TidyGroupBadgeRenderTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct DuplicateGroupBadgeRenderTests {
 
     /// Where the rightmost ink of `view` lands, in points from the leading edge of the canvas —
     /// nil when nothing painted at all.
@@ -143,10 +143,10 @@ import Design
 
     /// **No drawn badge reaches past the slot the card gives it.**
     @Test func aDrawnBadgeStaysInsideItsSlot() throws {
-        let slot = TidyGroupColumns.badgeSlotWidth(scale: 1)
-        for type in TidyGroupColumns.badgeVocabulary {
+        let slot = DuplicateGroupColumns.badgeSlotWidth(scale: 1)
+        for type in DuplicateGroupColumns.badgeVocabulary {
             let painted = try #require(
-                Self.paintedWidth(of: TidyTypeBadge(matchType: type), canvasWidth: slot + 120),
+                Self.paintedWidth(of: DuplicateTypeBadge(matchType: type), canvasWidth: slot + 120),
                 "\(type) painted nothing — the render, not the badge, is what failed")
             // A badge is a glyph, a word and two paddings; anything under 30pt means the label
             // never drew and the reading below would pass on an empty capsule. And it must stop
@@ -170,11 +170,11 @@ import Design
     /// the slot and the expected width together. Holding the widest painted badge to the slot ties
     /// the model to the renderer: the two must agree to within antialiasing.
     @Test func theSlotIsTheWidthOfTheWidestBadgeAsDrawn() throws {
-        let slot = TidyGroupColumns.badgeSlotWidth(scale: 1)
+        let slot = DuplicateGroupColumns.badgeSlotWidth(scale: 1)
         var widest: CGFloat = 0
-        for type in TidyGroupColumns.badgeVocabulary {
+        for type in DuplicateGroupColumns.badgeVocabulary {
             let painted = try #require(
-                Self.paintedWidth(of: TidyTypeBadge(matchType: type), canvasWidth: slot + 120))
+                Self.paintedWidth(of: DuplicateTypeBadge(matchType: type), canvasWidth: slot + 120))
             widest = max(widest, painted)
         }
         let report = "the widest badge paints \(String(format: "%.1f", widest))pt against a "

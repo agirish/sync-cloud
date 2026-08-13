@@ -12,7 +12,7 @@ import Design
 /// diverge and this fails. Width arithmetic alone cannot see that (width proves room, only
 /// pixels prove paint).
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct TidyGroupColumnAlignmentTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct DuplicateGroupColumnAlignmentTests {
 
     private static let size = CGSize(width: 900, height: 72)
 
@@ -23,7 +23,7 @@ import Design
             isDirectory: false,
             copies: [],
             reclaimableBytes: 71_000)
-        return TidyGroupCard(
+        return DuplicateGroupCard(
             group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
             densityMetrics: ListDensity.comfortable.metrics,
             onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
@@ -58,7 +58,7 @@ import Design
         let overlap = try #require(render(card(.overlapping(sharedFraction: 1.0))))
         // Device-pixel space: colorAt indexes the backing store, which is retina-scaled.
         let device = CGFloat(identical.pixelsWide) / Self.size.width
-        let slotEndPoints = TidyGroupColumns.badgeSlotWidth(scale: 1) + 12 + 14 + 12
+        let slotEndPoints = DuplicateGroupColumns.badgeSlotWidth(scale: 1) + 12 + 14 + 12
         let slotEnd = Int(ceil(slotEndPoints * device))
         let zoneWidth = Int(180 * device)   // icon + "Wedding Gifts.pdf" — same in both renders
         // The two badge SYMBOLS differ in height by a hair, which re-centers the card by one
