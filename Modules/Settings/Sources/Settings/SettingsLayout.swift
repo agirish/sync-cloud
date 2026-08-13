@@ -159,6 +159,15 @@ enum SettingsSheetMetrics {
 
     /// The height the selected tab's page actually gets: the sheet, less the title row and the
     /// divider under it. The number the layout tests assert each tab against.
+    ///
+    /// `headerHeight` is scaled by the RAW `textScale` — deliberately not the grow-only
+    /// `max(1, …)` floor `resolvedSize` applies. The two rules cover different things: the SHEET
+    /// must never shrink below its base size (its paddings and control heights are fixed points),
+    /// but the title row's frame really is `headerHeight * fontSize.scale` in `SettingsView.body`,
+    /// because its one line of type does get smaller at Small. At scale 0.9 the sheet stays 704pt
+    /// while the header draws at 39.6pt, so the opening is honestly ~4pt taller — flooring the
+    /// scale here would understate what the page gets and desynchronize this arithmetic from the
+    /// drawn header, which is the one thing the fixed-height frame exists to prevent.
     static func contentOpening(textScale: CGFloat, available: CGSize? = nil) -> CGFloat {
         resolvedSize(textScale: textScale, available: available).height
             - headerHeight * textScale

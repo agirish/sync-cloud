@@ -160,6 +160,29 @@ public struct SettingsView: View {
         /// is the seam that lets `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` check it.
         public static let cloudRefineSetup: SettingsTab = .intelligence
 
+        /// The tabs the layout fit-guard (`SettingsLayoutTests`) deliberately does NOT hold to
+        /// "lays out inside the sheet's opening without scrolling". Every other tab is measured;
+        /// `everyTabIsFitTestedOrExplicitlyExempt` derives the measured list from `allCases`
+        /// minus this set, so a new case cannot skip the guard silently — it either joins the
+        /// fit list or earns a line here.
+        ///
+        /// Membership is a *property of the tab*, not an oversight, and each entry records its
+        /// reason:
+        /// - `providers` grows with the Mac's provider and folder-source lists — its height is a
+        ///   property of the machine's data, and its own header comment calls it "the one that
+        ///   legitimately keeps scrolling".
+        /// - `people` grows with the household roster (`PeopleList` draws one row per person),
+        ///   so its height is the user's data too.
+        /// - `intelligence` is long by nature — four sections, from the on-device toggles to the
+        ///   saved suggestions — and is expected to scroll;
+        ///   `intelligenceLaysOutWithoutReachingForTheKeychain` pins that it lays out at all.
+        ///
+        /// A data-driven tab that gains a fixed empty state, or a long tab that loses a section,
+        /// should have its exemption revisited rather than inherited — Organize kept a stale
+        /// "long by nature" exemption through the split that made it short, and no test asked
+        /// again until it was re-measured by hand.
+        public static let exemptFromFitGuard: Set<SettingsTab> = [.providers, .people, .intelligence]
+
         /// The rail's rows in groups, separated by a hairline.
         ///
         /// Nine flat rows read as a pile — the reason this exists — but the grouping is not free:
@@ -348,7 +371,7 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 /// The catalog of settings the header search can jump to: one entry per control that *changes*
 /// something, across every tab. One kind of on-screen label deliberately gets no entry of its own,
 /// because it is not a setting: the `SettingsSection` headers that only group other controls
-/// ("Conflicts", "Logging", "Filing"). Each is reached through a control it belongs to.
+/// ("Conflicts", "Logging", "Inbox and rules"). Each is reached through a control it belongs to.
 ///
 /// It used to say "and the read-only readouts in Organize's Cloud spend section" as well. Those
 /// four rows are gone — `FilingSpendReadout` draws the figures now, and the section is Cost and
@@ -459,14 +482,16 @@ enum SettingsSearchIndex {
         // to People: the two settings that describe the JOB rather than the machinery.
         // "tidy" is kept as a keyword on the entries a Tidy-era user is most likely to hunt for
         // by that name: the word left the product with that split, so someone who remembers it
-        // has nothing to type otherwise.
+        // has nothing to type otherwise. "filing" is kept the same way: the section header over
+        // the inbox said "Filing" until it was renamed to "Inbox and rules", so it is the word
+        // a Filing-era user types.
         //
         // "loose files" and "todo" are the two a user actually types: the title spells the first
         // hyphenated ("Loose-files"), so the spaced form matches nothing without the keyword, and
         // the second is the default value rather than anything in the label.
         .init(tab: .filing, title: "Loose-files inbox",
               keywords: ["inbox", "loose files", "todo", "default folder", "scan folder",
-                         "organize", "tidy"]),
+                         "organize", "tidy", "filing"]),
         .init(tab: .filing, title: "Remembered rules",
               keywords: ["filing rules", "rules", "remembered rules", "manage rules", "automation", "automations"]),
         // Nearly every query for this one misses the label. The section is titled "Kept names",
@@ -966,7 +991,9 @@ struct AppearanceSettingsTab: View {
                 // 190 characters ≤ two lines at the 11pt caption size in the 547pt column —
                 // the 218-character long form wrapped to three when captions left 10pt, and that
                 // 14pt is Appearance's whole copy-edit margin. Measure before lengthening.
-                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists across SyncCloud — file panes, the Compare table, lens workspaces, Activity Log, Sync History — so more fits on screen."
+                // (Naming Organize and Storage — the lens-bearing workspaces — cost 5 characters
+                // over "lens workspaces", paid for by "tightens list rows": 187 total.)
+                caption: "Comfortable keeps standard spacing. Compact tightens list rows across SyncCloud — file panes, the Compare table, Organize and Storage, Activity Log, Sync History — so more fits on screen."
             ) {
                 Picker("List density", selection: $listDensityRaw) {
                     ForEach(ListDensity.allCases) { density in
@@ -1103,7 +1130,7 @@ struct ProvidersSettingsTab: View {
             Divider()
 
             SettingsSection(
-                caption: "Any folder on this Mac can be a source — Compare and Tidy work the same over it. Folders you add appear in every workspace. Removing one leaves the folder itself untouched."
+                caption: "Any folder on this Mac can be a source — Compare and Organize work the same over it. Folders you add appear in every workspace. Removing one leaves the folder itself untouched."
             ) {
                 HStack {
                     Text("Local folders")
@@ -1829,8 +1856,9 @@ struct DuplicatesSettingsTab: View {
         SettingsPage {
             // Titleless, keeping the caption: the rail row above already says "Duplicates", and a
             // lone section header repeating it would read as a subdivision of a tab that has none
-            // — the same redundancy that cost the Filing header its name over on Organize. The
-            // caption carried the actual explanation and is unchanged.
+            // — the same redundancy that keeps Organize's first section header descriptive
+            // ("Inbox and rules") rather than a repeat of its rail row. The caption carried the
+            // actual explanation and is unchanged.
             SettingsSection(
                 caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Reading PDFs finds a further kind — the same document downloaded twice, which providers re-stamp so its bytes differ — and is the one setting here that costs time rather than shaping results: it extracts text (never OCR, and a scan with no text layer is simply skipped), so the first pass over a large tree takes a few extra minutes and later scans reuse what it read. Changes apply on the next scan."
             ) {
@@ -1886,7 +1914,12 @@ struct FilingSettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            SettingsSection("Filing", content: {
+            // "Inbox and rules", not "Filing" and not "Organize": "filing" left the product's
+            // vocabulary with the workspace rename (search keeps it as an alias keyword, the way
+            // "tidy" is kept), and "Organize" would repeat the rail row above — the redundancy
+            // that keeps Duplicates' lone section titleless. This header names what the group
+            // holds: the loose-files inbox and the pointer to Organize ▸ Rules.
+            SettingsSection("Inbox and rules", content: {
                 SettingsRow("Loose-files inbox") {
                     // **The placeholder is "None", not "TODO", and that is the fix to a real
                     // complaint.** It used to show the key's default, so a field the user had
@@ -1900,15 +1933,15 @@ struct FilingSettingsTab: View {
                 }
                 .help("The folder (relative to the provider root) where loose files pile up — e.g. “TODO”. Organize offers it on its overview as a one-click way to narrow to that folder. It does not open there on its own; leave this blank and the offer disappears.")
                 SettingsRow("Remembered rules") {
-                    Text("Now live in the Automations workspace")
+                    Text("Now live in Organize ▸ Rules")
                         .foregroundStyle(.secondary)
                 }
-                .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Automations workspace.")
+                .help("A rule you teach by correcting a suggestion is saved — review, edit, or delete it under Rules in the Organize workspace.")
             }, caption: {
                 // Names the two tabs this one hands off to. A settings tab that has had three of
                 // its five sections moved out owes the reader that much: without it, "where did
                 // the API key go?" has no answer on the page it used to be answered on.
-                Text("Organize suggests where loose files belong, starting from the inbox folder above. What it suggests, and what the cloud pass costs, now live under **Intelligence**; the household it files for lives under **People**. Corrections you ask it to remember are saved as automations.")
+                Text("Organize suggests where loose files belong, starting from the inbox folder above. What it suggests, and what the cloud pass costs, now live under **Intelligence**; the household it files for lives under **People**. Corrections you ask it to remember are saved as rules, listed under Rules in the Organize workspace.")
             })
 
             SettingsSection(

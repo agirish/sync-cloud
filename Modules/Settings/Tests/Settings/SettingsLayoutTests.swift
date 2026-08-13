@@ -334,32 +334,58 @@ import Testing
 
     // MARK: - The other tabs
 
-    /// The tabs that must fit, and the height each lays out at. Appearance is measured by the
-    /// tests above; these three were never measured at all.
+    /// The tabs that must fit, and the height each lays out at.
     ///
-    /// Three tabs are absent for reasons that are properties of those tabs rather than oversights:
-    /// Providers grows with the Mac's provider list and People with the household roster, so both
-    /// heights are properties of the machine's data; and Intelligence is long by nature and is
-    /// expected to scroll (see `intelligenceLaysOutWithoutReachingForTheKeychain`).
+    /// Which tabs are ABSENT is no longer recorded only here: `SettingsTab.exemptFromFitGuard`
+    /// names them (Providers, People, Intelligence) with each one's reason, and
+    /// `everyTabIsEitherFitTestedOrExplicitlyExempt` holds this list to be exactly `allCases`
+    /// minus that set. This list stays hand-built — a tab's fixture (its manager, its
+    /// environment) cannot be derived from the case — but its *membership* is now checked, so a
+    /// new tab has to either appear here or take a recorded exemption; it cannot slip in
+    /// unguarded, which is exactly how the old Organize kept a stale "long by nature" exemption
+    /// after the split made it short.
     ///
     /// Duplicates joined the list when it split off Tidy: three `@AppStorage` rows and a caption,
     /// so its height is a property of the layout like Appearance's, and nothing about it excuses
     /// it from fitting.
     ///
-    /// **Organize joined it when the engine and the roster moved out.** It was excluded as "long
-    /// by nature and expected to scroll", and that was true of the five-section tab; what is left
-    /// is an inbox path, a signpost row and the kept-names list, which with no engine attached is
-    /// a fixed note. That is a layout-shaped height, so it is measured like the rest — and the
-    /// exclusion had to be revisited rather than inherited, because a tab that gets SHORTER keeps
-    /// its exemption silently and no test ever asks again.
+    /// **Organize joined it when the engine and the roster moved out.** What is left is an inbox
+    /// path, a signpost row and the kept-names list, which with no engine attached is a fixed
+    /// note. That is a layout-shaped height, so it is measured like the rest.
     @MainActor
-    private func mustFitTabs(_ settings: SettingsManager) -> [(String, AnyView)] {
-        [("General", AnyView(GeneralSettingsTab().environmentObject(settings))),
-         ("Appearance", AnyView(AppearanceSettingsTab())),
-         ("Sync", AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
-         ("Organize", AnyView(FilingSettingsTab(syncManager: nil))),
-         ("Duplicates", AnyView(DuplicatesSettingsTab())),
-         ("Advanced", AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
+    private func mustFitTabs(_ settings: SettingsManager) -> [(SettingsView.SettingsTab, AnyView)] {
+        [(.general, AnyView(GeneralSettingsTab().environmentObject(settings))),
+         (.appearance, AnyView(AppearanceSettingsTab())),
+         (.sync, AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
+         (.filing, AnyView(FilingSettingsTab(syncManager: nil))),
+         (.duplicates, AnyView(DuplicatesSettingsTab())),
+         (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
+    }
+
+    /// The completeness guard on the list above: every tab is either measured or explicitly
+    /// exempted, and never both. Before this, three tabs were absent from `mustFitTabs` with
+    /// their reasons recorded only in a comment — true, but nothing a new tab could ever fail.
+    /// A tenth case that joins neither list now fails here by name; one that joins both is a
+    /// stale exemption and fails too.
+    @MainActor
+    @Test func everyTabIsEitherFitTestedOrExplicitlyExempt() async throws {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let settings = SettingsManager(autoDiscover: false,
+                                       userDefaults: test.defaults,
+                                       cloudStorageLister: { [] })
+        let fitTested = Set(mustFitTabs(settings).map { $0.0 })
+        let exempt = SettingsView.SettingsTab.exemptFromFitGuard
+
+        let doubleCounted = fitTested.intersection(exempt)
+        #expect(doubleCounted.isEmpty,
+                "\(doubleCounted.map(\.displayName).sorted()) are measured by mustFitTabs AND named in exemptFromFitGuard — the exemption is stale, drop it.")
+
+        let unaccounted = Set(SettingsView.SettingsTab.allCases)
+            .subtracting(fitTested)
+            .subtracting(exempt)
+        #expect(unaccounted.isEmpty,
+                "\(unaccounted.map(\.displayName).sorted()) are neither fit-tested in mustFitTabs nor exempted in SettingsTab.exemptFromFitGuard — decide, and record the decision.")
     }
 
     /// EVERY tab that must fit, against the opening a 1280×800 display actually gives.
@@ -380,11 +406,11 @@ import Testing
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
-        for (name, tab) in mustFitTabs(settings) {
-            let height = laidOutHeight(tab, width: width)
+        for (tab, view) in mustFitTabs(settings) {
+            let height = laidOutHeight(view, width: width)
 
             #expect(height <= opening,
-                    "\(name) lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — it scrolls.")
+                    "\(tab.displayName) lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — it scrolls.")
         }
     }
 
@@ -403,11 +429,11 @@ import Testing
                                        cloudStorageLister: { [] })
         let appearance = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
 
-        for (name, tab) in mustFitTabs(settings) where name != "Appearance" {
-            let height = laidOutHeight(tab, width: Self.contentWidth)
+        for (tab, view) in mustFitTabs(settings) where tab != .appearance {
+            let height = laidOutHeight(view, width: Self.contentWidth)
 
             #expect(height <= appearance,
-                    "\(name) lays out at \(height)pt, taller than Appearance's \(appearance)pt — baseSize is being sized against the wrong tab.")
+                    "\(tab.displayName) lays out at \(height)pt, taller than Appearance's \(appearance)pt — baseSize is being sized against the wrong tab.")
         }
     }
 

@@ -165,6 +165,11 @@ import Testing
                     "'\(query)' reaches nothing on Intelligence — the engine settings left Organize silently")
             #expect(results.contains { $0.tab == .people },
                     "'\(query)' reaches nothing on People — the roster left Organize silently")
+            // The tab itself, too: "filing" stopped appearing anywhere on screen when the
+            // "Filing" section header became "Inbox and rules", so — like "tidy" — the word only
+            // finds the settings that kept it as an alias keyword.
+            #expect(results.contains { $0.tab == .filing },
+                    "'\(query)' reaches nothing on Organize — the word left the tab silently")
         }
     }
 
@@ -278,8 +283,9 @@ import Testing
     /// all, so keeping them here would have been five lines claiming to exempt labels that no
     /// longer exist. An exemption nobody can fail is worse than none: it reads as a decision.
     ///
-    /// "Filing" is the one addition — the group header over Organize's inbox path and rules
-    /// pointer, both of which are indexed under their own row titles.
+    /// "Inbox and rules" is the one addition — the group header over Organize's inbox path and
+    /// rules pointer, both of which are indexed under their own row titles. (It said "Filing"
+    /// until the v4 vocabulary rename; the word survives as an alias keyword on the inbox entry.)
     ///
     /// Every entry is load-bearing: drop one and the scan fails on it. The other new section
     /// headers are deliberately absent, because each is genuinely covered by a control entry
@@ -288,7 +294,7 @@ import Testing
     /// "Saved suggestions" by entries of their own.
     static let unindexedByDesign: Set<String> = [
         "Startup", "Conflicts", "Comparison", "Confirmations", "Logging", "Maintenance",
-        "Filing", "Saved scan data",
+        "Inbox and rules", "Saved scan data",
     ]
 
     /// Whether some entry's title and this on-screen label name the same control. Containment runs
