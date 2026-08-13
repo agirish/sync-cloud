@@ -60,6 +60,8 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
     @Binding private var isSearchExpanded: Bool
     private let searchPlaceholder: String
     private let searchHelp: String
+    /// Whether this lens offers search **at all** — see the initializer.
+    private let showsSearch: Bool
     private let chips: [TokenChipsRow.Item]
     private let onRemoveChip: (String) -> Void
 
@@ -78,6 +80,18 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
     ///   - searchPlaceholder: this lens's vocabulary — see ``ExpandingSearchField``. It must
     ///     advertise exactly the tokens this lens binds and no others.
     ///   - searchHelp: names what this lens searches, for the toggle's tooltip and a11y label.
+    ///   - showsSearch: whether this lens answers a query at all. **Defaults to true, and the
+    ///     default is the right answer for every lens with a list.** It exists for the two pages
+    ///     that have none: Organize's overview, which draws every lens's answer and filters none
+    ///     of them, and Storage before its analysis has run, which has nothing to search yet.
+    ///     Both were given a search toggle by this card unconditionally, so both offered a control
+    ///     that could not do anything — and the honest repair is not to make the toggle's write a
+    ///     no-op (a control that does nothing invisibly is worse) but to not draw it. False also
+    ///     suppresses the field and chip rows, so a query parked by another lens cannot surface
+    ///     here through `isSearching`.
+    ///
+    ///     The card's height does not change with it: the toggle sits in a fixed-height row
+    ///     (``LensHeaderMetrics/tabRow``), so a header without it is the same 81pt as one with it.
     ///   - chips: the parsed tokens of the live query. Empty ⇒ no chip row, so the card only
     ///     grows the extra 30pt once a token actually parses.
     ///   - title: row 1 leading — the lens's name, which is what tells you where you are now
@@ -90,6 +104,7 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
         isSearchExpanded: Binding<Bool>,
         searchPlaceholder: String,
         searchHelp: String,
+        showsSearch: Bool = true,
         chips: [TokenChipsRow.Item] = [],
         onRemoveChip: @escaping (String) -> Void = { _ in },
         accent: Color,
@@ -106,6 +121,7 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
         self._isSearchExpanded = isSearchExpanded
         self.searchPlaceholder = searchPlaceholder
         self.searchHelp = searchHelp
+        self.showsSearch = showsSearch
         self.chips = chips
         self.onRemoveChip = onRemoveChip
         self.accent = accent
@@ -121,7 +137,7 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
 
     /// Whether the field is showing: expanded, or collapsed-but-still-filtering (which the
     /// toggle's clear-on-collapse makes unreachable, but a host that seeds a query can produce).
-    private var isSearching: Bool { isSearchExpanded || !searchText.isEmpty }
+    private var isSearching: Bool { showsSearch && (isSearchExpanded || !searchText.isEmpty) }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: LensHeaderMetrics.rowGap) {
@@ -129,12 +145,14 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
                 title()
                 Spacer(minLength: 8)
                 actions()
-                ExpandingSearchToggle(
-                    text: $searchText,
-                    isExpanded: $isSearchExpanded,
-                    accent: accent,
-                    help: searchHelp
-                )
+                if showsSearch {
+                    ExpandingSearchToggle(
+                        text: $searchText,
+                        isExpanded: $isSearchExpanded,
+                        accent: accent,
+                        help: searchHelp
+                    )
+                }
             }
             .frame(height: LensHeaderMetrics.tabRow)
 

@@ -161,4 +161,112 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         )
         #expect(laidOutHeight(cards, width: 700) == 86.0)
     }
+
+    // MARK: A lens that answers no query does not offer the control
+
+    /// A header with nothing but a title, so row 1's trailing half holds the search toggle **and
+    /// nothing else** — which is what lets the pixel check below attribute the ink.
+    ///
+    /// It is also the real shape: the Organize header passes `actions: { EmptyView() }`, having
+    /// moved its controls to row 2.
+    private static func plainCard(showsSearch: Bool, searchText: String = "") -> some View {
+        LensHeaderCard(
+            searchText: .constant(searchText),
+            isSearchExpanded: .constant(false),
+            searchPlaceholder: "kind:pdf, >5mb…",
+            searchHelp: "Search duplicate groups",
+            showsSearch: showsSearch,
+            accent: .blue,
+            surfaceStyle: .unified,
+            level: .frosted,
+            title: { Self.titleRow }
+        )
+    }
+
+    /// **The height is the promise, and dropping the toggle must not spend it.**
+    ///
+    /// The toggle lives in a fixed-height row, so this should hold by construction — which is
+    /// exactly why it is worth pinning: the card's 81pt is what the pane's header↔list boundary is
+    /// aligned to, and a header that shrank on two pages would break that alignment there only.
+    @Test func aHeaderThatOffersNoSearchIsStillTheSameHeight() {
+        #expect(laidOutHeight(Self.plainCard(showsSearch: false), width: 700) == 86.0)
+        #expect(laidOutHeight(Self.plainCard(showsSearch: true), width: 700) == 86.0)
+    }
+
+    /// **A query parked by another lens cannot open a field here.**
+    ///
+    /// `isSearching` is `isExpanded || !searchText.isEmpty`, and the second half is reachable: the
+    /// overview shares To File's query slot, so a query typed there is still in the binding when
+    /// the overview draws. Without the gate the field row would appear over a page that filters
+    /// nothing — the taller card being the visible half of the bug this parameter closes.
+    ///
+    /// The `true` case is the control: it proves the fixture really does carry a query, so the
+    /// `false` case is measuring the gate rather than an empty string.
+    @Test func aParkedQueryCannotOpenAFieldOnAHeaderThatOffersNoSearch() {
+        #expect(laidOutHeight(Self.plainCard(showsSearch: false, searchText: "tax"), width: 700) == 86.0)
+        #expect(laidOutHeight(Self.plainCard(showsSearch: true, searchText: "tax"), width: 700) > 86.0,
+                "the fixture's query does not open a field even when search IS offered — the check above is vacuous")
+    }
+
+    /// **And the toggle is actually gone from the pixels**, which no height can see: it sits in a
+    /// fixed-height row, so `showsSearch` could be ignored entirely and every measurement above
+    /// would still pass.
+    ///
+    /// Measured over row 1's trailing corner — where the toggle is the only thing drawn on this
+    /// fixture — against the same corner of a card that offers search.
+    @Test func theToggleIsNotPaintedWhenSearchIsNotOffered() throws {
+        let width: CGFloat = 700
+        let withSearch = try Self.trailingCornerInk(Self.plainCard(showsSearch: true), width: width)
+        let without = try Self.trailingCornerInk(Self.plainCard(showsSearch: false), width: width)
+        #expect(withSearch > 0,
+                "no ink where the toggle should be — the probe is aimed at the wrong region")
+        #expect(without == 0,
+                "\(without) pixels are still painted where the toggle was, on a header that offers no search")
+    }
+
+    /// Non-background pixels in row 1's trailing corner: x from the trailing padding inward by the
+    /// toggle's width, y across the tabs row. Compared against the card's own fill rather than a
+    /// fixed colour, so a surface restyle does not read as ink.
+    private static func trailingCornerInk(_ view: some View, width: CGFloat) throws -> Int {
+        let height = LensHeaderMetrics.restingTotalHeight
+        let host = NSHostingView(rootView: AnyView(
+            view.frame(width: width, height: height)
+                .background(Color(nsColor: .windowBackgroundColor))))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+
+        let scale = Int(rep.pixelsWide) / Int(width)
+        // The toggle is last on row 1, inside the card's 12pt padding plus its 2.5pt inset.
+        let right = Int(width - LensHeaderMetrics.padding - LiquidGlass.cardInset)
+        let left = right - Int(OrganizeToggleProbe.width)
+        let top = Int(LensHeaderMetrics.padding + LiquidGlass.cardInset)
+        let bottom = top + Int(LensHeaderMetrics.tabRow)
+        // The card's own fill, sampled from a point on row 1 that is definitely empty: just
+        // inside the leading padding is the title, so take the middle of the row's blank span.
+        let reference = try #require(rep.colorAt(x: (left - 40) * scale, y: (top + 2) * scale))
+        var ink = 0
+        for x in stride(from: left * scale, to: right * scale, by: 1) {
+            for y in stride(from: top * scale, to: bottom * scale, by: 1) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                if abs(c.redComponent - reference.redComponent) > 0.03
+                    || abs(c.greenComponent - reference.greenComponent) > 0.03
+                    || abs(c.blueComponent - reference.blueComponent) > 0.03 { ink += 1 }
+            }
+        }
+        return ink
+    }
+}
+
+/// The toggle's drawn width, named here rather than reached for from `FileExplorer` — Design
+/// cannot see that module, and `OrganizeRailMetrics.searchToggleWidth` (36) is that module's
+/// *reserve* for it, which is a different number from what it paints.
+private enum OrganizeToggleProbe {
+    static let width: CGFloat = 36
 }

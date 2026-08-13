@@ -551,27 +551,22 @@ public struct LensWorkspaceView: View {
                 })
     }
 
-    /// Whether the search field is open — and, on the overview, **where the toggle sends you
-    /// instead of opening one.**
+    /// Whether the search field is open, per lens.
     ///
-    /// The overview answers no query (see ``query``), so a field opened over it would be a control
-    /// that does nothing, and a toggle whose write is simply dropped would be a control that does
-    /// nothing *invisibly*. The one honest thing left is where the query would go: this apparatus's
-    /// slot is To File's, so searching from the overview means searching To File, and the click
-    /// takes you there with the field open. The overview is left the way the ✕ leaves it — no
-    /// residue, nothing to close.
+    /// The getter still refuses on the overview, which answers no query (see ``query``): the state
+    /// is keyed by lens and the overview shares `.filing`'s key, so a field left open on To File
+    /// would otherwise reappear over a page that filters nothing.
+    ///
+    /// **It no longer has to decide what an overview click means**, because there is no longer a
+    /// control there to click — `LensHeaderCard` takes `showsSearch:` and this header passes false
+    /// for the overview and for Storage-before-a-report. The previous version routed that write to
+    /// To File and opened the field there, which was the best answer available while the card
+    /// appended a toggle to every header unconditionally; a page with nothing to search is better
+    /// served by not offering the button than by having it teleport you somewhere that does.
     private var isSearchExpanded: Binding<Bool> {
         Binding(
             get: { !overviewIsOnScreen && searchExpandedLenses.contains(effectiveLens) },
             set: { expanded in
-                if overviewIsOnScreen {
-                    // Collapse cannot arrive here — the getter is already false — so the only
-                    // write worth honouring is the one that asks to search.
-                    guard expanded else { return }
-                    railLens = .toFile
-                    searchExpandedLenses.insert(WorkspaceLensKind.filing)
-                    return
-                }
                 if expanded { searchExpandedLenses.insert(effectiveLens) } else { searchExpandedLenses.remove(effectiveLens) }
             }
         )
@@ -969,6 +964,19 @@ public struct LensWorkspaceView: View {
             searchHelp: showingRenameBacklog
                 ? "Search the rename backlog by folder or by file name"
                 : LensSearch.help(for: effectiveLens),
+            // **The two pages that answer no query do not offer the control.** The overview draws
+            // every lens's answer and filters none of them (see ``query``), and Storage before its
+            // analysis has run has no lists to narrow — it is the intro card's "Analyze storage"
+            // pitch. Both used to carry a search toggle because this card appended one to every
+            // header; opening it on the overview merely routed you to To File, which is a decent
+            // answer to "the write must not be silently dropped" and a poor one to "why is there a
+            // search button on a page with nothing to search".
+            //
+            // Not `overviewIsOnScreen`'s twin for Storage: `showingOverview` is about rail
+            // selection, and Storage has its own rail. `hasStorageReport` is the question — the
+            // same one ``storageCounts`` asks before it will report "N of M".
+            showsSearch: !overviewIsOnScreen
+                && !(effectiveLens == .storage && !hasStorageReport),
             chips: searchChips,
             onRemoveChip: removeSearchChip,
             accent: glassHue.accentColor,
