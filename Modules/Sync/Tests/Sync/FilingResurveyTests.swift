@@ -149,8 +149,14 @@ import Events
         #expect(report.foldersLearned > 0, "fixture: the survey must have learned something to count")
 
         await Logger.shared.debug("resurvey-log flush marker").value
-        let line = Logger.shared.entries.last { $0.message.hasPrefix("Folder memory re-surveyed") }
-        let message = try #require(line?.message, "the survey logged no closing line at all")
+        // Matched on THIS run's summary, not merely on the prefix. `Logger.shared` is
+        // process-wide and twenty-four call sites in this file run resurveys unserialized, so
+        // `last { hasPrefix }` can hand back a neighbour's line — observed once, reporting
+        // "5 folders changed" against a report that learned 2 (flaky-tests mechanism 3).
+        let line = Logger.shared.entries.last {
+            $0.message.hasPrefix("Folder memory re-surveyed") && $0.message.contains(report.summary)
+        }
+        let message = try #require(line?.message, "the survey logged no closing line for this run")
         #expect(message.contains("\(report.foldersLearned) folder(s) now have learned content"),
                 "house plural form missing — got: \(message)")
     }

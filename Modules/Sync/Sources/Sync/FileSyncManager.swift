@@ -361,8 +361,9 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: Duplicates — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
 
-    /// The Find Duplicates scan lifecycle (see ``ScanLifecycle``). The legacy per-field property
-    /// names below forward onto it, so app-side call sites are unchanged.
+    /// The Find Duplicates scan lifecycle (see ``ScanLifecycle``). The legacy running / has-found /
+    /// root names below forward onto it; the status forwarder does NOT survive — readers ask
+    /// `duplicateScanLifecycle.status` directly, so that one idle spelling is the only one.
     @Published public internal(set) var duplicateScanLifecycle = ScanLifecycle()
     /// Duplicate/related groups from the most recent Find Duplicates scan of one provider.
     @Published public var duplicateGroups: [DuplicateGroup] = []

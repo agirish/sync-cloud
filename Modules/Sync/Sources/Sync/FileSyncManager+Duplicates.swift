@@ -422,7 +422,7 @@ extension FileSyncManager {
     /// **A list, in one place, because a list spread across call sites is what broke.** The two
     /// provider-switch handlers in `ContentView` each cleared duplicates, filing and the automation
     /// dry-run inline, under the comment "stale Tidy results must not outlive their provider" — and
-    /// the risky-name finding, which became a Tidy result when Rename folded into Organize, was
+    /// the risky-name finding, which became a lens result when Rename folded into Organize, was
     /// never added to either. It outlived its provider: Organize kept showing the previous
     /// account's finding, and "Fix all" would have renamed those files — under the OLD provider's
     /// ruleset, at absolute paths under the OLD provider's root — while the window said you were

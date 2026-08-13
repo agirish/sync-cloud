@@ -295,12 +295,12 @@ extension FileSyncManager {
         if let only, let rule = automationRules.first(where: { $0.id == only }), isInert(rule) {
             let name = rule.name.isEmpty ? "This rule" : "“\(rule.name)”"
             banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can't act here.")
-            Logger.shared.info("Automations preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
+            Logger.shared.info("Rules preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
             return
         }
         let inertCount = AutomationRuleSet.eligible(automationRules).rules.filter(isInert).count
         if only == nil, inertCount > 0 {
-            Logger.shared.info("Automations preview: \(inertCount) rule(s) scoped to another provider were skipped")
+            Logger.shared.info("Rules preview: \(inertCount) rule(s) scoped to another provider were skipped")
         }
         // `testing` is the deliberate escape hatch: a single-rule preview runs a rule that is
         // toggled off, so it can be tried before enabling it.
@@ -382,7 +382,7 @@ extension FileSyncManager {
         // The report carries its own root string, so the lifecycle's `root` stays nil here —
         // only the completion flag is published.
         self.automationDryRunLifecycle.hasCompleted = true
-        Logger.shared.info("Automations dry run: \(root.lastPathComponent) — \(looseFiles.count) file(s), "
+        Logger.shared.info("Rules preview: \(root.lastPathComponent) — \(looseFiles.count) file(s), "
             + "\(report.wouldFileCount) would file, \(report.needsAttentionCount) need a look "
             + "(a preview — nothing moved yet)")
     }

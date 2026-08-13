@@ -4,13 +4,14 @@ import Foundation
 /// in flight, the has-completed flag that drives the lens's intro-vs-results state, and the root
 /// the on-screen results were scanned from.
 ///
-/// Before this type existed, each of the five lenses (Duplicates, Storage Lens, Names, Filing,
-/// Automations preview) declared its own near-identical `@Published` cluster, and the copies had
-/// drifted: status was `String?` in two and `String` in three, the root was `String?`/`URL?`, and
-/// only the duplicate scan carried an epoch guard against stale progress hops. One value type per
-/// lens keeps the five lifecycles structurally identical; the manager's `beginScan` /
-/// `updateScan` / `endScan` / `completeScan` helpers (below) enforce one state machine for all of
-/// them. The heavily-used legacy per-lens property names (running/has-completed/root) live on as
+/// Before this type existed, each of the five lenses it was extracted from (Duplicates, Storage
+/// Lens, Names, Filing, Automations preview) declared its own near-identical `@Published` cluster,
+/// and the copies had drifted: status was `String?` in two and `String` in three, the root was
+/// `String?`/`URL?`, and only the duplicate scan carried an epoch guard against stale progress
+/// hops. One value type per lens keeps them structurally identical, and a lens added since — the
+/// filing re-survey, the sixth — got the same state machine for free rather than a seventh copy;
+/// the manager's `beginScan` / `updateScan` / `endScan` / `completeScan` helpers (below) enforce
+/// one state machine for all six. The heavily-used legacy per-lens property names (running/has-completed/root) live on as
 /// computed forwarders in `FileSyncManager`; the per-lens status forwarders — where the idle
 /// spelling had split into `""`-vs-nil — are gone, and every reader asks the lifecycle itself.
 public struct ScanLifecycle: Sendable {
@@ -20,7 +21,24 @@ public struct ScanLifecycle: Sendable {
     /// Human-readable progress for the running scan (e.g. "Hashing 340 candidates…").
     /// nil when no scan is running — nil is the ONE spelling of "idle", for every lens; the
     /// legacy `?? ""` forwarders that let three lenses spell it as `""` are gone.
-    public internal(set) var status: String?
+    ///
+    /// **An empty status is normalized to nil here, at the one boundary every writer goes
+    /// through.** Every reader now spells the fallback `status ?? "Analyzing…"`, where it used to
+    /// ask `isEmpty` as well; with a plain stored property a writer that passed `""` — through
+    /// ``FileSyncManager/beginScan(_:status:)``, ``FileSyncManager/updateScan(_:epoch:status:)``,
+    /// or a direct assignment, since the setter is `internal` to the whole module — would paint a
+    /// blank line under a live spinner instead of the fallback. Normalizing on write keeps that
+    /// unbuildable rather than merely unbuilt, and does it without a `precondition`: a blank
+    /// status is a cosmetic defect, and crashing on one would be the worse outcome.
+    /// A non-empty string is stored verbatim; only empty-or-whitespace collapses to nil.
+    public internal(set) var status: String? {
+        get { storedStatus }
+        set { storedStatus = newValue?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? newValue : nil }
+    }
+
+    /// Backing store for ``status``. Private so the normalization above cannot be bypassed —
+    /// nothing outside this declaration can write the field.
+    private var storedStatus: String?
 
     /// True once a scan has completed at least once (drives the empty-vs-results state).
     /// Set only on completion, so a cancelled scan leaves the prior state intact rather than
@@ -59,7 +77,7 @@ extension FileSyncManager {
     /// ``updateScan(_:epoch:status:)`` so an update from a superseded scan drops itself.
     ///
     /// Callers still guard re-entry (`guard !lifecycle.isRunning`) *before* calling this, exactly
-    /// as the five hand-rolled lifecycles did.
+    /// as the five hand-rolled lifecycles this type replaced did.
     @discardableResult
     func beginScan(_ lens: ReferenceWritableKeyPath<FileSyncManager, ScanLifecycle>,
                    status: String) -> Int {

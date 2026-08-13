@@ -187,6 +187,36 @@ import Testing
         #expect(!out[0].isBatchEligible)
     }
 
+    /// The route site's OTHER branch, and the only one that can mint a blind-batch-eligible home:
+    /// with no snippet there is no evidence token, so the destination is built `.name`, and a
+    /// measured `.high` margin then leaves `isBatchEligible` true — a file moved without the user
+    /// looking, on a ranking made from its filename. That is the intended trade (a filename is the
+    /// checkable signal), but it is the consequential one, so it is pinned rather than assumed.
+    ///
+    /// The sibling test above covers the content branch; between them the `evidence:` ternary at
+    /// the construction site has both of its arms pinned.
+    @Test func aRouterHomeRankedFromTheFilenameAloneStaysInTheBlindBatch() throws {
+        let root = "/prov"
+        let index = FilingRouterTests.index()
+        let path = "\(root)/TODO/kaiser surgery notes.pdf"
+        let s = [FilingSuggestion(filePath: path, fileName: "kaiser surgery notes.pdf",
+                                  size: 10, modificationDate: nil, candidates: [],
+                                  providerRoot: root)]
+        // No snippets at all: the ranking can only have come from the name.
+        let (out, routed, _) = FileSyncManager.applyRoutes(s, index: index, snippets: [:],
+                                                          providerRoot: root)
+        #expect(routed == 1)
+        let best = try #require(out[0].best)
+        #expect(best.path == "\(root)/Health/Medical/Kaiser/Surgery")
+        #expect(!best.fromContent, "fixture must exercise the NAME branch of the evidence ternary")
+        #expect(best.evidenceToken == nil)
+        #expect(best.reasons == ["Fits how this folder is used"])
+        #expect(best.confidence == .high)
+        #expect(best.newSegments.isEmpty, "the router only ever names folders that already exist")
+        #expect(out[0].isBatchEligible,
+                "a name-ranked router home is the one router home the blind batch may move")
+    }
+
     // MARK: - Merge discipline when two candidates name the same folder
 
     /// The SAME folder named by a remembered rule (filename evidence, `.high`) and by a taxonomy

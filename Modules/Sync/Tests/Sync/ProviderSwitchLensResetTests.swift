@@ -8,7 +8,7 @@ import Foundation
 /// **The rule was real and the list was incomplete.** Both provider-switch handlers in
 /// `ContentView` cleared duplicates, filing and the automation dry-run inline, under the comment
 /// "stale Tidy results must not outlive their provider". The risky-name finding — which became a
-/// Tidy result when Rename folded into Organize, and is now published by the Filing scan rather
+/// lens result when Rename folded into Organize, and is now published by the Filing scan rather
 /// than by a lens of its own — was in neither list. `clearFiling()` does not cover it: the name
 /// scan has its own `ScanLifecycle`, its own root and its own results.
 ///

@@ -25,8 +25,15 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// "Insurance"]). Empty when the whole path already exists.
     public let newSegments: [String]
     /// True when the deciding signal came from the file's *contents* (F2), not its name. Such
-    /// matches are capped to medium confidence and excluded from the blind "File recommended"
-    /// batch — reading a common word out of a document is a weaker signal than a filename.
+    /// matches are excluded from the blind "File recommended" batch — reading a word out of a
+    /// document is a less checkable signal than a filename, and that batch moves files nobody has
+    /// looked at.
+    ///
+    /// The blind-batch exclusion is what this flag is FOR, and it holds for every content-derived
+    /// home. The confidence *cap* is narrower: it binds the heuristic content path
+    /// (``Evidence/content``) and not the router's measured margin (``Evidence/measuredContent``),
+    /// which is priced rather than claimed — so `.high` together with `fromContent` is a state the
+    /// router builds on every home it names, and only the heuristic path cannot reach.
     public let fromContent: Bool
     /// True when this destination came from a remembered rule the user taught (F3). Ranked ahead of
     /// heuristic matches of equal confidence — an explicit correction outranks a guess.
@@ -92,9 +99,12 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// `.medium`/`.high` overwrite that only agrees with the cap while base happens to be `.high` —
     /// for itself.
     ///
-    /// The deliberate exception is ``FilingEngine/destination(from:providerRoot:existingRelative:fileName:)``,
-    /// the `fromAI` site: a backend's verdict keeps the confidence it claimed, and the `fromAI`
-    /// flag (not a demotion) is what keeps it out of the blind batch.
+    /// The deliberate exception is the `fromAI` site,
+    /// `FilingEngine.destination(from:providerRoot:existingRelative:fileName:)` — a code span, not
+    /// a doc link, because that method is internal and this initializer is public, so the link
+    /// could not resolve for anyone reading the public documentation. A backend's verdict keeps
+    /// the confidence it claimed there, and the `fromAI` flag (not a demotion) is what keeps it
+    /// out of the blind batch.
     public init(path: String, base: FilingConfidence, evidence: Evidence, reasons: [String],
                 newSegments: [String], remembered: Bool = false, evidenceToken: String? = nil,
                 neighborMatches: Int = 0, proposedName: String? = nil) {
@@ -116,9 +126,10 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     ///   are facts about either claimant that stay true of the merged candidate.
     /// - `fromContent` follows the WINNER, deliberately not OR. The flag documents the *deciding*
     ///   signal (see its declaration), and the confidence kept is the winner's: OR-ing it would
-    ///   manufacture a `.high`-plus-`fromContent` state the capped construction path refuses to
-    ///   build, and would let a weak content candidate that happens to name the same folder knock
-    ///   a legitimate filename home out of the blind batch. Pinned by
+    ///   pair the winner's `.high` with a flag the LOSER earned — the very state the capped
+    ///   construction path refuses to build for a heuristic content match — and would let a weak
+    ///   content candidate that happens to name the same folder knock a legitimate filename home
+    ///   out of the blind batch. Pinned by
     ///   `FilingProvenancePinTests/sameFolderNamedByARuleAndByContentKeepsTheWinnersProvenance`.
     func merging(_ other: FilingDestination) -> FilingDestination {
         let winner = other.confidence > confidence ? other : self
@@ -335,6 +346,9 @@ public enum FilingEngine {
         for node in taxonomy {
             collectProfiles(node, ancestorTokens: [], into: &profiles, paths: &existingPaths, options: options)
         }
+        // Which rules are allowed to act does not depend on the file, so it is decided once for
+        // the scan rather than once per loose file — the shared eligibility bar, one array.
+        let actingAutomations = AutomationRuleSet.eligible(automations)
 
         return looseFiles.compactMap { file -> FilingSuggestion? in
             guard !file.isDirectory else { return nil }
@@ -355,7 +369,7 @@ public enum FilingEngine {
             var candidates: [FilingDestination] = []
             candidates += rememberedCandidates(rules: rules, tokens: tokens, nameTokens: nameToks,
                                                contentTokens: content, existingPaths: existingPaths)
-            candidates += automationCandidates(automations: automations, file: file,
+            candidates += automationCandidates(automations: actingAutomations, file: file,
                                                contentTokens: content,
                                                snippet: automationSnippets[file.id],
                                                providerRoot: providerRoot, providerName: providerName,
@@ -514,8 +528,12 @@ public enum FilingEngine {
     /// match needed the file's *content* (same cap every content-derived signal gets, which also
     /// keeps it out of the blind batch apply). A rule whose destination resolves outside this
     /// provider is inert here, exactly like the old provider-scoped remembered rules.
+    ///
+    /// Takes the already-narrowed ``AutomationRuleSet`` rather than the raw rules: eligibility is
+    /// a property of the rules, not of the file, so the scan decides it once instead of once per
+    /// loose file.
     private static func automationCandidates(
-        automations: [AutomationRule], file: FileNode, contentTokens: Set<String>, snippet: String?,
+        automations: AutomationRuleSet, file: FileNode, contentTokens: Set<String>, snippet: String?,
         providerRoot: String, providerName: String?, existingPaths: Set<String>, now: Date,
         registry: PersonRegistry?, identity: PersonIdentityIndex?
     ) -> [FilingDestination] {
@@ -529,7 +547,7 @@ public enum FilingEngine {
         nameOnlyFacts.snippet = nil
 
         var out: [FilingDestination] = []
-        for rule in AutomationRuleSet.eligible(automations).rules {
+        for rule in automations.rules {
             guard AutomationEvaluator.matches(rule, facts, now: now) else { continue }
             guard case .resolved(let resolved) = AutomationEvaluator.resolveDestination(
                 rule.destinationTemplate, for: facts, providerName: providerName, now: now) else { continue }

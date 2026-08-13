@@ -2,17 +2,20 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Characterization pins for the ScanLifecycle seam, written BEFORE the shim-reduction /
-/// status-vocabulary unification and run green against the pre-change code.
+/// Pins for the ScanLifecycle seam, as it stands after the shim-reduction / status-vocabulary
+/// unification. (The file was added with that migration, so nothing here can claim to have run
+/// against the pre-change code — what it does claim is that the state machine below is the one
+/// all six lenses share, and that it answers idle the same way for every one of them.)
 ///
-/// Two sections:
+/// Three sections:
 /// - "State machine" pins exercise each of the six lifecycles through the manager's
 ///   `beginScan` / `updateScan` / `endScan` / `completeScan` helpers. They read only the
-///   lifecycle objects, so they must pass unchanged before and after the migration.
-/// - "Seam spelling" pins record what each lens's status answers when idle at the public
-///   seam. Before the migration three lenses spelled idle as `""` (through a `?? ""`
-///   forwarder) and three as `nil`; the migration unifies all six on `nil` (the lifecycle's
-///   own spelling) and these pins were updated in the same commit, deliberately.
+///   lifecycle objects, so they are independent of which forwarders survive.
+/// - "Idle spelling" pins record that an idle status is nil for every lens, and that an empty
+///   or whitespace-only status normalizes to that same nil however it is written — the
+///   invariant every reader's `status ?? "Analyzing…"` fallback now rests on.
+/// - "Surviving forwarders" pins record that the legacy per-lens names still stand exactly in
+///   front of their own lifecycle's fields, through the whole scan cycle.
 ///
 /// Every mid-scan status string here is distinct from the UI fallbacks ("Analyzing…",
 /// "Previewing…") and from the idle spellings ("" / nil), so no assertion can pass by
@@ -134,32 +137,108 @@ import Testing
         }
     }
 
-    // MARK: Seam spellings (updated deliberately with the migration)
+    // MARK: Idle spelling — nil, and nothing else, however it is written
 
-    /// One spelling answers "idle" at the public seam for every lens: the lifecycle's own
-    /// `status == nil`. Before the migration, three lenses (Storage, Names, Automations
-    /// preview) spelled idle as `""` through `?? ""` forwarders and three as `nil`; the
-    /// forwarders are gone and this pin was updated to the unified spelling in the same
-    /// commit, deliberately. The pre-migration version of this test (asserting
-    /// `storageLensStatus == ""` etc.) ran green against the pre-change code first.
+    /// **An empty status can never reach a reader.** Every lens's spinner line now spells its
+    /// fallback `status ?? "Analyzing…"`, where before the migration it asked `isEmpty` too — so
+    /// a writer passing `""` would paint a blank line under a live spinner instead of the
+    /// fallback. `ScanLifecycle.status` normalizes empty-or-whitespace to nil on write, at the
+    /// one boundary all three write paths go through, which is what makes that unbuildable
+    /// rather than merely unbuilt.
+    ///
+    /// Exercised at `beginScan` and `updateScan` here, and by direct assignment below — the
+    /// third path, open to every file in the module because the setter is `internal(set)`.
     @MainActor
-    @Test func idleStatusSpellsNilAtThePublicSeamForEveryLens() {
+    @Test func anEmptyOrBlankStatusNormalizesToNilAtEveryWritePath() {
         let manager = FileSyncManager()
         for lens in Self.lenses {
-            #expect(manager[keyPath: lens.path].status == nil, "\(lens.name): idle spells nil")
+            for blank in ["", " ", "\n", " \t "] {
+                let epoch = manager.beginScan(lens.path, status: blank)
+                #expect(manager[keyPath: lens.path].status == nil,
+                        "\(lens.name): beginScan(\(blank.debugDescription)) must read back as idle-nil")
+                #expect(manager[keyPath: lens.path].isRunning,
+                        "\(lens.name): a blank status still starts the scan")
+                // A real status, then a blank one over the top of it: the blank must not survive
+                // as "" — the reader would show an empty line rather than its fallback.
+                #expect(manager.updateScan(lens.path, epoch: epoch, status: "PIN real \(lens.name)"))
+                #expect(manager[keyPath: lens.path].status == "PIN real \(lens.name)",
+                        "\(lens.name): a real status is still published verbatim")
+                #expect(manager.updateScan(lens.path, epoch: epoch, status: blank))
+                #expect(manager[keyPath: lens.path].status == nil,
+                        "\(lens.name): updateScan(\(blank.debugDescription)) must read back as idle-nil")
+                manager.endScan(lens.path)
+            }
         }
     }
 
-    /// A mid-scan status shows through the unified seam identically for every lens (distinct
-    /// from the UI fallbacks, so this cannot pass via a fallback).
+    /// Direct assignment is normalized too — the path `FileSyncManager+Filing`'s "Try another"
+    /// re-ask uses, and the one no helper can guard. And a status that merely *contains*
+    /// whitespace is stored VERBATIM: normalizing means collapsing the blank cases to nil, not
+    /// trimming what the lens chose to say.
     @MainActor
-    @Test func midScanStatusShowsThroughTheUnifiedSeam() {
+    @Test func aDirectStatusAssignmentIsNormalizedButNeverTrimmed() {
         let manager = FileSyncManager()
-        for lens in Self.lenses {
-            manager.beginScan(lens.path, status: "PIN \(lens.name) status")
-            #expect(manager[keyPath: lens.path].status == "PIN \(lens.name) status",
-                    "\(lens.name): mid-scan status shows through the unified seam")
-        }
+        manager.filingScanLifecycle.status = " Looking for a different folder… "
+        #expect(manager.filingScanLifecycle.status == " Looking for a different folder… ",
+                "a non-blank status keeps its own spacing")
+        manager.filingScanLifecycle.status = "   "
+        #expect(manager.filingScanLifecycle.status == nil, "whitespace-only assigns as idle-nil")
+        manager.filingScanLifecycle.status = "PIN direct"
+        #expect(manager.filingScanLifecycle.status == "PIN direct")
+        manager.filingScanLifecycle.status = ""
+        #expect(manager.filingScanLifecycle.status == nil, "empty assigns as idle-nil")
+    }
+
+    // MARK: Surviving forwarders
+
+    /// The kept running/has-completed forwarders follow their OWN lifecycle across the whole
+    /// cycle, including back to idle — which the mid-scan snapshot below never observes.
+    ///
+    /// This is what replaced two pins that asked the lifecycle for its status twice in one
+    /// expectation: before the migration those read the deleted `?? ""` shims and so compared two
+    /// different expressions, but with the shims gone both sides were the same stored property
+    /// and neither could fail on its own. The forwarders that DID survive are the seam still
+    /// worth pinning.
+    @MainActor
+    @Test func keptForwardersFollowTheirOwnLifecycleBackToIdle() {
+        let manager = FileSyncManager()
+
+        #expect(!manager.isFindingDuplicates && !manager.isBuildingStorageLens
+                && !manager.isScanningNames && !manager.isSuggestingFiles,
+                "every running forwarder starts idle")
+
+        manager.beginScan(\.duplicateScanLifecycle, status: "PIN dup")
+        #expect(manager.isFindingDuplicates == manager.duplicateScanLifecycle.isRunning)
+        #expect(manager.isFindingDuplicates, "duplicates: forwarder follows the scan start")
+        #expect(!manager.isScanningNames, "one lens's scan does not move another's forwarder")
+        manager.endScan(\.duplicateScanLifecycle)
+        #expect(manager.isFindingDuplicates == manager.duplicateScanLifecycle.isRunning)
+        #expect(!manager.isFindingDuplicates, "duplicates: forwarder follows the scan end")
+
+        manager.beginScan(\.storageLensLifecycle, status: "PIN storage")
+        #expect(manager.isBuildingStorageLens, "storage: forwarder follows the scan start")
+        manager.endScan(\.storageLensLifecycle)
+        #expect(!manager.isBuildingStorageLens, "storage: forwarder follows the scan end")
+
+        manager.beginScan(\.nameScanLifecycle, status: "PIN names")
+        #expect(manager.isScanningNames, "names: forwarder follows the scan start")
+        manager.endScan(\.nameScanLifecycle)
+        #expect(!manager.isScanningNames, "names: forwarder follows the scan end")
+
+        manager.beginScan(\.filingScanLifecycle, status: "PIN filing")
+        #expect(manager.isSuggestingFiles, "filing: forwarder follows the scan start")
+        manager.endScan(\.filingScanLifecycle)
+        #expect(!manager.isSuggestingFiles, "filing: forwarder follows the scan end")
+
+        // The has-completed forwarders are set by completion, not by the scan ending: all four
+        // scans above ran and ended, and none of them completed.
+        #expect(!manager.hasFoundDuplicates && !manager.hasScannedNames
+                && !manager.hasSuggestedFiling,
+                "ending a scan without completing it leaves the has-completed forwarders false")
+        manager.completeScan(\.nameScanLifecycle, root: URL(fileURLWithPath: "/pin/names"))
+        #expect(manager.hasScannedNames, "names: completion shows through the forwarder")
+        #expect(!manager.hasFoundDuplicates && !manager.hasSuggestedFiling,
+                "and shows through that lens's forwarder ONLY")
     }
 
     /// The surviving legacy forwarders still read and write their lifecycle's fields exactly.

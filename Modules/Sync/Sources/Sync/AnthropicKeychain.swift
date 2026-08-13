@@ -129,7 +129,7 @@ public enum AnthropicKeychain {
     ///
     /// `kSecReturnData` is what makes the Keychain evaluate the item's ACL and, if it isn't
     /// satisfied, ask the user. An attributes-only match answers "is something stored here?"
-    /// from the item's metadata and never touches the secret. Settings opened the Tidy tab
+    /// from the item's metadata and never touches the secret. Settings opened the old Tidy tab
     /// straight into ``hasKey`` to decide whether to print "Key saved to Keychain.", so merely
     /// *looking at* the tab demanded the password for a key nobody had asked to use.
     ///
