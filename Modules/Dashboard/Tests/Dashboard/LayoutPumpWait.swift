@@ -35,6 +35,21 @@ enum LayoutPumpWait {
     /// caller should report on failure**: a wait that gave up after a handful of passes was starved
     /// and says nothing about the code, while one that gave up after a thousand was genuinely
     /// disproved.
+    ///
+    /// **`now` is injectable for one reason: it is the only way to test the deadline at all.** The
+    /// floor is deterministic, but asserting that the deadline carries a wait *past* the floor
+    /// means asserting that N wall seconds buy more than `pumpFloor` passes — a throughput bet
+    /// against the very congestion this file exists to survive. These overloads did not have the
+    /// seam, so the test of that property was left betting on the machine: written with a
+    /// 30-second deadline it failed six full-package runs out of six, and was "fixed" by raising
+    /// the deadline to 300 seconds on the reasoning that congestion could not reach it. On
+    /// 2026-08-13 congestion reached it — 57 of the 60 passes it needed, in 304 seconds, about
+    /// 5.3s per pass against the ~1.1s that reasoning already called congested. A bigger number
+    /// was never the answer; the missing unit was.
+    ///
+    /// With a frozen clock the deadline never expires, so the CONDITION decides when the loop ends
+    /// and the assertion is about the loop's shape rather than the machine's speed. Nothing outside
+    /// the tests passes this.
     /// The same wait against a host VIEW rather than a window.
     ///
     /// `docs/flaky-tests.md` records four suites that poll `layoutSubtreeIfNeeded()` on a view and
@@ -45,10 +60,11 @@ enum LayoutPumpWait {
     /// main-actor turns, and seconds were never the unit that mattered.
     @MainActor
     static func pump(_ view: NSView, upTo seconds: Double,
+                     now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
         var pumps = 0
-        let deadline = Date().addingTimeInterval(seconds)
-        while pumps < pumpFloor || Date() < deadline {
+        let deadline = now().addingTimeInterval(seconds)
+        while pumps < pumpFloor || now() < deadline {
             view.layoutSubtreeIfNeeded()
             pumps += 1
             if condition() { return (true, pumps) }
@@ -60,10 +76,11 @@ enum LayoutPumpWait {
 
     @MainActor
     static func pump(_ window: NSWindow, upTo seconds: Double,
+                     now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
         var pumps = 0
-        let deadline = Date().addingTimeInterval(seconds)
-        while pumps < pumpFloor || Date() < deadline {
+        let deadline = now().addingTimeInterval(seconds)
+        while pumps < pumpFloor || now() < deadline {
             window.layoutIfNeeded()
             pumps += 1
             if condition() { return (true, pumps) }
