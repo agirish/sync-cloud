@@ -39,7 +39,8 @@ public struct FilingMemory: Sendable, Equatable {
     ///
     /// The exact form matters: the builder that writes the file produces these, so a change here
     /// silently stops every identifier matching — the failure is a quiet loss of accuracy, not an
-    /// error, which is why ``FilingMemoryTests`` pins a known token/salt pair against a literal.
+    /// error, which is why `FilingProfileStoreTests/theIdentifierHashMatchesTheBuilder` pins a
+    /// known token/salt pair against a literal.
     static func hash(_ token: String, salt: String) -> String {
         let digest = SHA256.hash(data: Data((salt + token).utf8))
         var hex = ""

@@ -255,16 +255,12 @@ extension FileSyncManager {
         // outcome are read. This keeps the two surfaces in agreement — a rule that matches a file
         // in the lens preview matches it here — at zero cost when no rule reads content.
         var automationSnippets: [String: String] = [:]
-        if filingReadsContents, let extractor = filingSnippetExtractor,
-           automations.contains(where: { $0.enabled && $0.isRunnable && $0.requiresContent }) {
-            let contentRules = automations.filter { $0.enabled && $0.isRunnable && $0.requiresContent }
+        let actingRules = AutomationRuleSet.eligible(automations)
+        if filingReadsContents, let extractor = filingSnippetExtractor, actingRules.readsContent {
             let candidates = looseFiles.filter { file in
                 let facts = FilingEngine.automationFacts(for: file, registry: filingPersonRegistry,
                                                          identity: filingPersonIdentity)
-                return contentRules.contains {
-                    !AutomationEvaluator.matches($0, facts, now: scanClock)
-                        && AutomationEvaluator.couldMatchPendingContent($0, facts, now: scanClock)
-                }
+                return actingRules.contentCouldStillDecide(facts, now: scanClock)
             }
             if !candidates.isEmpty {
                 updateScan(\.filingScanLifecycle, epoch: epoch,

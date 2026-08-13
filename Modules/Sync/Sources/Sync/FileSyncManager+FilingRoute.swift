@@ -211,10 +211,14 @@ extension FileSyncManager {
             ? "Matched “\(best.evidenceToken ?? "")” read from the file — a word this folder's documents use"
             : "Fits how this folder is used"
         let dest = FilingDestination(
-            path: providerRoot + "/" + best.relativePath, confidence: confidence, reasons: [reason],
+            // `.measuredContent`, not `.content`: the router's confidence is its calibrated
+            // margin — measured, not claimed — so the heuristic content cap does not apply to it.
+            // `fromContent` still keeps a content-derived home out of the blind batch.
+            path: providerRoot + "/" + best.relativePath,
+            base: confidence, evidence: fromContent ? .measuredContent : .name, reasons: [reason],
             // The router only ever names folders that came from the taxonomy, so nothing here is
             // ever a folder to create — an empty `newSegments` is a fact, not a default.
-            newSegments: [], fromContent: fromContent, remembered: false, fromAI: false,
+            newSegments: [],
             evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0)
         let others = s.candidates.filter { $0.path != dest.path }
         return (s.replacingCandidates([dest] + others), true, shortlist)

@@ -177,8 +177,8 @@ public enum AutomationRuleProposer {
         // Already covered? A saved, runnable rule that matches this very file and lands it in this
         // very folder has nothing to teach, and offering it again is how a user ends up with four
         // rules that say the same thing.
-        if evidence.existingRules.contains(where: {
-            $0.enabled && $0.isRunnable && $0.destinationTemplate == template
+        if AutomationRuleSet.eligible(evidence.existingRules).rules.contains(where: {
+            $0.destinationTemplate == template
                 && AutomationEvaluator.matches($0, facts, now: now)
         }) { return nil }
 

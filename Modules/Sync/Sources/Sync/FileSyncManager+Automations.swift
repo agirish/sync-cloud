@@ -1,6 +1,64 @@
 import Events
 import Foundation
 
+/// The one owner of "which automation rules may act".
+///
+/// Four surfaces run the same match → resolve-destination → file pipeline — the Organize scan's
+/// suggestion steering (`FilingEngine.automationCandidates`), that scan's content-gating pre-pass,
+/// the Automations dry-run preview, and the rule proposer's already-covered check — and each used
+/// to spell its own eligibility filter. Three spellings drifted out of four sites; this value
+/// decides eligibility in exactly one place instead.
+///
+/// The dry run's "test a rule before enabling it" flow is the one deliberate exception to the
+/// enabled requirement, and it has to name itself: ``testing(_:in:)``.
+public struct AutomationRuleSet: Sendable {
+    /// The rules allowed to act, in the user's order.
+    public let rules: [AutomationRule]
+
+    private init(_ rules: [AutomationRule]) { self.rules = rules }
+
+    /// The shared bar: **enabled and runnable**. Runnable (a name, a destination, conditions the
+    /// evaluator can prove — see ``AutomationRule/isRunnable``) keeps a half-built rule inert
+    /// everywhere; enabled is the user's own switch.
+    public static func eligible(_ all: [AutomationRule]) -> AutomationRuleSet {
+        AutomationRuleSet(all.filter { $0.enabled && $0.isRunnable })
+    }
+
+    /// The escape hatch for the preview's test-a-disabled-rule flow: exactly the rule with `id`,
+    /// **enabled or not** — still required to be runnable, because a rule the evaluator cannot
+    /// prove has no outcome to preview.
+    public static func testing(_ id: UUID, in all: [AutomationRule]) -> AutomationRuleSet {
+        AutomationRuleSet(all.filter { $0.isRunnable && $0.id == id })
+    }
+
+    /// A caller-specific narrowing that can only *remove* rules (the dry run drops rules whose
+    /// absolute destination lies outside the previewed provider). It cannot widen eligibility.
+    public func narrowed(to isIncluded: (AutomationRule) -> Bool) -> AutomationRuleSet {
+        AutomationRuleSet(rules.filter(isIncluded))
+    }
+
+    public var isEmpty: Bool { rules.isEmpty }
+
+    /// Whether any acting rule reads file text at all — the cheap check that gates building the
+    /// snippet extractor pass in the first place.
+    public var readsContent: Bool { rules.contains { $0.requiresContent } }
+
+    /// Whether reading this file's text could still flip some acting rule's outcome — the per-file
+    /// gate on the expensive text extraction, shared verbatim by the Organize scan and the
+    /// Automations preview so a rule gives one answer on both surfaces. (Each pass evaluates
+    /// against its own fixed clock, captured once per pass.)
+    public func contentCouldStillDecide(_ facts: AutomationFileFacts, now: Date) -> Bool {
+        rules.contains { $0.requiresContent
+            && !AutomationEvaluator.matches($0, facts, now: now)
+            && AutomationEvaluator.couldMatchPendingContent($0, facts, now: now) }
+    }
+
+    /// The first acting rule, in user order, whose conditions match.
+    public func firstMatch(for facts: AutomationFileFacts, now: Date) -> AutomationRule? {
+        rules.first { AutomationEvaluator.matches($0, facts, now: now) }
+    }
+}
+
 /// N2 Automations — rule orchestration. Loads/persists the user's rules, runs a dry-run preview
 /// over a folder (what the enabled rules *would* do, nothing moved), and — after per-file
 /// confirmation in the UI — files the approved matches for real as one undoable run. Everything
@@ -240,14 +298,15 @@ extension FileSyncManager {
             Logger.shared.info("Automations preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
             return
         }
-        let inertCount = automationRules.filter { $0.isRunnable && $0.enabled && isInert($0) }.count
+        let inertCount = AutomationRuleSet.eligible(automationRules).rules.filter(isInert).count
         if only == nil, inertCount > 0 {
             Logger.shared.info("Automations preview: \(inertCount) rule(s) scoped to another provider were skipped")
         }
-        let rules = automationRules.filter { rule in
-            guard rule.isRunnable, !isInert(rule) else { return false }
-            return only == nil ? rule.enabled : rule.id == only
-        }
+        // `testing` is the deliberate escape hatch: a single-rule preview runs a rule that is
+        // toggled off, so it can be tried before enabling it.
+        let ruleSet = (only.map { AutomationRuleSet.testing($0, in: automationRules) }
+                        ?? AutomationRuleSet.eligible(automationRules))
+            .narrowed { !isInert($0) }
 
         beginScan(\.automationDryRunLifecycle, status: "Previewing \(root.lastPathComponent)…")
         defer {
@@ -286,9 +345,7 @@ extension FileSyncManager {
             // conditions are known. A rule already satisfied by the name alone (a `mentions` rule
             // whose words are all in the filename) skips the extraction entirely.
             if readsContents, let extractor = snippetExtractor,
-               rules.contains(where: { $0.requiresContent
-                   && !AutomationEvaluator.matches($0, facts, now: now)
-                   && AutomationEvaluator.couldMatchPendingContent($0, facts, now: now) }) {
+               ruleSet.contentCouldStillDecide(facts, now: now) {
                 facts.snippet = (await extractor(file.id))?.lowercased()
                 // Tokenize the excerpt so `mentionsAll` sees the same canonical content tokens the
                 // Organize scan matches with.
@@ -300,11 +357,12 @@ extension FileSyncManager {
                 if Task.isCancelled { return }
             }
 
-            // First rule, in user order, whose conditions match. `rules` is already scoped correctly
-            // (enabled rules for a full preview, or exactly the one rule for a single-rule preview),
-            // so this must NOT re-filter on `enabled` — doing so would make a single-rule preview of a
-            // disabled rule (the "test it before enabling" flow) silently match nothing.
-            guard let rule = rules.first(where: { AutomationEvaluator.matches($0, facts, now: now) }) else { continue }
+            // First rule, in user order, whose conditions match. `ruleSet` is already scoped
+            // correctly (`eligible` for a full preview, or `testing` — exactly the one rule — for
+            // a single-rule preview), so nothing here may re-filter on `enabled`: doing so would
+            // make a single-rule preview of a disabled rule (the "test it before enabling" flow)
+            // silently match nothing.
+            guard let rule = ruleSet.firstMatch(for: facts, now: now) else { continue }
             let resolution = Self.dryRunVerdict(
                 for: rule, facts: facts, destinationRoot: destinationAnchor,
                 providerName: providerName, now: now, fileManager: fileManager

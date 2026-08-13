@@ -68,6 +68,71 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.proposedName = proposedName
     }
 
+    /// Where a destination's deciding evidence came from — the input to
+    /// ``init(path:base:evidence:reasons:newSegments:remembered:evidenceToken:neighborMatches:proposedName:)``,
+    /// the one construction path that applies the content-derived confidence cap.
+    public enum Evidence: Sendable, Equatable {
+        /// The filename, metadata, or an existing folder's own name. The claim stands as made.
+        case name
+        /// Read out of the file's *contents* by keyword overlap (a taxonomy hit, a remembered or
+        /// automation rule, a universal rule). Capped at `.medium`: reading a common word out of a
+        /// document is a weaker signal than a filename — and `fromContent` keeps the match out of
+        /// the blind "File recommended" batch besides.
+        case content
+        /// Read out of the file's contents, but priced by the router's *calibrated margin* — the
+        /// one content-derived signal whose confidence is measured rather than claimed (right
+        /// 92.9% of the time when it reports high), so the cap does not apply. Still
+        /// `fromContent`, so still never in the blind batch.
+        case measuredContent
+    }
+
+    /// The one place the content-derived confidence cap lives. Every heuristic construction site
+    /// (taxonomy match, remembered rule, automation, universal rule, router home) builds its
+    /// confidence through here rather than spelling `min(base, .medium)` — or, worse, a
+    /// `.medium`/`.high` overwrite that only agrees with the cap while base happens to be `.high` —
+    /// for itself.
+    ///
+    /// The deliberate exception is ``FilingEngine/destination(from:providerRoot:existingRelative:fileName:)``,
+    /// the `fromAI` site: a backend's verdict keeps the confidence it claimed, and the `fromAI`
+    /// flag (not a demotion) is what keeps it out of the blind batch.
+    public init(path: String, base: FilingConfidence, evidence: Evidence, reasons: [String],
+                newSegments: [String], remembered: Bool = false, evidenceToken: String? = nil,
+                neighborMatches: Int = 0, proposedName: String? = nil) {
+        self.init(path: path,
+                  confidence: evidence == .content ? min(base, .medium) : base,
+                  reasons: reasons, newSegments: newSegments,
+                  fromContent: evidence != .name, remembered: remembered, fromAI: false,
+                  evidenceToken: evidenceToken, neighborMatches: neighborMatches,
+                  proposedName: proposedName)
+    }
+
+    /// This folder named twice — one candidate carrying both claims. The higher-confidence
+    /// candidate is the WINNER (a tie keeps `self`, the earlier-constructed candidate) and its
+    /// claim stands: confidence, new segments, evidence token, neighbor count, proposed name.
+    /// Reasons union, so both stories about the folder survive.
+    ///
+    /// Provenance merges two ways, on purpose:
+    /// - `remembered` and `fromAI` merge by OR — "the user taught this" and "a model chose this"
+    ///   are facts about either claimant that stay true of the merged candidate.
+    /// - `fromContent` follows the WINNER, deliberately not OR. The flag documents the *deciding*
+    ///   signal (see its declaration), and the confidence kept is the winner's: OR-ing it would
+    ///   manufacture a `.high`-plus-`fromContent` state the capped construction path refuses to
+    ///   build, and would let a weak content candidate that happens to name the same folder knock
+    ///   a legitimate filename home out of the blind batch. Pinned by
+    ///   `FilingProvenancePinTests/sameFolderNamedByARuleAndByContentKeepsTheWinnersProvenance`.
+    func merging(_ other: FilingDestination) -> FilingDestination {
+        let winner = other.confidence > confidence ? other : self
+        return FilingDestination(path: path, confidence: winner.confidence,
+                                 reasons: Array(Set(reasons + other.reasons)).sorted(),
+                                 newSegments: winner.newSegments,
+                                 fromContent: winner.fromContent,
+                                 remembered: remembered || other.remembered,
+                                 fromAI: fromAI || other.fromAI,
+                                 evidenceToken: winner.evidenceToken,
+                                 neighborMatches: winner.neighborMatches,
+                                 proposedName: winner.proposedName)
+    }
+
     /// A copy of this destination with its final folder renamed — for a NEW folder the user edits
     /// before accepting it.
     ///
@@ -390,7 +455,6 @@ public enum FilingEngine {
             let categoryHits = categoryNameHits.union(categoryContentHits)
             let fromContent = categoryHits.isDisjoint(with: nameTokens) && !categoryHits.isDisjoint(with: contentTokens)
             let base: FilingConfidence = !categoryNameHits.isEmpty ? .high : .medium
-            let confidence = fromContent ? min(base, .medium) : base
             if fromContent {
                 // Surface the single strongest evidence word (prefer a sibling-content hit, which
                 // carries a neighbor count) plus how many files already in the target share it —
@@ -400,13 +464,13 @@ public enum FilingEngine {
                 let reason = neighbors > 0
                     ? "Matched “\(evidenceRaw)” read from the file — \(neighbors) similar file\(neighbors == 1 ? "" : "s") already in the target"
                     : "Matched “\(evidenceRaw)” read from the file, in a folder you already keep"
-                out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason],
-                                             newSegments: [], fromContent: true,
+                out.append(FilingDestination(path: p.path, base: base, evidence: .content,
+                                             reasons: [reason], newSegments: [],
                                              evidenceToken: evidenceRaw.capitalized, neighborMatches: neighbors))
             } else {
                 let reason = "Matches “\(hits)” in a folder you already keep"
-                out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason],
-                                             newSegments: [], fromContent: false))
+                out.append(FilingDestination(path: p.path, base: base, evidence: .name,
+                                             reasons: [reason], newSegments: []))
             }
         }
         return out
@@ -434,10 +498,10 @@ public enum FilingEngine {
                 : "Remembered — you file “\(shown)” here"
             out.append(FilingDestination(
                 path: rule.destinationPath,
-                confidence: fromContent ? .medium : .high,
+                base: .high, evidence: fromContent ? .content : .name,   // user-taught ⇒ high, capped like any content signal
                 reasons: [reason],
                 newSegments: missingSegments(of: rule.destinationPath, existingPaths: existingPaths),
-                fromContent: fromContent, remembered: true))
+                remembered: true))
         }
         return out
     }
@@ -465,7 +529,7 @@ public enum FilingEngine {
         nameOnlyFacts.snippet = nil
 
         var out: [FilingDestination] = []
-        for rule in automations where rule.enabled && rule.isRunnable {
+        for rule in AutomationRuleSet.eligible(automations).rules {
             guard AutomationEvaluator.matches(rule, facts, now: now) else { continue }
             guard case .resolved(let resolved) = AutomationEvaluator.resolveDestination(
                 rule.destinationTemplate, for: facts, providerName: providerName, now: now) else { continue }
@@ -478,10 +542,10 @@ public enum FilingEngine {
                 : "Your rule “\(shown)” files this here"
             out.append(FilingDestination(
                 path: destination,
-                confidence: fromContent ? .medium : .high,
+                base: .high, evidence: fromContent ? .content : .name,   // user-written ⇒ high, capped like any content signal
                 reasons: [reason],
                 newSegments: missingSegments(of: destination, existingPaths: existingPaths),
-                fromContent: fromContent, remembered: true))
+                remembered: true))
         }
         return out
     }
@@ -561,9 +625,9 @@ public enum FilingEngine {
         // get a "(read from the file)" note, which also keeps them out of the blind batch apply.
         func rule(_ anchor: String, _ segs: [String], _ base: FilingConfidence, _ reason: String, signal: Set<String>) {
             let fc = signal.isDisjoint(with: nameTokens) && !signal.isDisjoint(with: contentTokens)
-            out.append(under(anchor, segs, existingPaths,
-                             fc ? min(base, .medium) : base,
-                             reason + (fc ? " (read from the file)" : ""), fromContent: fc))
+            out.append(under(anchor, segs, existingPaths, base: base,
+                             evidence: fc ? .content : .name,
+                             reason + (fc ? " (read from the file)" : "")))
         }
 
         // Photos → <Photos folder>/<year>, or a proposed Photos/<year> at the root (extension-based).
@@ -625,7 +689,8 @@ public enum FilingEngine {
     /// Builds a destination under an EXISTING anchor folder, appending segments and marking which
     /// are new (don't yet exist).
     private static func under(_ anchor: String, _ segments: [String], _ existingPaths: Set<String>,
-                             _ confidence: FilingConfidence, _ reason: String, fromContent: Bool = false) -> FilingDestination {
+                             base: FilingConfidence, evidence: FilingDestination.Evidence,
+                             _ reason: String) -> FilingDestination {
         var path = anchor
         var newSegments: [String] = []
         var creating = false
@@ -636,8 +701,8 @@ public enum FilingEngine {
                 newSegments.append(seg)
             }
         }
-        return FilingDestination(path: path, confidence: confidence, reasons: [reason],
-                                 newSegments: newSegments, fromContent: fromContent)
+        return FilingDestination(path: path, base: base, evidence: evidence, reasons: [reason],
+                                 newSegments: newSegments)
     }
 
     private static func existingFolder(named candidates: [String], in profiles: [FolderProfile]) -> String? {
@@ -652,17 +717,8 @@ public enum FilingEngine {
     private static func rank(_ candidates: [FilingDestination], limit: Int) -> [FilingDestination] {
         var byPath: [String: FilingDestination] = [:]
         for c in candidates {
-            if let existing = byPath[c.path] {
-                let winner = c.confidence > existing.confidence ? c : existing
-                byPath[c.path] = FilingDestination(path: c.path, confidence: winner.confidence,
-                                                   reasons: Array(Set(existing.reasons + c.reasons)).sorted(),
-                                                   newSegments: winner.newSegments, fromContent: winner.fromContent,
-                                                   remembered: existing.remembered || c.remembered,
-                                                   fromAI: existing.fromAI || c.fromAI,
-                                                   evidenceToken: winner.evidenceToken, neighborMatches: winner.neighborMatches)
-            } else {
-                byPath[c.path] = c
-            }
+            // The merge discipline lives on FilingDestination.merging — one owner, documented there.
+            byPath[c.path] = byPath[c.path]?.merging(c) ?? c
         }
         return byPath.values.sorted { a, b in
             if a.confidence != b.confidence { return a.confidence > b.confidence }
