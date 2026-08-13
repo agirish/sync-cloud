@@ -56,6 +56,20 @@ extension FileSyncManager {
                 return "Looking for a different folder…"
             }
         }
+
+        /// How the phase is named when a scan reports where it stopped. Deliberately not
+        /// ``status``: that is a progress line written to be read mid-scan ("Phase 2 · reading 3
+        /// documents — suggestions still improving"), and it reads as a claim about the future in
+        /// a log sentence about a scan that has already given up.
+        var logLabel: String {
+            switch self {
+            case .scanningFolder(let name): return "scanning \(name)"
+            case .learningFolders: return "learning the folder taxonomy"
+            case .readingContent(let n): return "reading \(n) document\(n == 1 ? "" : "s")"
+            case .findingHomes: return "finding the best homes"
+            case .lookingForDifferent: return "looking for a different folder"
+            }
+        }
     }
 
     // MARK: Scan
@@ -75,9 +89,18 @@ extension FileSyncManager {
                                            ignoringCache: Bool = false,
                                            options: FilingOptions = .init()) {
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
-            await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
-                                              providerName: providerName, nameProvider: nameProvider,
-                                              ignoringCache: ignoringCache, options: options)
+            guard let self else {
+                // The third way a started scan can produce nothing, and the only one that leaves
+                // no trace inside the scan itself: `restartedScanTask` waits for the previous
+                // scan to unwind before running this one, so a manager torn down in that window
+                // takes the scan with it.
+                Logger.shared.info("Filing: scan of \(folder.lastPathComponent) dropped before it "
+                    + "began — the sync manager went away while the previous scan was unwinding")
+                return
+            }
+            await self.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
+                                             providerName: providerName, nameProvider: nameProvider,
+                                             ignoringCache: ignoringCache, options: options)
         }
     }
 
@@ -195,12 +218,28 @@ extension FileSyncManager {
     /// which acts on the results this publishes. That is why there is no `autoFreeOnly` here and
     /// no cost pre-flight anywhere in the body: "free" is not a mode this scan can be asked to run
     /// in, it is the only mode it has.
+    ///
+    /// **Every way out of this function says so.** The body is a sequence of `await`s punctuated
+    /// by cancellation checks, and each of those used to be a bare `return`: a scan could be
+    /// started, announced by ``autoRescanFilingIfEligible(folder:providerRoot:providerName:nameProvider:options:)``,
+    /// and then abandoned without writing a line, leaving "ran and found nothing"
+    /// indistinguishable from "never ran" in the log — the same conflation
+    /// ``OrganizeOverviewState`` splits `clean` from `notScanned` to avoid. Rather than a log
+    /// line at each `return` — there are sixteen, and the seventeenth to be added would not have
+    /// one — the reporting hangs off the `defer` that already runs on every path, and names the
+    /// phase the scan died in. A new cancellation check is covered the moment it is written.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
         nameProvider: CloudProvider.ProviderType? = nil, ignoringCache: Bool = false,
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
-        guard !isSuggestingFiles else { return }
+        guard !isSuggestingFiles else {
+            // Before `beginScan`, so this one exit is outside the `defer`'s reach and reports
+            // itself. Not a failure: the running scan covers the same ground.
+            Logger.shared.info("Filing: scan of \(folder.lastPathComponent) not started — "
+                + "a Filing scan is already running")
+            return
+        }
         let fileManager = fm ?? self.fileManager
         // Ask the provider's own volume how it folds case, so the engine's "already in this
         // folder" test agrees with what `performFiling` will actually do on that disk. Callers
@@ -213,7 +252,23 @@ extension FileSyncManager {
                               status: FilingScanPhase.scanningFolder(folder.lastPathComponent).status)
         // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
         if filingUsesAI, filingClassifier != nil { filingClassifierPrewarm?() }
+        // The phase the scan is currently in, mirrored here so the `defer` can name where it
+        // stopped. Kept in step with the published status by `enter` below rather than by hand:
+        // the lifecycle's own status is cleared by `endScan`, and reading it back would also put
+        // a user-facing progress line into a log sentence it does not fit.
+        var phase = FilingScanPhase.scanningFolder(folder.lastPathComponent)
+        func enter(_ next: FilingScanPhase) {
+            phase = next
+            updateScan(\.filingScanLifecycle, epoch: epoch, status: next.status)
+        }
+        // Set once, at the publish. Anything else reaching the `defer` abandoned the scan.
+        var published = false
         defer {
+            if !published {
+                Logger.shared.info("Filing: scan of \(folder.lastPathComponent) abandoned while "
+                    + "\(phase.logLabel) — \(Task.isCancelled ? "superseded by a newer scan, or cancelled" : "returned early")"
+                    + "; suggestions are unchanged")
+            }
             endScan(\.filingScanLifecycle)
         }
 
@@ -222,7 +277,7 @@ extension FileSyncManager {
         let looseFiles = looseTree.filter { !$0.isDirectory }
         if Task.isCancelled { return }
 
-        updateScan(\.filingScanLifecycle, epoch: epoch, status: FilingScanPhase.learningFolders.status)
+        enter(.learningFolders)
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
@@ -263,8 +318,7 @@ extension FileSyncManager {
                 return actingRules.contentCouldStillDecide(facts, now: scanClock)
             }
             if !candidates.isEmpty {
-                updateScan(\.filingScanLifecycle, epoch: epoch,
-                           status: FilingScanPhase.readingContent(candidates.count).status)
+                enter(.readingContent(candidates.count))
                 automationSnippets = await Self.extractSnippets(for: candidates.map { $0.id }, using: extractor)
                 if Task.isCancelled { return }
             }
@@ -333,8 +387,7 @@ extension FileSyncManager {
                   }
                 : unsure
             if !readSet.isEmpty {
-                updateScan(\.filingScanLifecycle, epoch: epoch,
-                           status: FilingScanPhase.readingContent(readSet.count).status)
+                enter(.readingContent(readSet.count))
                 let content: [String: Set<String>]
                 if filingRouterIndex != nil, let snippetExtractor = filingSnippetExtractor,
                    let tokenize = filingTokensFromText {
@@ -450,8 +503,7 @@ extension FileSyncManager {
                     && ($0.fileSize ?? 0) >= options.minFileSize
             }
             if !toClassify.isEmpty {
-                updateScan(\.filingScanLifecycle, epoch: epoch,
-                           status: FilingScanPhase.findingHomes.status)
+                enter(.findingHomes)
 
                 // Split against the verdict cache BEFORE anything else in this phase. The ordering
                 // is the whole value of the cache, not an optimization detail: a hit must not have
@@ -612,6 +664,7 @@ extension FileSyncManager {
         suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path)
         if Task.isCancelled { return }
         self.publishFilingSuggestions(suggestions)   // single publish
+        published = true
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
