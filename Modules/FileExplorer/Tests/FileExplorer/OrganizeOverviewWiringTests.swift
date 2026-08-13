@@ -286,6 +286,69 @@ import SwiftUI
         #expect(!emitted.isEmpty)
     }
 
+    // MARK: - The half-scanned Renames cell, on both surfaces at once
+
+    private static func plan(_ relativePath: String) -> RenamePlan {
+        RenamePlan(folderPath: "/root/\(relativePath)", relativePath: relativePath,
+                   scheme: .position,
+                   steps: [RenameStep(currentPath: "/root/\(relativePath)/4. Apr 2021.pdf",
+                                      currentName: "4. Apr 2021.pdf",
+                                      proposedName: "04. Apr 2021.pdf",
+                                      kind: .tidied, reason: "Padded to two digits")],
+                   skips: [])
+    }
+
+    /// **The rail badge and the overview card must not describe the same cell differently** — and
+    /// for this one cell they did.
+    ///
+    /// `findFilingSuggestions` publishes the rename plans and the risky names partway through its
+    /// walk and sets `hasSuggestedFiling` only at the very end. So there is a real, reachable
+    /// state — every mid-scan moment, and permanently for anyone who hits Cancel there — with
+    /// plans on the manager, the names half finished, and the filing flag still false. The rail
+    /// answers findings-first and badged them; the overview asked the completion flags first and
+    /// called the lens never-scanned over the top of work it was already showing a number for.
+    ///
+    /// Both surfaces are asked here, from ONE manager, because the defect was disagreement: a
+    /// pin on either alone would have stayed green through it.
+    @Test func aHalfFinishedScanIsReportedTheSameWayByTheRailAndTheOverview() throws {
+        let m = FileSyncManager()
+        // Mid-scan exactly: the names half completed and both lists published, the filing half
+        // not yet. (`hasScannedNames`/`hasSuggestedFiling` are the flags the walk sets, in this
+        // order — see `FileSyncManager+Filing.findFilingSuggestions`.)
+        m.renamePlans = [Self.plan("Bills"), Self.plan("Statements")]
+        m.riskyNames = []
+        m.hasScannedNames = true
+        m.hasSuggestedFiling = false
+
+        let view = subject(m)
+        #expect(view.railCounts[.renames] == 2, "the badge counts the published plans")
+        #expect(view.railCounts.state(.renames) == .reporting(2),
+                "the rail reports findings ahead of the completion gate")
+
+        let section = try #require(view.overviewModel.sections.first { $0.lens == .renames })
+        if case .findings(let count, let headline, _) = section.state {
+            #expect(count == 2, "the overview counts the same published plans the badge does")
+            #expect(headline == "2 folders")
+        } else {
+            Issue.record("the overview said \(section.state) about findings the badge is showing")
+        }
+
+        // The gate still decides what a ZERO means — the direction that must NOT be lost. Same
+        // manager, same half-finished flags, nothing found: now both surfaces say "not scanned",
+        // which is a different answer from `.clean` and the one a half-run pass has earned.
+        m.renamePlans = []
+        let empty = subject(m)
+        #expect(empty.railCounts.state(.renames) == .notScanned)
+        #expect(empty.overviewModel.sections.first { $0.lens == .renames }?.state == .notScanned)
+
+        // And with both halves done and nothing found, both say clean — so the assertion above
+        // discriminates the gate rather than agreeing with every state.
+        m.hasSuggestedFiling = true
+        let done = subject(m)
+        #expect(done.railCounts.state(.renames) == .clean)
+        #expect(done.overviewModel.sections.first { $0.lens == .renames }?.state == .clean)
+    }
+
     @Test func rulesTakesNoSection() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         #expect(!sections.contains { $0.lens == .rules })

@@ -7,7 +7,7 @@ import AppKit
 ///
 /// Currently a plain image, and the value is the consolidation, not the drawing: this replaced
 /// three hand-rolled `Image`+`resizable`+`scaledToFit`+`frame` stacks at three sizes (pane header
-/// 28, Settings 26, Tidy rail 16), which had to be edited in lockstep every time the mark's
+/// 28, Settings 26, single-source rail 16), which had to be edited in lockstep every time the mark's
 /// presentation was tried.
 ///
 /// It has been tried. These four assets share a property that only bites on a dark appearance:

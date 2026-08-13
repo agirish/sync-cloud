@@ -592,6 +592,23 @@ import Sync
                 "apply() is composing the removal wording inline again")
     }
 
+    /// The same rule for the BATCH dialog — the one that trashes every recommended group at once,
+    /// and the one that was still interpolating its own sentence long after its sibling stopped.
+    @Test func theBatchConfirmationGetsItsWordsFromDuplicateRemovalPromptToo() throws {
+        let view = try Self.source("LensWorkspaceView.swift")
+        let apply = try Self.body(of: "private func applyRecommended(_ groups: [DuplicateGroup]) {",
+                                  in: view)
+        #expect(apply.contains("DuplicateRemovalPrompt.batchMessageText"))
+        #expect(apply.contains("DuplicateRemovalPrompt.batchInformativeText"))
+        // Comments stripped before searching, so a doc line quoting the old wording cannot keep
+        // this green — the same discipline as the sibling scan above.
+        let code = Self.codeOnly(apply)
+        #expect(!code.contains("redundant cop"),
+                "applyRecommended() is composing the removal wording inline again")
+        #expect(!code.contains("group\\(groups.count == 1"),
+                "applyRecommended() is pluralizing the group count inline again")
+    }
+
     // MARK: A "clean" verdict needs a scan that covered the scope
 
     /// `OrganizeScopeFilter.scanCovers` is pure and fully tested next door, and the overview would

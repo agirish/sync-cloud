@@ -111,7 +111,7 @@ public protocol FileActionDelegate: Sendable {
     /// second rule about when to ask. See `PaneActionDelegate.isOnThisMacOnly(forPath:)`.
     func isOnThisMacOnly(forPath path: String) -> Bool
 
-    /// Whether this host can open the Duplicates workspace on a file. Gates the row menu item, so
+    /// Whether this host can open the Duplicates lens on a file. Gates the row menu item, so
     /// a conformer with no workspace behind it (every test stub, any pane that isn't a real
     /// provider view) draws nothing rather than a door that opens onto a no-op.
     var canFindDuplicates: Bool { get }

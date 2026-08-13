@@ -2,7 +2,7 @@ import SwiftUI
 import Sync
 import Design
 
-/// One duplicate group rendered as an expandable card, matching the Tidy mockup: a type badge,
+/// One duplicate group rendered as an expandable card, matching the Duplicates mockup: a type badge,
 /// the common name, a reclaim figure, and — when expanded — each copy with its location, the
 /// recommended keeper, and the resolve actions.
 struct DuplicateGroupCard: View {
@@ -569,6 +569,29 @@ enum DuplicateRemovalPrompt {
                 + "byte-for-byte match — a signed or edited copy would read the same too."
         }
         return text + " This can be undone with ⌘Z."
+    }
+
+    // MARK: The batch dialog ("Clean up all")
+
+    /// The question over a whole batch. Its own sentence rather than the per-group one repeated:
+    /// the batch names a provider and counts *groups*, where the per-group dialog names a file and
+    /// counts copies.
+    ///
+    /// Here for the reason `itemWord` is: this pair was composed inline in the view, where the two
+    /// pluralizations below (group/groups, copy/copies) were the only untested words in the last
+    /// dialog before a delete. The per-group dialog had exactly that shape when it started calling
+    /// a same-text copy "redundant".
+    static func batchMessageText(groupCount: Int, providerName: String?) -> String {
+        "Clean up \(groupCount) group\(groupCount == 1 ? "" : "s") in \(providerName ?? "this provider")?"
+    }
+
+    /// The line under the batch question: how many copies move, what that reclaims, and the two
+    /// facts that keep it honest — the weaker match kinds are NOT included in a batch, and the
+    /// whole thing is undoable.
+    static func batchInformativeText(copyCount: Int, reclaimText: String) -> String {
+        "Moves \(copyCount) redundant cop\(copyCount == 1 ? "y" : "ies") to the Trash, reclaiming about "
+            + "\(reclaimText). Name-only and overlapping groups are left untouched. "
+            + "Everything can be undone with ⌘Z."
     }
 }
 

@@ -12,7 +12,7 @@ struct FilingSpendHistoryView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Cloud Filing Spend").scaledFont(.headline)
+                Text("Cloud AI Spend").scaledFont(.headline)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎")
             }

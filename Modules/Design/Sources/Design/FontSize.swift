@@ -167,7 +167,7 @@ public extension View {
             // Also supply a scaled *default* font, for the text that never names one — a plain
             // `Label` in a button, a `TextField`'s contents. Those have no `.scaledFont(_:)` call
             // site to migrate, so without this they would sit at 13pt while everything around
-            // them grew (the Tidy card's action row did exactly that).
+            // them grew (the duplicate group card's action row did exactly that).
             //
             // Only when actually scaling. At the default size the environment font is left
             // untouched — writing even `.body` into it would replace SwiftUI's own implicit

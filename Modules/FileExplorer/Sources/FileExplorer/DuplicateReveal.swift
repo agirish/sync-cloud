@@ -1,7 +1,7 @@
 import Foundation
 import Sync
 
-/// "Find duplicates of this" from a pane row: the file the Duplicates workspace has been asked to
+/// "Find duplicates of this" from a pane row: the file the Duplicates lens has been asked to
 /// show, and what it should do about it.
 ///
 /// A request rather than a path so a REPEAT ask re-fires. The user right-clicking the same file
@@ -47,7 +47,7 @@ public struct DuplicateRevealRequest: Equatable, Identifiable, Sendable {
     }
 }
 
-/// What the Duplicates workspace does with a `DuplicateRevealRequest`, as pure functions over the
+/// What the Duplicates lens does with a `DuplicateRevealRequest`, as pure functions over the
 /// scan state — so the whole handoff is decided somewhere a test can reach, and `LensWorkspaceView` only
 /// applies the answer.
 ///

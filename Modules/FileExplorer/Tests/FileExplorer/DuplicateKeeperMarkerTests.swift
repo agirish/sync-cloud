@@ -146,6 +146,30 @@ import Testing
         #expect(identical.hasSuffix("This can be undone with ⌘Z."))
     }
 
+    /// The batch dialog's two pluralizations, at 1 and at many. They are the words a "clean up
+    /// everything" confirmation is read on, and until this pair moved into the prompt type they
+    /// were interpolated inline in the view where nothing could reach them.
+    @Test func theBatchQuestionCountsGroupsAndNamesTheProvider() {
+        #expect(DuplicateRemovalPrompt.batchMessageText(groupCount: 1, providerName: "Dropbox")
+                == "Clean up 1 group in Dropbox?")
+        #expect(DuplicateRemovalPrompt.batchMessageText(groupCount: 12, providerName: "Dropbox")
+                == "Clean up 12 groups in Dropbox?")
+        // No provider name to say — never an empty gap in the sentence.
+        #expect(DuplicateRemovalPrompt.batchMessageText(groupCount: 2, providerName: nil)
+                == "Clean up 2 groups in this provider?")
+    }
+
+    @Test func theBatchLineCountsCopiesAndKeepsItsTwoPromises() {
+        let one = DuplicateRemovalPrompt.batchInformativeText(copyCount: 1, reclaimText: "402 KB")
+        #expect(one.hasPrefix("Moves 1 redundant copy to the Trash"))
+        let many = DuplicateRemovalPrompt.batchInformativeText(copyCount: 9, reclaimText: "1.2 GB")
+        #expect(many.hasPrefix("Moves 9 redundant copies to the Trash"))
+        #expect(many.contains("1.2 GB"))
+        // The two claims that make the batch safe to agree to.
+        #expect(many.contains("Name-only and overlapping groups are left untouched."))
+        #expect(many.hasSuffix("Everything can be undone with ⌘Z."))
+    }
+
     @Test func everyMatchKindHasAWordAndNoneSaysNothing() {
         // A new match type must not fall through to a default that borrows another's vocabulary —
         // the failure this whole helper exists to prevent.

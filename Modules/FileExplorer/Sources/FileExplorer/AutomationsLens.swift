@@ -159,7 +159,6 @@ public struct AutomationsLens: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
     private var provider: String { providerName ?? "this provider" }
-    private var runnableRuleCount: Int { syncManager.automationRules.filter { $0.enabled && $0.isRunnable }.count }
 
     public var body: some View {
         Group {

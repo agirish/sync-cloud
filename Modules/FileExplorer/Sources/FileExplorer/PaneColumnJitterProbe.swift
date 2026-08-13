@@ -75,6 +75,31 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         private(set) var linesLogged = 0
         var resolvedClip: NSClipView? { observedClip }
 
+        /// How long the pull home takes. Injectable for the reason `docs/flaky-tests.md`
+        /// mechanism 1 gives, and for the reason the stack watchdog's identical seam gives: the
+        /// pull is an implicit CoreAnimation animation, and the tests mount an offscreen,
+        /// never-key window. When CoreAnimation is starved — display asleep, Low Power Mode, or
+        /// simply a full parallel test run — that animation never advances, so
+        /// `clip.bounds.origin` never reaches home and a test waiting on it burns its whole
+        /// timeout and reports the START state. That is exactly what took
+        /// `PaneColumnsOverscrollReturnCycleTests` red three times in one afternoon (22.8 s to
+        /// give up against 1.4 s isolated, twice locally and once in CI) before
+        /// `PaneColumnsOverscrollReturn.WatchdogView.pullDuration` was added; this file carried
+        /// the same hardcoded 0.25 with no seam, so `PaneColumnListWatchdogTests` was the second,
+        /// unmitigated copy of the hazard.
+        ///
+        /// Zero means "no animation at all", not "a very fast one" — a zero-duration group still
+        /// defers through CoreAnimation and can be starved exactly the same way.
+        ///
+        /// **The default is pinned by a test** (`theListPullHomeShipsAnimated`), because once
+        /// every mount in the suite injects zero, nothing reads the value the app actually ships
+        /// and a default that drifted to zero would delete the bounce for real users in silence.
+        var pullDuration: TimeInterval = ProbeView.defaultPullDuration
+
+        /// What the app ships: long enough to read as a bounce, short enough not to feel like a
+        /// correction. The same number the stack watchdog ships, for the same reason.
+        static let defaultPullDuration: TimeInterval = 0.25
+
         /// The window's travel so far. Extremes, not endpoints: a quick bob down and back inside
         /// one window has identical endpoints, and the bob is precisely what's being hunted.
         private var windowMin: CGFloat?
@@ -150,15 +175,22 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         private func returnHomeIfParked() {
             guard let clip = observedClip else { return }
             let origin = clip.bounds.origin
-            let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip)
-            let tolerance = PaneColumnsOverscrollReturn.WatchdogView.tolerance
-            guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= tolerance else { return }
+            // `legalOrigin` and `tolerance` are `BoundedResolveView`'s, alongside `quiescence`:
+            // this probe used to reach across into `PaneColumnsOverscrollReturn.WatchdogView` for
+            // all three, which is the coupling the shared base exists to remove.
+            let home = Self.legalOrigin(for: origin, clip: clip)
+            guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= Self.tolerance else { return }
             Logger.shared.debug(String(
                 format: "[col] %@ pull (%.2f, %.2f) → (%.2f, %.2f)",
                 label, origin.x, origin.y, home.x, home.y))
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.25
-                context.allowsImplicitAnimation = true
+            if pullDuration > 0 {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = pullDuration
+                    context.allowsImplicitAnimation = true
+                    clip.setBoundsOrigin(home)
+                }
+            } else {
+                // Straight to the answer, with no animation to be starved of ticks.
                 clip.setBoundsOrigin(home)
             }
             clip.enclosingScrollView?.reflectScrolledClipView(clip)

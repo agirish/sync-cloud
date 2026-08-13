@@ -25,17 +25,19 @@ import SwiftUI
 ///   resolve — the steady state if a future macOS reshapes SwiftUI's List — would otherwise burn a
 ///   full ancestor scan per layout pass, on both panes, forever. `searchesPerChange` bounds that
 ///   burst, and `spendSearchBudget()` is the one guarded decrement. What refills it is each copy's
-///   correctness story: the watchdogs refill only on `rearm()`, the stylers also on the anchor
-///   moving or a resolved table ceasing to be theirs (see `FrameAnchoredResolveView`).
+///   correctness story: the watchdogs refill only on `rearm()`, the frame-anchored three — both
+///   stylers and the deselect catcher — also on the anchor moving or a resolved table ceasing to
+///   be theirs (see `FrameAnchoredResolveView`).
 ///
 /// Subclasses supply exactly two things: `resolvePass()` — resolve the neighbour if needed, then
-/// do the copy's work — and `windowDidExit()`. Everything else is owned here so the four cannot
+/// do the copy's work — and `windowDidExit()`. Everything else is owned here so the five cannot
 /// drift apart again.
 class BoundedResolveView: NSView {
     /// How many ancestor searches one change buys — THE budget constant, in its one home.
     /// `PaneColumnJitterProbe` used to re-declare this as a bare `4`, and
     /// `PaneColumnsOverscrollReturn` as a private twin; both now inherit this default. The
-    /// frame-anchored stylers walk a wider hierarchy and override it to 6.
+    /// frame-anchored three — both stylers and the deselect catcher — walk a wider hierarchy and
+    /// override it to 6.
     class var searchesPerChange: Int { 4 }
 
     /// How long a watched clip must rest before a watchdog's check runs. Long enough that a
@@ -43,13 +45,60 @@ class BoundedResolveView: NSView {
     /// that the return reads as a bounce, not a correction.
     ///
     /// Owned here because BOTH watchdogs feed it to their `QuiescenceTimer` — the column probe
-    /// used to reach across into `PaneColumnsOverscrollReturn.WatchdogView` for it. (The stylers
-    /// have no quiescence timer; the constant sits with the shared base rather than making either
-    /// watchdog reach into the other.)
+    /// used to reach across into `PaneColumnsOverscrollReturn.WatchdogView` for it. (The
+    /// frame-anchored three have no quiescence timer; the constant sits with the shared base
+    /// rather than making either watchdog reach into the other.)
     static let quiescence: TimeInterval = 0.14
 
+    /// How far out of range a resting origin must be before it is worth a pull.
+    ///
+    /// Not an optimisation — the loop-breaker. SwiftUI parks the clip at fractional origins
+    /// (pixel alignment on Retina), so a zero-tolerance watchdog pulls the origin to the
+    /// mathematically legal point, SwiftUI re-parks it a fraction off, the bounds change
+    /// re-arms the timer, and the "correction" repeats every quiescence interval forever —
+    /// 18,000 pulls in one night, each an animated `setBoundsOrigin`, visible as a shimmer on
+    /// the pane while scrolling. A stranding the eye can see is tens of points; anything
+    /// under this threshold is noise that must be left exactly where SwiftUI put it.
+    ///
+    /// Owned here for `quiescence`'s reason, and it is the same pair of readers: both watchdogs
+    /// compare their resting origin against it, and the column probe used to reach across into
+    /// `PaneColumnsOverscrollReturn.WatchdogView` for this one and for `legalOrigin` below. (The
+    /// frame-anchored three watch no clip at all; the constants sit with the shared base rather
+    /// than making either watchdog reach into the other.)
+    static let tolerance: CGFloat = 2
+
+    /// The nearest legal resting origin. Static and internal so the clamp can be pinned
+    /// directly; the mounted tests drive the whole watchdog.
+    ///
+    /// Measured from the document's FRAME, not from zero: when the document is wider than the
+    /// clip the legal band is [minX, maxX − clipWidth] as usual, and when it is *narrower* —
+    /// the left pane resting with three columns in a wide pane, doc 420 in a clip 772 — the
+    /// band collapses to the leading edge, which is where SwiftUI parks fitting content. A
+    /// zero-based clamp got that case wrong and turned the wrong answer into a repeating
+    /// pull; see `tolerance`.
+    /// Content insets widen the legal band: an inset clip legally RESTS at a negative origin
+    /// (`-insets.top`), and clamping that to the document edge would repeat the stack's
+    /// pull-forever mistake on any inset list. The pane's clips measure zero insets today, so
+    /// this is armor, not a behavior change.
+    ///
+    /// Shared with `tolerance` above, and for the same reason: the stack watchdog clamps its
+    /// horizontal rest with it and the column probe clamps its vertical one, and neither should
+    /// be reaching into the other for the rule.
+    static func legalOrigin(for origin: NSPoint, clip: NSClipView) -> NSPoint {
+        guard let document = clip.documentView else { return origin }
+        let frame = document.frame
+        let insets = clip.contentInsets
+        let lowX = frame.minX - insets.left
+        let lowY = frame.minY - insets.top
+        let highX = max(lowX, frame.maxX + insets.right - clip.bounds.width)
+        let highY = max(lowY, frame.maxY + insets.bottom - clip.bounds.height)
+        return NSPoint(
+            x: min(max(origin.x, lowX), highX),
+            y: min(max(origin.y, lowY), highY))
+    }
+
     /// The remaining burst budget. Starts full, so a copy resolved before its first `rearm()`
-    /// (tests drive `layout()` directly) behaves exactly as the four private copies did.
+    /// (tests drive `layout()` directly) behaves exactly as the five private copies did.
     private lazy var searchBudget: Int = Self.searchesPerChange
 
     /// Spends one search if any remain. The caller's fast path ("still resolved and still in this
@@ -71,7 +120,14 @@ class BoundedResolveView: NSView {
     /// perfectly still anchor is what no change signal can see.
     final func grantOneSearch() { searchBudget = 1 }
 
-    override func viewDidMoveToWindow() {
+    /// `final`, like `layout()` below, because this is the seam and not a hook. Before the
+    /// consolidation each of the five copies owned this method outright; now a subclass that
+    /// overrides it and forgets `super` silently disables the whole budget / re-arm / teardown
+    /// discipline for that copy — and on `PaneBackgroundDeselect` that has no visible symptom at
+    /// all, it just quietly stops deselecting (see that file). Sealing it costs nothing: the
+    /// intended hooks are `resolvePass()`, `windowDidExit()` and `rearm()`, and no subclass
+    /// overrode either of these two.
+    final override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else { return windowDidExit() }
         rearm()
@@ -81,7 +137,9 @@ class BoundedResolveView: NSView {
     /// each copy releases exactly what it holds.
     func windowDidExit() {}
 
-    override func layout() {
+    /// `final` for `viewDidMoveToWindow`'s reason: an override that forgot `super` here would stop
+    /// every copy's per-pass re-resolve, which is what catches a neighbour SwiftUI rebuilt under us.
+    final override func layout() {
         super.layout()
         resolvePass()
     }
@@ -100,7 +158,8 @@ class BoundedResolveView: NSView {
     func resolvePass() {}
 }
 
-/// The frame-anchored variant the two selection stylers share: resolves an `NSTableView` through
+/// The frame-anchored variant the two selection stylers and the deselect catcher share: resolves an
+/// `NSTableView` through
 /// `PaneListResolver` (the frame IS the identity — see that type), re-validates the cached answer
 /// on every pass, and re-arms the budget on the two signals that genuinely mean "the list under me
 /// may have changed".
@@ -126,8 +185,8 @@ class BoundedResolveView: NSView {
 /// drip bounds the STEADY STATE. "Gave up permanently" is the defect all of this exists to
 /// prevent, so it must not be reachable by any path.
 class FrameAnchoredResolveView: BoundedResolveView {
-    /// The stylers' walk scans up to six ancestor subtrees (see `PaneListResolver.searchDepth`),
-    /// wider than the watchdogs' plain superview climb.
+    /// The frame-anchored walk scans up to six ancestor subtrees (see
+    /// `PaneListResolver.searchDepth`), wider than the watchdogs' plain superview climb.
     override class var searchesPerChange: Int { 6 }
 
     /// Which kind of table the resolver should match: the pane stylers anchor to a single-column

@@ -668,6 +668,11 @@ import Sync
         document.addSubview(NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 50)))
         scroller.documentView = document
         let probe = PaneColumnJitterProbe.ProbeView()
+        // The pull home is decided by the code under test; how long it takes to PAINT is decided by
+        // whether CoreAnimation is ticking, which on an offscreen never-key window under parallel
+        // load it may not be. See `pullDuration` and `docs/flaky-tests.md` mechanism 1 — this suite
+        // was the second, unmitigated copy of the hazard the stack watchdog's seam already closes.
+        probe.pullDuration = 0
         probe.label = "test col"
         probe.frame = scroller.frame
         window.contentView?.addSubview(scroller)
@@ -702,6 +707,20 @@ import Sync
     private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
                                timeout: Double = 15) async -> (held: Bool, passes: Int) {
         await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
+    }
+
+    /// **The value nothing else reads.**
+    ///
+    /// Every mount in this suite injects `pullDuration = 0`, which is what stops CoreAnimation
+    /// starvation from deciding the verdict — and also means no test exercises the number the app
+    /// actually ships. A default that drifted to zero would delete the bounce for real users while
+    /// this whole suite stayed green, which is the trap `docs/flaky-tests.md` mechanism 1 names
+    /// after the fix: *pin the default, or the fix quietly costs you the coverage it bought.*
+    /// Same pin, same reason, as `thePullHomeShipsAnimated` on the stack watchdog.
+    @Test func theListPullHomeShipsAnimated() {
+        #expect(PaneColumnJitterProbe.ProbeView.defaultPullDuration == 0.25)
+        // A freshly built probe takes it — the injection is a test affordance, not the default.
+        #expect(PaneColumnJitterProbe.ProbeView().pullDuration == 0.25)
     }
 
     /// The live signature: parked stretched above the top, pulled flat once at rest.

@@ -431,17 +431,6 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         private lazy var quiesce = QuiescenceTimer(quiescence: Self.quiescence)
         private var pendingHold: DispatchWorkItem?
 
-        /// How far out of range a resting origin must be before it is worth a pull.
-        ///
-        /// Not an optimisation — the loop-breaker. SwiftUI parks the clip at fractional origins
-        /// (pixel alignment on Retina), so a zero-tolerance watchdog pulls the origin to the
-        /// mathematically legal point, SwiftUI re-parks it a fraction off, the bounds change
-        /// re-arms the timer, and the "correction" repeats every quiescence interval forever —
-        /// 18,000 pulls in one night, each an animated `setBoundsOrigin`, visible as a shimmer on
-        /// the pane while scrolling. A stranding the eye can see is tens of points; anything
-        /// under this threshold is noise that must be left exactly where SwiftUI put it.
-        static let tolerance: CGFloat = 2
-
         override func windowDidExit() {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
@@ -578,32 +567,6 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
                 clip.setBoundsOrigin(home)
             }
             scroller.reflectScrolledClipView(clip)
-        }
-
-        /// The nearest legal resting origin. Static and internal so the clamp can be pinned
-        /// directly; the mounted test drives the whole watchdog.
-        ///
-        /// Measured from the document's FRAME, not from zero: when the document is wider than the
-        /// clip the legal band is [minX, maxX − clipWidth] as usual, and when it is *narrower* —
-        /// the left pane resting with three columns in a wide pane, doc 420 in a clip 772 — the
-        /// band collapses to the leading edge, which is where SwiftUI parks fitting content. A
-        /// zero-based clamp got that case wrong and turned the wrong answer into a repeating
-        /// pull; see `tolerance`.
-        /// Content insets widen the legal band: an inset clip legally RESTS at a negative origin
-        /// (`-insets.top`), and clamping that to the document edge would repeat the stack's
-        /// pull-forever mistake on any inset list. The pane's clips measure zero insets today, so
-        /// this is armor, not a behavior change.
-        static func legalOrigin(for origin: NSPoint, clip: NSClipView) -> NSPoint {
-            guard let document = clip.documentView else { return origin }
-            let frame = document.frame
-            let insets = clip.contentInsets
-            let lowX = frame.minX - insets.left
-            let lowY = frame.minY - insets.top
-            let highX = max(lowX, frame.maxX + insets.right - clip.bounds.width)
-            let highY = max(lowY, frame.maxY + insets.bottom - clip.bounds.height)
-            return NSPoint(
-                x: min(max(origin.x, lowX), highX),
-                y: min(max(origin.y, lowY), highY))
         }
 
         /// The nearest enclosing scroll view that is NOT one of the columns' lists.

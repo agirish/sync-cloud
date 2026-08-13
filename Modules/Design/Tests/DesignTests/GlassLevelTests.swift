@@ -194,7 +194,7 @@ struct GlassLevelTests {
     //
     // `cardInsetIsHalfAGutterSoEveryGapMatches` above only checks arithmetic on the constant. It
     // stayed green for the whole time `bottomSectionCard` applied no inset at all — the Differences,
-    // Tidy and Storage stacks rendered flush at 0 and nothing failed. These measure the laid-out
+    // Organize and Storage stacks rendered flush at 0 and nothing failed. These measure the laid-out
     // result instead: a card helper must grow its subject by exactly one gutter (two insets), which
     // is the property the gap model actually depends on.
 

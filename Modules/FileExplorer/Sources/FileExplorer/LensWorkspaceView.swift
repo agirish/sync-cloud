@@ -1601,12 +1601,21 @@ public struct LensWorkspaceView: View {
         ///
         /// So "scanned" for the folded item means **both halves ran**. The deliberate direction:
         /// this can UNDERclaim — one half ran clean and the item still says "not scanned" — and
-        /// never OVERclaims a clean bill for a list never looked at. In the app the halves travel
-        /// together (every filing-scan call site passes `nameProvider`, and a provider switch
-        /// clears both flags), so the divergent states are provider-less scans (the CLI, tests)
-        /// and partial clears — exactly where a wrong "clean" would otherwise slip through.
-        /// `overviewModel`'s Renames arm asks the same two flags, so the rail and the overview
-        /// cannot disagree about it.
+        /// never OVERclaims a clean bill for a list never looked at.
+        ///
+        /// **This gate decides what a ZERO means; it never decides whether findings are shown** —
+        /// `state(_:)` above answers `.reporting` before it asks. That ordering matters because
+        /// the two halves are genuinely apart for a stretch of every scan: `findFilingSuggestions`
+        /// publishes the risky names and the rename plans partway through its walk and only sets
+        /// `hasSuggestedFiling` at the end, so mid-scan — and permanently, if the user cancels
+        /// there — the fold holds real findings while this predicate is still false. (Tests reach
+        /// the same cell directly, and a partial clear reaches it too. The CLI does not: it calls
+        /// static helpers on `FileSyncManager` and never runs this scan at all.)
+        ///
+        /// `overviewModel`'s Renames arm asks the same two flags in the same order — findings
+        /// first, this gate only over a zero — so the rail and the overview cannot disagree about
+        /// it. `OrganizeOverviewWiringTests` asks both surfaces about that cell in one test,
+        /// because a pin on either alone stayed green while they disagreed.
         private func hasScanned(_ item: OrganizeLens) -> Bool {
             item == .renames
                 ? scanned.contains(.renames) && scanned.contains(.names)
@@ -2809,8 +2818,14 @@ public struct LensWorkspaceView: View {
         .help("Write a plain-words rule for where loose files belong")
     }
 
+    /// How many rules would actually act — the number this screen gates "Preview all" on, and the
+    /// one the user reads as "how many of my rules do something".
+    ///
+    /// Asked of ``AutomationRuleSet/eligible(_:)`` rather than spelled `enabled && isRunnable`
+    /// here: that is the bar the engine and the dry run file by, and a second spelling of it in
+    /// the UI is how the count and the outcome drift apart.
     private var runnableRuleCount: Int {
-        syncManager.automationRules.filter { $0.enabled && $0.isRunnable }.count
+        AutomationRuleSet.eligible(syncManager.automationRules).rules.count
     }
 
     private var previewAllButton: some View {
@@ -2855,7 +2870,17 @@ public struct LensWorkspaceView: View {
                     // searched, which is how one list came to be narrowed two ways under a header
                     // counting a third. See the backlog arm of ``filteredRows``.
                     let fixRows = rows.risky
-                    if !syncManager.hasSuggestedFiling {
+                    // **Findings first here too** — the rule the rail's badge and the overview's
+                    // card both follow. The completion flags decide what an EMPTY backlog means,
+                    // never whether a full one is drawn: the filing walk publishes rename plans
+                    // and risky names before it sets `hasSuggestedFiling`, so gating on the flag
+                    // alone showed the never-scanned pitch over findings that were already on the
+                    // screen's badge — and kept showing it if the user cancelled there.
+                    //
+                    // Both flags, like `RailCounts.hasScanned`'s fold: this list has two halves,
+                    // and one of them not having run is not a clean bill for the other.
+                    if syncManager.renamePlans.isEmpty, syncManager.riskyNames.isEmpty,
+                       !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames {
                         // Never scanned: the setup card (P12), named for the PROVIDER — the
                         // rename detectors read the provider-wide taxonomy, so a folder-named
                         // title would promise a narrower answer than the one given.
@@ -3226,18 +3251,25 @@ public struct LensWorkspaceView: View {
                     // supplied) — so both completion flags gate it, the same fold rule
                     // `RailCounts.state` applies to the badge beside this card. One flag alone
                     // called the card clean when half its list was never computed.
-                    state: !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames
-                        ? .notScanned
-                        : n == 0 ? .clean
-                        // One line, and not three: the backlog's evidence is its *breakdown*
-                        // ("8 month folders · 3 quarters"), which is a summary of the whole list
-                        // rather than a sample from it. Padding it out with three folder names
-                        // would put two different kinds of claim in one column.
-                        //
-                        // The headline's unit: "folders" while the list is folders — the common
-                        // case — and the neutral "to change" once to-fix rows share it, because a
-                        // count of folders-plus-names in one number has no honest single noun.
-                        : .findings(count: n,
+                    //
+                    // **Findings first, like every arm above and like the rail's own
+                    // `RailCounts.state`.** The two flags decide what a ZERO means and nothing
+                    // else. This arm read them first until now, which is not a hypothetical
+                    // difference: the filing walk publishes rename plans and risky names before it
+                    // sets `hasSuggestedFiling`, so mid-scan — and permanently after a cancel —
+                    // the badge beside this card said "126" while the card itself said the lens
+                    // had never run.
+                    //
+                    // One example line, and not three: the backlog's evidence is its *breakdown*
+                    // ("8 month folders · 3 quarters"), which is a summary of the whole list
+                    // rather than a sample from it. Padding it out with three folder names
+                    // would put two different kinds of claim in one column.
+                    //
+                    // The headline's unit: "folders" while the list is folders — the common
+                    // case — and the neutral "to change" once to-fix rows share it, because a
+                    // count of folders-plus-names in one number has no honest single noun.
+                    state: n > 0
+                        ? .findings(count: n,
                                     headline: scopedRisky.isEmpty
                                         ? "\(n) folder\(n == 1 ? "" : "s")"
                                         : "\(n) to change",
@@ -3246,7 +3278,9 @@ public struct LensWorkspaceView: View {
                                             : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") this provider will not accept"
                                         return [fix, tally.breakdown.isEmpty ? nil : tally.breakdown]
                                             .compactMap { $0 }
-                                    }()),
+                                    }())
+                        : !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames ? .notScanned
+                        : .clean,
                     // `isScanningNames` too: this card hosts the folded Names findings, so a
                     // standalone name scan must mark it — the claim the old Names card carried.
                     isScanning: syncManager.isSuggestingFiles || syncManager.isScanningNames)
@@ -4272,10 +4306,13 @@ public struct LensWorkspaceView: View {
         let bytes = groups.reduce(0) { $0 + $1.reclaimableBytes }
         let copies = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
         let ok = NativeAlerts.confirmDestructive(
-            messageText: "Clean up \(groups.count) group\(groups.count == 1 ? "" : "s") in \(providerName ?? "this provider")?",
-            informativeText: "Moves \(copies) redundant cop\(copies == 1 ? "y" : "ies") to the Trash, reclaiming about "
-                + "\(FileSyncManager.formatBytes(bytes)). Name-only and overlapping groups are left untouched. "
-                + "Everything can be undone with ⌘Z.",
+            // Drawn from `DuplicateRemovalPrompt`, like the per-group dialog above: the wording of
+            // the last screen before a delete belongs in a pure type that can be tested, not in a
+            // string interpolation nobody can reach.
+            messageText: DuplicateRemovalPrompt.batchMessageText(groupCount: groups.count,
+                                                                 providerName: providerName),
+            informativeText: DuplicateRemovalPrompt.batchInformativeText(
+                copyCount: copies, reclaimText: FileSyncManager.formatBytes(bytes)),
             // The same verb the per-group dialog confirms with: the honest name for what happens,
             // not the feature's old "Tidy" branding.
             confirmTitle: "Move to Trash"

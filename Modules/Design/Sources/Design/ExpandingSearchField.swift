@@ -3,7 +3,7 @@ import SwiftUI
 /// The app's one expand-on-demand search container: a magnifier that reveals a field, the field
 /// itself, and the focus / Escape / clear behaviour that ties the two together.
 ///
-/// This mechanism existed only inside `DifferencesView` (Compare) — Tidy's Duplicates search
+/// This mechanism existed only inside `DifferencesView` (Compare) — Organize's Duplicates search
 /// shared the *grammar* (`TokenQuery`) but had an always-visible compact field with no expansion
 /// and no Escape. Every surface with a token search drives this now, so "search behaves the same
 /// everywhere" holds by construction instead of by two copies happening to agree.

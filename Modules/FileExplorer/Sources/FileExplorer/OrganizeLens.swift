@@ -211,7 +211,8 @@ extension OrganizeLens {
     /// **Never the folded case.** `.rename`'s findings live on the Renames rail item now, so it
     /// answers `.renames` directly — already resolved. A bridge that answered `.names` handed
     /// every caller a value that must not be stored or presented, and each one had to remember
-    /// ``resolvedForPresentation`` for itself; `Workspace.destination(for:)` was that one caller,
+    /// ``resolvedForPresentation`` for itself; `Workspace.destination(for:)` — today a test-only
+    /// entry point, with the app's own lens moves written directly — was that one caller,
     /// and now the resolution has one owner. Pinned by `LensFoldReachabilityTests`.
     public init?(_ lens: WorkspaceLensKind) {
         switch lens {

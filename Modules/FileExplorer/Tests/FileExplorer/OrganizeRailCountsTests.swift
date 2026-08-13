@@ -81,9 +81,14 @@ import Foundation
     /// The two half-fixtures discriminate the candidate rules: under "the rename half ran" the
     /// first passes and the second fails; under "either half ran" both fail; only "both halves
     /// ran" — the rule that can underclaim but never overclaim — answers all four.
+    ///
+    /// A half-run fold is not a corner: the filing walk publishes the rename plans and the risky
+    /// names before it sets `hasSuggestedFiling`, so every scan passes through this cell and a
+    /// cancel leaves it there. `OrganizeOverviewWiringTests` pins that the overview card answers
+    /// the cell the same way this badge does.
     @Test func theFoldedItemIsNotCleanUntilBothHalvesHaveRun() {
         var counts = LensWorkspaceView.RailCounts()
-        counts.scanned = [.renames]      // filing walk ran without a name ruleset (CLI shape)
+        counts.scanned = [.renames]      // filing walk ran without a name ruleset
         #expect(counts.state(.renames) == .notScanned,
                 "rename plans alone called the folded item clean — the names list was never computed")
         counts.scanned = [.names]        // names half ran and came back clean; plans never computed
