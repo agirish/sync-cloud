@@ -4,10 +4,10 @@ import Foundation
 ///
 /// ## Why this type exists
 ///
-/// Organize's rail presents six lenses as peers, which implies they answer about the same subject.
+/// Organize's rail presents five lenses as peers, which implies they answer about the same subject.
 /// They did not. To File answered about the scanned folder (or, worse, about the `TODO` inbox
 /// whenever the pane happened to sit at the provider root), Duplicates about the pane's folder at
-/// the moment its scan ran, and Names, Renames and Restructure about the whole provider tree —
+/// the moment its scan ran, and Renames and Restructure about the whole provider tree —
 /// four different territories behind one row of peers. Measured on the real profile: with the left
 /// pane at `Documents/Legal`, the Renames badge read 126 folders / 611 renames, every one of them
 /// outside what the user was looking at.

@@ -13,8 +13,9 @@ User-facing changes, newest first. For the full commit history see the
 >
 > **Re-derive the commit count against the tagged commit** —
 > `git log --oneline v3.1..<sha> | wc -l`. It is not a fact about the release until
-> the tag exists: this draft said 223, the audit made it 234, and it was 257 a few
-> hours later. Any number written here is stale by the time it is read.
+> the tag exists: this draft said 223, the audit made it 234, it was 257 a few
+> hours later, and 274 by the audit after that. Any number written here is stale by
+> the time it is read, which is why the lede carries `NNN` until the tag exists.
 >
 > The audit this block used to say still needed running **has now run**, against
 > the shipped code rather than against commit messages. It cost five more entries
@@ -58,20 +59,20 @@ User-facing changes, newest first. For the full commit history see the
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
 
-**The largest release SyncCloud has had** — 257 commits and counting, against
-v3.0's 181 and v1.0's 142 (both verified against their tags) — and a major for
-the reason v2.0 was one: the shape of the app
-changed. The workspace bar goes from five segments
-to four, and two of them are new answers to "what is this place for". Duplicates
+**The largest release SyncCloud has had** — NNN commits,
+<!-- fill from: git log --oneline v3.1..<tagged-sha> | wc -l -->
+against v3.0's 181 and v1.0's 142 (both verified against their tags) — and a
+major for the reason v2.0 was one: the shape of the app changed. The workspace bar
+goes from five segments to four, and two of them are new answers to "what is this place for". Duplicates
 and Automations are gone as places — they were never peers of Compare and Storage,
-they are things you do to a single tree, and **Organize** is now the one place a
-single tree is changed. **Browse** arrives as the plain file browser the app has
-always contained and never let you look at directly. The bar reads Browse,
-Compare | Organize, Storage: the first two look at trees, the last two act on one.
-Underneath all of it, SyncCloud learns who the people in your documents are, and
-files by that.
+they are things you do to a single tree, and **Organize** is now the one place the
+app proposes a change to one. **Browse** arrives as the plain file browser the app
+has always contained and never let you look at directly. The bar reads Browse,
+Compare | Organize, Storage: the first two look at trees, the last two act on or
+account for one. Underneath all of it, SyncCloud learns who the people in your
+documents are, and files by that.
 
-Still the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0
+It **requires macOS 26**, as the v3 line did — coming from 2.x, read the v3.0
 section first.
 
 ### At a glance
@@ -83,8 +84,9 @@ section first.
 | **Organize** | Five lenses, one scope you set, one overview you land on |
 | **Restructure** | A new lens that reports where your tree's shape disagrees with itself |
 | **Same-text duplicates** | Finds the re-downloaded copies a byte hash cannot see |
-| **Filing** | Routes by what a folder already contains — 12.6% → 61.9% first-try |
-| **Renaming** | Names the file for the folder it lands in, with a backlog pass |
+| **To File** | Routes by what a folder already contains — on a surveyed tree, 61.9% first-try |
+| **Renames** | Names the file for the folder it lands in, with a backlog pass |
+| **Compare** | A scan you can stop, what the last one found, and which rows failed |
 | **⌘K** | One field that reaches folders, people, sources, places and actions |
 | **Shortcuts** | A menu bar full of chords, plus ⌃⇥ between panes |
 | **Look** | One file-type vocabulary, one setup card, one pill family |
@@ -98,10 +100,7 @@ section first.
 - **A new install now opens here**, rather than on a comparison of two clouds it
   has not scanned yet. **Upgrades are unaffected** — you carry a stored workspace
   and the app still resumes wherever you left it; only a machine with nothing
-  stored is answered by this. It also settles a disagreement nobody could see: a
-  stored selection this build cannot read has always fallen back to Browse, while
-  a first run went to Compare, and both places in the code claimed those were the
-  same. They now are, and a test fails if they part again.
+  stored is answered by this.
 
 ### Before you upgrade: this is a one-way door for automation rules
 
@@ -117,12 +116,14 @@ section first.
   to file anything. **That protects the next upgrade, not this one.** Export your
   automations before installing if you may go back.
 
-### Organize is the one place a single tree is changed
+### Organize is the one place the app proposes a change to a tree
 
-- **Organize changes one tree, and it is the only place that does.** Compare holds
-  two side by side, Browse looks at one, Storage reads one and changes nothing.
-  Duplicates and Automations are lenses inside Organize now — the journey risky
-  names already made in v3.0. Your stored workspace migrates forward.
+- **Organize changes one tree on the app's suggestion, and it is the only place
+  that does.** Compare holds two side by side, Storage reads one and changes
+  nothing, and Browse looks at one — you can rename, move and delete there by hand,
+  but nothing proposes it for you. Duplicates and Rules are lenses inside Organize
+  now — the journey risky names already made in v3.0. Your stored workspace
+  migrates forward.
 - **A five-item rail inside Organize**: To File, Duplicates, Renames, Restructure,
   Rules. These are permanent items, not the chips that came before: a chip only
   exists once a scan has found something, so there was nowhere for *"organize this
@@ -136,25 +137,30 @@ section first.
 - **The rename backlog is organised category-first**, grouped by parent folder,
   with one Rename column and a tree to review by — on a real tree the pass has four
   figures in it, which is not a flat list anyone can read.
-- **The rail's unselected state is an overview** — every lens's answer for the
-  current scope on one page, with three states each that never borrow one another's
-  words: never ran, ran and clean, or findings. It is not a sixth item, so it
-  cannot become the tab you forget to visit; you land on it.
+- **The rail's unselected state is an overview** — the answer from each of the four
+  lenses that produce one, for the current scope, on one page, with three states
+  each that never borrow one another's words: never ran, ran and clean, or
+  findings. Rules takes no section there: it is configuration you write, not a
+  finding about your tree. The overview is not a sixth item, so it cannot become
+  the tab you forget to visit; you land on it.
 - **One scope, which you set.** Every lens answers about the same territory, and
   you choose it: a folder you point Organize at, or the whole tree. It is explicit,
-  it survives a relaunch, and **browsing never moves it on its own** — a row of
-  peers each quietly answering about a different folder is how a badge comes to
-  report a count with none of what it counted on screen. Global is the default, and
-  the scope chip says which you are in.
-- **Scope filters, it does not rescan.** Filing, names and renames come off one
-  walk and Restructure reads the folder profile, so narrowing is instant. A
+  it survives a relaunch, and **browsing never moves Organize's scope on its own**
+  — a row of peers each quietly answering about a different folder is how a badge
+  comes to report a count with none of what it counted on screen. Global is the
+  default, and the scope chip says which you are in. (What a scan started from a
+  pane walks is a separate, pane-local thing, and that one does follow the columns
+  — see *Windows, panes and previews*.)
+- **Scope filters, it does not rescan.** Filing suggestions, names and renames come
+  off one walk and Restructure reads the folder profile, so narrowing is instant. A
   duplicate group is in scope if *any* copy is, and the out-of-scope copies stay
   visible — hiding half a group turns a two-copy decision into a one-copy one,
   which is how the wrong copy gets trashed.
-- **Right-click any folder and choose "Organize This Folder…"** — in either Compare
-  pane, or Organize's own rail, list or columns. It opens on that folder's filing
-  queue and scans it.
-- **Restructure arrives, report-only.** It reads the folder profile and reports
+- **Right-click any folder and choose "Organize This Folder…"** — in Browse, in
+  either Compare pane, or in Organize's own rail, list or columns. It opens on that
+  folder's filing queue and scans it.
+- **Restructure arrives, report-only.** It reads the same folder profile the
+  router does — so it too waits on a survey — and reports
   families of sibling folders shaped differently in different years, under two
   rules validated against a real tree: axis values are not structure, and
   difference is not divergence (two groups of two, not one odd sibling). It does
@@ -175,11 +181,12 @@ section first.
   evidence for her father. That rule is what makes the feature safe enough to act
   on at all — without it, every shared surname in a real family is evidence for
   everyone who carries it.
-- **People is its own place in Settings, and every row says what it buys** — the
-  name forms matched against a document in the order they are tried, how many
-  folders in the tree are theirs, how many documents are already filed in them. You
-  can add, edit and remove people; edits take effect without a relaunch, and no
-  saved suggestion is replayed against the old household.
+- **People is its own place in Settings, and a row with folders behind it says what
+  it buys** — the name forms matched against a document in the order they are
+  tried, how many folders in the tree are theirs, how many documents are already
+  filed in them. Somebody you have just added carries neither number, having no
+  folders yet. You can add, edit and remove people; edits take effect without a
+  relaunch, and no saved suggestion is replayed against the old household.
 - **The editor teaches while you type**, showing live what the draft would match
   and which words are that person's alone — judged against the rest of the roster,
   because whether "girish" is distinctive is a fact about the household rather than
@@ -190,8 +197,10 @@ section first.
   name variant the moment you add one.
 - **`{person}` as a destination.** `Immigration/OCI/{person}` files each person's
   card into their own folder, so what needed one rule per family member needs one
-  rule. After a filing, the offer proposes both — the specific rule and the
-  generalised one.
+  rule. After a filing, the offer proposes the specific rule always, and the
+  generalised one when the folder is named for the person and the documents share a
+  topic word — that is the case where the substitution reproduces the path it was
+  learned from rather than inventing one.
 - **The roster grows from what you have already filed.** *Look for names* reads the
   filenames inside each person's folders and offers forms their record lacks —
   "Muktha Girish", with how many documents use it and one of them named, because
@@ -212,34 +221,43 @@ section first.
 
 ### Filing that reads your tree
 
-- **Loose files are routed by what a folder already contains**, before any model is
-  asked. Two things about each destination — what the folder *is*, and the
-  distinguishing words of the documents already filed there. Measured on 9,558 real
-  filed documents choosing among ~2,950 folders: a bare folder list gets 12.6%
-  right first try, adding what the folder is takes it to 28.9%, and adding what it
-  has received takes it to 58.2% (77.4% in the top three). Two further rules found
-  by measuring — inheritance kept in scale, and the document's own years — bring
-  the shipped router to **61.9% first try, 81.8% in the top three**.
+The router reads a *folder profile* — the record of what your tree already holds.
+It comes from a survey of the tree, which is something you run rather than
+something the app writes as it goes: on a machine that has never been surveyed
+there is nothing for the router to read, and Organize files as it did in v3.1.
+
+- **On a surveyed tree, loose files are routed by what a folder already contains**,
+  before any model is asked. Two things about each destination — what the folder
+  *is*, and the distinguishing words of the documents already filed there. Leave one
+  document out of 9,558 real filed ones and make it choose among ~2,950 folders: a
+  bare folder list gets 12.6% right first try, adding what the folder is takes it to
+  28.9%, and adding what it has received takes it to 58.2% (77.4% in the top three).
+  Two further rules found by measuring — inheritance kept in scale, and the
+  document's own years — bring the shipped router to **61.9% first try, 81.8% in the
+  top three**, that pair measured on a held-out split of 7,370 documents rather than
+  on the ladder's leave-one-out.
 - **The model re-ranks that shortlist instead of answering past it**, and is shown
   only folders the file could actually go in — listing an inbox teaches a
   classifier to file into the place things go when they have nowhere to go.
-- **Rules are learned from what a folder has received**, not from one word in its
-  name, and a learned year becomes `{year}` rather than the year the example
-  happened to have.
+- **Rules are learned from what a folder has received** — the same surveyed record,
+  so this too waits on a survey — not from one word in the folder's name, and a
+  learned year becomes `{year}` rather than the year the example happened to have.
 - **A scanned PDF can be read on request.** A PDF with no text layer reaches the
   classifier as a bare filename, so its suggestion is a guess about a document
   nobody read. The scan now records which files would benefit and spends nothing; a
   **Read scan** button appears on exactly those. Measured on real scans, page 1 at
   2× plus Vision takes 0.5–2.1 seconds each — a click for the card in front of you,
-  and not ten minutes of fans for a 500-file inbox.
+  rather than every file in an inbox read on spec.
 - **A suggestion that would file one person's document into another's folder is
   refused**, consulting the page the scan already read when the filename names
   nobody. The filename outranks the page:
   a page-1 mention is testimony — an application prints its sponsor, a report card
   names a sibling — while a filename is your own label.
-- **A backend can declare a new folder**, and you can rename it before it is made.
-  The survey keeps up with folders you add, so a destination made this week is a
-  destination the router knows about.
+- **A proposed new folder can be renamed before it is made.** A backend could
+  already answer with a sub-path that does not exist yet; what is new is that the
+  name it picked is yours to edit before anything is created. The destinations
+  themselves come off the scan's own walk of your tree, so a folder you made this
+  week is a folder the router can offer.
 
 ### Naming files for the folder they land in
 
@@ -273,8 +291,8 @@ section first.
   between full runs, because a pair that groups when read alone can fail to group
   inside a whole-tree pass. The direction is one-way and that is the part that
   matters: the residue costs an unreported duplicate, never a false claim about
-  one. It never splits a byte-identical pair — of 586 such pairs, 485 fingerprinted
-  on both sides and 0 disagreed, in every configuration tried.
+  one. It never splits a byte-identical pair: 485 such pairs fingerprinted on both
+  sides, and 0 disagreed, in every configuration tried.
 - **The copies about to be trashed are re-verified, not just the keeper.** The
   resolve had re-checked the keeper's existence and size since it was written —
   half a guarantee, protecting the half being *kept*. A duplicate group is a
@@ -322,10 +340,20 @@ section first.
   the setup card because the button beneath it could spend; that button is free now.
   The estimate you approve is the Refine pre-flight, which prices a batch it has in
   hand rather than one it is predicting.
-- **Duplicates and Organize re-scan when you open them.** Results are never restored
-  from disk — every row carries an action that writes files — so the scan re-runs
-  against the live filesystem instead. It costs nothing to do that now, because the
-  scan itself is free: spending is Refine's, and Refine is a button you press.
+- **Duplicates and Organize re-scan when you open them on a target they have
+  scanned before.** Results are never restored from disk — every row carries an
+  action that writes files — so the scan re-runs against the live filesystem
+  instead. Three conditions, so it cannot surprise you: the folder is exactly what
+  their last completed scan covered, it is still there, and nothing has already run
+  against it this session. It costs nothing to do that now, because the scan itself
+  is free: spending is Refine's, and Refine is a button you press.
+- **One paid click has no pre-flight — "Try another" on a suggestion card.**
+  Rejecting a destination and asking for a different one is the Refine pass for a
+  single card, so it reaches the model named in Settings, and it has never consulted
+  the spend estimate; a dialog per card click would be worse than the gap. The hard
+  monthly and total caps still bound it, and with the cloud pass off — which is the
+  default — it cannot spend at all. But the estimate you approve is Refine's, and
+  this click does not raise it.
 
 ### ⌘K goes anywhere
 
@@ -338,10 +366,13 @@ section first.
   toolbar for the same thing.
 - **Results are grouped, and the groups are ordered by their best match** rather
   than the list being one flat ranking with headings sprinkled through it.
-- **It indexes the folders you actually have** — the same tree Organize surveys,
+- **It indexes the folders you actually have** — the same tree Organize walks,
   so a folder you made this morning is reachable by name this morning.
-- **Every row says why it matched**, and the palette teaches its own keys rather
-  than expecting you to know them.
+- **A row that matched on the text you can see shows the matching run**, so why it
+  answered is visible rather than inferred. A row reached through a keyword draws no
+  emphasis at all — its visible text genuinely did not match, and bolding something
+  there would say otherwise. The palette teaches its own keys rather than expecting
+  you to know them.
 
 ### Keyboard and focus
 
@@ -374,7 +405,9 @@ section first.
   minimum height at all*, and `.contentMinSize` makes that frame the floor — so the
   window could be dragged down to the toolbar and nothing else, a sliver with the
   pane header, the file list and the action bar all squeezed out. 560 is what
-  refusing that costs, read off the panes' own constants rather than picked.
+  refusing that costs: two of its rungs come off the panes' own constants — 86 for
+  the header card, 44 for the action bar — and the roughly 430 left over is the
+  judgement that what remains should be a list rather than a peephole.
 - **An open Quick Look panel follows the selection.** It was a snapshot, not a
   view: Space opened a preview of whatever was selected at that instant and then
   nothing ever moved it — click another file, walk a search, re-root the pane,
@@ -384,19 +417,21 @@ section first.
 - **A space typed into the pane search field is a space.** It reached the ancestor
   Space handler and opened Quick Look instead, so ⌘F could not be used for any
   query of more than one word.
-- **Clicking through columns moves what a scan will walk.** Every Tidy scan action
-  and the *"Scan '<folder>'"* offer read only the pane's comparison focus, so
-  browsing the columns never moved the target: the offer sat dead at the provider
-  root no matter which folder was selected, and a scan launched from the toolbar
-  walked a folder the pane was not looking at.
+- **Clicking through columns moves what a scan started in that pane will walk.**
+  Every Organize scan action and the *"Scan '<folder>'"* offer read only the pane's
+  comparison focus, so browsing the columns never moved the target: the offer sat
+  dead at the provider root no matter which folder was selected, and a scan launched
+  from the toolbar walked a folder the pane was not looking at. Organize's own
+  scope is a different thing and is unaffected — you set that one, and browsing
+  still leaves it where you set it.
 - **An empty tree is captioned once.** The column stack overlaid its own small
   *"Empty"* caption on any column with no rows — including the first column, which
   already draws the pane's full "Folder is empty" placeholder — so the two rendered
   stacked, the caption drawn through the placeholder's folder glyph and clipped.
 - **Organize no longer opens on an inbox nobody asked for.** Switching to Organize
   moved the source rail into the loose-files inbox, which defaults to `TODO` on a
-  fresh install — so the first switch jumped the pane into a folder that might not
-  exist, with nothing on screen saying why. The setting can also now say *off*.
+  fresh install — so the first switch re-rooted the pane on a folder you had not
+  asked for, with nothing on screen saying why. The setting can also now say *off*.
 - **The scanning placeholder stops drawing a gray slab.** Its loading card wore a
   material, and a material blurs what is behind it — on an empty pane there is
   nothing behind it, so what it actually painted was a flat gray rectangle in the
@@ -406,16 +441,18 @@ section first.
 
 - **One file-type vocabulary everywhere.** Storage's ranked lists drew every file as
   the same gray document glyph while Duplicates drew raster icons — two surfaces,
-  one file, two vocabularies, and at 17pt a shrunken raster thumbnail reads mostly
-  as "rectangle". There is one map now: an SF symbol plus an identity tint per kind
-  — red document for PDF, purple photo, teal note, indigo film, blue for word
-  processing, green grid for spreadsheets, orange presentation, brown archive.
+  one file, two vocabularies, and at the 13–16pt these rows draw at, a shrunken
+  raster thumbnail reads mostly as "rectangle". There is one map now: an SF symbol
+  plus an identity tint per kind — red document for PDF, purple photo, teal note for
+  audio, indigo film, blue for word processing, green grid for spreadsheets, orange
+  presentation, brown archive.
 - **Every lens opens the way To File opens** — the setup card, with the job and the
   safety contract up top, one trigger, and **sample rows in the shape real results
   take**, which is what makes the first real result list legible. All six adopt it,
   each with sample rows in their own row shape, at one height so the card stops
-  jumping as you move the rail. For a v3.1 user the ones that change are Duplicates
-  and Storage; Renames and Restructure arrive wearing it.
+  jumping as you move the rail. There was no such card at v3.1: coming from there,
+  Duplicates, Storage and Rules all change — Rules drew a plain empty state — and
+  Renames and Restructure arrive wearing it.
 - **The quiet chrome says true, whole sentences.** *"Hashing 0 candidates…"* becomes
   *"Looking for candidates…"* when no two files share a size, and the spend rows no
   longer print *"1 files"*.
@@ -423,9 +460,7 @@ section first.
   Duplicates toolbar.
 - **The welcome tour describes the app you actually installed.** It offered
   "iCloud, OneDrive, Google Drive, or Dropbox" as the things a source can be —
-  written before v3.0 made *any folder* a source, and never updated. The one
-  screen a new user is guaranteed to read was the last place still describing the
-  app as cloud-only.
+  written before v3.0 made *any folder* a source, and never updated.
 
 ### Settings, and text that scales properly
 
@@ -440,8 +475,9 @@ section first.
   to every font alike, which produced exactly the complaint it drew: the 10pt
   captions that most needed help barely moved at Large, while 17–27pt titles
   ballooned. The full multiplier now applies through 11pt, the surplus above grows
-  at half a point per point, and nothing ever renders smaller than its default — so
-  captions get the whole boost and titles past the crossover keep their size.
+  at half a point per point, and nothing being scaled up ever comes out smaller than
+  its default — so captions get the whole boost and titles past the crossover keep
+  their size. (Small still scales everything down, which is what it is for.)
 - **Settings prose moves to 11pt.** Most of the sheet's explanatory text — full
   sentences, not labels — was set as 10pt captions, which put the majority of its
   readable text at the smallest legible size.
@@ -449,8 +485,9 @@ section first.
 ### Storage
 
 - **Storage gets the same rail**, and every one of its three sections is counted on
-  its rail item — including the untouched-files list, which nothing above it had
-  ever announced.
+  its rail item — including the untouched-files list, whose count you had to reach
+  its own section header to read. All three headers carried a count; the summary
+  above them left that one out.
 - Its ranked lists join the app's one file-type vocabulary, and its counts wear the
   same pill as everything else that counts.
 
@@ -458,12 +495,14 @@ section first.
 
 - **A document is read once, and says the same thing twice.** PDFKit's text
   extraction is not thread-safe, and SyncCloud was driving it from a concurrent
-  queue — four at a time during a scan. Measured through that exact reader over a
-  real 10,286-document tree at six at a time, **0.83% of documents came back with
-  different text than a serial pass**, and two concurrent passes disagreed with each
-  other as well as with the serial one. Every content signal downstream — the filing
-  suggestion, the learned rule, the same-text fingerprint — was being computed from
-  text that could change between runs. Extraction now runs in one lane.
+  queue — four at a time during a scan. Measured over a real 10,286-document tree at
+  six at a time, through the reader this release ships, **0.83% of documents came
+  back with different text than a serial pass**, and two concurrent passes disagreed
+  with each other as well as with the serial one. v3.1's reader — the one that read
+  five pages — was worse under the same test, at 1.69%. Every content signal
+  downstream, the filing suggestion and the learned rule among them, was being
+  computed from text that could change between runs. Extraction now runs in one
+  lane.
 
 ---
 

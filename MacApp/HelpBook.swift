@@ -119,15 +119,16 @@ enum HelpBook {
                 related: ["what-is-synccloud", "choose-folders", "tidy-duplicates"]
             )),
             Topic(id: "choose-folders", title: "Choose your folders", systemImage: "cloud", article: Article(
-                intro: "SyncCloud finds your cloud providers automatically. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",
+                intro: "SyncCloud finds your cloud providers automatically, and any folder on this Mac can be a source too. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",
                 blocks: [
                     .paragraph("Providers are discovered from the system's cloud-storage folder — iCloud Drive, Dropbox, OneDrive, Google Drive, Box, and others show up on their own, each in its own brand color."),
+                    .paragraph("A plain folder works the same way. Add one under Settings ▸ Providers and it appears in every pane menu beside the clouds, with the same comparing, organizing and undo behind it."),
                     .bullets([
                         "Click the provider name at the top of a pane and pick another from the menu.",
                         "Use the swap button to flip the left and right panes.",
                         "Compare two folders inside one provider by choosing it on both sides.",
                     ]),
-                    .tip("Don't see a provider? Add or rename one in Settings ▸ Providers."),
+                    .tip("Don't see a source? Add a cloud provider or a folder in Settings ▸ Providers."),
                 ],
                 related: ["scan", "providers"]
             )),
