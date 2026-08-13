@@ -1916,9 +1916,13 @@ struct ContentView: View {
                 // so a slow gather and a wedged one read the same in the log. Both branches speak:
                 // nil is the corpus going missing between the guard above and the read.
                 if let files {
+                    // "plus", not a comma: `total` is the CLAIMED rows only — `PersonFileSet`
+                    // deliberately keeps review rows out of it, because they are questions rather
+                    // than answers — so a phrasing that reads as "N of which R" would assert in
+                    // the log the very thing the queue exists to ask.
                     Logger.shared.info("Gathered \(files.total) file(s) for \(person.displayName) "
-                                       + "across \(files.folderCount) folder(s), "
-                                       + "\(files.review.count) to review")
+                                       + "across \(files.folderCount) folder(s), plus "
+                                       + "\(files.review.count) awaiting review")
                 } else {
                     Logger.shared.warning("Gathered nothing for \(person.displayName): the survey "
                                           + "corpus could not be read")
@@ -1927,7 +1931,15 @@ struct ContentView: View {
                     person: person,
                     phase: files.map { .ready($0) } ?? .failed(Self.noSurveyToGather))
             } catch is CancellationError {
-                // The canceller owns the slot. Nothing to write, and nothing to say.
+                // The canceller owns the slot, so there is nothing to WRITE. There is still
+                // something to say: this is the third way out of a gather, and the other two now
+                // close the walk that "User asked…" opened. Left mute, a ✕ or an Esc during the
+                // sweep — the common case, since the sweep is the slow part — is the one exit that
+                // leaves an opened gather with no ending, which reads in the log exactly like the
+                // wedged gather these lines exist to rule out. Debug, like its sibling above:
+                // cancelling is routine, and the pair is a trace, not an event.
+                Logger.shared.debug("People: the gather for \(person.displayName) was cancelled "
+                                    + "while it was reading")
             } catch {
                 // Nothing below throws anything but cancellation today. Swallowing this anyway
                 // would leave the spinner turning **forever** — strictly worse than the silent

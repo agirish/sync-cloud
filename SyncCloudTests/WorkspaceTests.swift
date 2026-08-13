@@ -33,10 +33,18 @@ import FileExplorer
             try #require(text.count > 500, "\(name) is implausibly short — truncated?")
             let start = try #require(text.range(of: anchor),
                                      "\(name) no longer contains “\(anchor)” — the declaration moved or was reworded, and this test is now measuring nothing")
-            // The rest of that line, then the token after its final `.` — `.browse` from
+            // **Exactly once.** `range(of:)` returns the FIRST match, so a doc comment that quoted
+            // the declaration — the shape this file's own `declarationBody` reader refuses for the
+            // same reason — would silently be read instead of the code.
+            let occurrences = text.components(separatedBy: anchor).count - 1
+            try #require(occurrences == 1,
+                         "“\(anchor)” appears \(occurrences)× in \(name); this reads the first, which may not be the declaration")
+            // The rest of that line, then the token after its FIRST `.` — `.browse` from
             // `= .browse`, and from `WorkspaceSelection(workspace: .browse, organizeLens: nil)`.
+            // First, not last: the fallback's line carries a second argument, so `organizeLens:`
+            // gaining a non-nil case would otherwise make this read *that* case instead.
             let line = text[start.upperBound...].prefix { $0 != "\n" }
-            let dot = try #require(line.lastIndex(of: "."), "no case named after “\(anchor)”")
+            let dot = try #require(line.firstIndex(of: "."), "no case named after “\(anchor)”")
             let name = line[line.index(after: dot)...]
                 .prefix { $0.isLetter }
             return String(name)

@@ -251,7 +251,10 @@ enum OnDeviceFilingClassifier {
         // left nothing behind but the "0 of 40" above, which says that nothing was filed and never
         // says why. Named once for the batch rather than once per file, because on this path the
         // cause is the same on every one of them.
-        if verdicts.isEmpty, declined > 0, let lastFailure {
+        // Not after a cancel: the loop above `break`s on cancellation, so a scan stopped after its
+        // first declination and before its first success satisfies every other clause here — and
+        // would blame the model, in a warning, for a batch the user interrupted.
+        if verdicts.isEmpty, declined > 0, !Task.isCancelled, let lastFailure {
             Logger.shared.warning("On-device Filing: the model placed none of \(declined) file(s) — "
                                   + "last cause: \(lastFailure.localizedDescription)")
         }
@@ -261,8 +264,13 @@ enum OnDeviceFilingClassifier {
     /// One file's answer, plus the error behind a declination when there was one.
     ///
     /// The `failure` half exists only so the caller can tell a batch where the model declined every
-    /// file apart from a batch where it merely declined this one — see `classifyOnDevice`. It is
-    /// nil when the ladder simply ran out without throwing, which is not a failure to report.
+    /// file apart from a batch where it merely declined this one — see `classifyOnDevice`.
+    ///
+    /// **A declination always carries its error.** The last rung fails the `attempt < count - 1`
+    /// guard, so it returns rather than looping, and `ladder` is a non-empty constant — the tail
+    /// after the loop is unreachable and exists because the compiler cannot see that. Do not read
+    /// `(nil, nil)` as a state the caller has to handle; if it ever becomes reachable, the batch
+    /// warning in `classifyOnDevice` goes quiet rather than wrong.
     @available(macOS 26.0, *)
     private static func pick(file: FilingCandidateFile, folderList: String,
                              instructions: String) async -> (verdict: FilingVerdict?, failure: Error?) {
@@ -289,7 +297,8 @@ enum OnDeviceFilingClassifier {
                 }
             }
         }
-        // Ladder exhausted without a throw reaching the guard above. No error to carry.
+        // Unreachable: see the note on this method. The compiler cannot prove the loop always
+        // returns, so this tail has to exist.
         return (nil, nil)
     }
 

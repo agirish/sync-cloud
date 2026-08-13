@@ -9,8 +9,12 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.0 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. **Delete this whole block when the release is cut**, and re-derive
-> the commit count against the tagged commit — it moves with every push.
+> be withdrawn. **Delete this whole block when the release is cut.**
+>
+> **Re-derive the commit count against the tagged commit** —
+> `git log --oneline v3.1..<sha> | wc -l`. It is not a fact about the release until
+> the tag exists: this draft said 223, the audit made it 234, and it was 257 a few
+> hours later. Any number written here is stale by the time it is read.
 >
 > The audit this block used to say still needed running **has now run**, against
 > the shipped code rather than against commit messages. It cost five more entries
@@ -54,8 +58,9 @@ User-facing changes, newest first. For the full commit history see the
 > **Still to write when the work lands:** the Restructure *plan* (it ships
 > report-only here), and anything else that arrives before the cut.
 
-**The largest release SyncCloud has had** — 234 commits, against v3.0's 181 and
-v1.0's 142 — and a major for the reason v2.0 was one: the shape of the app
+**The largest release SyncCloud has had** — 257 commits and counting, against
+v3.0's 181 and v1.0's 142 (both verified against their tags) — and a major for
+the reason v2.0 was one: the shape of the app
 changed. The workspace bar goes from five segments
 to four, and two of them are new answers to "what is this place for". Duplicates
 and Automations are gone as places — they were never peers of Compare and Storage,
