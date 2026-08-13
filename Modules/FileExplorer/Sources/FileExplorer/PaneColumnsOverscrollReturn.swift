@@ -384,7 +384,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         view.rearm()
     }
 
-    final class WatchdogView: NSView {
+    final class WatchdogView: BoundedResolveView {
         /// The gesture-axis lock the snap consults. `.shared` in the app; tests inject their own
         /// and drive it directly.
         var axisLock: WheelGestureTracker = .shared
@@ -426,17 +426,10 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// Coalesces the quiescence re-arm. This used to cancel and allocate a fresh
         /// `DispatchWorkItem` on every bounds-change notification — i.e. at frame cadence for the
         /// whole length of a scroll — to answer one question at the end of it. See `QuiescenceTimer`.
+        /// `Self.quiescence` — how long the stack must rest before the check runs — lives on
+        /// `BoundedResolveView`, shared with the column probe's timer.
         private lazy var quiesce = QuiescenceTimer(quiescence: Self.quiescence)
         private var pendingHold: DispatchWorkItem?
-        /// Bounds the ancestor walk: `layout()` runs on every pass, and a hierarchy this can never
-        /// resolve would otherwise re-walk the ancestry forever.
-        private var budget = WatchdogView.searchesPerChange
-        private static let searchesPerChange = 4
-
-        /// How long the stack must rest before the check runs. Long enough that a momentum tail's
-        /// sparse deltas (frame-cadence, ~16ms apart) keep deferring it; short enough that the
-        /// return reads as a bounce, not a correction.
-        static let quiescence: TimeInterval = 0.14
 
         /// How far out of range a resting origin must be before it is worth a pull.
         ///
@@ -449,16 +442,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// under this threshold is noise that must be left exactly where SwiftUI put it.
         static let tolerance: CGFloat = 2
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            // Torn down here rather than in `deinit`: a nonisolated `deinit` cannot touch
-            // non-Sendable stored state. Re-entering a window re-arms explicitly below — the
-            // previous styler released observers on exit and never re-attached on re-entry.
-            guard window != nil else { return teardown() }
-            rearm()
-        }
-
-        private func teardown() {
+        override func windowDidExit() {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             observedScroller = nil
@@ -467,28 +451,19 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             pendingHold = nil
         }
 
-        override func layout() {
-            super.layout()
-            // Also covers out-of-range states no gesture produced (a column closing while the
-            // stack sits at its far end). Only arms a timer — the correction itself never runs
-            // inside a layout pass.
+        /// Runs from every layout pass and from `rearm()`'s deferred hop. The layout half also
+        /// covers out-of-range states no gesture produced (a column closing while the stack sits
+        /// at its far end). Only arms a timer — the correction itself never runs inside a layout
+        /// pass.
+        override func resolvePass() {
             resolveAndObserve()
             scheduleCheck()
-        }
-
-        func rearm() {
-            budget = Self.searchesPerChange
-            DispatchQueue.main.async { [weak self] in
-                self?.resolveAndObserve()
-                self?.scheduleCheck()
-            }
         }
 
         private func resolveAndObserve() {
             guard window != nil else { return }
             if let observedScroller, observedScroller.window === window, !observers.isEmpty { return }
-            guard budget > 0 else { return }
-            budget -= 1
+            guard spendSearchBudget() else { return }
             guard let scroller = Self.findStackScrollView(from: self) else { return }
             observers.forEach(NotificationCenter.default.removeObserver)
             let clip = scroller.contentView

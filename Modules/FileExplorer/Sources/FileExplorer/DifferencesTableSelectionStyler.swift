@@ -11,8 +11,9 @@ import SwiftUI
 ///
 /// Placed as a `.background` sibling of the Table, it finds the table through `PaneListResolver`
 /// (in its multi-column mode — the pane resolver's single-column filter exists precisely to skip
-/// THIS table) with the same frame anchoring and the same bounded search-budget discipline; see
-/// `PaneListSelectionStyler` for why the re-arm rules are the correctness story.
+/// THIS table) with the same frame anchoring and the same bounded search-budget discipline as the
+/// pane styler — both now inherited from `FrameAnchoredResolveView`, where the re-arm rules (the
+/// correctness story) are documented once.
 ///
 /// What repaints the washes is three signals, each covering a hole in the others:
 /// - `NSTableView.selectionDidChangeNotification` — selection moved (posted for both user clicks
@@ -35,10 +36,14 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
     /// re-arm the search as well as re-asserting.
     func updateNSView(_ view: StylerView, context: Context) {
         view.washColor = washColor
-        view.rearmSearch()
+        view.rearm()
     }
 
-    final class StylerView: NSView {
+    final class StylerView: FrameAnchoredResolveView {
+        /// The differences table is the window's one multi-column table — the pane resolver's
+        /// single-column filter exists precisely to skip it, and this flag is the inverse.
+        override class var resolvesMultiColumnTable: Bool { true }
+
         var washColor: NSColor = .clear {
             // Equality-guarded: `updateNSView` assigns on every SwiftUI update, and the
             // differences view re-renders per published file during a bulk sync — an
@@ -46,53 +51,27 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             didSet { if washColor != oldValue { paintWashes() } }
         }
 
-        private weak var cachedTable: NSTableView?
         private var observers: [NSObjectProtocol] = []
 
-        /// Same bounded-burst discipline as `PaneListSelectionStyler` — see that type for why the
-        /// budget re-arms on anchor movement and table loss rather than on SwiftUI update spam,
-        /// and why the steady-state retry exists at all.
-        private var searchBudget = StylerView.searchesPerChange
-        private static let searchesPerChange = 6
-        private var lastSearchedTarget: CGRect = .null
-        private var passesSinceExhausted = 0
-        private static let retryEveryNPasses = 30
-
-        /// Test seam, mirroring `PaneListSelectionStyler.searchesPerformed`.
-        private(set) var searchesPerformed = 0
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            // Torn down here rather than in `deinit`: a nonisolated `deinit` cannot touch
-            // non-Sendable stored state (same pattern as `PaneColumnsOverscrollReturn`).
-            // Re-entering a window re-arms below.
-            guard window != nil else {
-                observers.forEach(NotificationCenter.default.removeObserver)
-                observers = []
-                observedTable = nil
-                observedClip = nil
-                return
-            }
-            rearmSearch()
+        override func windowDidExit() {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            observedTable = nil
+            observedClip = nil
         }
 
-        override func layout() {
-            super.layout()
-            apply()
-        }
-
-        func rearmSearch() {
-            searchBudget = Self.searchesPerChange
-            DispatchQueue.main.async { [weak self] in self?.apply() }
-        }
-
-        private func apply() {
+        override func resolvePass() {
             guard let table = resolveTableView() else { return }
             if table.selectionHighlightStyle != .none {
                 table.selectionHighlightStyle = .none
             }
             paintWashes()
         }
+
+        /// The repaint observers attach on BOTH resolution paths — a cached hit and a fresh
+        /// resolve — because a table can resolve before SwiftUI has wrapped it in its scroll
+        /// view, and `observe` is what re-registers once the clip exists.
+        override func tableIsCurrent(_ table: NSTableView) { observe(table) }
 
         /// Attaches the repaint observers to a newly resolved table (and its clip view),
         /// dropping any previous table's. Safe to call with the same table repeatedly — it
@@ -141,39 +120,6 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             table.enumerateAvailableRowViews { rowView, _ in
                 SelectionWashView.update(on: rowView, color: rowView.isSelected ? wash : nil)
             }
-        }
-
-        /// Same shape as `PaneListSelectionStyler.resolveTableView`, differing only in asking the
-        /// resolver for a MULTI-column table. Internal, not private: the test seam.
-        func resolveTableView() -> NSTableView? {
-            guard window != nil else { return nil }
-            let target = convert(bounds, to: nil)
-            guard !target.isEmpty else { return nil }
-            if let cached = cachedTable, cached.window === window,
-               PaneListResolver.matches(cached, target: target) {
-                observe(cached)
-                return cached
-            }
-            let anchorMoved = !target.equalTo(lastSearchedTarget)
-            let lostItsTable = cachedTable != nil
-            lastSearchedTarget = target
-            cachedTable = nil
-            if anchorMoved || lostItsTable {
-                searchBudget = Self.searchesPerChange
-                passesSinceExhausted = 0
-            } else if searchBudget == 0 {
-                passesSinceExhausted += 1
-                if passesSinceExhausted >= Self.retryEveryNPasses {
-                    passesSinceExhausted = 0
-                    searchBudget = 1
-                }
-            }
-            guard searchBudget > 0 else { return nil }
-            searchBudget -= 1
-            searchesPerformed += 1
-            cachedTable = PaneListResolver.table(matching: self, multiColumn: true)
-            if let table = cachedTable { observe(table) }
-            return cachedTable
         }
     }
 }

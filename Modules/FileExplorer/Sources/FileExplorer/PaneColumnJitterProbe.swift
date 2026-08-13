@@ -66,11 +66,10 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         view.rearm()
     }
 
-    final class ProbeView: NSView {
+    final class ProbeView: BoundedResolveView {
         var label = "?"
         private weak var observedClip: NSClipView?
         private var observer: NSObjectProtocol?
-        private var budget = 4
         /// Test seams: instrumentation that silently never fires would report a healthy pane, so
         /// the mounted test scrolls a column and asserts a line was actually emitted.
         private(set) var linesLogged = 0
@@ -85,39 +84,24 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         /// Coalesces the quiescence re-arm — one timer per rest window instead of a fresh
         /// `DispatchWorkItem` per bounds-change notification. There is one of these probes per open
         /// column, so the old cost was multiplied by the whole stack. See `QuiescenceTimer`.
-        private lazy var pullCheck = QuiescenceTimer(
-            quiescence: PaneColumnsOverscrollReturn.WatchdogView.quiescence)
+        /// `Self.quiescence` is the shared constant on `BoundedResolveView` — the same interval
+        /// the stack's watchdog feeds its own timer.
+        private lazy var pullCheck = QuiescenceTimer(quiescence: Self.quiescence)
         private static let coalesce: TimeInterval = 0.25
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard window != nil else {
-                if let observer { NotificationCenter.default.removeObserver(observer) }
-                observer = nil
-                observedClip = nil
-                pendingFlush?.cancel()
-                pendingFlush = nil
-                pullCheck.cancel()
-                return
-            }
-            rearm()
+        override func windowDidExit() {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            observedClip = nil
+            pendingFlush?.cancel()
+            pendingFlush = nil
+            pullCheck.cancel()
         }
 
-        func rearm() {
-            budget = 4
-            DispatchQueue.main.async { [weak self] in self?.resolveAndObserve() }
-        }
-
-        override func layout() {
-            super.layout()
-            resolveAndObserve()
-        }
-
-        private func resolveAndObserve() {
+        override func resolvePass() {
             guard window != nil else { return }
             if let observedClip, observedClip.window === window, observer != nil { return }
-            guard budget > 0 else { return }
-            budget -= 1
+            guard spendSearchBudget() else { return }
             // A List's `.background` sits BESIDE the list's scroll view, not inside it, so an
             // ancestor walk never enters it. `PaneListResolver` does this resolution for every
             // background sibling that needs it — by frame, because in a column stack the lists are
