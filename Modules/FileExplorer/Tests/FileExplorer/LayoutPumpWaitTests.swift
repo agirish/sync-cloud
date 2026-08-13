@@ -121,7 +121,14 @@ import Testing
     /// the loop exits at `pumpFloor` and reports 51 passes, red, in milliseconds.
     @Test func theDeadlineStillCarriesTheWaitPastTheFloor() async {
         var passes = 0
-        let needed = Self.testFloor + 10
+        // **Two past the floor, not ten.** A floor-only loop still reaches `floor + 1` through the
+        // post-deadline re-check, so two past it is the smallest demand such a loop cannot meet —
+        // the argument ``LayoutPumpWaitPollTests/aLiveDeadlineCarriesTheWaitPastTheFloor`` already
+        // makes for its own. Ten was inherited from the version that ran against the production
+        // floor, where the margin was noise; against a floor of five it was eight passes of pure
+        // cost, and a pass is seconds on a saturated CI main actor. Measured: this was the last
+        // floor test still over 100s after the rest were made cheap.
+        let needed = Self.testFloor + 2
         // Frozen: every read is the same instant, so `now() < deadline` is true forever.
         let frozen = Date(timeIntervalSince1970: 1_770_000_000)
         let outcome = await LayoutPumpWait.pump(host(), upTo: 60, floor: Self.testFloor,
