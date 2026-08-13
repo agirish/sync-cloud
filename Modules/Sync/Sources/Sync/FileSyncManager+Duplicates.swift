@@ -250,7 +250,11 @@ extension FileSyncManager {
         //     each PDF on download, so the same bill fetched twice is byte-different with identical
         //     content. Every fingerprintable document is read, NOT just the size-colliding hash
         //     candidates above — measured on the real tree, restricting the pass to files that
-        //     already share a size would find 119 of the 251 groups it finds unrestricted, because
+        //     already share a size would find fewer than half the groups it finds unrestricted:
+        //     119 of 251 on the replay that measured it. (Both totals are from that one pre-lane
+        //     run; the shipped serial lane reports ~248. The ratio is what this argues, not the
+        //     total, and re-stating 119 against a total it was not measured with would be an
+        //     invented number.) The reason is that
         //     a re-stamp routinely changes the byte count too (a compressed re-save changes it by
         //     an order of magnitude). Cached by (path, mtime, size), so this is paid once.
         var textFingerprints: [String: String] = [:]

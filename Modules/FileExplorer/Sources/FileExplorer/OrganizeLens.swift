@@ -17,9 +17,10 @@ import Foundation
 /// somewhere before any scan has found anything, and a chip that materialises only after a scan
 /// has nowhere to land. So the rail item is permanent and the badge is not:
 ///
-/// - **The item always exists.** Six of them, in this order, whatever the counts are.
+/// - **The item always exists.** Five of them — ``railItems``, in this order, whatever the counts
+///   are. The enum carries six cases; `names` is folded into Renames and draws no rail item.
 /// - **The badge is absent at zero** — not greyed, not "0". `badge(count:)` returns `nil`.
-/// - **The overview is the unselected state**, not a seventh item. It is what the rail shows when
+/// - **The overview is the unselected state**, not a sixth item. It is what the rail shows when
 ///   no lens is picked, so it needs no name of its own and cannot be "a tab you forget to visit".
 ///
 /// ## No `effective` fallback any more

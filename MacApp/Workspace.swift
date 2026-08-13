@@ -119,16 +119,22 @@ struct WorkspaceSelection: Equatable {
     var workspace: Workspace
     var organizeLens: OrganizeLens?
 
-    /// Where a window with nothing to go on opens.
+    /// Where a selection that no longer resolves lands. **Not where a fresh install lands.**
     ///
-    /// Browse, not Compare. This is two decisions in one value and both are deliberate: a fresh
-    /// install lands in the file browser rather than in a comparison of two clouds it has not
-    /// scanned yet, and — because ``migratedWorkspace(_:)`` falls back here — so does a stored
-    /// `selectedWorkspace` that no longer resolves. "Nothing stored" and "unreadable" agreeing is
-    /// the property being preserved; which place they agree on is what changed. A file browser is
-    /// a better place to land confused than a two-tree diff.
+    /// Browse, not Compare: a file browser is a better place to land confused than a two-tree diff.
+    /// Both migration entry points fall back here — ``migratedWorkspace(_:)`` for a stored
+    /// `selectedWorkspace` this build cannot read, and ``migrated(tab:lens:)`` for a legacy pair
+    /// that was not on Tidy.
     ///
-    /// Existing installs are untouched: they carry a stored selection that still resolves.
+    /// **A first run does not reach this value, and the comment here used to say it did.**
+    /// ``migrateSelection(in:)`` returns `nil` when nothing is stored — deliberately, so the keys
+    /// stay unset and `@AppStorage` supplies its own default — and that default is
+    /// `ContentView.selectedWorkspace = .compare`. So "nothing stored" and "unreadable" do **not**
+    /// agree today: nothing stored opens Compare, unreadable opens Browse. Making them agree means
+    /// changing the `@AppStorage` default, which is a change to what every new user sees first,
+    /// not a comment fix — so it is left as a decision rather than made silently here.
+    ///
+    /// Existing installs are untouched either way: they carry a stored selection that resolves.
     static let `default` = WorkspaceSelection(workspace: .browse, organizeLens: nil)
 }
 

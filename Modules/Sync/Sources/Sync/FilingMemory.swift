@@ -9,7 +9,7 @@ import Foundation
 /// belonging with files called `Payslip_2025-11-28.pdf`, and screenshots carrying nothing but a case
 /// number that only an already-filed confirmation can attribute. Measured over 9,558 filed documents
 /// choosing one of ~2,950 folders, adding this to the profile takes top-1 routing from 28.9% to
-/// 58.2% and top-3 from 40.2% to 77.5%.
+/// 58.2% and top-3 from 40.2% to 77.4%.
 ///
 /// **Not portable, for the same reason the profile is not.** It is a description of one person's
 /// documents; a missing memory restores the profile-only behaviour exactly.

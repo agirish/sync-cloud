@@ -3,9 +3,10 @@ import Foundation
 /// Whether a pane-search query names somebody, and is therefore worth offering as a person scope.
 ///
 /// **The find stays a find.** This only ever *adds* an offer beneath the field; the substring search
-/// underneath is untouched, runs on every query including this one, and is what ⇧↩ keeps. A query
-/// that names nobody produces `nil` and the field behaves exactly as it did before this existed —
-/// which is the property that makes the offer safe to put on a control people already use.
+/// underneath is untouched, runs on every query including this one, and keeps ↩ and ⇧↩ entirely —
+/// taking the offer is ⌘↩, a chord the find never used. A query that names nobody produces `nil`
+/// and the field behaves exactly as it did before this existed, which is the property that makes
+/// the offer safe to put on a control people already use.
 public enum PersonSearchOffer {
 
     /// The one person this query names, or `nil`.

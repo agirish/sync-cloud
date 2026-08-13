@@ -1044,9 +1044,9 @@ public struct PaneHeader: View {
         )
         .onSubmit {
             let modifiers = pinnedSubmitModifiers ?? NSEvent.modifierFlags
-            // ⇧↩ is the plain find, always. ↩ takes the offer when there is one, and otherwise is
-            // the plain find too — so the key never stops doing what it did before, it only gains
-            // a meaning on the queries that have one.
+            // ↩ and ⇧↩ are the find's own next and previous, always, offer or no offer. Taking the
+            // offer is ⌘↩ — a chord the find never used — so the offer costs the find nothing and
+            // no key stops doing what it did before.
             // The routing is a pure table — see ``PaneSearchSubmit``, which is where it is
             // tested, because `onSubmit` cannot be fired from a test.
             let person = personOffer?(text.wrappedValue)

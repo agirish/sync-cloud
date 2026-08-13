@@ -224,7 +224,7 @@ import UniformTypeIdentifiers
     /// **PDFKit's text extraction is not thread-safe, so this queue must stay serial.**
     ///
     /// Measured on a real 10,286-document tree, this reader six at a time returned different text
-    /// for 1.69% of documents run to run; one mortgage statement read 30 times serially gave one
+    /// for 0.83% of documents run to run; one mortgage statement read 30 times serially gave one
     /// text and 18 distinct texts once read concurrently. The damage is silent — reordered or
     /// dropped blocks, still perfectly decodable prose — so nothing downstream can notice it.
     ///
