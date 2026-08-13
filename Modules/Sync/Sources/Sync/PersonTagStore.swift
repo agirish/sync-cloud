@@ -97,13 +97,37 @@ public final class PersonTagStore: ObservableObject {
         } else {
             tags.append(tag)
         }
-        // Any other tag this person holds on the same document, under the other kind of key, is a
+        // Any other tag this person holds on the same document, under the OTHER KIND of key, is a
         // superseded answer to the question just answered. Dropped rather than left to lose a
         // precedence contest it should never have been in.
-        tags.removeAll { $0.personId == personId && $0.key != key && $0.recordedPath == path }
+        //
+        // Only across kinds, and that is the narrow point: two fingerprint-keyed tags sharing a
+        // recorded path are two different DOCUMENTS that occupied it in turn — a scanner rewriting
+        // `Inbox/Scan.pdf` is ordinary — and the earlier one is a durable record about a document
+        // that still exists somewhere else. A path-keyed tag, by contrast, is a claim about
+        // "whatever is at this path", which the document being recorded now is.
+        //
+        // Not reached for a tag written before `recordedPath` existed: those decode with an empty
+        // path and cannot be matched to anything. Such a pair keeps the pre-fix behaviour, where
+        // the lookup precedence decides it.
+        tags.removeAll { other in
+            other.personId == personId && other.key != key
+                && !other.recordedPath.isEmpty && other.recordedPath == path
+                && Self.isDifferentKind(other.key, key)
+        }
         save()
         Logger.shared.info("People: \(path) is \(verdict == .rejected ? "NOT " : "")\(personId)'s "
                            + "— \(keyKind(key))")
+    }
+
+    /// Whether two keys identify a document in different ways — a path against a fingerprint.
+    ///
+    /// Two of the same kind at one recorded path are two documents, not one answered twice.
+    static func isDifferentKind(_ a: PersonTagKey, _ b: PersonTagKey) -> Bool {
+        switch (a, b) {
+        case (.path, .fingerprint), (.fingerprint, .path): return true
+        default: return false
+        }
     }
 
     /// Withdraws a verdict entirely, putting the document back in front of whatever the channels
@@ -120,10 +144,19 @@ public final class PersonTagStore: ObservableObject {
         switch key {
         // Says what the KEY is, not what the lookup currently does with it. `PersonFiles.gather`
         // asks `verdict(personId:path:)` and passes no fingerprint, so today a fingerprint-keyed
-        // tag is still found by its recorded path and a move does re-open the question. The key
-        // is the durable half and is what makes closing that gap possible; the gather needs a
-        // path→digest source it can consult without fingerprinting every document it walks, which
-        // is a change of a different size. Not claimed here until it is true.
+        // tag is still found by its recorded path — and `record` refreshes that path when the same
+        // answer is given again somewhere new, which is what keeps a moved document answerable.
+        //
+        // **What closing the gap properly needs, since it is not obvious:** the gather would have
+        // to look a digest up per document without fingerprinting 10,171 of them, and the obvious
+        // source does not fit. `ContentHashCache.sharedFingerprints` is keyed on
+        // `(path, mtime, size)` with mtime at full `timeIntervalSince1970` precision
+        // (`FileSyncManager+Duplicates.contentHashKey`), while `FilingCorpusDocument.modified` is
+        // whole seconds — so keys built from the corpus would miss except by coincidence, and the
+        // feature would silently do nothing, which is the failure it exists to fix. Closing it
+        // means either widening the corpus's stored precision (a persisted-format change with a
+        // migration) or a path→digest index of its own. Not claimed here until one of those is
+        // done.
         case .fingerprint: return "keyed to the document's text"
         case .path: return "keyed to its path, so moving the file loses the verdict"
         }

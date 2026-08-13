@@ -265,6 +265,13 @@ public enum FileNameDate {
         func endsAtAWordBoundary(_ name: String) -> Bool {
             guard lower.hasSuffix(name) else { return false }
             guard name.count < run.count else { return true }
+            // The offsets below are computed on `lower` and used to index `run`, which is only
+            // sound while lowercasing preserves the character count. It does for every scalar this
+            // reaches today (probed across the BMP and beyond), but it is an ICU-shaped assumption
+            // rather than a guarantee — and a silent misalignment here would mine a date from the
+            // wrong characters. Refusing is the safe direction: a month that is not read is a
+            // rename not proposed.
+            guard lower.count == run.count else { return false }
             let start = run.index(run.endIndex, offsetBy: -name.count)
             guard run[start].isUppercase else { return false }
             let titleCased = !run[run.index(after: start)...].contains { $0.isUppercase }

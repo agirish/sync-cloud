@@ -1032,33 +1032,20 @@ public enum FilingEngine {
             // mention is testimony (a sponsor's affidavit prints the sponsor, not the applicant).
             // Only a file whose name names nobody consults the page it was read from — that is
             // what protects `Scan 2026-08-02.pdf`, which the filename-only rule never could.
-            if let profile,
-               let destPersonRaw = profile.folders[Self.relative(rawDest.path, under: providerRoot)]?
-                   .axes["person"]?.lowercased() {
-                if let registry, let destPerson = registry.person(forAxisValue: destPersonRaw) {
-                    // The precedence rule lives in `attribute` — shared with the `personIs` rule
-                    // condition, so the two cannot answer "whose document is this" differently.
-                    let named = registry.attribute(fileName: s.fileName,
-                                                   pageSample: pageSamples[s.filePath],
-                                                   identity: identity)
-                    if !named.isEmpty, !named.contains(destPerson) {
-                        // Reported, not just refused. The veto's whole job is to make a wrong
-                        // suggestion not happen, so it working perfectly is indistinguishable from
-                        // it not existing — this is the only way the user ever learns it did
-                        // something. A closure rather than a returned tally: `applyVerdicts` is a
-                        // pure map over suggestions and stays one, and every existing caller keeps
-                        // working without passing anything.
-                        onVeto?(PersonVetoRefusal(
-                            namedPerson: named.sorted().joined(separator: ", "),
-                            proposedPerson: destPerson, fileName: s.fileName,
-                            destination: Self.relative(rawDest.path, under: providerRoot)))
-                        return s
-                    }
-                } else {
-                    // An axis person the registry cannot resolve keeps the original protection.
-                    let filePeople = nameTokens(s.fileName).intersection(profile.personTokens)
-                    if !filePeople.isEmpty, !filePeople.contains(destPersonRaw) { return s }
-                }
+            if let refusal = personVeto(fileName: s.fileName, destination: rawDest.path,
+                                        providerRoot: providerRoot, profile: profile,
+                                        registry: registry, identity: identity,
+                                        pageSample: pageSamples[s.filePath]) {
+                // Reported, not just refused. The veto's whole job is to make a wrong suggestion
+                // not happen, so it working perfectly is indistinguishable from it not existing —
+                // this is the only way the user ever learns it did something. A closure rather
+                // than a returned tally: `applyVerdicts` is a pure map over suggestions and stays
+                // one, and every existing caller keeps working without passing anything.
+                //
+                // `refusal` is nil-but-refused for the unresolvable-axis case, which is why the
+                // rule returns an optional REFUSAL and a separate `refuses` answer — see the rule.
+                if let reported = refusal.reported { onVeto?(reported) }
+                return s
             }
             // A verdict only LEADS when it's at least as confident as the current best home.
             // Otherwise a low-confidence model guess would demote a strong filename/rule match —
@@ -1069,6 +1056,71 @@ public enum FilingEngine {
             let others = s.candidates.filter { $0.path != dest.path }
             return s.replacingCandidates([dest] + others)
         }
+    }
+
+    /// The outcome of the cross-person rule: a refusal, carrying the report when there is one.
+    ///
+    /// Two shapes, because the protection has two: a registry-resolved contradiction knows both
+    /// people by name and is worth telling the user about, while an axis value the registry cannot
+    /// resolve falls back to token comparison and has no names to report. Both refuse.
+    struct PersonVeto {
+        let reported: PersonVetoRefusal?
+    }
+
+    /// **A document that names a person does not go in a different person's folder.**
+    ///
+    /// Opus, asked where `Aditi OCI.pdf` belonged, answered `Immigration/OCI/Divit/Application` —
+    /// the wrong child, in the wrong person's folder, while `Immigration/OCI/Aditi` exists, holds
+    /// `Aditi - eOCI.pdf`, and is what the router ranked first. Of every error this arc produced,
+    /// filing one family member's document into another's is the one worth a hard rule: it is the
+    /// least likely to be noticed and the most annoying to undo.
+    ///
+    /// Asked of the profile's PERSON AXIS, not of the words in the path. Measured over the 756
+    /// corpus documents whose filename names a known person, the gold folder's `axes.person` is a
+    /// different person for **3** of them (0.40%) — all one baby-shower folder under
+    /// `Family/Aditi/Events`. Testing the path text instead would fire on 15, because
+    /// `Health/Medical/Travel/Girish - 2021` reads as Girish's folder while the profile correctly
+    /// records it as a trip with no person axis at all.
+    ///
+    /// Resolved through the ``PersonRegistry`` when there is one, and the difference is what the
+    /// registry exists for. The token comparison below it reads `Mom - passport.pdf` against a
+    /// folder whose axis says `muktha` as a CONTRADICTION — the veto fired against the correct
+    /// folder, because the flattened token set knew both words but not that they are one person.
+    /// The registry also matches names as phrases, so `Aditi Abhishek - OCI.pdf` names Aditi alone
+    /// rather than Aditi-and-her-father.
+    ///
+    /// The filename outranks the page: a filename is the user's own label, a page-1 mention is
+    /// testimony (a sponsor's affidavit prints the sponsor, not the applicant). Only a file whose
+    /// name names nobody consults the page it was read from — that is what protects
+    /// `Scan 2026-08-02.pdf`, which the filename-only rule never could.
+    ///
+    /// **A named member rather than a block inside `applyVerdicts`**, because it was one and the
+    /// other paid path did not have it: "Try another" resolves its `.refine` verdict straight
+    /// through `destination(from:)`, so a re-ask could file exactly the document this rule exists
+    /// to protect into exactly the folder it exists to refuse. A rule that lives in one caller is
+    /// a rule the next caller does not get.
+    static func personVeto(fileName: String, destination: String, providerRoot: String,
+                           profile: Sync.FolderProfile?, registry: PersonRegistry?,
+                           identity: PersonIdentityIndex?, pageSample: String?) -> PersonVeto? {
+        guard let profile,
+              let destPersonRaw = profile.folders[Self.relative(destination, under: providerRoot)]?
+                  .axes["person"]?.lowercased()
+        else { return nil }
+        if let registry, let destPerson = registry.person(forAxisValue: destPersonRaw) {
+            // The precedence rule lives in `attribute` — shared with the `personIs` rule
+            // condition, so the two cannot answer "whose document is this" differently.
+            let named = registry.attribute(fileName: fileName, pageSample: pageSample,
+                                           identity: identity)
+            guard !named.isEmpty, !named.contains(destPerson) else { return nil }
+            return PersonVeto(reported: PersonVetoRefusal(
+                namedPerson: named.sorted().joined(separator: ", "),
+                proposedPerson: destPerson, fileName: fileName,
+                destination: Self.relative(destination, under: providerRoot)))
+        }
+        // An axis person the registry cannot resolve keeps the original protection.
+        let filePeople = nameTokens(fileName).intersection(profile.personTokens)
+        guard !filePeople.isEmpty, !filePeople.contains(destPersonRaw) else { return nil }
+        return PersonVeto(reported: nil)
     }
 
     /// Whether a path segment is a file name rather than a folder name — 1–5 ASCII alphanumerics

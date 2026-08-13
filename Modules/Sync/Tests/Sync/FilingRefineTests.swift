@@ -606,6 +606,74 @@ private actor AsyncGate {
         #expect(m.filingRoutesToCloud(.refine))
 
     }
+
+    // MARK: A declined charge is not a result
+
+    /// **Cancel on the spend prompt used to be reported as a completed pass.**
+    ///
+    /// `cloudSpendAllows` returns false for both refusals — Cancel, and the over-cap dialog whose
+    /// only button is "Use On-Device Instead" — and nothing downstream could tell that apart from
+    /// "there was nothing to send". So the user pressed Cancel, nothing was sent, nothing was
+    /// re-routed, and a green banner said the refine had run and found no better homes.
+    @Test func decliningTheSpendPromptIsNotReportedAsSuccess() async throws {
+        let root = try fixture("declined")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let asked = Probe()
+        let m = FileSyncManager()
+        let settings = ScratchDefaults("refineDeclined")
+        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
+        m.filingContentDefaults = settings
+        m.filingClassifier = { _, files, _ in
+            asked.record()
+            return Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                      providerRoot: root)
+        let asksBeforeRefine = asked.count
+
+        // The user declines.
+        m.filingCloudSpendConfirmer = { _ in false }
+        m.banner = nil
+        await m.refineFilingSuggestions(m.filingSuggestions)
+
+        #expect(asked.count == asksBeforeRefine, "the pass was sent despite the decline")
+        let banner = try #require(m.banner, "a declined refine said nothing at all")
+        #expect(banner.severity != .success,
+                "a charge the user declined was reported as a completed pass: “\(banner.message)”")
+        #expect(banner.message.contains("declined"),
+                "the banner does not say why nothing happened: “\(banner.message)”")
+        #expect(!banner.message.contains("no better homes"),
+                "the banner reports an outcome the decline prevented: “\(banner.message)”")
+    }
+
+    /// The other direction, so the test above is not passing on "any refine warns": an APPROVED
+    /// pass still reports success.
+    @Test func anApprovedRefineStillReportsSuccess() async throws {
+        let root = try fixture("approved")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager()
+        let settings = ScratchDefaults("refineApproved")
+        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
+        m.filingContentDefaults = settings
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))
+            })
+        }
+        m.filingCloudSpendConfirmer = { _ in true }
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                      providerRoot: root)
+        m.banner = nil
+        await m.refineFilingSuggestions(m.filingSuggestions)
+
+        let banner = try #require(m.banner, "an approved refine said nothing")
+        #expect(banner.severity == .success, "an approved refine no longer reports success")
+    }
+
 }
 
 /// The one cost assertion in this package, and it earns the machine-pinned marker for the same

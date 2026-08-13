@@ -188,6 +188,12 @@ extension FileSyncManager {
         // of the shallow structural list. Ranking here rather than reusing the scan's shortlists is
         // deliberate: a refine pass runs on a scoped handful of files, minutes after the scan and
         // against rejections the scan never saw, so a few milliseconds each buys a current answer.
+        // `preferredFolders` is called whether or not the router has an index, because its
+        // documented fallback is the card's OWN candidates — "the homes the earlier phases already
+        // proposed… the best evidence there is about it". Calling it only inside the `if let` meant
+        // an unsurveyed tree sent the paid model a shallowest-first list capped at 250, with the
+        // answer the free pass had already found not on it: the free scan hands those candidates
+        // over and the paid pass did not.
         var preferred: [String] = []
         var shortlists: [String: [String]] = [:]
         if let index = filingRouterIndex {
@@ -208,18 +214,31 @@ extension FileSyncManager {
                 }
                 return (s.filePath, ranking.candidates.map(\.relativePath))
             })
-            preferred = Self.preferredFolders(for: files, shortlists: shortlists,
-                                              in: eligible, providerRoot: root)
         }
+        preferred = Self.preferredFolders(for: files, shortlists: shortlists,
+                                          in: eligible, providerRoot: root)
         let context = filingContext(
             taxonomyFolders: FilingEngine.classifierFolders(preferred: preferred,
                                                             fallback: taxonomyFolders))
-        if !files.isEmpty, cloudSpendAllows(files: files, taxonomyFolders: context.destinations) {
+        // **Whether the pass was declined, not just whether it ran.** `cloudSpendAllows` returns
+        // false for both refusals — Cancel, and the over-cap dialog whose only button is "Use
+        // On-Device Instead" — and nothing downstream could tell that apart from "there was
+        // nothing to send". So a user who declined the charge was told the pass had run and found
+        // no better homes: a green banner for a thing that did not happen.
+        var declined = false
+        if !files.isEmpty {
+            declined = !cloudSpendAllows(files: files, taxonomyFolders: context.destinations)
+        }
+        if !files.isEmpty, !declined {
             let fresh = await classifier(context, files, .refine)
             // Before the staleness check, deliberately — the answer is already paid for.
             recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: root,
                                  existingRelative: existingRelative)
-            classifiedCount = files.count
+            // Not counted when the pass was downgraded to on-device: `classifiedCount` is what the
+            // durable "refined" pill reports as "N files were sent to Claude", and the banner two
+            // screens down says nothing was sent or billed. One of those was wrong, and it was the
+            // one that outlives the other.
+            classifiedCount = filingCloudRefineIsDowngraded ? 0 : files.count
             verdicts.merge(fresh) { _, new in new }
         }
 
@@ -285,6 +304,17 @@ extension FileSyncManager {
                 + "saved key could not be read, so nothing was sent or billed")
             banner = .warning("Couldn't reach Claude — your saved API key couldn't be read. "
                               + "These are the on-device suggestions; check the key in Settings ▸ Organize.")
+            return summary
+        }
+        // **A declined charge is not a result.** Nothing was sent and nothing was re-routed, so the
+        // cached answers are all that were applied — saying "no better homes found" would report
+        // an outcome the user's own Cancel prevented.
+        if declined {
+            banner = .warning(cachedVerdicts.isEmpty
+                ? "Nothing was sent — the cloud pass was declined, so the suggestions are unchanged."
+                : "Nothing was sent — the cloud pass was declined. "
+                  + "\(cachedVerdicts.count) answer\(cachedVerdicts.count == 1 ? " was" : "s were") "
+                  + "reused from the cache.")
             return summary
         }
         // Success in both directions: "no better homes found" is a complete, correct answer to

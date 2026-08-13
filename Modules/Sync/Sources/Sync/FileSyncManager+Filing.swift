@@ -1236,10 +1236,34 @@ extension FileSyncManager {
         // to the classifier if the full set wasn't captured. Both from the pre-await snapshots —
         // see above.
         let existingFolders = existingFoldersSnapshot.isEmpty ? Set(taxonomyFolders) : existingFoldersSnapshot
-        if let verdict = verdicts[suggestion.filePath],
-           let dest = FilingEngine.destination(from: verdict, providerRoot: root,
-                                               existingRelative: existingFolders),
-           !allRejected.contains(dest.path) {
+        // **The same cross-person rule the scan and the refine apply.** This is a `.refine`-tier
+        // answer from the same backend, for one card, and it went straight from
+        // `destination(from:)` onto the card: none of `applyVerdicts`' guards ran, so a re-ask
+        // could put one family member's document in another's folder — the error that rule exists
+        // for, on the click most likely to produce it, since the user is asking the model to think
+        // again about a file it has already been wrong about once.
+        //
+        // Only the veto, deliberately, not the rest of `applyVerdicts`: its confidence guard
+        // refuses to promote an answer weaker than the current best, and the current best here is
+        // the one the user just rejected. The other guards arbitrate against a standing suggestion,
+        // which this path has already discarded.
+        let accepted: FilingDestination? = {
+            guard let verdict = verdicts[suggestion.filePath],
+                  let dest = FilingEngine.destination(from: verdict, providerRoot: root,
+                                                      existingRelative: existingFolders),
+                  !allRejected.contains(dest.path)
+            else { return nil }
+            if let refusal = FilingEngine.personVeto(
+                fileName: suggestion.fileName, destination: dest.path, providerRoot: root,
+                profile: filingFolderProfile, registry: filingPersonRegistry,
+                identity: filingPersonIdentity,
+                pageSample: filingPageSamples[suggestion.filePath]) {
+                if let reported = refusal.reported { recordPersonVeto(reported) }
+                return nil
+            }
+            return dest
+        }()
+        if let dest = accepted {
             replaceFilingSuggestion(suggestion.id, candidates: [dest])
         } else {
             replaceFilingSuggestion(suggestion.id, candidates: [])

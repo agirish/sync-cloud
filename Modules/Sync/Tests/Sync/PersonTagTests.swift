@@ -325,4 +325,27 @@ import Foundation
         let after = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/person-tags.json")))
         #expect(before == after, "an identical re-answer rewrote the file")
     }
+
+    /// **Two fingerprint-keyed tags at one path are two documents, not one answered twice.**
+    ///
+    /// The supersede sweep matches on `recordedPath`, and a path is re-used: a scanner writes
+    /// `Inbox/Scan.pdf` again, Organize files the first one away. Dropping the earlier tag there
+    /// would discard a durable record about a document that still exists somewhere else — which is
+    /// the opposite of what the fingerprint key is for. Only a cross-kind pair (a path claim and a
+    /// fingerprint claim) is one document answered twice.
+    @MainActor @Test func twoDocumentsThatOccupiedOnePathKeepTheirOwnVerdicts() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        store.record(personId: "aditi", key: .fingerprint("first"), verdict: .confirmed, path: "Inbox/Scan.pdf")
+        // A different document now occupies the same path, and is judged the other way.
+        store.record(personId: "aditi", key: .fingerprint("second"), verdict: .rejected, path: "Inbox/Scan.pdf")
+
+        #expect(store.tags.count == 2,
+                "a second document at the same path discarded the first document's verdict")
+        let index = PersonTagIndex(tags: store.tags)
+        #expect(index.verdict(personId: "aditi", path: "x", fingerprint: "first") == .confirmed,
+                "the earlier document's answer was lost when its old path was re-used")
+        #expect(index.verdict(personId: "aditi", path: "x", fingerprint: "second") == .rejected)
+    }
 }
