@@ -93,12 +93,23 @@ enum LayoutPumpWait {
     /// and the assertion is about the loop's shape rather than the machine's speed. Nothing outside
     /// the tests passes this.
     @MainActor
+    /// **`floor` is for the floor's OWN tests and nothing else.**
+    ///
+    /// The tests of this loop assert a SHAPE — a demand under the floor is served once the deadline
+    /// is spent, a demand over it is served while the deadline holds, a condition that never holds
+    /// still gets a verdict — and none of that depends on the floor being 50. It cost a great deal
+    /// that it did: a pass costs SECONDS on a saturated CI main actor against 8ms idle, so three
+    /// tests of this mechanism were among the most expensive in the run. A floor of five asserts
+    /// the same shapes for a tenth of the passes; `pumpFloor`'s VALUE is pinned separately by a
+    /// constant assertion that costs nothing, and `theFloorIsOnlyLoweredByItsOwnTests` keeps every
+    /// real wait on the default.
     static func poll(upTo seconds: Double,
+                     floor: Int = pumpFloor,
                      now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, passes: Int) {
         var passes = 0
         let deadline = now().addingTimeInterval(seconds)
-        while passes < pumpFloor || now() < deadline {
+        while passes < floor || now() < deadline {
             passes += 1
             if condition() { return (true, passes) }
             try? await Task.sleep(nanoseconds: 8_000_000)
