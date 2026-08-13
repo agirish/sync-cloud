@@ -45,7 +45,9 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     /// The names this provider will not accept.
     case names = "Names"
     /// Every name worth changing (ROADMAP 19). **Four sections**, in the order the list draws them:
-    /// names this provider will not accept (the folded ``names`` lens), then
+    /// names that will not store cleanly — this provider's rules **plus** the invisible hazards
+    /// `NameNormalizer` flags on every provider, which is why an iCloud or folder source fills this
+    /// section too (the folded ``names`` lens) — then
     /// `RenameCategories.Category`'s three — files that don't follow their folder's convention,
     /// files renumbered to make room for one of those, and files whose one-digit ordinals gain a
     /// leading zero.
@@ -256,9 +258,9 @@ extension OrganizeLens {
         case .names:       what = "Names this provider will not accept, found on the filing scan. "
                                 + "Shows the proposed fixes."
         case .renames:     what = "Names that need changing — to sync, to convention, to order: "
-                                + "names this provider will not accept, files that ignore their "
-                                + "folder's convention, and files whose numbering has to shift "
-                                + "or pad."
+                                + "names this provider rejects or any cloud would mangle, files "
+                                + "that ignore their folder's convention, and files whose "
+                                + "numbering has to shift or pad."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."
         case .rules:       what = "The rules that file things without asking. Configuration, so "

@@ -2894,7 +2894,7 @@ public struct LensWorkspaceView: View {
                             icon: "checkmark.seal.fill",
                             tint: SemanticColor.success,
                             title: "Nothing to rename",
-                            message: "Every name follows the convention its folder keeps, and every one is a name this provider can store.",
+                            message: "Every name follows the convention its folder keeps, and none carries a character a cloud would mangle.",
                             secondary: .init("Scan again", systemImage: "arrow.clockwise",
                                              handler: onFindFilingSuggestions)
                         )
@@ -3278,7 +3278,11 @@ public struct LensWorkspaceView: View {
                                         : "\(n) to change",
                                     examples: {
                                         let fix = scopedRisky.isEmpty ? nil
-                                            : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") this provider will not accept"
+                                            // Not "this provider will not accept": an iCloud or
+                                            // folder source has no naming rules of its own and
+                                            // still reports here, because the invisible-hazard
+                                            // half of the check runs on every provider.
+                                            : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") that won't store cleanly"
                                         return [fix, tally.breakdown.isEmpty ? nil : tally.breakdown]
                                             .compactMap { $0 }
                                     }())

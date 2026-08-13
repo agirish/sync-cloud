@@ -20,9 +20,10 @@ import SwiftUI
 struct RenamePassLens: View {
     @ObservedObject var syncManager: FileSyncManager
     let plans: [RenamePlan]
-    /// The folded Names lens (P10): names this provider will not accept, leading the list as a
-    /// "to fix" section — present only when it reports, like every category here. Error-tier
-    /// red, not caution: these names break sync until they change.
+    /// The folded Names lens (P10): names that will not store cleanly — this provider's own rules,
+    /// plus the invisible hazards `NameNormalizer` flags on **every** provider — leading the list
+    /// as a "to fix" section, present only when it reports, like every category here. Error-tier
+    /// red, not caution: unlike the rest of the backlog, nothing here is housekeeping.
     var riskyNames: [RiskyName] = []
     let accent: Color
     let onApply: ([RenamePlan]) -> Void
@@ -100,6 +101,39 @@ struct RenamePassLens: View {
 
     // MARK: The to-fix section (the folded Names lens)
 
+    /// A risky name with its invisible characters made visible — an affix or exotic space as "␣",
+    /// a zero-width scalar as "◌", both in the error tier this section wears.
+    ///
+    /// **Restored here after the fold dropped it.** The retired standalone lens drew every risky
+    /// name through this rule; when the findings moved into this section (v4.0 polish P10) they
+    /// came as a plain `Text`, and a whole class of finding stopped being legible: `NameNormalizer`
+    /// flags a hidden zero-width scalar or a non-standard space on **every** provider, so
+    /// "report.pdf → report.pdf" — identical to the eye, differing by a character that has no
+    /// width — is the ordinary case here, not an edge one. The reason line still named the problem
+    /// in words; the name itself showed nothing.
+    ///
+    /// An `AttributedString` rather than the old per-character `HStack`, so the row keeps the
+    /// `lineLimit(1)` and middle truncation every other name in this lens has. The retired view
+    /// laid its cells out in an HStack and carried a `lineLimit` that could not truncate one, so a
+    /// long name pushed the row instead of eliding.
+    ///
+    /// The rule is ``InvisibleNameMarking`` (Sync), shared with the kept-names list in
+    /// Settings ▸ Organize so the two cannot disagree about how many trailing spaces a name has.
+    /// The tint is the caller's: that list wears caution (a name you chose to keep), this section
+    /// wears error (a name that is still broken).
+    static func marked(_ name: String) -> AttributedString {
+        var out = AttributedString()
+        for cell in InvisibleNameMarking.cells(for: name) {
+            var piece = AttributedString(cell.glyph)
+            if cell.isMarker {
+                piece.foregroundColor = SemanticColor.error
+                piece.backgroundColor = SemanticColor.error.opacity(PillVariant.fillOpacity)
+            }
+            out.append(piece)
+        }
+        return out
+    }
+
     /// Names the provider rejects, above every category: the one kind of rename that isn't
     /// housekeeping — sync fails until these change — so it opens the list and wears the error
     /// tier. Rendered only when it reports; a clean name check adds no empty section.
@@ -113,7 +147,7 @@ struct RenamePassLens: View {
                         .frame(width: 12)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
-                            Text(risky.currentName)
+                            Text(Self.marked(risky.currentName))
                                 .scaledFont(.callout)
                                 .fontWeight(.medium)
                                 .lineLimit(1)
@@ -156,7 +190,14 @@ struct RenamePassLens: View {
             HStack(spacing: 8) {
                 Pill(.mini, tint: SemanticColor.error,
                      count: riskyNames.count, label: "to fix")
-                Text("Names this provider will not accept — sync breaks until they change.")
+                // **Two classes, and the copy used to name one.** `NameNormalizer.risky` reports a
+                // name when its sanitized form differs, and sanitize's first layer runs "always,
+                // for every provider" — zero-width scalars dropped, exotic whitespace folded — so
+                // an iCloud or folder source, which has no naming rules of its own, still fills
+                // this section. "Names this provider will not accept" was false for exactly those
+                // sources, and "sync breaks until they change" overstated the invisible class,
+                // whose own reason line says it "can create invisible duplicates".
+                Text("Names this provider rejects, plus hidden characters any cloud mangles.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

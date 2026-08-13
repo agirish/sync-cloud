@@ -40,7 +40,14 @@ enum LensIntros {
             // drifted" — but a `RenamePlan` is only *identified* by a folder; every step it holds
             // renames a file inside it, and the sample row two lines below this card has always
             // shown `1. Jan 2011.pdf → 01. Jan 2011.pdf`. The words and the samples disagreed.
-            message: "Find names worth changing — ones this provider can't store, files that ignore their folder's convention, and files whose numbering has drifted.",
+            //
+            // **"Won't store cleanly", not "this provider can't store".** An iCloud or folder
+            // source has no naming rules of its own and still fills the to-fix section, because
+            // `NameNormalizer`'s invisible-hazard layer runs on every provider. The umbrella also
+            // has to stay SHORT: naming both classes explicitly ("rejects or any cloud would
+            // mangle") ran this to three lines and put the trigger 15pt below every other lens's
+            // — `everyLensTriggerLandsAtTheSameHeight` allows 2, and caught it.
+            message: "Find names worth changing — ones that won't store cleanly, files that ignore their folder's convention, and files whose numbering has drifted.",
             safety: "Nothing is renamed without your say-so, and every rename is undoable."
         )
     }
