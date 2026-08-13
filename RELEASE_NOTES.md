@@ -89,8 +89,14 @@ section first.
 
 - **A fourth workspace with no lens and no opinion.** One tree at full width,
   nothing proposing anything: where you go when you do not want a lens's view of
-  your files. The app still opens where it always has, on Compare, and remembers
-  wherever you leave it.
+  your files.
+- **A new install now opens here**, rather than on a comparison of two clouds it
+  has not scanned yet. **Upgrades are unaffected** — you carry a stored workspace
+  and the app still resumes wherever you left it; only a machine with nothing
+  stored is answered by this. It also settles a disagreement nobody could see: a
+  stored selection this build cannot read has always fallen back to Browse, while
+  a first run went to Compare, and both places in the code claimed those were the
+  same. They now are, and a test fails if they part again.
 
 ### Before you upgrade: this is a one-way door for automation rules
 

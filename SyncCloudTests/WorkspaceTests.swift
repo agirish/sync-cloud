@@ -6,6 +6,59 @@ import FileExplorer
 /// The flat workspace selection, and the migrations off every selection it has replaced.
 @Suite struct WorkspaceTests {
 
+    // MARK: The two defaults that have to agree
+
+    /// **Where a first run lands and where an unresolvable selection lands must be the same place.**
+    ///
+    /// They are two constants in two files, reached by different paths: `migrateSelection` returns
+    /// nil when nothing is stored — deliberately, so `@AppStorage` answers a first run — while
+    /// ``WorkspaceSelection/default`` answers a stored value this build cannot read. Both files
+    /// claim the two agree. They did not: the fallback was `.browse` and the `@AppStorage` default
+    /// `.compare`, so a fresh install opened on Compare and a corrupted one on Browse, and the
+    /// claim was false in the direction nobody looks at.
+    ///
+    /// Source-level because there is no other way to see it: `ContentView` declares private stored
+    /// properties, so its memberwise initializer is `private` and `@testable` cannot mount it, and
+    /// a value that only ever comes from `@AppStorage`'s own default is not reachable from a test
+    /// at all. Reading the declaration is the only observation available.
+    @Test func theFirstRunDefaultAgreesWithTheFallback() throws {
+        /// The workspace case named at the end of the one line matching `anchor`.
+        func workspaceCase(inFile name: String, after anchor: String) throws -> String {
+            let url = URL(fileURLWithPath: #filePath)      // …/SyncCloudTests/WorkspaceTests.swift
+                .deletingLastPathComponent()               // …/SyncCloudTests
+                .deletingLastPathComponent()               // repo root
+                .appendingPathComponent("MacApp/\(name)")
+            let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                    "cannot read \(name) — this comparison would be vacuous")
+            try #require(text.count > 500, "\(name) is implausibly short — truncated?")
+            let start = try #require(text.range(of: anchor),
+                                     "\(name) no longer contains “\(anchor)” — the declaration moved or was reworded, and this test is now measuring nothing")
+            // The rest of that line, then the token after its final `.` — `.browse` from
+            // `= .browse`, and from `WorkspaceSelection(workspace: .browse, organizeLens: nil)`.
+            let line = text[start.upperBound...].prefix { $0 != "\n" }
+            let dot = try #require(line.lastIndex(of: "."), "no case named after “\(anchor)”")
+            let name = line[line.index(after: dot)...]
+                .prefix { $0.isLetter }
+            return String(name)
+        }
+
+        let firstRun = try workspaceCase(inFile: "ContentView.swift",
+                                         after: "@AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace =")
+        let fallback = try workspaceCase(inFile: "Workspace.swift",
+                                         after: "static let `default` = WorkspaceSelection(workspace:")
+
+        // Non-vacuity: both reads must have produced a workspace that actually exists. Without
+        // this, an anchor that matched a comment — or a parse that came back empty — would compare
+        // "" to "" and pass while measuring nothing.
+        #expect(Workspace.allCases.map { String(describing: $0) }.contains(firstRun),
+                "first-run default parsed as “\(firstRun)”, which is not a Workspace case")
+        #expect(Workspace.allCases.map { String(describing: $0) }.contains(fallback),
+                "fallback parsed as “\(fallback)”, which is not a Workspace case")
+
+        #expect(firstRun == fallback,
+                "a first run opens on \(firstRun) and an unresolvable stored selection opens on \(fallback); both files document them as the same place")
+    }
+
     // MARK: Persistence format
 
     @Test func testRawValuesAreAStablePersistenceFormat() {

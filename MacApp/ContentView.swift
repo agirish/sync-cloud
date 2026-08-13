@@ -184,7 +184,18 @@ struct ContentView: View {
     /// `Workspace.migrateSelection` carries the old two-key selection forward at launch.
     /// Internal, not private: the workspace bar it drives lives in the window toolbar
     /// (ContentView+Toolbar.swift), which `private` would put out of reach.
-    @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .compare
+    ///
+    /// **`.browse`, and it must stay equal to ``WorkspaceSelection/default``.** This value is
+    /// where a *first run* lands, because `migrateSelection` deliberately writes nothing when
+    /// nothing is stored; that other constant is where an *unreadable or retired* stored value
+    /// lands. They are reached by different paths and were allowed to disagree, so a fresh install
+    /// opened on Compare while a corrupted one opened on Browse — the property both of them claim
+    /// to have, quietly false. `theFirstRunDefaultAgreesWithTheFallback` now fails if they part.
+    ///
+    /// Browse for the reason that constant gives: a file browser is a better place to land than a
+    /// comparison of two clouds nothing has scanned yet. Existing installs are untouched — they
+    /// carry a stored value that still resolves, and this default is never consulted for them.
+    @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .browse
     /// Which lens is showing inside Organize, or `nil` for its overview.
     ///
     /// Lives beside the workspace rather than inside `LensWorkspaceView` because programmatic navigation

@@ -120,22 +120,24 @@ struct WorkspaceSelection: Equatable {
     var workspace: Workspace
     var organizeLens: OrganizeLens?
 
-    /// Where a selection that no longer resolves lands. **Not where a fresh install lands.**
+    /// Where a window with nothing it can use opens: Browse, and a file browser is a better place
+    /// to land than a comparison of two clouds nothing has scanned yet.
     ///
-    /// Browse, not Compare: a file browser is a better place to land confused than a two-tree diff.
-    /// Both migration entry points fall back here — ``migratedWorkspace(_:)`` for a stored
-    /// `selectedWorkspace` this build cannot read, and ``migrated(tab:lens:)`` for a legacy pair
-    /// that was not on Tidy.
+    /// **"Nothing stored" and "unreadable" agree, and that takes two constants, not one.** They are
+    /// genuinely different paths: this value serves a *stored* selection that no longer resolves,
+    /// through ``migratedWorkspace(_:)`` and ``migrated(tab:lens:)``, while a *first run* never
+    /// reaches it at all — `migrateSelection(in:)` returns `nil` when nothing is stored, on purpose,
+    /// so the keys stay unset and `@AppStorage` supplies its own default. The one that answers a
+    /// first run is `ContentView.selectedWorkspace`.
     ///
-    /// **A first run does not reach this value, and the comment here used to say it did.**
-    /// ``migrateSelection(in:)`` returns `nil` when nothing is stored — deliberately, so the keys
-    /// stay unset and `@AppStorage` supplies its own default — and that default is
-    /// `ContentView.selectedWorkspace = .compare`. So "nothing stored" and "unreadable" do **not**
-    /// agree today: nothing stored opens Compare, unreadable opens Browse. Making them agree means
-    /// changing the `@AppStorage` default, which is a change to what every new user sees first,
-    /// not a comment fix — so it is left as a decision rather than made silently here.
+    /// They were `.browse` and `.compare` respectively, so the agreement this comment claimed was
+    /// false in the one direction nobody looks: a fresh install opened on Compare, a corrupted one
+    /// on Browse. `theFirstRunDefaultAgreesWithTheFallback` reads both out of the source and fails
+    /// if they part again, because nothing else can — no test can mount `ContentView`, and the two
+    /// declarations sit in different files.
     ///
-    /// Existing installs are untouched either way: they carry a stored selection that resolves.
+    /// Existing installs are untouched: they carry a stored selection that still resolves, and
+    /// neither default is consulted for them.
     static let `default` = WorkspaceSelection(workspace: .browse, organizeLens: nil)
 }
 
