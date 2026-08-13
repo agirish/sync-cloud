@@ -1,4 +1,4 @@
-# SyncCloud — Refactoring Candidates (v2.5 / v3.0)
+# SyncCloud — Refactoring Candidates
 
 Places where the code is **correct but entangled**: functions whose invariants are held together by
 prose comments and careful ordering rather than by structure, so the next change to them is riskier
@@ -403,13 +403,13 @@ Recorded so they are not re-flagged by a future review:
 
 | File | Size | Why skipped |
 |---|---|---|
-| `Modules/FileExplorer/.../TidyView.swift` | 1576 | Five independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
-| `Modules/FileExplorer/.../DifferencesView.swift` | 1496 | Header compaction ladder + review mode + search + table. The genuinely coupled part (the collapse rule) was already extracted to `DifferencesView.isCollapsedToHeaderStrip` in `517b1f0`. |
-| `Modules/Design/.../LiquidGlassStyle.swift` | 889 | Mostly sprawl — hue table, `GlassLevel`, Clear-glass constants, card modifiers. **Partial exception:** four near-identical card modifiers whose clip/chrome *ordering* differs per path. Worth a look if anyone is in there anyway; not worth a dedicated pass. |
-| `MacApp/ContentView.swift` | 1650 | Audited in the second sweep. The genuinely coupled part is item 9 (the suppression counter); the rest is composition — layout modifiers, `.onChange` mirrors of Settings, sheet/inspector plumbing — already thinned by `ContentView+SplitLayout`, `ContentView+Toolbar`, `PaneLogic`, `CompareReviewReducer`, and `DuplicateReviewCoordinator`. Splitting further buys nothing item 9 doesn't. |
-| `Modules/Settings/.../SettingsView.swift` | 1584 | Six independent tabs plus `SettingsSearchIndex`, which restates every control's on-screen label ("the single place to keep in sync when a control is added"). The duplication is real, but it is **pinned by `SettingsSearchTests`** rather than by a comment — enforced agreement is the bar, and it clears it. |
-| `Modules/Sync/.../FileSyncManager.swift` | 1581 | Six lens subsystems (Sync, Tidy, Storage, Names, Filing, Automations) on one `@MainActor` object, but each already lives in its own `FileSyncManager+*.swift` and touches its own `@Published` set. The parts that genuinely cross the lenses — the freshness counters, `prefetchedTrees`, `activeFileOperationsCount` — are item 8. What's left is stacking. |
-| `Modules/Sync/.../FilingEngine.swift` | 797 | Pure and deterministic (no disk reads, no network) — candidates carry their own confidence plus source flags, and each producer is independent. **Partial exception:** the cap `fromContent ? .medium : .high` is written out at three producer sites; if a fourth signal source lands, fold that rule into one place first. |
+| `Modules/FileExplorer/.../TidyView.swift` | 4330 | Independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
+| `Modules/FileExplorer/.../DifferencesView.swift` | 2308 | Header compaction ladder + review mode + search + table. The genuinely coupled part (the collapse rule) was already extracted to `DifferencesView.isCollapsedToHeaderStrip` in `517b1f0`. |
+| `Modules/Design/.../LiquidGlassStyle.swift` | 1015 | Mostly sprawl — hue table, `GlassLevel`, Clear-glass constants, card modifiers. **Partial exception:** four near-identical card modifiers whose clip/chrome *ordering* differs per path. Worth a look if anyone is in there anyway; not worth a dedicated pass. |
+| `MacApp/ContentView.swift` | 3153 | Audited in the second sweep. The genuinely coupled part is item 9 (the suppression counter); the rest is composition — layout modifiers, `.onChange` mirrors of Settings, sheet/inspector plumbing — already thinned by `ContentView+SplitLayout`, `ContentView+Toolbar`, `PaneLogic`, `CompareReviewReducer`, and `DuplicateReviewCoordinator`. Splitting further buys nothing item 9 doesn't. |
+| `Modules/Settings/.../SettingsView.swift` | 2994 | Independent tabs plus `SettingsSearchIndex`, which restates every control's on-screen label ("the single place to keep in sync when a control is added"). The duplication is real, but it is **pinned by `SettingsSearchTests`** rather than by a comment — enforced agreement is the bar, and it clears it. |
+| `Modules/Sync/.../FileSyncManager.swift` | 2423 | Six lens subsystems (Sync, Duplicates, Storage, Renames, Filing, Rules) on one `@MainActor` object, but each already lives in its own `FileSyncManager+*.swift` and touches its own `@Published` set. The parts that genuinely cross the lenses — the freshness counters, `prefetchedTrees`, `activeFileOperationsCount` — are item 8. What's left is stacking. |
+| `Modules/Sync/.../FilingEngine.swift` | 1220 | Pure and deterministic (no disk reads, no network) — candidates carry their own confidence plus source flags, and each producer is independent. **Partial exception:** the cap `fromContent ? .medium : .high` is written out at three producer sites; the fourth-signal-source trigger for folding that rule into one place has been met, and the fold is being done (2026-08-12). |
 
 ---
 
@@ -419,7 +419,7 @@ The review flagged the selection action-bar machinery as spanning four units (`P
 `FileTreeView`'s probes, `paneColumn`'s body resolve, `ContentView+Toolbar`'s gate) with **two
 `resolveAtTop` committers fed different selection vocabularies**.
 
-`d9b9d2f` closed the half that was actually wrong: the Tidy rail no longer participates at all
+`d9b9d2f` closed the half that was actually wrong: the single-source rail (Browse and Organize's file browser) no longer participates at all
 (it passes `nil` placement, per `FileTreeView`'s own documented contract). The remaining shape — two
 committers, one reading the *resolved bar* selection and one the *raw pane* selection — still exists
 for the compare panes, where the two sets are equal by the one-pane-selected invariant.

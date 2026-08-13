@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SyncCloud — compare, reconcile & tidy your cloud folders on macOS</title>
-<meta name="description" content="A native macOS app and CLI for comparing, reconciling, and tidying the folders you keep across iCloud Drive, OneDrive, Dropbox, and Google Drive — with column browsing, duplicate finding, AI-assisted filing, a storage treemap, and undo-everything safety.">
+<title>SyncCloud — compare, reconcile & organize your cloud folders on macOS</title>
+<meta name="description" content="A native macOS app and CLI for comparing, reconciling, and organizing the folders you keep across iCloud Drive, OneDrive, Dropbox, and Google Drive — with column browsing, duplicate finding, AI-assisted filing, a storage treemap, and undo-everything safety.">
 <link rel="icon" type="image/png" href="assets/icon-256.png?v=2">
 <meta property="og:title" content="SyncCloud for macOS">
-<meta property="og:description" content="Compare, reconcile & tidy your cloud folders — duplicates, AI filing, storage treemap, and undo-everything safety.">
+<meta property="og:description" content="Compare, reconcile & organize your cloud folders — duplicates, AI filing, storage treemap, and undo-everything safety.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="assets/screenshots/hero-compare.png">
 <style>
@@ -227,8 +227,8 @@
     <a class="brand" href="#top"><img src="assets/icon-256.png?v=2" alt="SyncCloud icon">SyncCloud</a>
     <nav class="nav-links">
       <a href="#compare">Compare</a>
-      <a href="#browsing">Browsing</a>
-      <a href="#tidy">Tidy</a>
+      <a href="#browsing">Browse</a>
+      <a href="#organize">Organize</a>
       <a href="#ai">AI Filing</a>
       <a href="#safety">Safety</a>
       <a href="#cli">CLI</a>
@@ -242,10 +242,10 @@
 <div class="hero wrap">
   <div class="eyebrow"><span class="dot"></span> Native macOS · iCloud · OneDrive · Dropbox · Google Drive</div>
   <h1>Keep your cloud folders<br><span class="g">in sync, and in order.</span></h1>
-  <p class="sub">SyncCloud compares two folders side by side and shows exactly what differs — then helps you tidy a single one: find duplicates, fix broken filenames, see where space goes, and auto-file loose documents. Everything is undoable.</p>
+  <p class="sub">SyncCloud compares two folders side by side and shows exactly what differs — then helps you organize a single one: find duplicates, fix broken filenames, see where space goes, and auto-file loose documents. Everything is undoable.</p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/agirish/sync-cloud">View on GitHub</a>
-    <a class="btn" href="#tidy">See what it does</a>
+    <a class="btn" href="#organize">See what it does</a>
   </div>
   <div class="providers">
     <span>Works with</span>
@@ -310,9 +310,9 @@
 <section id="browsing">
   <div class="wrap">
     <div class="sec-head">
-      <div class="kicker">Browsing</div>
+      <div class="kicker">Browse</div>
       <h2>Move through folders the way you think</h2>
-      <p>Panes render as columns, the way Finder does — so you can see the path you took, not just where you landed. Drill into a folder and the linked pane follows.</p>
+      <p>A whole workspace is just your files: <b>Browse</b> gives one provider the full window — no lens, no suggestions, the plain file browser. And wherever a pane appears, it renders as columns, the way Finder does — so you can see the path you took, not just where you landed. Drill into a folder and the linked pane follows.</p>
     </div>
     <div class="safe-grid">
       <div class="safe">
@@ -323,7 +323,7 @@
       <div class="safe">
         <div class="ico">👁</div>
         <h4>Preview beside the columns</h4>
-        <p>Select a file and it previews in place, pinned beside the stack rather than squeezed inside it. Available in the Tidy rail and both comparison panes.</p>
+        <p>Select a file and it previews in place, pinned beside the stack rather than squeezed inside it. Available in the Browse and Organize file browser and in both comparison panes.</p>
       </div>
       <div class="safe">
         <div class="ico">📁</div>
@@ -339,16 +339,22 @@
   </div>
 </section>
 
-<!-- ---------------- TIDY ---------------- -->
-<section id="tidy" style="background:linear-gradient(180deg,transparent,rgba(255,255,255,.015),transparent)">
+<!-- ---------------- ORGANIZE ---------------- -->
+<section id="organize" style="background:linear-gradient(180deg,transparent,rgba(255,255,255,.015),transparent)">
   <div class="wrap">
     <div class="sec-head">
-      <div class="kicker">Tidy</div>
-      <h2>Five tools to clean up a single cloud folder</h2>
-      <p>Switch a provider into the Tidy workspace and reach for whichever lens the mess calls for.</p>
+      <div class="kicker">Organize</div>
+      <h2>Five lenses to put a single cloud folder in order</h2>
+      <p>Switch a provider into the Organize workspace and reach for whichever lens the mess calls for.</p>
     </div>
 
     <div class="grid">
+      <div class="card">
+        <span class="tag">AI optional</span>
+        <div class="ico">🗂️</div>
+        <h4>To File</h4>
+        <p>Scans loose files and suggests which existing folder each one belongs in, filing it there safely. Starts fully offline; Apple Intelligence or Claude can sharpen the picks.</p>
+      </div>
       <div class="card">
         <div class="ico">🧬</div>
         <h4>Duplicates</h4>
@@ -356,24 +362,18 @@
       </div>
       <div class="card">
         <div class="ico">✏️</div>
-        <h4>Rename</h4>
-        <p>Detects filenames that break on a provider — OneDrive's forbidden characters, Dropbox's trailing spaces, zero-width and non-canonical Unicode — and fixes them, showing every invisible character first.</p>
+        <h4>Renames</h4>
+        <p>Every name worth changing: filenames that break on a provider — OneDrive's forbidden characters, Dropbox's trailing spaces, zero-width and non-canonical Unicode — plus files that ignore their folder's convention and folders whose numbering has drifted. Shows every invisible character first.</p>
       </div>
       <div class="card">
-        <span class="tag">AI optional</span>
-        <div class="ico">🗂️</div>
-        <h4>Organize</h4>
-        <p>Scans loose files and suggests which existing folder each one belongs in, filing it there safely. Starts fully offline; Apple Intelligence or Claude can sharpen the picks.</p>
+        <div class="ico">🧭</div>
+        <h4>Restructure</h4>
+        <p>Reports where the tree disagrees with its own habits — the same recurring folder shaped differently in different years. Report-only for now: it names the disagreement rather than moving anything.</p>
       </div>
       <div class="card">
         <div class="ico">⚙️</div>
-        <h4>Automations</h4>
+        <h4>Rules</h4>
         <p>Deterministic, on-device rules — "when a file matches …, file it into <code>Taxes/{year}</code>." Dry-run preview before anything moves, and SyncCloud can learn a rule after you file by hand.</p>
-      </div>
-      <div class="card">
-        <div class="ico">📊</div>
-        <h4>Storage</h4>
-        <p>A read-only treemap of where your space actually goes, plus ranked lists of the largest files, long-untouched files, and reclaim candidates.</p>
       </div>
       <div class="card" style="background:var(--grad-soft)">
         <div class="ico">🛟</div>
@@ -398,14 +398,25 @@
       </div>
     </div>
 
-    <div class="split rev" style="margin-top:72px">
+  </div>
+</section>
+
+<!-- ---------------- STORAGE ---------------- -->
+<section id="storage">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Storage</div>
+      <h2>See where the space went</h2>
+      <p>A workspace of its own, and strictly read-only — it never moves, deletes, or evicts anything.</p>
+    </div>
+    <div class="split rev">
       <div class="media cap">
         <img src="assets/screenshots/tidy-storage.png" alt="Storage treemap and reclaim lists" loading="lazy">
         <div class="capt">Storage — a proportional treemap plus largest / untouched / reclaim lists</div>
       </div>
       <div class="txt">
-        <h3>See where the space went</h3>
-        <p>The Storage lens is strictly read-only — it never moves, deletes, or evicts anything. It just shows you a treemap of your biggest folders and three ranked lists: the largest files, the ones you haven't touched in over a year, and the big-and-idle reclaim candidates.</p>
+        <h3>A treemap, and three ranked lists</h3>
+        <p>Storage shows you a treemap of your biggest folders and three ranked lists: the largest files, the ones you haven't touched in over a year, and the big-and-idle reclaim candidates.</p>
       </div>
     </div>
   </div>
@@ -417,7 +428,7 @@
     <div class="spotlight">
       <div class="spotlight-inner">
         <div class="pane">
-          <div class="kicker">Organize · AI-assisted filing</div>
+          <div class="kicker">Organize ▸ To File · AI-assisted filing</div>
           <h2>It suggests where every loose file belongs</h2>
           <p>Point Organize at a folder full of downloads and screenshots. A fast, fully-offline engine reads your existing folder names, the filenames, and — on device — a little of each file's text, then proposes a home for each one with a confidence rating and a plain-English reason.</p>
           <p>Want sharper picks? Layer AI on top. It's optional, gated, and metered — and it only ever <em>leads</em> when it's more confident than the offline engine.</p>
@@ -434,7 +445,7 @@
           </ul>
         </div>
         <div class="shot">
-          <img src="assets/screenshots/tidy-organize.png" alt="Organize suggesting folder homes for loose files" loading="lazy">
+          <img src="assets/screenshots/tidy-organize.png" alt="To File suggesting folder homes for loose files" loading="lazy">
         </div>
       </div>
     </div>
@@ -491,7 +502,7 @@
       <p>A Liquid-Glass interface with System / Light / Dark themes, 12 accent hues, and per-provider brand colours.</p>
     </div>
     <div class="gallery">
-      <figure><img src="assets/screenshots/tidy-organize.png" alt="Organize lens" loading="lazy"><figcaption>Organize — AI-assisted filing with per-file confidence and cost tracking</figcaption></figure>
+      <figure><img src="assets/screenshots/tidy-organize.png" alt="To File lens" loading="lazy"><figcaption>To File — AI-assisted filing with per-file confidence and cost tracking</figcaption></figure>
       <figure><img src="assets/screenshots/tidy-duplicates.png" alt="Duplicates lens" loading="lazy"><figcaption>Duplicates — reclaim space with a recommended keeper and Quick Look previews</figcaption></figure>
       <figure><img src="assets/screenshots/settings.png" alt="Settings" loading="lazy"><figcaption>Settings — themes, providers, sync behaviour, AI budget caps</figcaption></figure>
       <figure><img src="assets/screenshots/tidy-storage.png" alt="Storage treemap" loading="lazy"><figcaption>Storage — a proportional treemap of where space concentrates</figcaption></figure>

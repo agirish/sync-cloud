@@ -21,7 +21,7 @@ Numbers here are positional and change as the list does — **cite items by name
 
 - *"List everything not on iCloud, so I know what I'd lose if this Mac fails."*
 - *"Let me review the files on OneDrive / Dropbox that are cloud-only and not on this Mac."*
-- *"Let me point Tidy and Compare at any folder, not just cloud providers."*
+- *"Let me point Tidy [now Organize] and Compare at any folder, not just cloud providers."*
 
 The first two are opposite ends of one axis — **how many places does this file actually exist?** —
 and SyncCloud already answers it per file: `FileLocation` crosses path containment (pure string
@@ -54,16 +54,16 @@ Every file classifies into exactly one state, from one walk of the tree:
 
 ### 1b. The Backup lens — the report
 
-**What:** A sixth **workspace** (`Workspace.backup`, with a matching `TidyLens.backup` behind it),
+**What:** A fifth **workspace** (`Workspace.backup`, with a matching `TidyLens.backup` behind it),
 sitting after Storage in the bar. Note the shape this now takes: the two-level *Compare | Tidy* +
 lens picker is gone — `Workspace` collapsed both levels into the flat toolbar bar — so "add a lens"
 and "add a top-level tab" are the same act, and the cost is a bar segment rather than a structural
 change to `ContentView`'s layout modes. Storage remains the precedent for a read-only analytical
 workspace, and the shared 81pt `LensHeaderCard` rung applies unchanged.
 
-**The bar-width consequence, which is the only real cost.** Five labelled segments already exceed
+**The bar-width consequence, which is the only real cost.** The labelled segments already exceed
 the window's 760pt `minWidth` once the traffic lights and utility pill are counted, and
-`WorkspaceBarMetrics` sheds every label at once (`.full` → `.iconOnly`) when they do. A sixth
+`WorkspaceBarMetrics` sheds every label at once (`.full` → `.iconOnly`) when they do. An added
 segment moves that threshold further out, so the bar spends more of its time icon-only. Measured
 through `WorkspaceBarMetrics.styles` at the default text size, with the ⌘K pill already compact:
 today's four segments need **708pt**, five (+Backup) need **800**, six need **883** — against a
@@ -331,10 +331,10 @@ in `REFACTOR.md` item 8; do that first or accept a seventh counter.
 ## 6. CLI parity for the maintenance lenses
 
 **Why:** The `synccloud` CLI does `scan`, `sync` and `providers` — the two-pane story only. Every
-lens added since (Duplicates, Organize, Rename, Storage) is GUI-only, so none of it can be scripted,
+lens added since (To File, Duplicates, Renames, Restructure, Storage) is GUI-only, so none of it can be scripted,
 scheduled with `launchd`, or run over ssh.
 
-**What:** `synccloud tidy --dry-run --json`, `synccloud organize`, `synccloud names --check`,
+**What:** `synccloud duplicates --dry-run --json`, `synccloud organize`, `synccloud renames --check`,
 `synccloud storage --json`, and — once item 1c exists — `synccloud backup --job <id>`. The engines
 are already pure and app-independent (`DuplicateFinder`, `FilingEngine`, `NameNormalizer`,
 `StorageLensAnalyzer` are stateless statics over a walked tree), so this is command surface and
@@ -354,7 +354,7 @@ always-on answer for item 1c, which nothing in-app can give.
 providers" is an invariant the Compare handoff relies on. But the single most likely place to be
 storing the same 4 GB twice is iCloud *and* OneDrive.
 
-**What:** A Tidy mode that hashes two provider trees and groups across them, with a keeper heuristic
+**What:** A cross-provider Duplicates mode that hashes two provider trees and groups across them, with a keeper heuristic
 that understands "keep the copy on the provider you chose" rather than "keep the shallowest path".
 The Compare duplicate-review handoff pins both panes to one provider today, so a cross-provider
 group needs that pin logic generalized. The v3.1 persisted hash index takes most of the recurring
@@ -611,7 +611,7 @@ means first working out which era you are standing in. No per-file verdict can e
 the defect is not in any file.
 
 **What:** A finding of Organize's scan that reads the filing profile, reports where the tree
-disagrees with itself, and proposes a plan to fix it. **Not a sixth workspace, and not a *Structure*
+disagrees with itself, and proposes a plan to fix it. **Not a fifth workspace, and not a *Structure*
 tab beside *Files* either** — which is what this item proposed until 2026-08-07.
 
 **Placement, as shipped:** a **rail item inside Organize**, not a chip and not a segment. The rail
@@ -620,7 +620,7 @@ argument that settled it is the one this item cares about: *pointed invocation n
 exists before any scan has run*, and a chip that materialises only after a finding has nowhere for
 "restructure this folder" to land.
 
-A sixth labelled segment costs **104 pt** of bar at the default text size (measured through
+Another labelled segment costs **104 pt** of bar at the default text size (measured through
 `WorkspaceBarMetrics.fullWidth` with the real labels at `.semibold`: 779 pt → 883 pt, and 99 / 111 pt
 at the small and large sizes). Because the bar sheds every label at once, that takes the whole
 779–883 pt band to glyphs, and items 1b and 16 are both ahead of this in the queue for that space.
@@ -628,11 +628,12 @@ at the small and large sizes). Because the bar sheds every label at once, that t
 The sub-tab was the same burial one level down: a tab you have to remember to visit, rendering
 "Structure 0" on the days there is nothing — against a detector set that returns **eleven findings
 across 2,798 folders** and, once they are acted on, nothing for months. So it takes the shape the
-app already chose for risky names, whose argument is in `TidyView.organizeFocusChip` and applies here
+app already chose for risky names — now carried by the Organize rail's badge rule (`OrganizeLens`:
+the item is permanent, the badge absent at zero) — and it applies here
 more strongly: *a tab you have to remember to visit is a check nobody runs; reporting beats asking.*
 A chip is louder than a tab because it is self-announcing — absent at zero, carrying its count when
 it is not. Deliberate access is the palette (14), a Home tile (16), and a folder row's context menu.
-Not a Tidy mode either — Tidy judges a compared pair; this judges one tree against its own habits.
+Not a Compare handoff either — that judges a compared pair; this judges one tree against its own habits.
 
 **The groundwork has landed.** `OrganizeFocus` replaced Organize's `showingRiskyNames` Bool with a
 selection, and the queue joined the finding as a chip, so adding structure findings is a third case
@@ -1006,7 +1007,7 @@ weight starts tracking how much attention it deserves.
 
 ---
 
-### Make the Tidy stat pills the filter
+### Make the Duplicates stat pills the filter
 
 **Now:** `TidyView` renders the header tally as `StatPill(...)` — *N groups*, *N redundant*,
 *N need review*, *N skipped* — capsule-shaped, semantically coloured, and completely inert. The
@@ -1164,7 +1165,7 @@ Cited by name; this list has no stable numbering.
 |------|--------|--------|
 | Fold Change + Copy-to into a Direction lane | Medium | **Highest** — ~500 pt back to Name |
 | Drop the "Identical" badge from the majority row | Small | High — the exceptions become findable |
-| Make the Tidy stat pills the filter | Small | Medium–High — removes a duplicate control |
+| Make the Duplicates stat pills the filter | Small | Medium–High — removes a duplicate control |
 | Magnitude bars behind the largest-files list | Small | Medium–High — best value per unit of work |
 | One sequential ramp for the treemap | Small | Medium |
 | Name the compared pair in the title bar | Small | Medium |
@@ -1190,7 +1191,7 @@ one to invent.
 
 Taken together they are the first work aimed at the *backlog* rather than at the scan: one surveyed
 tree carries 524 loose files at its root, 682 files with a duplicate marker in the name, 68 duplicate
-groups that hash-based Tidy silently misses, and one thirteen-year folder series filed four different
+groups that the hash-based Duplicates scan silently misses, and one thirteen-year folder series filed four different
 ways. **17 and 21 are together the cheapest route to a good free tier** — between the tree's own
 conventions and what its folders already contain, most routes are decidable by arithmetic, so fewer
 files ever reach the paid refine pass.

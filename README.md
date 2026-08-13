@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/agirish/sync-cloud/actions/workflows/tests.yml/badge.svg)](https://github.com/agirish/sync-cloud/actions/workflows/tests.yml)
 
-**A native macOS app (and `git`-style CLI) for comparing, reconciling, and tidying the folders you keep across cloud providers** — iCloud Drive, OneDrive, Dropbox, and Google Drive.
+**A native macOS app (and `git`-style CLI) for comparing, reconciling, and organizing the folders you keep across cloud providers** — iCloud Drive, OneDrive, Dropbox, and Google Drive.
 
 🌐 **[Explore the features & screenshots →](https://agirish.github.io/sync-cloud/)**
 
@@ -10,11 +10,14 @@
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud two-pane comparison" width="900">
 </p>
 
-SyncCloud has two workspaces. **Compare** puts two folders side by side and shows exactly what
-differs — what's missing on each side, what's newer, what only *looks* the same — and lets you copy,
-move, or reconcile items with one click. **Tidy** points a single provider at five clean-up tools:
-find duplicates, fix cloud-hostile filenames, visualize where your space goes, and auto-organize
-loose files into the right folders (optionally with on-device Apple Intelligence or Claude).
+SyncCloud has four workspaces. **Browse** is the plain file browser — one provider's tree, full
+width, nothing proposed, for the moves you make by hand. **Compare** puts two folders side by side
+and shows exactly what differs — what's missing on each side, what's newer, what only *looks* the
+same — and lets you copy, move, or reconcile items with one click. **Organize** points a single
+provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**, **Restructure**, and
+**Rules** — that file loose documents into the right folders (optionally with on-device Apple
+Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and straighten a tree that
+disagrees with its own habits. **Storage** is a read-only view of where your space actually goes.
 
 Every destructive action is Trash-backed, atomically applied, and reversible with a single **⌘Z**.
 
@@ -40,21 +43,29 @@ Every destructive action is Trash-backed, atomically applied, and reversible wit
 - **Bulk or single** copy/move/delete/new-folder from the action bar, context menus, or the
   keyboard (`⌘→ / ⌘←` to copy, add `⇧` to move).
 
-### 🧹 Tidy — clean up one provider
+### 🗂️ Organize — put one provider in order
+One rail, five lenses:
+- **To File** — scans the loose files in an inbox folder and **suggests which existing folder each
+  one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
 - **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted
   **versions** (`Report`, `Report (1)`, `Report-final`), and **name-only** clashes. Picks a smart
   keeper (never the one buried in `archive/old/backup`), previews each copy with Quick Look
   thumbnails, and reclaims space — always to the Trash, never trashing the last copy.
-- **Rename** — detects filenames that break on a given provider (OneDrive's forbidden characters and
-  reserved names, Dropbox's trailing spaces/periods, zero-width and non-canonical Unicode everywhere)
-  and fixes them, showing every invisible character before you commit. "Fix all" is one undo.
-- **Organize** — scans the loose files in an inbox folder and **suggests which existing folder each
-  one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
-- **Automations** — deterministic, on-device rules ("when a file matches …, file it into
+- **Renames** — every name worth changing: filenames that break on a given provider (OneDrive's
+  forbidden characters and reserved names, Dropbox's trailing spaces/periods, zero-width and
+  non-canonical Unicode everywhere), files that ignore their folder's naming convention, and folders
+  whose numbering has drifted — showing every invisible character before you commit. "Fix all" is
+  one undo.
+- **Restructure** — reports where the tree disagrees with its own habits (the same recurring folder
+  shaped differently in different years). Report-only for now: naming the disagreement is the half that cannot do any harm.
+- **Rules** — deterministic, on-device rules ("when a file matches …, file it into
   `Taxes/{year}` …") with a dry-run preview. SyncCloud can also *learn* a rule after you file
   something by hand.
-- **Storage** — a read-only **treemap** of where your space actually goes, plus ranked lists of the
-  largest files, long-untouched files, and reclaim candidates.
+
+### 📊 Storage — see where the space goes
+A read-only **treemap** of where your space actually goes, plus ranked lists of the largest files,
+long-untouched files, and reclaim candidates. Strictly read-only: it never moves, deletes, or
+evicts anything.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename
@@ -81,9 +92,9 @@ themes, 12 accent hues, per-provider brand colours, and adjustable list density.
 
 ## Screenshots
 
-| Compare | Duplicates | Organize (AI filing) |
+| Compare | Organize ▸ Duplicates | Organize ▸ To File (AI filing) |
 |---|---|---|
-| ![Compare](docs/assets/screenshots/hero-compare.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) | ![Organize](docs/assets/screenshots/tidy-organize.png) |
+| ![Compare](docs/assets/screenshots/hero-compare.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) | ![To File](docs/assets/screenshots/tidy-organize.png) |
 
 | Storage treemap | Undo everywhere | Settings |
 |---|---|---|
@@ -156,7 +167,7 @@ SyncCloud/
 ├── MacApp/                     # SwiftUI app (ContentView, toolbar, app entry, filing classifiers)
 ├── Modules/                    # SPM packages:
 │   ├── Sync/                   #   diff engine, file ops, duplicates, filing/automations, storage lens
-│   ├── FileExplorer/           #   panes, differences, Tidy lenses, review
+│   ├── FileExplorer/           #   panes, differences, Organize lenses, review
 │   ├── Dashboard/              #   activity log, details, breadcrumbs, sync history
 │   ├── Settings/               #   settings UI + persistence
 │   ├── Design/                 #   Liquid Glass design system

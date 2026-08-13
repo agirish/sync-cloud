@@ -112,8 +112,8 @@ the temp and is discarded on cancel). **Effort:** medium. **Risk:** medium.
 
 ## 6. Content verification's three blind spots: cloud-only, >100 MB, hard-linked
 
-**Today:** Anything that needs a content hash — Tidy's duplicate detection and Verify All — skips
-three classes of file, and the Tidy scan **counts and reports** each reason
+**Today:** Anything that needs a content hash — Organize ▸ Duplicates and Verify All — skips
+three classes of file, and the duplicate scan **counts and reports** each reason
 (`DuplicateScanSkips`: `tooLarge`, `cloudOnly`, `multiLink`, surfaced in the results view and in a
 log line that ends "duplicates among them are not detected"):
 
