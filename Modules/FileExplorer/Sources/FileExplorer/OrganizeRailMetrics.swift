@@ -285,11 +285,16 @@ enum OrganizeRailMetrics {
     /// drawn from different vocabularies — and the one thing worse than a rail that sheds is two
     /// rails in one header shedding by different rules.
     ///
-    /// Measured at 417.8pt with all three lists reporting, against a trailing set of roughly 130
-    /// (Reanalyze and the search toggle), so it clears every width this app is used at with room to
-    /// spare. It is modelled anyway: Storage's leading half was empty until this rail filled it,
-    /// and an unmodelled control on this side of the row is exactly how a 21pt intro button once
-    /// rode here uncharged.
+    /// Measured at 417.8pt with all three lists reporting, against the only thing row 1 reserves —
+    /// ``searchToggleWidth``, 36pt — so it clears every width this app is used at with room to
+    /// spare. **Reanalyze is not in that reserve.** This said "roughly 130 (Reanalyze and the
+    /// search toggle)", which described row 1 as it stood before Storage's controls moved down
+    /// beside Organize's; ``style(contentWidth:leadingWidth:)`` has charged the toggle alone since,
+    /// so the arithmetic was right and only the sentence named a row that no longer exists.
+    ///
+    /// It is modelled anyway: Storage's leading half was empty until this rail filled it, and an
+    /// unmodelled control on this side of the row is exactly how a 21pt intro button once rode here
+    /// uncharged.
     static func storageLeadingWidth(scale: CGFloat,
                                     state: (StorageSection) -> RailItemState) -> CGFloat {
         // The ramp's curve, not `11.5 * scale` — see ``overviewItemWidth(scale:margin:)``.

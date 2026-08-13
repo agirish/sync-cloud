@@ -172,17 +172,28 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The offer's glyph — each borrowed from the control that already runs this pass elsewhere,
-    /// so the card and the toolbar button that do the same thing look like the same thing.
+    /// The offer's glyph — borrowed from the control that already runs this pass elsewhere where
+    /// there is one to borrow, so the card and the button that do the same thing look the same.
     ///
     /// Duplicates **asks the rail item** rather than restating it. It said `wand.and.stars`, which
     /// is Rules' glyph: the overview drew the duplicate-pass card and the rail's Rules item with
     /// the same symbol, on one screen, meaning two different things — while the control this card
     /// is supposed to look like sat a few points away wearing `doc.on.doc`. Restating a glyph is
     /// how it drifts from the thing it is quoting; this cannot.
+    ///
+    /// **The file pass has nothing to borrow, which is why it gets a symbol of its own.** It wore
+    /// `FilingGlyph.lens` — `folder.badge.gearshape`, which is also `OrganizeLens.renames` — and
+    /// the two appear together on the overview, so that was the Rules collision again with
+    /// different pieces. Duplicates could be fixed by quoting its one lens; this pass answers
+    /// three, so there is no one rail item it is the picture of, and taking any of them would say
+    /// the walk is about that lens. `doc.text.magnifyingglass` names what the pass actually does
+    /// instead — read every file in the tree — and it collides with nothing here: the rail's six,
+    /// `brain`, `doc.on.doc` and the overview's `square.grid.2x2` are all shapes about places,
+    /// where this is a shape about looking. The rail item keeps its glyph, deliberately: rail
+    /// identities are what a user navigates by, and the card is the newer, less-learned picture.
     var symbol: String {
         switch self {
-        case .file: return FilingGlyph.lens
+        case .file: return "doc.text.magnifyingglass"
         case .duplicates: return OrganizeLens.duplicates.symbol
         case .folderMemory: return "brain"
         }

@@ -108,16 +108,6 @@ enum TidyMatchStyle {
         case .versions: return "Versions"
         }
     }
-    static func filterColor(_ f: TidyFilter) -> Color {
-        switch f {
-        case .all: return .secondary
-        case .identical: return SemanticColor.success
-        case .sameText: return SemanticColor.caution
-        case .overlapping: return SemanticColor.warning
-        case .nameOnly: return SemanticColor.caution
-        case .versions: return .purple
-        }
-    }
 }
 
 // MARK: - Scan-start session reset
@@ -369,9 +359,17 @@ public struct TidyView: View {
         onRequestDestination: @escaping (PendingDestination) -> Void = { _ in },
         revealRequest: DuplicateRevealRequest? = nil,
         onRevealHandled: ((UUID) -> Void)? = nil,
-        onFindDuplicatesOf: ((String) -> Void)? = nil
+        onFindDuplicatesOf: ((String) -> Void)? = nil,
+        initialSearchQueries: [TidyLens: String] = [:]
     ) {
         self.syncManager = syncManager
+        // The one seam into `searchQueries`, which is otherwise `@State` seeded empty and reachable
+        // only by typing — and SwiftUI is undrivable from a unit test, so **every behaviour that
+        // depends on a live query was untestable**: what the header counts, what the field shows,
+        // which page answers a query at all. That is not a small blind spot, it is where three of
+        // this screen's defects lived. The app passes nothing and gets today's behaviour exactly;
+        // the shape is `SettingsRail.versionText`'s, for the same reason.
+        _searchQueries = State(initialValue: initialSearchQueries)
         self.lens = lens
         self.providerName = providerName
         self.scanTargetFolder = scanTargetFolder
@@ -507,6 +505,16 @@ public struct TidyView: View {
         lens != .storage && railLens == nil
     }
 
+    /// Whether the overview is what the content card is **drawing** — which is not the same
+    /// question as ``showingOverview``, and the difference has already cost one suite its subject.
+    ///
+    /// `showingOverview` means *no rail item is selected*. The overview is rendered from
+    /// `contentCard`'s `.filing` arm alone, so a view whose apparatus is `.duplicates` with no rail
+    /// selection draws a group list and is not on the overview at all. `filteredRows` learned that
+    /// distinction the hard way (see the guard there); this is the same question asked once, so the
+    /// three places that need it — the rows, the query, the readout — cannot answer it differently.
+    private var overviewIsOnScreen: Bool { showingOverview && effectiveLens == .filing }
+
     /// The lens whose grammar, pills, actions and content are on screen right now.
     ///
     /// `lens` is where you ARE (which workspace); this is what you are LOOKING AT (which rail
@@ -531,20 +539,56 @@ public struct TidyView: View {
 
     /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
     /// rather than carrying it into a grammar that would read it differently.
+    ///
+    /// Reads ``query``, so the overview reads back the empty string it actually answers with rather
+    /// than To File's parked text — and writes are dropped there for the same reason: nothing on
+    /// the overview may edit a query belonging to a list it is not showing.
     private var searchText: Binding<String> {
-        Binding(get: { searchQueries[effectiveLens] ?? "" }, set: { searchQueries[effectiveLens] = $0 })
+        Binding(get: { query },
+                set: { text in
+                    guard !overviewIsOnScreen else { return }
+                    searchQueries[effectiveLens] = text
+                })
     }
 
+    /// Whether the search field is open — and, on the overview, **where the toggle sends you
+    /// instead of opening one.**
+    ///
+    /// The overview answers no query (see ``query``), so a field opened over it would be a control
+    /// that does nothing, and a toggle whose write is simply dropped would be a control that does
+    /// nothing *invisibly*. The one honest thing left is where the query would go: this apparatus's
+    /// slot is To File's, so searching from the overview means searching To File, and the click
+    /// takes you there with the field open. The overview is left the way the ✕ leaves it — no
+    /// residue, nothing to close.
     private var isSearchExpanded: Binding<Bool> {
         Binding(
-            get: { searchExpandedLenses.contains(effectiveLens) },
+            get: { !overviewIsOnScreen && searchExpandedLenses.contains(effectiveLens) },
             set: { expanded in
+                if overviewIsOnScreen {
+                    // Collapse cannot arrive here — the getter is already false — so the only
+                    // write worth honouring is the one that asks to search.
+                    guard expanded else { return }
+                    railLens = .toFile
+                    searchExpandedLenses.insert(TidyLens.filing)
+                    return
+                }
                 if expanded { searchExpandedLenses.insert(effectiveLens) } else { searchExpandedLenses.remove(effectiveLens) }
             }
         )
     }
 
-    private var query: String { searchQueries[effectiveLens] ?? "" }
+    /// What this page is narrowed by — **empty whenever the page answers no query.**
+    ///
+    /// The overview is that page. It draws every lens's answer for the scope and filters none of
+    /// them, and it has no query slot of its own: it borrows `.filing`'s, which belongs to To File.
+    /// So a query typed on To File used to follow you onto the overview and sit there in an open
+    /// field with live chips, narrowing nothing — while the readout below it, counting rows the
+    /// overview does not draw, read "0 of 24".
+    ///
+    /// Returning empty here retires all three at once: no chips (``searchChips``), no field
+    /// (``searchText`` reads this), and no "N of M" (``isFiltered``). **The parked query is not
+    /// cleared** — it is To File's, and it is waiting there when you go back.
+    private var query: String { overviewIsOnScreen ? "" : (searchQueries[effectiveLens] ?? "") }
     /// True when this lens's list is narrowed by anything — the cue for the "N of M" readout.
     private var isFiltered: Bool {
         !query.isEmpty || filterIsNarrowing
@@ -636,9 +680,10 @@ public struct TidyView: View {
         // painting nothing — two pixel comparisons that had been the suite's sharpest assertions
         // both fell to zero difference.
         //
-        // So the condition mirrors the one the content card actually branches on. Cheap either way;
-        // the point is that it is now the same question.
-        guard !(showingOverview && effectiveLens == .filing) else { return rows }
+        // So the condition mirrors the one the content card actually branches on — as
+        // ``overviewIsOnScreen``, which is that question asked once for every reader of it. Cheap
+        // either way; the point is that it is the same question.
+        guard !overviewIsOnScreen else { return rows }
         switch effectiveLens {
         case .duplicates:
             let q = DuplicateSearch.parse(query)
@@ -652,6 +697,16 @@ public struct TidyView: View {
             }
         case .filing where showingRenameBacklog:
             rows.renames = syncManager.renamePlans.filter {
+                OrganizeScopeFilter.matches($0, scope: scope)
+                    && RenameBacklogSearch.matches(query, $0)
+            }
+            // **The to-fix rows are part of this list, so they come through the same filter.**
+            // The backlog draws them above the categories (the folded Names lens), and they were
+            // resolved inline in `contentCard` off the manager — scoped but never searched. One
+            // list narrowed in two different ways is exactly what `FilteredRows` exists to stop:
+            // the badge counted 131, the readout 126, and the rows on screen were 3 plans plus 5
+            // fixes that no query could touch.
+            rows.risky = syncManager.riskyNames.filter {
                 OrganizeScopeFilter.matches($0, scope: scope)
                     && RenameBacklogSearch.matches(query, $0)
             }
@@ -690,8 +745,14 @@ public struct TidyView: View {
     /// filtered there — see `StorageSearch` for why the treemap is deliberately left whole.
     private var storageQuery: StorageSearch.Query { StorageSearch.parse(query) }
 
-    /// The counts behind Storage's "N of M": the three ranked lists, before and after the query.
-    /// "N of M" for Storage — **over the lists the body is actually showing.**
+    /// "N of M" for Storage — **over the lists the body is actually showing, and nil before there
+    /// is a report to count.**
+    ///
+    /// Nil rather than `(0, 0)`, which is the rail's own rule arriving at the readout: a storage
+    /// lens that has not run cannot claim there are no large files, it can only say it has not
+    /// looked. `storageRailItem` says exactly that two members up — the count is absent before a
+    /// report, not zero — while this row, over the intro card's "Analyze storage" pitch, answered a
+    /// query with "0 of 0": a scan's result, reported by a scan that never ran.
     ///
     /// It summed all three ranked lists unconditionally, which was right while the page was always
     /// all three. The rail can narrow it to one now, and the unchanged sum described a page nobody
@@ -702,15 +763,14 @@ public struct TidyView: View {
     /// The selection narrows *which lists*; the query narrows *within them*. Both are needed: N is
     /// the rows on screen and M is the list before the transient narrowing, and after the rail
     /// "this list" means the selected section.
-    private var storageCounts: (filtered: Int, total: Int) {
-        guard let report = syncManager.storageLensReport else { return (0, 0) }
+    private var storageCounts: (filtered: Int, total: Int)? {
+        guard let report = syncManager.storageLensReport else { return nil }
         let q = storageQuery
         return StorageSection.counts(in: report, section: storageSection) { q.matches($0) }
     }
 
-    /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups (the menu
-    /// used to run a full filter per TidyFilter case on every render).
-    /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups.
+    /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups — the menu
+    /// used to run a full filter per `TidyFilter` case on every render.
     ///
     /// **Counted within the scope**, and that is a different question from the one the search
     /// raises. Counting all groups rather than the *search-narrowed* ones is deliberate and stays —
@@ -996,9 +1056,10 @@ public struct TidyView: View {
 
     /// Storage's rail: All, then its three ranked lists.
     ///
-    /// Measured at 417.8pt against a ~130pt trailing set, so it never sheds at any width this app
-    /// is used at — but it takes ``railStyle`` anyway, because the one thing worse than a rail that
-    /// sheds is two rails in one header that shed by different rules.
+    /// Measured at 417.8pt against row 1's whole reserve — the 36pt search toggle, Reanalyze having
+    /// moved to row 2 — so it never sheds at any width this app is used at. It takes ``railStyle``
+    /// anyway, because the one thing worse than a rail that sheds is two rails in one header that
+    /// shed by different rules.
     @ViewBuilder
     private var storageRail: some View {
         let state = storageRailState
@@ -1332,11 +1393,6 @@ public struct TidyView: View {
         }
     }
 
-    /// How many of the profile's folders sit inside the scope, or nil when there is no profile to
-    /// count against.
-    ///
-    /// Counted from the folder profile rather than by walking the disk — the profile is already in
-    /// memory, and a chip in a header must not touch the filesystem on every render.
     /// How many of the profile's folders sit inside the scope, or **nil when that is unknown**.
     ///
     /// Unknown covers two cases and neither may render as a number: there is no profile at all, and
@@ -1607,14 +1663,6 @@ public struct TidyView: View {
             }())
     }
 
-    /// What each rail item promises. Written to read correctly whether or not it is the selected
-    /// one — selection is carried by the ring and by `.isSelected`, not by swapping the words.
-    ///
-    /// **It takes the state, not the badge, because `badge ?? 0` was telling a lie the rest of this
-    /// change exists to stop.** A nil badge means "no number to show", which is true of a lens that
-    /// scanned and found nothing *and* of one that has never run — and this read the second as the
-    /// first, so a never-scanned queue's tooltip said "0 loose files **this scan found**", asserting
-    /// a scan that had not happened. The three states have three different sentences.
     /// Organize's readout while the rename backlog is on screen: what the listed plans would do,
     /// **in files**, since the chip beside it counts folders and nothing renames a folder.
     ///
@@ -1685,14 +1733,19 @@ public struct TidyView: View {
             case .duplicates: ofMLabel(rows.duplicates.count, counts.duplicates)
             case .rename: ofMLabel(rows.risky.count, counts.names)
             case .filing where showingRenameBacklog:
-                // The backlog's own numbers. Left as the queue's, this said "3 of 24" about a list
-                // that is not on screen while the backlog sat under it unfiltered.
-                ofMLabel(rows.renames.count, counts.renames)
+                // The backlog's own numbers, over **the whole backlog**. Left as the queue's, this
+                // said "3 of 24" about a list that is not on screen; left as `counts.renames` it
+                // then described two thirds of the one that is. The list draws folder plans *and*
+                // the folded to-fix names, the badge above counts both (`RailCounts.subscript`), so
+                // both ends of this readout count both: N is every row on screen and M is
+                // `counts[.renames]` — the badge's own number, reached by the same expression.
+                ofMLabel(rows.renames.count + rows.risky.count, counts[.renames])
             case .filing: ofMLabel(rows.filing.count, counts.toFile)
             case .automations: ofMLabel(rows.rules.count, counts.rules)
             case .storage:
-                let storage = storageCounts
-                ofMLabel(storage.filtered, storage.total)
+                // Absent before a report — see ``storageCounts``. There is no honest N and no
+                // honest M until the analysis has run.
+                if let storage = storageCounts { ofMLabel(storage.filtered, storage.total) }
             }
         }
         // **This lens's controls, at the end of row 2.** They were row 1's trailing half, opposite
@@ -2359,7 +2412,7 @@ public struct TidyView: View {
             if let reuse = syncManager.filingLastCacheReuse, reuse.reused > 0 {
                 SummaryRun(count: reuse.reused, label: "reused", color: .secondary,
                            systemImage: "clock.arrow.circlepath")
-                    .help(reuseHelp(reuse))
+                    .help(Self.reuseHelp(reuse))
             }
             // Durable evidence that the paid pass ran, and what it bought. The banner says so once
             // and goes away; this stays with the rows it describes. Pass-level like `reused` and
@@ -2367,7 +2420,7 @@ public struct TidyView: View {
             if let refine = syncManager.filingLastRefine {
                 SummaryRun(count: refine.changed, label: "refined", color: glassHue.accentColor,
                            systemImage: "sparkles")
-                    .help(refineHelp(refine))
+                    .help(Self.refineHelp(refine))
             }
         }
     }
@@ -2376,13 +2429,25 @@ public struct TidyView: View {
     /// that was billed), how many came back free from the cache, and how many homes it moved. The
     /// pill counts `changed` rather than `asked` because that is the number the user is entitled
     /// to judge the spend by — "refined 40" with nothing moved would read as forty improvements.
-    private func refineHelp(_ refine: FileSyncManager.FilingRefineSummary) -> String {
+    ///
+    /// `static`, like ``reuseHelp(_:)`` beside it, because both are pure functions of their summary
+    /// and nothing else — which is what lets `FilingSpendWordingTests` assert the wording without
+    /// mounting a view. Same move, and same reason, as ``OrganizeLens/help(state:)``.
+    static func refineHelp(_ refine: FileSyncManager.FilingRefineSummary) -> String {
         let sent = refine.classified == 0
             ? "Nothing needed sending — every answer came from the cache."
             : (refine.classified == 1 ? "1 file was sent to Claude."
                                       : "\(refine.classified) files were sent to Claude.")
-        let reused = refine.reused == 0 ? ""
-            : " \(refine.reused) had already been answered by this model, so they cost nothing."
+        // Singular at one, for the reason ``reuseHelp(_:)`` states about its own first sentence and
+        // this clause did not honour: "1 … so **they** cost nothing" is the same disagreement, in
+        // the tooltip beside it. The two describe the same cache from two pills, so a reader
+        // comparing them sees one sentence that counts and one that does not.
+        let reused: String
+        switch refine.reused {
+        case 0: reused = ""
+        case 1: reused = " 1 had already been answered by this model, so it cost nothing."
+        default: reused = " \(refine.reused) had already been answered by this model, so they cost nothing."
+        }
         let changed = refine.changed == 0
             ? "No suggestion changed — the free pass had already found the same homes."
             : (refine.changed == 1 ? "1 suggestion moved to a better home."
@@ -2393,7 +2458,7 @@ public struct TidyView: View {
     /// Spells out what "reused" bought, in the terms the user cares about — the model wasn't asked,
     /// so with Claude selected it wasn't billed. Kept out of the pill itself because the number is
     /// the glanceable part and this is the explanation you go looking for.
-    private func reuseHelp(_ reuse: FileSyncManager.FilingCacheReuse) -> String {
+    static func reuseHelp(_ reuse: FileSyncManager.FilingCacheReuse) -> String {
         // Both halves of the first sentence agree in number — "1 file … its suggestion was",
         // "N files … their suggestions were". The verb used to stay singular for any N.
         let reused = reuse.reused == 1
@@ -2732,13 +2797,11 @@ public struct TidyView: View {
                 } else if organizeLens == .restructure {
                     restructureContent(rows: rows, scopeFolders: scopeFolders)
                 } else if showingRenameBacklog {
-                    // The to-fix rows (the folded Names lens). Scope-filtered like every list;
-                    // deliberately not query-filtered yet — the backlog grammar is about folder
-                    // plans, and silently applying it to names would hide fixes behind a query
-                    // about something else.
-                    let fixRows = syncManager.riskyNames.filter {
-                        OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames))
-                    }
+                    // The to-fix rows (the folded Names lens) come from `FilteredRows` now, like
+                    // every other list on this screen — they were resolved here, scoped but never
+                    // searched, which is how one list came to be narrowed two ways under a header
+                    // counting a third. See the backlog arm of ``filteredRows``.
+                    let fixRows = rows.risky
                     if !syncManager.hasSuggestedFiling {
                         // Never scanned: the setup card (P12), named for the PROVIDER — the
                         // rename detectors read the provider-wide taxonomy, so a folder-named
@@ -2755,8 +2818,15 @@ public struct TidyView: View {
                                              handler: onFindFilingSuggestions)
                         )
                     } else if rows.renames.isEmpty, fixRows.isEmpty {
-                        noMatchesState(scopedTotal: counts.renames,
-                                       globalTotal: syncManager.renamePlans.count, noun: "folder")
+                        // **The folded totals, and the folded noun.** `counts.renames` is the plans
+                        // alone, so a query that hid five to-fix rows and no plans announced how
+                        // many *folders* it was hiding and never mentioned them. `counts[.renames]`
+                        // is what the badge above says, over the same list this state is standing
+                        // in for.
+                        noMatchesState(scopedTotal: counts[.renames],
+                                       globalTotal: syncManager.renamePlans.count
+                                           + syncManager.riskyNames.count,
+                                       noun: "rename")
                     } else {
                         RenamePassLens(syncManager: syncManager, plans: rows.renames,
                                        riskyNames: fixRows,

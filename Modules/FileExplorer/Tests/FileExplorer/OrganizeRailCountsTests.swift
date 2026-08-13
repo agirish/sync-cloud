@@ -71,4 +71,25 @@ import Foundation
         let d = TidyView.RailCounts()
         #expect(OrganizeLens.allCases.allSatisfy { d[$0] == 0 })
     }
+
+    /// **The backlog's readout counts the same list its badge does.**
+    ///
+    /// `126 + 3` is the badge's number, and the readout's denominator was the bare `renames` field:
+    /// one screen with a badge saying 129, a readout saying "of 126", and a list holding both kinds
+    /// of row. The subscript is what makes them one number, so the readout has to go through it.
+    ///
+    /// Source-level, because the numerals themselves are a `Text` in a header that no test can read
+    /// back — pixels can see that a readout is there, never what it says. `TidyHeaderReadoutTests`
+    /// covers the *rows* half of the same fix by render; this is the denominator half, and the two
+    /// together are why a source scan is worth having here rather than being the whole story.
+    @Test func theBacklogReadoutUsesTheFoldedTotal() throws {
+        let body = try OrganizeScopeCallSiteTests.body(
+            of: "private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {",
+            in: try OrganizeScopeCallSiteTests.source("TidyView.swift"))
+        let code = OrganizeScopeCallSiteTests.codeOnly(body)
+        #expect(code.contains("ofMLabel(rows.renames.count + rows.risky.count, counts[.renames])"),
+                "the backlog's readout is not counting the folded list at both ends")
+        #expect(!code.contains("counts.renames"),
+                "the backlog's readout is back on the plans-only total the badge does not use")
+    }
 }

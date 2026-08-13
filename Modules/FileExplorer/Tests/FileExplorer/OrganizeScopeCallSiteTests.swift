@@ -45,8 +45,6 @@ import Sync
     /// a four-line body into the *next* member's doc comment, and failed a correct implementation.
     /// Fails loudly when the declaration is gone, so a rename cannot silently empty the haystack.
     static func body(of declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — the scan below would be vacuous")
         // **Uniqueness, because `range(of:)` silently takes the FIRST match.** Measured: adding a
         // second `public var body: some View {` above `CommandPaletteView`'s — an onboarding variant,
         // say — made the hit-shape scan read the decoy and pass with BOTH of its defects present.
@@ -56,13 +54,22 @@ import Sync
         // implementation — including a test another session landed the same day. That is the hazard
         // this file already documents twice, reintroduced by the guard against a different one.
         //
+        // **And the SEARCH runs over the same stripped text, which it did not.** Counting one text
+        // while reading another left the guard looking like a guard and stopping nothing in the one
+        // case it names: a decoy inside a doc comment above the real declaration is invisible to the
+        // count, so `occurrences == 1` passes — and is still the first thing `range(of:)` finds in
+        // the raw source, so the slice is the decoy's after all. Both halves see `code` now.
+        //
         // `#require`, because the case worth catching is a decoy *above* the real declaration: there
         // the slice is the decoy's body and every downstream check fires with a message blaming
         // production code that is fine. One true failure beats four false ones.
-        let occurrences = Self.codeOnly(source).components(separatedBy: declaration).count - 1
+        let code = Self.codeOnly(source)
+        let occurrences = code.components(separatedBy: declaration).count - 1
         try #require(occurrences == 1,
                      "\(declaration) occurs \(occurrences)× in code — range(of:) would silently read the first")
-        let rest = source[start.upperBound...]
+        let start = try #require(code.range(of: declaration),
+                                 "\(declaration) is gone — the scan below would be vacuous")
+        let rest = code[start.upperBound...]
         let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
         return String(rest[..<end.lowerBound])
     }
@@ -221,9 +228,15 @@ import Sync
     /// `theOfMCountsFollowTheRail`, and every one of those assertions stays green if the view hands
     /// it `nil` — the numbers would go back to describing all three lists and only the call site
     /// would show it.
+    ///
+    /// - Note: the declaration reads `-> (filtered: Int, total: Int)?` now. The optional is the
+    ///   readout's own fix — before a report there is no honest N and no honest M, and `(0, 0)`
+    ///   put "0 of 0" over the intro card's pitch to analyze — and it is `TidyHeaderReadoutTests`
+    ///   that holds it. This scan tracks the spelling because it must: a signature it cannot find
+    ///   yields an empty haystack, in which both assertions below quietly answer false.
     @Test func theStorageCountsAreAskedAboutTheSelectedSection() throws {
         let tidy = try Self.source("TidyView.swift")
-        let body = try Self.body(of: "private var storageCounts: (filtered: Int, total: Int) {", in: tidy)
+        let body = try Self.body(of: "private var storageCounts: (filtered: Int, total: Int)? {", in: tidy)
         #expect(body.contains("section: storageSection"),
                 "storageCounts is not passing the rail's selection, so \"N of M\" describes lists the page is not showing")
         #expect(body.contains("StorageSection.counts(in: report"),
@@ -415,8 +428,13 @@ import Sync
         // No call site may pass a bare global count as the searched-over denominator.
         #expect(!tidy.contains("noMatchesState(total:"),
                 "a caller still passes one undifferentiated total")
+        // **The backlog's is `counts[.renames]`, not `counts.renames`, and the change is the
+        // point.** Its list holds the folder plans *and* the folded to-fix names, so the plans-only
+        // field described two thirds of what the empty state is standing in for — while the badge
+        // above it counted both. The subscript is the one expression that folds them, so quoting it
+        // here is what makes the two numbers on that screen the same number.
         for scoped in ["scopedTotal: counts.duplicates", "scopedTotal: counts.names",
-                       "scopedTotal: counts.renames", "scopedTotal: counts.toFile",
+                       "scopedTotal: counts[.renames]", "scopedTotal: counts.toFile",
                        "scopedTotal: counts.rules"] {
             #expect(tidy.contains(scoped), "missing \(scoped) — that lens still quotes the tree")
         }
@@ -476,8 +494,13 @@ import Sync
     @Test func theOverviewDoesNotResolveRowsItNeverReads() throws {
         let tidy = try Self.source("TidyView.swift")
         let body = try Self.body(of: "private var filteredRows: FilteredRows {", in: tidy)
-        #expect(body.contains("guard !(showingOverview && effectiveLens == .filing) else { return rows }"),
+        // The compound condition is a named member now — `overviewIsOnScreen` — because three
+        // readers need it: these rows, the query (the overview answers none), and the "N of M".
+        // Spelled out at each of them it was three chances to write a different question.
+        #expect(body.contains("guard !overviewIsOnScreen else { return rows }"),
                 "the overview is parsing a query and scoping the filing queue for a value nothing reads")
+        #expect(tidy.contains("private var overviewIsOnScreen: Bool { showingOverview && effectiveLens == .filing }"),
+                "overviewIsOnScreen is no longer the compound question this guard needs")
         // **Not `showingOverview` alone.** That means "no rail item selected", which is not the
         // same as "the overview renders" — the overview is drawn only from contentCard's `.filing`
         // arm. Guarding on it alone starved the Duplicates apparatus of its rows and took

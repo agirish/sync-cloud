@@ -18,7 +18,11 @@ enum FileTypeGlyph {
 
     /// The mediums the vocabulary distinguishes. Everything else stays a quiet generic doc —
     /// an unknown extension must not invent a colorful category.
-    enum Kind: Equatable {
+    ///
+    /// `CaseIterable` so the sweeps over this vocabulary — one shape per kind, one legible tint per
+    /// kind — walk the enum itself. Written out by hand in the tests they were a copy of the table
+    /// they were checking, which is the shape of scan that cannot see the case it is missing.
+    enum Kind: Equatable, CaseIterable {
         case pdf, image, audio, video, wordProcessing, spreadsheet, presentation, archive
         case folder, generic
     }
@@ -45,13 +49,22 @@ enum FileTypeGlyph {
     }
 
     /// The SF Symbol for a kind. Filled variants so the tint carries at row-glyph sizes.
+    ///
+    /// **Every kind draws a different shape, because the tint is not allowed to be the
+    /// distinction.** `.pdf` and `.wordProcessing` both answered `doc.text.fill`, so the one pair
+    /// of mediums this vocabulary most often puts side by side was told apart by red-versus-blue
+    /// alone — against this type's own premise, and invisible to anyone who does not separate those
+    /// two hues. `.wordProcessing` takes `doc.richtext.fill`: the ruled-page-with-a-heading shape,
+    /// which is what a word processor's own icons draw, and it stays a document rather than
+    /// becoming some unrelated object. `.pdf` keeps `doc.text.fill` — it is the kind these lists
+    /// hold most of, so it is the one whose shape is worth not relearning.
     nonisolated static func symbol(for kind: Kind) -> String {
         switch kind {
         case .pdf:            return "doc.text.fill"
         case .image:          return "photo.fill"
         case .audio:          return "music.note"
         case .video:          return "film.fill"
-        case .wordProcessing: return "doc.text.fill"
+        case .wordProcessing: return "doc.richtext.fill"
         case .spreadsheet:    return "tablecells.fill"
         case .presentation:   return "rectangle.inset.filled"
         case .archive:        return "archivebox.fill"
@@ -63,6 +76,40 @@ enum FileTypeGlyph {
     /// The identity tint, or nil for the kinds that stay in secondary ink (generic files and
     /// plain folders — the vocabulary's job is to make *distinct* mediums findable, not to
     /// paint every row).
+    ///
+    /// ## Measured against the dark card fill, because half of these are dark values
+    ///
+    /// Eight fixed sRGB tints minted outside `Design` is exactly the shape that produced the
+    /// `ChromeInk` hazard — an ink tuned on a light card, drawn at 13–17pt on a dark one, that
+    /// nobody measured until a screenshot. So they are measured. The surface is
+    /// `NSColor.controlBackgroundColor`, which is what `groundedGlassCard` and `lensCard` fill a
+    /// card with (rgb 0.118 in dark, white in light), and the floor is the 3:1 a graphical object
+    /// carrying meaning needs. Contrast of the tint against that fill, dark then light:
+    ///
+    /// | kind | dark | light |
+    /// |---|---|---|
+    /// | pdf | 3.25 | 5.13 |
+    /// | image | 3.91 | 4.26 |
+    /// | audio | 4.00 | 4.17 |
+    /// | video | 3.16 | 5.27 |
+    /// | wordProcessing | 3.21 | 5.19 |
+    /// | spreadsheet | 3.83 | 4.35 |
+    /// | presentation | 5.37 | 3.10 |
+    /// | archive | 4.06 | 4.11 |
+    ///
+    /// **Every one clears 3:1 in both appearances, so none is routed through `ChromeInk`** — which
+    /// would flatten it to `.primary` in dark and delete the identity this table exists to carry.
+    /// The margins are thin and worth knowing: `video` (3.16) and `wordProcessing` (3.21) are the
+    /// floor in dark, `presentation` (3.10) in light, and any of the three is one "slightly richer"
+    /// nudge away from failing. `FileTypeGlyphContrastTests` recomputes this against the live
+    /// system colours rather than trusting the table above, so a tint edited past the floor fails
+    /// there rather than shipping.
+    ///
+    /// The one thing the numbers do not cover: a card carrying a heavy Tint-slider hue wash is a
+    /// much lighter surface than `controlBackgroundColor` in dark, and against it these tints lose
+    /// most of their separation. That is a property of the wash rather than of this table — it
+    /// takes `.secondary` and the accent down with it, which is the case `ChromeInk` was written
+    /// for — and it is not fixable one tint at a time.
     nonisolated static func tint(for kind: Kind) -> Color? {
         switch kind {
         case .pdf:            return Color(red: 0.76, green: 0.25, blue: 0.25)

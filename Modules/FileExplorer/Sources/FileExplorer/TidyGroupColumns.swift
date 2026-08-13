@@ -15,6 +15,18 @@ import Design
 @MainActor
 enum TidyGroupColumns {
 
+    /// The badge's own metrics, spelled out once so ``badgeSlotWidth(scale:)`` and the view that
+    /// draws the badge cannot disagree about what a badge is made of.
+    ///
+    /// The gap between them was the point of `everyBadgeFitsItsSlot` being called tautological:
+    /// slot and assertion were the same expression, so an error in the *ingredients* — a wrong gap,
+    /// a wrong padding, a `LabelMetrics` that under-measures — moved both together and every badge
+    /// overflowed with the suite green. Naming them here does not close that on its own;
+    /// `aDrawnBadgeStaysInsideItsSlot` does, by reading the painted badge back. This just leaves
+    /// one place to be wrong instead of two.
+    static let badgeGlyphGap: CGFloat = 6
+    static var badgePadding: CGFloat { PillVariant.mini.horizontalPadding }
+
     /// Every badge the vocabulary can produce, overlap pinned to its widest rendering (100%).
     static let badgeVocabulary: [DuplicateMatchType] =
         [.identical, .sameText, .overlapping(sharedFraction: 1.0), .nameOnly, .versions]
@@ -23,14 +35,17 @@ enum TidyGroupColumns {
     /// other font is a slot measured for some other view.
     private static let badgeFont = ScaledFont.system(size: 11, weight: .bold)
 
-    /// Width of the widest type badge: symbol + 6pt gap + label + the mini pill's padding.
+    /// Width of the widest type badge: symbol + the glyph gap + label + the mini pill's padding.
     static func badgeSlotWidth(scale: CGFloat) -> CGFloat {
-        badgeVocabulary.map { type in
-            LabelMetrics.symbolWidth(TidyMatchStyle.symbol(type), font: badgeFont, scale: scale)
-                + 6
-                + LabelMetrics.width(of: TidyMatchStyle.label(type), font: badgeFont, scale: scale)
-                + 2 * PillVariant.mini.horizontalPadding
-        }.max() ?? 0
+        badgeVocabulary.map { badgeWidth($0, scale: scale) }.max() ?? 0
+    }
+
+    /// One badge's modelled width — the same arithmetic ``badgeSlotWidth(scale:)`` maximises over.
+    static func badgeWidth(_ type: DuplicateMatchType, scale: CGFloat) -> CGFloat {
+        LabelMetrics.symbolWidth(TidyMatchStyle.symbol(type), font: badgeFont, scale: scale)
+            + badgeGlyphGap
+            + LabelMetrics.width(of: TidyMatchStyle.label(type), font: badgeFont, scale: scale)
+            + 2 * badgePadding
     }
 
     /// The verbs a group can end in. "nothing to reclaim" spans both slots and is not a verb.
@@ -48,5 +63,36 @@ enum TidyGroupColumns {
         LabelMetrics.width(of: "~888.8 MB",
                            font: .system(size: 12, weight: .semibold, design: .monospaced),
                            scale: scale)
+    }
+}
+
+/// The duplicate group's type badge: the match type's glyph and label in a mini pill.
+///
+/// **Its own view so it can be drawn on its own.** It was a private computed property of
+/// `TidyGroupCard`, which meant the only way to check that a badge fits the slot the card gives it
+/// was to re-measure the model — the tautology `everyBadgeFitsItsSlot` documented in its own note.
+/// A test can render this and read the paint back (`aDrawnBadgeStaysInsideItsSlot`), and it renders
+/// the badge the card draws rather than a reconstruction of it, which is the only version of that
+/// test worth having.
+///
+/// The colour is the match type's, asked for here rather than passed in: `TidyGroupCard.accent` is
+/// `TidyMatchStyle.color(group.matchType)` and nothing else, so a parameter would only be an
+/// opportunity for a caller to draw a badge in some other type's colour.
+struct TidyTypeBadge: View {
+    let matchType: DuplicateMatchType
+
+    private var accent: Color { TidyMatchStyle.color(matchType) }
+
+    var body: some View {
+        HStack(spacing: TidyGroupColumns.badgeGlyphGap) {
+            Image(systemName: TidyMatchStyle.symbol(matchType))
+                .scaledFont(.system(size: 11, weight: .bold))
+                .symbolRenderingMode(.hierarchical)
+            Text(TidyMatchStyle.label(matchType))
+                .scaledFont(.system(size: 11, weight: .bold))
+        }
+        .foregroundStyle(accent)
+        .pillSurface(.mini, tint: accent)
+        .fixedSize()
     }
 }

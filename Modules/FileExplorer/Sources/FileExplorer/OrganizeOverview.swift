@@ -3,20 +3,6 @@ import Design
 
 // MARK: - The rail item
 
-/// One item on Organize's lens rail: glyph, name, and a badge **only when there is something to
-/// report**.
-///
-/// The two halves of the chips' argument are split here on purpose. The *place* is unconditional —
-/// it is what pointed invocation ("Organize this folder") lands on, and what a badge cannot be
-/// because a badge does not exist before a scan. The *claim* is conditional: `badge == nil` draws
-/// no number at all, not a greyed one and not a `0`.
-///
-/// **It wears a capsule because a capsule is a control.** That rule came out of this very row: it
-/// once carried six tinted capsules of which only three were buttons, and the only way to learn
-/// which half was live was to click. Every rail item IS a button, and the readout still shares the
-/// row with them after the divider — so dropping the capsule here would recreate the same
-/// ambiguity from the other side, with live controls dressed as prose. The selected item deepens
-/// its fill and adds the ring; the wash is what says "clickable" before you know which is current.
 /// What a rail item has to say about its lens, and therefore how it is dressed.
 ///
 /// **The same three states ``OrganizeOverviewState`` models, deliberately.** The overview is

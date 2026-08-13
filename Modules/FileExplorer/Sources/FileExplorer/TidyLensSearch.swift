@@ -92,6 +92,26 @@ enum RenameBacklogSearch {
         }) { return true }
         return plan.skips.contains { $0.fileName.range(of: text, options: .caseInsensitive) != nil }
     }
+
+    /// The same free text over a **risky name**, because the backlog's list holds those too.
+    ///
+    /// The fold put the "to fix" rows at the head of this list (`RenamePassLens.toFixSection`) and
+    /// left them unfiltered, on the argument that applying the backlog's grammar to a name would
+    /// hide fixes behind a query about something else. There is no grammar to misapply: this search
+    /// has no tokens at all — it is free text over the folder and the names inside it, and a name
+    /// is precisely what a risky row carries. Unfiltered, one list answered one query two ways
+    /// (three plans, and all five fixes) under a header counting a third thing.
+    ///
+    /// **The `reason` is deliberately not matched**, though the row shows it: the plan half does
+    /// not match its steps' reasons either, and a query that found rows by their explanation in one
+    /// half of a list and not the other would be worse than either rule on its own.
+    static func matches(_ query: String, _ risky: RiskyName) -> Bool {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return true }
+        return risky.currentName.range(of: text, options: .caseInsensitive) != nil
+            || risky.sanitizedName.range(of: text, options: .caseInsensitive) != nil
+            || risky.relativePath.range(of: text, options: .caseInsensitive) != nil
+    }
 }
 
 // MARK: - Rename

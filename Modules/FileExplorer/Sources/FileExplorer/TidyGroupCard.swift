@@ -34,7 +34,8 @@ struct TidyGroupCard: View {
     /// For the invisible-column slot widths (`TidyGroupColumns`) — measured at the live scale.
     @Environment(\.appFontScale) private var appFontScale
 
-    private var accent: Color { TidyMatchStyle.color(group.matchType) }
+    // `accent` — `TidyMatchStyle.color(group.matchType)` — lived here for the type badge alone, and
+    // went with it into `TidyTypeBadge`, which asks the match type itself.
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     var body: some View {
@@ -82,16 +83,7 @@ struct TidyGroupCard: View {
     }
 
     private var typeBadge: some View {
-        HStack(spacing: 6) {
-            Image(systemName: TidyMatchStyle.symbol(group.matchType))
-                .scaledFont(.system(size: 11, weight: .bold))
-                .symbolRenderingMode(.hierarchical)
-            Text(TidyMatchStyle.label(group.matchType))
-                .scaledFont(.system(size: 11, weight: .bold))
-        }
-        .foregroundStyle(accent)
-        .pillSurface(.mini, tint: accent)
-        .fixedSize()
+        TidyTypeBadge(matchType: group.matchType)
     }
 
     private var fileIcon: some View {

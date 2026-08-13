@@ -513,17 +513,18 @@ import SwiftUI
         for lens in OrganizeLens.allCases { byGlyph[lens.symbol, default: []].append("lens.\(lens)") }
         #expect(byGlyph.count > 5, "the tables are implausibly small — this scan would be near-vacuous")
 
-        // The pairs that legitimately share, each because one is quoting the other:
-        //  • the duplicate pass card and the Duplicates rail item are the same act;
-        //  • the file pass card wears `FilingGlyph.lens`, the filing surfaces' signature — which
-        //    `OrganizeLens.renames` also wears. That second overlap is NOT a quote: Renames is a
-        //    different act, and on the overview the two sit together meaning different things.
-        //    Pinned as it stands rather than silently changed, because choosing the rail item's
-        //    new glyph is a visual decision, not a mechanical one. Recorded here so it is a known
-        //    pair rather than an unnoticed one, and so the NEXT collision fails this test.
+        // The one pair that legitimately shares, because one is quoting the other: the duplicate
+        // pass card and the Duplicates rail item are the same act.
+        //
+        // `["pass.file", "lens.renames"]` used to sit here too — the file pass wore
+        // `FilingGlyph.lens`, which `OrganizeLens.renames` also wears, and the two draw together on
+        // the overview meaning different things. It was recorded rather than fixed because picking
+        // a replacement is a visual decision; the pass has one of its own now
+        // (`doc.text.magnifyingglass`, chosen for the pass and not for any single lens, since it
+        // answers three), so the allowance goes with it. Leaving a stale entry here would let the
+        // collision come back unnoticed.
         let quoted: Set<Set<String>> = [
             ["pass.duplicates", "lens.duplicates"],
-            ["pass.file", "lens.renames"],
         ]
         for (glyph, owners) in byGlyph where owners.count > 1 {
             #expect(quoted.contains(Set(owners)),

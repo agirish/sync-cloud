@@ -4,9 +4,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The landing itself, driven through the real path: a mounted Duplicates lens handed a reveal
-/// request, resolving through its own `.task` exactly as it does when the workspace switch mounts
-/// it.
+/// The landing itself, driven through the real path: Organize mounted standing on its Duplicates
+/// rail item — the configuration the app builds, `lens: .filing` with the selection in defaults —
+/// handed a reveal request, resolving through its own `.task` exactly as it does when the
+/// workspace switch mounts it.
 ///
 /// **Mounted, not called.** The tempting shape is to build a `TidyView` value and invoke
 /// `applyRevealRequest()` on it — which writes `@State` on a view SwiftUI never installed, so
@@ -48,42 +49,55 @@ import Sync
         return m
     }
 
-    /// One mounted lens, kept alive together with the window it needs to paint into.
+    /// One mounted lens, kept alive together with the window it needs to paint into — and with the
+    /// defaults suite it reads its rail selection from, which wipes itself when the last reference
+    /// goes away.
     private final class Mounted {
         let host: NSHostingView<AnyView>
         let window: NSWindow
-        init(host: NSHostingView<AnyView>, window: NSWindow) {
+        let defaults: ScratchDefaults
+        init(host: NSHostingView<AnyView>, window: NSWindow, defaults: ScratchDefaults) {
             self.host = host
             self.window = window
+            self.defaults = defaults
         }
     }
 
-    /// Mounts the Duplicates lens.
+    /// Mounts Organize, standing on Duplicates — **the configuration the app actually produces.**
     ///
     /// The window background is not decoration: without one the content composites against the
     /// borderless window's own buffer and every comparison below reads as zero difference —
     /// "nothing painted", whatever the code did.
     ///
-    /// **`lens: .duplicates` is not a configuration the app can produce, and that matters beyond
-    /// this file.** Since Duplicates folded from a workspace into an Organize rail item, the app
-    /// always builds `TidyView` with `lens: .filing` and selects Duplicates through
-    /// `@AppStorage(OrganizeLens.defaultsKey)` — so here `lens` and `effectiveLens` are equal,
-    /// where in the app they differ. Two real bugs lived in exactly that gap (a chip's ✕ and the
-    /// "Nothing matches" button both wrote `searchQueries[lens]`), and this suite was green
-    /// throughout, because in this mount the wrong key *is* the right one.
+    /// This used to pass `lens: .duplicates`, which nothing in the app can build. Since Duplicates
+    /// folded from a workspace into an Organize rail item, `TidyView` is always given `lens:
+    /// .filing` and finds Duplicates through `@AppStorage(OrganizeLens.defaultsKey)` — so the old
+    /// mount made `lens` and `effectiveLens` equal where the app keeps them apart, and two real
+    /// bugs lived in exactly that gap (a chip's ✕ and the "Nothing matches" button both wrote
+    /// `searchQueries[lens]`) with this suite green throughout, because in that mount the wrong key
+    /// *was* the right one.
     ///
-    /// Left as it is on purpose: reproducing the app's configuration means writing the standard
-    /// defaults domain and re-baselining the pixel comparisons below, which is a large change to a
-    /// render suite whose subject is the reveal landing, not the search state. What closes that
-    /// gap instead is `TidyLensSearchKeyTests`, which holds every search-slot access to
-    /// `effectiveLens` and is mutation-checked. **Do not read this suite's green as coverage of
-    /// anything Organize hosts.**
+    /// The selection is seeded into a fresh `ScratchDefaults` suite and reaches the view through
+    /// `.defaultAppStorage`, rather than through `UserDefaults.standard` as the app does.
+    /// `.standard` would be the more faithful copy and is the wrong trade here: `@AppStorage`
+    /// binds a process-wide storage location per (store, key), other suites in this target write
+    /// this very key (`FilingRefineControlTests`), and Swift Testing runs suites in parallel — so
+    /// the faithful version buys fidelity in one property by making every render race the rest of
+    /// the target. What matters for this suite is that `lens` and `effectiveLens` differ and that
+    /// the rail selection is what closes the gap, and both are true here.
+    ///
+    /// Nothing needed re-baselining: every comparison below is between two of these mounts, so the
+    /// only screen difference the change makes — the rail rings Duplicates instead of All — is
+    /// present identically on both sides of each diff.
     private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?,
                        onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
-        let subject = TidyView(syncManager: manager, lens: .duplicates,
+        let defaults = ScratchDefaults("DuplicateRevealLandingTests")
+        defaults.set(OrganizeLens.duplicates.rawValue, forKey: OrganizeLens.defaultsKey)
+        let subject = TidyView(syncManager: manager, lens: .filing,
                                providerName: "Projects", scanTargetFolder: "/root",
                                onFindDuplicates: {}, revealRequest: request,
                                onRevealHandled: onRevealHandled)
+            .defaultAppStorage(defaults)
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
@@ -97,7 +111,43 @@ import Sync
         window.colorSpace = .sRGB
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        return Mounted(host: host, window: window)
+        return Mounted(host: host, window: window, defaults: defaults)
+    }
+
+    /// **The mount really is standing where the app stands**, which every case below assumes and
+    /// none of them can see: they compare two of these screens, so a mount that silently landed on
+    /// the overview — or on some other lens — would compare two wrong screens and agree.
+    ///
+    /// Asserted by paint, because that is all this suite can read: the same manager mounted with no
+    /// rail selection draws Organize's overview instead, and the two must differ. That is exactly
+    /// what a `.defaultAppStorage` that failed to reach `railLens` would produce.
+    @Test func theMountLandsOnDuplicatesAndNotOnTheOverview() async throws {
+        let groups = [Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")]
+        let selected = try #require(await settled(mount(Self.manager(groups: groups), request: nil),
+                                                  "duplicates selected"))
+
+        let defaults = ScratchDefaults("DuplicateRevealLandingTests-overview")
+        let view = TidyView(syncManager: Self.manager(groups: groups), lens: .filing,
+                            providerName: "Projects", scanTargetFolder: "/root",
+                            onFindDuplicates: {}, revealRequest: nil)
+            .defaultAppStorage(defaults)          // nothing stored: no rail item is selected
+            .frame(width: Self.canvas.width, height: Self.canvas.height)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .light)
+        let host = NSHostingView(rootView: AnyView(view))
+        host.frame = CGRect(origin: .zero, size: Self.canvas)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let overview = try #require(await settled(Mounted(host: host, window: window,
+                                                          defaults: defaults),
+                                                  "no selection"))
+        #expect(pixelsDiffering(selected, overview) > 0,
+                "the stored rail selection changed nothing — this suite is mounting the overview")
     }
 
     private func snapshot(_ mounted: Mounted) -> NSBitmapImageRep? {
