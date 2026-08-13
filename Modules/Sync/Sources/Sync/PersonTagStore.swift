@@ -123,10 +123,15 @@ public final class PersonTagStore: ObservableObject {
     /// Whether two keys identify a document in different ways — a path against a fingerprint.
     ///
     /// Two of the same kind at one recorded path are two documents, not one answered twice.
+    /// **Every pair spelled out, with no `default`.** `PersonTagKey` is persisted, and a third way
+    /// to identify a document would fall into a `default: false` here — silently keeping both the
+    /// new key's verdict and the old one for the same file, which is the bug this sweep exists to
+    /// prevent, reintroduced without a diagnostic. Exhaustive, so adding a case fails to compile
+    /// at the place the decision has to be made.
     static func isDifferentKind(_ a: PersonTagKey, _ b: PersonTagKey) -> Bool {
         switch (a, b) {
         case (.path, .fingerprint), (.fingerprint, .path): return true
-        default: return false
+        case (.path, .path), (.fingerprint, .fingerprint): return false
         }
     }
 

@@ -532,6 +532,16 @@ private actor AsyncGate {
         #expect(probe.count == 0)                  // …nothing was priced or billed…
         #expect(m.banner?.severity == .warning)       // …and the banner names the key rather than
         #expect(m.banner?.message.contains("couldn't be read") == true)   // claiming a Claude answer
+
+        // **The durable summary carries the downgrade too, and this is the one the pill reads.**
+        // `classified` is 0 here because nothing reached Claude — which is right for a billing
+        // figure and wrong as an explanation, since every file WAS classified on-device. Without
+        // the cause beside it the tooltip read that 0 as an exhausted cache.
+        let summary = try #require(m.filingLastRefine, "a downgraded refine recorded no summary")
+        #expect(summary.outcome == .downgraded,
+                "the summary calls a downgraded pass “\(summary.outcome.rawValue)”")
+        #expect(summary.classified == 0, "a pass that never reached Claude counted files as sent")
+        #expect(summary.asked > 0, "nothing was asked — this check would be vacuous")
     }
 
     /// A "Try another" landing while a refine is out records a rejection the refine's
@@ -647,6 +657,13 @@ private actor AsyncGate {
                 "the banner does not say why nothing happened: “\(banner.message)”")
         #expect(!banner.message.contains("no better homes"),
                 "the banner reports an outcome the decline prevented: “\(banner.message)”")
+        // **And the durable summary says so too.** The banner goes away; `filingLastRefine` is
+        // what the "refined" pill and its tooltip read afterwards, and with only `classified == 0`
+        // to go on the tooltip explained the decline as an exhausted cache. The cause is carried.
+        let summary = try #require(m.filingLastRefine, "a declined refine recorded no summary")
+        #expect(summary.outcome == .declined,
+                "the summary calls a declined pass “\(summary.outcome.rawValue)”")
+        #expect(summary.classified == 0, "a declined pass counted files as sent to Claude")
     }
 
     /// The other direction, so the test above is not passing on "any refine warns": an APPROVED
@@ -672,8 +689,12 @@ private actor AsyncGate {
 
         let banner = try #require(m.banner, "an approved refine said nothing")
         #expect(banner.severity == .success, "an approved refine no longer reports success")
+        // The other direction for the summary as well — otherwise `outcome` could be hard-wired to
+        // `.declined` and the test above would still pass.
+        let summary = try #require(m.filingLastRefine)
+        #expect(summary.outcome == .ran, "an approved pass is recorded as \(summary.outcome.rawValue)")
+        #expect(summary.classified > 0, "an approved pass counted nothing as sent")
     }
-
 }
 
 /// The one cost assertion in this package, and it earns the machine-pinned marker for the same

@@ -23,21 +23,54 @@ extension FileSyncManager {
     /// `classified` is what was actually sent — it is 0 when the spend guardrail declined, and
     /// reporting the batch size there would overstate what the user was charged for.
     public struct FilingRefineSummary: Sendable, Equatable {
+        /// **Why nothing was sent to Claude, when nothing was.**
+        ///
+        /// `classified == 0` has three causes and they are three different stories: every answer
+        /// was already cached (nothing *needed* sending), the user declined the charge, or Claude
+        /// was chosen but its key could not be read so the pass ran on-device. A reader that has
+        /// only the number has to guess, and the tooltip guessed the first one for all three —
+        /// telling a user who had just pressed Cancel that every answer came from the cache.
+        ///
+        /// The banner said the right thing in each case and then went away; this rides on
+        /// ``FileSyncManager/filingLastRefine``, which is what the durable "refined" pill reads
+        /// an hour later. That asymmetry is the whole reason the cause is carried rather than
+        /// inferred.
+        public enum Outcome: String, Sendable, Equatable, Codable {
+            /// The pass reached the backend the user chose.
+            case ran
+            /// The spend prompt was refused — Cancel, or "Use On-Device Instead".
+            case declined
+            /// Claude was switched on but its saved key could not be read, so this ran on-device.
+            case downgraded
+        }
+
         /// Suggestions in scope that needed an answer (rule-steered ones are excluded upstream).
         public let asked: Int
         /// Served from the verdict cache — already answered by this backend, at no new cost.
         public let reused: Int
-        /// Actually sent to the backend.
+        /// Actually sent **to Claude**, and therefore billable — 0 for every ``Outcome`` but
+        /// ``Outcome/ran``. Not the number of files a classifier saw: a downgraded pass classifies
+        /// on-device and this stays 0, which is why the log line reports its own count.
         public let classified: Int
         /// Suggestions whose suggested home the pass actually moved. The honest headline: a pass
         /// that classified forty files and changed none did exactly that.
+        ///
+        /// **Can be non-zero when `classified` is 0** — cached answers still apply, and a declined
+        /// pass can move a home on the strength of them.
         public let changed: Int
+        /// Why the pass sent what it sent. See ``Outcome``.
+        public let outcome: Outcome
 
-        public init(asked: Int, reused: Int, classified: Int, changed: Int) {
+        /// - Note: `outcome` defaults to ``Outcome/ran`` so the many call sites that describe an
+        ///   ordinary pass — and every test fixture that predates the distinction — keep reading
+        ///   as they did. The three producers inside `refineFilingSuggestions` all pass it.
+        public init(asked: Int, reused: Int, classified: Int, changed: Int,
+                    outcome: Outcome = .ran) {
             self.asked = asked
             self.reused = reused
             self.classified = classified
             self.changed = changed
+            self.outcome = outcome
         }
     }
 
@@ -229,8 +262,15 @@ extension FileSyncManager {
         if !files.isEmpty {
             declined = !cloudSpendAllows(files: files, taxonomyFolders: context.destinations)
         }
+        // What a classifier actually saw, whichever one it was. Separate from `classifiedCount`
+        // because they answer different questions and the log asks this one: a downgraded pass
+        // classifies every file on-device while `classifiedCount` — "sent to Claude", the billable
+        // figure — stays 0. Reporting that as "sent to the backend" made the log under-report a
+        // pass that had run in full.
+        var sentToBackend = 0
         if !files.isEmpty, !declined {
             let fresh = await classifier(context, files, .refine)
+            sentToBackend = files.count
             // Before the staleness check, deliberately — the answer is already paid for.
             recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: root,
                                  existingRelative: existingRelative)
@@ -289,11 +329,22 @@ extension FileSyncManager {
                                                  })
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
         publishFilingSuggestions(refined)
+        // Resolved once, here, so the summary the pill keeps and the three banners below cannot
+        // describe the same pass differently. `downgraded` outranks `declined`: the spend prompt
+        // is only reached with the cloud route selected, and if that route turns out to be
+        // unreachable then what happened to this pass is that it ran on-device.
+        let outcome: FilingRefineSummary.Outcome =
+            filingCloudRefineIsDowngraded ? .downgraded : (declined ? .declined : .ran)
         let summary = FilingRefineSummary(asked: eligible.count, reused: cachedVerdicts.count,
-                                          classified: classifiedCount, changed: changed)
+                                          classified: classifiedCount, changed: changed,
+                                          outcome: outcome)
         filingLastRefine = summary
-        Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(classifiedCount) sent to the backend, "
-            + "\(cachedVerdicts.count) reused from cache, \(changed) home(s) changed")
+        // `sentToBackend`, not `classifiedCount` — see the declaration. The route is named because
+        // the number alone cannot distinguish a pass nobody paid for from one nobody ran.
+        Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(sentToBackend) sent to "
+            + "\(outcome == .downgraded ? "the on-device backend (Claude's key was unreadable)" : "the backend")"
+            + ", \(cachedVerdicts.count) reused from cache, \(changed) home(s) changed"
+            + (outcome == .declined ? " — the cloud pass was declined" : ""))
         // The one state where the button and the router disagree: a key IS stored (so the button
         // offered Claude) but it could not be read (so the pass ran on-device). Nothing was
         // billed, and saying "no better homes found" would report a Claude verdict nobody got —
@@ -310,11 +361,22 @@ extension FileSyncManager {
         // cached answers are all that were applied — saying "no better homes found" would report
         // an outcome the user's own Cancel prevented.
         if declined {
-            banner = .warning(cachedVerdicts.isEmpty
-                ? "Nothing was sent — the cloud pass was declined, so the suggestions are unchanged."
-                : "Nothing was sent — the cloud pass was declined. "
-                  + "\(cachedVerdicts.count) answer\(cachedVerdicts.count == 1 ? " was" : "s were") "
-                  + "reused from the cache.")
+            // **And what the cache did anyway.** A cached answer still applies and can move a
+            // home, so a banner that named only the reuse left the user to notice for themselves
+            // that the list under it had changed — the same omission as reporting the reuse and
+            // not the refusal, one step further in. "Unchanged" is only said where it is provably
+            // true: with no cached verdicts, `applyVerdicts` short-circuits on an empty dictionary.
+            var text = "Nothing was sent — the cloud pass was declined."
+            if cachedVerdicts.isEmpty {
+                text += " The suggestions are unchanged."
+            } else {
+                text += " \(cachedVerdicts.count) answer\(cachedVerdicts.count == 1 ? " was" : "s were")"
+                    + " reused from the cache"
+                text += changed == 0
+                    ? ", and no home changed."
+                    : ", moving \(changed) home\(changed == 1 ? "" : "s")."
+            }
+            banner = .warning(text)
             return summary
         }
         // Success in both directions: "no better homes found" is a complete, correct answer to

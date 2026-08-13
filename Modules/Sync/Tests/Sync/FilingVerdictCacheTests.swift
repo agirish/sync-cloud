@@ -629,8 +629,12 @@ private final class SpendProbe: @unchecked Sendable {
 
         // The free scan classified both files; the refine sent nothing.
         #expect(log.count == 3)
+        // `outcome: .declined` is the point of the fixture, not incidental to it: `classified: 0`
+        // alone is also what an exhausted cache looks like, and every reader that had only the
+        // number to go on described this pass as one.
         #expect(declining.filingLastRefine
-                == FileSyncManager.FilingRefineSummary(asked: 2, reused: 1, classified: 0, changed: 0))
+                == FileSyncManager.FilingRefineSummary(asked: 2, reused: 1, classified: 0,
+                                                       changed: 0, outcome: .declined))
         // A decline is not a failure: the free pass's suggestions are still standing, and the one
         // file that had a cached Opus answer still got it.
         #expect(declining.filingSuggestions.count == 2)

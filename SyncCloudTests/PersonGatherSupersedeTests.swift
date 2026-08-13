@@ -159,11 +159,10 @@ import Sync
     /// gives for `acceptPersonScope`.
     /// Whole-line `//` comments removed, so a scan for what the code does is not answered by the
     /// prose describing it.
-    static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
+    /// The shared stripper — see ``sourceCodeOnly(_:)``. Four suites in this target carried a
+    /// byte-identical copy of it; consolidating `body(of:in:)` and leaving the thing it depends on
+    /// duplicated would have been half a fix.
+    static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// `MacApp/ContentView.swift`, failing loudly rather than handing on an empty haystack.
     static func contentView() throws -> String {

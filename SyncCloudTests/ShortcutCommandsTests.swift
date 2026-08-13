@@ -116,11 +116,10 @@ import Foundation
 
     /// Whole-line `//` comments removed — a scan for what the code does must not read the prose
     /// that describes it. The same helper, and the same reason, as `OrganizeScopeCallSiteTests`.
-    static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
+    /// The shared stripper — see ``sourceCodeOnly(_:)``. Four suites in this target carried a
+    /// byte-identical copy of it; consolidating `body(of:in:)` and leaving the thing it depends on
+    /// duplicated would have been half a fix.
+    static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// While the destination picker is up its overlay blocks the mouse from every control these
     /// chords mirror; the keyboard must not tunnel under it. One flag silences all twelve.

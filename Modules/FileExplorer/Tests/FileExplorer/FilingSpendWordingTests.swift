@@ -51,4 +51,60 @@ import Foundation
         #expect(!Self.refine(reused: 0).contains("already been answered"))
         #expect(Self.reuse(reused: 0).contains("0 files"))   // reuse's own pill only shows above 0
     }
+
+    private static func refine(classified: Int, changed: Int = 0,
+                               outcome: FileSyncManager.FilingRefineSummary.Outcome) -> String {
+        TidyView.refineHelp(FileSyncManager.FilingRefineSummary(
+            asked: 4, reused: 0, classified: classified, changed: changed, outcome: outcome))
+    }
+
+    /// **"Nothing needed sending" is a claim about the cache, and only one of three ways to
+    /// reach `classified == 0` earns it.**
+    ///
+    /// The other two are a declined charge and an unreadable Claude key, and this tooltip read all
+    /// three as the first — telling a user who had just pressed Cancel that every answer came from
+    /// the cache. The banner said the right thing in each case and then went away; this rides on
+    /// the durable "refined" pill, so it was the one still wrong an hour later.
+    ///
+    /// Asserted as "does not claim the cache" rather than on exact wording, because what must not
+    /// come back is the false claim, not any particular replacement for it.
+    @Test func onlyAnExhaustedCacheIsExplainedByTheCache() {
+        let cached = Self.refine(classified: 0, outcome: .ran)
+        #expect(cached.contains("every answer came from the cache"),
+                "the one case that IS the cache stopped saying so — this check would be vacuous")
+
+        for outcome in [FileSyncManager.FilingRefineSummary.Outcome.declined, .downgraded] {
+            let text = Self.refine(classified: 0, outcome: outcome)
+            #expect(!text.contains("came from the cache"),
+                    "a \(outcome.rawValue) pass is explained as an exhausted cache: “\(text)”")
+            #expect(!text.contains("Nothing needed sending"),
+                    "a \(outcome.rawValue) pass claims nothing NEEDED sending: “\(text)”")
+        }
+    }
+
+    /// Each of the two says which one it was, rather than sharing one vague sentence — a declined
+    /// pass cost nothing and can be re-run, an unreadable key is a setting to go and fix.
+    @Test func theTwoRefusalsAreToldApart() {
+        #expect(Self.refine(classified: 0, outcome: .declined).contains("declined"))
+        #expect(Self.refine(classified: 0, outcome: .downgraded).contains("key"))
+        #expect(Self.refine(classified: 0, outcome: .downgraded).contains("this Mac"),
+                "the downgraded pass does not say where the answers actually came from")
+    }
+
+    /// And the clause about *why nothing moved* follows the same rule one sentence on: "the free
+    /// pass had already found the same homes" describes an answer that came back, which a declined
+    /// pass does not have.
+    @Test func aDeclinedPassDoesNotCreditTheFreePassForFindingTheSameHomes() {
+        #expect(!Self.refine(classified: 0, outcome: .declined)
+                    .contains("already found the same homes"))
+        #expect(Self.refine(classified: 0, outcome: .ran).contains("already found the same homes"),
+                "the ordinary no-change explanation is gone — this check would be vacuous")
+    }
+
+    /// **A declined pass can still have moved a home**, on the strength of cached answers, so the
+    /// count sentence is the ordinary one rather than being suppressed with the explanation.
+    @Test func aDeclinedPassStillReportsHomesTheCacheMoved() {
+        #expect(Self.refine(classified: 0, changed: 2, outcome: .declined)
+                    .contains("2 suggestions moved to better homes"))
+    }
 }

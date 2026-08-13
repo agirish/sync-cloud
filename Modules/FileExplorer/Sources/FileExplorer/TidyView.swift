@@ -2434,10 +2434,26 @@ public struct TidyView: View {
     /// and nothing else — which is what lets `FilingSpendWordingTests` assert the wording without
     /// mounting a view. Same move, and same reason, as ``OrganizeLens/help(state:)``.
     static func refineHelp(_ refine: FileSyncManager.FilingRefineSummary) -> String {
-        let sent = refine.classified == 0
-            ? "Nothing needed sending — every answer came from the cache."
-            : (refine.classified == 1 ? "1 file was sent to Claude."
-                                      : "\(refine.classified) files were sent to Claude.")
+        // **Asked of the outcome, not inferred from the count.** `classified == 0` has three
+        // causes — everything was cached, the user declined the charge, or Claude's key could not
+        // be read so the pass ran on-device — and this read all three as the first. A user who had
+        // just pressed Cancel was told every answer came from the cache. The banner said the right
+        // thing and then went away; this is on the durable pill, so it was the one still wrong an
+        // hour later. See `FilingRefineSummary.Outcome`.
+        let sent: String
+        switch (refine.outcome, refine.classified) {
+        case (.declined, _):
+            sent = "Nothing was sent — the cloud pass was declined, so nothing was billed."
+        case (.downgraded, _):
+            sent = "Nothing was sent to Claude — its saved key couldn't be read, so these answers "
+                 + "were worked out on this Mac."
+        case (.ran, 0):
+            sent = "Nothing needed sending — every answer came from the cache."
+        case (.ran, 1):
+            sent = "1 file was sent to Claude."
+        case (.ran, _):
+            sent = "\(refine.classified) files were sent to Claude."
+        }
         // Singular at one, for the reason ``reuseHelp(_:)`` states about its own first sentence and
         // this clause did not honour: "1 … so **they** cost nothing" is the same disagreement, in
         // the tooltip beside it. The two describe the same cache from two pills, so a reader
@@ -2448,10 +2464,17 @@ public struct TidyView: View {
         case 1: reused = " 1 had already been answered by this model, so it cost nothing."
         default: reused = " \(refine.reused) had already been answered by this model, so they cost nothing."
         }
-        let changed = refine.changed == 0
-            ? "No suggestion changed — the free pass had already found the same homes."
-            : (refine.changed == 1 ? "1 suggestion moved to a better home."
-                                   : "\(refine.changed) suggestions moved to better homes.")
+        // The same distinction one clause on: "the free pass had already found the same homes" is
+        // a claim about an answer that came back, and a declined pass has none to claim it of.
+        // Nothing moved there because nothing was asked, which the sentence above already said —
+        // so this one just states the fact and stops.
+        let changed: String
+        switch (refine.changed, refine.outcome) {
+        case (0, .declined): changed = "No suggestion changed."
+        case (0, _):         changed = "No suggestion changed — the free pass had already found the same homes."
+        case (1, _):         changed = "1 suggestion moved to a better home."
+        default:             changed = "\(refine.changed) suggestions moved to better homes."
+        }
         return "Asked about \(refine.asked). \(sent)\(reused) \(changed)"
     }
 

@@ -125,10 +125,19 @@ func sourceCodeOnly(_ source: String) -> String {
 func declarationBody(of declaration: String, in source: String) throws -> String {
     let code = sourceCodeOnly(source)
     let occurrences = code.components(separatedBy: declaration).count - 1
+    // **Two failures, two messages.** A single `occurrences == 1` check reports the far commoner
+    // one — the member was renamed, so it occurs 0× — as "range(of:) would silently read the
+    // first", which describes the opposite problem and sends the reader looking for a duplicate
+    // that isn't there. Absence first, then ambiguity.
+    try #require(occurrences > 0,
+                 "\(declaration) is gone — the scan below would be vacuous")
     try #require(occurrences == 1,
                  "\(declaration) occurs \(occurrences)× in code — range(of:) would silently read the first, so every check below would be about the wrong member")
+    // Cannot fail after the count above: both read `code`, and one match was just counted. The
+    // message says so, because a `#require` whose message names an impossible cause is how a
+    // harness bug gets read as a code bug.
     let start = try #require(code.range(of: declaration),
-                             "\(declaration) is gone — the scan below would be vacuous")
+                             "counted \(declaration) once but could not find it — the reader is broken, not the app")
     let rest = code[start.upperBound...]
     let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
     return String(rest[..<end.lowerBound])
