@@ -71,7 +71,54 @@ import SwiftUI
         }
     }
 
+    /// A card names only lenses you can go to — so the folded Names lens is not one of them.
+    ///
+    /// The walk still answers Names, which is why ``OrganizePass/lenses`` still lists it and the
+    /// test above pins that. What a *card row* claims is different: it promises a place the answer
+    /// lands, and Names has none — no rail item (`OrganizeLens.railItems` omits it), no overview
+    /// section (`overviewSections` returns `nil` for it), and its findings already promised by the
+    /// Renames row directly beside it. The file card listed all three and so offered one
+    /// destination twice under two names.
+    ///
+    /// Derived from `railItems` rather than written out, because the fold has exactly one
+    /// definition and a second literal here is how the screen drifts back.
+    @Test func aPassCardListsOnlyLensesThatHaveAPlaceToGo() {
+        for pass in OrganizePass.allCases {
+            #expect(pass.presentedLenses.allSatisfy { OrganizeLens.railItems.contains($0) },
+                    "\(pass.rawValue) would list a lens the rail does not draw")
+            #expect(pass.presentedLenses == pass.lenses.filter { !$0.isFoldedIntoRenames })
+        }
+        #expect(OrganizePass.file.presentedLenses == [.toFile, .renames],
+                "the file card is back to naming the folded Names lens as a row of its own")
+        // The fold removes a row and nothing else: every pass still answers what it answered.
+        #expect(OrganizePass.duplicates.presentedLenses == [.duplicates])
+        #expect(OrganizePass.folderMemory.presentedLenses == [.restructure])
+    }
+
     // MARK: The words on the offer
+
+    /// **The file card's lede counts the rows underneath it**, and this is what keeps the two
+    /// honest.
+    ///
+    /// It read "One walk of the tree answers all three" while the card had already stopped drawing
+    /// three rows — the sentence went on asserting the shape of a list that had changed under it,
+    /// which is the exact failure a literal count invites. Asserted against
+    /// ``OrganizePass/presentedLenses`` so a third row (or a first fold) fails here rather than
+    /// shipping a card that miscounts itself.
+    @Test func theFileCardLedeCountsTheRows() {
+        let lede = OrganizePass.file.offerLede
+        let n = OrganizePass.file.presentedLenses.count
+        #expect(n == 2,
+                "the file card lists \(n) lenses now, and its lede still says “\(lede)” — the counting word has to move with the list")
+        #expect(lede.contains("both"), "the file card's lede stopped counting its rows: “\(lede)”")
+        #expect(!lede.contains("all three"),
+                "the lede counts the folded Names row again: “\(lede)”")
+        // The other two answer one lens each and draw no rows at all, so neither may count.
+        for pass in [OrganizePass.duplicates, .folderMemory] {
+            #expect(!pass.offerLede.lowercased().contains("both"))
+            #expect(!pass.offerLede.lowercased().contains("all three"))
+        }
+    }
 
     /// Every pass states a cost, and the file pass's says it is free.
     ///

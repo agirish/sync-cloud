@@ -176,10 +176,41 @@ import Design
         let scale = CGFloat(a.pixelsHigh) / band.height
         let grew = CGFloat(inkedRows(a, background: bg).count
                            - inkedRows(b, background: bg).count) / scale
-        // Heading, lede, three lens rows, two dividers and a cost line is ~150pt of card against
+        // Heading, lede, two lens rows, two dividers and a cost line is ~130pt of card against
         // the one "to file checked · names checked" line it replaces. 60 clears that comfortably.
         #expect(grew > 60,
                 "an unrun file pass added only \(Int(grew))pt of content — no card drawn")
+    }
+
+    /// **The folded Names lens paints nothing on the file card** — not a row, not a blurb.
+    ///
+    /// The card listed it, so the screen showed "Names — Names this provider will not accept" as a
+    /// third destination of a walk that has two: there is no Names rail item to land on and no
+    /// Names section on this page, and the same findings are already promised by the Renames row
+    /// immediately below it.
+    ///
+    /// Rendered rather than asserted on `presentedLenses`, because the row's words came from a
+    /// *fallback inside the view* — a section-less lens fell back to a hard-coded blurb — so a
+    /// model-level assertion would have missed the copy entirely. The comparison is the fixture
+    /// with a Names section against the same fixture without one (what `overviewSections` really
+    /// produces): identical pixels means the card ignores it either way.
+    @Test func theFoldedNamesLensPaintsNothingOnTheFileCard() throws {
+        let band = Self.fullBand
+        let withNames = Self.sections(examples: 3)
+        #expect(withNames.contains { $0.lens.isFoldedIntoRenames },
+                "the fixture has no folded lens to ignore — this test proves nothing")
+        let asProduced = withNames.filter { !$0.lens.isFoldedIntoRenames }
+        let a = try #require(bitmap(mount(withNames), band))
+        let b = try #require(bitmap(mount(asProduced), band))
+        #expect(differingPixels(a, b) == 0,
+                "a Names section changed the screen by \(differingPixels(a, b)) pixels — the card is drawing the folded lens a row of its own again")
+
+        // **The comparison could have failed.** Dropping a lens the card *does* list moves real
+        // pixels through the same path, so a zero above is the fold and not a dead harness.
+        let withoutRenames = withNames.filter { $0.lens != .renames }
+        let c = try #require(bitmap(mount(withoutRenames), band))
+        #expect(differingPixels(a, c) > 0,
+                "removing the Renames section changed nothing either — the fixture renders no card")
     }
 
     /// **A running pass shows its progress here, and stops offering to start.**

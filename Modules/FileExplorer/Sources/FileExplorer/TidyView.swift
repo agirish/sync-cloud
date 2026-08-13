@@ -2750,7 +2750,7 @@ public struct TidyView: View {
                             icon: "checkmark.seal.fill",
                             tint: SemanticColor.success,
                             title: "Nothing to rename",
-                            message: "Every folder keeps its own numbering, and every name is one this provider can store.",
+                            message: "Every name follows the convention its folder keeps, and every one is a name this provider can store.",
                             secondary: .init("Scan again", systemImage: "arrow.clockwise",
                                              handler: onFindFilingSuggestions)
                         )
@@ -3089,7 +3089,13 @@ public struct TidyView: View {
                 let tally = RenameBacklogTally(scoped)
                 return OrganizeOverviewSection(
                     lens: item,
-                    blurb: "Folders that have drifted from their own numbering.",
+                    // All three categories in one line, in the order the list draws them. It said
+                    // "Folders that have drifted from their own numbering", which is the *pad*
+                    // section alone — the narrowest of the three, and the one that names the least
+                    // of what this lens now does: since Names folded in (P10) the same list carries
+                    // provider-hostile names to fix and files that ignore their folder's
+                    // convention, and neither is a folder or a number.
+                    blurb: "Names worth changing — to sync, to convention, to order.",
                     // Ungated for the same reason Names is: `detectRenamePlans` reads the
                     // provider-wide taxonomy, not the enumerated folder.
                     state: !syncManager.hasSuggestedFiling ? .notScanned
@@ -3807,7 +3813,7 @@ public struct TidyView: View {
     }
 
     /// Renames before its first run (P12): the walk's job for this lens, one trigger (the same
-    /// file pass To File offers — one walk answers all three), and the row shapes of all three
+    /// file pass To File offers — one walk answers both lenses), and the row shapes of all three
     /// categories a scan can produce, the red to-fix first.
     private var renameSetupState: some View {
         LensSetupCard(
@@ -3815,7 +3821,7 @@ public struct TidyView: View {
             accent: glassHue.accentColor,
             triggerTitle: "Run the file pass",
             triggerSymbol: "folder.badge.gearshape",
-            triggerHelp: "One walk of the tree answers To File, the name check, and this backlog. Free, and on-device.",
+            triggerHelp: "One walk of the tree answers To File and this backlog. Free, and on-device.",
             samplesTitle: "What a finding looks like",
             samplesAccessibility: "Example of the rename formats: a provider-hostile name and "
                 + "its safe form, a file renamed to its folder's convention, and a one-digit "

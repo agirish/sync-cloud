@@ -46,6 +46,10 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// Rules appears in no pass and that is the whole of its difference: it is configuration you
     /// keep, never a result a scan turned up — the same distinction ``OrganizeLens/carriesBadge``
     /// draws, and the reason `overviewSections` returns `nil` for it.
+    ///
+    /// **This is the machinery's list, not the screen's** — Names is still an answer the walk
+    /// publishes, and ``init(producing:)`` has to be able to route it. What a card lists is
+    /// ``presentedLenses``.
     var lenses: [OrganizeLens] {
         switch self {
         case .file: return [.toFile, .names, .renames]
@@ -54,12 +58,21 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The lenses a card may *name*: ``lenses`` minus the ones folded into another.
+    ///
+    /// Names is folded into Renames (v4.0 polish P10) — a provider-hostile name is one more kind
+    /// of rename, and its findings live in the backlog's "to fix" section. It has no rail item and
+    /// no overview section, so a pass card listing it offered a place you cannot go and split one
+    /// destination into two. The fold is a presentation rule, so it belongs on this property and
+    /// not on ``lenses``.
+    var presentedLenses: [OrganizeLens] { lenses.filter { !$0.isFoldedIntoRenames } }
+
     /// Whether this pass answers exactly one lens, and can therefore be re-run from that lens's own
     /// row without ambiguity.
     ///
     /// **This is what decides which finding rows carry a rescan, and it is deliberately a property
-    /// of the pass rather than of the data.** The file pass answers three lenses, so a rescan on
-    /// each of their rows would be three controls doing one identical thing — the old footer's
+    /// of the pass rather than of the data.** The file pass answers more than one lens, so a rescan
+    /// on each of their rows would be several controls doing one identical thing — the old footer's
     /// mistake, rebuilt on the other side of the screen. Its rescan therefore stays where it
     /// already is, on row 2, where one control speaks for the whole walk.
     ///
@@ -78,7 +91,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// ``answersOneLens`` is offered from a row, so the file pass never asks for these words; the
     /// arm exists because the switch is total, and answering "Rescan" is what it would want if the
     /// walk ever came to answer one lens. Do not read its presence as the file pass having a row
-    /// control — it has one control, on row 2, for all three of its lenses.
+    /// control — it has one control, on row 2, for every lens it answers.
     var rescanTitle: String {
         switch self {
         case .file, .duplicates: return "Rescan"
@@ -117,11 +130,16 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One line saying what the click buys, and — for the file pass — that it buys three things.
+    /// One line saying what the click buys, and — for the file pass — that it buys more than one
+    /// thing.
+    ///
+    /// **"Both" counts the rows under it**, which are ``presentedLenses``, not ``lenses``. It said
+    /// "all three" while the card still listed the folded Names row; `theFileCardLedeCountsTheRows`
+    /// pins the word to the list so the two cannot drift apart again.
     var offerLede: String {
         switch self {
         case .file:
-            return "One walk of the tree answers all three."
+            return "One walk of the tree answers both."
         case .duplicates:
             return "Finds identical content sitting under different names or folders."
         case .folderMemory:

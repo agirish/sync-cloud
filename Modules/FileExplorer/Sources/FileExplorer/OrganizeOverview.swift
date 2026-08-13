@@ -869,10 +869,14 @@ struct OrganizeOverview: View {
 
             // The lenses this one click answers. Drawn only when there is more than one, because
             // for a single-lens pass the row would restate the heading directly above it.
-            if pass.lenses.count > 1 {
+            //
+            // `presentedLenses`, not `lenses`: a row here is a promise that the answer has a place
+            // to land, and the folded Names lens has none — it has no rail item and no overview
+            // section, and its findings are already promised by the Renames row beside it.
+            if pass.presentedLenses.count > 1 {
                 Divider()
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(pass.lenses, id: \.self) { lens in
+                    ForEach(pass.presentedLenses, id: \.self) { lens in
                         passLensRow(lens)
                     }
                 }
@@ -896,15 +900,11 @@ struct OrganizeOverview: View {
     /// One lens inside a pass card: what this share of the one walk gets you.
     ///
     /// The accent bracket on the leading edge is what says *these come together* without a
-    /// sentence explaining it — and there is deliberately no button here. Three buttons all
+    /// sentence explaining it — and there is deliberately no button here. Two buttons both
     /// starting the identical pass would be the old footer's claim in new clothes.
     @ViewBuilder
     private func passLensRow(_ lens: OrganizeLens) -> some View {
-        // The folded Names lens has no section to borrow a blurb from (its findings ride the
-        // Renames card), but this card lists what the WALK answers, and the walk still answers
-        // it — so the row keeps its words rather than dropping to a bare title.
         let blurb = sections.first { $0.lens == lens }?.blurb
-            ?? (lens.isFoldedIntoRenames ? "Names this provider will not accept." : nil)
         HStack(alignment: .top, spacing: 8) {
             RoundedRectangle(cornerRadius: 1)
                 .fill(accent.opacity(0.35))

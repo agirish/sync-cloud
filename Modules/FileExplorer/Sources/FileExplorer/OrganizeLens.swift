@@ -44,7 +44,11 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     case duplicates = "Duplicates"
     /// The names this provider will not accept.
     case names = "Names"
-    /// Folders that have drifted from their own `NN. Mon YYYY` convention (ROADMAP 19).
+    /// Every name worth changing (ROADMAP 19), in three kinds: names this provider will not accept
+    /// (the folded ``names`` lens), files that ignore the convention their folder keeps, and
+    /// folders that have drifted from their own `NN. Mon YYYY` numbering. **The numbering is one
+    /// of the three and the narrowest** — copy that names only it describes the pad section rather
+    /// than the lens.
     case renames = "Renames"
     /// Where the tree disagrees with its own habits (ROADMAP 20).
     case restructure = "Restructure"
@@ -239,8 +243,8 @@ extension OrganizeLens {
         case .names:       what = "Names this provider will not accept, found on the filing scan. "
                                 + "Shows the proposed fixes."
         case .renames:     what = "Names that need changing — to sync, to convention, to order: "
-                                + "provider-hostile names to fix, and folders that have drifted "
-                                + "from their own numbering."
+                                + "names this provider will not accept, files that ignore their "
+                                + "folder's convention, and folders whose numbering has drifted."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."
         case .rules:       what = "The rules that file things without asking. Configuration, so "
