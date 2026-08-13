@@ -2,25 +2,28 @@
 
 **Scope:** the 4.x line after v4.0 ships — the **Browse** workspace starting with Finder-style tabs
 (§1), pane chrome that spans every workspace (§2), the Finder borrowings worth taking (§3), the
-storage-layer gaps behind **Organize ▸ Restructure** (§4) and the plan surface that lens was
-deliberately shipped without (§5). `main` only, with one stated exception: §2's code exists on
-`v2.x` too, and that item says what follows from it.
+storage-layer gaps behind **Organize ▸ Restructure** (§4), the plan surface that lens was
+deliberately shipped without (§5) and the **first folder survey**, run in the background, which is
+what gives a fresh machine anything to read at all (§6). `main` only, with one stated exception:
+§2's code exists on `v2.x` too, and that item says what follows from it.
 
 Distinct from `ROADMAP.md` (the standing feature backlog across all surfaces),
 `DEFERRED_ENHANCEMENTS.md` (accepted limits) and `REFACTOR.md` (internal shape). An item graduates
 out of this file the way it does out of `ROADMAP.md`: deleted when it ships, because git history is
 the record.
 
-Designed and mocked on **2026-08-12**; every constraint below was read out of the code that day.
+§§1–5 were designed and mocked on **2026-08-12**; every constraint in them was read out of the code
+that day. **§6 was designed on 2026-08-13**, and its constraints were read out of the code that day —
+the day part of §4.2 shipped, which is why §4.2 now carries measurements rather than a plan.
 
-An **illustrated companion** covers all five items — same decisions, same Order, same Open
-questions, with 24 figures in both appearances:
+An **illustrated companion** covers all six items — same decisions, same Order, same Open
+questions, with 29 figures in both appearances:
 <https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. **This file is the one that
 ships** — if it disagrees with the companion, the companion is the stale one. Figures are cited by
 number below where one settles a question faster than a paragraph. Figures are **appended, never
-renumbered**: §2's are 17–20 and its section sits after §3 there, §5's are 21–24, so adding either
-could not move a number this file already cites. §4's figures are **real renders** through the
-shipping `LensSetupCard`, not re-creations, and are unnumbered for that reason.
+renumbered**: §2's are 17–20 and its section sits after §3 there, §5's are 21–24 and §6's are 25–29,
+so adding any of them could not move a number this file already cites. §4's figures are **real
+renders** through the shipping `LensSetupCard`, not re-creations, and are unnumbered for that reason.
 
 §5 has a **second companion** — its own eight-screen mockup set, in more detail than the four
 figures the main one carries: <https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>.
@@ -277,11 +280,12 @@ Ordered by value against what Browse already has. Each is independent of tabs un
 
 ---
 
-## 4. Restructure: a cached answer, and no way to build one
+## 4. Restructure: a cached answer, and no way to run one
 
 **Why:** the lens opens on its setup card and says its answer is cached (shipped `6c56768a`). It
-cannot say *how* cached, and on a machine with no folder survey it cannot offer to build one —
-because nothing in the app can. Both are storage-layer gaps behind a view that is already done.
+cannot say *how* cached, and on a machine with no folder survey its card still has no trigger —
+the app can now *derive* a profile (§4.2, shipped) but has no way to *run* the derivation (§6).
+Both are storage-layer gaps behind a view that is already done.
 
 ### Context
 
@@ -290,9 +294,9 @@ because nothing in the app can. Both are storage-layer gaps behind a view that i
 | **The survey's `generated` stamp is write-only.** It is set on a private `Encodable` struct; `FilingMemory`, the type actually decoded at launch, has no such field. | `Modules/Sync/Sources/Sync/FilingSurveyStore.swift` | Nothing can read a date back today, which is why the card claims coverage only. |
 | **And it means "last changed", not "last surveyed"** — the memory is written only when `memory != previousMemory`. | same, `write(corpus:memory:previousMemory:…)` | A survey run this morning on a settled tree leaves last month's stamp. Showing that would be worse than showing nothing. |
 | **The corpus is written unconditionally, and is NOT hashed into the fingerprint** — which covers `folder-profile.json`, `filing-memory.json`, `people.json`. | `FilingProfileStore.fingerprint(id:in:)` | The corpus is the one artifact that moves on every survey *and* costs nothing to move. A per-survey timestamp in a hashed file changes `FilingVerdictKey` and re-bills every cached cloud classification. |
-| **`resurveyFilingMemory` cannot bootstrap.** It opens with `guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId` and returns `.none` otherwise. | `Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift` | The half the app owns cannot produce the half it does not, so a fresh machine has no way in. That is why §4.2 is a new builder rather than "just run the re-survey". |
-| **`isAxisValued` already falls back to `isBareYear` and `isInboxPath`** — its own doc says the fallbacks exist "for a profile that records no axes at all". | `Modules/Sync/Sources/Sync/StructureDivergence.swift` | A name-only profile is enough to make **this lens** work. What it misses is exact: non-year axis values (`Family/Mom`, `Finance/US`) read as vocabulary, so two eras can look different when they differ only by whose folder they are. |
-| **The folder profile is never written**, deliberately: it records judgements about names a walk cannot re-derive, and `role` / `naming` / `anchors` / `acceptsNewFiles` feed the router, the rename planner and the classifier's destination list. | `FilingSurveyStore` (doc), `FilingRouter`, `RenamePlanner` | A name-only profile must never land on top of a hand-built one — it would degrade To File and Renames with nothing failing. |
+| **`resurveyFilingMemory` cannot bootstrap.** It opens with `guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId` and returns `.none` otherwise. | `Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift` | The half the app owns cannot produce the half it does not, so a fresh machine has no way in. That is why §4.2 was a new builder rather than "just run the re-survey", and it is the guard §6 opens with. |
+| **`isAxisValued` already falls back to `isBareYear` and `isInboxPath`** — its own doc says the fallbacks exist "for a profile that records no axes at all". | `Modules/Sync/Sources/Sync/StructureDivergence.swift` | A profile that records no axes at all is still enough to make **this lens** work, through those fallbacks; what it misses is exact — non-year axis values (`Family/Mom`, `Finance/US`) read as vocabulary, so two eras can look different when they differ only by whose folder they are. The derived profile does not need the fallback: it records `axes`, which is part of why Restructure cannot tell it from the hand-built one (§4.2). |
+| **The folder profile has exactly one write path, and it refuses over an existing profile.** `writeProfile` throws `WriteRefusal.profileExists`, writes atomically, and re-points `profiles.json` only when nothing is active. `FilingSurveyStore` still never writes a profile. | `Modules/Sync/Sources/Sync/FilingProfileStore.swift` (`writeProfile`, shipped `d4280231`) | A derived profile can never land on top of a hand-built one, which is what a walk cannot re-derive: `naming`, `folderSemantics`, the `outbound-pack` refusals. There is deliberately no `overwrite:` parameter — replacing a profile means moving the old file by hand, in the open. |
 
 ### 4.1 A truthful "last surveyed" — small
 
@@ -316,26 +320,51 @@ fingerprint must *not* move with it.
 **The threshold is unmeasured.** 30 days is a guess. Ship the plain variant first and pick the
 number from real stamps.
 
-### 4.2 Building a survey in the app — medium
+### 4.2 Building a survey in the app — the derivation shipped
 
-Three new files, ~400 lines. Fires only where `filingFolderProfile == nil`, so it is worth nothing
-on a tree that already has one.
+`FolderSurveyBuilder`, `FilingProfileStore`'s first write path and `JurisdictionCandidates` landed
+in **`d4280231`** on 2026-08-13. The two items that remain are not a smaller version of what
+shipped — they are an execution model and a dialog, and they are **§6**.
 
-1. `FolderSurveyBuilder` (new) — pure `[FileNode] → [String: FolderProfileEntry]`: `path`, counts,
-   `acceptsNewFiles` and `role: .inbox` from `isInboxPath`. Leaves `naming`, `anchors` and `axes`
-   empty rather than guessing; a wrong `naming` would have the rename pass propose renames toward a
-   convention nobody has.
-2. `FilingProfileStore` — its first write path. Refuses over an existing profile, writes atomically,
-   and touches `profiles.json` only when nothing is active.
-3. `FileSyncManager+FolderSurvey` (new) — `buildFolderSurvey(root:)` on its own `ScanLifecycle`,
-   which is what gets it progress, cancellation and the same scanning dress as every other pass.
-4. `RestructureLens` — the no-survey card gets its trigger back, this time wired to something that
-   runs. The card's footnote carries the name-only caveat.
+What shipping measured revises the plan those items were written under, so it is recorded here
+rather than deleted with them. Every number below comes from walking the real tree and comparing
+field by field against this machine's hand-built 3,013-folder profile (`~/Documents`); the
+comparison itself is `FolderSurveyGroundTruthTests`, machine-pinned to that tree.
 
-**Tests:** builder purity over a fixture tree; the never-overwrite guard **in both directions** (the
-refusing one is what a happy-path test skips); and the degradation asserted rather than described —
-same synthetic tree with and without axes, identical findings for a bare-year fixture, *different*
-for a person-axis one.
+| The plan said | The measurement says |
+|---|---|
+| Leave `naming`, `anchors` and `axes` **empty** rather than guessing. | **`anchors` and `axes` are derived.** They are what the router consumes, and leaving them empty forfeited most of the value. Agreement: role .998, anchors .997 (the whole list, in order), `acceptsNewFiles` .998 with **39 of 39 inboxes refused and no false positives**, person .998, lifecycle .999, year and fiscalYear 1.000, jurisdiction 1.000 *once its values are supplied*. |
+| A wrong `naming` would have the rename pass propose renames toward a convention nobody has. | Unchanged — `naming` is still never guessed — and now with a second reason: **nothing reads `FolderProfileEntry.naming`** outside test fixtures, so accuracy there would buy nothing even if it were free. |
+| "the degradation asserted rather than described" — the same synthetic tree with and without axes. | **Restructure returns the identical finding from a derived profile as from the hand-built one.** There is no degradation left for this lens to characterise, which settles that test by removing its subject. What a walk still cannot re-derive is `naming`, `folderSemantics` and the jurisdiction vocabulary — and that, not a degraded profile, is what the store's refusal protects. |
+
+Three rules came out **narrower** than the plan assumed. Each was swept rather than argued, and the
+losing variant is written down beside the winner:
+
+- **The inbox test asks the leaf, not the path.** Asking `isInboxPath` of the whole path scores
+  .992 against .998, because `Finance/US/TODO/IRS/2023` is a year bucket. Its *permission* is a
+  separate question, and `acceptsNewFiles` does still ask the whole path.
+  (`FolderSurveyBuilder.role`, doc.)
+- **The archive test asks the folder's own name**, with `axes.lifecycle` carrying the fact that
+  propagates. Any-component matching costs the same .992. (same doc.)
+- **The anchor cap is 10, not 14** — 10 → .997, 12 and 14 → .979. The literal is
+  `FolderSurveyBuilder.anchorLimit`; the sweep behind it is in `d4280231`'s body, not in the source.
+
+And two things the plan did not know it needed:
+
+- **The anchor tokenizer is deliberately not `FilingRouter.tokenize`.** Running the whole pipeline
+  through the router's tokenizer measures **.320 against .997**. The two exist for different jobs —
+  the router's must agree byte for byte with the memory that wrote its index; this one feeds a
+  human-readable list of what a folder is about — and `theRoutersTokenizerWouldBeMuchWorseHere`
+  re-derives that gap on every run rather than quoting it, so nobody unifies them on the
+  reasonable-looking grounds that both make tokens out of names.
+- **Jurisdiction values cannot be derived.** The heuristic alone scores **.83**, and the gap is
+  three inventions: it proposes `HPE`, `IT` and `PRD` as *places*. Without its 2–3-character bound
+  the strongest candidate on this tree is **`TODO`**, under more parents than `US` — the inbox
+  marker the whole filing path exists to refuse. So values are **proposed for confirmation, never
+  adopted**, which is what puts them in §6's dialog. The rule also **misses**: `Singapore` is a real
+  jurisdiction here (10 folders) and appears under only two parents, below the three-parent bar, so
+  the dialog must let a value be **added** as well as ticked or the tree's third jurisdiction can
+  never be recorded at all.
 
 ### 4.3 Shadow axis values — medium, independent of both
 
@@ -502,6 +531,112 @@ respectively rather than as an item:
 
 ---
 
+## 6. The first survey, run in the background
+
+**Why:** the router reads a folder profile the app has never been able to create. It has only ever
+come from an out-of-repo script, so a machine that has never run one gets **no routing at all** —
+and the guard that proves it is three lines:
+
+```swift
+guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId else {
+    Logger.shared.info("No filing profile on this machine — nothing to re-survey")
+    return .none
+}
+```
+
+`Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift:74`. The re-survey refreshes the half
+the app owns and cannot produce the half it does not. §4.2 shipped the derivation and the write;
+this is the **run**.
+
+**What it is:** an OS-indexer-shaped pass. The user agrees once, in a dialog, and then it runs in the
+background — non-blocking, resumable across quits, throttled behind their own work. **It is
+acceptable for this to take a long time; it is not acceptable for it to make the app feel slow.**
+Every constraint below is that sentence taken literally.
+
+### The setup dialog — Fig. 25
+
+Asks only what a walk cannot compute, and nothing else:
+
+- **The tree root.** What the profile records as the tree it describes. `FolderSurveyBuilder.build`
+  takes it as a parameter, never touches it on disk and never parses it, so this is a plain folder
+  choice with no inference behind it.
+- **The household roster.** The person axis and the `person-bucket` role are read off
+  `PersonRegistry`, and with no roster both are simply absent — no folder is misattributed for want
+  of one, but none is attributed either. Reuses the People list Settings already ships
+  (`PeopleSettingsTab` / `PeopleList`, `Modules/Settings/Sources/Settings/SettingsView.swift:2255`)
+  and the `people.json` `PeopleStore` already writes. No second roster UI, no second file.
+- **The jurisdiction values — inferred and confirmed.** `JurisdictionCandidates.propose` supplies
+  the list *with its evidence*: the distinct parents each value appears under, and the number of
+  folders it would change. The user ticks the real ones. **Nothing is pre-ticked** — the rule is
+  tuned to offer `HPE` rather than to be right about it — and there is a free-text row to **add**
+  one, because that is the only way `Singapore` can ever be recorded (§4.2).
+
+Fig. 25 is that dialog as a sheet over Organize: the tree at the top and the household under it,
+both stated rather than asked, each with a quiet *Change…* / *Edit…* — they are confirmations of
+what the app already holds. Then the one thing it cannot decide alone, under the heading *Places*:
+the proposals as tick chips, `US` and `IN` ticked and `HPE`, `IT` and `PRD` not, with an *Add…*
+for the value the rule cannot reach. Pre-ticking is the point — the user is correcting a list, not
+composing one, and the line beneath says what leaving one unticked costs, which is nothing but the
+axis. Two buttons: *Not now*, and *Start in background*, which is the whole bargain in three words.
+
+### What the code decides about how it runs
+
+Read out of the code on **2026-08-13**.
+
+| Fact | Where | Consequence |
+|---|---|---|
+| **Every PDFKit parse in the process takes one lane.** `PDFKitSerialAccess` is a single serial `DispatchQueue`, shared by Filing's page-1 reader and the duplicate scan's fingerprint. | `Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift:18–20`; `MacApp/ContentSignalExtractor.swift:192` | **Raising the survey's concurrency buys nothing on the PDF half** — the extra workers queue. Budget it as serial and spend the effort on not reading anything twice. What makes serial affordable is the **early stop**: this reader stops at 600 characters of page 1 (`enoughFromOnePage`), and on a full-tree cold pass that is 78 s serial against 39 s six-at-a-time, where reading all five pages — as `v2.x` still does — is 198 s serial against 106 s. The concurrency is what is unavailable; the early stop is what pays for losing it. |
+| **Driving PDFKit concurrently changes the text it returns.** Through this reader over a real 10,286-document tree, six at a time, **0.83% of documents came back with different text than a serial pass**, and concurrent passes disagreed with each other. One mortgage statement: 30 serial reads produced **one** text; adding 180 concurrent reads produced **18 distinct texts**, one of them 1,341 characters against 2,616, and **7 different first-400-character windows** among them. Two *serial* queues race the same way — **4.5–6.3% of documents flapped** with a second serial queue reading alongside, against 0% with the lane to itself. | `MacApp/ContentSignalExtractor.swift:166–191`; `PDFKitSerialAccess.swift:8–10` | The survey takes the lane; it never opens a queue of its own. A corpus built off unstable text is a corpus whose tokens differ between runs, under a verdict key that cannot see the question changed. Non-PDF work (Vision, plain text) stays on `ContentSignalExtractor.workQueue` and is where concurrency is still worth having. |
+| **`FileSyncManager` is `@MainActor`.** | `Modules/Sync/Sources/Sync/FileSyncManager.swift:8` | The three expensive steps must be **hoisted off it** — `FilingSurvey.merge`, `FilingSurvey.buildMemory` and `FilingSurveyStore.write`, plus `FolderSurveyBuilder.build`, which is already pure of `FileManager`, `Date()` and defaults precisely so it can run detached. Only publication (`filingMemory`, `filingArtifactFingerprint`, the lifecycle's status) comes back to the actor. |
+| **`surveyedRegion` is derived from the corpus, and `documentsToRead` scopes on it.** The region is every ancestor of every surveyed document, closed upwards; `documentsToRead` skips anything outside it. Empty means unscoped, which is the only sensible first run. | `Modules/Sync/Sources/Sync/FilingSurvey.swift:172–186`, `:205–213` | **The sharpest constraint here.** A checkpointed *partial* corpus makes the region cover only what has been read, so a resumed survey **skips the rest of the tree permanently** and reports "0 documents read" — indistinguishable from a settled tree. The same failure is already written down one file over for the empty-tree case (`FileSyncManager+FilingSurvey.swift:96–100`). So progress is checkpointed to a **separate file that `FilingSurveyStore.corpus(id:in:)` never reads**, and `filing-corpus.json` is written once, whole, at the end. `surveyedRegion` stays a pure function of a complete corpus. |
+| **The memory is a full rebuild, every time, and its bytes are hashed into the fingerprint.** IDF is corpus-wide: a partial rebuild weighs a new folder's anchors on a different denominator from its neighbours'. And `write` skips an unchanged memory on purpose, because the memory is part of `FilingProfileStore.fingerprint(id:in:)`, which is part of every cached classification's key. | `FilingSurvey.swift:15–17`; `FilingSurveyStore.swift:41–46`; `FileSyncManager+FilingSurvey.swift:195` | **Write the memory once, at the end, from the full corpus.** A mid-survey write would not merely be wasted work: it moves `filingArtifactFingerprint` and throws away every cached verdict — once per checkpoint. |
+| **Anti-clobber already has a backstop, and it is not the check.** `writeProfile` throws `WriteRefusal.profileExists` and re-points `profiles.json` only when nothing is active; `resurveyFilingMemory` refuses to run twice over itself. | `FilingProfileStore.swift` (`writeProfile`); `FileSyncManager+FilingSurvey.swift:63` | Refuse to **start** where a profile or a memory exists — a survey that runs for an hour and is refused at the store has wasted the hour. Mint a fresh profile id for the run. Keep the store's refusal anyway: it is what makes the check's absence a bug rather than a disaster. |
+| **The signals to throttle on already exist.** `isVerifyAllRunning` and `activeFileOperationsCount` on the manager, and six `ScanLifecycle.isRunning` flags — duplicates, storage lens, names, filing, filing survey, automations dry run. | `FileSyncManager.swift:1565`, `:1624`, and `:367`, `:415`, `:448`, `:493`, `:504`, `:678` | Yield to all of them, and **pause rather than cancel** — the corpus is checkpointed, so resuming costs nothing and cancelling costs everything already read. Note what does *not* exist: `ScanLifecycle` has `isRunning`, `status` and `hasCompleted` and **no paused state**, so paused is either a status string or the one field this adds. Thermal and low-power are genuinely new surface — **nothing in the repo reads `ProcessInfo.thermalState` or `isLowPowerModeEnabled`** (grepped 2026-08-13, zero hits). |
+
+Fig. 26 is the running state, and it is drawn from Organize with a lens open rather than from the
+setup card: the pane navigates, the lens is usable, nothing is disabled and no sheet is up. The
+survey reports where every other pass reports — a status line reading *Learning your folders*, a
+count of documents read against the total, and *Pause · Stop*. Fig. 27 is the same frame with the
+duplicate scan running: the count frozen at what it reached, the line replaced by *Paused while
+Duplicates scans*, and *Resumes on its own · Resume now*. That pairing is the honest one to
+illustrate — the survey and the duplicate scan are the two heavy readers of the same serial PDFKit
+lane, so they would queue into each other and the user's scan is the one that must win. It yields to
+`isVerifyAllRunning` and `activeFileOperationsCount` the same way. The two figures differ only in
+that strip, deliberately — a paused survey must not look like a stalled one.
+
+### What it costs, measured on the reference tree
+
+A first survey is the unscoped one — with no corpus and no memory the region is empty and
+`isInScope` admits everything, which is the only thing it could sensibly do — so it reads **page 1
+of ~11,019 files**. That is `FilingSurvey.readableExtensions` (`pdf`, `txt`, `csv`, `jpg`, `jpeg`,
+`png`) applied to the reference tree, and it is **93.1% of what the offline builder read**. The
+other **816** are Office formats — `.docx`, `.pptx`, `.xlsx`, which go through a helper this app
+does not carry — and that is the **largest single loss in a derived survey**: it leaves **143 of
+2,306 learned folders with no content at all**. The list is deliberately no *wider* than the
+generator's either; adding `.md` looked free and would have queued 1,700 markdown files into the
+same IDF.
+
+**~13.8% of reads yield nothing** and are stamped blank so they are never opened again. That blank
+entry is not a wasted row; it is the only thing that stops the next survey paying for the same file.
+
+Fig. 28 is the payoff, at one folder, before and after: on the left the shipping `noProfileState`
+setup card, samples and all, with **no trigger** — *this tree has no folder survey yet, so there is
+nothing to compare* — and on the right the same folder's findings list once the survey has landed.
+Fig. 29 is the completion summary: folders profiled, documents read, documents that yielded nothing,
+the jurisdiction values that were confirmed, and — stated plainly — the Office formats that were not
+read and the folders left without content, because a summary that reports only what it managed reads
+as complete when it is not.
+
+### Size — large
+
+Two new files in `Sync` (the run's state machine and its checkpoint, which is the file
+`corpus(id:in:)` must never read), one setup sheet in `FileExplorer`, and wiring in
+`FileSyncManager`, `RestructureLens` and `ScanLifecycle`. ~900 lines, and **none of it is
+derivation** — that shipped. The state machine is the work: pause, resume across a quit, and a
+checkpoint that cannot be mistaken for a corpus.
+
+---
+
 ## Order
 
 **Everything here is post-v4.0.** §4.1 is the only item that improves a screen already shipping.
@@ -522,8 +657,9 @@ respectively rather than as an item:
 8. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
    the app; it waits on the rename pass's review-and-apply path.
 9. **§5.6, Claude on the mapping** — last, deliberately.
-10. Everything else on its own merits. **§4.2 when a second machine or a second tree makes it real**
-   — it cannot fire on this one; drop-on-tab last.
+10. Everything else on its own merits. **§6 when a second machine or a second tree makes it real** —
+   it cannot fire on this one, which has a profile and where the store would refuse the write;
+   drop-on-tab last.
 
 ## Open questions
 
@@ -534,12 +670,23 @@ respectively rather than as an item:
 - Whether the tab bar's tick is one app-wide preference or per pane. App-wide matches the other
   reading preferences (`paneColumnShowsPreview`); per pane matches `paneViewModeBrowse`.
 - Whether a tab shows a scan/download spinner when work is running in a folder it is not showing.
-- **§4.2: should a name-only survey ever be offered where a hand-built profile exists?** It could
-  pick up folders added since — only by overwriting judgements the walk cannot re-derive.
-  Recommendation: no; `resurveyFilingMemory` already refreshes the half that is safe to refresh.
-- **§4.2: stopgap or replacement?** A stopgap for fresh machines is the ~400 lines above. Replacing
-  the offline builder means axis inference, role detection and naming-convention mining in-app —
-  a different project, and the reason the profile is hand-built today. Recommendation: stopgap.
+- **§6: stopgap or replacement?** Settled further than it was: the derivation is not a degraded
+  stopgap — role, anchors and axes agree at .997–1.000 and Restructure cannot tell the two profiles
+  apart. What stays hand-built is `naming`, `folderSemantics` and the jurisdiction *vocabulary*, and
+  the last of those is answered by asking rather than by mining. The open half is whether that is
+  enough to stop maintaining the offline builder at all, which only a second tree can answer.
+- **§6: should the survey offer itself unprompted on a large unsurveyed tree?** A machine with no
+  profile gets no routing and no Restructure, and nothing on screen says why until someone opens the
+  lens. Against that: an hours-long background pass that the user did not ask for is exactly the
+  thing the *"never make the app feel slow"* rule exists to protect, and the dialog needs three
+  answers it cannot guess. Recommendation: offer it in the lens and in Organize's overview, never
+  start it.
+- **§6: what should the Organize overview ledger count while a survey is running?** Making
+  Restructure runnable changes `countedLenses` and `pendingPasses`
+  (`Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift:418`, `:468`), and a lens that
+  is *going to be* runnable in forty minutes is neither of the two states those were written for. A
+  badge that appears mid-survey and a pass card that offers a button pointing at an unfinished
+  answer are both worse than counting nothing until the survey lands.
 - **§5.4: merges.** Two source folders mapping onto one target inside a single year is refused on
   the row rather than designed. A real family will eventually want one, and it is the case where
   *rename* stops being available and files genuinely have to move.
