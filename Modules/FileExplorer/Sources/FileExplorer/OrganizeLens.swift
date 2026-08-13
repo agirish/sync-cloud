@@ -44,11 +44,17 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     case duplicates = "Duplicates"
     /// The names this provider will not accept.
     case names = "Names"
-    /// Every name worth changing (ROADMAP 19), in three kinds: names this provider will not accept
-    /// (the folded ``names`` lens), files that ignore the convention their folder keeps, and
-    /// folders that have drifted from their own `NN. Mon YYYY` numbering. **The numbering is one
-    /// of the three and the narrowest** — copy that names only it describes the pad section rather
-    /// than the lens.
+    /// Every name worth changing (ROADMAP 19). **Four sections**, in the order the list draws them:
+    /// names this provider will not accept (the folded ``names`` lens), then
+    /// `RenameCategories.Category`'s three — files that don't follow their folder's convention,
+    /// files renumbered to make room for one of those, and files whose one-digit ordinals gain a
+    /// leading zero.
+    ///
+    /// **What gets renamed is a file.** `RenamePlan` is *identified* by a folder and its `steps`
+    /// each carry "the absolute path of the file as it stands now", so the folder is the grouping,
+    /// never the thing renamed. Copy saying "folders that have drifted from their own numbering"
+    /// — which every line describing this lens once did — is wrong twice over: wrong subject, and
+    /// naming the narrowest of four kinds as though it were the lens.
     case renames = "Renames"
     /// Where the tree disagrees with its own habits (ROADMAP 20).
     case restructure = "Restructure"
@@ -251,7 +257,8 @@ extension OrganizeLens {
                                 + "Shows the proposed fixes."
         case .renames:     what = "Names that need changing — to sync, to convention, to order: "
                                 + "names this provider will not accept, files that ignore their "
-                                + "folder's convention, and folders whose numbering has drifted."
+                                + "folder's convention, and files whose numbering has to shift "
+                                + "or pad."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."
         case .rules:       what = "The rules that file things without asking. Configuration, so "

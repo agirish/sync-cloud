@@ -82,11 +82,24 @@ import SwiftUI
     ///
     /// Derived from `railItems` rather than written out, because the fold has exactly one
     /// definition and a second literal here is how the screen drifts back.
+    ///
+    /// **A fold must not lose an answer**, which is the half of this that is not about Names. A
+    /// lens dropped from the card is only safe while the lens it folded *into* is still listed
+    /// there — fold a lens into a target on a different pass and the walk would answer something
+    /// no card mentions, silently. That is asserted through ``OrganizeLens/resolvedForPresentation``
+    /// rather than by naming Renames, so it keeps holding for the next fold.
+    ///
+    /// It does **not** restate `presentedLenses`' own definition. The first version of this test
+    /// did — `presentedLenses == lenses.filter { !$0.isFoldedIntoRenames }` is the implementation
+    /// copied into the assertion, so it compared the model to itself and could not fail.
     @Test func aPassCardListsOnlyLensesThatHaveAPlaceToGo() {
         for pass in OrganizePass.allCases {
             #expect(pass.presentedLenses.allSatisfy { OrganizeLens.railItems.contains($0) },
                     "\(pass.rawValue) would list a lens the rail does not draw")
-            #expect(pass.presentedLenses == pass.lenses.filter { !$0.isFoldedIntoRenames })
+            for dropped in pass.lenses where !pass.presentedLenses.contains(dropped) {
+                #expect(pass.presentedLenses.contains(dropped.resolvedForPresentation),
+                        "\(pass.rawValue) drops \(dropped.title) and does not list what it folds into — that answer is now on no card")
+            }
         }
         #expect(OrganizePass.file.presentedLenses == [.toFile, .renames],
                 "the file card is back to naming the folded Names lens as a row of its own")

@@ -35,7 +35,12 @@ enum LensIntros {
             // ("provider-hostile names that break sync", "folders that have drifted from their
             // own numbering") and ran to three, which is a full line taller than every other
             // lens's header and the reason their triggers stopped lining up.
-            message: "Find names worth changing — ones this provider can't store, files that ignore their folder's convention, and folders whose numbering has drifted.",
+            //
+            // **Files, not folders, in the last clause.** It said "folders whose numbering has
+            // drifted" — but a `RenamePlan` is only *identified* by a folder; every step it holds
+            // renames a file inside it, and the sample row two lines below this card has always
+            // shown `1. Jan 2011.pdf → 01. Jan 2011.pdf`. The words and the samples disagreed.
+            message: "Find names worth changing — ones this provider can't store, files that ignore their folder's convention, and files whose numbering has drifted.",
             safety: "Nothing is renamed without your say-so, and every rename is undoable."
         )
     }

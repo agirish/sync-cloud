@@ -213,6 +213,77 @@ import Design
                 "removing the Renames section changed nothing either — the fixture renders no card")
     }
 
+    /// **How many rows the card actually drew** — counted off the screen, not asked of the model.
+    ///
+    /// The test above is necessary and was not sufficient, and the gap is worth stating because it
+    /// is the shape a fold defect comes in. It compares the screen with a Names section against the
+    /// screen without one, so it catches a card that draws the folded row *and takes its words from
+    /// the section*. The original defect drew the row and took its words from a **hard-coded
+    /// fallback inside the view** — identical on both sides of that comparison, so both renders
+    /// matched and the test passed. Reintroducing the real defect, both halves together, was green
+    /// on every model-level and diff-level assertion here.
+    ///
+    /// A model assertion cannot close it either: `presentedLenses` can be perfectly right while the
+    /// view iterates `lenses` beside it. So this counts the one mark a lens row cannot be drawn
+    /// without — the accent bracket on its leading edge — and requires one per presented lens.
+    /// It is **not** the only accent ink on the screen, which is what ``accentRowBrackets`` has to
+    /// work around; a row's bracket is identified by being one row tall, at 56 device pixels.
+    @Test func theFileCardDrawsOneRowPerPresentedLens() throws {
+        // The fixture deliberately CARRIES a Names section: the card must ignore it whether or not
+        // it has words to draw with, which is exactly what the diff test above cannot see.
+        let mounted = mount(Self.sections(examples: 3))
+        let rep = try #require(bitmap(mounted, Self.fullBand))
+        let runs = Self.accentRowBrackets(rep)
+        #expect(runs.count == OrganizePass.file.presentedLenses.count,
+                "the file card drew \(runs.count) lens rows for \(OrganizePass.file.presentedLenses.count) presented lenses — heights \(runs)")
+        // **What the first version of this test lacked.** A detector reading the wrong shape can
+        // land on the right count by luck — this one did, off a reporting section's bar — and a
+        // bare "did it find anything" cannot tell the two apart. One card draws its rows to one
+        // height, so runs that disagree about their height are not that card's brackets.
+        #expect(!runs.isEmpty, "found no row bracket at all — the detector is measuring nothing")
+        #expect((runs.max() ?? 0) - (runs.min() ?? 0) <= 4,
+                "the runs counted as rows are \(runs) — differing heights mean this is not one card's brackets")
+    }
+
+    /// Heights of the vertical accent runs that are **the height of a lens row**, in whichever
+    /// column carries the most of them. One per row.
+    ///
+    /// **Not "the column with the most accent pixels", which is how the first version of this got
+    /// it wrong.** Calibrated against an all-unscanned fixture, where a lens row's bracket is the
+    /// only accent ink on the screen, it read the right column and the right count. Run against the
+    /// fixture this suite actually uses — two lenses *reporting* — a reporting section draws its
+    /// own accent bar, 6 device columns wide and 252 pixels tall, which outvoted the bracket's 168
+    /// and offered two long runs of its own. The count came out 2 whatever the card drew, so the
+    /// test passed against a card drawing three rows. A probe calibrated on one fixture and used on
+    /// another measures something adjacent to the claim.
+    ///
+    /// The row height is the discriminator, so it is what the filter keys on: a row's bracket is
+    /// 28pt (56 device pixels), a section's bar is several rows tall, and a tinted meter segment is
+    /// a few points. Accepting 30...120 keeps exactly the first.
+    private static func accentRowBrackets(_ rep: NSBitmapImageRep) -> [Int] {
+        // A lens row is 28pt tall; the bounds are wide enough to survive a text-size change and
+        // far from both other accent shapes on this screen.
+        let rowHeights = 30...120
+        func isAccent(_ x: Int, _ y: Int) -> Bool {
+            guard let c = rep.colorAt(x: x, y: y) else { return false }
+            return c.blueComponent - c.redComponent > 0.06
+        }
+        func rowRuns(inColumn x: Int) -> [Int] {
+            var runs: [Int] = []
+            var start: Int?
+            // One `colorAt` per pixel: this walks every pixel of the canvas once per column, and
+            // asking twice doubled a two-second test for nothing.
+            for y in 0..<rep.pixelsHigh {
+                let hit = isAccent(x, y)
+                if hit, start == nil { start = y }
+                if !hit, let s = start { runs.append(y - s); start = nil }
+            }
+            if let s = start { runs.append(rep.pixelsHigh - s) }
+            return runs.filter { rowHeights.contains($0) }
+        }
+        return (0..<rep.pixelsWide).map(rowRuns(inColumn:)).max { $0.count < $1.count } ?? []
+    }
+
     /// **A running pass shows its progress here, and stops offering to start.**
     ///
     /// Half the point of moving the scan onto this screen is that its progress lands here too — a

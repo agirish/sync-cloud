@@ -12,6 +12,14 @@ import Foundation
 /// That is worth pinning rather than restating, for two opposite readers: someone deleting the
 /// apparatus needs to know what makes it safe, and someone *un*-folding Names into its own rail
 /// item needs this to fail so they find the code that wakes back up.
+///
+/// **One seam of the fold is pinned elsewhere and belongs on this list**: the overview's pass card
+/// listed the folded lens as a row of its own for the whole of P10, because it drew
+/// `OrganizePass.lenses` — which correctly still names `.names`, since the walk answers it — rather
+/// than `presentedLenses`. `OrganizePassTests.aPassCardListsOnlyLensesThatHaveAPlaceToGo` and
+/// `OrganizeOverviewRenderTests.theFileCardDrawsOneRowPerPresentedLens` hold that half; the second
+/// counts the rows off the rendered screen, because a model-level pin cannot see a view that
+/// iterates the wrong list beside it.
 @Suite struct LensFoldReachabilityTests {
 
     /// The fold itself: no rail selection survives `resolvedForPresentation` as `.names`.

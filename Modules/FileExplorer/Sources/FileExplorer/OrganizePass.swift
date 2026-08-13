@@ -65,6 +65,13 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// no overview section, so a pass card listing it offered a place you cannot go and split one
     /// destination into two. The fold is a presentation rule, so it belongs on this property and
     /// not on ``lenses``.
+    ///
+    /// **Defined off the fold, deliberately, and not off ``OrganizeLens/railItems``** — which today
+    /// would select exactly the same lenses, since that is `allCases` minus the same predicate.
+    /// Writing it the other way makes `aPassCardListsOnlyLensesThatHaveAPlaceToGo`'s first
+    /// assertion — that everything listed here is something the rail draws — a restatement of this
+    /// line, which is to say vacuous. Two derivations of one rule, asserted against each other, is
+    /// the point.
     var presentedLenses: [OrganizeLens] { lenses.filter { !$0.isFoldedIntoRenames } }
 
     /// Whether this pass answers exactly one lens, and can therefore be re-run from that lens's own
