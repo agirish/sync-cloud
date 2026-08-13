@@ -62,7 +62,7 @@ struct RememberOverridePromptView: View {
                 Text("Remember this for files like “\(prompt.fileName)”?")
                     .scaledFont(.system(size: 12, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
-                Text("File future matches into “\(folderName)” automatically — you’ll review it next; manage it anytime under Automations.")
+                Text("File future matches into “\(folderName)” automatically — you’ll review it next; manage it anytime under Organize ▸ Rules.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

@@ -9,7 +9,7 @@ import Foundation
 ///
 /// ## Why a rail, when the chips worked
 ///
-/// This replaces ``OrganizeFocus``, whose three chips were **absent at zero** — the argument being
+/// This replaces the retired `OrganizeFocus`, whose three chips were **absent at zero** — the argument being
 /// that a rare finding announces itself when it happens and costs nothing when it does not. That
 /// argument is still right about *badges*, and the badge rule below keeps it. It is wrong about
 /// *places*, for a reason the chips could not have shown: **you cannot point at a chip that does
@@ -25,7 +25,7 @@ import Foundation
 ///
 /// ## No `effective` fallback any more
 ///
-/// ``OrganizeFocus`` had to bounce you back to the queue when the list you were standing on
+/// `OrganizeFocus` had to bounce you back to the queue when the list you were standing on
 /// emptied, because the chip you were standing on had just vanished underneath you. A rail item
 /// does not vanish, so an empty list is a place you can legitimately stand — it says "nothing
 /// here" rather than becoming unreachable. Deleting that rule is the point of the change, not an
@@ -102,7 +102,7 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     ///
     /// **A glyph beside a number may not be a number.** `textformat.123` draws the literal digits
     /// `123`, which is why the rename backlog once rendered as "123 126 folders to rename"; that
-    /// deny-list is still enforced by `OrganizeFocusTests.noFocusGlyphDrawsDigits`.
+    /// deny-list is still enforced by `OrganizeLensTests.noRailGlyphDrawsDigits`.
     public var symbol: String {
         switch self {
         case .toFile: return "doc"
@@ -207,11 +207,17 @@ extension OrganizeLens {
     /// this picks the one that *is* the filing queue. `.storage` answers `nil` — it is a workspace
     /// of its own, not a lens inside Organize, and a caller asking for it wants
     /// ``Workspace/storage``.
+    ///
+    /// **Never the folded case.** `.rename`'s findings live on the Renames rail item now, so it
+    /// answers `.renames` directly — already resolved. A bridge that answered `.names` handed
+    /// every caller a value that must not be stored or presented, and each one had to remember
+    /// ``resolvedForPresentation`` for itself; `Workspace.destination(for:)` was that one caller,
+    /// and now the resolution has one owner. Pinned by `TidyLensFoldReachabilityTests`.
     public init?(_ lens: TidyLens) {
         switch lens {
         case .filing: self = .toFile
         case .duplicates: self = .duplicates
-        case .rename: self = .names
+        case .rename: self = .renames
         case .automations: self = .rules
         case .storage: return nil
         }

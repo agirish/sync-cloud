@@ -154,6 +154,36 @@ import SwiftUI
         #expect(subject(m).railCounts.state(.renames) == .clean)
     }
 
+    private func renamesState(_ manager: FileSyncManager) -> OrganizeOverviewState? {
+        subject(manager).overviewModel.sections.first { $0.lens == .renames }?.state
+    }
+
+    /// **The folded Renames item is clean only when BOTH of its halves ran** — the rename plans
+    /// (filing walk) and the risky names (`detectRiskyNames`, run on that walk only when a name
+    /// ruleset is supplied). A filing scan without the names half computed half the card's list;
+    /// "nothing here" would vouch for a list nothing looked at, so the honest answer underclaims.
+    /// Asserted on the rail AND the overview, because the agreement is the point — this is the
+    /// state where the two used to split, the rail saying clean beside a card that never said it.
+    @Test func aFilingScanWithoutTheNamesHalfDoesNotCallRenamesClean() {
+        let m = FileSyncManager()
+        m.filingScanFolder = "/root"
+        m.hasSuggestedFiling = true    // rename plans computed; hasScannedNames stays false
+        #expect(subject(m).railCounts.state(.renames) == .notScanned,
+                "rename plans alone called the folded item clean — the names list was never computed")
+        #expect(renamesState(m) == .notScanned)
+    }
+
+    /// And the mirror half, so the rule is "both", not "the rename half".
+    @Test func aNamesOnlyPassDoesNotCallRenamesClean() {
+        let m = FileSyncManager()
+        m.hasScannedNames = true       // risky names computed clean; the plans never were
+        #expect(subject(m).railCounts.state(.renames) == .notScanned,
+                "a names-only pass called the whole folded item clean")
+        #expect(renamesState(m) == .notScanned)
+        // The half's own (undrawn) item still answers for itself — the fold is on `.renames` only.
+        #expect(subject(m).railCounts.state(.names) == .clean)
+    }
+
     /// **The filing walk marks all three of its lenses**, Names included.
     ///
     /// Names rode `isScanningNames` alone, which is never true on this path: the filing scan reaches

@@ -72,6 +72,31 @@ import Foundation
         #expect(OrganizeLens.allCases.allSatisfy { d[$0] == 0 })
     }
 
+    /// **"Clean" on the folded item vouches for BOTH of its lists.** The badge sums
+    /// `renames + names` (the subscript above), and the two halves are filled by different
+    /// passes — rename plans by the filing walk, risky names by `detectRiskyNames`, which that
+    /// walk runs only when a name ruleset is supplied. So the folded item is scanned only when
+    /// both halves ran; one half alone must read "not scanned", never "nothing here".
+    ///
+    /// The two half-fixtures discriminate the candidate rules: under "the rename half ran" the
+    /// first passes and the second fails; under "either half ran" both fail; only "both halves
+    /// ran" — the rule that can underclaim but never overclaim — answers all four.
+    @Test func theFoldedItemIsNotCleanUntilBothHalvesHaveRun() {
+        var counts = TidyView.RailCounts()
+        counts.scanned = [.renames]      // filing walk ran without a name ruleset (CLI shape)
+        #expect(counts.state(.renames) == .notScanned,
+                "rename plans alone called the folded item clean — the names list was never computed")
+        counts.scanned = [.names]        // names half ran and came back clean; plans never computed
+        #expect(counts.state(.renames) == .notScanned,
+                "a names-only pass called the whole folded item clean")
+        counts.scanned = [.renames, .names]
+        #expect(counts.state(.renames) == .clean)
+        // Findings outrank the scan question — a badge is a badge whichever half found it.
+        counts.names = 3
+        counts.scanned = []
+        #expect(counts.state(.renames) == .reporting(3))
+    }
+
     /// **The backlog's readout counts the same list its badge does.**
     ///
     /// `126 + 3` is the badge's number, and the readout's denominator was the bare `renames` field:

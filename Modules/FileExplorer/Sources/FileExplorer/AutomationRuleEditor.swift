@@ -413,7 +413,7 @@ struct AutomationRuleEditor: View {
         } else {
             let alert = NSAlert()
             alert.messageText = "Pick a folder inside \(browseRoot.lastPathComponent)"
-            alert.informativeText = "Automations file into the folder you’re previewing, so the destination has to be inside it. You can append tokens like {year} after choosing."
+            alert.informativeText = "Rules file into the folder you’re previewing, so the destination has to be inside it. You can append tokens like {year} after choosing."
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }

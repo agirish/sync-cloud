@@ -237,7 +237,7 @@ public struct TidyView: View {
     /// Which phrasing of the offered rule (narrower / balanced / broader) the user has selected.
     @State private var ruleVariantChoice: AutomationRuleProposer.Variant?
     /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
-    /// review pass (Cancel keeps it as created; it stays editable under Automations). Also backs
+    /// review pass (Cancel keeps it as created; it stays editable under Organize ▸ Rules). Also backs
     /// the header card's "New rule", so a blank rule and a taught one share one editor.
     @State private var reviewingAutomationRule: AutomationRule?
     /// The Automations lens's host-owned view state. It lives up here because the lens's controls
@@ -1115,7 +1115,7 @@ public struct TidyView: View {
                         .scaledFont(.system(size: 12, weight: .semibold), scale: appFontScale)
                         .contentShape(Rectangle())
                 }
-                .help("Switch which cloud you're tidying")
+                .help("Switch which cloud you're organizing")
             }
             .pillSurface(.mini, tint: .secondary)
             if let folder = scanTargetFolder, !folder.isEmpty {
@@ -1580,7 +1580,29 @@ public struct TidyView: View {
         func state(_ item: OrganizeLens) -> RailItemState {
             guard item.carriesBadge else { return .configuration }
             if let badge = badge(item) { return .reporting(badge) }
-            return scanned.contains(item) ? .clean : .notScanned
+            return hasScanned(item) ? .clean : .notScanned
+        }
+
+        /// Whether "clean" is an honest claim for this item — **folded the same way the badge
+        /// is.** The subscript above sums `renames + names` for `.renames`, and the two halves
+        /// come from different flags: rename plans from the filing walk (`hasSuggestedFiling`)
+        /// and risky names from `detectRiskyNames` (`hasScannedNames`), which that walk runs only
+        /// when a name ruleset is supplied. Testing raw membership here let the two answers split:
+        /// a filing scan without the names half wore "nothing here" for a list nothing had
+        /// computed.
+        ///
+        /// So "scanned" for the folded item means **both halves ran**. The deliberate direction:
+        /// this can UNDERclaim — one half ran clean and the item still says "not scanned" — and
+        /// never OVERclaims a clean bill for a list never looked at. In the app the halves travel
+        /// together (every filing-scan call site passes `nameProvider`, and a provider switch
+        /// clears both flags), so the divergent states are provider-less scans (the CLI, tests)
+        /// and partial clears — exactly where a wrong "clean" would otherwise slip through.
+        /// `overviewModel`'s Renames arm asks the same two flags, so the rail and the overview
+        /// cannot disagree about it.
+        private func hasScanned(_ item: OrganizeLens) -> Bool {
+            item == .renames
+                ? scanned.contains(.renames) && scanned.contains(.names)
+                : scanned.contains(item)
         }
     }
 
@@ -3189,9 +3211,15 @@ public struct TidyView: View {
                     // provider-hostile names to fix and files that ignore their folder's
                     // convention, and neither is a folder or a number.
                     blurb: "Names worth changing — to sync, to convention, to order.",
-                    // Ungated for the same reason Names is: `detectRenamePlans` reads the
-                    // provider-wide taxonomy, not the enumerated folder.
-                    state: !syncManager.hasSuggestedFiling ? .notScanned
+                    // Ungated by coverage for the same reason Names is: `detectRenamePlans` reads
+                    // the provider-wide taxonomy, not the enumerated folder. But "clean" vouches
+                    // for BOTH of the card's lists — the rename plans (filing walk) AND the risky
+                    // names (`detectRiskyNames`, which that walk runs only when a name ruleset is
+                    // supplied) — so both completion flags gate it, the same fold rule
+                    // `RailCounts.state` applies to the badge beside this card. One flag alone
+                    // called the card clean when half its list was never computed.
+                    state: !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames
+                        ? .notScanned
                         : n == 0 ? .clean
                         // One line, and not three: the backlog's evidence is its *breakdown*
                         // ("8 month folders · 3 quarters"), which is a summary of the whole list
@@ -4236,11 +4264,13 @@ public struct TidyView: View {
         let bytes = groups.reduce(0) { $0 + $1.reclaimableBytes }
         let copies = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
         let ok = NativeAlerts.confirmDestructive(
-            messageText: "Tidy \(groups.count) groups in \(providerName ?? "this provider")?",
-            informativeText: "Moves \(copies) redundant copies to the Trash, reclaiming about "
+            messageText: "Clean up \(groups.count) group\(groups.count == 1 ? "" : "s") in \(providerName ?? "this provider")?",
+            informativeText: "Moves \(copies) redundant cop\(copies == 1 ? "y" : "ies") to the Trash, reclaiming about "
                 + "\(FileSyncManager.formatBytes(bytes)). Name-only and overlapping groups are left untouched. "
                 + "Everything can be undone with ⌘Z.",
-            confirmTitle: "Tidy"
+            // The same verb the per-group dialog confirms with: the honest name for what happens,
+            // not the feature's old "Tidy" branding.
+            confirmTitle: "Move to Trash"
         )
         guard ok else { return }
         // Credit the batch by the reclaimable it actually erased (the drop in the still-reclaimable

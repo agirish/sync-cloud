@@ -56,6 +56,23 @@ import Foundation
                 "effectiveLens no longer resolves through organizeLens")
     }
 
+    /// **The `TidyLens` bridge never answers the folded case.** `OrganizeLens(.rename)` used to be
+    /// `.names`, which handed every caller a value that must not be stored or presented and left
+    /// each one to remember `resolvedForPresentation` — `Workspace.destination(for:)` was that
+    /// caller. The bridge resolves now, so a destination minted from a `TidyLens` cannot write the
+    /// folded lens into a stored selection from outside the migration seam.
+    @Test func theTidyLensBridgeAnswersOnlyPresentedRailItems() {
+        #expect(OrganizeLens(.rename) == .renames,
+                "the bridge minted the folded lens — a caller storing it selects nothing on the rail")
+        for lens in TidyLens.allCases {
+            guard let item = OrganizeLens(lens) else { continue }   // `.storage` is a workspace
+            #expect(!item.isFoldedIntoRenames,
+                    "\(lens.rawValue) bridges to a folded rail item")
+            #expect(item.resolvedForPresentation == item,
+                    "\(lens.rawValue) bridges to a lens that still needs resolving")
+        }
+    }
+
     /// The lens that actually shows risky names now, so "unreachable" is paired with "and here is
     /// what replaced it" rather than leaving the feature unaccounted for.
     @Test func riskyNamesAreShownByTheRenamePass() {

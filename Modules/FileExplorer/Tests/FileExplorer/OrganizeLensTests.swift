@@ -100,7 +100,9 @@ import Testing
         // grammar.
         #expect(OrganizeLens(.filing) == .toFile)
         #expect(OrganizeLens(.duplicates) == .duplicates)
-        #expect(OrganizeLens(.rename) == .names)
+        // `.renames`, not the folded `.names`: the bridge answers the PRESENTED rail item, so no
+        // caller can mint the folded case — see `TidyLensFoldReachabilityTests`.
+        #expect(OrganizeLens(.rename) == .renames)
         #expect(OrganizeLens(.automations) == .rules)
         // Storage is still a workspace of its own, so it is NOT a rail item. A non-nil answer here
         // would mean Storage had been quietly folded in too.

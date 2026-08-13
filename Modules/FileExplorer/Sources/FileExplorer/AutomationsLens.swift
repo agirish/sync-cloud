@@ -90,9 +90,9 @@ public final class AutomationsLensState: ObservableObject {
     public init() {}
 }
 
-/// The Automations workspace (N2): the one home for the user's rules — authored plain-words
-/// automations and rules taught by example (the migrated "remembered" rules, now `mentions`
-/// conditions). Rules steer Organize's suggestions on every scan; here they can also be dry-run
+/// The Rules lens on Organize's rail (N2): the one home for the user's rules — authored
+/// plain-words automations and rules taught by example (the migrated "remembered" rules, now
+/// `mentions` conditions). Rules steer Organize's suggestions on every scan; here they can also be dry-run
 /// over the focused folder and their matches filed for real after per-file confirmation. Rendered
 /// inside ``TidyView``'s content card, so this view provides only the inner rule-list /
 /// previewing / results states.
@@ -515,7 +515,7 @@ public struct AutomationsLens: View {
                 .shortcutKeycap("esc")
                 .controlSize(.small)
                 .padding(.top, 2)
-            Text("Filing moves real files into \(provider). The whole run undoes with ⌘Z.")
+            Text("Organize moves real files into \(provider). The whole run undoes with ⌘Z.")
                 .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
         }

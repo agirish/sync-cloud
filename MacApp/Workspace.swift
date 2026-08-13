@@ -103,11 +103,12 @@ enum Workspace: String, CaseIterable, Identifiable {
             // `.storage` is the only lens that is still a workspace of its own.
             return WorkspaceSelection(workspace: .storage, organizeLens: nil)
         }
-        // Through the fold's one seam: `OrganizeLens(.rename)` is `.names`, which no longer
-        // presents as its own place — a destination minted here without resolving would write
-        // the folded lens back into the stored selection from outside the migration.
-        return WorkspaceSelection(workspace: .filing,
-                                  organizeLens: organizeLens.resolvedForPresentation)
+        // `OrganizeLens.init(_:)` answers the PRESENTED rail item — `.rename` comes back as
+        // `.renames`, already resolved — so a destination minted here can never write the folded
+        // `.names` into the stored selection. The bridge owns that resolution now (pinned by
+        // `TidyLensFoldReachabilityTests`); a second `resolvedForPresentation` here would be a
+        // restatement of the fold for the next reader to keep in sync.
+        return WorkspaceSelection(workspace: .filing, organizeLens: organizeLens)
     }
 }
 
@@ -161,10 +162,14 @@ extension Workspace {
     ///
     /// **Each retirement gets its destination back, not just the umbrella.** `Rename` had to
     /// resolve to plain Organize when it was folded in, because the risky names were a chip that
-    /// might not exist. The rail has a permanent place for all three, so all three land exactly
-    /// where they were.
+    /// might not exist. The rail has a permanent place for each: `Duplicates` and `Automations`
+    /// land exactly where they were, and `Rename` lands on Renames — the rail item that hosts the
+    /// risky-name findings since the Names fold (P10). Mapping it to the folded `.names` here
+    /// would WRITE "Names" back into the stored selection from inside the migration; reading a
+    /// stored "Names" still resolves (the case survives, and `resolvedForPresentation` folds it
+    /// where the selection is read).
     static let retiredWorkspaceRawValues: [String: OrganizeLens] = [
-        "Rename": .names,
+        "Rename": .renames,
         "Duplicates": .duplicates,
         "Automations": .rules,
     ]

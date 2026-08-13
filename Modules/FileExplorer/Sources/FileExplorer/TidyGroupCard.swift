@@ -341,7 +341,7 @@ struct TidyGroupCard: View {
             let many = group.redundantCopies.count != 1
             base = "These folders share \(Int((f * 100).rounded()))% of their contents; the other cop\(many ? "ies add" : "y adds") \(unique) unique item\(unique == 1 ? "" : "s"). Merging copies those into “\(group.keeper.name)”, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost — reversible with ⌘Z."
         case .nameOnly:
-            base = "Same name, different contents — likely two unrelated things. Tidy won't remove either; keep them separate, or rename one to disambiguate."
+            base = "Same name, different contents — likely two unrelated things. SyncCloud won't remove either; keep them separate, or rename one to disambiguate."
         case .sameText:
             base = "These documents read exactly the same but their bytes differ — usually one document downloaded twice, since providers re-stamp each copy. Weaker than a byte-for-byte match: a signed copy, a redacted copy or a purely visual revision would also read the same, so open them before removing anything. Excluded from “Apply recommended” for that reason. Removed copies go to the Trash and can be restored with Undo."
         }

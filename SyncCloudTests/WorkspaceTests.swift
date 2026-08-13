@@ -90,8 +90,8 @@ import FileExplorer
                 == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
         #expect(Workspace.destination(for: .filing)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
-        // `.renames`, not `.names`: `destination(for:)` goes through `resolvedForPresentation`,
-        // so the folded lens can never be minted into a selection from outside the migration seam
+        // `.renames`, not `.names`: `OrganizeLens.init(_:)` answers the presented rail item, so
+        // the folded lens can never be minted into a selection from outside the migration seam
         // (`testARenameLensDestinationLandsOnTheFoldedHost` is where that has its own reasons).
         // This row asserted `.names` for one commit after the resolve landed — the two tests in
         // this file contradicted each other, and this is the half that was wrong.
@@ -126,8 +126,10 @@ import FileExplorer
         #expect(Workspace.migrated(tab: "Differences", lens: "Duplicates") == .default)
         #expect(Workspace.migrated(tab: "Tidy", lens: "Duplicates")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
+        // Renames, the rail item hosting the risky-name findings since the Names fold (P10) —
+        // migrating to the folded `.names` would write "Names" back into the stored selection.
         #expect(Workspace.migrated(tab: "Tidy", lens: "Rename")
-                == WorkspaceSelection(workspace: .filing, organizeLens: .names))
+                == WorkspaceSelection(workspace: .filing, organizeLens: .renames))
         #expect(Workspace.migrated(tab: "Tidy", lens: "Filing")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
         #expect(Workspace.migrated(tab: "Tidy", lens: "Automations")
@@ -193,7 +195,9 @@ import FileExplorer
         // nowhere near what they were doing. This is the table that prevents it, and it is
         // asserted through the lens as well as the workspace: landing on Organize's overview
         // instead of the duplicates list would be a quieter version of the same loss.
-        let retirements: [(String, OrganizeLens)] = [("Rename", .names),
+        // `Rename` lands on Renames — the rail item hosting its findings since the Names fold —
+        // because a migration must write only presented raw values (see the map's own doc).
+        let retirements: [(String, OrganizeLens)] = [("Rename", .renames),
                                                      ("Duplicates", .duplicates),
                                                      ("Automations", .rules)]
         for (raw, lens) in retirements {
@@ -298,10 +302,12 @@ import FileExplorer
         #expect(Workspace.migrateSelection(in: tabOnly) == Workspace.tidyDefault)
     }
 
-    /// The TidyLens bridge must not resurrect the folded Names lens: `OrganizeLens(.rename)` is
-    /// `.names`, and a destination minted from it without resolving would write the folded lens
-    /// back into the stored selection from OUTSIDE the migration seam — the one path adversarial
-    /// review found around `resolvedForPresentation`.
+    /// The TidyLens bridge must not resurrect the folded Names lens. `OrganizeLens(.rename)` used
+    /// to answer `.names` — a destination minted from it without resolving would write the folded
+    /// lens back into the stored selection from OUTSIDE the migration seam, the one path
+    /// adversarial review found around `resolvedForPresentation`. The bridge answers the resolved
+    /// `.renames` itself now (`TidyLensFoldReachabilityTests` pins that); this stays as the
+    /// destination-level claim, which must hold whichever layer owns the resolution.
     @Test func testARenameLensDestinationLandsOnTheFoldedHost() {
         let destination = Workspace.destination(for: .rename)
         #expect(destination.workspace == .filing)
@@ -309,5 +315,31 @@ import FileExplorer
         // The other bridges are untouched by the fold.
         #expect(Workspace.destination(for: .duplicates).organizeLens == .duplicates)
         #expect(Workspace.destination(for: .storage).workspace == .storage)
+    }
+
+    /// Fixture from the STORED string, because a test starting from the in-memory default cannot
+    /// see what a migration writes: someone who quit 2.x sitting in the Rename workspace has the
+    /// literal "Rename" on disk, and what lands back on disk must be a raw value the rail
+    /// presents. Writing the folded "Names" would work today only via the read-side resolve —
+    /// and it is exactly the value the migration exists to stop minting.
+    @Test func testAStoredRenameWorkspaceMigratesWritingThePresentedRailItem() {
+        let d = defaults("stored-rename")
+        d.set("Rename", forKey: Workspace.defaultsKey)
+
+        #expect(Workspace.migrateSelection(in: d)
+                == WorkspaceSelection(workspace: .filing, organizeLens: .renames))
+        #expect(d.string(forKey: Workspace.defaultsKey) == "Filing")
+        #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
+    }
+
+    /// And the legacy pair's spelling of the same install: `Rename` stored as a TIDY LENS.
+    @Test func testAStoredRenameLensMigratesWritingThePresentedRailItem() {
+        let d = defaults("stored-rename-lens")
+        d.set("Tidy", forKey: Workspace.legacyTabKey)
+        d.set("Rename", forKey: Workspace.legacyLensKey)
+
+        #expect(Workspace.migrateSelection(in: d)
+                == WorkspaceSelection(workspace: .filing, organizeLens: .renames))
+        #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
     }
 }
