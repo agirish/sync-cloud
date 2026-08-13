@@ -5,10 +5,28 @@ import FileExplorer
 
 /// Browse's wiring inside `ContentView`, which nothing else in the suite can see.
 ///
-/// `ContentView` is a SwiftUI view in the app target with no seam to instantiate — `paneColumn`,
-/// `contentLayout` and `paneSelectionNodes` all need a live `FileSyncManager`, a settings object
-/// and a render pass — so the properties below are checked at the source level, the same way
-/// `ToolbarPaletteBarCallSiteTests` and `TidyScanRootTests` check theirs.
+/// `ContentView` is a SwiftUI view in the app target with no seam to instantiate, so the properties
+/// below are checked at the source level, the same way `ToolbarPaletteBarCallSiteTests` and
+/// `TidyScanRootTests` check theirs.
+///
+/// **The reason it cannot be instantiated is its initializer, not its dependencies** — this said the
+/// opposite until someone went and tried. Every argument `SyncCloudApp` passes it is constructible
+/// from a test: `FileSyncManager.init(fileManager:)` takes an injectable filesystem and
+/// `ReviewSessionStore.init()` takes nothing. What actually stops it is that `ContentView` declares
+/// **private stored properties**, which makes its synthesized memberwise initializer `private` —
+/// and `@testable` raises `internal` to visible, never `private`. (Deliberately not a count: one
+/// added property would make a number here wrong, and the mechanism is what the reader needs.)
+/// That is a wall, where "it needs a
+/// live sync manager" merely sounds like one; the distinction matters because the second invites
+/// someone to spend an afternoon building fixtures that could never have been enough.
+///
+/// The same fact answers "why is there no Browse render test". Browse is not a view type — it is a
+/// `Workspace` case, a `ContentLayout` case, and `browseLayout`, a member of this unmountable
+/// struct. What it *draws* is `PaneHeader`, `FileTreeView` and `PersonView`, and all three are
+/// already render-tested inside their own packages, where the rendering harnesses and the
+/// `machinePinned` gate live. A render test mounted here could only re-render one of those three
+/// under a Browse-sounding name, which measures the component and not the wiring — the "adjacent to
+/// the claim" shape this codebase keeps meeting. The wiring is what this file is for.
 ///
 /// A source scan is only worth having with its guards, so: every check names the file it reads and
 /// fails if that file is missing or implausibly short, every assertion names a string whose absence

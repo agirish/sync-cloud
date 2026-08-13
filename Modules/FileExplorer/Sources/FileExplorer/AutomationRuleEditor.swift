@@ -7,7 +7,13 @@ import Sync
 
 /// The editable *type* of a condition, decoupled from its value so the editor can offer a picker and
 /// swap the underlying ``AutomationCondition`` while keeping the row.
-private enum ConditionType: String, CaseIterable, Identifiable {
+///
+/// `internal` so tests can pin it, like the editor's other seams. It was `private` while all of it
+/// was one `allCases` list; the person work put three real rules in here — which types may be added,
+/// which a given row may offer, and what a fresh row of each type starts as — and none of them is
+/// reachable from a render (a `Menu`'s contents do not paint until it is opened) or from anything
+/// else in this module.
+enum ConditionType: String, CaseIterable, Identifiable {
     case folderNamed, nameMatches, kindIs, mentionsAll, personIs, largerThanMB,
          untouchedForDays, contentContains
     /// Written by a newer build; shown so it can be seen and removed, never offered as a new row.
@@ -244,7 +250,8 @@ struct AutomationRuleEditor: View {
                 // add: a `Picker` whose selection matches no tag renders blank, so an alien row
                 // from a newer build showed an empty control that read as broken rather than as
                 // unreadable.
-                ForEach(pickerTypes(for: condition.wrappedValue)) { Text($0.label).tag($0) }
+                ForEach(Self.pickerTypes(for: condition.wrappedValue,
+                                         hasPeople: !people.isEmpty)) { Text($0.label).tag($0) }
             }
             .labelsHidden()
             .frame(width: 155)
@@ -504,8 +511,13 @@ struct AutomationRuleEditor: View {
 
     /// The types this row's picker offers: everything addable, plus the row's current type when
     /// that is not addable (an unrecognized condition, or a person row on a machine with no roster).
-    private func pickerTypes(for condition: AutomationCondition) -> [ConditionType] {
-        var out = ConditionType.addable(hasPeople: !people.isEmpty)
+    ///
+    /// Static, taking the roster as a `Bool`, because that is all it ever read of `people` — and a
+    /// rule about what a blank picker would show is one a test has to be able to call. `internal`
+    /// so tests can pin it.
+    nonisolated static func pickerTypes(for condition: AutomationCondition,
+                                        hasPeople: Bool) -> [ConditionType] {
+        var out = ConditionType.addable(hasPeople: hasPeople)
         let current = ConditionType(condition)
         if !out.contains(current) { out.append(current) }
         return out
