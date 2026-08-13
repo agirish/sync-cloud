@@ -36,7 +36,10 @@ import Sync
             .appendingPathComponent("MacApp/\(name)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — every check below would be vacuous")
-        #expect(text.count > 500, "\(name) is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
+        // after which every `contains` here answers false and every `!contains` answers true. One
+        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
     }
 

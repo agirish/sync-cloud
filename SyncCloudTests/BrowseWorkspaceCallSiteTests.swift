@@ -28,13 +28,20 @@ import FileExplorer
 /// under a Browse-sounding name, which measures the component and not the wiring — the "adjacent to
 /// the claim" shape this codebase keeps meeting. The wiring is what this file is for.
 ///
-/// A source scan is only worth having with its guards, so: every check names the file it reads and
-/// fails if that file is missing or implausibly short, every assertion names a string whose absence
-/// IS the regression, and `testTheScanCanActuallyFail` proves the reader is looking at the right
+/// A source scan is only worth having with its guards, so: every reader fails loudly rather than
+/// handing on a haystack that is missing or implausibly short, every assertion names a string whose
+/// absence IS the regression, and `testTheScanCanActuallyFail` proves the reader is looking at real
 /// text rather than passing on an empty string. Several checks also assert the OLD shape is gone,
 /// because "the new call is present" stays true if someone leaves both in.
+///
+/// **What a check reads is chosen by what it is about.** A check about one file's contents names
+/// that file (`macAppSources` would let another file answer for it); a check about a call site reads
+/// `MacApp/` as a whole, because which file a member happens to sit in is not something these tests
+/// were ever meant to pin — see `macAppSources`.
 @Suite struct BrowseWorkspaceCallSiteTests {
 
+    /// One named file — for the checks that really are about that file: the positive control, and
+    /// the two negatives whose string another file says for legitimate reasons.
     static func source(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)          // …/SyncCloudTests/<this>.swift
             .deletingLastPathComponent()                   // …/SyncCloudTests
@@ -42,8 +49,22 @@ import FileExplorer
             .appendingPathComponent("MacApp/\(name)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — every check below would be vacuous")
-        #expect(text.count > 500, "\(name) is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is TRUNCATED — a bad merge, a
+        // half-written checkout — records one issue and then hands the short string on, after which
+        // every `contains` here answers false and every `!contains` answers true. One quiet issue
+        // in front of a page of green is the wrong signal; stop instead. The argument is
+        // `OrganizeScopeCallSiteTests.source`'s, and this suite is where the pattern was copied
+        // without it.
+        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
+    }
+
+    /// The same text with whole-line `//` comments removed — for counting, where prose describing a
+    /// member by name would otherwise be counted as the member.
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 
     /// One declaration's body, bounded by its **closing brace** rather than a character count.
@@ -53,21 +74,97 @@ import FileExplorer
     /// next doc comment, and the 900 one stopped covering its own assertions. A window that has to
     /// be re-tuned whenever the code it reads changes length is a spurious failure waiting to
     /// happen — the same argument `OrganizeScopeCallSiteTests.body(of:in:)` makes.
+    ///
+    /// Four more windows in this file were making the same mistake more quietly. Measured: the 260
+    /// taken after `paneSelectionNodes` ran 108 characters past that member's 152-character body and
+    /// into `paneActionBar`'s doc comment, so both of its `!contains` checks were being answered by
+    /// *prose* — and they answered "absent" only on the accident that the sentence they landed in
+    /// says "the active pane" with a space rather than `activePane`. The other three (120, 140 and
+    /// 1,200) were the same window one edit away from the same thing. All four read a body now.
+    ///
+    /// The reading itself is ``declarationBody(of:in:)``, shared with the other two suites in this
+    /// target that had grown their own copy.
+    ///
+    /// This copy grew the uniqueness guard `OrganizeScopeCallSiteTests` carries, and inherited its
+    /// flaw with it: the count ran over comment-stripped source while `range(of:)` still searched
+    /// the raw text, so a decoy in a doc comment above the real declaration passed the guard and
+    /// was still the slice that came back. That matters more here, not less, now that the haystack
+    /// can be the whole of `MacApp/`. The shared reader searches the stripped text too.
     static func body(of declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — the scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
-        return String(rest[..<end.lowerBound])
+        try declarationBody(of: declaration, in: source)
     }
 
     /// The positive control. Every other test here asserts that some string is present; if the
     /// reader silently returned the wrong file they would all fail loudly — but the several that
     /// assert an ABSENCE would pass, which is the direction that goes unnoticed.
+    ///
+    /// **This one keeps naming a file, and that is its whole job**: proving the reader reads real
+    /// text needs a text known to contain something and known not to contain something else. The
+    /// checks below read `MacApp/` as a whole precisely because they are not about where a call
+    /// lives; this one is about whether the reader works at all.
     @Test func testTheScanCanActuallyFail() throws {
         let content = try Self.source("ContentView.swift")
         #expect(content.contains("func paneColumn(isLeft: Bool)"), "this file is not ContentView")
         #expect(!content.contains("a string that is definitely not in ContentView"))
+    }
+
+    /// The reader's own control: **a decoy in a comment must not become the answer.**
+    ///
+    /// This is the case the uniqueness guard was written for and did not cover, because the count
+    /// ran over comment-stripped source while the search ran over the raw text. The fixture below
+    /// is exactly that shape — a commented-out copy of the declaration above the real one — and
+    /// under the old reader the first `#expect` got `decoy` and the second got nothing, with the
+    /// guard green. Both halves read the stripped text now.
+    ///
+    /// The second fixture is the other direction, and the reason the count is not simply run over
+    /// the raw source: a doc comment that *names* the member must not be counted as a second
+    /// declaration. That version failed a correct implementation once already.
+    @Test func testTheReaderIgnoresDeclarationsThatAreOnlyComments() throws {
+        let withDecoy = """
+            struct S {
+            //    func target() -> Int {
+            //        return decoy
+            //    }
+                func target() -> Int {
+                    return real
+                }
+            }
+            """
+        let body = try declarationBody(of: "func target() -> Int {", in: withDecoy)
+        #expect(body.contains("return real"), "the reader took a commented-out declaration as the member")
+        #expect(!body.contains("decoy"))
+
+        let mentioned = """
+            struct S {
+                /// Companion to `func target() -> Int {`, which it must not be counted as.
+                func target() -> Int {
+                    return real
+                }
+            }
+            """
+        // Plainly, not wrapped: the failure worth seeing here is the reader's own `#require`
+        // firing, and it reports itself.
+        #expect(try declarationBody(of: "func target() -> Int {", in: mentioned)
+                    .contains("return real"))
+
+        // And a genuine second declaration still stops the run rather than being read silently.
+        // `withKnownIssue` rather than `#expect(throws:)` because the refusal is a `#require`,
+        // which RECORDS an issue as well as throwing — caught by `#expect(throws:)`, that issue
+        // still fails this test. This form asserts the refusal in both directions: it absorbs the
+        // issue, and it fails if none is recorded.
+        let twice = """
+            struct S {
+                func target() -> Int {
+                    return first
+                }
+                func target() -> Int {
+                    return second
+                }
+            }
+            """
+        withKnownIssue("two real declarations were not refused — range(of:) would read the first") {
+            _ = try declarationBody(of: "func target() -> Int {", in: twice)
+        }
     }
 
     // MARK: The layout
@@ -77,9 +174,8 @@ import FileExplorer
     /// can write that override today, a stray key in the stored map must not be able to blank the
     /// workspace either.
     @Test func testBrowseIsDecidedBeforePaneHidingIsConsulted() throws {
-        let content = try Self.source("ContentView.swift")
-        let layout = try #require(content.range(of: "var contentLayout: ContentLayout {"))
-        let body = String(content[layout.upperBound...].prefix(1_200))
+        let body = try Self.body(of: "var contentLayout: ContentLayout {",
+                                 in: try macAppSources())
         let browse = try #require(body.range(of: "return .browseFull"),
                                   "contentLayout has no Browse arm — Browse falls through to the rail layout")
         let hidden = try #require(body.range(of: "panesHiddenForCurrentTab"),
@@ -96,8 +192,8 @@ import FileExplorer
     /// still gets it, by getting the same column; `PaneQuickLookScopeTests` is where that now lives,
     /// including the `singleSource` resolution this used to pin.
     @Test func testTheBrowseLayoutKeepsTheRegionFrame() throws {
-        let split = try Self.source("ContentView+SplitLayout.swift")
-        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)", in: split)
+        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)",
+                                 in: try macAppSources())
         #expect(body.contains("paneColumn(isLeft: true)"))
         #expect(body.contains(".panesRegionFrame(surfaceStyle, level: glassLevel)"))
     }
@@ -110,7 +206,7 @@ import FileExplorer
     /// a layout Browse resolves before the flag is read — so Browse still writes no override, and
     /// `contentLayout`'s assumption that it never does still holds.
     @Test func testTheCollapseRungIsNotOfferedInBrowse() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppSources()
         #expect(content.contains("onCollapse: layoutMode == .singleSource && selectedWorkspace != .browse"),
                 "Browse offers a collapse rung — it would hide the only thing in the window")
     }
@@ -121,7 +217,7 @@ import FileExplorer
     /// site — as it was before Browse existed — the site that got missed would show Browse in the
     /// rail's stack and write the user's choice into the rail's key.
     @Test func testEveryViewModeCallSiteGoesThroughTheOneResolver() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppSources()
         #expect(content.contains("let mode: PaneViewMode = resolvedViewMode(isLeft: isLeft)"))
         #expect(content.contains("viewMode: resolvedViewModeBinding(isLeft: isLeft)"))
         // The old two-way ternary must survive in exactly two places — the read resolver and the
@@ -130,10 +226,13 @@ import FileExplorer
         //
         // This count is what caught the third surface: `shortcutPreviewColumn` spelled the same
         // ternary out for itself, so ⇧⌘P in Browse asked the rail's mode about a pane the user was
-        // not looking at. It lives in a different file, hence the second scan below.
-        let occurrences = content.components(separatedBy: "layoutMode == .singleSource ? railViewMode").count - 1
+        // not looking at. It lived in a different file, which is exactly why the count is now taken
+        // over the whole of `MacApp/` rather than over `ContentView.swift`: a fourth copy in a fifth
+        // file is the same defect, and counting one file could not see it.
+        let occurrences = Self.codeOnly(content)
+            .components(separatedBy: "layoutMode == .singleSource ? railViewMode").count - 1
         #expect(occurrences == 2,
-                "the rail-or-pane ternary appears \(occurrences) times in ContentView — it belongs in `resolvedViewMode` and `resolvedViewModeBinding` and nowhere else")
+                "the rail-or-pane ternary appears \(occurrences) times in MacApp/ — it belongs in `resolvedViewMode` and `resolvedViewModeBinding` and nowhere else")
         #expect(content.contains("PaneViewMode.browseDefaultsKey"),
                 "Browse has no key of its own — flipping it to Tree restacks the Organize rail")
     }
@@ -156,7 +255,7 @@ import FileExplorer
     /// `guard layoutMode == .compare`, so it is empty in Browse and on the Organize rail entirely,
     /// and empty for Compare's inactive side even when that side has a selection.
     @Test func testTheHeaderDeleteTakesThisPanesSelection() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppSources()
         #expect(content.contains("let ownNodes = paneSelectionNodes(isLeft: isLeft)"))
         // **Resolved at fire time, not captured.** The same closure runs from the ⋯ menu's Delete
         // entry, and a menu held open in menu-tracking mode is not re-armed by a republish — so a
@@ -174,11 +273,15 @@ import FileExplorer
     }
 
     /// …and the resolver behind it consults neither `activePane` nor the compare-only gate.
+    ///
+    /// **Both bodies are brace-bounded, and the two `!contains` are why it matters.** The 260-character
+    /// window this used to take ran 108 characters past the resolver's 152-character body and into
+    /// `paneActionBar`'s doc comment ("docked at the bottom of the active pane"), so both negatives
+    /// were being asked of prose — answering "absent" only because that sentence happens to spell it
+    /// with a space. A body cannot drift like that: it ends where the member ends.
     @Test func testThePerPaneResolverIgnoresTheActivePane() throws {
-        let toolbar = try Self.source("ContentView+Toolbar.swift")
-        let start = try #require(toolbar.range(of: "func paneSelectionNodes(isLeft: Bool) -> [FileNode] {"),
-                                 "the per-pane resolver is gone")
-        let body = String(toolbar[start.upperBound...].prefix(260))
+        let macApp = try macAppSources()
+        let body = try Self.body(of: "func paneSelectionNodes(isLeft: Bool) -> [FileNode] {", in: macApp)
         #expect(body.contains("syncManager.leftNodes(for: syncManager.selectedLeftPaths)"))
         #expect(body.contains("syncManager.rightNodes(for: syncManager.selectedRightPaths)"))
         #expect(!body.contains("activePane"),
@@ -186,21 +289,20 @@ import FileExplorer
         #expect(!body.contains("paneActionBarSideActive"),
                 "the per-pane resolver went back through the compare-only gate — Delete is dead outside Compare")
         // The sibling it must not become: `barSelectionNodes` IS activePane-scoped, on purpose.
-        let bar = try #require(toolbar.range(of: "func barSelectionNodes(isLeft: Bool) -> [FileNode] {"))
-        #expect(String(toolbar[bar.upperBound...].prefix(120)).contains("paneActionBarSideActive"),
+        let bar = try Self.body(of: "func barSelectionNodes(isLeft: Bool) -> [FileNode] {", in: macApp)
+        #expect(bar.contains("paneActionBarSideActive"),
                 "barSelectionNodes stopped being the active pane's — the floating action bar's target has changed")
     }
 
     /// The floating bar and ⌘⌫ stay Compare-only. Browse gets neither: the bar's transfer buttons
     /// take their titles from the OTHER pane, which does not exist there.
     @Test func testTheFloatingBarAndChordStayCompareOnly() throws {
-        let toolbar = try Self.source("ContentView+Toolbar.swift")
-        let shortcuts = try Self.source("ShortcutCommands.swift")
-        let gate = try #require(toolbar.range(of: "func paneActionBarSideActive(isLeft: Bool) -> Bool {"))
-        #expect(String(toolbar[gate.upperBound...].prefix(140)).contains("guard layoutMode == .compare"),
+        let macApp = try macAppSources()
+        let gate = try Self.body(of: "func paneActionBarSideActive(isLeft: Bool) -> Bool {", in: macApp)
+        #expect(gate.contains("guard layoutMode == .compare"),
                 "the floating action bar's compare guard was widened — Browse would show transfer buttons naming a pane that does not exist")
-        let chord = try #require(shortcuts.range(of: "var shortcutDeleteSelection: (() -> Void)? {"))
-        #expect(String(shortcuts[chord.upperBound...].prefix(700)).contains("guard layoutMode == .compare"),
+        let chord = try Self.body(of: "var shortcutDeleteSelection: (() -> Void)? {", in: macApp)
+        #expect(chord.contains("guard layoutMode == .compare"),
                 "⌘⌫ escaped Compare — it acts on the active pane, which is ambiguous with no floating bar to show which")
     }
 
@@ -235,6 +337,10 @@ import FileExplorer
     ///
     /// Checked as "both layouts mount the same member", which is the property that made it
     /// impossible to fix one and leave the other telling the old lie.
+    ///
+    /// **Two named files, deliberately, and this one is not over-constraint**: the claim is that
+    /// *two distinct layouts* mount it, and over a concatenated `MacApp/` the two `contains` checks
+    /// would collapse into the same check — one layout mounting it twice would pass.
     @Test func testBothLayoutsMountThePersonGather() throws {
         let content = try Self.source("ContentView.swift")
         let split = try Self.source("ContentView+SplitLayout.swift")
@@ -249,8 +355,8 @@ import FileExplorer
     /// The gather takes a **resizable** slot in Browse, the same shape and remembered share it
     /// takes everywhere else — not a fixed strip, and not the whole window.
     @Test func testTheBrowseGatherSlotIsTheSharedResizableOne() throws {
-        let split = try Self.source("ContentView+SplitLayout.swift")
-        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)", in: split)
+        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)",
+                                 in: try macAppSources())
         #expect(body.contains("if let scope = personScope"),
                 "browseLayout does not branch on a live gather")
         // **The property the restructure is about**: ONE structure, so the file column keeps its

@@ -21,7 +21,10 @@ import Foundation
     /// One named file, length-checked — for the checks that assert something about *that* file.
     static func source(_ name: String) throws -> String {
         let text = try readable(name)
-        #expect(text.count > 500, "\(name) is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
+        // after which every `contains` here answers false and every `!contains` answers true. One
+        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
     }
 

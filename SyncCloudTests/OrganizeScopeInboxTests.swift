@@ -22,7 +22,10 @@ import Foundation
             .appendingPathComponent("MacApp/ContentView.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read MacApp/ContentView.swift — this scan would be vacuous")
-        #expect(text.count > 10_000, "ContentView.swift is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
+        // after which every `contains` here answers false and every `!contains` answers true. One
+        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        try #require(text.count > 10_000, "ContentView.swift is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
@@ -95,12 +98,11 @@ import Foundation
     /// first version of the test below took 400 characters after the declaration, which ran clean
     /// past this four-line body and into the *next* member's doc comment — where the word "inbox"
     /// legitimately appears — and failed a correct implementation.
+    ///
+    /// The shared reader — see ``declarationBody(of:in:)``, which also strips comments and refuses
+    /// a duplicated declaration. This copy did neither.
     static func body(of declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — the scan below would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
-        return String(rest[..<end.lowerBound])
+        try declarationBody(of: declaration, in: source)
     }
 
     @Test func filingScanTargetIsSimplyTheFocusedFolder() throws {

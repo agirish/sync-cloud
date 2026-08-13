@@ -85,6 +85,13 @@ import Sync
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
+        // `isReleasedWhenClosed = false` says "ARC owns this", which only settles the question if
+        // something ever closes it. These panels are never ordered in, so the `defer` costs nothing
+        // on screen and takes them out of the app's window list at the end of the test rather than
+        // whenever the host process gets round to it. **Closed, not `orderOut`-ed, and only because
+        // they are borderless and were never shown** — the `.titled` hosts below are ordered out
+        // instead, for the measured reason `makeHost` gives.
+        defer { panel.close() }
         #expect(panel.canBecomeKey, "a borderless panel that cannot become key cannot hold a caret")
         // ...and never main, so the menu bar and window title keep describing the document window.
         #expect(!panel.canBecomeMain)
@@ -210,6 +217,9 @@ import Sync
         let other = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                              styleMask: [.borderless], backing: .buffered, defer: false)
         other.isReleasedWhenClosed = false
+        // Both are borderless and neither is ever ordered in — see `theWindowClassCanBecomeKeyAtAll`
+        // for why these are closed while the titled hosts are only ordered out.
+        defer { panel.close(); other.close() }
         typealias C = CommandPalettePanelController
         #expect(C.clickDismissesThePalette(clickedWindow: other, palette: panel),
                 "a click in another of this app's windows left the palette up")
@@ -517,6 +527,8 @@ import Sync
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
+        // Never ordered in; closed for the reason `theWindowClassCanBecomeKeyAtAll` gives.
+        defer { panel.close() }
         #expect(!CommandPalettePanelController.clickDismissesThePalette(clickedWindow: panel,
                                                                         palette: panel),
                 "clicking the palette dismissed it — its own field and rows would be unusable")

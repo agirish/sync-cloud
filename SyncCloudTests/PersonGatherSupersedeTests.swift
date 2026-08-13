@@ -102,11 +102,22 @@ import Sync
     /// that bracket the corpus read — the ones this file is here to cover — would fail nothing.
     private static let corpusDocuments = 100
 
-    private static func makeProfileDirectory(withCorpus: Bool) throws -> URL {
+    /// Runs `body` against a throwaway profile directory, and **removes it however that ends**.
+    ///
+    /// A scoped helper rather than one that hands the URL back, because the `defer` has to be
+    /// registered where the directory is created. The version this replaces created the tree and
+    /// then encoded a corpus into it: a throw from that write — a full disk, a sandbox denial —
+    /// left the caller without the URL it was going to clean up, so the tree stayed under
+    /// `NSTemporaryDirectory()` for good. Small, and this machine has already had to sweep 26,047
+    /// of another leak's leftovers; the fix is to make the cleanup impossible to be handed past.
+    private static func withProfileDirectory<T>(
+        withCorpus: Bool, _ body: (URL) async throws -> T
+    ) async throws -> T {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("gather-\(UUID().uuidString)")
         let profile = root.appendingPathComponent("t")
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
         if withCorpus {
             let corpus = FilingCorpus(profileId: "t", salt: "s", documents: Dictionary(
                 uniqueKeysWithValues: (0..<corpusDocuments).map {
@@ -116,7 +127,7 @@ import Sync
             try JSONEncoder().encode(corpus)
                 .write(to: profile.appendingPathComponent("filing-corpus.json"))
         }
-        return root
+        return try await body(root)
     }
 
     private static func folderProfile() -> FolderProfile {
@@ -154,13 +165,39 @@ import Sync
             .joined(separator: "\n")
     }
 
-    @Test func everyWorkspaceSwitchClearsTheGatherNotJustTheBars() throws {
+    /// `MacApp/ContentView.swift`, failing loudly rather than handing on an empty haystack.
+    static func contentView() throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/ContentView.swift")
         let content = try #require(try? String(contentsOf: url, encoding: .utf8),
                                    "cannot read ContentView.swift — this scan would be vacuous")
         try #require(content.count > 500, "ContentView.swift is implausibly short")
+        return content
+    }
+
+    /// Every `.onChange(of: <property>) { … }` body in `source`, comment-stripped and in source
+    /// order. Plural because a property can have more than one handler — which is the whole point
+    /// of the check below: *which* of them clears the gather decides whether a swap can outrun it.
+    static func onChangeBodies(of property: String, in source: String) throws -> [String] {
+        let anchor = ".onChange(of: \(property)) {"
+        var bodies: [String] = []
+        var searchStart = source.startIndex
+        while let start = source.range(of: anchor, range: searchStart..<source.endIndex) {
+            let rest = source[start.upperBound...]
+            // These handlers are two levels in, so their closing brace is the first at eight spaces.
+            // Required, not defaulted to the end of the file: a body that ran to EOF would contain
+            // every other handler's code and answer yes to anything.
+            let end = try #require(rest.range(of: "\n        }"),
+                                   "an .onChange(of: \(property)) handler never closes at its own level")
+            bodies.append(codeOnly(String(rest[..<end.lowerBound])))
+            searchStart = start.upperBound
+        }
+        return bodies
+    }
+
+    @Test func everyWorkspaceSwitchClearsTheGatherNotJustTheBars() throws {
+        let content = try Self.contentView()
 
         // Anchored on the handler, not on its parameter list: the closure binds its new value when
         // something in the body needs it (the workspace breadcrumb does), and a scan that fixes the
@@ -185,6 +222,39 @@ import Sync
                 "the bar's setter still clears the scope too")
     }
 
+    /// **A provider switch clears it too — from the handler no early return can skip.**
+    ///
+    /// The gather is an answer about the whole SOURCE, so it goes stale the moment the pane's
+    /// provider changes: the card lists files from a tree the window no longer shows, and its
+    /// "Open" joins the old profile root to a relative path and relativizes it against the NEW
+    /// provider root, where it cannot match — the button quietly degrades to a Finder reveal.
+    ///
+    /// `clearLensResultsForProviderSwitch()` is the list that owns "no stale Tidy result outlives
+    /// its provider" and it cannot reach this one: that list is the manager's, and the gather takes
+    /// the lens slot from `ContentView`'s own `@State`.
+    ///
+    /// **Which of the two handlers does the clearing is the substance of this test.** Each id has
+    /// one handler that returns early — while providers are still being discovered, and again on a
+    /// pane swap, whose `pendingSwapProviderChanges` suppression exists so the swap's own
+    /// navigation is not reset — and one that runs unconditionally. A swap moves the single Tidy
+    /// source onto the other provider exactly as a manual pick does, so a clear behind those
+    /// returns would leave the gather standing in the case that looks most like it did not change.
+    @Test func everyProviderSwitchClearsTheGatherWhicheverPaneMoved() throws {
+        let content = try Self.contentView()
+        for id in ["leftProviderId", "rightProviderId"] {
+            let handlers = try Self.onChangeBodies(of: id, in: content)
+            #expect(!handlers.isEmpty, "\(id) has no onChange handler at all — this scan is vacuous")
+            let clearing = handlers.filter { $0.contains("clearPersonScope()") }
+            #expect(clearing.count == 1,
+                    "\(clearing.count) of \(id)'s \(handlers.count) onChange handler(s) clear the person gather — it must be exactly one: none leaves a gather listing a tree the window no longer shows, two is two owners")
+            let body = clearing.first ?? ""
+            #expect(!body.contains("pendingSwapProviderChanges"),
+                    "\(id)'s clear sits in the handler that suppresses a pane swap, so swapping the panes leaves a gather aimed at the other provider")
+            #expect(!body.contains("isBootstrappingProviders"),
+                    "\(id)'s clear sits behind the bootstrap guard, so it is skipped for every switch that guard returns on")
+        }
+    }
+
     /// **Open opens the rail — and only where opening it means anything.**
     ///
     /// Rewiring the gather's "Open" from a Finder reveal to a pane focus made it a dead click when
@@ -194,12 +264,7 @@ import Sync
     /// keying on it would write a persisted layout preference in Compare and Browse, where the
     /// layout is resolved before the flag is consulted and nothing visible would change.
     @Test func theGathersOpenExpandsACollapsedRailOnly() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                   "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(content.count > 500, "ContentView.swift is implausibly short")
+        let content = try Self.contentView()
 
         let start = try #require(content.range(of: "onOpenFolder: { relative in"),
                                  "the gather's Open handler is gone — this scan is vacuous")
@@ -222,22 +287,22 @@ import Sync
         // `.failed` ("nothing has been surveyed") and the second as the empty state ("nothing is
         // theirs"), which are different claims — and collapsing them is how the missing-corpus
         // path would silently become a confident "0 hers".
-        let root = try Self.makeProfileDirectory(withCorpus: false)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let missing = try await ContentView.gatherOffMainActor(
-            personId: "aditi", profileId: "t", directory: root,
-            profile: Self.folderProfile(), registry: Self.registry)
-        #expect(missing == nil, "a missing corpus produced an answer instead of nil")
+        try await Self.withProfileDirectory(withCorpus: false) { root in
+            let missing = try await ContentView.gatherOffMainActor(
+                personId: "aditi", profileId: "t", directory: root,
+                profile: Self.folderProfile(), registry: Self.registry)
+            #expect(missing == nil, "a missing corpus produced an answer instead of nil")
+        }
 
         // …and with a corpus present the same call returns one, or the assertion above passes for
         // the wrong reason (any broken read would also return nil).
-        let present = try Self.makeProfileDirectory(withCorpus: true)
-        defer { try? FileManager.default.removeItem(at: present) }
-        let found = try await ContentView.gatherOffMainActor(
-            personId: "aditi", profileId: "t", directory: present,
-            profile: Self.folderProfile(), registry: Self.registry)
-        #expect(found?.total == Self.corpusDocuments,
-                "the corpus read or the sweep is not reaching the documents")
+        try await Self.withProfileDirectory(withCorpus: true) { present in
+            let found = try await ContentView.gatherOffMainActor(
+                personId: "aditi", profileId: "t", directory: present,
+                profile: Self.folderProfile(), registry: Self.registry)
+            #expect(found?.total == Self.corpusDocuments,
+                    "the corpus read or the sweep is not reaching the documents")
+        }
     }
 
     @Test func aCancelledGatherThrowsRatherThanReturningAPartialAnswer() async throws {
@@ -247,26 +312,28 @@ import Sync
         // The fixture is 100 documents, under the sweep's 256 stride, so `PersonFiles.gather`
         // never reaches a check of its own: the only thing that can throw here is the pair of
         // checks bracketing the corpus read.
-        let root = try Self.makeProfileDirectory(withCorpus: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let profile = Self.folderProfile()
-        let registry = Self.registry
-        let task = Task {
-            // Bounded, and the cancel below is unconditional, so this terminates either way: the
-            // pass cap turns a broken cancellation into a named failure instead of a hang.
-            var passes = 0
-            while !Task.isCancelled, passes < 5_000 {
-                passes += 1
-                try? await Task.sleep(nanoseconds: 1_000_000)
+        try await Self.withProfileDirectory(withCorpus: true) { root in
+            let profile = Self.folderProfile()
+            let registry = Self.registry
+            let task = Task {
+                // Bounded, and the cancel below is unconditional, so this terminates either way: the
+                // pass cap turns a broken cancellation into a named failure instead of a hang.
+                var passes = 0
+                while !Task.isCancelled, passes < 5_000 {
+                    passes += 1
+                    try? await Task.sleep(nanoseconds: 1_000_000)
+                }
+                return try await ContentView.gatherOffMainActor(
+                    personId: "aditi", profileId: "t", directory: root,
+                    profile: profile, registry: registry)
             }
-            return try await ContentView.gatherOffMainActor(
-                personId: "aditi", profileId: "t", directory: root,
-                profile: profile, registry: registry)
-        }
-        task.cancel()
-        await #expect(throws: CancellationError.self,
-                      "a cancelled gather returned an answer instead of stopping") {
-            try await task.value
+            task.cancel()
+            // Awaited INSIDE the scope, so the directory outlives the read it is there for — the
+            // helper's `defer` fires only once this closure returns.
+            await #expect(throws: CancellationError.self,
+                          "a cancelled gather returned an answer instead of stopping") {
+                try await task.value
+            }
         }
     }
 }

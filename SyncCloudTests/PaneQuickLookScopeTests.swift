@@ -20,10 +20,16 @@ import Foundation
 /// render pass, `.onKeyPress` cannot be fired, and the failure is *which subtree a modifier is
 /// attached to*, which leaves nothing in the AppKit tree to find. So it is checked at the source
 /// level, the same way `BrowseWorkspaceCallSiteTests` and `ToolbarPaletteBarCallSiteTests` check
-/// theirs — with the guards that scan needs: every check names its file and fails if it is missing
-/// or implausibly short, `testTheScanCanActuallyFail` proves the reader is looking at real text, and
-/// the premise the whole scan rests on (that the search field really is inside the pane column) is
-/// asserted rather than assumed.
+/// theirs — with the guards that scan needs: every reader fails loudly rather than handing on a
+/// haystack that is missing or implausibly short, `testTheScanCanActuallyFail` proves the reader is
+/// looking at real text, and the premise the whole scan rests on (that the search field really is
+/// inside the pane column) is asserted rather than assumed.
+///
+/// The two checks about the pane COLUMN read `MacApp/` as a whole (`macAppSources`), because what
+/// they are about is what the column contains, not which file it is declared in. The one about the
+/// split layout names its file, because there the file IS the subject: that layout draws nothing
+/// smaller than a whole column, so any key handler written in it necessarily reaches the search
+/// field — an assertion that only means anything within those four corners.
 @Suite struct PaneQuickLookScopeTests {
 
     static func source(_ name: String) throws -> String {
@@ -33,7 +39,10 @@ import Foundation
             .appendingPathComponent("MacApp/\(name)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — every check below would be vacuous")
-        #expect(text.count > 500, "\(name) is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
+        // after which every `contains` here answers false and every `!contains` answers true. One
+        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
@@ -54,9 +63,14 @@ import Foundation
     /// **The reason the scan below is the right scan.** If the search field ever moves out of the
     /// pane column, none of this matters any more — and someone reading these tests should find that
     /// out from a failure here rather than by reasoning about a rule that has quietly gone stale.
+    ///
+    /// Read over the whole of `MacApp/` rather than over `ContentView.swift`: what this is about is
+    /// the column's own contents, and which file that member is declared in is a fact no test here
+    /// was ever meant to pin. See `macAppSources`.
     @Test func testTheSearchFieldReallyIsInsideThePaneColumn() throws {
-        let content = try Self.source("ContentView.swift")
-        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
+        let content = try macAppSources()
+        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"),
+                                  "the pane column is gone — this scan would be vacuous")
         let list = try #require(content.range(of: "treeView(pane)", range: column.upperBound..<content.endIndex),
                                 "paneColumn no longer builds the file list")
         let field = try #require(content.range(of: "searchText: paneSearchState(isLeft: isLeft)",
@@ -88,12 +102,19 @@ import Foundation
     /// Checked by indentation as well as by order, because "after `treeView(pane)`" is also true of
     /// a modifier on the enclosing `VStack` — which is the exact mistake being guarded against, and
     /// the one that reads correctly at a glance.
+    ///
+    /// Over `MacApp/` as a whole, for the reason the test above gives — and the count at the end
+    /// gets stronger for it: a second Space handler now fails wherever in the app it is written,
+    /// where before it only did so inside `ContentView.swift`.
     @Test func testTheHandlerIsAttachedToTheFileList() throws {
-        let content = try Self.source("ContentView.swift")
-        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
+        let content = try macAppSources()
+        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"),
+                                  "the pane column is gone — this scan would be vacuous")
         // Generous, because `paneColumn` opens with a long `PaneHeader(…)` call: a window that
         // stops short of the list turns every check below into a `#require` failure that reads like
-        // the regression rather than like a mis-sized window.
+        // the regression rather than like a mis-sized window. It is a floor on how much to read and
+        // not a claim about where the member ends — the checks below anchor on the list line itself
+        // and on the distance from it, so reading past `paneColumn` costs nothing.
         let body = String(content[column.upperBound...].prefix(20_000))
         let list = try #require(body.range(of: "            treeView(pane)\n"),
                                 "paneColumn no longer builds the list at the expected nesting")

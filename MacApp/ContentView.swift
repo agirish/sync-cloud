@@ -27,6 +27,17 @@ struct ContentView: View {
     /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
     @State private var settingsTab: SettingsView.SettingsTab = .appearance
 
+    /// The tab a deep link displaced, held only until the open it asked for is honoured or refused.
+    ///
+    /// **A deep link writes the tab BEFORE the latch, and the latch can say no.** `openSettings(on:)`
+    /// has to preset the tab — the overlay reads `settingsTab` as it appears, so setting it
+    /// afterwards would show the previous page first — but `onChange(of: showSettings)` refuses the
+    /// open outright while a destination pick is up. Without this the refusal left the tab changed:
+    /// the panel the user never saw had still moved Settings to Providers (or to Cloud Refine), and
+    /// the next ⌘, — a plain open, which presets nothing — landed on a page nobody asked for.
+    /// Non-nil means "a deep link is mid-flight"; a plain open leaves it nil and so restores nothing.
+    @State private var settingsTabBeforeDeepLink: SettingsView.SettingsTab?
+
     // MARK: The ⌘K palette (ROADMAP 14)
 
     /// Raises and dismisses the palette. A `@StateObject` because it owns an `NSPanel` and a set of
@@ -652,12 +663,21 @@ struct ContentView: View {
         // The toolbar buttons are ALSO disabled, which is not a contradiction: with the latch
         // refusing, an enabled button would be a control that silently does nothing, which this
         // file's own ⌘K pill calls "its own bug". Disabled says so.
+        //
+        // A refused open must leave nothing behind. The two deep links preset `settingsTab` before
+        // flipping this latch (they have to — see `settingsTabBeforeDeepLink`), so refusing without
+        // putting it back changed which page Settings shows next time from a panel that never
+        // appeared. Restored here rather than at each caller because this is the one place that
+        // knows whether the open was honoured.
         .onChange(of: showSettings) { _, isOpen in
             guard isOpen else { return }
             if pendingDestination != nil {
+                if let displaced = settingsTabBeforeDeepLink { settingsTab = displaced }
+                settingsTabBeforeDeepLink = nil
                 showSettings = false
                 return
             }
+            settingsTabBeforeDeepLink = nil
             showHelp = false
         }
         .onChange(of: showHelp) { _, isOpen in
@@ -741,9 +761,8 @@ struct ContentView: View {
                         // Through `resolvingStored` rather than spelling the fallback here: this
                         // file is in no SPM package, so a `??` written inline is reachable by no
                         // test. See `StoredTabResolutionTests`.
-                        settingsTab = SettingsView.SettingsTab.resolvingStored(
-                            UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey))
-                        showSettings = true
+                        openSettings(on: SettingsView.SettingsTab.resolvingStored(
+                            UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey)))
                     }
                     // `defaults write com.abhishekgirish.SyncCloud openCommandPaletteOnLaunch
                     // -bool YES` brings up ⌘K at startup. The palette is keyboard-only and its
@@ -829,7 +848,10 @@ struct ContentView: View {
             reviewCoordinator.dispatchReview(.providerSwitched(isLeft: true))
             // Stale Tidy results must not outlive their provider — every lens, from the one list
             // that owns that rule. Spelling them out here is what let the risky-name finding be
-            // forgotten when Rename folded into Organize.
+            // forgotten when Rename folded into Organize. The person gather is subject to the same
+            // rule and is NOT in that list — it is this view's state, not the manager's — so it is
+            // cleared from the unconditional id handler further down, which this one's early
+            // returns cannot skip.
             syncManager.clearLensResultsForProviderSwitch()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
@@ -861,8 +883,29 @@ struct ContentView: View {
         // over everything — keeps showing the old-provider/old-tab file, defeating the single-source
         // guard. `resetNavigation` only clears selections when non-empty, so the selection onChanges
         // above don't cover the no-selection case.
-        .onChange(of: leftProviderId) { _, _ in infoPath = nil }
-        .onChange(of: rightProviderId) { _, _ in infoPath = nil }
+        //
+        // **A person gather goes stale on the same switch, and nothing above could clear it.** The
+        // gather is an answer about the whole SOURCE, read off `filingFolderProfile`, so after a
+        // switch its card lists files from a tree this window no longer shows — and its "Open"
+        // joins the OLD profile root to a relative path and then relativizes that against the NEW
+        // `tidyProviderRootExpanded`, which cannot match: the button silently degrades to a Finder
+        // reveal. `clearLensResultsForProviderSwitch()` in the handler above is the list that owns
+        // "no stale Tidy result outlives its provider", and it structurally cannot reach this one —
+        // that list is the manager's, while the gather takes the lens slot from `ContentView`'s own
+        // `@State`. So the rule is honoured here instead, exactly as the workspace switch honours it.
+        //
+        // **This pair, not the handler above, because this is what every writer of the ids trips.**
+        // That handler returns early while providers are still being discovered and again on a pane
+        // swap — and a swap moves the single Tidy source onto the other provider just as surely as
+        // picking one from the source menu does, so a gather must not survive it either.
+        .onChange(of: leftProviderId) { _, _ in
+            infoPath = nil
+            clearPersonScope()
+        }
+        .onChange(of: rightProviderId) { _, _ in
+            infoPath = nil
+            clearPersonScope()
+        }
         .onChange(of: selectedWorkspace) { _, workspace in
             // The context every later line is read against. v4.0 added Browse as a fourth
             // workspace, and "User focused folder …" means a different thing in each — so without
@@ -1133,9 +1176,10 @@ struct ContentView: View {
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }
 
-    /// Entering a lens workspace from the workspace bar opens the source rail and positions it:
-    /// Organize works on the loose-files inbox, so it opens there; every other lens works over the
-    /// whole provider, so it opens at the root. Fired only from the bar itself — the programmatic
+    /// Entering a lens workspace from the workspace bar opens the source rail and positions it at
+    /// the provider root — **the same place for every lens, Organize included.** Organize used to be
+    /// the exception (it opened on the loose-files inbox); the body below says why that went, and
+    /// where the inbox lives now. Fired only from the bar itself — the programmatic
     /// scan actions (Find Duplicates / loose files from a Compare menu) set the workspace directly
     /// and bypass this, so they keep scanning the folder the user picked.
     func presentTidyRail(for workspace: Workspace) {
@@ -1235,8 +1279,21 @@ struct ContentView: View {
 
     /// Opens the settings overlay preselected on the Providers tab — the fix-it action for the
     /// invalid-root / disabled-provider pane placeholders.
-    private func openProviderSettings() {
-        settingsTab = .providers
+    private func openProviderSettings() { openSettings(on: .providers) }
+
+    /// **The one door for every Settings deep link**, so no caller has to remember the pairing.
+    ///
+    /// The tab is written before the latch because the overlay renders `settingsTab` as it finds
+    /// it — presetting afterwards shows the previous page for a frame and then jumps. What that
+    /// ordering costs is a write that outlives a refused open, so the displaced tab is stashed here
+    /// and `onChange(of: showSettings)` either forgets it (the open happened) or puts it back (the
+    /// open was refused mid-destination-pick).
+    private func openSettings(on tab: SettingsView.SettingsTab) {
+        // Only while the latch is actually flipping. `onChange` is what consumes the stash and it
+        // does not fire for a redundant `true`, so stashing on an already-open panel would leave a
+        // value to be restored later over a tab the user had since chosen by hand.
+        if !showSettings { settingsTabBeforeDeepLink = settingsTab }
+        settingsTab = tab
         showSettings = true
     }
 
@@ -2864,9 +2921,10 @@ struct ContentView: View {
                 reviewCoordinator.dispatchReview(
                     .tabSwitched(toCompare: newWorkspace == .compare, fromCompare: previous == .compare)
                 )
-                // Re-home the rail on every entry into a lens, including lens→lens: Organize wants
-                // the loose-files inbox and the rest want the provider root, so carrying one lens's
-                // folder into the next would scan the wrong place.
+                // Re-home the rail on every entry into a lens, including lens→lens: every lens opens
+                // at the provider root, so carrying the folder one lens was left in over into the
+                // next would scan wherever the user last browsed instead of the source. Narrowing
+                // is the scope's job now — it is sticky and visible, unlike a pane position.
                 if newWorkspace != previous {
                     presentTidyRail(for: newWorkspace)
                 }
@@ -3023,10 +3081,7 @@ struct ContentView: View {
                 // still compiles and still opens Settings — it just opens the wrong tab, and the
                 // user offered "set up cloud refine" arrives at a page with no cloud anything on
                 // it. `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` is what fails on that now.
-                onConfigureCloudRefine: {
-                    settingsTab = .cloudRefineSetup
-                    showSettings = true
-                },
+                onConfigureCloudRefine: { openSettings(on: .cloudRefineSetup) },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },

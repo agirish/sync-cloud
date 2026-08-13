@@ -107,7 +107,10 @@ import Foundation
             .appendingPathComponent("MacApp/ShortcutCommands.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read ShortcutCommands.swift — the scan would be vacuous")
-        #expect(text.count > 500, "ShortcutCommands.swift is implausibly short")
+        // `#require`, not `#expect` — the same argument the two scans further down already make in
+        // their own bodies: a truncated file makes every `contains` answer false and every
+        // `!contains` answer true, so one quiet issue would stand in front of a page of green.
+        try #require(text.count > 500, "ShortcutCommands.swift is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
@@ -248,6 +251,23 @@ import Foundation
             #expect(body.contains("\(latch) = false"),
                     "\(latch)'s guard notices the pick but does not refuse the open")
         }
+
+        // **A refused Settings open has to leave nothing behind either.**
+        //
+        // The deep links (the invalid-pane fix-it's Providers jump, the cloud-refine offer) preset
+        // `settingsTab` and only then flip the latch — they have to, since the overlay renders the
+        // tab as it finds it. A refusal that clears the latch alone therefore still moved Settings
+        // to a page that never appeared, and the next plain ⌘, — which presets nothing — landed
+        // there. Two halves, and the pair is what makes it hold: one door writes the latch, and the
+        // refusal consumes what that door stashed.
+        let settingsLatchWrites = code.components(separatedBy: "showSettings = true").count - 1
+        #expect(settingsLatchWrites == 1,
+                "\(settingsLatchWrites) places in ContentView raise Settings directly — a deep link that presets the tab outside `openSettings(on:)` leaves that tab changed when the open is refused")
+        let refusal = try #require(code.range(of: ".onChange(of: showSettings) { _, isOpen in"),
+                                   "showSettings has no open-guard — this check is vacuous")
+        let refusalEnd = try #require(code[refusal.upperBound...].range(of: "\n        }"))
+        #expect(String(code[refusal.upperBound..<refusalEnd.lowerBound]).contains("settingsTabBeforeDeepLink"),
+                "the refusal does not restore the tab the deep link displaced, so a panel the user never saw still moves Settings to another page")
 
         // And the mouse half says so rather than no-opping silently.
         let toolbar = try #require(try? String(contentsOf: url.deletingLastPathComponent()

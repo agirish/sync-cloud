@@ -41,6 +41,99 @@ func waitUntil(
 /// target and `pollFloor` in `ShortcutRevealTrackerTests`.
 let waitPollFloor = 50
 
+// MARK: - Reading the app target's own source
+
+/// Every Swift file in `MacApp/`, concatenated — **the haystack for a source scan whose subject is
+/// a call site rather than a file.**
+///
+/// `MacApp/` is in no SPM package, so a good deal of it is only reachable from a test as text; the
+/// suites that do that have each named one file. Naming a file pins two things at once and only one
+/// of them is the check's business: that the call reads what it should, and that it happens to live
+/// in `ContentView.swift`. Nobody chose the second — moving `func paneColumn(isLeft:)` into a file
+/// of its own would fail seven assertions across four tests with nothing whatsoever wrong — and a
+/// test that fails for a reason it is not about teaches the next reader to edit tests to make moves
+/// possible.
+///
+/// Reading the directory keeps every assertion's substance and drops only the locality. It is also
+/// strictly stronger for a COUNT: a second copy of a rule now fails wherever in `MacApp/` it is
+/// written, which is exactly the case (a copy in a second file) that has been missed before.
+///
+/// **Two kinds of check must keep naming their file**: a positive control, which needs a text known
+/// to contain something in order to prove the reader works at all; and any `!contains` whose string
+/// another file legitimately says — over the whole directory that assertion could only ever fail.
+///
+/// No per-file length guard, deliberately: adding a twenty-line enum to `MacApp/` should not fail a
+/// suite with "implausibly short". The non-vacuity this needs is on the result, which is asserted.
+func macAppSources() throws -> String {
+    let directory = macAppDirectory()
+    let urls = try #require(try? FileManager.default.contentsOfDirectory(
+                                at: directory, includingPropertiesForKeys: nil),
+                            "cannot list MacApp/ — every check below would be vacuous")
+    let names = urls.filter { $0.pathExtension == "swift" }.map(\.lastPathComponent).sorted()
+    try #require(names.count > 10,
+                 "MacApp/ listed \(names.count) Swift file(s) — the reader is broken, not the app")
+    var joined = ""
+    for name in names {
+        let text = try #require(
+            try? String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8),
+            "cannot read MacApp/\(name) — the scans below would be reading a partial app")
+        joined += text + "\n"
+    }
+    try #require(joined.count > 10_000,
+                 "MacApp/ read as \(joined.count) characters — the scans below would be near-vacuous")
+    return joined
+}
+
+/// `MacApp/`, located from this file rather than from a working directory — the test bundle does
+/// not promise one.
+func macAppDirectory() -> URL {
+    URL(fileURLWithPath: #filePath)          // …/SyncCloudTests/TestSupport.swift
+        .deletingLastPathComponent()         // …/SyncCloudTests
+        .deletingLastPathComponent()         // repo root
+        .appendingPathComponent("MacApp")
+}
+
+/// Source with whole-line `//` comments removed — what a source scan should be asking its
+/// questions of, since prose is not code and has answered several of them wrongly.
+func sourceCodeOnly(_ source: String) -> String {
+    source.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+}
+
+/// One declaration's body, bounded by its **closing brace** rather than by a character count —
+/// **and read out of comment-stripped source, which is the half that was missing.**
+///
+/// Three suites in this target had a copy of this, in three different states: two with no
+/// uniqueness guard at all, and one whose guard counted occurrences over `codeOnly` while
+/// `range(of:)` still searched the RAW text. That last combination is worth naming, because it
+/// looks exactly like the guard it isn't: a decoy inside a doc comment above the real declaration
+/// is invisible to the count (so `occurrences == 1` passes) and is still the first thing
+/// `range(of:)` finds (so the slice is the decoy's). The guard was added to stop a first-match
+/// read; against a commented decoy it stopped nothing.
+///
+/// Stripping first settles both at once — the search, the count and the slice now see the same
+/// text, so the guard means what it says. It also makes every `!contains` below stronger for free:
+/// a body cannot answer "absent" because the phrase it was asked about only appeared in that
+/// member's own prose, which is precisely how `paneSelectionNodes`' two negatives came to be
+/// answered by `paneActionBar`'s doc comment.
+///
+/// **One member, deliberately.** The three copies had already drifted apart; teaching one of them
+/// this and leaving the others reading raw text is how the next reader inherits the old answer.
+/// `OrganizeScopeCallSiteTests` keeps its own — it is in the FileExplorer module and cannot see
+/// this one — and carries the same fix.
+func declarationBody(of declaration: String, in source: String) throws -> String {
+    let code = sourceCodeOnly(source)
+    let occurrences = code.components(separatedBy: declaration).count - 1
+    try #require(occurrences == 1,
+                 "\(declaration) occurs \(occurrences)× in code — range(of:) would silently read the first, so every check below would be about the wrong member")
+    let start = try #require(code.range(of: declaration),
+                             "\(declaration) is gone — the scan below would be vacuous")
+    let rest = code[start.upperBound...]
+    let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
+    return String(rest[..<end.lowerBound])
+}
+
 /// A throwaway `UserDefaults` suite, so a test can pin a defaults-driven decision without writing
 /// into the app's real domain — which, when the test host IS the app, is the user's live settings.
 /// Mirrors `Modules/Settings/Tests/Settings`' helper of the same name. Always `defer { wipe() }`.

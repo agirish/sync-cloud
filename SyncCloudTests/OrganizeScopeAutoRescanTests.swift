@@ -23,16 +23,17 @@ import Foundation
             .appendingPathComponent("MacApp/ContentView.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read MacApp/ContentView.swift — this scan would be vacuous")
-        #expect(text.count > 10_000, "ContentView.swift is implausibly short")
+        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
+        // after which every `contains` here answers false and every `!contains` answers true. One
+        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        try #require(text.count > 10_000, "ContentView.swift is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
+    /// The shared reader — see ``declarationBody(of:in:)``. This copy had no uniqueness guard, so
+    /// a decoy declaration above the real one was read silently.
     static func body(of declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — the scan below would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
-        return String(rest[..<end.lowerBound])
+        try declarationBody(of: declaration, in: source)
     }
 
     @Test func theAutoRescanPrefersTheScopeOverThePane() throws {
