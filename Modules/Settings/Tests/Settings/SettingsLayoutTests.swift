@@ -17,7 +17,7 @@ import Testing
 /// tallest one that can be made to fit (`appearanceIsTheTallestTabThatMustFit`), and it reads
 /// nothing but `@AppStorage`, so its height is a property of the layout rather than of the
 /// machine's data. But it is no longer the only tab with a fit assertion: the sheet shrank 58pt
-/// for every tab, so General, Sync, Organize, Duplicates and Advanced are checked too
+/// for every tab, so General, Sync, Duplicates and Advanced are checked too
 /// (`everyMustFitTabFitsTheClampedOpening`).
 ///
 /// The excluded tabs, and each one's reason, are recorded in ONE place — `SettingsTab`'s
@@ -30,6 +30,14 @@ import Testing
 /// Measured, that does not bite in this harness: the reads are in `.task`, which an offscreen
 /// `NSHostingView` driven only by `layoutSubtreeIfNeeded` never fires. It is measured here like
 /// the rest.
+///
+/// **Organize is exempt as of 2026-08-13, and it is the reason to distrust a fit fixture that
+/// passes `nil`.** It was in the fit list, built as `FilingSettingsTab(syncManager: nil)` — which
+/// renders a one-line placeholder where the app draws a row per kept name. The guard was green
+/// for the empty tab while a user with 17 kept names scrolled.
+/// `theOrganizeTabFitsItsOpeningWithNothingKept` and
+/// `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` split what that entry was worth into the
+/// claim that is true and the claim that earns the exemption.
 ///
 /// The RAIL is measured as well (`theRailFitsItsOpening`). It shares the tabs' opening but is
 /// sized by the tab COUNT rather than by any tab's contents, so every assertion above is blind
@@ -365,17 +373,112 @@ import Testing
     /// so its height is a property of the layout like Appearance's, and nothing about it excuses
     /// it from fitting.
     ///
-    /// **Organize joined it when the engine and the roster moved out.** What is left is an inbox
-    /// path, a signpost row and the kept-names list, which with no engine attached is a fixed
-    /// note. That is a layout-shaped height, so it is measured like the rest.
+    /// **Organize joined this list when the engine and the roster moved out, and left again on
+    /// 2026-08-13 — because the entry was measuring a view no user has.** The reasoning that put
+    /// it here was "what is left is an inbox path, a signpost row and the kept-names list, which
+    /// with no engine attached is a fixed note". The last clause is the bug: the fixture was
+    /// `FilingSettingsTab(syncManager: nil)`, so it took the tab's `else` branch and measured
+    /// `KeptNamesList.nothingKeptNote` — one line — while the branch a real user gets is an
+    /// unbounded `ForEach` over the kept names. Measured, the tab outgrows the opening at the 17th
+    /// kept name, so the guard was green for a tab that scrolls. It now sits in
+    /// `exemptFromFitGuard` beside `people`, whose list has exactly the same shape, and the two
+    /// tests below carry what the entry was worth: the empty state still has to fit, and the
+    /// exemption still has to be earned.
+    ///
+    /// **The general rule this leaves behind:** a fixture that passes `nil` for the dependency the
+    /// tab's list comes from measures the empty state. `sync` and `advanced` also take
+    /// `syncManager: nil` and belong here anyway — neither draws a row per anything; their nil
+    /// branches change what a control reports, not how many controls there are. That is the
+    /// question to ask of a new entry, and `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` is
+    /// what a wrong answer looks like when it is caught.
     @MainActor
     private func mustFitTabs(_ settings: SettingsManager) -> [(SettingsView.SettingsTab, AnyView)] {
         [(.general, AnyView(GeneralSettingsTab().environmentObject(settings))),
          (.appearance, AnyView(AppearanceSettingsTab())),
          (.sync, AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
-         (.filing, AnyView(FilingSettingsTab(syncManager: nil))),
          (.duplicates, AnyView(DuplicatesSettingsTab())),
          (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
+    }
+
+    // MARK: - Organize: the tab whose height is its user's data
+
+    /// An Organize tab carrying `count` kept names, laid out through the real store the tab reads.
+    ///
+    /// The defaults suite is a scratch `TestDefaults` wiped before this returns: `KeptNamesStore`
+    /// persists to whatever `UserDefaults` it is handed, and a fixture that reached `.standard`
+    /// would both inherit the machine's kept names and write test junk into a domain shared with
+    /// the user's other projects. `wipe()` rather than `removePersistentDomain` because only the
+    /// former unlinks the plist cfprefsd leaves behind — see `wipeDefaultsSuite`.
+    @MainActor
+    private func organizeTab(keptNames count: Int,
+                             _ body: (AnyView) -> Void) {
+        let test = TestDefaults("keptNames-\(count)")
+        defer { test.wipe() }
+
+        let store = KeptNamesStore(userDefaults: test.defaults)
+        // Short, single-line names on purpose: a name long enough to wrap would make the row cost
+        // more than a row, and the claim being measured is about the row COUNT.
+        for index in 0..<count { store.keep("kept name \(index).pdf") }
+        let manager = FileSyncManager()
+        manager.keptNamesStore = store
+
+        body(AnyView(FilingSettingsTab(syncManager: manager)))
+    }
+
+    /// What the fit guard's Organize entry was actually measuring, kept — and labelled.
+    ///
+    /// The tab's fixed chrome (the inbox row, the signpost row, both captions and the Kept names
+    /// header) IS layout-shaped, and it fitting is worth pinning: it is what a new user sees, and
+    /// a caption gaining two lines here is the ordinary way a tab starts scrolling. What this does
+    /// not claim — and what an unnamed entry in `mustFitTabs` silently did — is that *the tab*
+    /// fits. The name is the fix: a reader can tell which of the two claims is being made.
+    ///
+    /// Built through a real store with nothing kept, not through `syncManager: nil`. Both render
+    /// `nothingKeptNote`, but only this one is a state a user can be in, and routing the fixture
+    /// through the same branch the app uses is what stops this test from drifting back into
+    /// measuring the placeholder.
+    @MainActor
+    @Test func theOrganizeTabFitsItsOpeningWithNothingKept() async throws {
+        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
+        let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
+
+        organizeTab(keptNames: 0) { tab in
+            let height = laidOutHeight(tab, width: width)
+
+            #expect(height <= opening,
+                    "Organize with nothing kept lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — its fixed chrome alone now scrolls.")
+        }
+    }
+
+    /// The other half, and the one that makes the exemption honest: with a plausible number of
+    /// kept names the tab really does outgrow its opening, so `filing`'s line in
+    /// `exemptFromFitGuard` is a measurement rather than a label.
+    ///
+    /// Same falsifiability `intelligenceLaysOutWithoutReachingForTheKeychain` gives its tab: if
+    /// somebody bounds the list — a scroll view around it, a "show first N", a fixed max height —
+    /// this fails, and the answer is to drop the exemption and put Organize back in `mustFitTabs`,
+    /// not to raise the number here.
+    ///
+    /// **The numbers, measured at the clamped width (583pt) into the clamped opening (647pt):**
+    /// 280pt with nothing kept, then 23pt a row — 16 names fit with 9pt to spare, 17 do not. The
+    /// fixture is 25, comfortably past the knee at 845pt, and the second assertion pins that the
+    /// growth does not stop there rather than trusting one sample.
+    @MainActor
+    @Test func theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept() async throws {
+        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
+        let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
+
+        var populated: CGFloat = 0
+        organizeTab(keptNames: 25) { tab in populated = laidOutHeight(tab, width: width) }
+
+        #expect(populated > opening,
+                "Organize with 25 kept names lays out at \(populated)pt and fits the \(opening)pt opening — the list must have been bounded; drop filing's exemption and fit-test it.")
+
+        var doubled: CGFloat = 0
+        organizeTab(keptNames: 50) { tab in doubled = laidOutHeight(tab, width: width) }
+
+        #expect(doubled > populated,
+                "50 kept names lay out at \(doubled)pt against 25 names' \(populated)pt — the list has stopped growing with the data, so the tab's height is no longer the user's.")
     }
 
     /// The completeness guard on the list above: every tab is either measured or explicitly

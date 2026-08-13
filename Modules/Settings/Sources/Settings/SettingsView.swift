@@ -173,15 +173,33 @@ public struct SettingsView: View {
         ///   legitimately keeps scrolling".
         /// - `people` grows with the household roster (`PeopleList` draws one row per person),
         ///   so its height is the user's data too.
+        /// - `filing` grows with the kept-names list (`KeptNamesList` draws one row per kept
+        ///   name) — the same shape as `people`, down to the `if let store … else` fixed note,
+        ///   and now on the same side of the guard.
         /// - `intelligence` is long by nature — four sections, from the on-device toggles to the
         ///   saved suggestions — and is expected to scroll;
         ///   `intelligenceLaysOutWithoutReachingForTheKeychain` pins that it lays out at all.
         ///
-        /// A data-driven tab that gains a fixed empty state, or a long tab that loses a section,
-        /// should have its exemption revisited rather than inherited — Organize kept a stale
-        /// "long by nature" exemption through the split that made it short, and no test asked
-        /// again until it was re-measured by hand.
-        public static let exemptFromFitGuard: Set<SettingsTab> = [.providers, .people, .intelligence]
+        /// **`filing` was fit-tested until 2026-08-13, and that guard was measuring the wrong
+        /// view.** Its fixture built the tab with no engine (`FilingSettingsTab(syncManager: nil)`),
+        /// which takes the `else` branch and renders `KeptNamesList.nothingKeptNote` — one line.
+        /// So the guard proved the EMPTY tab fits while a real user scrolled: measured against a
+        /// 1280×800 display's 647pt opening, the tab is 280pt with nothing kept and grows 23pt a
+        /// row, so it passes the opening at the **17th** kept name (16 names = 638pt, 17 = 661pt).
+        /// The lesson generalises past this tab: **a fit-guard fixture built with a nil dependency
+        /// measures the empty state**, so a tab whose list is unbounded belongs here no matter how
+        /// well its `else` branch fits.
+        ///
+        /// An exemption is a measured claim, not a label. Each entry above is held to it by a test
+        /// that fails if the tab stops being long — `intelligenceLaysOutWithoutReachingForTheKeychain`
+        /// for `intelligence`, `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` for `filing` —
+        /// and the coverage the fit guard used to give Organize is kept, narrowed to what it
+        /// actually measured, by `theOrganizeTabFitsItsOpeningWithNothingKept`. A data-driven tab
+        /// that gains a bounded list, or a long tab that loses a section, should have its exemption
+        /// revisited rather than inherited: Organize kept a stale "long by nature" exemption through
+        /// the split that made it short, and no test asked again until it was re-measured by hand.
+        /// (`providers` and `people` carry no such falsifying measurement yet.)
+        public static let exemptFromFitGuard: Set<SettingsTab> = [.providers, .people, .filing, .intelligence]
 
         /// The rail's rows in groups, separated by a hairline.
         ///
@@ -1954,6 +1972,13 @@ struct FilingSettingsTab: View {
                 } else {
                     // No engine attached (tests, previews). The list would say the same thing an
                     // empty store does, so say it rather than leaving the caption over a void.
+                    //
+                    // **This branch is not the tab.** It is one fixed line; the branch above is an
+                    // unbounded row-per-name list, which is why this tab is in
+                    // `SettingsTab.exemptFromFitGuard` rather than in the layout suite's
+                    // `mustFitTabs`. A layout test that builds the tab with `syncManager: nil`
+                    // measures this line and learns nothing about what a user with kept names sees
+                    // — which is exactly what the fit guard did until 2026-08-13.
                     KeptNamesList.nothingKeptNote
                 }
             }
