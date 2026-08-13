@@ -53,8 +53,8 @@ import Sync
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("paletteRailLens = lens"),
                 "the rail selection is no longer written through @AppStorage")
-        #expect(host.contains("paletteScopePath = OrganizeScope(path: scope, providerRoot: root)?.path ?? \"\""),
-                "the scope is no longer written through @AppStorage, or has stopped being normalized")
+        #expect(host.contains("if let scope { setOrganizeScope(scope) }"),
+                "the scope no longer goes through setOrganizeScope — the one @AppStorage-backed writer")
         let code = Self.codeOnly(host)
         #expect(code.contains("paletteRailLens = lens"),
                 "stripping comments emptied the file — the checks below would be vacuous")
@@ -64,15 +64,22 @@ import Sync
         }
     }
 
-    /// The scope is normalized through `OrganizeScope`, whose `init?` is failable precisely so that
-    /// pointing at the provider root **clears** the scope instead of storing the root as one. Two
-    /// encodings of the global view is the state that type exists to make unrepresentable, and ⌘K
-    /// is the newest writer of it.
+    /// The scope is normalized by `setOrganizeScope(_:)` — ContentView's "one write of Organize's
+    /// scope", whose resolver collapses the provider root to the cleared state. Two encodings of
+    /// the global view is the state `OrganizeScope`'s failable `init?` exists to make
+    /// unrepresentable, and the palette once carried its own inline copy of that rule — under a
+    /// comment asserting there is exactly one.
     @Test func theRouteCannotMintASecondEncodingOfTheGlobalView() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        #expect(host.contains("OrganizeScope(path: scope, providerRoot: root)"))
-        #expect(!Self.codeOnly(host).contains("paletteScopePath = scope"),
-                "the scope is being stored verbatim, so the provider root would be saved as a scope")
+        #expect(host.contains("setOrganizeScope(scope)"),
+                "the scope write no longer goes through the one owner")
+        let code = Self.codeOnly(host)
+        #expect(!code.contains("OrganizeScope(path:"),
+                "the host has grown its own copy of the normalization again")
+        for verbatim in ["paletteScopePath =", "organizeScopePath ="] {
+            #expect(!code.contains(verbatim),
+                    "the scope is written directly (`\(verbatim)`), bypassing setOrganizeScope")
+        }
     }
 
     // MARK: One pane, asked once
@@ -125,6 +132,13 @@ import Sync
                                 "aimOrganize no longer enters Organize")
         #expect(read.lowerBound < move.lowerBound,
                 "the root is read after the workspace changes, so it names the wrong pane")
+        // The scope write shares the hazard: `setOrganizeScope` resolves against the LIVE
+        // `tidyProviderRootExpanded`, so calling it after the move measures the scope against the
+        // left pane's root unconditionally — the same silent clear, one line later.
+        let write = try #require(body.range(of: "if let scope { setOrganizeScope(scope) }"),
+                                 "aimOrganize no longer routes the scope through the one owner")
+        #expect(write.lowerBound < move.lowerBound,
+                "the scope is set after the workspace changes, so the owner resolves it against the wrong pane")
         // And the reveal is given that captured aim rather than re-reading it.
         #expect(body.contains("revealInSourcePane(scope, root: root, isLeft: !aimedAtRight)"),
                 "the reveal re-reads an aim the workspace switch has already moved")

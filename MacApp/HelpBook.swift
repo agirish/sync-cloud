@@ -92,17 +92,31 @@ enum HelpBook {
     static let sections: [Section] = [
         Section(title: "Getting started", topics: [
             Topic(id: "what-is-synccloud", title: "What is SyncCloud?", systemImage: "sparkles", article: Article(
-                intro: "SyncCloud puts two cloud folders side by side, finds what's different, and helps you copy, move, or tidy the differences — without ever removing anything you didn't approve.",
+                intro: "SyncCloud works on your cloud folders through four workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, and Storage to see where the space goes — without ever removing anything you didn't approve.",
                 blocks: [
-                    .paragraph("The left and right panes each show one folder. A scan compares them and lists everything that isn't identical, so you can bring the two into line on your terms."),
+                    .paragraph("In Compare, the left and right panes each show one folder. A scan compares them and lists everything that isn't identical, so you can bring the two into line on your terms."),
                     .bullets([
+                        "Browse — the plain file browser: one provider's tree at full width, nothing proposed, nothing changed.",
                         "The two panes — pick any two cloud folders, or two folders inside the same provider.",
                         "The differences list — what a scan found, and which way a copy would go.",
                         "Cleanup tools — Organize sorts loose files into folders, and its Duplicates lens removes redundant copies.",
                     ]),
                     .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z."),
                 ],
-                related: ["choose-folders", "scan"]
+                related: ["browse-workspace", "choose-folders", "scan"]
+            )),
+            Topic(id: "browse-workspace", title: "Browse your files", systemImage: "folder", article: Article(
+                intro: "Browse is the plain file browser: one provider's tree at the full width of the window, with nothing proposed and nothing changed. It's where you go to work on files by hand, without a lens's opinion.",
+                blocks: [
+                    .bullets([
+                        "Move through Finder-style columns — clicking a folder opens the next column — or switch the pane to a tree; the choice is remembered for Browse on its own.",
+                        "Select a file and a preview column shows it beside the list; Space opens Quick Look.",
+                        "⌘F searches the tree you're browsing; ⌘K jumps to any folder by name.",
+                        "Right-click a folder for “Organize This Folder…”, or a file for “Find duplicates of this” — each lands in the matching Organize lens.",
+                    ]),
+                    .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
+                ],
+                related: ["what-is-synccloud", "choose-folders", "tidy-duplicates"]
             )),
             Topic(id: "choose-folders", title: "Choose your folders", systemImage: "cloud", article: Article(
                 intro: "SyncCloud finds your cloud providers automatically. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",
@@ -200,7 +214,7 @@ enum HelpBook {
                 related: ["file-loose-items", "staying-safe"]
             )),
             Topic(id: "file-loose-items", title: "File loose items", systemImage: "tray.and.arrow.down", article: Article(
-                intro: "Filing suggests a home for loose files and can move them there — using your folder names, the file's own contents, and, optionally, AI.",
+                intro: "Organize's To File lens suggests a home for loose files and can move them there — using your folder names, the file's own contents, and, optionally, AI.",
                 blocks: [
                     .bullets([
                         "SyncCloud reads your folder layout and proposes where each loose file belongs.",

@@ -111,6 +111,27 @@ import Testing
     /// the Help window itself runs, so it covers every block type without this test having to
     /// know their shapes. If a future feature legitimately involves dragging (resizing a divider,
     /// say), narrow this to the cross-pane transfer wording rather than deleting it.
+    /// Every workspace the bar offers has a help topic. Browse shipped without one — the Help
+    /// book described the app as Compare-plus-cleanup for a whole release while the bar's first
+    /// segment went unexplained.
+    @Test func testTheBrowseWorkspaceHasATopic() {
+        let topic = HelpBook.topic(id: "browse-workspace")
+        #expect(topic != nil, "Browse has no help topic")
+        #expect(HelpBook.sectionTitle(forTopicID: "browse-workspace") == "Getting started")
+    }
+
+    /// Retired product vocabulary stays out of the copy. "Filing" became Organize's To File lens
+    /// and "tidy" left the product's voice with it; both survived in Help long after every other
+    /// surface was reworded, because nothing looked. Same search-based shape as the drag test
+    /// below, so every block type is covered. Topic IDs are deliberately NOT searched —
+    /// `tidy-duplicates` is a frozen identifier, not copy.
+    @Test func testNoArticleUsesRetiredVocabulary() {
+        for word in ["tidy", "filing"] {
+            let hits = HelpBook.filteredSections(matching: word).flatMap(\.topics).map(\.id)
+            #expect(hits.isEmpty, "Help topics still say “\(word)”: \(hits)")
+        }
+    }
+
     @Test func testNoArticleTeachesDragAndDrop() {
         let dragHits = HelpBook.filteredSections(matching: "drag")
             .flatMap(\.topics).map(\.id)

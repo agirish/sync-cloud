@@ -228,7 +228,7 @@ struct SyncOperationAlerts {
         }
         if p.wouldExceedCap {
             let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
-            text += " Running this would exceed the \(which) cap, so it's blocked — Filing will use its "
+            text += " Running this would exceed the \(which) cap, so it's blocked — Organize will use its "
                 + "free on-device suggestions instead. Raise or turn off the cap in Settings → Organize."
         }
         return text

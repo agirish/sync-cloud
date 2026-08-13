@@ -219,10 +219,18 @@ extension ContentView {
         // switching to Organize makes it the left pane's root unconditionally. The scope string in
         // hand came from an index built against the *aimed* pane when the palette opened, so
         // resolving it afterwards measured it against a different provider: `OrganizeScope` failed
-        // and `paletteScopePath` was written `""`, silently clearing the scope instead of setting
+        // and the scope key was written `""`, silently clearing the scope instead of setting
         // it. The object of "organize legal" was discarded, which is the one thing the verb rows
         // exist to prevent.
         let root = tidyProviderRootExpanded
+        // Through `setOrganizeScope(_:)` — **the one write of Organize's scope**, where pointing at
+        // the provider root CLEARS the scope rather than storing it as one — and BEFORE the
+        // workspace moves, for the reason above: the owner resolves against the live
+        // `tidyProviderRootExpanded`, which still names the aimed pane's root on this line. This
+        // used to be a second inline spelling of that normalization, sitting under a comment
+        // asserting there is exactly one. A scope-less route touches nothing — nil here means
+        // "don't re-aim", not "clear".
+        if let scope { setOrganizeScope(scope) }
         // Through the bar's own binding, so entering Organize does everything entering Organize
         // does — the review teardown and the rail presentation. (The person-scope clear moved to
         // `onChange(of: selectedWorkspace)`, so it now happens for this route either way.)
@@ -231,10 +239,6 @@ extension ContentView {
         // write this app has already watched go missing.
         paletteRailLens = lens?.resolvedForPresentation
         guard let scope else { return }
-        // Normalized through `OrganizeScope`, which is the one writer's rule: pointing at the
-        // provider root CLEARS the scope rather than storing the root as one, so ⌘K cannot mint the
-        // second encoding of the global view that the type is failable to prevent.
-        paletteScopePath = OrganizeScope(path: scope, providerRoot: root)?.path ?? ""
         revealInSourcePane(scope, root: root, isLeft: !aimedAtRight)
     }
 

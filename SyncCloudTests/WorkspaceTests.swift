@@ -148,7 +148,9 @@ import FileExplorer
         #expect(Set(keys).count == 5)
     }
 
-    /// A fresh window opens in Browse — and so does one whose stored selection no longer reads.
+    /// A stored selection that no longer reads lands in Browse. (Not a fresh install — that
+    /// keeps `@AppStorage`'s own Compare default; `WorkspaceSelection.default`'s doc says why
+    /// the two deliberately differ.)
     ///
     /// Asserted as the CONCRETE place, not as `.default == .default`, which is the shape that
     /// cannot fail: the point of this test is that the default moved, so it has to name where to.

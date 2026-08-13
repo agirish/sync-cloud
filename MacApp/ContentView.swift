@@ -150,9 +150,16 @@ struct ContentView: View {
     /// Live vertical-split fraction while dragging; nil when idle (persisted once on release).
     @State var verticalDragFraction: Double? = nil
 
+    /// Defaults keys for the single-source rail's split layout.
+    enum RailLayout {
+        /// The rail's persisted width fraction. The literal keeps the pre-Organize "tidy"
+        /// spelling — it is frozen, persisted in every existing install.
+        static let railFractionKey = "tidyRailFraction"
+    }
+
     /// The single-source source rail's share of the content width when expanded (Tidy). Persisted
     /// like the other split fractions; the workspace fills the rest.
-    @AppStorage("tidyRailFraction") var railFraction: Double = 0.28
+    @AppStorage(RailLayout.railFractionKey) var railFraction: Double = 0.28
     /// Live rail-split fraction while dragging; nil when idle (persisted once on release).
     @State var railDragFraction: Double? = nil
 
