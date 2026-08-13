@@ -131,7 +131,8 @@ import Foundation
         #expect(source.contains("func setOrganizeScope(_ path: String?)"))
         // The normalization lives in ONE resolver behind both the read and the write, so the two
         // cannot drift about what a stored provider root means.
-        #expect(source.contains("organizeScopePath = resolvedOrganizeScope(path)?.path ?? \"\""))
+        #expect(source.contains("organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: lensProviderRootExpanded)"),
+                "the scope write no longer routes through OrganizeScope.normalizedPath — a second copy of the normalization is back")
         #expect(source.contains("private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope?"))
         #expect(source.contains("OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)"))
     }

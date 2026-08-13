@@ -86,7 +86,7 @@ import Foundation
         let source = try Self.contentView()
         #expect(source.contains("var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }"))
         let setter = try Self.body(of: "func setOrganizeScope(_ path: String?) {", in: source)
-        #expect(setter.contains("resolvedOrganizeScope(path)?.path ?? \"\""),
+        #expect(setter.contains("OrganizeScope.normalizedPath(path, providerRoot: lensProviderRootExpanded)"),
                 "the setter has its own copy of the normalization again")
     }
 }

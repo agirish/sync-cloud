@@ -222,8 +222,9 @@ struct ContentView: View {
     /// have to be able to re-aim Organize before any scan has run. `LensWorkspaceView` reads the same key
     /// through its own `@AppStorage`, so the two cannot disagree.
     ///
-    /// Never written directly — see ``setOrganizeScope(_:)``, which is where the provider root is
-    /// normalized to the empty string so the global view has exactly one representation.
+    /// Never written directly — see ``setOrganizeScope(_:)``, which asks
+    /// ``OrganizeScope/normalizedPath(_:providerRoot:)`` for the stored form, so the provider root
+    /// collapses to the empty string and the global view has exactly one representation.
     @AppStorage(OrganizeScopeDefaults.pathKey) var organizeScopePath: String = ""
 
     /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
@@ -2086,14 +2087,17 @@ struct ContentView: View {
             providerName: lensProviderName, nameProvider: lensProviderType)
     }
 
-    /// The one write of Organize's scope, and the one place the root is normalized away.
+    /// The one write of Organize's scope **from this view**, and the one place its callers — the
+    /// folder context menu, ⌘K, "Organize This Folder…" — reach the stored form.
     ///
-    /// **`nil`, an empty path, and the provider root all mean the same thing: the global view.**
-    /// Keeping that collapse here rather than at each caller is what stops `scope = provider root`
-    /// and `scope = cleared` becoming two encodings of one state — identical in every result and
-    /// different only in whether a chip is drawn.
+    /// **`nil`, an empty path, the provider root and a pane with no provider at all mean the same
+    /// thing: the global view.** That collapse is not spelled here, and deliberately so: the same
+    /// key is also written by `LensWorkspaceView.setScope(_:)`, which had its own copy of it under
+    /// a doc claiming to be the only one. ``OrganizeScope/normalizedPath(_:providerRoot:)`` is the
+    /// owner of the rule now; both writers ask it, so `scope = provider root` and `scope = cleared`
+    /// cannot become two encodings of one state.
     func setOrganizeScope(_ path: String?) {
-        organizeScopePath = resolvedOrganizeScope(path)?.path ?? ""
+        organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: lensProviderRootExpanded)
     }
 
     /// The subtree Organize is answering about, or nil for the global view.
@@ -2103,9 +2107,11 @@ struct ContentView: View {
     /// to the global view instead of filtering every lens to nothing.
     var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }
 
-    /// One resolver behind both the read and the write, so the normalization cannot drift between
-    /// them — the read has to agree that a stored provider root means "no scope", or the chip and
-    /// the filter would disagree about the same string.
+    /// The read half of the round trip. It has to agree with the write that a stored provider root
+    /// means "no scope", or the chip and the filter would disagree about the same string — and it
+    /// does by construction rather than by inspection: ``OrganizeScope/normalizedPath(_:providerRoot:)``,
+    /// which the write goes through, is defined as this same resolution with `?.path ?? ""` on the
+    /// end.
     private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope? {
         guard let path, !path.isEmpty else { return nil }
         return OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)

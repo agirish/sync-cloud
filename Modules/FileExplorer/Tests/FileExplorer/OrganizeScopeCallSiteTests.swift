@@ -90,6 +90,32 @@ import Sync
             .joined(separator: "\n")
     }
 
+    // MARK: The scope is WRITTEN through its one owner
+
+    /// **`setScope` must not carry its own copy of the normalization.**
+    ///
+    /// It did, and so did `ContentView.setOrganizeScope(_:)` — two spellings of one rule over the
+    /// same persisted ``OrganizeScopeDefaults/pathKey``, each under a doc comment claiming to be the
+    /// only write, on two different shapes of provider root (`String?` here, non-optional there).
+    /// They agreed; nothing made them agree, and the way that ends is two encodings of the global
+    /// view on a key the user cannot inspect.
+    ///
+    /// Scoped to `setScope`'s own body deliberately: the file legitimately calls
+    /// `OrganizeScope(path:providerRoot:)` elsewhere to *ask a question* (`targetWouldClearScope`),
+    /// and a file-wide ban would fail that correct code.
+    @Test func theScopeWriteRoutesThroughTheOneNormalizer() throws {
+        let view = try Self.source("LensWorkspaceView.swift")
+        let body = try Self.body(of: "private func setScope(_ path: String?) {", in: view)
+        #expect(body.contains("OrganizeScope.normalizedPath(path, providerRoot: providerRoot)"),
+                "setScope no longer asks the one owner for the stored form")
+        // Comments are already stripped by `body`, so the doc explaining the absence cannot
+        // falsify this — the hazard this file documents twice.
+        #expect(!body.contains("OrganizeScope(path:"),
+                "setScope has grown its own copy of the normalization again")
+        // Non-vacuity: the body must still be the write, not some emptied stub.
+        #expect(body.contains("scopePathRaw ="))
+    }
+
     // MARK: The predicate is actually called
 
     @Test func lensWorkspaceViewFiltersEveryLensThroughTheScopePredicate() throws {

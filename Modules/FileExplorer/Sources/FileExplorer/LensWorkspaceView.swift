@@ -457,19 +457,22 @@ public struct LensWorkspaceView: View {
     /// suspended state.
     private var scopeIsSuspended: Bool { scope == nil && storedScope != nil }
 
-    /// Points Organize at a folder, or clears the scope.
+    /// Points Organize at a folder, or clears the scope — **this workspace's entry points only**:
+    /// the "Scan '<folder>'" re-aim, the inbox shortcut, the chip's ✕, the scoped empty state's
+    /// "Organize Everything", and the duplicate-reveal handoff that has to clear it.
     ///
-    /// **Normalizing lives here, at the one write.** Every entry point — the folder context menu,
-    /// ⌘K, the "Scan '<folder>'" affordance, the inbox shortcut, the chip's ✕ — routes through
-    /// this, so none of them can mint the second encoding of the global view that
-    /// ``OrganizeScope/init(path:providerRoot:)`` exists to prevent.
+    /// **Normalizing does NOT live here.** ``OrganizeScope/normalizedPath(_:providerRoot:)`` owns
+    /// it, because this is not the only write of `scopePathRaw`'s key: the folder context menu and
+    /// ⌘K both go through `ContentView.setOrganizeScope(_:)`, which writes the same
+    /// ``OrganizeScopeDefaults/pathKey``. This doc used to list those two as routing through here,
+    /// which was never true, and what they actually applied was a second copy of the rule this
+    /// method used to spell out — two spellings of the collapse that stops the global view having
+    /// two encodings, on a **persisted** key, each documented as the only one.
+    ///
+    /// A nil `providerRoot` and an empty one are the same condition — no provider, so no scope —
+    /// and the owner answers `""` for both, which is what the guard here did.
     private func setScope(_ path: String?) {
-        guard let path, let providerRoot,
-              let resolved = OrganizeScope(path: path, providerRoot: providerRoot) else {
-            scopePathRaw = ""
-            return
-        }
-        scopePathRaw = resolved.path
+        scopePathRaw = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)
     }
 
     /// The rail selection, but only while Organize is the workspace.

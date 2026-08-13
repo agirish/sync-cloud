@@ -74,6 +74,37 @@ public struct OrganizeScope: Equatable, Sendable, Hashable {
         self.path = folder
         self.providerRoot = root
     }
+
+    /// **The one owner of the write-side normalization: what a chosen folder is STORED as.**
+    ///
+    /// Returns the resolved absolute path, or `""` — the global view — for everything that is not
+    /// a genuine subtree of a live provider root: a nil or empty path, the provider root itself, a
+    /// path outside it, and a nil or empty root.
+    ///
+    /// **Why this is a function rather than a rule each writer spells for itself.** It was spelled
+    /// twice — once in `ContentView.setOrganizeScope(_:)` and once in
+    /// `LensWorkspaceView.setScope(_:)` — under two doc comments that each claimed to be the only
+    /// one, on two different shapes of provider root (one non-optional, one optional). They agreed,
+    /// but nothing made them agree: this writes **persisted** user state under a single key, so two
+    /// copies of one normalization is one edit away from two encodings of the global view, which is
+    /// the exact state ``init(path:providerRoot:)`` is failable to prevent.
+    ///
+    /// **A missing root and an empty root mean the same thing — no provider, therefore no scope —
+    /// and that is why the parameter is optional here even though one caller cannot produce nil.**
+    /// `ContentView` hands over `lensProviderRootExpanded`, a non-optional string that is `""` when
+    /// settings hold no path for the pane's provider; `LensWorkspaceView` holds `String?` and gets
+    /// nil for the same condition. Both spellings already cleared the scope for their own flavour
+    /// of "no root" — measured, by running both of them over every input in
+    /// ``OrganizeScopeNormalizationTests`` before this function existed — so collapsing them loses
+    /// nothing and gives the absent case one answer instead of two.
+    ///
+    /// **The write is defined as the read, inverted**, so the round trip cannot drift:
+    /// ``OrganizeScopeDefaults/scope(fromStored:providerRoot:)`` is what a launch resolves the
+    /// stored string back through, and storing anything it would not hand back is how a chip and a
+    /// filter come to disagree about one string.
+    public static func normalizedPath(_ path: String?, providerRoot: String?) -> String {
+        OrganizeScopeDefaults.scope(fromStored: path, providerRoot: providerRoot)?.path ?? ""
+    }
 }
 
 // MARK: - Where the scope is stored
