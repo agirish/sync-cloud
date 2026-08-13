@@ -1015,7 +1015,7 @@ struct FileContextMenu: View {
                 // render budget is the app's tightest.
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
-                        Label("Fix name…", systemImage: NameNormalizeGlyph.lens)
+                        Label("Fix name…", systemImage: RiskyNameGlyph.lens)
                     }
                     .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
                     // The badge's answer, and the ONLY way back from one. Keeping is durable, so

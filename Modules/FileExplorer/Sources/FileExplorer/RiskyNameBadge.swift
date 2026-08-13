@@ -10,7 +10,7 @@ import SwiftUI
 /// every other name until you either ran Organize or right-clicked the file for an unrelated reason.
 /// This is the other half — the discovery.
 ///
-/// **Same finding, same clothes.** Glyph and colour are `NameNormalizeGlyph.risky` and
+/// **Same finding, same clothes.** Glyph and colour are `RiskyNameGlyph.risky` and
 /// `SemanticColor.caution`, which is what Organize's own risky-names chip and its list rows already
 /// wear. A finding that changed appearance depending on which surface reported it would read as two
 /// different findings.
@@ -35,7 +35,7 @@ struct RiskyNameBadge: View {
 
     var body: some View {
         if let reason {
-            Image(systemName: NameNormalizeGlyph.risky)
+            Image(systemName: RiskyNameGlyph.risky)
                 .font(fonts.riskyNameBadge)
                 .foregroundStyle(SemanticColor.caution)
                 // The reason itself, not a generic "risky name": the tooltip is the only place the

@@ -3,51 +3,13 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// The four new per-lens grammars, and above all the rule that shapes them: a lens only declares a
-/// token it can actually bind, and its placeholder advertises exactly those.
+/// The per-lens grammars, and above all the rule that shapes them: a lens only declares a token it
+/// can actually bind, and its placeholder advertises exactly those.
 @Suite struct LensSearchTests {
 
-    // MARK: Rename
+    // MARK: Organize ▸ To File
 
-    private func risky(_ name: String, path: String = "Docs", reason: String = "Contains a colon",
-                       isDirectory: Bool = false) -> RiskyName {
-        RiskyName(id: "/root/\(path)/\(name)", relativePath: "\(path)/\(name)", currentName: name,
-                  sanitizedName: name.replacingOccurrences(of: ":", with: "-"),
-                  reason: reason, isDirectory: isDirectory)
-    }
-
-    @Test func renameBindsKindAndIsTokens() {
-        let pdf = risky("Q3: report.pdf")
-        let folder = risky("Trip: 2026", isDirectory: true)
-        let image = risky("photo: 1.png")
-
-        #expect(RiskyNameSearch.parse("kind:pdf").matches(pdf))
-        #expect(!RiskyNameSearch.parse("kind:pdf").matches(image))
-        #expect(RiskyNameSearch.parse("is:folder").matches(folder))
-        #expect(!RiskyNameSearch.parse("is:folder").matches(pdf))
-        #expect(RiskyNameSearch.parse("is:file").matches(pdf))
-        #expect(!RiskyNameSearch.parse("is:file").matches(folder))
-    }
-
-    /// A folder has no extension, so `kind:` can never match one. That's the honest answer rather
-    /// than a bug: "the PDFs among the risky names" does not include folders.
-    @Test func renameKindNeverMatchesAFolder() {
-        #expect(!RiskyNameSearch.parse("kind:pdf").matches(risky("Trip: 2026", isDirectory: true)))
-    }
-
-    /// THE per-lens-honesty test. `RiskyName` carries no size, so Rename declares no size token —
-    /// `>5mb` is not a filter here, it's just text. It must therefore behave as text: no chip is
-    /// offered for it, and it searches the name/path/reason like any other word (matching nothing
-    /// here). If someone ever adds a size token to this grammar without a size to bind it to, this
-    /// is what fails.
-    @Test func renameHasNoSizeTokenAtAll() {
-        let query = RiskyNameSearch.parse(">5mb")
-        #expect(query.text == ">5mb", "an undeclared token must fall through to free text, verbatim")
-        #expect(RiskyNameSearch.chips(">5mb").isEmpty, "no chip may be offered for a token that can't bind")
-        #expect(!query.matches(risky("Q3: report.pdf")))
-    }
-
-    /// And the placeholder must never advertise what the parser doesn't recognize — the placeholder
+    /// The placeholder must never advertise what the parser doesn't recognize — the placeholder
     /// IS the vocabulary lesson, so a token named there that doesn't bind is a lie.
     ///
     /// Asked of `.filing` since the standalone rename lens was retired: the rename backlog and its
@@ -57,14 +19,6 @@ import Sync
         #expect(placeholder.contains("kind:"))
         #expect(!placeholder.contains("mb"), "Filing can't bind a size token, so it must not offer one")
         #expect(!placeholder.contains(">"))
-    }
-
-    @Test func renameFreeTextMatchesNamePathAndReason() {
-        let item = risky("Q3: report.pdf", path: "Finance/Archive", reason: "Contains a colon")
-        #expect(RiskyNameSearch.parse("report").matches(item))     // current name
-        #expect(RiskyNameSearch.parse("finance").matches(item))    // relative path
-        #expect(RiskyNameSearch.parse("colon").matches(item))      // reason
-        #expect(!RiskyNameSearch.parse("nothing").matches(item))
     }
 
     // MARK: Organize
@@ -211,7 +165,6 @@ import Sync
     /// `kind:image` must mean the same set of extensions on every surface that offers it — it's
     /// the one class alias, and the whole point of routing through the shared table.
     @Test func kindImageMeansTheSameThingAcrossLenses() {
-        #expect(RiskyNameSearch.parse("kind:image").matches(risky("photo: 1.heic")))
         #expect(FilingSearch.parse("kind:image").matches(suggestion("photo.png")))
         #expect(StorageSearch.parse("kind:image").matches(entry("photo.jpg", bytes: 1)))
         #expect(!StorageSearch.parse("kind:image").matches(entry("notes.txt", bytes: 1)))
@@ -220,7 +173,6 @@ import Sync
     /// Every lens's ✕ removes the exact word it names, all occurrences — the shared `TokenQuery`
     /// semantics, so a chip can't look dead.
     @Test func chipRemovalStripsTheExactWord() {
-        #expect(RiskyNameSearch.removing("kind:pdf is:folder", word: "is:folder") == "kind:pdf")
         #expect(FilingSearch.removing("to:Invoices >5mb", word: "to:Invoices") == ">5mb")
         #expect(AutomationSearch.removing("is:enabled kind:pdf", word: "is:enabled") == "kind:pdf")
         #expect(StorageSearch.removing(">100mb kind:mov", word: ">100mb") == "kind:mov")
@@ -228,11 +180,15 @@ import Sync
 
     /// Last-wins dimming within a family, exactly as Duplicates/Compare/Log do it: two `is:` words
     /// mean the last one, and the earlier chip reads as superseded rather than as an active filter.
+    ///
+    /// Asked of Automations since `RiskyNameSearch` was retired: it carries the same shape of
+    /// family — two mutually exclusive `is:` words — which is what the rule is about. The `kind:`
+    /// half of the same rule is pinned by `DuplicateSearchTests` and `DifferenceSearchTests`.
     @Test func supersededChipsDimPerFamily() {
-        let chips = RiskyNameSearch.chips("is:folder is:file")
+        let chips = AutomationSearch.chips("is:enabled is:disabled")
         #expect(chips.count == 2)
         #expect(chips[0].isActive == false)
         #expect(chips[1].isActive == true)
-        #expect(RiskyNameSearch.parse("is:folder is:file").isDirectory == false, "last wins")
+        #expect(AutomationSearch.parse("is:enabled is:disabled").enabled == false, "last wins")
     }
 }

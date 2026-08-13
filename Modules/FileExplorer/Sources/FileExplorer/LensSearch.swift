@@ -70,11 +70,15 @@ enum LensSearch {
 
 /// Organize ▸ the rename backlog. Filters `renamePlans`.
 ///
-/// **The thinnest one, and for a different reason than `RiskyNameSearch`.** A row here is a
-/// *folder*, and what you look for is a folder — "PG&E", "2021", "HDFC". There is no confidence to
-/// filter by, no kind (a plan spans whatever extensions the folder holds), and no size. So this is
-/// free text over the folder path and the names inside it, with no token grammar at all, and the
-/// placeholder never suggests one.
+/// **The thinnest grammar here, and deliberately.** A row is a *folder*, and what you look for is
+/// a folder — "PG&E", "2021", "HDFC". There is no confidence to filter by, no kind (a plan spans
+/// whatever extensions the folder holds), and no size. So this is free text over the folder path
+/// and the names inside it, with no token grammar at all, and the placeholder never suggests one.
+///
+/// It answers for the **to-fix rows too** (the `RiskyName` overload below), which is what retired
+/// `RiskyNameSearch` — a `kind:` / `is:folder` grammar that only the standalone rename lens ever
+/// offered. Those tokens are gone rather than hidden; if the to-fix rows ever want them back, they
+/// belong here, on the one grammar the list actually uses.
 ///
 /// Matching the file names too is what makes it useful rather than decorative: 129 folders is a lot
 /// to scroll, and the file you are actually looking for is `9829custbill…`.
@@ -110,65 +114,6 @@ enum RenameBacklogSearch {
             || risky.sanitizedName.range(of: text, options: .caseInsensitive) != nil
             || risky.relativePath.range(of: text, options: .caseInsensitive) != nil
     }
-}
-
-// MARK: - Rename
-
-/// The Renames search. Filters `riskyNames`.
-///
-/// The thin one, deliberately: `RiskyName` carries no size and no date, so this grammar has no
-/// size tokens at all — not disabled ones, not ignored ones. `>5mb` here is plain free text, and
-/// the placeholder never suggests otherwise.
-enum RiskyNameSearch {
-
-    struct Query: Equatable {
-        var kind: String?
-        /// nil = either; true = folders only (`is:folder`); false = files only (`is:file`).
-        var isDirectory: Bool?
-        var text: String
-
-        func matches(_ risky: RiskyName) -> Bool {
-            // A folder has no extension, so `kind:` can never match one — which is the honest
-            // answer, not a bug: "the PDFs among the risky names" excludes folders.
-            if let kind, !LensKind.matches(kind, fileName: risky.currentName) { return false }
-            if let isDirectory, risky.isDirectory != isDirectory { return false }
-            if text.isEmpty { return true }
-            return risky.currentName.range(of: text, options: .caseInsensitive) != nil
-                || risky.relativePath.range(of: text, options: .caseInsensitive) != nil
-                || risky.reason.range(of: text, options: .caseInsensitive) != nil
-        }
-    }
-
-    static func parse(_ raw: String) -> Query {
-        var kind: String?
-        var isDirectory: Bool?
-        let text = TokenQuery.freeText(raw) { word in
-            let lower = word.lowercased()
-            if let ext = LensKind.word(lower) { kind = ext; return true }
-            if lower == "is:folder" { isDirectory = true; return true }
-            if lower == "is:file" { isDirectory = false; return true }
-            return false
-        }
-        return Query(kind: kind, isDirectory: isDirectory, text: text)
-    }
-
-    struct Chip: Equatable, DimmableTokenChip {
-        var raw: String
-        var label: String
-        var isActive: Bool = true
-    }
-
-    static func chips(_ raw: String) -> [Chip] {
-        TokenQuery.lastWinsChips(raw) { word in
-            let lower = word.lowercased()
-            if let ext = LensKind.word(lower) { return (Chip(raw: word, label: "kind: \(ext)"), "kind") }
-            if lower == "is:folder" { return (Chip(raw: word, label: "folders"), "is") }
-            if lower == "is:file" { return (Chip(raw: word, label: "files"), "is") }
-            return nil
-        }
-    }
-
-    static func removing(_ raw: String, word: String) -> String { TokenQuery.removing(raw, word: word) }
 }
 
 // MARK: - Organize

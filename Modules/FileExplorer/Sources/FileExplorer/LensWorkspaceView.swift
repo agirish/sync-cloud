@@ -2253,12 +2253,11 @@ public struct LensWorkspaceView: View {
     /// Whether To File's setup card is the thing on screen — the pre-scan state that carries its
     /// own folder-named invitation ("File loose files in Insurance", with a Start button).
     ///
-    /// **Only To File has one.** `contentCard` routes the other three `.filing` rail items
-    /// elsewhere: the overview to `organizeOverview`, Restructure to a lens whose empty state
-    /// points at Settings rather than at a scan, and Renames to a `RenamePassLens` that renders an
-    /// empty list. Names is `.rename` and deleted its intro states outright — see
-    /// `NameNormalizeLens`, which is reachable only when it already has findings. So this is a
-    /// question about one lens, not a general "is something else inviting you" predicate.
+    /// **Only To File has one.** `contentCard` routes the other `.filing` rail items elsewhere: the
+    /// overview to `organizeOverview`, Restructure to a lens whose empty state points at Settings
+    /// rather than at a scan, and Renames to a `RenamePassLens` — which has carried its own setup
+    /// card since P12, gated separately. So this is a question about one lens, not a general "is
+    /// something else inviting you" predicate.
     private var filingIntroOwnsInvitation: Bool {
         organizeLens == .toFile && !syncManager.hasSuggestedFiling
     }

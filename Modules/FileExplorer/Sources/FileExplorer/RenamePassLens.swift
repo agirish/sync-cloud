@@ -141,7 +141,7 @@ struct RenamePassLens: View {
         Section {
             ForEach(riskyNames) { risky in
                 HStack(spacing: 8) {
-                    Image(systemName: NameNormalizeGlyph.risky)
+                    Image(systemName: RiskyNameGlyph.risky)
                         .scaledFont(.caption)
                         .foregroundStyle(SemanticColor.error)
                         .frame(width: 12)
