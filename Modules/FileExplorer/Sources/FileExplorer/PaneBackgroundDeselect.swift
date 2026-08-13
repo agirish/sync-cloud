@@ -41,7 +41,7 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
     /// closure.
     func updateNSView(_ view: CatcherView, context: Context) {
         view.onDeselect = onDeselect
-        view.rearmSearch()
+        view.rearm()
     }
 
     /// Whether a click on the list is one this should act on.
@@ -64,10 +64,14 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         return table.row(at: pointInTable) == -1
     }
 
-    final class CatcherView: NSView, NSGestureRecognizerDelegate {
+    /// The bounded search and its re-arm ladder are `FrameAnchoredResolveView`'s; what this adds
+    /// is the recognizer install. The budget matters more here than on the stylers, in one way:
+    /// a spent budget that was never refilled silently stopped the recognizer being installed —
+    /// which, unlike the styler's blue highlight, has no visible symptom at all. It just quietly
+    /// stops deselecting.
+    final class CatcherView: FrameAnchoredResolveView, NSGestureRecognizerDelegate {
         var onDeselect: () -> Void
 
-        private weak var cachedTable: NSTableView?
         /// The table the recognizer currently sits on, so a rebuilt list moves it rather than
         /// accumulating one recognizer per rebuild.
         ///
@@ -81,35 +85,6 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         private weak var installedOn: NSTableView?
         private var recognizer: NSClickGestureRecognizer?
 
-        /// Same budget as `PaneListSelectionStyler`, and re-armed by the same two signals for the
-        /// same reason: an anchor that moved, or a table that stopped being ours. Re-arming on a
-        /// SwiftUI update instead meant "constantly" only for as long as the pane re-rendered on
-        /// everything; once `FileTreeView` became `Equatable` a spent budget was never refilled and
-        /// the recognizer silently stopped being installed — which, unlike the styler's blue
-        /// highlight, has no visible symptom at all. It just quietly stops deselecting.
-        private var searchBudget = CatcherView.searchesPerChange
-        private static let searchesPerChange = 6
-        /// The anchor's window rect at the last search. A moved or resized anchor sits over a
-        /// different list than it did — see `PaneListResolver`, where the frame IS the identity.
-        private var lastSearchedTarget: CGRect = .null
-        /// Layout passes since the burst budget ran dry with nothing found.
-        ///
-        /// The budget bounds a BURST; this bounds the STEADY STATE. Together they mean an
-        /// unresolvable hierarchy costs one ancestor scan per thirty layout passes instead of one
-        /// per pass, while a list that only appears later — or is swapped in place while this
-        /// anchor sits perfectly still, which no change signal can see — is still picked up within
-        /// a few frames. "Gave up permanently" is the defect all of this exists to prevent, so it
-        /// must not be reachable by any path.
-        private var passesSinceExhausted = 0
-        private static let retryEveryNPasses = 30
-
-        /// Test seam: how many ancestor scans have actually run. The re-arm rules are only
-        /// meaningful if the STEADY state stays rare, and a suite with no way to count scans could
-        /// not tell "recovers" from "scans on every single pass", which is the cost the budget
-        /// exists to prevent.
-        private(set) var searchesPerformed = 0
-
-
         init(onDeselect: @escaping () -> Void) {
             self.onDeselect = onDeselect
             super.init(frame: .zero)
@@ -119,37 +94,27 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
         /// Uninstalls on the way out of the window, not in `deinit`: a nonisolated `deinit` cannot
-        /// touch non-Sendable stored state, and this follows the same rule the column stack's
-        /// observers do. Leaving a recognizer behind would be worse than untidy — its target is
-        /// unowned, so a click on an orphaned one would call into a deallocated view.
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window == nil {
-                uninstall()
-                cachedTable = nil
-            } else {
-                rearmSearch()
-            }
+        /// touch non-Sendable stored state. Leaving a recognizer behind would be worse than
+        /// untidy — its target is unowned, so a click on an orphaned one would call into a
+        /// deallocated view. The cached table goes with it: this copy does not re-trust across a
+        /// window exit the table its recognizer just left.
+        override func windowDidExit() {
+            uninstall()
+            forgetResolvedTable()
         }
 
-        override func layout() {
-            super.layout()
-            apply()
-        }
-
-        /// Re-arms after a SwiftUI update, which can mean a rebuilt table.
-        ///
-        /// The deferred retry is only for the mount, when the list's scroll view may not exist yet.
+        /// Diverges from the base's re-arm on purpose: the budget is always refilled, but the
+        /// deferred retry is only for the mount, when the list's scroll view may not exist yet.
         /// Once armed, `layout()` re-checks on every pass anyway, so scheduling a block per update
         /// would be per-render main-queue work on a pane whose click cost has been measured more
         /// than once — and there is one of these per column.
-        func rearmSearch() {
-            searchBudget = Self.searchesPerChange
+        override func rearm() {
+            refillSearchBudget()
             guard installedOn == nil else { return }
-            DispatchQueue.main.async { [weak self] in self?.apply() }
+            DispatchQueue.main.async { [weak self] in self?.resolvePass() }
         }
 
-        private func apply() {
+        override func resolvePass() {
             guard let table = resolveTableView() else { return }
             guard installedOn !== table else { return }
             uninstall()
@@ -186,38 +151,5 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
                 modifiers: event.modifierFlags, pointInTable: point, table: table)
         }
 
-        /// Same rule as `PaneListSelectionStyler`: the frame identifies the list, and a cached
-        /// answer is re-validated against it because a drill rebuilds the stack underneath.
-        /// Internal, not private: this is the test seam. The re-arm rules above are the whole
-        /// correctness story and a suite that could not drive them would be asserting nothing.
-        func resolveTableView() -> NSTableView? {
-            guard window != nil else { return nil }
-            let target = convert(bounds, to: nil)
-            guard !target.isEmpty else { return nil }
-            if let cached = cachedTable, cached.window === window,
-               PaneListResolver.matches(cached, target: target) { return cached }
-            let anchorMoved = !target.equalTo(lastSearchedTarget)
-            let lostItsTable = cachedTable != nil
-            lastSearchedTarget = target
-            // Cleared before the checks below, so `lostItsTable` reads true exactly once per
-            // invalidation rather than on every later pass — otherwise a table that vanished for
-            // good would refill the budget forever and reinstate the per-layout scan.
-            cachedTable = nil
-            if anchorMoved || lostItsTable {
-                searchBudget = Self.searchesPerChange
-                passesSinceExhausted = 0
-            } else if searchBudget == 0 {
-                passesSinceExhausted += 1
-                if passesSinceExhausted >= Self.retryEveryNPasses {
-                    passesSinceExhausted = 0
-                    searchBudget = 1
-                }
-            }
-            guard searchBudget > 0 else { return nil }
-            searchBudget -= 1
-            searchesPerformed += 1
-            cachedTable = PaneListResolver.table(matching: self)
-            return cachedTable
-        }
     }
 }

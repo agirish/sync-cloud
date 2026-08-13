@@ -6,9 +6,9 @@ import SwiftUI
 /// `PaneColumnJitterProbe` and `PaneColumnsOverscrollReturn` (the two watchdogs, which resolve a
 /// scroll view and observe its clip), and `PaneListSelectionStyler` /
 /// `DifferencesTableSelectionStyler` (the two stylers, which resolve a table through
-/// `PaneListResolver` — see `FrameAnchoredResolveView` below). This used to be four private
-/// copies of one discipline; a fifth, `PaneBackgroundDeselect`, still carries its own and should
-/// adopt `FrameAnchoredResolveView` when it is next touched.
+/// `PaneListResolver` — see `FrameAnchoredResolveView` below), and `PaneBackgroundDeselect`
+/// (frame-anchored like the stylers, installing a gesture recognizer rather than styling). This
+/// used to be five private copies of one discipline.
 ///
 /// The discipline, in one place:
 ///
@@ -154,6 +154,13 @@ class FrameAnchoredResolveView: BoundedResolveView {
     /// Called whenever `table` is confirmed current — on a cached hit and on a fresh resolve —
     /// so a subclass with observers to attach has one hook for both paths. Base does nothing.
     func tableIsCurrent(_ table: NSTableView) {}
+
+    /// Drops the cached answer without touching the budget or the ladder counters — for a
+    /// subclass whose window exit invalidates its claim on the table
+    /// (`PaneBackgroundDeselect` uninstalls its recognizer there and clears the cache with it).
+    /// Equivalent to the `cachedTable = nil` those copies did by hand; the setter is private so
+    /// the ladder stays the only writer on the resolve path.
+    final func forgetResolvedTable() { cachedTable = nil }
 
     /// Re-validates a cached table against this view's current frame instead of trusting it for
     /// the lifetime of the window. A drill rebuilds the column stack wholesale, so a table that

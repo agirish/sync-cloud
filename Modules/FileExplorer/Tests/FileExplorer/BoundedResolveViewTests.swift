@@ -16,12 +16,13 @@ import Testing
         #expect(PaneColumnsOverscrollReturn.WatchdogView.searchesPerChange == 4)
     }
 
-    /// The frame-anchored stylers walk a wider hierarchy (see `PaneListResolver.searchDepth`) and
-    /// carry the wider budget — one override, inherited by both.
-    @Test func theStylersShareTheWiderBudget() {
+    /// The frame-anchored resolvers walk a wider hierarchy (see `PaneListResolver.searchDepth`)
+    /// and carry the wider budget — one override, inherited by all three.
+    @Test func theFrameAnchoredResolversShareTheWiderBudget() {
         #expect(FrameAnchoredResolveView.searchesPerChange == 6)
         #expect(PaneListSelectionStyler.StylerView.searchesPerChange == 6)
         #expect(DifferencesTableSelectionStyler.StylerView.searchesPerChange == 6)
+        #expect(PaneBackgroundDeselect.CatcherView.searchesPerChange == 6)
     }
 
     /// `quiescence` is owned by the base — the column probe used to reach across into the stack
