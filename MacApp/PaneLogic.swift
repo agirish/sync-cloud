@@ -428,6 +428,39 @@ enum PaneLogic {
         isCompare && activePane == .right
     }
 
+    /// Whether a ⌘K "organize <folder>" aimed at the RIGHT pane can only be honoured by swapping
+    /// the panes first.
+    ///
+    /// Organize is single-source and shows the LEFT pane (`lensTargetsRightPane` is false for every
+    /// workspace but Compare), while the scope is re-resolved on read against whatever provider is
+    /// showing. So a folder picked out of the right pane's tree lands in Organize as a path that is
+    /// not under the root it is measured against: `OrganizeScope.init?` answers nil, the chip
+    /// disappears and every lens goes back to the global view — the request silently dropped rather
+    /// than refused. Swapping puts the named provider on the left, where Organize can see it.
+    ///
+    /// Decided with `OrganizeScope` itself rather than a string prefix, so this and the resolver
+    /// cannot disagree about one path: it carries the tilde expansion, the component boundary
+    /// (`/a/b` is not a base of `/a/bc`) and the rule that the provider root normalizes to the
+    /// global view.
+    ///
+    /// False — no swap, nothing to ask — in every other case, and three of them are worth naming:
+    /// - **No scope.** "Organize" with no folder has nothing to keep, and both panes answer it.
+    /// - **Both panes on one provider.** The roots are the same string, so the scope already
+    ///   resolves under the left one; a swap would move the panes for no gain.
+    /// - **The scope is under NEITHER root** — a stale or foreign path. That is not a pane problem
+    ///   and swapping cannot fix it; it degrades to the global view exactly as `OrganizeScope`
+    ///   documents.
+    static func organizeAimNeedsPaneSwap(scope: String?,
+                                         aimedAtRight: Bool,
+                                         leftRoot: String,
+                                         rightRoot: String) -> Bool {
+        guard aimedAtRight, let scope else { return false }
+        // Under the aimed pane's root — otherwise there is nothing a swap would rescue.
+        guard OrganizeScope(path: scope, providerRoot: rightRoot) != nil else { return false }
+        // …and NOT under the pane Organize will show, which is the whole failure.
+        return OrganizeScope(path: scope, providerRoot: leftRoot) == nil
+    }
+
     /// Builds a pane's full path from its provider root and in-pane relative path.
     /// An empty or absolute "relative" path yields just the root, so a stale or
     /// cross-provider relative path can never escape the pane's root.

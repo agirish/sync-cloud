@@ -151,6 +151,62 @@ import FileExplorer
         return String(rest[..<end])
     }
 
+    // MARK: - The pane-swap prompt's words
+
+    /// **The dialog names the folder and both sources**, which is the entire reason it exists.
+    ///
+    /// The defect it replaces was a request losing its object — "organize Legal" arriving as
+    /// "organize". A prompt that said "this folder is in the other source" would be the same loss
+    /// spelled politely: the user is being asked to rearrange their window, and cannot answer that
+    /// without knowing which folder, which source it is in, and which one Organize is about to show.
+    ///
+    /// Reachable at all because the wording is a `static func` of three arguments —
+    /// `NativeAlerts.confirmChange` ends in `runModal()`, and nothing in this harness can dismiss a
+    /// modal it is itself blocked behind.
+    @Test func theSwapPromptNamesTheFolderAndBothSources() {
+        let folder = "/Users/abhishek/Library/CloudStorage/Dropbox/Legal/Immigration"
+        let prompt = ContentView.organizePaneSwapPrompt(folder: folder,
+                                                        aimedProvider: "Dropbox",
+                                                        shownProvider: "iCloud Drive")
+        #expect(prompt.informativeText.contains("Immigration"),
+                "the prompt does not name the folder the route was about")
+        #expect(prompt.informativeText.contains("Dropbox"),
+                "the prompt does not name the source the folder is in")
+        #expect(prompt.informativeText.contains("iCloud Drive"),
+                "the prompt does not name the source Organize would otherwise open on")
+        // The leaf, not the path: a dialog is not the place to publish `/Users/<you>/…`, and the
+        // chip beside it shows the same folder by name.
+        #expect(!prompt.informativeText.contains(folder),
+                "the prompt dumps the absolute path at the user")
+        // Both halves carry weight — the message line states the constraint, the informative text
+        // explains the trade. A prompt whose first line was the whole explanation would be
+        // truncated by the alert itself.
+        #expect(prompt.messageText.contains("one source at a time"),
+                "the message line no longer states why the swap is needed")
+        #expect(prompt.informativeText.contains("swap") || prompt.informativeText.contains("Swapping"),
+                "the prompt never says what confirming does")
+        // The reassurance, and it is a fact about `swapPanesAction`: nothing is removed, the two
+        // sides trade places. Without it "swap" reads as though a source is about to be dropped.
+        #expect(prompt.informativeText.contains("Compare keeps both sources"),
+                "the prompt does not say Compare keeps both sources — “swap” reads as losing one")
+    }
+
+    /// The wording is a function of its arguments, not of a fixed pair of names.
+    ///
+    /// The failure mode is mundane and would be invisible above: the two provider names transposed,
+    /// so the dialog offers to move the source that is already showing. Asked by swapping the
+    /// arguments and requiring the two sentences to differ in the way the transposition would not.
+    @Test func theSwapPromptDoesNotConfuseTheTwoSources() throws {
+        let prompt = ContentView.organizePaneSwapPrompt(
+            folder: "/Users/abhishek/Library/CloudStorage/Dropbox/Legal",
+            aimedProvider: "Dropbox", shownProvider: "iCloud Drive")
+        // "…puts <aimed> on the left" is the clause that has to name the source being MOVED there.
+        let promise = try #require(prompt.informativeText.range(of: "on the left"),
+                                   "the prompt no longer says which source ends up on the left")
+        #expect(prompt.informativeText[..<promise.lowerBound].hasSuffix("Dropbox "),
+                "the source promised the left pane is not the one the route named")
+    }
+
     // MARK: - Routes
 
     /// **Every `PaletteAction` is applied, and the switch has no `default:` to swallow a new one.**

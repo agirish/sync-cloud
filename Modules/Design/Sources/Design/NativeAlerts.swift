@@ -33,6 +33,39 @@ public struct NativeAlerts {
         confirmAction(messageText: messageText, informativeText: informativeText, confirmTitle: confirmTitle)
     }
 
+    /// A confirm/cancel alert for a change that is **not destructive** — one that rearranges what
+    /// is on screen and can be undone by doing it again (the ⌘K route that offers to swap the
+    /// panes so Organize can open on the source you named).
+    ///
+    /// Deliberately not `confirmDestructive`: that one paints the caution icon and marks its
+    /// default button `hasDestructiveAction`, which is macOS's "this deletes something" signal.
+    /// Spending it on a reversible view change is how the signal stops meaning anything on the
+    /// dialog that really does move files to the Trash.
+    /// - Returns: True if the user chose the confirm button.
+    public static func confirmChange(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
+        changeAlert(messageText: messageText, informativeText: informativeText,
+                    confirmTitle: confirmTitle).runModal() == .alertFirstButtonReturn
+    }
+
+    /// The alert `confirmChange` presents, built but **not run** — internal so `NativeAlertsTests`
+    /// can pin its style and buttons. A test cannot go near `runModal()`: it blocks the test's own
+    /// main thread on a modal session nothing in the harness can dismiss, so the only reachable
+    /// half of this dialog is the one assembled here.
+    static func changeAlert(messageText: String, informativeText: String, confirmTitle: String) -> NSAlert {
+        let alert = NSAlert()
+        // `.informational`, not `.warning`: nothing here is at risk.
+        alert.alertStyle = .informational
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+
+        // Return confirms, Escape cancels — the plain default button, with none of
+        // `confirmAction`'s destructive marking.
+        let confirm = alert.addButton(withTitle: confirmTitle)
+        confirm.keyEquivalent = "\r"
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
+
     /// Shared confirm/cancel warning alert behind `confirmDelete` (following
     /// the `promptForName` pattern below): the caller supplies only the strings that differ.
     /// - Returns: True if the user chose the confirm button.

@@ -232,7 +232,32 @@ extension ContentView {
         // as fixed; the fix had reached `root` and stopped there. A value that follows the
         // workspace has to be read on this side of the move or not read at all.
         let root = lensProviderRootExpanded
-        let revealIntoLeft = !aimedAtRight
+        var revealIntoLeft = !aimedAtRight
+        // **Organize shows ONE provider, and it is the left pane's.** Capturing the aim above fixed
+        // where the reveal lands; it cannot fix which tree Organize is looking at. `organizeScope`
+        // re-resolves the stored path against the LIVE `lensProviderRootExpanded` — deliberately,
+        // so a scope belonging to a tree that is no longer showing degrades to the global view —
+        // and outside Compare that root is always the left pane's. So "organize Legal" aimed at the
+        // right pane wrote a good scope and then had it resolve to nil on the very next read: no
+        // chip, no filter, the folder silently discarded.
+        //
+        // Rather than move the workspace under the user or drop the request, ask. The rule itself
+        // is `PaneLogic.organizeAimNeedsPaneSwap`, decided with `OrganizeScope` so it and the
+        // resolver cannot disagree; it is nil-scoped here so "a swap is needed" cannot be
+        // representable without the folder that needs it.
+        let swapScope: String? = PaneLogic.organizeAimNeedsPaneSwap(
+            scope: scope, aimedAtRight: aimedAtRight,
+            leftRoot: providerRootExpanded(leftProviderId),
+            rightRoot: providerRootExpanded(rightProviderId)) ? scope : nil
+        if let swapScope {
+            // **Cancel means nothing happens at all** — this returns above every write below, so
+            // there is no scope write to undo, no rail move and no workspace change. A dialog that
+            // left half the route applied would be worse than the silent degrade it replaces.
+            guard confirmOrganizePaneSwap(folder: swapScope) else {
+                Logger.shared.info("Command palette: pane swap declined — Organize route abandoned")
+                return
+            }
+        }
         // Through `setOrganizeScope(_:)` — **the one write of Organize's scope**, where pointing at
         // the provider root CLEARS the scope rather than storing it as one — and BEFORE the
         // workspace moves, for the reason above: the owner resolves against the live
@@ -241,6 +266,37 @@ extension ContentView {
         // asserting there is exactly one. A scope-less route touches nothing — nil here means
         // "don't re-aim", not "clear".
         if let scope { setOrganizeScope(scope) }
+        // **The swap goes here: after the scope is written, before the workspace moves.**
+        //
+        // After the write, because `setOrganizeScope` resolves against the live
+        // `lensProviderRootExpanded` — which on the line above provably names the aimed pane's root
+        // and after the swap would name the other provider, so a scope written on that side would
+        // be measured against the tree it is NOT in and stored as `""`: the same silent clear, by
+        // the fix's own hand. The stored path is absolute and nothing clears it on a provider
+        // change, so it survives the swap and is re-resolved afterwards against the named
+        // provider — now the left pane's — which is what brings the chip and the filter back.
+        //
+        // Before the move, because a swap is a Compare-shaped act: `swapPanesAction` can refuse it
+        // (provider bootstrap, or file operations in flight), and refusing after the workspace had
+        // already moved would land the user in Organize on the wrong provider — the outcome this
+        // whole dialog exists to prevent — with the panes still un-swapped behind it.
+        if swapScope != nil {
+            // Not hand-rolled: `swapPanesAction` is the atomic swap — the manager's paired focus,
+            // selections and histories, the review dispatch, and the `ProviderPinPlan` that keeps
+            // the per-pane onChange resets from firing. Two of the three would be missed by
+            // exchanging the two ids here.
+            let aimedProviderId = paletteProviderId
+            swapPanesAction()
+            // **Asked, not assumed.** A refused swap leaves the named provider on the RIGHT, and
+            // revealing into the left pane a path relativized against the right root is exactly the
+            // "path from one provider's tree handed to the other's" defect `revealInSourcePane`
+            // guards. So the reveal follows where the provider actually ended up.
+            revealIntoLeft = leftProviderId == aimedProviderId
+            if !revealIntoLeft {
+                Logger.shared.warning("Command palette: the pane swap was refused — Organize will "
+                    + "open on the other source")
+            }
+        }
         // Through the bar's own binding, so entering Organize does everything entering Organize
         // does — the review teardown and the rail presentation. (The person-scope clear moved to
         // `onChange(of: selectedWorkspace)`, so it now happens for this route either way.)
@@ -250,6 +306,51 @@ extension ContentView {
         paletteRailLens = lens?.resolvedForPresentation
         guard let scope else { return }
         revealInSourcePane(scope, root: root, isLeft: revealIntoLeft)
+    }
+
+    /// One provider's root, tilde-expanded — the same shape `lensProviderRootExpanded` computes for
+    /// whichever pane the lenses target, asked here about a named pane instead. Both roots are
+    /// needed to decide the swap, and only one of them is ever the lens target.
+    private func providerRootExpanded(_ id: String) -> String {
+        (settings.path(for: id) as NSString).expandingTildeInPath
+    }
+
+    /// Asks whether to swap the panes so Organize can open on the source the route named.
+    ///
+    /// `NativeAlerts.confirmChange`, never `confirmDestructive`: nothing is deleted and doing it
+    /// again puts the panes back, so the caution icon and the destructive default button would be
+    /// spending a signal this app needs to keep meaning "files are going to the Trash".
+    private func confirmOrganizePaneSwap(folder: String) -> Bool {
+        let names = paneNames
+        let prompt = Self.organizePaneSwapPrompt(folder: folder,
+                                                 aimedProvider: names.right,
+                                                 shownProvider: names.left)
+        Logger.shared.info("Command palette: \(prompt.informativeText)")
+        return NativeAlerts.confirmChange(messageText: prompt.messageText,
+                                          informativeText: prompt.informativeText,
+                                          // A verb, and the thing it does: "OK" on a dialog
+                                          // explaining two states is a coin toss.
+                                          confirmTitle: "Swap Panes")
+    }
+
+    /// The dialog's words, as a pure function of the three things it is about — so a test can hold
+    /// them to naming the folder and BOTH sources. The failure this route had was losing the object
+    /// of the request; a prompt that says "a folder" and "the other source" would be the same loss
+    /// spelled politely.
+    ///
+    /// `static` for the same reason `isMountedFolder` is: nothing on a `ContentView` instance is
+    /// reachable from a test.
+    static func organizePaneSwapPrompt(folder: String, aimedProvider: String, shownProvider: String)
+    -> (messageText: String, informativeText: String) {
+        let name = (folder as NSString).lastPathComponent
+        return (
+            messageText: "Organize shows one source at a time.",
+            informativeText:
+                "“\(name)” is in \(aimedProvider), and Organize opens on the source in the left "
+                + "pane — \(shownProvider). Swapping the panes puts \(aimedProvider) on the left, "
+                + "so Organize opens there with “\(name)” still in scope. Compare keeps both "
+                + "sources: its two sides trade places."
+        )
     }
 
     /// Points the source pane at an absolute folder inside the current provider.
