@@ -4,19 +4,19 @@ import Sync
 
 // MARK: - Per-lens token grammars
 //
-// Search in a lens workspace is a FILTER over what a lens already has on screen — never a disk walk. Each of
-// the five lenses gets the same shape (structured tokens where they parse, plain substring on
-// everything else, built on Design's shared `TokenQuery` core) but its OWN token table.
+// Search in a lens workspace is a FILTER over what a lens already has on screen — never a disk walk.
+// Each lens gets the same shape (structured tokens where they parse, plain substring on everything
+// else, built on Design's shared `TokenQuery` core) but its OWN token table.
 //
-// The rule that shapes all of this: a lens only ever declares a token it can actually bind. Rename
-// has no size and no date on `RiskyName`, so `>5mb` has nothing to answer — and so Rename simply
+// The rule that shapes all of this: a lens only ever declares a token it can actually bind. The
+// rename backlog has no size on a `RenamePlan`, so `>5mb` has nothing to answer — and so it simply
 // does not have that token, its parser doesn't recognize one, and its placeholder never mentions
 // one. There are no struck-through "understood but useless" chips anywhere.
 //
 // The accepted consequence: the grammar is deliberately NOT uniform. A token learned in Duplicates
-// is not necessarily a token in Rename. The per-lens placeholder is what teaches each vocabulary,
-// which is why `LensSearch.placeholder(for:)` is five different strings rather than one shared
-// one.
+// is not necessarily a token in Filing. The per-lens placeholder is what teaches each vocabulary,
+// which is why `LensSearch.placeholder(for:)` is one string per lens rather than one shared one —
+// and why it is a `switch` over `WorkspaceLensKind` rather than a count anybody has to keep.
 
 /// The one place the Organize lenses answer `kind:` for a FILE, so they can't disagree about what
 /// `image` covers. An exact extension match, or one of the shared class aliases from
