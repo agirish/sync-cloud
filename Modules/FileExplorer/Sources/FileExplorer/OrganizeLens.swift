@@ -18,7 +18,7 @@ import Foundation
 /// has nowhere to land. So the rail item is permanent and the badge is not:
 ///
 /// - **The item always exists.** Five of them — ``railItems``, in this order, whatever the counts
-///   are. The enum carries six cases; `names` is folded into Renames and draws no rail item.
+///   are.
 /// - **The badge is absent at zero** — not greyed, not "0". `badge(count:)` returns `nil`.
 /// - **The overview is the unselected state**, not a sixth item. It is what the rail shows when
 ///   no lens is picked, so it needs no name of its own and cannot be "a tab you forget to visit".
@@ -42,12 +42,10 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     /// Identical content under different names or folders. A finding about one tree, which is why
     /// it stopped being a workspace: Compare's peer is another provider, not another list.
     case duplicates = "Duplicates"
-    /// The names this provider will not accept.
-    case names = "Names"
     /// Every name worth changing (ROADMAP 19). **Four sections**, in the order the list draws them:
     /// names that will not store cleanly — this provider's rules **plus** the invisible hazards
     /// `NameNormalizer` flags on every provider, which is why an iCloud or folder source fills this
-    /// section too (the folded ``names`` lens) — then
+    /// section too — then
     /// `RenameCategories.Category`'s three — files that don't follow their folder's convention,
     /// files renumbered to make room for one of those, and files whose one-digit ordinals gain a
     /// leading zero.
@@ -66,24 +64,14 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
-    /// Names folded into Renames (v4.0 polish P10): a provider-hostile name is one more kind of
-    /// rename, both answers ride the same file-pass walk, and the backlog's "to fix" section is
-    /// where the findings now live — present only when it reports, like every category there.
+    /// The items the rail draws.
     ///
-    /// **The case stays.** `rawValue` is persisted in ``defaultsKey``, so deleting it would turn
-    /// a stored "Names" selection into silent data loss (the personIs lesson); and the scan
-    /// machinery, counts and coverage questions still key on it. What folds is presentation:
-    /// ``railItems`` omits it, and a stored `.names` selection resolves to `.renames`.
-    public var isFoldedIntoRenames: Bool { self == .names }
-
-    /// The items the rail draws — every lens that presents as its own place.
-    public static var railItems: [OrganizeLens] { allCases.filter { !$0.isFoldedIntoRenames } }
-
-    /// Where a selection of this lens actually lands — `.renames` for the folded lens, itself
-    /// otherwise. The one migration seam for stored selections and programmatic routes alike.
-    public var resolvedForPresentation: OrganizeLens {
-        isFoldedIntoRenames ? .renames : self
-    }
+    /// Every case, now that Names is gone: it was the one lens that existed without a place of its
+    /// own, and `railItems` was where that exception lived. Kept as a named list rather than
+    /// collapsed into `allCases` at the call sites, because "what the rail draws" is a question the
+    /// rail should ask of this type — the next lens to be folded, or to be added without a rail
+    /// item, has somewhere to be expressed.
+    public static var railItems: [OrganizeLens] { allCases }
 
     /// The defaults key holding the rail selection. **Absent means the overview** — which is why
     /// the stored type is optional rather than carrying a seventh "overview" case: there is no
@@ -99,7 +87,6 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .toFile: return "To File"
         case .duplicates: return "Duplicates"
-        case .names: return "Names"
         case .renames: return "Renames"
         case .restructure: return "Restructure"
         case .rules: return "Rules"
@@ -115,7 +102,6 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .toFile: return "doc"
         case .duplicates: return "doc.on.doc"
-        case .names: return "character.cursor.ibeam"
         case .renames: return "folder.badge.gearshape"
         case .restructure: return "square.stack.3d.up"
         case .rules: return "wand.and.stars"
@@ -181,7 +167,7 @@ extension OrganizeLens {
     /// ROADMAP 20 asked for.
     public var goesStaleDuringFilingScan: Bool {
         switch self {
-        case .toFile, .names, .renames: return true
+        case .toFile, .renames: return true
         case .duplicates, .restructure, .rules: return false
         }
     }
@@ -195,8 +181,8 @@ extension OrganizeLens {
     ///
     /// The rail is the *vocabulary*; `WorkspaceLensKind` remains the *machinery* key — it owns the per-lens
     /// search grammars and scroll state, and those are keyed by apparatus rather than by rail item.
-    /// Three rail items share `.filing`'s apparatus because their rows are filing rows; `.names`
-    /// borrows `.rename`'s because that is where the risky-name grammar lives.
+    /// Three rail items share `.filing`'s apparatus because their rows are filing rows — including
+    /// Renames, whose to-fix section holds the risky names that once had a grammar of their own.
     ///
     /// `.restructure` has no apparatus of its own yet and answers `.filing`, so its query parks in
     /// the same slot rather than in a grammar that would read it differently.
@@ -204,7 +190,6 @@ extension OrganizeLens {
         switch self {
         case .toFile, .renames, .restructure: return .filing
         case .duplicates: return .duplicates
-        case .names: return .rename
         case .rules: return .automations
         }
     }
@@ -216,17 +201,12 @@ extension OrganizeLens {
     /// of its own, not a lens inside Organize, and a caller asking for it wants
     /// ``Workspace/storage``.
     ///
-    /// **Never the folded case.** `.rename`'s findings live on the Renames rail item now, so it
-    /// answers `.renames` directly — already resolved. A bridge that answered `.names` handed
-    /// every caller a value that must not be stored or presented, and each one had to remember
-    /// ``resolvedForPresentation`` for itself; `Workspace.destination(for:)` — today a test-only
-    /// entry point, with the app's own lens moves written directly — was that one caller,
-    /// and now the resolution has one owner. Pinned by `LensFoldReachabilityTests`.
+    /// There is no arm for the retired `.rename` apparatus: risky names are rows in the Renames
+    /// backlog now, and `WorkspaceLensKind` no longer carries a case for them.
     public init?(_ lens: WorkspaceLensKind) {
         switch lens {
         case .filing: self = .toFile
         case .duplicates: self = .duplicates
-        case .rename: self = .renames
         case .automations: self = .rules
         case .storage: return nil
         }
@@ -255,8 +235,6 @@ extension OrganizeLens {
         switch self {
         case .toFile:      what = "Loose files and where they belong."
         case .duplicates:  what = "Identical content under different names or folders."
-        case .names:       what = "Names this provider will not accept, found on the filing scan. "
-                                + "Shows the proposed fixes."
         case .renames:     what = "Names that need changing — to sync, to convention, to order: "
                                 + "names this provider rejects or any cloud would mangle, files "
                                 + "that ignore their folder's convention, and files whose "

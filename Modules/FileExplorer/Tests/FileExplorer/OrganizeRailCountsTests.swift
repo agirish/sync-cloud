@@ -23,10 +23,9 @@ import Foundation
         let c = Self.counts
         #expect(c[.toFile] == 24)
         #expect(c[.duplicates] == 722)
-        #expect(c[.names] == 3)
-        // The folded lens's badge counts its whole list — folder rows AND the to-fix rows the
-        // Names fold moved in (P10). 126 folders + 3 names; the distinct addends above prove
-        // the sum is a sum and not one of them.
+        // Renames' badge counts its whole list — folder rows AND the to-fix rows the Names fold
+        // moved in (P10). 126 folders + 3 names, and `names` is still a stored count even though
+        // the lens it was named for is retired; the distinct addends prove the sum is a sum.
         #expect(c[.renames] == 126 + 3)
         #expect(c[.restructure] == 2)
         #expect(c[.rules] == 8)
@@ -40,9 +39,9 @@ import Foundation
         // `OrganizeRailMetrics` exists to prevent. **The VALUE, not a count of them**: a badge is
         // as wide as its digits, and charging a flat figure per badge is what let row 1 overrun.
         //
-        // Five, not six: `.rules` never carries a badge (`carriesBadge` is false), because eight
+        // Four, not five: `.rules` never carries a badge (`carriesBadge` is false), because eight
         // rules is a configuration you keep rather than a result a scan turned up.
-        #expect(OrganizeLens.allCases.count { Self.counts.badge($0) != nil } == 5)
+        #expect(OrganizeLens.allCases.count { Self.counts.badge($0) != nil } == 4)
         // And each one carries its own list's size rather than some shared truthy marker.
         for lens in OrganizeLens.allCases where lens.carriesBadge {
             #expect(Self.counts.badge(lens) == Self.counts[lens])
@@ -91,10 +90,11 @@ import Foundation
         counts.scanned = [.renames]      // filing walk ran without a name ruleset
         #expect(counts.state(.renames) == .notScanned,
                 "rename plans alone called the folded item clean — the names list was never computed")
-        counts.scanned = [.names]        // names half ran and came back clean; plans never computed
+        counts.scanned = []              // names half ran and came back clean; plans never computed
+        counts.namesScanned = true
         #expect(counts.state(.renames) == .notScanned,
                 "a names-only pass called the whole folded item clean")
-        counts.scanned = [.renames, .names]
+        counts.scanned = [.renames]
         #expect(counts.state(.renames) == .clean)
         // Findings outrank the scan question — a badge is a badge whichever half found it.
         counts.names = 3

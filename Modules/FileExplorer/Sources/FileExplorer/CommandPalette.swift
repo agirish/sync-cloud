@@ -306,9 +306,6 @@ enum PalettePlace: CaseIterable {
         case .organizeOverview: return ["organize", "tidy", "all"]
         case .lens(.toFile): return ["organize", "file", "filing", "loose", "inbox", "to file"]
         case .lens(.duplicates): return ["organize", "duplicates", "dupes", "copies", "identical"]
-        // Unreachable from the places list (the lens folded into Renames) but the switch stays
-        // exhaustive; the vocabulary someone would type lives on the Renames place below.
-        case .lens(.names): return []
         case .lens(.renames): return ["organize", "renames", "rename", "numbering", "backlog",
                                       "folders", "names", "risky", "illegal", "characters"]
         case .lens(.restructure): return ["organize", "restructure", "structure", "shape", "habits"]

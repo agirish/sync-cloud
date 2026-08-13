@@ -103,11 +103,9 @@ enum Workspace: String, CaseIterable, Identifiable {
             // `.storage` is the only lens that is still a workspace of its own.
             return WorkspaceSelection(workspace: .storage, organizeLens: nil)
         }
-        // `OrganizeLens.init(_:)` answers the PRESENTED rail item — `.rename` comes back as
-        // `.renames`, already resolved — so a destination minted here can never write the folded
-        // `.names` into the stored selection. The bridge owns that resolution now (pinned by
-        // `LensFoldReachabilityTests`); a second `resolvedForPresentation` here would be a
-        // restatement of the fold for the next reader to keep in sync.
+        // Every case `OrganizeLens.init(_:)` can answer is a rail item — pinned by
+        // `OrganizeLensFoldTests.theBridgeAnswersOnlyRailItems` — so a destination minted here is
+        // always something the rail can select.
         return WorkspaceSelection(workspace: .filing, organizeLens: organizeLens)
     }
 }
@@ -166,10 +164,8 @@ extension Workspace {
     /// resolve to plain Organize when it was folded in, because the risky names were a chip that
     /// might not exist. The rail has a permanent place for each: `Duplicates` and `Automations`
     /// land exactly where they were, and `Rename` lands on Renames — the rail item that hosts the
-    /// risky-name findings since the Names fold (P10). Mapping it to the folded `.names` here
-    /// would WRITE "Names" back into the stored selection from inside the migration; reading a
-    /// stored "Names" still resolves (the case survives, and `resolvedForPresentation` folds it
-    /// where the selection is read).
+    /// risky-name findings since the Names fold (P10). A stored *rail* value of "Names" is a
+    /// different key and a different table; see ``retiredOrganizeLensRawValues``.
     static let retiredWorkspaceRawValues: [String: OrganizeLens] = [
         "Rename": .renames,
         "Duplicates": .duplicates,
@@ -257,6 +253,37 @@ extension Workspace {
                                 lens: defaults.string(forKey: legacyLensKey))
         write(resolved, to: defaults)
         return resolved
+    }
+
+    /// Rail-lens raw values whose case has been retired, and what each one is now.
+    ///
+    /// Separate from ``retiredWorkspaceRawValues`` because these were never workspaces — they are
+    /// values of ``OrganizeLens`` itself, stored under ``organizeLensKey``.
+    ///
+    /// `Names` is here because the case is gone. It was a rail item of its own until the v4.0
+    /// polish folded it into Renames (P10), after which the case survived precisely so a stored
+    /// "Names" would still decode and `resolvedForPresentation` could fold it at the point of use.
+    /// With the case deleted there is nothing left to decode it, so the fold moves here — once, at
+    /// launch, into the stored value — instead of being re-applied on every read forever.
+    static let retiredOrganizeLensRawValues: [String: OrganizeLens] = ["Names": .renames]
+
+    /// Rewrites a stored rail selection whose case no longer exists.
+    ///
+    /// **Its own function, called unconditionally, because ``migrateSelection(in:)`` cannot do
+    /// it.** That one returns early — before it ever looks at the rail key — whenever the stored
+    /// *workspace* still resolves, which is the ordinary case for everybody it would need to help
+    /// here: someone sitting in Organize ▸ Names has a perfectly valid "Organize" stored beside
+    /// it. Folding this into that function would produce a migration that runs only for people
+    /// who also happen to be mid-upgrade on the other key.
+    ///
+    /// Silent failure is the thing being prevented: `@AppStorage` takes its default when a raw
+    /// value does not resolve, and this key's default is *absent* — meaning the overview — so
+    /// without this someone who left the app in the rename backlog reopens it on the overview with
+    /// nothing to explain the move.
+    static func migrateOrganizeLens(in defaults: UserDefaults) {
+        guard let stored = defaults.string(forKey: organizeLensKey),
+              let replacement = retiredOrganizeLensRawValues[stored] else { return }
+        defaults.set(replacement.rawValue, forKey: organizeLensKey)
     }
 
     /// Writes both halves of a resolved selection.

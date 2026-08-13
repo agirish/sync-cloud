@@ -14,23 +14,6 @@ import Design
 /// Compare.
 public enum WorkspaceLensKind: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
-    /// The former Name Normalizer — finds and fixes cloud-hostile names.
-    ///
-    /// **Nothing presents this case any more, and the type cannot drop it.** `OrganizeLens.names`
-    /// is the only thing whose `searchLens` returns it, and `LensWorkspaceView.organizeLens` puts every
-    /// rail selection through `resolvedForPresentation`, which folds `.names` into `.renames`
-    /// (whose search lens is `.filing`). So `effectiveLens` is never `.rename`, and the arms that
-    /// switch on it — `renameContent`, the `RenameLens` view, the `.names` arms in `lensActions`
-    /// and `organizeSummary` — are unreachable in the shipping app. Risky names are shown by
-    /// `RenamePassLens.toFixSection` instead.
-    ///
-    /// They are deliberately **not** deleted: `.names` still exists so a stored rail selection can
-    /// migrate, so these switches still need arms to be exhaustive, and replacing working bodies
-    /// with empty ones would cost the un-fold its implementation while gaining nothing. The
-    /// comment is the fix — the old one read "its own lens again", which is the opposite of true.
-    /// `LensFoldReachabilityTests` pins the chain that makes it unreachable, so anyone
-    /// deleting this later can see at a glance what they are relying on.
-    case rename = "Rename"
     case filing = "Filing"
     case automations = "Automations"
     /// The former standalone Storage Lens tab, folded in as a read-only lens (treemap + largest /
@@ -484,7 +467,7 @@ public struct LensWorkspaceView: View {
         // `resolvedForPresentation` migrates a stored `.names` selection to `.renames` — the
         // lens it folded into. The stored raw value is left alone (nothing to migrate on disk);
         // it simply lands where the findings now live.
-        lens == .storage ? nil : railLens?.resolvedForPresentation
+        lens == .storage ? nil : railLens
     }
 
     /// Whether the rail can spell its items out at this width — see ``OrganizeRailMetrics``.
@@ -606,8 +589,6 @@ public struct LensWorkspaceView: View {
         switch effectiveLens {
         case .duplicates:
             return items(DuplicateSearch.chips(query), label: \.label, word: \.raw)
-        case .rename:
-            return items(RiskyNameSearch.chips(query), label: \.label, word: \.raw)
         case .filing where showingRenameBacklog:
             return []      // free text only — see `RenameBacklogSearch`
         case .filing:
@@ -687,11 +668,6 @@ public struct LensWorkspaceView: View {
             let q = DuplicateSearch.parse(query)
             rows.duplicates = syncManager.duplicateGroups.filter {
                 OrganizeScopeFilter.matches($0, scope: scope) && filter.matches($0) && q.matches($0)
-            }
-        case .rename:
-            let q = RiskyNameSearch.parse(query)
-            rows.risky = syncManager.riskyNames.filter {
-                OrganizeScopeFilter.matches($0, scope: scope) && q.matches($0)
             }
         case .filing where showingRenameBacklog:
             rows.renames = syncManager.renamePlans.filter {
@@ -1160,9 +1136,8 @@ public struct LensWorkspaceView: View {
                 rescanDuplicatesButton
                 applyAllButton(rows.duplicates)
             }
-        // Both of Organize's states, through one path. `.rename` is carried for exhaustiveness
-        // only — see `WorkspaceLensKind.rename`, which nothing can present since the fold.
-        case .rename, .filing:
+        // Both of Organize's states, through one path.
+        case .filing:
             if !syncManager.isSuggestingFiles {
                 // **Rescan belongs to the SCAN, not to any one of its answers.** It used to be
                 // nested inside each focus's apply gate, and so went missing in the state that
@@ -1197,8 +1172,6 @@ public struct LensWorkspaceView: View {
                         refineButton(rows.filing)
                         fileAllButton(rows.filing)
                     }
-                case .names:
-                    if !syncManager.riskyNames.isEmpty { fixAllButton(rows.risky) }
                 case .renames:
                     // Gated on the backlog existing, handed what is showing: a query leaving 3 of
                     // 129 folders on screen must rename exactly those 3.
@@ -1266,7 +1239,7 @@ public struct LensWorkspaceView: View {
         // no rail selection presents it either — see `WorkspaceLensKind.rename` and
         // `LensFoldReachabilityTests`. The other four sites in this file switch on
         // `effectiveLens` on exactly that understanding.
-        case .rename, .filing:
+        case .filing:
             organizeSummary(rows: rows, counts: counts)
         case .automations:
             if !syncManager.automationRules.isEmpty {
@@ -1327,8 +1300,6 @@ public struct LensWorkspaceView: View {
             switch organizeLens {
             case .toFile:
                 if hasFilingResults { filingSummary(rows.filing) }
-            case .names:
-                if syncManager.hasScannedNames { renameSummary(rows.risky) }
             case .renames:
                 // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
                 // that got you here: a badge is a signpost and counts its whole list, a readout
@@ -1552,6 +1523,16 @@ public struct LensWorkspaceView: View {
     /// value to both consumers.
     struct RailCounts: Equatable {
         var toFile = 0, duplicates = 0, names = 0, renames = 0, restructure = 0, rules = 0
+        /// Whether the names half of the file pass has run — the risky-name detector, which that
+        /// walk runs only when a name ruleset is supplied.
+        ///
+        /// **A flag rather than a member of ``scanned``.** It was `scanned.contains(.names)` while
+        /// Names was still a case; the case is retired and the fact is not, because `.renames` may
+        /// only claim to be clean when *both* halves have run. Its own stored property, so the two
+        /// questions — "did a walk cover this lens" and "did the names detector run" — cannot be
+        /// confused for one another again.
+        var namesScanned = false
+
         /// Which lenses have actually run here. **A zero means two different things without this**
         /// — ran and found nothing, or never looked — and the rail used to draw both the same way
         /// while the overview was careful to keep them apart. Same facts, one vocabulary.
@@ -1561,8 +1542,7 @@ public struct LensWorkspaceView: View {
             switch item {
             case .toFile: return toFile
             case .duplicates: return duplicates
-            case .names: return names
-            // The folded lens's list holds the to-fix rows too, and a badge encodes list size.
+            // The to-fix rows share this list, and a badge encodes list size.
             case .renames: return renames + names
             case .restructure: return restructure
             case .rules: return rules
@@ -1621,7 +1601,7 @@ public struct LensWorkspaceView: View {
         /// because a pin on either alone stayed green while they disagreed.
         private func hasScanned(_ item: OrganizeLens) -> Bool {
             item == .renames
-                ? scanned.contains(.renames) && scanned.contains(.names)
+                ? scanned.contains(.renames) && namesScanned
                 : scanned.contains(item)
         }
     }
@@ -1671,7 +1651,7 @@ public struct LensWorkspaceView: View {
             duplicates: syncManager.duplicateGroups.count {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .duplicates)) },
             names: syncManager.riskyNames.count {
-                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .names)) },
+                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
             renames: syncManager.renamePlans.count {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
             restructure: structureFindings.count {
@@ -1681,6 +1661,10 @@ public struct LensWorkspaceView: View {
             // No scope test, because `appliedScope(for: .rules)` is always nil — a call written
             // here would read like a live narrowing and be one that can never fire.
             rules: syncManager.automationRules.count,
+            // Not a member of `scanned` below: the names half has no lens of its own to stand
+            // for it since the case was retired, and `hasScanned` needs BOTH halves before Renames
+            // may claim to be clean — a filing walk with no name ruleset computed only one.
+            namesScanned: syncManager.hasScannedNames,
             // The same conditions ``overviewModel`` uses, so the rail and the overview cannot
             // disagree about whether a lens has run *here*. Rules is absent because it never scans.
             //
@@ -1693,7 +1677,6 @@ public struct LensWorkspaceView: View {
                 var ran: Set<OrganizeLens> = []
                 // Provider-wide walks: their findings cover any subject inside the provider.
                 if syncManager.hasSuggestedFiling { ran.insert(.renames) }
-                if syncManager.hasScannedNames { ran.insert(.names) }
                 if syncManager.hasSuggestedFiling,
                    passCoverage(for: appliedScope(for: .toFile)).filing { ran.insert(.toFile) }
                 if syncManager.hasFoundDuplicates,
@@ -1766,14 +1749,13 @@ public struct LensWorkspaceView: View {
         // not while one is running. The status describes an action reachable only from the Rescan
         // menu, which is drawn under exactly this condition — so moving the readout must not
         // silently widen where it appears.
-        if effectiveLens == .rename || effectiveLens == .filing,
+        if effectiveLens == .filing,
            !syncManager.isSuggestingFiles, syncManager.hasSuggestedFiling {
             folderMemoryStatus
         }
         if isFiltered {
             switch effectiveLens {
             case .duplicates: ofMLabel(rows.duplicates.count, counts.duplicates)
-            case .rename: ofMLabel(rows.risky.count, counts.names)
             case .filing where showingRenameBacklog:
                 // The backlog's own numbers, over **the whole backlog**. Left as the queue's, this
                 // said "3 of 24" about a list that is not on screen; left as `counts.renames` it
@@ -1822,7 +1804,7 @@ public struct LensWorkspaceView: View {
         switch effectiveLens {
         case .duplicates:
             return hasResults && !syncManager.isFindingDuplicates
-        case .rename, .filing:
+        case .filing:
             guard !syncManager.isSuggestingFiles else { return false }
             // **The same member ``lensActions`` draws from, not a hand-copy of its condition.**
             // That is the whole point of ``showsFilingControl`` existing: this switch is otherwise
@@ -1832,8 +1814,10 @@ public struct LensWorkspaceView: View {
             if showsFilingControl { return true }
             switch organizeLens {
             case .toFile: return hasFilingResults
-            case .names: return !syncManager.riskyNames.isEmpty
-            case .renames: return !syncManager.renamePlans.isEmpty
+            // Both halves: the to-fix rows are part of this list since the fold, so a backlog of
+            // nothing but risky names still has a row-two action.
+            case .renames:
+                return !syncManager.renamePlans.isEmpty || !syncManager.riskyNames.isEmpty
             case .none, .duplicates, .restructure, .rules: return false
             }
         case .automations:
@@ -2859,7 +2843,6 @@ public struct LensWorkspaceView: View {
         VStack(spacing: 0) {
             switch effectiveLens {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates, counts: counts)
-            case .rename: renameContent(risky: rows.risky, counts: counts)
             // Four rail items share `.filing`'s apparatus, so this arm is where the rail actually
             // decides what you see. The overview leads, because it is what you land on.
             case .filing:
@@ -3219,11 +3202,6 @@ public struct LensWorkspaceView: View {
                         : !syncManager.hasFoundDuplicates || !duplicatesCover ? .notScanned
                         : .clean,
                     isScanning: syncManager.isFindingDuplicates)
-            case .names:
-                // Folded into Renames (P10): the risky names are the backlog's "to fix" section
-                // now, so the Renames card below carries them — a separate Names card would say
-                // the same findings twice on one screen.
-                return nil
             case .renames:
                 let scoped = syncManager.renamePlans.filter {
                     OrganizeScopeFilter.matches($0, scope: scope)
@@ -3735,30 +3713,6 @@ public struct LensWorkspaceView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
         .animation(.easeInOut(duration: 0.2), value: pendingRuleOffer?.id)
-    }
-
-    /// The "Rename" lens (the un-folded Name Normalizer): finds and fixes cloud-hostile names.
-    /// Its results header is gone — the shared card above carries its controls and counts now — so
-    /// it takes the filtered rows and renders only its list and states.
-    @ViewBuilder
-    private func renameContent(risky: [RiskyName], counts: RailCounts) -> some View {
-        if syncManager.hasScannedNames, !syncManager.isScanningNames,
-           !syncManager.riskyNames.isEmpty, risky.isEmpty {
-            noMatchesState(scopedTotal: counts.names,
-                           globalTotal: syncManager.riskyNames.count, noun: "risky name")
-        } else {
-            RenameLens(
-                syncManager: syncManager,
-                risky: risky,
-                providerName: providerName,
-                accent: glassHue.accentColor,
-                densityMetrics: densityMetrics,
-
-                onNormalize: onNormalizeNames,
-                onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
-                onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
-            )
-        }
     }
 
     /// N2 — the Automations lens. Its rules header is gone (the shared card carries New rule /

@@ -303,7 +303,7 @@ extension ContentView {
         workspaceSelection.wrappedValue = .filing
         // Through `@AppStorage`, never `UserDefaults.standard.set` — see `paletteRailLens` for the
         // write this app has already watched go missing.
-        paletteRailLens = lens?.resolvedForPresentation
+        paletteRailLens = lens
         guard let scope else { return }
         revealInSourcePane(scope, root: root, isLeft: revealIntoLeft)
     }

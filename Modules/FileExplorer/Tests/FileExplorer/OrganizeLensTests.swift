@@ -15,7 +15,7 @@ import Testing
         // The whole change from chips to a rail. A chip was absent at zero; a rail item is not,
         // because "Organize this folder" has to land somewhere before any scan has run. If this
         // ever starts filtering by count, pointed invocation loses its destination.
-        #expect(OrganizeLens.allCases.count == 6)
+        #expect(OrganizeLens.allCases.count == 5)
         #expect(OrganizeLens.allCases.first == .toFile)
         #expect(OrganizeLens.allCases.last == .rules)
     }
@@ -26,7 +26,7 @@ import Testing
         // render.
         #expect(OrganizeLens.toFile.badge(count: 0) == nil)
         #expect(OrganizeLens.toFile.badge(count: 1) == 1)
-        #expect(OrganizeLens.names.badge(count: 17) == 17)
+        #expect(OrganizeLens.renames.badge(count: 17) == 17)
     }
 
     @Test func rulesNeverCarryABadgeEvenWithRules() {
@@ -73,7 +73,6 @@ import Testing
         // ran, which would have hidden a structure badge that was still perfectly true — structure
         // comes from the profile with no disk read, and rules are configuration.
         #expect(OrganizeLens.toFile.goesStaleDuringFilingScan)
-        #expect(OrganizeLens.names.goesStaleDuringFilingScan)
         #expect(OrganizeLens.renames.goesStaleDuringFilingScan)
         #expect(!OrganizeLens.duplicates.goesStaleDuringFilingScan)
         #expect(!OrganizeLens.restructure.goesStaleDuringFilingScan)
@@ -85,12 +84,11 @@ import Testing
     @Test func eachLensBorrowsTheApparatusThatFitsItsRows() {
         // `WorkspaceLensKind` is the machinery key — per-lens search grammars and parked queries hang off
         // it. Three rail items share `.filing`'s because their rows are filing rows; names borrows
-        // `.rename`'s because that is where the risky-name grammar lives.
+        // Renames shares it too: its to-fix rows are filing-pass output like the rest.
         #expect(OrganizeLens.toFile.searchLens == .filing)
         #expect(OrganizeLens.renames.searchLens == .filing)
         #expect(OrganizeLens.restructure.searchLens == .filing)
         #expect(OrganizeLens.duplicates.searchLens == .duplicates)
-        #expect(OrganizeLens.names.searchLens == .rename)
         #expect(OrganizeLens.rules.searchLens == .automations)
     }
 
@@ -100,9 +98,6 @@ import Testing
         // grammar.
         #expect(OrganizeLens(.filing) == .toFile)
         #expect(OrganizeLens(.duplicates) == .duplicates)
-        // `.renames`, not the folded `.names`: the bridge answers the PRESENTED rail item, so no
-        // caller can mint the folded case — see `LensFoldReachabilityTests`.
-        #expect(OrganizeLens(.rename) == .renames)
         #expect(OrganizeLens(.automations) == .rules)
         // Storage is still a workspace of its own, so it is NOT a rail item. A non-nil answer here
         // would mean Storage had been quietly folded in too.
@@ -116,7 +111,9 @@ import Testing
         // user onto the overview.
         #expect(OrganizeLens.toFile.rawValue == "ToFile")
         #expect(OrganizeLens.duplicates.rawValue == "Duplicates")
-        #expect(OrganizeLens.names.rawValue == "Names")
+        // "Names" is retired and must NOT come back as a live raw value — `Workspace`'s launch
+        // migration rewrites a stored one to "Renames", and a case re-minting it would race that.
+        #expect(!OrganizeLens.allCases.map(\.rawValue).contains("Names"))
         #expect(OrganizeLens.renames.rawValue == "Renames")
         #expect(OrganizeLens.restructure.rawValue == "Restructure")
         #expect(OrganizeLens.rules.rawValue == "Rules")

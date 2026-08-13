@@ -48,7 +48,6 @@ enum LensSearch {
     static func placeholder(for lens: WorkspaceLensKind) -> String {
         switch lens {
         case .duplicates: return "kind:pdf, >5mb…"
-        case .rename: return "Search names — kind:pdf, is:folder"
         case .filing: return "kind:pdf, confidence:high, to:Invoices…"
         case .automations: return "Search rules — is:enabled, kind:pdf"
         case .storage: return "kind:pdf, >100mb…"
@@ -60,7 +59,6 @@ enum LensSearch {
     static func help(for lens: WorkspaceLensKind) -> String {
         switch lens {
         case .duplicates: return "Search duplicate groups by name, kind, or size"
-        case .rename: return "Search risky names by name, path, or reason"
         case .filing: return "Search loose files by name, destination, or confidence"
         case .automations: return "Search rules by name, condition, or destination"
         case .storage: return "Search files by name, path, kind, or size"

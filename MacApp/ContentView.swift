@@ -1775,9 +1775,9 @@ struct ContentView: View {
             guard !target.isEmpty else { return }
             syncManager.autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: target),
                                                        options: DuplicateFinderOptions.fromDefaults())
-        // The one filing scan publishes all three of these lists, so any of them showing is a
-        // reason to refresh it.
-        case .toFile, .names, .renames:
+        // The one filing scan publishes both of these lists — the loose files and the rename
+        // backlog, risky names included — so either of them showing is a reason to refresh it.
+        case .toFile, .renames:
             let root = lensProviderRootExpanded
             guard !target.isEmpty, !root.isEmpty else { return }
             syncManager.autoRescanFilingIfEligible(
@@ -2123,8 +2123,7 @@ struct ContentView: View {
     /// workspace and forget the lens and land on the overview having silently dropped the request.
     func show(_ lens: OrganizeLens) {
         selectedWorkspace = .filing
-        // A caller asking for the folded lens lands where its findings live now.
-        selectedOrganizeLens = lens.resolvedForPresentation
+        selectedOrganizeLens = lens
     }
 
     func buildStorageLensAction() {

@@ -49,11 +49,13 @@ import Sync
 
     /// And the placeholder must never advertise what the parser doesn't recognize — the placeholder
     /// IS the vocabulary lesson, so a token named there that doesn't bind is a lie.
-    @Test func renamePlaceholderAdvertisesOnlyBindableTokens() {
-        let placeholder = LensSearch.placeholder(for: .rename)
+    ///
+    /// Asked of `.filing` since the standalone rename lens was retired: the rename backlog and its
+    /// to-fix rows are filing-pass output and park in that grammar's slot.
+    @Test func filingPlaceholderAdvertisesOnlyBindableTokens() {
+        let placeholder = LensSearch.placeholder(for: .filing)
         #expect(placeholder.contains("kind:"))
-        #expect(placeholder.contains("is:folder"))
-        #expect(!placeholder.contains("mb"), "Rename can't bind a size token, so it must not offer one")
+        #expect(!placeholder.contains("mb"), "Filing can't bind a size token, so it must not offer one")
         #expect(!placeholder.contains(">"))
     }
 

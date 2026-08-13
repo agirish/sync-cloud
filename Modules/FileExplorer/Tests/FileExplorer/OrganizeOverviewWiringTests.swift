@@ -150,7 +150,6 @@ import SwiftUI
         m.filingScanFolder = "/root/TODO"
         m.hasSuggestedFiling = true
         m.hasScannedNames = true
-        #expect(subject(m).railCounts.state(.names) == .clean)
         #expect(subject(m).railCounts.state(.renames) == .clean)
     }
 
@@ -180,25 +179,19 @@ import SwiftUI
         #expect(subject(m).railCounts.state(.renames) == .notScanned,
                 "a names-only pass called the whole folded item clean")
         #expect(renamesState(m) == .notScanned)
-        // The half's own (undrawn) item still answers for itself — the fold is on `.renames` only.
-        #expect(subject(m).railCounts.state(.names) == .clean)
     }
 
-    /// **The filing walk marks all three of its lenses**, Names included.
+    /// **The filing walk marks every lens it answers.**
     ///
-    /// Names rode `isScanningNames` alone, which is never true on this path: the filing scan reaches
-    /// names through `detectRiskyNames`, and that function calls `completeScan` without ever calling
-    /// `beginScan` — the name lifecycle is begun only by `scanNames`, which has no caller in the
-    /// app at all. So during one walk To File and Renames said "rescanning" and Names sat beside
-    /// them showing a stale count in confident bold, from the same republish.
-    @Test func theFilingWalkMarksAllThreeOfItsLenses() {
+    /// The risky-name half rode `isScanningNames` alone, which is never true on this path: the
+    /// filing scan reaches names through `detectRiskyNames`, and that function calls `completeScan`
+    /// without ever calling `beginScan` — the name lifecycle is begun only by `scanNames`, which
+    /// has no caller in the app at all. So during one walk To File said "rescanning" and the
+    /// backlog beside it showed a stale count in confident bold, from the same republish.
+    @Test func theFilingWalkMarksEveryLensItAnswers() {
         let m = FileSyncManager()
         m.isSuggestingFiles = true
-        // Names is folded into Renames (P10), so its findings have no section of their own —
-        // but the walk still covers it, and its scanning claim rides the Renames card.
-        #expect(OrganizePass.file.lenses.contains(.names),
-                "the walk no longer covers names — the fold's premise is gone")
-        #expect(scanning(m) == Set(OrganizePass.file.lenses.filter { !$0.isFoldedIntoRenames }))
+        #expect(scanning(m) == Set(OrganizePass.file.lenses))
     }
 
     /// The name lifecycle still counts when it is the thing running — the fix widened the condition
@@ -251,7 +244,7 @@ import SwiftUI
             case .duplicates: m.isFindingDuplicates = true
             case .folderMemory: m.filingSurveyLifecycle.isRunning = true
             }
-            let expected = Set(pass.lenses.filter { !$0.isFoldedIntoRenames })
+            let expected = Set(pass.lenses)
             #expect(scanning(m) == expected,
                     "\(pass.rawValue) running marked \(scanning(m)) — expected \(expected)")
         }

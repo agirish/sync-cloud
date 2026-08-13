@@ -154,7 +154,6 @@ enum OrganizeRailMetrics {
         switch item {
         case .toFile:      base = 12
         case .duplicates:  base = 14
-        case .names:       base = 14
         case .renames:     base = 17
         case .restructure: base = 14
         case .rules:       base = 14

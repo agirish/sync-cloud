@@ -185,7 +185,10 @@ import Sync
         let scoped: [(String, String)] = [
             ("toFile", "syncManager.filingSuggestions.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .toFile)) }"),
             ("duplicates", "syncManager.duplicateGroups.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .duplicates)) }"),
-            ("names", "syncManager.riskyNames.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .names)) }"),
+            // The risky names are scoped as what they PRESENT as. Their own lens is retired, so
+            // `appliedScope(for: .names)` would not compile — and scoping them by anything but the
+            // list they now live in would give the Renames badge two subjects.
+            ("names", "syncManager.riskyNames.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) }"),
             ("renames", "syncManager.renamePlans.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) }"),
         ]
         for (lens, call) in scoped {
@@ -459,7 +462,9 @@ import Sync
         // field described two thirds of what the empty state is standing in for — while the badge
         // above it counted both. The subscript is the one expression that folds them, so quoting it
         // here is what makes the two numbers on that screen the same number.
-        for scoped in ["scopedTotal: counts.duplicates", "scopedTotal: counts.names",
+        // `counts.names` is gone with the standalone rename lens it belonged to — the risky names
+        // are counted into `counts[.renames]` above, which is the entry that replaced it.
+        for scoped in ["scopedTotal: counts.duplicates",
                        "scopedTotal: counts[.renames]", "scopedTotal: counts.toFile",
                        "scopedTotal: counts.rules"] {
             #expect(view.contains(scoped), "missing \(scoped) — that lens still quotes the tree")

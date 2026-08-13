@@ -239,11 +239,11 @@ import FileExplorer
     /// ⌘K lands on Organize showing whichever lens was already selected, silently, which is the
     /// same class of failure as the root-read ordering the neighbouring suite pins.
     ///
-    /// The lens is also **resolved before it is stored**. `.names` folds into `.renames`, and the
-    /// rail has no item for the folded lens, so writing an unresolved `.names` into the selection
-    /// key leaves the rail with nothing highlighted. `LensFoldReachabilityTests` pins the fold
-    /// at `LensWorkspaceView`'s read; this is the other writer of the same key, and the existing scan's
-    /// `contains("paletteRailLens = lens")` matches with `?.resolvedForPresentation` deleted.
+    /// It **no longer resolves the lens before storing it**, and that is the point of the
+    /// retirement rather than a regression: every `OrganizeLens` is a rail item now, so there is
+    /// nothing left to fold. While the folded Names case existed this write had to say
+    /// `lens?.resolvedForPresentation`, or a palette route could leave the rail with nothing
+    /// highlighted; `Workspace.migrateOrganizeLens` does that job once, at launch, instead.
     @Test func aLensWithoutAScopeStillMovesTheRail() throws {
         let host = try Self.host()
         // The shared comment-stripping reader, like every other body scan in this target — the
@@ -256,7 +256,7 @@ import FileExplorer
                                       "aimOrganize no longer returns early for a scope-less route")
         #expect(lensWrite.lowerBound < scopeGuard.lowerBound,
                 "the scope guard runs before the rail is written — “Organize ▸ Duplicates”, which carries no scope, leaves the rail wherever it was")
-        #expect(body.contains("paletteRailLens = lens?.resolvedForPresentation"),
-                "the lens is stored unresolved — a folded lens leaves the rail with nothing selected")
+        #expect(!body.contains("resolvedForPresentation"),
+                "a per-write fold is back — that resolution belongs in the launch migration now")
     }
 }

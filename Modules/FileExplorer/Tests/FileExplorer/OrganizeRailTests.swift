@@ -531,10 +531,10 @@ import Design
         // question is whether the ring MOVED, not whether it exists.
         let onToFile = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
                                           Self.railZone))
-        let onNames = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .names),
-                                         Self.railZone))
-        #expect(accentEdge(onNames) > 1500, "the Names selection drew no ring")
-        #expect(differingPixels(onToFile, onNames) > 200,
+        let onRenames = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .renames),
+                                           Self.railZone))
+        #expect(accentEdge(onRenames) > 1500, "the Renames selection drew no ring")
+        #expect(differingPixels(onToFile, onRenames) > 200,
                 "selecting a different rail item changed almost nothing — the ring is pinned to one item")
     }
 
@@ -703,7 +703,7 @@ import Design
                                          restructure: 0, rules: 3)
         counts.scanned = [.duplicates]
         #expect(counts.state(.duplicates) == .clean)
-        #expect(counts.state(.names) == .notScanned)
+        #expect(counts.state(.toFile) == .notScanned)
         #expect(counts.state(.rules) == .configuration,
                 "Rules answered a scan state — it is configuration, and neither clean nor unscanned describes it")
         counts.toFile = 4
@@ -774,7 +774,7 @@ import Design
 
     @Test("Shedding is arithmetic, and it answers both ways")
     func theShedRuleIsComputed() {
-        let twoBadges = Self.states([.toFile: 24, .names: 17])
+        let twoBadges = Self.states([.toFile: 24, .renames: 17])
         let lead = { (b: @escaping (OrganizeLens) -> RailItemState) in
             OrganizeRailMetrics.leadingWidth(scale: 1, state: b)
         }
@@ -814,7 +814,7 @@ import Design
     /// tooltips it sheds into are why that rung exists.
     @Test("The column, not the window, is what the rail has to fit")
     func theShedRuleIsAskedInColumnWidths() {
-        let twoBadges = Self.states([.toFile: 24, .names: 17])
+        let twoBadges = Self.states([.toFile: 24, .renames: 17])
         let leading = OrganizeRailMetrics.leadingWidth(scale: 1, state: twoBadges)
 
         // The card's own inset and padding are charged — the difference between the two entry
@@ -888,7 +888,7 @@ import Design
 
     @Test("The glyph rung can still overrun the narrowest column")
     func theGlyphRungCanStillOverrunTheNarrowestColumn() {
-        let busy = Self.states([.toFile: 410, .duplicates: 410, .names: 410,
+        let busy = Self.states([.toFile: 410, .duplicates: 410,
                                 .renames: 410, .restructure: 410])
         let shed = OrganizeRailMetrics.shedLeadingWidth(scale: FontSize.extraLarge.scale, state: busy)
         let usable = 340 - OrganizeRailMetrics.cardChrome - OrganizeRailMetrics.searchToggleWidth
@@ -1075,7 +1075,7 @@ import Design
         // rail out must already seat the actions.** Asserted at the model's own flip point, so it
         // re-derives if the constants move.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
-        let badge = Self.states([.toFile: 24, .duplicates: 410, .names: 17])
+        let badge = Self.states([.toFile: 24, .duplicates: 410, .renames: 17])
         // **Swept from 900, not from the rail's own flip point, and the reason is change A.**
         // The two constraints used to be one: the controls shared row 1 with the rail, so the width
         // that first spelled the rail out was exactly the width that had to seat them, and this
@@ -1133,7 +1133,7 @@ import Design
         // themselves. Give one of them `scaledFont` and the reserve starts under-counting at 1.3
         // alone, which is precisely the scale this sweep adds.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
-        _ = Self.states([.toFile: 24, .names: 17])
+        _ = Self.states([.toFile: 24, .renames: 17])
         // From 900 for the reason the neighbour above gives: row 1 and row 2 no longer shed
         // against the same width, and 900 is where real windows start.
         let threshold: CGFloat = 900
@@ -1414,7 +1414,7 @@ import Design
         // is the one that matters: **the fallback has to be dramatically narrower than what it
         // replaces, or shedding buys nothing.** 315pt against 632 measured. `theShedRuleIsComputed`
         // covers the rule that chooses between them, at 900 and at 600.
-        let badge = Self.states([.toFile: 24, .duplicates: 410, .names: 17])
+        let badge = Self.states([.toFile: 24, .duplicates: 410, .renames: 17])
         let shedModel = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: badge)
         let spelledOut = OrganizeRailMetrics.leadingWidth(scale: 1, state: badge)
         #expect(shedModel < spelledOut - 100,

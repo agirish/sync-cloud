@@ -46,33 +46,13 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// Rules appears in no pass and that is the whole of its difference: it is configuration you
     /// keep, never a result a scan turned up — the same distinction ``OrganizeLens/carriesBadge``
     /// draws, and the reason `overviewSections` returns `nil` for it.
-    ///
-    /// **This is the machinery's list, not the screen's** — Names is still an answer the walk
-    /// publishes, and ``init(producing:)`` has to be able to route it. What a card lists is
-    /// ``presentedLenses``.
     var lenses: [OrganizeLens] {
         switch self {
-        case .file: return [.toFile, .names, .renames]
+        case .file: return [.toFile, .renames]
         case .duplicates: return [.duplicates]
         case .folderMemory: return [.restructure]
         }
     }
-
-    /// The lenses a card may *name*: ``lenses`` minus the ones folded into another.
-    ///
-    /// Names is folded into Renames (v4.0 polish P10) — a provider-hostile name is one more kind
-    /// of rename, and its findings live in the backlog's "to fix" section. It has no rail item and
-    /// no overview section, so a pass card listing it offered a place you cannot go and split one
-    /// destination into two. The fold is a presentation rule, so it belongs on this property and
-    /// not on ``lenses``.
-    ///
-    /// **Defined off the fold, deliberately, and not off ``OrganizeLens/railItems``** — which today
-    /// would select exactly the same lenses, since that is `allCases` minus the same predicate.
-    /// Writing it the other way makes `aPassCardListsOnlyLensesThatHaveAPlaceToGo`'s first
-    /// assertion — that everything listed here is something the rail draws — a restatement of this
-    /// line, which is to say vacuous. Two derivations of one rule, asserted against each other, is
-    /// the point.
-    var presentedLenses: [OrganizeLens] { lenses.filter { !$0.isFoldedIntoRenames } }
 
     /// Whether this pass answers exactly one lens, and can therefore be re-run from that lens's own
     /// row without ambiguity.
@@ -140,9 +120,10 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// One line saying what the click buys, and — for the file pass — that it buys more than one
     /// thing.
     ///
-    /// **"Both" counts the rows under it**, which are ``presentedLenses``, not ``lenses``. It said
-    /// "all three" while the card still listed the folded Names row; `theFileCardLedeCountsTheRows`
-    /// pins the word to the list so the two cannot drift apart again.
+    /// **"Both" counts the rows under it**, which are ``lenses``. It said "all three" while the
+    /// card still drew a row for the folded Names lens, and then briefly counted a separate
+    /// presentation list while that fold was a filter rather than a deletion;
+    /// `theFileCardLedeCountsTheRows` pins the word to the list so the two cannot drift apart.
     var offerLede: String {
         switch self {
         case .file:

@@ -101,8 +101,11 @@ import Foundation
         // same landing, so no muscle memory dead-ends.
         #expect(Self.routes("risky").contains(.organize(lens: .renames, scope: nil)))
         #expect(Self.routes("illegal").contains(.organize(lens: .renames, scope: nil)))
-        // And the folded lens is not offered as a second place for the same landing.
-        #expect(!Self.routes("names").contains(.organize(lens: .names, scope: nil)))
+        // And "names" reaches exactly one place — the retired lens is gone, so a second row for
+        // the same landing is now unrepresentable rather than merely absent.
+        #expect(Self.routes("names").filter { route in
+            if case .organize = route { return true } else { return false }
+        }.count == 1)
     }
 
     /// A place whose name is **two words** is found, object and all.

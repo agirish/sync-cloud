@@ -53,7 +53,6 @@ import Design
                  .findings(count: 722, headline: "722 groups",
                            examples: (0..<examples).map { "clip\($0).mp4 — 2 copies" }),
                  blurb: "Identical content under different names or folders."),
-         section(.names, .notScanned, blurb: "Names this provider will not accept."),
          section(.renames, .notScanned, blurb: "Folders that have drifted."),
          section(.restructure,
                  .findings(count: 1, headline: "1 finding",
@@ -182,37 +181,6 @@ import Design
                 "an unrun file pass added only \(Int(grew))pt of content — no card drawn")
     }
 
-    /// **The folded Names lens paints nothing on the file card** — not a row, not a blurb.
-    ///
-    /// The card listed it, so the screen showed "Names — Names this provider will not accept" as a
-    /// third destination of a walk that has two: there is no Names rail item to land on and no
-    /// Names section on this page, and the same findings are already promised by the Renames row
-    /// immediately below it.
-    ///
-    /// Rendered rather than asserted on `presentedLenses`, because the row's words came from a
-    /// *fallback inside the view* — a section-less lens fell back to a hard-coded blurb — so a
-    /// model-level assertion would have missed the copy entirely. The comparison is the fixture
-    /// with a Names section against the same fixture without one (what `overviewSections` really
-    /// produces): identical pixels means the card ignores it either way.
-    @Test func theFoldedNamesLensPaintsNothingOnTheFileCard() throws {
-        let band = Self.fullBand
-        let withNames = Self.sections(examples: 3)
-        #expect(withNames.contains { $0.lens.isFoldedIntoRenames },
-                "the fixture has no folded lens to ignore — this test proves nothing")
-        let asProduced = withNames.filter { !$0.lens.isFoldedIntoRenames }
-        let a = try #require(bitmap(mount(withNames), band))
-        let b = try #require(bitmap(mount(asProduced), band))
-        #expect(differingPixels(a, b) == 0,
-                "a Names section changed the screen by \(differingPixels(a, b)) pixels — the card is drawing the folded lens a row of its own again")
-
-        // **The comparison could have failed.** Dropping a lens the card *does* list moves real
-        // pixels through the same path, so a zero above is the fold and not a dead harness.
-        let withoutRenames = withNames.filter { $0.lens != .renames }
-        let c = try #require(bitmap(mount(withoutRenames), band))
-        #expect(differingPixels(a, c) > 0,
-                "removing the Renames section changed nothing either — the fixture renders no card")
-    }
-
     /// **How many rows the card actually drew** — counted off the screen, not asked of the model.
     ///
     /// The test above is necessary and was not sufficient, and the gap is worth stating because it
@@ -223,19 +191,17 @@ import Design
     /// matched and the test passed. Reintroducing the real defect, both halves together, was green
     /// on every model-level and diff-level assertion here.
     ///
-    /// A model assertion cannot close it either: `presentedLenses` can be perfectly right while the
-    /// view iterates `lenses` beside it. So this counts the one mark a lens row cannot be drawn
-    /// without — the accent bracket on its leading edge — and requires one per presented lens.
+    /// A model assertion cannot close it either: the pass's lens list can be perfectly right while
+    /// the view iterates something else beside it. So this counts the one mark a lens row cannot be
+    /// drawn without — the accent bracket on its leading edge — and requires one per lens.
     /// It is **not** the only accent ink on the screen, which is what ``accentRowBrackets`` has to
     /// work around; a row's bracket is identified by being one row tall, at 56 device pixels.
-    @Test func theFileCardDrawsOneRowPerPresentedLens() throws {
-        // The fixture deliberately CARRIES a Names section: the card must ignore it whether or not
-        // it has words to draw with, which is exactly what the diff test above cannot see.
+    @Test func theFileCardDrawsOneRowPerLens() throws {
         let mounted = mount(Self.sections(examples: 3))
         let rep = try #require(bitmap(mounted, Self.fullBand))
         let runs = Self.accentRowBrackets(rep)
-        #expect(runs.count == OrganizePass.file.presentedLenses.count,
-                "the file card drew \(runs.count) lens rows for \(OrganizePass.file.presentedLenses.count) presented lenses — heights \(runs)")
+        #expect(runs.count == OrganizePass.file.lenses.count,
+                "the file card drew \(runs.count) lens rows for \(OrganizePass.file.lenses.count) lenses — heights \(runs)")
         // **What the first version of this test lacked.** A detector reading the wrong shape can
         // land on the right count by luck — this one did, off a reporting section's bar — and a
         // bare "did it find anything" cannot tell the two apart. One card draws its rows to one

@@ -52,10 +52,11 @@ import SwiftUI
     /// The file pass answers **three** lenses, and that is the whole point of the type.
     ///
     /// Pinned as a literal rather than derived, because the number is the claim: `FileSyncManager`
-    /// publishes the filing queue, the risky names and the rename backlog from one walk, and an
-    /// offer that promised fewer would be the old footer's mistake told the other way round.
-    @Test func theFilePassAnswersAllThreeOfItsLenses() {
-        #expect(OrganizePass.file.lenses == [.toFile, .names, .renames])
+    /// publishes the filing queue and the rename backlog — risky names included, as that backlog's
+    /// to-fix rows — from one walk, and an offer that promised fewer would be the old footer's
+    /// mistake told the other way round.
+    @Test func theFilePassAnswersBothOfItsLenses() {
+        #expect(OrganizePass.file.lenses == [.toFile, .renames])
         #expect(OrganizePass.duplicates.lenses == [.duplicates])
         #expect(OrganizePass.folderMemory.lenses == [.restructure])
     }
@@ -71,41 +72,21 @@ import SwiftUI
         }
     }
 
-    /// A card names only lenses you can go to — so the folded Names lens is not one of them.
+    /// **A card names only lenses you can go to.** Every lens is one now, and that is the point:
+    /// this assertion would have failed for the whole of P10, when `lenses` correctly named the
+    /// folded Names case — a lens with no rail item and no overview section — and the card listed
+    /// it as a destination anyway.
     ///
-    /// The walk still answers Names, which is why ``OrganizePass/lenses`` still lists it and the
-    /// test above pins that. What a *card row* claims is different: it promises a place the answer
-    /// lands, and Names has none — no rail item (`OrganizeLens.railItems` omits it), no overview
-    /// section (`overviewSections` returns `nil` for it), and its findings already promised by the
-    /// Renames row directly beside it. The file card listed all three and so offered one
-    /// destination twice under two names.
-    ///
-    /// Derived from `railItems` rather than written out, because the fold has exactly one
-    /// definition and a second literal here is how the screen drifts back.
-    ///
-    /// **A fold must not lose an answer**, which is the half of this that is not about Names. A
-    /// lens dropped from the card is only safe while the lens it folded *into* is still listed
-    /// there — fold a lens into a target on a different pass and the walk would answer something
-    /// no card mentions, silently. That is asserted through ``OrganizeLens/resolvedForPresentation``
-    /// rather than by naming Renames, so it keeps holding for the next fold.
-    ///
-    /// It does **not** restate `presentedLenses`' own definition. The first version of this test
-    /// did — `presentedLenses == lenses.filter { !$0.isFoldedIntoRenames }` is the implementation
-    /// copied into the assertion, so it compared the model to itself and could not fail.
+    /// Derived from `railItems` rather than written out, so folding a lens again without giving
+    /// this card a presentation list of its own fails here rather than on screen.
     @Test func aPassCardListsOnlyLensesThatHaveAPlaceToGo() {
         for pass in OrganizePass.allCases {
-            #expect(pass.presentedLenses.allSatisfy { OrganizeLens.railItems.contains($0) },
-                    "\(pass.rawValue) would list a lens the rail does not draw")
-            for dropped in pass.lenses where !pass.presentedLenses.contains(dropped) {
-                #expect(pass.presentedLenses.contains(dropped.resolvedForPresentation),
-                        "\(pass.rawValue) drops \(dropped.title) and does not list what it folds into — that answer is now on no card")
-            }
+            #expect(pass.lenses.allSatisfy { OrganizeLens.railItems.contains($0) },
+                    "\(pass.rawValue) lists a lens the rail does not draw")
         }
-        #expect(OrganizePass.file.presentedLenses == [.toFile, .renames],
-                "the file card is back to naming the folded Names lens as a row of its own")
-        // The fold removes a row and nothing else: every pass still answers what it answered.
-        #expect(OrganizePass.duplicates.presentedLenses == [.duplicates])
-        #expect(OrganizePass.folderMemory.presentedLenses == [.restructure])
+        #expect(OrganizePass.file.lenses == [.toFile, .renames])
+        #expect(OrganizePass.duplicates.lenses == [.duplicates])
+        #expect(OrganizePass.folderMemory.lenses == [.restructure])
     }
 
     // MARK: The words on the offer
@@ -115,17 +96,16 @@ import SwiftUI
     ///
     /// It read "One walk of the tree answers all three" while the card had already stopped drawing
     /// three rows — the sentence went on asserting the shape of a list that had changed under it,
-    /// which is the exact failure a literal count invites. Asserted against
-    /// ``OrganizePass/presentedLenses`` so a third row (or a first fold) fails here rather than
-    /// shipping a card that miscounts itself.
+    /// which is the exact failure a literal count invites. Asserted against ``OrganizePass/lenses``
+    /// so a third row fails here rather than shipping a card that miscounts itself.
     @Test func theFileCardLedeCountsTheRows() {
         let lede = OrganizePass.file.offerLede
-        let n = OrganizePass.file.presentedLenses.count
+        let n = OrganizePass.file.lenses.count
         #expect(n == 2,
                 "the file card lists \(n) lenses now, and its lede still says “\(lede)” — the counting word has to move with the list")
         #expect(lede.contains("both"), "the file card's lede stopped counting its rows: “\(lede)”")
         #expect(!lede.contains("all three"),
-                "the lede counts the folded Names row again: “\(lede)”")
+                "the lede counts a third row this card does not draw: “\(lede)”")
         // The other two answer one lens each and draw no rows at all, so neither may count.
         for pass in [OrganizePass.duplicates, .folderMemory] {
             #expect(!pass.offerLede.lowercased().contains("both"))
@@ -199,8 +179,7 @@ import SwiftUI
         let configurations: [[OrganizeLens]] = [
             [.duplicates],
             [.duplicates, .toFile],
-            [.duplicates, .toFile, .names],
-            [.duplicates, .toFile, .names, .renames],
+            [.duplicates, .toFile, .renames],
         ]
         var answers: [Set<OrganizeLens>] = []
         for reporting in configurations {
@@ -287,12 +266,11 @@ import SwiftUI
     }
 
     /// The screenshot's state: duplicates and restructure answered, the file pass never run.
-    /// **One offer, not three.**
-    @Test func theThreeUnscannedFileLensesProduceOneOffer() {
+    /// **One offer, not one per lens** — the defect this whole type exists to prevent.
+    @Test func theUnscannedFileLensesProduceOneOffer() {
         let subject = overview([
             section(.toFile, .notScanned),
             section(.duplicates, .findings(count: 722, headline: "722 groups", examples: ["a"])),
-            section(.names, .notScanned),
             section(.renames, .notScanned),
             section(.restructure, .findings(count: 1, headline: "1 finding", examples: ["b"])),
         ])
@@ -302,12 +280,11 @@ import SwiftUI
     /// A pass is offered only when running it would change **every** lens behind it.
     ///
     /// The `allSatisfy` half of the rule, and the direction that cannot arise today: one flag
-    /// publishes the file pass's three. Asserted anyway, because a card headed "hasn't run here"
+    /// publishes both of the file pass's. Asserted anyway, because a card headed "hasn't run here"
     /// over a lens holding an answer would be false about the lens it names.
     @Test func aPartlyAnsweredPassIsNotOffered() {
         let subject = overview([
             section(.toFile, .findings(count: 4, headline: "4 files", examples: [])),
-            section(.names, .notScanned),
             section(.renames, .notScanned),
         ])
         #expect(subject.pendingPasses.isEmpty,
@@ -327,7 +304,7 @@ import SwiftUI
     /// that ran and came back empty.
     @Test func aCleanLensIsNotOffered() {
         let subject = overview([
-            section(.toFile, .clean), section(.names, .clean), section(.renames, .clean),
+            section(.toFile, .clean), section(.renames, .clean),
         ])
         #expect(subject.pendingPasses.isEmpty)
     }
@@ -381,28 +358,45 @@ import SwiftUI
     /// ever be 0 or 1, and it branched on its own restatement of the rule rather than on the
     /// footer's condition. This one asks ``OrganizeOverview/offersPassRun(for:)``, which is the
     /// expression the footer itself branches on.
-    @Test func theFooterOffersAPassAtMostOnce() {
-        // To File and Renames unscanned while Names has an answer: the file pass is not `pending`
-        // (not all of its lenses are unscanned), so both fall through to the footer.
+    ///
+    /// **The state it is asserted over changed when Names was retired.** The file pass had three
+    /// lenses, one of which could be answered while the other two stranded — two rows of one walk,
+    /// with the pass still runnable. With two lenses left, either both are unscanned (so the pass
+    /// is `pending` and takes a card, stranding nothing) or one has answered (so exactly one row
+    /// can strand). The remaining way to strand both is a pass this host cannot start, which is the
+    /// folder-memory-without-a-profile case generalised — and there the footer must offer nothing
+    /// at all, because `offersPassRun` requires runnability. That is what is pinned here; the
+    /// at-most-once rule itself is pinned over every pass by the test below.
+    @Test func anUnrunnablePassStrandsItsLensesAndOffersNoRun() {
         let subject = overview([section(.toFile, .notScanned),
-                                section(.names, .clean),
-                                section(.renames, .notScanned)])
-        #expect(subject.strandedUnscanned.map(\.lens) == [.toFile, .renames])
+                                section(.duplicates, .clean),
+                                section(.renames, .notScanned)],
+                               runnable: [.duplicates, .folderMemory])
+        #expect(subject.strandedUnscanned.map(\.lens) == [.toFile, .renames],
+                "both file-pass lenses should fall through to the footer when the pass cannot run")
         let offers = subject.sections.filter { subject.offersPassRun(for: $0) }
-        #expect(offers.count == 1,
-                "the file pass is offered \(offers.count) times: \(offers.map(\.lens.title))")
-        #expect(offers.first?.lens == .toFile, "the offer should sit on the first row, in rail order")
+        #expect(offers.isEmpty,
+                "the footer offered to run a pass this host cannot start: \(offers.map(\.lens.title))")
+        // Non-vacuity: the same fixture with the pass runnable offers it — so the emptiness above
+        // is the runnability gate and not a fixture that produces no rows at all.
+        let runnable = overview([section(.toFile, .notScanned),
+                                 section(.duplicates, .clean),
+                                 section(.renames, .notScanned)])
+        #expect(runnable.sections.filter { runnable.offersPassRun(for: $0) }.isEmpty,
+                "with the pass runnable these lenses take a CARD, so the footer still offers nothing")
+        #expect(runnable.pendingPasses == [.file],
+                "the runnable control did not produce the card that replaces the footer offer")
     }
 
     /// The same rule stated over every pass at once, so a second pass stranding two lenses cannot
     /// slip through a fixture built around the file pass alone.
     @Test func noPassIsEverOfferedTwiceInTheFooter() {
-        // Every lens unscanned, but nothing runnable except the file pass — so its three lenses all
-        // strand together (no card is offered for a pass this host cannot run either).
+        // Every lens unscanned and nothing runnable, so every lens strands together (no card is
+        // offered for a pass this host cannot run either).
         let subject = overview(OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, .notScanned)
         }, runnable: [])
-        #expect(subject.strandedUnscanned.count == 5, "every lens should have stranded")
+        #expect(subject.strandedUnscanned.count == 4, "every lens should have stranded")
         for pass in OrganizePass.allCases {
             let offers = subject.sections.filter {
                 subject.offersPassRun(for: $0) && pass.lenses.contains($0.lens)

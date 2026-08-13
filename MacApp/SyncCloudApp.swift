@@ -150,6 +150,10 @@ struct SyncCloudApp: App {
             // Idempotent: it only writes when the new key is absent, so the repeat App.init calls
             // noted above are harmless.
             Workspace.migrateSelection(in: .standard)
+            // And the rail selection, whose `Names` case is retired. Unconditional and separate:
+            // the call above returns before it reads the rail key whenever the stored workspace
+            // still resolves, which is exactly the state everyone this helps is in.
+            Workspace.migrateOrganizeLens(in: .standard)
             // One `Tidy` entry covered all five lenses; fan it out so a deliberate "keep the rail
             // up" survives them becoming peers.
             if let migrated = TopPaneVisibility.migratingOverridesRaw(

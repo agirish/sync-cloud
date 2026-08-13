@@ -417,8 +417,7 @@ struct OrganizeOverview: View {
         /// cards and the footer cannot disagree about which checks are real here.
         static func countedLenses(runnablePasses: Set<OrganizePass>) -> Set<OrganizeLens> {
             Set(OrganizeLens.allCases.filter { lens in
-                guard lens.carriesBadge, !lens.isFoldedIntoRenames,
-                      let pass = OrganizePass(producing: lens) else {
+                guard lens.carriesBadge, let pass = OrganizePass(producing: lens) else {
                     return false
                 }
                 return runnablePasses.contains(pass)
@@ -856,13 +855,13 @@ struct OrganizeOverview: View {
             // The lenses this one click answers. Drawn only when there is more than one, because
             // for a single-lens pass the row would restate the heading directly above it.
             //
-            // `presentedLenses`, not `lenses`: a row here is a promise that the answer has a place
-            // to land, and the folded Names lens has none — it has no rail item and no overview
-            // section, and its findings are already promised by the Renames row beside it.
-            if pass.presentedLenses.count > 1 {
+            // Every lens a pass answers has a place to land again, now that the folded Names case
+            // is retired. This drew `presentedLenses` — `lenses` minus the fold — for the whole of
+            // P10, because `lenses` correctly still named a lens the screen had no room for.
+            if pass.lenses.count > 1 {
                 Divider()
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(pass.presentedLenses, id: \.self) { lens in
+                    ForEach(pass.lenses, id: \.self) { lens in
                         passLensRow(lens)
                     }
                 }

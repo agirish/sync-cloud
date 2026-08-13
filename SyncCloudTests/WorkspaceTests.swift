@@ -151,13 +151,6 @@ import FileExplorer
                 == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
         #expect(Workspace.destination(for: .filing)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
-        // `.renames`, not `.names`: `OrganizeLens.init(_:)` answers the presented rail item, so
-        // the folded lens can never be minted into a selection from outside the migration seam
-        // (`testARenameLensDestinationLandsOnTheFoldedHost` is where that has its own reasons).
-        // This row asserted `.names` for one commit after the resolve landed — the two tests in
-        // this file contradicted each other, and this is the half that was wrong.
-        #expect(Workspace.destination(for: .rename)
-                == WorkspaceSelection(workspace: .filing, organizeLens: .renames))
         #expect(Workspace.destination(for: .automations)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .rules))
         // Storage is the one lens that is still a workspace, so it takes no rail item.
@@ -344,6 +337,63 @@ import FileExplorer
         #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
     }
 
+    // MARK: The retired rail case
+
+    /// **A stored "Names" is rewritten, because nothing can decode it any more.**
+    ///
+    /// Names was a rail item until the v4.0 polish folded its findings into the Renames backlog,
+    /// and the case outlived the fold only so this stored value would keep decoding. Retiring the
+    /// case moves that job here: without it `@AppStorage` takes this key's default, which is
+    /// *absent* — the overview — so someone who left the app in the rename backlog would reopen it
+    /// somewhere else with nothing to explain the move.
+    @Test func testAStoredNamesRailSelectionBecomesRenames() {
+        let d = defaults("names-retired")
+        d.set(Workspace.filing.rawValue, forKey: Workspace.defaultsKey)
+        d.set("Names", forKey: Workspace.organizeLensKey)
+
+        Workspace.migrateOrganizeLens(in: d)
+        #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
+        // And the rewritten value is one the type can actually read back — the whole point.
+        #expect(OrganizeLens(rawValue: d.string(forKey: Workspace.organizeLensKey) ?? "") == .renames)
+    }
+
+    /// **It runs even though `migrateSelection` would have stopped**, which is why it is its own
+    /// function rather than a clause inside that one.
+    ///
+    /// That function returns before it ever looks at the rail key whenever the stored workspace
+    /// still resolves — and "Organize" resolves perfectly well. Everyone this migration exists for
+    /// is in exactly that state, so folding it in would have produced a migration that only helps
+    /// people who happen to be mid-upgrade on the *other* key.
+    @Test func testTheRailMigrationDoesNotDependOnTheWorkspaceMigration() {
+        let d = defaults("names-retired-standalone")
+        d.set(Workspace.filing.rawValue, forKey: Workspace.defaultsKey)
+        d.set("Names", forKey: Workspace.organizeLensKey)
+
+        // The workspace half declines to act, exactly as it does in the shipping app…
+        #expect(Workspace.migrateSelection(in: d) == nil)
+        #expect(d.string(forKey: Workspace.organizeLensKey) == "Names",
+                "migrateSelection rewrote the rail key — this test no longer proves the two are separate")
+        // …and the rail half still fixes the stored value.
+        Workspace.migrateOrganizeLens(in: d)
+        #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
+    }
+
+    /// A live selection is left exactly as it is, and so is an absent one.
+    ///
+    /// The table is keyed by raw value, so a bug that rewrote unconditionally would silently move
+    /// everyone onto Renames — and an absent key must stay absent, since writing one here would
+    /// turn "no lens picked" into a lens for every user who had never chosen one.
+    @Test func testTheRailMigrationTouchesNothingElse() {
+        let d = defaults("names-retired-noop")
+        d.set("Duplicates", forKey: Workspace.organizeLensKey)
+        Workspace.migrateOrganizeLens(in: d)
+        #expect(d.string(forKey: Workspace.organizeLensKey) == "Duplicates")
+
+        let empty = defaults("names-retired-absent")
+        Workspace.migrateOrganizeLens(in: empty)
+        #expect(empty.string(forKey: Workspace.organizeLensKey) == nil)
+    }
+
     @Test func testAFirstRunIsLeftAloneRatherThanSeeded() {
         // No legacy keys means no upgrade to carry. Writing a value here would bake this
         // function's idea of the default into every fresh install, splitting the default in two.
@@ -365,17 +415,24 @@ import FileExplorer
         #expect(Workspace.migrateSelection(in: tabOnly) == Workspace.tidyDefault)
     }
 
-    /// The WorkspaceLensKind bridge must not resurrect the folded Names lens. `OrganizeLens(.rename)` used
-    /// to answer `.names` — a destination minted from it without resolving would write the folded
-    /// lens back into the stored selection from OUTSIDE the migration seam, the one path
-    /// adversarial review found around `resolvedForPresentation`. The bridge answers the resolved
-    /// `.renames` itself now (`LensFoldReachabilityTests` pins that); this stays as the
-    /// destination-level claim, which must hold whichever layer owns the resolution.
-    @Test func testARenameLensDestinationLandsOnTheFoldedHost() {
-        let destination = Workspace.destination(for: .rename)
-        #expect(destination.workspace == .filing)
-        #expect(destination.organizeLens == .renames)
-        // The other bridges are untouched by the fold.
+    /// Every destination the bridge can mint is a rail item.
+    ///
+    /// This began as a claim about the folded Names lens: `OrganizeLens(.rename)` once answered
+    /// `.names`, so a destination minted from it could write a lens the rail does not draw into the
+    /// stored selection, from outside the migration seam. `WorkspaceLensKind.rename` is retired
+    /// along with the case, so what survives is the general form — which is what the specific claim
+    /// was ever protecting.
+    @Test func testEveryLensDestinationLandsOnARailItem() {
+        for kind in WorkspaceLensKind.allCases {
+            let destination = Workspace.destination(for: kind)
+            guard let lens = destination.organizeLens else {
+                #expect(kind == .storage, "\(kind.rawValue) minted no rail item")
+                continue
+            }
+            #expect(destination.workspace == .filing)
+            #expect(OrganizeLens.railItems.contains(lens),
+                    "\(kind.rawValue) mints \(lens.title), which the rail does not draw")
+        }
         #expect(Workspace.destination(for: .duplicates).organizeLens == .duplicates)
         #expect(Workspace.destination(for: .storage).workspace == .storage)
     }

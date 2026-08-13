@@ -238,13 +238,14 @@ import Design
     /// The control case: on a lens that IS scoped, the scope reaches the list.
     ///
     /// Without this the three tests above are satisfied by a build where the scope does nothing
-    /// anywhere — the failure mode where a feature is "fixed" by deleting it. Names is scoped, its
-    /// findings are outside the inbox, so its list must change when the scope is set.
+    /// anywhere — the failure mode where a feature is "fixed" by deleting it. Renames is scoped and
+    /// its findings are outside the inbox, so its list must change when the scope is set. It was
+    /// asked of the retired Names lens, whose risky names are the rows this list opens with now.
     @Test func aScopedLensStillNarrowsItsList() {
-        let scoped = strip(mount(Self.manager(), lens: .names, scope: Self.inbox), Self.contentZone)
-        let global = strip(mount(Self.manager(), lens: .names, scope: nil), Self.contentZone)
-        #expect(inked(global) > 2_000, "the Names list rendered almost nothing — vacuous comparison")
+        let scoped = strip(mount(Self.manager(), lens: .renames, scope: Self.inbox), Self.contentZone)
+        let global = strip(mount(Self.manager(), lens: .renames, scope: nil), Self.contentZone)
+        #expect(inked(global) > 2_000, "the Renames list rendered almost nothing — vacuous comparison")
         #expect(differingPixels(scoped, global) > 1_000,
-                "the Names list is unchanged by a scope that excludes every one of its findings — the scope has stopped reaching the lenses that do use it")
+                "the Renames list is unchanged by a scope that excludes every one of its findings — the scope has stopped reaching the lenses that do use it")
     }
 }
