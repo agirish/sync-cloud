@@ -399,17 +399,19 @@ own schema constant, URL, and merge semantics. Do NOT unify the queues.
 
 ## Skipped — long, but not entangled
 
-Recorded so they are not re-flagged by a future review:
+Recorded so they are not re-flagged by a future review. **Sizes measured at `b4ac3a21`** — they
+drift with every commit, so treat them as the order of magnitude that earned the verdict, not as
+a figure to check against:
 
 | File | Size | Why skipped |
 |---|---|---|
-| `Modules/FileExplorer/.../LensWorkspaceView.swift` | 4330 | Independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
+| `Modules/FileExplorer/.../LensWorkspaceView.swift` | 4383 | Independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
 | `Modules/FileExplorer/.../DifferencesView.swift` | 2308 | Header compaction ladder + review mode + search + table. The genuinely coupled part (the collapse rule) was already extracted to `DifferencesView.isCollapsedToHeaderStrip` in `517b1f0`. |
 | `Modules/Design/.../LiquidGlassStyle.swift` | 1015 | Mostly sprawl — hue table, `GlassLevel`, Clear-glass constants, card modifiers. **Partial exception:** four near-identical card modifiers whose clip/chrome *ordering* differs per path. Worth a look if anyone is in there anyway; not worth a dedicated pass. |
-| `MacApp/ContentView.swift` | 3153 | Audited in the second sweep. The genuinely coupled part is item 9 (the suppression counter); the rest is composition — layout modifiers, `.onChange` mirrors of Settings, sheet/inspector plumbing — already thinned by `ContentView+SplitLayout`, `ContentView+Toolbar`, `PaneLogic`, `CompareReviewReducer`, and `DuplicateReviewCoordinator`. Splitting further buys nothing item 9 doesn't. |
-| `Modules/Settings/.../SettingsView.swift` | 2994 | Independent tabs plus `SettingsSearchIndex`, which restates every control's on-screen label ("the single place to keep in sync when a control is added"). The duplication is real, but it is **pinned by `SettingsSearchTests`** rather than by a comment — enforced agreement is the bar, and it clears it. |
-| `Modules/Sync/.../FileSyncManager.swift` | 2423 | Six lens subsystems (Sync, Duplicates, Storage, Renames, Filing, Rules) on one `@MainActor` object, but each already lives in its own `FileSyncManager+*.swift` and touches its own `@Published` set. The parts that genuinely cross the lenses — the freshness counters, `prefetchedTrees`, `activeFileOperationsCount` — are item 8. What's left is stacking. |
-| `Modules/Sync/.../FilingEngine.swift` | 1220 | Pure and deterministic (no disk reads, no network) — candidates carry their own confidence plus source flags, and each producer is independent. **Partial exception:** the cap `fromContent ? .medium : .high` is written out at three producer sites; the fourth-signal-source trigger for folding that rule into one place has been met, and the fold is being done (2026-08-12). |
+| `MacApp/ContentView.swift` | 3160 | Audited in the second sweep. The genuinely coupled part is item 9 (the suppression counter); the rest is composition — layout modifiers, `.onChange` mirrors of Settings, sheet/inspector plumbing — already thinned by `ContentView+SplitLayout`, `ContentView+Toolbar`, `PaneLogic`, `CompareReviewReducer`, and `DuplicateReviewCoordinator`. Splitting further buys nothing item 9 doesn't. |
+| `Modules/Settings/.../SettingsView.swift` | 3028 | Independent tabs plus `SettingsSearchIndex`, which restates every control's on-screen label ("the single place to keep in sync when a control is added"). The duplication is real, but it is **pinned by `SettingsSearchTests`** rather than by a comment — enforced agreement is the bar, and it clears it. |
+| `Modules/Sync/.../FileSyncManager.swift` | 2381 | Six lens subsystems (Sync, Duplicates, Storage, Renames, Filing, Rules) on one `@MainActor` object, but each already lives in its own `FileSyncManager+*.swift` and touches its own `@Published` set. The parts that genuinely cross the lenses — the freshness counters, `prefetchedTrees`, `activeFileOperationsCount` — are item 8. What's left is stacking. |
+| `Modules/Sync/.../FilingEngine.swift` | 1276 | Pure and deterministic (no disk reads, no network) — candidates carry their own confidence plus source flags, and each producer is independent. **Partial exception:** the cap `fromContent ? .medium : .high` is written out at three producer sites; the fourth-signal-source trigger for folding that rule into one place has been met, and the fold is being done (2026-08-12). |
 
 ---
 

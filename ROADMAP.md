@@ -331,11 +331,15 @@ in `REFACTOR.md` item 8; do that first or accept a seventh counter.
 ## 6. CLI parity for the maintenance lenses
 
 **Why:** The `synccloud` CLI does `scan`, `sync` and `providers` — the two-pane story only. Every
-lens added since (To File, Duplicates, Renames, Restructure, Storage) is GUI-only, so none of it can be scripted,
+lens added since (To File, Duplicates, Renames, Restructure, Rules) is GUI-only — as is the
+Storage workspace beside them, so none of it can be scripted,
 scheduled with `launchd`, or run over ssh.
 
-**What:** `synccloud duplicates --dry-run --json`, `synccloud organize`, `synccloud renames --check`,
-`synccloud storage --json`, and — once item 1c exists — `synccloud backup --job <id>`. The engines
+**What:** `synccloud duplicates --dry-run --json`, `synccloud file` (the To File lens — **not**
+`organize`, which names the whole workspace and would put the lens/workspace ambiguity back into
+the public surface the way `tidy` once did), `synccloud renames --check`,
+`synccloud restructure --json` (report-only, like the lens), `synccloud storage --json`, and —
+once item 1c exists — `synccloud backup --job <id>`. The engines
 are already pure and app-independent (`DuplicateFinder`, `FilingEngine`, `NameNormalizer`,
 `StorageLensAnalyzer` are stateless statics over a walked tree), so this is command surface and
 output shaping, not new logic. Read-only/dry-run first; anything that moves files goes behind an
@@ -620,9 +624,11 @@ argument that settled it is the one this item cares about: *pointed invocation n
 exists before any scan has run*, and a chip that materialises only after a finding has nowhere for
 "restructure this folder" to land.
 
-Another labelled segment costs **104 pt** of bar at the default text size (measured through
+A **sixth** labelled segment costs **104 pt** of bar at the default text size (measured through
 `WorkspaceBarMetrics.fullWidth` with the real labels at `.semibold`: 779 pt → 883 pt, and 99 / 111 pt
-at the small and large sizes). Because the bar sheds every label at once, that takes the whole
+at the small and large sizes). Today's bar carries four, so the nearer step is the fifth — 708 pt →
+800 pt, per the table under item 1b. Say which step a figure measures: renaming the ordinal to
+"another" once left this paragraph quoting the five-to-six cost for a four-to-five move. Because the bar sheds every label at once, that takes the whole
 779–883 pt band to glyphs, and items 1b and 16 are both ahead of this in the queue for that space.
 
 The sub-tab was the same burial one level down: a tab you have to remember to visit, rendering

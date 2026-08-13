@@ -10,8 +10,8 @@
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud two-pane comparison" width="900">
 </p>
 
-SyncCloud has four workspaces. **Browse** is the plain file browser — one provider's tree, full
-width, nothing proposed, for the moves you make by hand. **Compare** puts two folders side by side
+SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
+tree, full width, nothing proposed, for the moves you make by hand. **Compare** puts two folders side by side
 and shows exactly what differs — what's missing on each side, what's newer, what only *looks* the
 same — and lets you copy, move, or reconcile items with one click. **Organize** points a single
 provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**, **Restructure**, and
@@ -19,7 +19,9 @@ provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**, 
 Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and straighten a tree that
 disagrees with its own habits. **Storage** is a read-only view of where your space actually goes.
 
-Every destructive action is Trash-backed, atomically applied, and reversible with a single **⌘Z**.
+Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run in the app is
+a single grouped **⌘Z** for as long as that session lasts. Permanent delete exists only as a
+clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of its own.
 
 ---
 
@@ -48,16 +50,19 @@ One rail, five lenses:
 - **To File** — scans the loose files in an inbox folder and **suggests which existing folder each
   one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
 - **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted
-  **versions** (`Report`, `Report (1)`, `Report-final`), and **name-only** clashes. Picks a smart
+  **versions** (`Report`, `Report (1)`, `Report-final`), **name-only** clashes, and PDFs with the
+  **same text** that a byte hash misses (a provider re-stamps every download). Picks a smart
   keeper (never the one buried in `archive/old/backup`), previews each copy with Quick Look
   thumbnails, and reclaims space — always to the Trash, never trashing the last copy.
-- **Renames** — every name worth changing: filenames that break on a given provider (OneDrive's
-  forbidden characters and reserved names, Dropbox's trailing spaces/periods, zero-width and
-  non-canonical Unicode everywhere), files that ignore their folder's naming convention, and folders
-  whose numbering has drifted — showing every invisible character before you commit. "Fix all" is
-  one undo.
-- **Restructure** — reports where the tree disagrees with its own habits (the same recurring folder
-  shaped differently in different years). Report-only for now: naming the disagreement is the half that cannot do any harm.
+- **Renames** — filenames that break on a given provider (OneDrive's forbidden characters and
+  reserved names, Dropbox's trailing spaces/periods, zero-width characters anywhere), files that
+  break their folder's `NN. Mon YYYY` date convention where the folder already keeps one, and
+  folders whose numbering has drifted. Each row names the problem in words and shows the name it
+  would become; **Fix all** applies the provider-hostile set in one undo, and the convention and
+  numbering passes are applied from their own controls.
+- **Restructure** — reports where the tree disagrees with its own habits: one recurring series whose
+  folders were each filed sensibly at the time and have ended up in two or more different internal
+  schemes. Report-only for now: naming the disagreement is the half that cannot do any harm.
 - **Rules** — deterministic, on-device rules ("when a file matches …, file it into
   `Taxes/{year}` …") with a dry-run preview. SyncCloud can also *learn* a rule after you file
   something by hand.
@@ -92,7 +97,7 @@ themes, 12 accent hues, per-provider brand colours, and adjustable list density.
 
 ## Screenshots
 
-| Compare | Organize ▸ Duplicates | Organize ▸ To File (AI filing) |
+| Two-pane comparison | Finding duplicate copies | Filing loose files, with AI |
 |---|---|---|
 | ![Compare](docs/assets/screenshots/hero-compare.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) | ![To File](docs/assets/screenshots/tidy-organize.png) |
 
