@@ -2,12 +2,12 @@ import SwiftUI
 import Sync
 
 /// A source-switcher dropdown. The trigger is a caller-supplied label (e.g. a pane header's
-/// brand-tinted provider capsule, or a Tidy source bar), and the menu is an inline picker over the
+/// brand-tinted provider capsule, or a lens source bar), and the menu is an inline picker over the
 /// enabled sources plus "Choose Folder…" and a "Manage sources…" escape hatch to Settings.
 ///
 /// This replaces the old standalone Left/Right `ProviderSidebar`: source choice now rides on the
-/// thing it applies to (each pane header, or the single Tidy source), so no window column is spent
-/// on a picker — and single-source Tidy never shows a second source it doesn't use.
+/// thing it applies to (each pane header, or the single lens source), so no window column is spent
+/// on a picker — and a single-source workspace never shows a second source it doesn't use.
 public struct ProviderMenu<LabelContent: View>: View {
     private let providers: [CloudProvider]
     private let currentId: String

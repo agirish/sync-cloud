@@ -395,8 +395,8 @@ public enum LiquidGlass {
     /// every pairing (card↔card, card↔window edge) sums to `cardGutter`.
     public static var cardInset: CGFloat { cardGutter / 2 }
 
-    /// The resting VISIBLE height of a header — the file panes' `PaneHeader` and the Tidy
-    /// workspace's `LensHeaderCard` both land here, so the pane's header↔list boundary and the
+    /// The resting VISIBLE height of a header — the file panes' `PaneHeader` and the lens
+    /// workspaces' `LensHeaderCard` both land here, so the pane's header↔list boundary and the
     /// lens card's bottom edge sit on the same rule across the window.
     ///
     /// Both headers inset themselves by `cardInset`, so each occupies `headerHeight + 2 *

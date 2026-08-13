@@ -83,7 +83,7 @@ import UniformTypeIdentifiers
         let index: PaneChildrenIndex
         let root: String
         let defaults: UserDefaults
-        /// The surface. Defaults to the Tidy rail, which is where the preview started; `false` is a
+        /// The surface. Defaults to the single-source rail, which is where the preview started; `false` is a
         /// comparison pane, which gets the same preview since the rail-only gate came out.
         var isSingleSource: Bool = true
         /// Non-nil exactly on a surface that shows the action bar — the signal the preview column

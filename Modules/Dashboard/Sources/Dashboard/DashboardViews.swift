@@ -34,7 +34,7 @@ public struct PaneHeader: View {
     /// The (global) sort order, surfaced per-pane now that the titlebar's file actions have moved
     /// onto the panes.
     @Binding public var sortOption: SortOption
-    /// When set, shows a collapse button in the nav cluster — used by the single-source Tidy rail to
+    /// When set, shows a collapse button in the nav cluster — used by the single-source rail to
     /// collapse itself back to the spine directly (not only via the titlebar pane toggle). nil on the
     /// comparison panes, which don't collapse individually.
     public let onCollapse: (() -> Void)?
@@ -60,7 +60,7 @@ public struct PaneHeader: View {
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
-    /// This pane's presentation. `nil` hides the switch entirely — the Tidy rail has no Columns
+    /// This pane's presentation. `nil` hides the switch entirely — the single-source rail has no Columns
     /// mode, so it gets no control for one.
     public var viewMode: Binding<PaneViewMode>?
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
@@ -122,7 +122,7 @@ public struct PaneHeader: View {
     @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
         PaneViewMode.previewColumnDefault
     /// The bar's arrangement and icon size. App-wide keys, not per-pane: one arrangement is shared by
-    /// both Compare panes and the Tidy rail, so that the two panes stay the same instrument pointed
+    /// both Compare panes and the single-source rail, so that the two panes stay the same instrument pointed
     /// at two providers. Every header reads the same string, so customizing from either pane moves
     /// both — including live, while the sheet is open.
     @AppStorage(PaneBar.arrangementKey) private var arrangementRaw: String =
@@ -274,7 +274,7 @@ public struct PaneHeader: View {
                 // closes.
                 //
                 // **This row, not a new one.** The header is pinned to `LiquidGlass.headerHeight` so
-                // its bottom edge lands on the same 83.5 as Tidy's card, and it holds two rows
+                // its bottom edge lands on the same 83.5 as the lens header card, and it holds two rows
                 // inside that: this one (a 34pt provider capsule) and the breadcrumb (~15pt). The
                 // field is ~33pt of text and padding — it fits this row with room and would burst
                 // the breadcrumb's, compressing the whole header off the rung `PaneHeaderHeightTests`
@@ -340,7 +340,7 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        // Pinned, not intrinsic — this header and Tidy's `LensHeaderCard` both read
+        // Pinned, not intrinsic — this header and the lens workspaces' `LensHeaderCard` both read
         // `headerHeight`, so the pane's header↔list boundary and the card's bottom edge land on
         // the same rule (83.5 = cardInset + headerHeight) instead of merely happening to agree.
         //
@@ -642,7 +642,7 @@ public struct PaneHeader: View {
     }
 
     /// Which items this particular header can offer at all. A header with no view-mode binding has
-    /// no View control to place; the Tidy rail has no Columns mode, so no preview to toggle.
+    /// no View control to place; the single-source rail has no Columns mode, so no preview to toggle.
     ///
     /// Internal rather than private so `PaneBarLadderTests` can build its ladder from the same list
     /// the view does. Restated by hand, a test keeps passing against a ladder the header stopped

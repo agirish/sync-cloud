@@ -186,7 +186,7 @@ import Sync
                             at: "/wiring/right", from: .left, whileTaking: .right)
     }
 
-    /// The Tidy rail is a third surface, not the left pane: it passes `isLeft: true`, and taking
+    /// The single-source rail is a third surface, not the left pane: it passes `isLeft: true`, and taking
     /// the left pane's posts would have it watch downloads from a provider it is not showing.
     @Test func theSingleSourceRailIgnoresTheLeftPanesRequest() async {
         await expectIgnored(mounting: (isLeft: true, isSingleSource: true),

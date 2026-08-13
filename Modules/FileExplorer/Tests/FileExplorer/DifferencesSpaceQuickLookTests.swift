@@ -90,7 +90,7 @@ import Sync
         #expect(target(lastInteracted: .differences) == nil)
     }
 
-    /// The right pane is honoured here — unlike the Tidy rail, this table only ever renders in
+    /// The right pane is honoured here — unlike the single-source rail, this table only ever renders in
     /// Compare (`.differences` maps to `.compare`), so there is no hidden pane to suppress.
     @Test func theRightPaneCountsBecauseThisTableIsCompareOnly() {
         #expect(target(lastInteracted: .pane, right: ["/right/chosen.txt"]) == "/right/chosen.txt")

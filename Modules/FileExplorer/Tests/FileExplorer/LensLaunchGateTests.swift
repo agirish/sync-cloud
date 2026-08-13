@@ -112,19 +112,19 @@ import Design
 
     /// **The gate is wired, not merely available.**
     ///
-    /// Everything above tests a flag and a view input. Neither notices if `TidyView` stops passing
+    /// Everything above tests a flag and a view input. Neither notices if `LensWorkspaceView` stops passing
     /// the flag to the view — and that is the whole change. `hasReviewed` is deliberately a `let`
     /// with no default so the compiler catches an omitted argument; this catches the other half,
     /// an argument still present but fed something that is not the launch flag (a literal `true`
     /// while debugging, say, or a different manager property).
     ///
     /// A source scan, for the reason `OrganizeScopeCallSiteTests` gives: the alternative is
-    /// mounting `TidyView` with a live manager and reading pixels back to infer which state it
+    /// mounting `LensWorkspaceView` with a live manager and reading pixels back to infer which state it
     /// chose, which is a lot of machinery to answer a question the call site states outright.
-    @Test func tidyViewFeedsTheGateToTheLens() throws {
-        let tidy = try OrganizeScopeCallSiteTests.source("TidyView.swift")
+    @Test func lensWorkspaceViewFeedsTheGateToTheLens() throws {
+        let view = try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift")
         let content = try OrganizeScopeCallSiteTests.body(
-            of: "private func restructureContent(rows: FilteredRows,", in: tidy)
+            of: "private func restructureContent(rows: FilteredRows,", in: view)
         #expect(content.contains("hasReviewed: syncManager.hasReviewedStructure"), """
                 restructureContent no longer feeds the launch flag to RestructureLens — the gate \
                 still exists and no longer decides anything.
@@ -134,7 +134,7 @@ import Design
         // "Open Restructure — 12 ›" skips the card, because that button already stated the count.
         // If it stops being deliberate it should fail here rather than drift.
         let overview = try OrganizeScopeCallSiteTests.body(
-            of: "private func organizeOverview(rows: FilteredRows,", in: tidy)
+            of: "private func organizeOverview(rows: FilteredRows,", in: view)
         #expect(overview.contains("if item == .restructure { syncManager.hasReviewedStructure = true }"),
                 "the overview's Open-Restructure link no longer skips the reveal card")
     }

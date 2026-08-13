@@ -107,7 +107,7 @@ extension ContentView {
     /// Read once, when the palette opens — `CommandPaletteState` holds the result for the life of
     /// that session — so this is not on the keystroke path at all.
     var paletteIndex: PaletteIndex {
-        let root = tidyProviderRootExpanded
+        let root = lensProviderRootExpanded
         let profile = syncManager.filingFolderProfile
         // The rule is `PaletteIndex.folders` and not spelled out here — it has a tilde-expansion in
         // it that this call site got wrong, and the installed app was the only thing that noticed.
@@ -179,14 +179,14 @@ extension ContentView {
     }
 
     /// The provider whose tree the palette is describing — the focused pane's in Compare, the
-    /// left rail's otherwise. The same rule `tidyProviderRootExpanded` follows, named once so the
+    /// left rail's otherwise. The same rule `lensProviderRootExpanded` follows, named once so the
     /// index's rows and its "current source" mark cannot disagree about which pane they mean; the
     /// writes go through `aimProvider(_:)`, which reads this.
     var paletteProviderId: String { aimedAtRight ? rightProviderId : leftProviderId }
 
     /// Which pane the palette is aimed at, as a value that can be captured before a route changes
     /// the workspace out from under it.
-    var aimedAtRight: Bool { tidyTargetIsRight }
+    var aimedAtRight: Bool { lensTargetIsRight }
 
     /// Points the aimed pane at `id` — the write half of `paletteProviderId`.
     ///
@@ -209,24 +209,24 @@ extension ContentView {
 
     /// Organize, at a rail item, optionally re-aimed.
     ///
-    /// The scope is written to the defaults key `TidyView` reads, because that is where the scope
+    /// The scope is written to the defaults key `LensWorkspaceView` reads, because that is where the scope
     /// lives — a view-local copy here would be a second source of truth for the one thing the whole
     /// Organize feature is anchored on. The pane follows the scope, so the source rail is showing
     /// the folder the lenses are answering about rather than wherever it happened to be parked.
     private func aimOrganize(lens: OrganizeLens?, scope: String?) {
         // **The aim is read BEFORE the workspace moves, because moving it changes the aim.**
-        // `tidyProviderRootExpanded` follows the focused pane, and only Compare has two — so
+        // `lensProviderRootExpanded` follows the focused pane, and only Compare has two — so
         // switching to Organize makes it the left pane's root unconditionally. The scope string in
         // hand came from an index built against the *aimed* pane when the palette opened, so
         // resolving it afterwards measured it against a different provider: `OrganizeScope` failed
         // and the scope key was written `""`, silently clearing the scope instead of setting
         // it. The object of "organize legal" was discarded, which is the one thing the verb rows
         // exist to prevent.
-        let root = tidyProviderRootExpanded
+        let root = lensProviderRootExpanded
         // Through `setOrganizeScope(_:)` — **the one write of Organize's scope**, where pointing at
         // the provider root CLEARS the scope rather than storing it as one — and BEFORE the
         // workspace moves, for the reason above: the owner resolves against the live
-        // `tidyProviderRootExpanded`, which still names the aimed pane's root on this line. This
+        // `lensProviderRootExpanded`, which still names the aimed pane's root on this line. This
         // used to be a second inline spelling of that normalization, sitting under a comment
         // asserting there is exactly one. A scope-less route touches nothing — nil here means
         // "don't re-aim", not "clear".
@@ -249,7 +249,7 @@ extension ContentView {
     /// broken palette rather than like a stale index.
     ///
     /// **The pane it points at is the one the index was built from**, which is not always the left
-    /// one. `tidyProviderRootExpanded` follows the focused pane in Compare, so every folder row in
+    /// one. `lensProviderRootExpanded` follows the focused pane in Compare, so every folder row in
     /// the palette is relative to the *right* provider's tree when the right pane has focus. This
     /// revealed into the left pane regardless: the guard passed (the path really is under that
     /// root), a relative path from one provider's tree was handed to the other's, and the pane
@@ -261,7 +261,7 @@ extension ContentView {
     ///     — and both values follow it. See `aimOrganize`.
     private func revealInSourcePane(_ absolutePath: String,
                                     root: String? = nil, isLeft: Bool? = nil) {
-        let root = root ?? tidyProviderRootExpanded
+        let root = root ?? lensProviderRootExpanded
         guard !root.isEmpty,
               let relative = PathBoundary.relativize(absolutePath, under: root) else { return }
         syncManager.focusOn(relativePath: relative, isLeft: isLeft ?? !aimedAtRight)

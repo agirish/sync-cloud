@@ -48,7 +48,7 @@ public struct DuplicateRevealRequest: Equatable, Identifiable, Sendable {
 }
 
 /// What the Duplicates workspace does with a `DuplicateRevealRequest`, as pure functions over the
-/// scan state — so the whole handoff is decided somewhere a test can reach, and `TidyView` only
+/// scan state — so the whole handoff is decided somewhere a test can reach, and `LensWorkspaceView` only
 /// applies the answer.
 ///
 /// The two halves are separate on purpose. `outcome` asks *what is true* (is the scan still
@@ -226,7 +226,7 @@ public enum DuplicateReveal {
     /// on screen. (A request already answered never reaches here — the caller's applied-id guard
     /// returns first — so waiting on one's OWN scan does not flicker the answer away.)
     ///
-    /// That clearing used to be hand-written in `TidyView.applyRevealRequest` alongside an early
+    /// That clearing used to be hand-written in `LensWorkspaceView.applyRevealRequest` alongside an early
     /// return, which made this branch unreachable and left this doc describing behaviour that never
     /// ran. Every outcome now goes through the same apply; only whether the request is RECORDED as
     /// applied differs, which is the caller's bookkeeping rather than a decision about the lens.

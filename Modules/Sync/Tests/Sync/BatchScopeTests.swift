@@ -4,7 +4,7 @@ import Foundation
 
 /// The safety net under "batch actions scope to the filtered set".
 ///
-/// Search now narrows what a Tidy lens shows, and the batch buttons re-label to the narrowed
+/// Search now narrows what an Organize lens shows, and the batch buttons re-label to the narrowed
 /// count: a query leaving 3 of 8 eligible groups makes the button read "Trash all 3". The rule
 /// that makes that safe is that the number on the button and the collection the action iterates
 /// must be the SAME value — never recomputed from an unfiltered source.

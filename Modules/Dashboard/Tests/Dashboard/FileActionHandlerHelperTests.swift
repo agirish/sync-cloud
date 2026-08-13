@@ -39,7 +39,7 @@ import Settings
 
     @MainActor
     @Test func testFocusFolderNeverDrivesTheSiblingFromTheSingleSourceRail() {
-        // The Tidy rail reuses the left pane's plumbing but has NO visible sibling: with 🔗
+        // The single-source rail reuses the left pane's plumbing but has NO visible sibling: with 🔗
         // linked, drilling the rail must not drag the hidden right pane along (its history
         // grows, its saved focus is overwritten for the next launch, and FolderJumpStore
         // records "Recent" folders the user never visited). The rail's delegate passes

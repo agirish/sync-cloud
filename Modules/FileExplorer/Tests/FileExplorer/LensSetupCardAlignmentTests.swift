@@ -49,11 +49,11 @@ import Design
     /// the order the lens puts them. This is the subject that regressed; rendering
     /// `FilingSetupCard` alone would measure the half that was never wrong.
     /// **Driven by the real placement rule**, not by a bool this file chose: `filingContent` and
-    /// `filingIntroState` both branch on `TidyView.spendRowPlacement`, so a change that put the
+    /// `filingIntroState` both branch on `LensWorkspaceView.spendRowPlacement`, so a change that put the
     /// row back above the card changes what this renders and the alignment test goes red. Passing
     /// the placement in directly is the only reconstruction left, and
     /// `theSetupCardStatePutsTheSpendRowUnderneath` below pins that to the rule too.
-    static func toFilePane(_ placement: TidyView.SpendRowPlacement) -> some View {
+    static func toFilePane(_ placement: LensWorkspaceView.SpendRowPlacement) -> some View {
         VStack(spacing: 0) {
             if placement == .aboveTheList {
                 spendRow.padding(.horizontal, 12).padding(.top, 10)
@@ -69,7 +69,7 @@ import Design
         }
     }
 
-    /// Stands in for `TidyView.filingSpendRow` — same fonts, same shape, same two trailing
+    /// Stands in for `LensWorkspaceView.filingSpendRow` — same fonts, same shape, same two trailing
     /// controls. It cannot be reached from here (it is a private member of a view that needs a
     /// live manager), so it is rebuilt at the size that matters: its height.
     static var spendRow: some View {
@@ -327,15 +327,15 @@ import Design
     /// that the setup-card state really asks for `.underTheSetupCard`. Without it the render
     /// tests are a statement about two compositions, one of which the app might not use.
     @Test func theSetupCardStatePutsTheSpendRowUnderneath() {
-        #expect(TidyView.spendRowPlacement(scansOnRecord: 4, showsSetupCard: true)
+        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 4, showsSetupCard: true)
                 == .underTheSetupCard)
-        #expect(TidyView.spendRowPlacement(scansOnRecord: 4, showsSetupCard: false)
+        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 4, showsSetupCard: false)
                 == .aboveTheList)
         // A machine that has never run a cloud pass gets no row in either state — a footnote
         // about nothing, and the case that would otherwise read as "aligned" for the wrong
         // reason.
-        #expect(TidyView.spendRowPlacement(scansOnRecord: 0, showsSetupCard: true) == .hidden)
-        #expect(TidyView.spendRowPlacement(scansOnRecord: 0, showsSetupCard: false) == .hidden)
+        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 0, showsSetupCard: true) == .hidden)
+        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 0, showsSetupCard: false) == .hidden)
     }
 
     static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {

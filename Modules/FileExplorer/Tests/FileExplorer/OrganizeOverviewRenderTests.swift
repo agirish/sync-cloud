@@ -17,9 +17,9 @@ import Design
 /// grey text it replaced, **the findings carry real evidence** rather than a sample of size one,
 /// and **the pane is used**.
 ///
-/// ## Why this mounts `OrganizeOverview` and not `TidyView`
+/// ## Why this mounts `OrganizeOverview` and not `LensWorkspaceView`
 ///
-/// Both were tried. Through `TidyView` the first claim is untestable: a `.borderedProminent` button
+/// Both were tried. Through `LensWorkspaceView` the first claim is untestable: a `.borderedProminent` button
 /// renders *unfilled* in an offscreen host — confirmed by writing the render out and looking at it,
 /// which is also how the cost line was caught rendering as illegible tertiary grey — so "is there a
 /// filled accent control" reads false with the control plainly on screen. Mounting the view

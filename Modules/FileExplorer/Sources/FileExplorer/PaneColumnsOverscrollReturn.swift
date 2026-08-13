@@ -81,7 +81,7 @@ final class WheelGestureTracker {
     ///
     /// This is the UNSCOPED answer — "is a hold-worthy gesture in flight anywhere in the app".
     /// A watchdog guarding one pane's stack must ask `shouldHoldHorizontalDrift(for:)` instead:
-    /// there are up to three column stacks alive at once (two comparison panes and the Tidy
+    /// there are up to three column stacks alive at once (two comparison panes and the single-source
     /// rail), and one app-wide monitor feeds them all, so an unscoped hold in pane B during a
     /// vertical flick in pane A reverted B's own programmatic reveal — the deepest column
     /// stayed hidden whenever the other pane happened to be coasting.

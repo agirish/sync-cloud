@@ -7,7 +7,7 @@ import FileExplorer
 ///
 /// `ContentView` is a SwiftUI view in the app target with no seam to instantiate, so the properties
 /// below are checked at the source level, the same way `ToolbarPaletteBarCallSiteTests` and
-/// `TidyScanRootTests` check theirs.
+/// `LensScanRootTests` check theirs.
 ///
 /// **The reason it cannot be instantiated is its initializer, not its dependencies** — this said the
 /// opposite until someone went and tried. Every argument `SyncCloudApp` passes it is constructible

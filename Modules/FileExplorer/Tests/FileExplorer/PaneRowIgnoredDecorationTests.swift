@@ -6,8 +6,8 @@ import Sync
 /// Pins the ignored row decoration to the COMPARISON panes.
 ///
 /// "Ignore in comparison" scopes the Left↔Right diff, and `FileContextMenu` already drops the verb
-/// on the Tidy single-source rail (there is no other pane to compare against). The rail still drew
-/// the struck-through name, though, so Tidy showed folders marked as excluded from something Tidy
+/// on the single-source rail (there is no other pane to compare against). The rail still drew
+/// the struck-through name, though, so the rail showed folders marked as excluded from something a lens scan
 /// does not do — with no way to un-mark them. `FileTreeView.rowIsIgnored` is the one choke point
 /// both presentations (tree and columns) ask, so pinning it here covers both.
 @MainActor
@@ -51,7 +51,7 @@ import Sync
         #expect(delegate.askCount == 1)
     }
 
-    /// Tidy rail: plain, and the delegate is never consulted.
+    /// The single-source rail: plain, and the delegate is never consulted.
     @Test func testSingleSourceRailNeverStrikes() {
         let delegate = AlwaysIgnoredDelegate()
         #expect(!FileTreeView.rowIsIgnored(node("/root/TODO"), currentPath: "/root",

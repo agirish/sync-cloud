@@ -106,7 +106,7 @@ import FileExplorer
 
     @Test func testEveryLensResolvesToSomewhereReachable() {
         // No lens may resolve to a workspace that cannot show it.
-        for lens in TidyLens.allCases {
+        for lens in WorkspaceLensKind.allCases {
             let slot = Workspace.destination(for: lens).workspace.lens
             #expect(slot != nil, "\(lens.rawValue) resolves to a workspace with no lens slot")
         }
@@ -302,11 +302,11 @@ import FileExplorer
         #expect(Workspace.migrateSelection(in: tabOnly) == Workspace.tidyDefault)
     }
 
-    /// The TidyLens bridge must not resurrect the folded Names lens. `OrganizeLens(.rename)` used
+    /// The WorkspaceLensKind bridge must not resurrect the folded Names lens. `OrganizeLens(.rename)` used
     /// to answer `.names` — a destination minted from it without resolving would write the folded
     /// lens back into the stored selection from OUTSIDE the migration seam, the one path
     /// adversarial review found around `resolvedForPresentation`. The bridge answers the resolved
-    /// `.renames` itself now (`TidyLensFoldReachabilityTests` pins that); this stays as the
+    /// `.renames` itself now (`LensFoldReachabilityTests` pins that); this stays as the
     /// destination-level claim, which must hold whichever layer owns the resolution.
     @Test func testARenameLensDestinationLandsOnTheFoldedHost() {
         let destination = Workspace.destination(for: .rename)

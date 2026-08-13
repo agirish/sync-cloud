@@ -31,7 +31,7 @@ import Testing
     }
 
     @Test func testItemsTheEditingPaneCannotDrawAreStillOfferedButMarked() {
-        // Collapse Pane is in the DEFAULT arrangement and only the Tidy rail draws it, so a Compare
+        // Collapse Pane is in the DEFAULT arrangement and only the single-source rail draws it, so a Compare
         // pane's sheet necessarily shows a pill its own bar does not have. That is honest — the
         // arrangement is shared — but it has to be visibly explained rather than looking like a bug
         // in the sheet.

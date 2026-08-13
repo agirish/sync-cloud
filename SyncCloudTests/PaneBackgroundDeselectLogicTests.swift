@@ -82,7 +82,7 @@ import Sync
         #expect(PaneLogic.backgroundDeselectPath(from: PaneBrowsePath(), depth: 0) == nil)
     }
 
-    /// No depth is the dead space past the last column, Tree mode, and the Tidy rail. All three
+    /// No depth is the dead space past the last column, Tree mode, and the single-source rail. All three
     /// deselect without navigating: closing the stack from a click *past* it would be a move the
     /// user did not ask for, and the other two have no stack at all.
     @Test func testNoDepthNeverTouchesTheColumns() {

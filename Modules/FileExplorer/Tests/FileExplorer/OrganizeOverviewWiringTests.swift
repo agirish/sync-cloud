@@ -3,11 +3,11 @@ import SwiftUI
 @testable import Sync
 @testable import FileExplorer
 
-/// What `TidyView` actually hands the overview.
+/// What `LensWorkspaceView` actually hands the overview.
 ///
 /// **The gap this fills is the reason two of the five `isScanning` arms were wrong.** The render
 /// suite mounts ``OrganizeOverview`` directly and supplies its own sections, so it can assert what
-/// the *view* does with a scanning flag and never whether the flag it is given is true. `TidyView`
+/// the *view* does with a scanning flag and never whether the flag it is given is true. `LensWorkspaceView`
 /// built those flags, nothing read them for the whole life of the field — `isScanning` existed on
 /// the section before the overview was rebuilt and the old view never referenced it — and the
 /// moment they became load-bearing, two arms were quietly reporting the wrong thing.
@@ -29,8 +29,8 @@ import SwiftUI
     /// user's home, and ``OrganizeScope/init(path:providerRoot:)`` refuses a path outside its root —
     /// so `scope` resolves to nil here whatever the machine has stored, and the subject is `/root`.
     /// A test added here whose fixture uses a provider root under the home would lose that.
-    private func subject(_ manager: FileSyncManager) -> TidyView {
-        TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
+    private func subject(_ manager: FileSyncManager) -> LensWorkspaceView {
+        LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                  scanTargetFolder: "/root", onFindDuplicates: {}, onFindFilingSuggestions: {},
                  providerRoot: "/root")
     }

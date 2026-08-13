@@ -123,7 +123,7 @@ extension ContentView {
                 .frame(width: geo.size.width, height: totalHeight)
                 .coordinateSpace(.named(Self.verticalStackSpace))
             case .singleExpanded, .singleCollapsed:
-                // Single-source (Tidy): the source rail docked left of a full-height workspace,
+                // Single-source: the source rail docked left of a full-height workspace,
                 // laid out horizontally — collapsed to a spine, or expanded to a resizable pane.
                 singleSourceLayout(collapsed: contentLayout == .singleCollapsed, geo: geo)
             case .browseFull:

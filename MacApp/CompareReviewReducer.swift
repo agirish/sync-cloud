@@ -77,7 +77,7 @@ enum CompareReviewReducer {
             guard state.hasDuplicateReview else { return endGuided }
             // …but only while the review is ACTIVE, i.e. both panes still show the two copies, so
             // the comparison they are redefining is the one in front of them. Once the review is
-            // inactive the user has already moved on (entering a Tidy lens re-focuses the shared
+            // inactive the user has already moved on (entering an Organize lens re-focuses the shared
             // left pane, which is exactly how this state is reached), and the other pane is still
             // pinned to the duplicate's provider by `compareCopies` — bookkeeping they never
             // chose. Dropping the snapshot there stranded that pin permanently: the pane they
@@ -113,7 +113,7 @@ enum CompareReviewReducer {
                 return endGuided + [.clearDuplicateReview, .restoreCompareState]
             }
             // Returning to Compare with a review still set: re-focus the two copies (the shared
-            // left pane was reset while away). An ACTIVE review leaving for Tidy is kept, not torn
+            // left pane was reset while away). An ACTIVE review leaving for Organize is kept, not torn
             // down, so the round-trip restores it.
             if toCompare, state.hasDuplicateReview {
                 return [.refocusCopies]

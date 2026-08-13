@@ -59,7 +59,7 @@ import SwiftUI
     }
 
     /// The same invariant routed through the pair every accent-FILLED chip, pill and button uses
-    /// (the Compare/Tidy tab pill, the pane action buttons, the differences count pill, the Log
+    /// (the workspace bar pill, the pane action buttons, the differences count pill, the Log
     /// window's selected chip): `accentFillColor` under `onAccentLabelColor`.
     ///
     /// Held to 4.5:1, not the 3:1 the old per-hue pairing settled for. That is the point of

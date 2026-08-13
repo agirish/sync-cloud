@@ -282,7 +282,7 @@ public struct LogViewer: View {
     @State private var selectedLevel: LogLevel? = nil
     @State private var searchText: String = ""
     /// Whether the search field is revealed. Collapsed by default and toggled by the header's
-    /// magnifier — Design's `ExpandingSearch` mechanism, the same one Compare and Tidy's lenses
+    /// magnifier — Design's `ExpandingSearch` mechanism, the same one Compare and the Organize lenses
     /// drive, so the log's search expands, focuses, escapes and clears exactly like theirs
     /// instead of being this window's own always-visible field.
     @State private var isSearchExpanded = false
@@ -290,7 +290,7 @@ public struct LogViewer: View {
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     /// The glass hue, so the accent-tinted chrome (token chips, the selected severity chip)
-    /// matches the hue every other window passes to the same components — Tidy hands this exact
+    /// matches the hue every other window passes to the same components — the lens workspace hands this exact
     /// tint to `TokenChipsRow`; the Log window used to hardcode `Color.accentColor` instead.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
@@ -558,7 +558,7 @@ public struct LogViewer: View {
             // Search Bar — revealed by the header's magnifier. The query, plus (below) the parsed
             // filter tokens as removable chips and, while focused, one-tap suggestions. Design's
             // `ExpandingSearchField` carries the field, its clear button, focus-on-appear and
-            // Escape, so this window's search behaves exactly like Compare's and Tidy's.
+            // Escape, so this window's search behaves exactly like Compare's and the lens workspaces'.
             if isSearchExpanded {
                 searchField
                     .padding(.horizontal, 16)

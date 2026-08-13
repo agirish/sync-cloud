@@ -625,7 +625,7 @@ import Sync
     }
 
     /// The preview-width key is ONE process-wide preference shared by every `PaneColumnsView`
-    /// (both comparison panes and the Tidy rail). Ending a preview-divider drag in one pane fires
+    /// (both comparison panes and the single-source rail). Ending a preview-divider drag in one pane fires
     /// the stored-width driver in all of them — but a pane whose preview is HIDDEN had its
     /// viewport untouched by that drag, and revealing there clobbers a scroll-back the user made
     /// deliberately. This pane never opens a preview at all; the shared key changing must leave
@@ -713,14 +713,14 @@ import Sync
                 "the rising edge stopped revealing — the falling-edge absence above is vacuous")
     }
 
-    /// A Tidy rail — full width, and deep enough that the rail overflows too.
+    /// A single-source rail — full width, and deep enough that the rail overflows too.
     ///
     /// Depth matters: at three columns this width passed before the fix as well, because 980pt of
     /// leftover viewport covers a 630pt stack no matter where it is scrolled. That is the whole
     /// reason the bug read as "Tidy works" — not a different code path, just a stack that had not
     /// outgrown the rail yet. Five columns overflow it, which makes this case detect the same
     /// defect the comparison pane hit at three.
-    @Test func testATidyWidthRailRevealsTheColumnThePreviewDescribes() async throws {
+    @Test func testASingleSourceWidthRailRevealsTheColumnThePreviewDescribes() async throws {
         try await expectDeepestColumnVisible(paneWidth: 1400, depth: 4)
     }
 

@@ -54,7 +54,7 @@ import Foundation
     }
 
     /// Pins `deleteItems`' return contract: the count of items actually removed, with a pruned
-    /// nested family counting once via its ancestor — callers (Tidy's resolve, banners) compare
+    /// nested family counting once via its ancestor — callers (the Duplicates resolve, banners) compare
     /// it against what they asked for to tell partial success from full, so a child double-count
     /// would make a partial batch read as complete.
     @MainActor

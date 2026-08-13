@@ -50,7 +50,7 @@ import Sync
 
     /// **The constraint this feature had to live inside.** `PaneHeaderHeightTests` pins the header to
     /// `LiquidGlass.headerHeight`, because that is what puts the pane's header↔list boundary on the
-    /// same 83.5 as Tidy's card. The field takes the BAR's row rather than adding one, so the number
+    /// same 83.5 as the lens header card. The field takes the BAR's row rather than adding one, so the number
     /// cannot move — open or closed, and at the narrow width where the bar is already stepping down.
     @Test("The header keeps its rung with the field closed")
     func theClosedHeaderKeepsItsHeight() {

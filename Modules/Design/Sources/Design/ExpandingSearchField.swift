@@ -87,7 +87,7 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
     /// - Parameters:
     ///   - placeholder: this lens's vocabulary. It is the ONLY thing teaching which tokens bind
     ///     here, so it must advertise exactly the tokens this surface's grammar declares and no
-    ///     others (see the per-lens grammar note in `TidyLensSearch`).
+    ///     others (see the per-lens grammar note in `LensSearch`).
     ///   - trailing: content inside the field row, after the clear button (Compare's "N of M").
     ///   - accessories: content below the field row, inside the same surface. Receives whether
     ///     the field holds the caret, for suggestions that only show while focused.

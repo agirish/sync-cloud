@@ -40,7 +40,7 @@ extension ContentView {
     /// stale selected path that no longer resolves to a node keeps the bar hidden (matching the old
     /// `!activeSelectionNodes.isEmpty` check). Keeping the node walk out of here means the bar's
     /// visibility and its "N selected" count come from a single resolve, not two. Only the
-    /// comparison panes have an "other pane" to copy/move to, so it never shows on the Tidy rail.
+    /// comparison panes have an "other pane" to copy/move to, so it never shows on the single-source rail.
     func paneActionBarSideActive(isLeft: Bool) -> Bool {
         guard layoutMode == .compare else { return false }
         let side: PaneLogic.ActivePane = isLeft ? .left : .right
@@ -122,7 +122,7 @@ extension ContentView {
     /// height at all.
     ///
     /// This replaces the two-level `Compare | Tidy` picker plus the lens tabs that used to head
-    /// the Tidy workspace. The old arrangement kept the lens tabs *out* of here deliberately —
+    /// what is now Organize. The old arrangement kept the lens tabs *out* of here deliberately —
     /// their ~300pt would have overflowed the window's `minWidth` (600 then, 760 now) and macOS would have
     /// folded them behind a chevron. Flattening does not repeal that constraint, it inherits it,
     /// which is what ``WorkspaceBarMetrics`` is for: below the width where six labels fit, every

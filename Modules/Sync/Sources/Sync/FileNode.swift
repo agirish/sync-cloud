@@ -27,7 +27,7 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     /// Optional so JSON encoded before this field existed still decodes (nil = walked).
     public var isUnexplored: Bool?
     /// True when this entry is a symbolic link (its `fileSize`/`kind`/`isDirectory` describe the
-    /// link's TARGET — the walk resolves them for display and diffing). Tidy's duplicate finder
+    /// link's TARGET — the walk resolves them for display and diffing). The duplicate finder
     /// excludes symlinks: a link and its in-tree target otherwise hash identically and group as
     /// "copies," and trashing the real target would leave a dangling link as the "kept" copy.
     /// Optional so JSON encoded before this field existed still decodes (nil = not a link).

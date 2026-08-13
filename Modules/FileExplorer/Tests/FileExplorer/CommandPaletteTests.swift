@@ -355,7 +355,7 @@ import Foundation
     /// **A tilde-spelled profile root still matches an expanded provider root.**
     ///
     /// This is the bug the app's own log line caught after everything else was green: the host
-    /// compared `FolderProfile.root` (`~/Documents`) against `tidyProviderRootExpanded`
+    /// compared `FolderProfile.root` (`~/Documents`) against `lensProviderRootExpanded`
     /// (`/Users/abhishek/Documents`) as plain strings, so on the real tree the palette indexed
     /// **0 of 3,013 folders** — every folder query and the entire "organize <folder>" lede silently
     /// answering nothing, with no error anywhere. The routing tests could not see it: they are

@@ -7,7 +7,7 @@ import Foundation
 /// makes "the current file" ambiguous by construction, and this is the tie-break: whichever surface
 /// the user touched last is the one they mean.
 public enum SelectionSurface: Sendable, Equatable {
-    /// Either Compare pane, or the Tidy rail. Not split into left/right: the one-pane-selected
+    /// Either Compare pane, or the single-source rail. Not split into left/right: the one-pane-selected
     /// invariant already guarantees at most one of them holds anything, so the side is recoverable
     /// from the selections themselves and storing it here would be a second source of truth.
     case pane
@@ -18,7 +18,7 @@ public enum SelectionSurface: Sendable, Equatable {
 /// The one place that answers "which file does the app mean right now?".
 ///
 /// It exists because the answer used to be given three times, by hand, in three different shapes:
-/// the panes' Quick Look handler, the Tidy rail's near-identical copy of it, and
+/// the panes' Quick Look handler, the single-source rail's near-identical copy of it, and
 /// `DetailsSidebar.activePath` — whose comment claimed it matched `PaneLogic.primarySelectionPath`
 /// but re-implemented it instead. Space and the Info inspector could therefore disagree about which
 /// file was current, and did: the inspector showed the pane selection while Space previewed the
@@ -34,7 +34,7 @@ public enum CurrentSelection {
     /// selection would otherwise resolve to a different file on every launch. It is the
     /// allocation-free equivalent of `sorted().first` (both take the least element by `<`).
     ///
-    /// `singleSource` drops the right pane entirely. On the Tidy rail the right pane is hidden, and
+    /// `singleSource` drops the right pane entirely. On the single-source rail the right pane is hidden, and
     /// its lingering selection must not leak into what the rail previews or what the inspector
     /// shows — both surfaces used to spell that rule out separately.
     public static func primaryPanePath(

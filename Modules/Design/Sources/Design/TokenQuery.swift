@@ -7,7 +7,7 @@ public protocol DimmableTokenChip {
     var isActive: Bool { get set }
 }
 
-/// The shared core of the app's token-search grammars (Compare's `DifferenceSearch`, Tidy's
+/// The shared core of the app's token-search grammars (Compare's `DifferenceSearch`, the Duplicates lens's
 /// `DuplicateSearch`, the Activity Log's `LogSearch`): one tokenizer, one all-occurrences word
 /// removal, one family-last-wins chip builder, and the number+unit value parsers. Each grammar
 /// keeps its own token table and `matches()` — this core is the mechanics they must agree on, so

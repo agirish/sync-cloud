@@ -5,7 +5,7 @@ import Design
 // MARK: - Filing glyph vocabulary
 
 /// The Filing lens's own iconography, kept distinct from the duplicate finder's (which uses the
-/// `wand.and.stars` / `checkmark.seal.fill` vocabulary). Centralized so Tidy vs Filing never drift
+/// `wand.and.stars` / `checkmark.seal.fill` vocabulary). Centralized so Duplicates vs Filing never drift
 /// into sharing a symbol.
 enum FilingGlyph {
     /// The Filing lens's signature symbol — a folder being organized. Used by the intro state and

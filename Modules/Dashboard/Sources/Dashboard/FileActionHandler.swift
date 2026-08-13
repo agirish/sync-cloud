@@ -96,7 +96,7 @@ public class FileActionHandler {
         // lands here — not on a breadcrumb crumb — so without this check only clicking an ancestor
         // crumb ever moved the sibling pane. When linked, drive both panes to the same subfolder.
         //
-        // `suppressLinkedNavigation` is the Tidy rail's opt-out: the rail reuses the left pane's
+        // `suppressLinkedNavigation` is the single-source rail's opt-out: the rail reuses the left pane's
         // plumbing but has NO visible sibling — honoring the link there silently dragged the
         // hidden right pane along (growing its history, overwriting its saved focus for the next
         // launch, and recording "Recent" folders the user never visited).

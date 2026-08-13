@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The one Tidy-merge guard with no coverage: `cancelledMidCopy`.
+/// The one duplicate-merge guard with no coverage: `cancelledMidCopy`.
 ///
 /// Every sibling refusal (keeper drift, source drift, symlinked keeper dir, vanished keeper,
 /// trash failure, nested copy) is pinned in `FileSyncManagerDuplicatesTests`; the cancel branch —

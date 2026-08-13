@@ -35,7 +35,7 @@ import Foundation
     
     @MainActor
     @Test func testSingleSourceInspectorIgnoresTheHiddenRightPane() async throws {
-        // On the Tidy rail the right pane is hidden, so a selection lingering there (from a prior
+        // On the single-source rail the right pane is hidden, so a selection lingering there (from a prior
         // Compare session) must not drive the inspector — otherwise it would describe a file in the
         // wrong provider. With `singleSource`, a right-only selection is ignored and the panel falls
         // back to the left rail's focused folder.

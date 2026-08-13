@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// `TidyView.RailCounts` — the six scoped counts, resolved once per render.
+/// `LensWorkspaceView.RailCounts` — the six scoped counts, resolved once per render.
 ///
 /// It exists because scoping turned six `Array.count` reads into six filtering passes with path
 /// math in the predicate, over lists that reach 722 duplicate groups and 1,192 rename plans on the
@@ -14,7 +14,7 @@ import Foundation
 /// and the badge arithmetic the rail's width reservation depends on.
 @Suite struct OrganizeRailCountsTests {
 
-    static let counts = TidyView.RailCounts(
+    static let counts = LensWorkspaceView.RailCounts(
         toFile: 24, duplicates: 722, names: 3, renames: 126, restructure: 2, rules: 8)
 
     @Test func everyLensReadsItsOwnNumber() {
@@ -51,9 +51,9 @@ import Foundation
 
     @Test func aZeroDrawsNoBadge() {
         // The surviving half of the chips' argument: absent at zero, never a greyed "0".
-        let none = TidyView.RailCounts()
+        let none = LensWorkspaceView.RailCounts()
         #expect(OrganizeLens.allCases.allSatisfy { none.badge($0) == nil })
-        let one = TidyView.RailCounts(toFile: 1)
+        let one = LensWorkspaceView.RailCounts(toFile: 1)
         #expect(one.badge(.toFile) == 1)
         #expect(OrganizeLens.allCases.count { one.badge($0) != nil } == 1)
     }
@@ -61,14 +61,14 @@ import Foundation
     @Test func rulesNeverBadgesEvenWhenItHasRules() {
         // The distinction the badge draws, asserted through the same arithmetic the rail uses
         // rather than by re-reading `carriesBadge`.
-        let rulesOnly = TidyView.RailCounts(rules: 8)
+        let rulesOnly = LensWorkspaceView.RailCounts(rules: 8)
         #expect(rulesOnly[.rules] == 8)
         #expect(rulesOnly.badge(.rules) == nil)
     }
 
     @Test func theDefaultIsAllZeros() {
         // The pre-scan state: nothing counted, nothing claimed.
-        let d = TidyView.RailCounts()
+        let d = LensWorkspaceView.RailCounts()
         #expect(OrganizeLens.allCases.allSatisfy { d[$0] == 0 })
     }
 
@@ -82,7 +82,7 @@ import Foundation
     /// first passes and the second fails; under "either half ran" both fail; only "both halves
     /// ran" — the rule that can underclaim but never overclaim — answers all four.
     @Test func theFoldedItemIsNotCleanUntilBothHalvesHaveRun() {
-        var counts = TidyView.RailCounts()
+        var counts = LensWorkspaceView.RailCounts()
         counts.scanned = [.renames]      // filing walk ran without a name ruleset (CLI shape)
         #expect(counts.state(.renames) == .notScanned,
                 "rename plans alone called the folded item clean — the names list was never computed")
@@ -104,13 +104,13 @@ import Foundation
     /// of row. The subscript is what makes them one number, so the readout has to go through it.
     ///
     /// Source-level, because the numerals themselves are a `Text` in a header that no test can read
-    /// back — pixels can see that a readout is there, never what it says. `TidyHeaderReadoutTests`
+    /// back — pixels can see that a readout is there, never what it says. `LensHeaderReadoutTests`
     /// covers the *rows* half of the same fix by render; this is the denominator half, and the two
     /// together are why a source scan is worth having here rather than being the whole story.
     @Test func theBacklogReadoutUsesTheFoldedTotal() throws {
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {",
-            in: try OrganizeScopeCallSiteTests.source("TidyView.swift"))
+            in: try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift"))
         let code = OrganizeScopeCallSiteTests.codeOnly(body)
         #expect(code.contains("ofMLabel(rows.renames.count + rows.risky.count, counts[.renames])"),
                 "the backlog's readout is not counting the folded list at both ends")

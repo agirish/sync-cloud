@@ -27,7 +27,7 @@ struct OrganizeScopeChipTests {
         ScopeChipLabel(name: name, folderCount: folderCount, accent: .blue,
                        isSuspended: suspended,
                        // The live chip's ✕ and the suspended chip's absence of one, exactly as
-                       // `TidyView` passes them — an `isSuspended: true` chip that still carried a
+                       // `LensWorkspaceView` passes them — an `isSuspended: true` chip that still carried a
                        // clear closure would render a state the app never draws.
                        onClear: suspended ? nil : {})
     }

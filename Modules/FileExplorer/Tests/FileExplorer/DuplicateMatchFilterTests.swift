@@ -4,7 +4,7 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// Coverage for DuplicateMatchFilter.matches — the predicate driving which duplicate groups the Tidy list
+/// Coverage for DuplicateMatchFilter.matches — the predicate driving which duplicate groups the Duplicates list
 /// shows, and the match-type styling that reads status without color.
 @Suite struct DuplicateMatchFilterTests {
 
@@ -39,15 +39,15 @@ import Design
         #expect(DuplicateMatchStyle.label(.identical) == "Identical")
     }
 
-    @Test func tidySymbolNamesExistInSFSymbols() {
-        // A typo'd symbol renders blank at runtime; pin every name Tidy uses (mirrors
+    @Test func lensSymbolNamesExistInSFSymbols() {
+        // A typo'd symbol renders blank at runtime; pin every name the lens workspace uses (mirrors
         // DifferenceGlyphTests.testSymbolNamesExistInSFSymbols).
         var symbols: [String] = [
             // match-type badges
             DuplicateMatchStyle.symbol(.identical), DuplicateMatchStyle.symbol(.overlapping(sharedFraction: 0.5)),
             DuplicateMatchStyle.symbol(.nameOnly), DuplicateMatchStyle.symbol(.versions),
         ]
-        // Fixed symbols hardcoded across TidyView / DuplicateGroupCard.
+        // Fixed symbols hardcoded across LensWorkspaceView / DuplicateGroupCard.
         symbols += [
             "internaldrive", "line.3.horizontal.decrease.circle", "checkmark.circle.fill",
             "wand.and.stars", "arrow.clockwise", "folder.badge.gearshape", "doc.on.doc",

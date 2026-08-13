@@ -8,7 +8,7 @@ import Design
 struct FilingSuggestionCard: View {
     let suggestion: FilingSuggestion
     /// Row measurements per the appearance density setting (H7/D4), injected by the owner
-    /// (TidyView reads the @AppStorage once and passes the resolved metrics down). Comfortable
+    /// (LensWorkspaceView reads the @AppStorage once and passes the resolved metrics down). Comfortable
     /// is the pre-density look — its values equal the literals this card used to hard-code.
     let densityMetrics: ListDensityMetrics
     let onFileHere: (FilingDestination) -> Void

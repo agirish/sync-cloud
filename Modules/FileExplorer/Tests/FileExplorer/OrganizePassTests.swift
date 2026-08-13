@@ -123,7 +123,7 @@ import SwiftUI
     /// Every pass states a cost, and the file pass's says it is free.
     ///
     /// **Not decoration.** The lens this offer leads to contains the one control in Organize that
-    /// spends money, and `TidyView.refineButton` is explicit that "the scan that produced these
+    /// spends money, and `LensWorkspaceView.refineButton` is explicit that "the scan that produced these
     /// rows was free and on-device". A card that left the cost unsaid invites the opposite
     /// assumption about the button directly above it.
     @Test func everyPassStatesACostAndTheFilePassIsFree() {

@@ -240,13 +240,13 @@ import Sync
     ///
     /// **Each field is asserted, not just `== Plan()`.** The equality alone says "this equals the
     /// default" and leaves what the default MEANS somewhere else; the whole reason this needed
-    /// correcting is that `TidyView` hand-wrote the two clearing lines beside an early return, so
+    /// correcting is that `LensWorkspaceView` hand-wrote the two clearing lines beside an early return, so
     /// this branch never ran and its doc drifted into describing the opposite behaviour. Spelling
     /// out the four fields is what makes applying this plan and the old hand-written pair visibly
     /// the same two writes.
     @Test func waitingRetiresTheAnswerAndNavigatesNowhere() {
         let plan = DuplicateReveal.plan(for: .waiting, path: "/pane/x.txt")
-        // Retires the previous answer: `TidyView.applyRevealPlan` assigns both unconditionally.
+        // Retires the previous answer: `LensWorkspaceView.applyRevealPlan` assigns both unconditionally.
         #expect(plan.landing == nil)
         #expect(plan.revealedGroupID == nil)
         // …and moves nothing the user set up.

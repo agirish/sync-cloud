@@ -50,7 +50,7 @@ enum DifferenceSearch {
     }
 
     /// Class aliases for `kind:` — a single word matching a fixed extension set, shared with the
-    /// Tidy ▸ Duplicates search so `kind:image` means the same thing on every surface. Deliberately
+    /// Duplicates lens search so `kind:image` means the same thing on every surface. Deliberately
     /// tiny: one alias, fixed list, everything else stays an exact extension match.
     static let kindClasses: [String: Set<String>] = [
         "image": ["jpg", "jpeg", "png", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"],
@@ -61,7 +61,7 @@ enum DifferenceSearch {
         // No recognized tokens → freeText preserves the raw string verbatim (legacy substring search).
         let freeText = TokenQuery.freeText(raw) { word in
             guard let token = parseToken(word) else { return false }
-            // `kind:` is last-wins (like Tidy/Log families): a path has ONE extension, so two
+            // `kind:` is last-wins (like the lens/Log families): a path has ONE extension, so two
             // conjunctive kind: tokens can never both match — the earlier one is dropped rather
             // than turning the query into a guaranteed-empty dead-end. Size bounds and only:
             // stay conjunctive; those combinations are legitimate (ranges).
@@ -147,7 +147,7 @@ enum DifferenceSearch {
     }
 
     /// "10mb" / "1.5gb" / "500kb" / "1024" → bytes, via the shared `TokenQuery` parser (SI
-    /// 1000-base, overflow-guarded). Kept as this grammar's named entry point because Tidy's
+    /// 1000-base, overflow-guarded). Kept as this grammar's named entry point because the Duplicates lens's
     /// `DuplicateSearch` and the tests address the size vocabulary through it.
     static func parseSize(_ string: String) -> Int? {
         TokenQuery.parseSizeBytes(string)

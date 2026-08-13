@@ -364,11 +364,11 @@ extension FileSyncManager {
     /// results — differences (raw and published), checksum-verification results, the pending
     /// copy-identical offer, and the scan-freshness fields — and supersedes in-flight loads,
     /// scans, and filter passes, WITHOUT touching the pane trees, navigation, selections, or
-    /// any Tidy state (`duplicateGroups` et al. survive untouched).
+    /// any lens state (`duplicateGroups` et al. survive untouched).
     ///
-    /// For the suppressed provider-change paths (Tidy's "Compare copies" hand-off and its
+    /// For the suppressed provider-change paths (the Duplicates lens's "Compare copies" hand-off and its
     /// restore): those repoint both panes while deliberately suppressing the provider-id
-    /// onChange — the full reset there would wipe the Tidy duplicate results the user must be
+    /// onChange — the full reset there would wipe the duplicate results the user must be
     /// able to return to (see `pendingSwapProviderChanges`) — but skipping ALL invalidation
     /// left the OLD comparison's differences published and actionable during the re-scan
     /// window (`isScanning` false while trees load), where a row click ran syncFile on

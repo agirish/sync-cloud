@@ -12,7 +12,7 @@ public enum FileContentVerifier {
     /// instead of the whole file).
     private static let hashChunkSize = 4 * 1024 * 1024  // 4 MB
 
-    /// Why (or that) a file was hashed — lets callers that aggregate many hashes (the Tidy
+    /// Why (or that) a file was hashed — lets callers that aggregate many hashes (the
     /// duplicate scan) distinguish "skipped because of the size cap" from "unreadable", instead
     /// of collapsing every non-hash into an indistinguishable `nil`.
     public enum HashOutcome: Sendable, Equatable {
@@ -92,7 +92,7 @@ public enum FileContentVerifier {
             }
             // The dataless check comes BEFORE the size cap: a cloud-only placeholder is skipped
             // as cloud-only whatever its byte count, so the per-reason skip split callers surface
-            // (Tidy's note) stays honest — a dataless 4 GB video is "not downloaded", not "too
+            // (the Duplicates lens's note) stays honest — a dataless 4 GB video is "not downloaded", not "too
             // large to hash", and the two remedies differ (download it vs raise the cap). The
             // check is an lstat-cheap flag read, and it must precede any byte being read anyway:
             // opening a dataless placeholder forces the provider to download the whole file — a

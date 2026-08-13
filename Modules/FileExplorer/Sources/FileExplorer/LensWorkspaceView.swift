@@ -10,14 +10,14 @@ import Design
 /// onto one; the choice itself is made by the window's workspace bar, not in here.
 ///
 /// Still its own type rather than folded into `Workspace`: the per-lens search grammars, query
-/// parking and expansion state in `TidyView` are all keyed by it, and they have no meaning for
+/// parking and expansion state in `LensWorkspaceView` are all keyed by it, and they have no meaning for
 /// Compare.
-public enum TidyLens: String, CaseIterable, Identifiable {
+public enum WorkspaceLensKind: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     /// The former Name Normalizer — finds and fixes cloud-hostile names.
     ///
     /// **Nothing presents this case any more, and the type cannot drop it.** `OrganizeLens.names`
-    /// is the only thing whose `searchLens` returns it, and `TidyView.organizeLens` puts every
+    /// is the only thing whose `searchLens` returns it, and `LensWorkspaceView.organizeLens` puts every
     /// rail selection through `resolvedForPresentation`, which folds `.names` into `.renames`
     /// (whose search lens is `.filing`). So `effectiveLens` is never `.rename`, and the arms that
     /// switch on it — `renameContent`, the `RenameLens` view, the `.names` arms in `lensActions`
@@ -28,7 +28,7 @@ public enum TidyLens: String, CaseIterable, Identifiable {
     /// migrate, so these switches still need arms to be exhaustive, and replacing working bodies
     /// with empty ones would cost the un-fold its implementation while gaining nothing. The
     /// comment is the fix — the old one read "its own lens again", which is the opposite of true.
-    /// `TidyLensFoldReachabilityTests` pins the chain that makes it unreachable, so anyone
+    /// `LensFoldReachabilityTests` pins the chain that makes it unreachable, so anyone
     /// deleting this later can see at a glance what they are relying on.
     case rename = "Rename"
     case filing = "Filing"
@@ -132,7 +132,7 @@ enum DuplicateScanReset {
     }
 }
 
-// MARK: - TidyView
+// MARK: - LensWorkspaceView
 
 /// A single-source lens workspace (Duplicates, Rename, Organize, Automations, or the read-only
 /// Storage), rendered in the right-hand slot with the source rail docked beside it.
@@ -140,7 +140,7 @@ enum DuplicateScanReset {
 /// Which lens is showing is no longer decided here. It used to be: this view rendered the lens
 /// tabs and wrote the host's binding. The workspace bar in the window toolbar owns that choice
 /// now, and this view is handed the resolved lens.
-public struct TidyView: View {
+public struct LensWorkspaceView: View {
     @ObservedObject public var syncManager: FileSyncManager
 
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
@@ -183,7 +183,7 @@ public struct TidyView: View {
     /// The active lens, resolved by the host from the selected workspace. A value, not a binding:
     /// nothing in here selects a lens any more — the workspace bar does — so a writable binding
     /// would be a write path with no writer.
-    private let lens: TidyLens
+    private let lens: WorkspaceLensKind
     @State private var filter: DuplicateMatchFilter = .all
     /// Each lens's live query, kept SEPARATELY rather than as one shared field.
     ///
@@ -192,9 +192,9 @@ public struct TidyView: View {
     /// lands in Rename, which declares no size token, so `>5mb` degrades to free text and matches
     /// nothing. The user would see an empty Rename lens with no visible cause. Each lens keeps
     /// (and re-enters) its own query instead.
-    @State private var searchQueries: [TidyLens: String] = [:]
+    @State private var searchQueries: [WorkspaceLensKind: String] = [:]
     /// Which lenses currently have the field revealed — per-lens for the same reason.
-    @State private var searchExpandedLenses: Set<TidyLens> = []
+    @State private var searchExpandedLenses: Set<WorkspaceLensKind> = []
     @State private var expanded: Set<UUID> = []
     /// The group a "Find duplicates of this" handoff sent the user to, marked until they look
     /// somewhere else. A landing, not a scroll: without a mark, a reveal into a list of similar
@@ -282,7 +282,7 @@ public struct TidyView: View {
     ///
     /// Named for what it *is* rather than for one of its uses — it was `automationDestinationRoot`,
     /// and a second parameter carrying the identical value would have been two roots to keep in
-    /// step. A pure rename: every call site already passed `tidyProviderRootExpanded`.
+    /// step. A pure rename: every call site already passed `lensProviderRootExpanded`.
     private let providerRoot: String?
     /// The loose-files inbox's absolute path, when the folder exists — the offer on Organize's
     /// overview that replaced the hidden root-swap. nil hides the offer entirely rather than
@@ -299,14 +299,14 @@ public struct TidyView: View {
     /// showing it here too would name the provider twice.
     private let showSourcePicker: Bool
     /// The enabled providers the source can switch between, and the current one — the single
-    /// provider choice Tidy needs (no Left/Right).
+    /// provider choice the lens workspace needs (no Left/Right).
     private let providers: [CloudProvider]
     private let currentProviderId: String
     private let onSelectProvider: (String) -> Void
     private let onManageProviders: () -> Void
-    /// Picks a folder and points Tidy at it as a source. nil hides "Choose Folder…".
+    /// Picks a folder and points the lens at it as a source. nil hides "Choose Folder…".
     private let onChooseFolder: (() -> Void)?
-    /// Raises the destination picker. Owned by the window rather than by this view: the Tidy rail
+    /// Raises the destination picker. Owned by the window rather than by this view: the single-source rail
     /// asks for the same sheet, and two states bound to two sheets would be two pickers to keep in
     /// step. Defaults to a no-op so previews and tests can build a lens without a host.
     private let onRequestDestination: (PendingDestination) -> Void
@@ -334,7 +334,7 @@ public struct TidyView: View {
 
     public init(
         syncManager: FileSyncManager,
-        lens: TidyLens,
+        lens: WorkspaceLensKind,
         providerName: String? = nil,
         scanTargetFolder: String? = nil,
         onFindDuplicates: @escaping () -> Void,
@@ -360,7 +360,7 @@ public struct TidyView: View {
         revealRequest: DuplicateRevealRequest? = nil,
         onRevealHandled: ((UUID) -> Void)? = nil,
         onFindDuplicatesOf: ((String) -> Void)? = nil,
-        initialSearchQueries: [TidyLens: String] = [:]
+        initialSearchQueries: [WorkspaceLensKind: String] = [:]
     ) {
         self.syncManager = syncManager
         // The one seam into `searchQueries`, which is otherwise `@State` seeded empty and reachable
@@ -518,17 +518,17 @@ public struct TidyView: View {
     /// The lens whose grammar, pills, actions and content are on screen right now.
     ///
     /// `lens` is where you ARE (which workspace); this is what you are LOOKING AT (which rail
-    /// item). The rail is the vocabulary and `TidyLens` is the machinery — search grammars, parked
+    /// item). The rail is the vocabulary and `WorkspaceLensKind` is the machinery — search grammars, parked
     /// queries, scroll state all key on the apparatus, and three rail items share `.filing`'s
     /// because their rows are filing rows. What none of them reuse is the title: the header keeps
     /// saying Organize, because you have not gone anywhere.
-    private var effectiveLens: TidyLens {
+    private var effectiveLens: WorkspaceLensKind {
         organizeLens?.searchLens ?? lens
     }
 
     /// True when Organize is showing the rename backlog rather than the queue.
     ///
-    /// Still not a `TidyLens` of its own: the backlog's rows are folder plans, which no existing
+    /// Still not a `WorkspaceLensKind` of its own: the backlog's rows are folder plans, which no existing
     /// apparatus describes, so it borrows `.filing`'s query slot and the content card branches on
     /// it. It IS a rail item now, which is the part that changed.
     private var showingRenameBacklog: Bool {
@@ -569,7 +569,7 @@ public struct TidyView: View {
                     // write worth honouring is the one that asks to search.
                     guard expanded else { return }
                     railLens = .toFile
-                    searchExpandedLenses.insert(TidyLens.filing)
+                    searchExpandedLenses.insert(WorkspaceLensKind.filing)
                     return
                 }
                 if expanded { searchExpandedLenses.insert(effectiveLens) } else { searchExpandedLenses.remove(effectiveLens) }
@@ -965,10 +965,10 @@ public struct TidyView: View {
             // does not bind, on a field that would then silently do nothing with them.
             searchPlaceholder: showingRenameBacklog
                 ? "Search folders and names — PG&E, 2021…"
-                : TidyLensSearch.placeholder(for: effectiveLens),
+                : LensSearch.placeholder(for: effectiveLens),
             searchHelp: showingRenameBacklog
                 ? "Search the rename backlog by folder or by file name"
-                : TidyLensSearch.help(for: effectiveLens),
+                : LensSearch.help(for: effectiveLens),
             chips: searchChips,
             onRemoveChip: removeSearchChip,
             accent: glassHue.accentColor,
@@ -1093,7 +1093,7 @@ public struct TidyView: View {
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
-    /// one provider choice Tidy needs) and the folder being tidied.
+    /// one provider choice the lens workspace needs) and the folder being tidied.
     private var sourceBar: some View {
         let provider = providers.first(where: { $0.id == currentProviderId })
         return HStack(spacing: 8) {
@@ -1150,7 +1150,7 @@ public struct TidyView: View {
                 applyAllButton(rows.duplicates)
             }
         // Both of Organize's states, through one path. `.rename` is carried for exhaustiveness
-        // only — see `TidyLens.rename`, which nothing can present since the fold.
+        // only — see `WorkspaceLensKind.rename`, which nothing can present since the fold.
         case .rename, .filing:
             if !syncManager.isSuggestingFiles {
                 // **Rescan belongs to the SCAN, not to any one of its answers.** It used to be
@@ -1252,8 +1252,8 @@ public struct TidyView: View {
         // Both of Organize's states, through one path. `.rename` is carried for exhaustiveness and
         // nothing more: no workspace claims it (`WorkspaceTests` pins that
         // `Workspace.allCases.compactMap(\.lens)` excludes it), and since Names folded into Renames
-        // no rail selection presents it either — see `TidyLens.rename` and
-        // `TidyLensFoldReachabilityTests`. The other four sites in this file switch on
+        // no rail selection presents it either — see `WorkspaceLensKind.rename` and
+        // `LensFoldReachabilityTests`. The other four sites in this file switch on
         // `effectiveLens` on exactly that understanding.
         case .rename, .filing:
             organizeSummary(rows: rows, counts: counts)
@@ -1850,7 +1850,7 @@ public struct TidyView: View {
             if lens == .storage {
                 // Storage, folded in as a read-only lens: it brings its own CONTENT card (its
                 // toolbar card is gone — the shared header above replaced it), so it renders in
-                // place of Tidy's content card.
+                // place of the lens content card.
                 StorageLensView(
                     syncManager: syncManager,
                     providerName: providerName,

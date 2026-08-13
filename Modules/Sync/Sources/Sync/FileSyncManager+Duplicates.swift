@@ -1,14 +1,14 @@
 import Events
 import Foundation
 
-/// Tidy — the in-provider duplicate finder. Reuses the existing tree walk and content hasher to
+/// Duplicates — the in-provider duplicate finder. Reuses the existing tree walk and content hasher to
 /// gather input for the pure ``DuplicateFinder``, and routes removals through ``deleteItems`` so
 /// they land in the Trash with the same one-step Undo as every other destructive action.
 extension FileSyncManager {
 
     /// Files the most recent duplicate scan had to skip during content hashing — and therefore
     /// could not prove identical to anything. Without this figure, two identical >100 MB files
-    /// (or cloud-only placeholders) are simply invisible to Tidy with zero indication. Labels the
+    /// (or cloud-only placeholders) are simply invisible to the scan with zero indication. Labels the
     /// current `duplicateGroups` like `duplicateScanRoot` does: published with the results
     /// (`duplicateScanSkips` in FileSyncManager.swift), reset by `clearDuplicates`.
     public struct DuplicateScanSkips: Sendable, Equatable {
@@ -465,7 +465,7 @@ extension FileSyncManager {
     /// Whether a group's keeper is still where — and what — the scan saw. Groups are point-in-time
     /// snapshots: if the keeper was deleted, renamed, moved, or (for a byte-identical file group)
     /// overwritten in place between scan and click, trashing the "redundant" copies would trash the
-    /// *last* copies of the keeper's original content — the one invariant Tidy promises never to
+    /// *last* copies of the keeper's original content — the one invariant the finder promises never to
     /// break. Re-verified at resolve time, not just scan time.
     ///
     /// For a file we also re-check the byte size against the scan snapshot: any in-place edit
@@ -967,7 +967,7 @@ extension FileSyncManager {
             // Skip ONLY when the keeper already has this exact content at the SAME relative path —
             // a true same-location duplicate. A distinctly-named or -located file is folded in even
             // when its bytes happen to also live elsewhere in the keeper, so the merge never
-            // silently drops a meaningfully-named file (a later Tidy scan can reconcile any
+            // silently drops a meaningfully-named file (a later duplicates scan can reconcile any
             // resulting byte-duplicate — losing a filename is the worse surprise).
             // An UNHASHABLE source file (too large, unreadable, cloud-only) is deliberately
             // re-planned every run: its content can't be proven landed, and the trash step's
@@ -1129,7 +1129,7 @@ extension FileSyncManager {
     /// `cache` is REQUIRED rather than defaulted, because the right answer differs per caller and a
     /// default would pick one silently. The entry points (``findDuplicates`` and ``planMerge``) pass
     /// the session cache Verify already uses, so the two features stop paying for each other's work:
-    /// a Tidy scan after a Verify — or a second Tidy scan, or the keeper tree re-walked once per
+    /// a duplicates scan after a Verify — or a second duplicates scan, or the keeper tree re-walked once per
     /// redundant copy during a merge — re-read and re-hashed gigabytes that had not changed.
     ///
     /// Note what a hit deliberately bypasses: the cache holds DIGESTS, while `maxBytesToHash` and

@@ -77,7 +77,7 @@ import Design
         } else {
             defaults.removeObject(forKey: StorageSection.defaultsKey)
         }
-        let subject = TidyView(syncManager: manager, lens: .storage, providerName: "Projects",
+        let subject = LensWorkspaceView(syncManager: manager, lens: .storage, providerName: "Projects",
                                scanTargetFolder: "/root/Documents", onFindDuplicates: {},
                                onBuildStorage: {})
             .defaultAppStorage(defaults)
@@ -154,7 +154,7 @@ import Design
         return cluster.1 - cluster.0
     }
 
-    /// The states the fixture's report produces — the same accessor `TidyView` hands the model.
+    /// The states the fixture's report produces — the same accessor `LensWorkspaceView` hands the model.
     private static func states(_ report: StorageLensReport?) -> (StorageSection) -> RailItemState {
         { section in
             guard let report else { return .notScanned }

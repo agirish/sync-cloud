@@ -31,7 +31,7 @@ enum DifferencesQuery {
     /// differences each `DifferenceFilter` would show, tallied in ONE pass over the whole diff so
     /// the header can label every dropdown row without running the filter predicate once per
     /// filter per render. `searchText` is intentionally ignored — the counts reflect the entire
-    /// diff regardless of the search box, matching Tidy's filter menu. Filters with no matches are
+    /// diff regardless of the search box, matching the Duplicates lens's filter menu. Filters with no matches are
     /// absent from the dictionary; read with a `0` default.
     static func counts(_ differences: [FileDifference], failedIDs: Set<UUID>) -> [DifferenceFilter: Int] {
         var tally: [DifferenceFilter: Int] = [:]
@@ -94,7 +94,7 @@ enum DifferencesQuery {
     /// longer on screen.
     ///
     /// `singleSource` is deliberately not a parameter: `.differences` maps to `.compare` in
-    /// `TopPaneVisibility.mode(for:)`, so the Tidy rail and this table can never be on screen at
+    /// `TopPaneVisibility.mode(for:)`, so the single-source rail and this table can never be on screen at
     /// once and the hidden-right-pane case cannot reach here.
     static func spaceQuickLookTarget(
         lastInteracted: SelectionSurface?,

@@ -21,7 +21,7 @@ import FileExplorer
 ///
 /// The raw values are deliberately inherited from the enums this has collapsed over time, so a
 /// persisted selection survives: `Differences` and `Tidy` came from `ContentView.BottomTab`, and
-/// `Duplicates` / `Rename` / `Filing` / `Automations` / `Storage` from `TidyLens`. They are a
+/// `Duplicates` / `Rename` / `Filing` / `Automations` / `Storage` from `WorkspaceLensKind`. They are a
 /// stable persistence format — see `WorkspaceTests`. As with the enums before it, `title` is
 /// separate from `rawValue` precisely so a display name can change without stranding anyone
 /// (`Differences` shows as "Compare", `Filing` as "Organize").
@@ -76,9 +76,9 @@ enum Workspace: String, CaseIterable, Identifiable {
     ///
     /// Organize answers `.filing` as its *default* apparatus; which lens is actually on screen is
     /// the rail's business (``OrganizeLens/searchLens``), not the workspace's. This is the single
-    /// place the flat bar maps back onto the lens machinery inside `TidyView`, which still needs
-    /// `TidyLens` for its per-lens search grammars and scroll state.
-    var lens: TidyLens? {
+    /// place the flat bar maps back onto the lens machinery inside `LensWorkspaceView`, which still needs
+    /// `WorkspaceLensKind` for its per-lens search grammars and scroll state.
+    var lens: WorkspaceLensKind? {
         switch self {
         case .browse, .compare: return nil
         case .filing: return .filing
@@ -98,7 +98,7 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// "Find duplicates of this" from a Compare row used to name a workspace that *was* the
     /// answer, and now names one of six lenses inside Organize. A caller that set only the
     /// workspace would land on the overview and quietly lose the request.
-    static func destination(for lens: TidyLens) -> WorkspaceSelection {
+    static func destination(for lens: WorkspaceLensKind) -> WorkspaceSelection {
         guard let organizeLens = OrganizeLens(lens) else {
             // `.storage` is the only lens that is still a workspace of its own.
             return WorkspaceSelection(workspace: .storage, organizeLens: nil)
@@ -106,7 +106,7 @@ enum Workspace: String, CaseIterable, Identifiable {
         // `OrganizeLens.init(_:)` answers the PRESENTED rail item — `.rename` comes back as
         // `.renames`, already resolved — so a destination minted here can never write the folded
         // `.names` into the stored selection. The bridge owns that resolution now (pinned by
-        // `TidyLensFoldReachabilityTests`); a second `resolvedForPresentation` here would be a
+        // `LensFoldReachabilityTests`); a second `resolvedForPresentation` here would be a
         // restatement of the fold for the next reader to keep in sync.
         return WorkspaceSelection(workspace: .filing, organizeLens: organizeLens)
     }
@@ -146,7 +146,7 @@ extension Workspace {
     /// The defaults key holding the flat selection.
     static let defaultsKey = "selectedWorkspace"
     /// The defaults key holding the rail selection inside Organize. Absent means the overview.
-    /// Owned by ``OrganizeLens`` because `TidyView` reads it directly; aliased here so the
+    /// Owned by ``OrganizeLens`` because `LensWorkspaceView` reads it directly; aliased here so the
     /// migration below reads as one story.
     static let organizeLensKey = OrganizeLens.defaultsKey
     /// The two keys the flat bar replaced, read once by ``migrateSelection(in:)``.

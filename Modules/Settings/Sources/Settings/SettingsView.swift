@@ -1837,20 +1837,21 @@ private struct IgnoredItemsList: View {
 /// thin, and honestly so: this is the first place anyone hunting for the overlap threshold looks.
 ///
 /// Split out of the old Tidy tab along with `FilingSettingsTab`. Tidy was one tab holding the
-/// preferences of two workspaces that stopped sharing a home when the workspace bar went flat
-/// (Compare · Organize · Duplicates · Automations · Storage), under a word the rest of the
-/// product had already retired. The rule the split follows is *settings go where the work is*,
-/// not one tab per workspace — Automations, Storage and Compare get no tab because they have no
-/// preferences to put in one.
+/// preferences of two workspaces that stopped sharing a home when the workspace bar went flat,
+/// under a word the rest of the product had already retired. (That era's five segments —
+/// Compare · Organize · Duplicates · Automations · Storage — have since folded to
+/// Browse · Compare · Organize · Storage, with Duplicates and Automations as rail items inside
+/// Organize.) The rule the split follows is *settings go where the work is*, not one tab per
+/// workspace — Storage and Compare get no tab because they have no preferences to put in one.
 struct DuplicatesSettingsTab: View {
-    // The `tidy` prefixes are the DEFAULTS KEYS' ("tidyMinFileSize" and friends, owned by
-    // `DuplicateFinderOptions.DefaultsKey`), mirrored deliberately. The keys are a persistence
-    // format and did not move with the tab; a local name that stopped matching its key would be
-    // the first thing to mislead someone chasing a stored value.
-    @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var tidyMinFileSize: Int = 4096
-    @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
-    @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
-    @AppStorage(DuplicateFinderOptions.DefaultsKey.detectSameText) private var tidyDetectSameText: Bool = true
+    // The DEFAULTS KEYS keep their legacy `tidy` prefixes ("tidyMinFileSize" and friends, owned
+    // by `DuplicateFinderOptions.DefaultsKey`): they are a persistence format and did not move
+    // when the Tidy workspace was retired. The local names use the current vocabulary instead —
+    // anyone chasing a stored value should follow the `DefaultsKey` constant, not the property.
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var duplicateMinFileSize: Int = 4096
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var duplicateOverlapThreshold: Double = 0.7
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var duplicateDetectVersions: Bool = true
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.detectSameText) private var duplicateDetectSameText: Bool = true
 
     var body: some View {
         SettingsPage {
@@ -1865,8 +1866,8 @@ struct DuplicatesSettingsTab: View {
                 // Both row lists come from `SettingsPickerOptions` so a stored value outside the
                 // offered set still displays (and survives) instead of rendering as no selection.
                 SettingsRow("Ignore files smaller than") {
-                    Picker("Ignore files smaller than", selection: $tidyMinFileSize) {
-                        ForEach(SettingsPickerOptions.minFileSize(including: tidyMinFileSize)) { option in
+                    Picker("Ignore files smaller than", selection: $duplicateMinFileSize) {
+                        ForEach(SettingsPickerOptions.minFileSize(including: duplicateMinFileSize)) { option in
                             Text(option.label).tag(option.value)
                         }
                     }
@@ -1874,16 +1875,16 @@ struct DuplicatesSettingsTab: View {
                     .fixedSize()
                 }
                 SettingsRow("Folders overlap at") {
-                    Picker("Folders overlap at", selection: $tidyOverlapThreshold) {
-                        ForEach(SettingsPickerOptions.overlapThreshold(including: tidyOverlapThreshold)) { option in
+                    Picker("Folders overlap at", selection: $duplicateOverlapThreshold) {
+                        ForEach(SettingsPickerOptions.overlapThreshold(including: duplicateOverlapThreshold)) { option in
                             Text(option.label).tag(option.value)
                         }
                     }
                     .labelsHidden()
                     .fixedSize()
                 }
-                Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
-                Toggle("Read PDFs to find copies a byte hash misses", isOn: $tidyDetectSameText)
+                Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $duplicateDetectVersions)
+                Toggle("Read PDFs to find copies a byte hash misses", isOn: $duplicateDetectSameText)
             }
         }
     }
@@ -2139,7 +2140,7 @@ struct IntelligenceSettingsTab: View {
         .onAppear(perform: refreshSpend)
         // The store's change signal — the Organize lens's history sheet (main window) can Clear
         // History while this tab is open in the Settings window, and a scan can record spend
-        // mid-view. Mirrors TidyView's observer; `receive(on:)` because `record` posts from off
+        // mid-view. Mirrors LensWorkspaceView's observer; `receive(on:)` because `record` posts from off
         // the main actor.
         .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
             .receive(on: DispatchQueue.main)) { _ in refreshSpend() }

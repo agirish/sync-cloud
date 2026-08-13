@@ -3,7 +3,7 @@ import Foundation
 @testable import FileExplorer
 
 /// Pins ``RuleOfferLogic/relativeToProviderRoot(_:providerRoot:)`` across its extraction from
-/// TidyView (where it was an instance method reading `automationDestinationRoot`). The learned
+/// LensWorkspaceView (where it was an instance method reading `automationDestinationRoot`). The learned
 /// rule's destination template is derived from this, so a drift here re-points what users teach.
 @Suite struct RuleOfferLogicTests {
 

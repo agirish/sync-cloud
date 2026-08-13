@@ -6,7 +6,7 @@ import Foundation
 /// `Scan…` per unscanned lens — "To File — not scanned", "Names — not scanned",
 /// "Renames — not scanned" — which reads as three independent pieces of work you could
 /// choose between. They are one walk. `FileSyncManager+Filing.swift` says so at the site:
-/// *"Names, on the pass that is already here"*, and `TidyView.RailCounts` flips two of the
+/// *"Names, on the pass that is already here"*, and `LensWorkspaceView.RailCounts` flips two of the
 /// three from a single flag:
 ///
 /// ```swift
@@ -150,7 +150,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// What the pass costs, stated on the card rather than in a tooltip.
     ///
     /// **The file pass is free.** That is worth stating because the surrounding lens spends: the
-    /// refine control is the one paid action in Organize, and `TidyView.refineFilingSuggestions`
+    /// refine control is the one paid action in Organize, and `LensWorkspaceView.refineFilingSuggestions`
     /// is explicit that "the scan that produced these rows was free and on-device". A card that
     /// left the cost unsaid invites the assumption that any pass with a model behind it bills.
     var offerCost: String {

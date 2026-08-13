@@ -4,7 +4,7 @@ import Foundation
 
 /// **Which slot the search writes to.**
 ///
-/// `TidyView` keeps one query per lens, and it has two names for "which lens": `lens` is the
+/// `LensWorkspaceView` keeps one query per lens, and it has two names for "which lens": `lens` is the
 /// *workspace's* — always `.filing` inside Organize, whatever the rail is showing — and
 /// `effectiveLens` resolves the rail item on top of it. Every read has always used the resolved
 /// one. Two writes used the workspace's, and the fold that turned Duplicates and Rules from
@@ -21,16 +21,16 @@ import Foundation
 /// `lens: .duplicates`, a configuration the app can no longer produce, in which the two names are
 /// equal and both bugs vanish. So these are source-level, using the harness in
 /// ``OrganizeScopeCallSiteTests`` — which names its file and fails when it cannot be read.
-@Suite struct TidyLensSearchKeyTests {
+@Suite struct LensSearchKeyTests {
 
-    static func tidy() throws -> String { try OrganizeScopeCallSiteTests.source("TidyView.swift") }
+    static func workspaceSource() throws -> String { try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift") }
 
     /// The general rule, which is what makes this more than two spot checks: a search slot is
     /// addressed either by `effectiveLens` or by a lens **named outright** (`.duplicates` for the
     /// reveal's own query, `.storage` when a build starts). Never by the bare `lens` variable —
     /// that is the one spelling that silently means "some other lens's slot".
     @Test func noSearchSlotIsAddressedByTheWorkspacesLens() throws {
-        let source = OrganizeScopeCallSiteTests.codeOnly(try Self.tidy())
+        let source = OrganizeScopeCallSiteTests.codeOnly(try Self.workspaceSource())
         // `[lens, default: ""]` is in the list because that subscript form is the one the file
         // actually uses elsewhere (`searchQueries[.duplicates, default: ""]`), so it is the most
         // likely way a bare `lens` comes back — and the four-spelling sweep did not catch it.
@@ -47,7 +47,7 @@ import Foundation
     /// The positive half of the same claim, so the test above cannot pass by the search state
     /// having been renamed out from under it.
     @Test func theSearchSlotIsAddressedByTheResolvedLens() throws {
-        let source = try Self.tidy()
+        let source = try Self.workspaceSource()
         #expect(source.contains("searchQueries[effectiveLens]"),
                 "no query slot is keyed on the resolved lens — has the search state been renamed?")
         #expect(source.contains("searchExpandedLenses.remove(effectiveLens)"))
@@ -56,7 +56,7 @@ import Foundation
     /// The chip's ✕ edits the query the chip came from.
     @Test func removingAChipEditsTheLensTheChipWasOfferedFor() throws {
         let body = try OrganizeScopeCallSiteTests.body(of: "private func removeSearchChip(_ word: String) {",
-                                                       in: try Self.tidy())
+                                                       in: try Self.workspaceSource())
         #expect(body.contains("searchQueries[effectiveLens]"),
                 "the ✕ writes back to a different lens's query than the one it read the chips from")
     }
@@ -67,7 +67,7 @@ import Foundation
     @Test func theEmptyStateButtonClearsTheLensItIsShownFor() throws {
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
-            in: try Self.tidy())
+            in: try Self.workspaceSource())
         #expect(body.contains("searchQueries[effectiveLens] = \"\""),
                 "Clear Search clears a different lens's query than the one it is offered on")
         #expect(body.contains("searchExpandedLenses.remove(effectiveLens)"))
@@ -79,10 +79,10 @@ import Foundation
     /// all, the old wording asserted a search that was not running and offered to clear it. The
     /// cause is resolved first, and the control names what it will actually do.
     @Test func aFilterOnlyEmptyStateSaysSoRatherThanBlamingASearch() throws {
-        let tidy = try Self.tidy()
+        let view = try Self.workspaceSource()
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
-            in: tidy)
+            in: view)
         // The cause, not the spelling: whichever way the predicate is written, the branch must be
         // decided by "no query AND the type filter is narrowing" and must name the filter.
         #expect(body.contains("let filterOnly = query.isEmpty && filterIsNarrowing && total > 0"),
@@ -99,10 +99,10 @@ import Foundation
         // query, so routing the empty-query case straight to `scopeHidesAllState` made this branch
         // unreachable under any scope — and told the reader that all N groups were somewhere else
         // while they were right there behind the filter.
-        #expect(tidy.contains("if scopedTotal == 0, let scope {"),
+        #expect(view.contains("if scopedTotal == 0, let scope {"),
                 "a filter-narrowed scoped list still blames the scope, and the branch above is dead there")
         // One predicate, so the chooser and the wording cannot drift apart.
-        #expect(tidy.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
+        #expect(view.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
         // **Neither a query nor a filter can be the cause of an empty list it had no part in.**
         // Over a scope holding nothing, both sentences degenerate to "hides all 0 …" with a button
         // that clears the control and re-renders the same empty list, while the scope's own
@@ -110,7 +110,7 @@ import Foundation
         // behaviour of the message text below, not only as the predicate above.
         #expect(body.contains("total == 1 ? \"\" : \"s\""),
                 "the empty state no longer counts what it claims to be hiding")
-        #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: tidy)
+        #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: view)
                     .contains("filterIsNarrowing"),
                 "`isFiltered` restates the filter rule instead of sharing it")
     }

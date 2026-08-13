@@ -30,7 +30,7 @@ enum PaneToken: Equatable, Sendable {
     case left
     /// The right comparison pane.
     case right
-    /// The Tidy single-source rail, which has no opposite pane at all.
+    /// The single-source rail, which has no opposite pane at all.
     case singleSource
 
     init(isLeft: Bool, isSingleSource: Bool) {

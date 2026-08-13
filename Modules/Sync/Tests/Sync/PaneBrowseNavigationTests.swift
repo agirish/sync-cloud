@@ -155,10 +155,10 @@ import Events
         #expect(m.leftBrowsePath.currentDirectory(treeRoot: "/r") == "/r/Documents")
     }
 
-    // MARK: - The Tidy rail shares the left pane's column stack
+    // MARK: - The single-source rail shares the left pane's column stack
 
     // The rail renders through the left pane's state — focus, selection, history AND browse path —
-    // so a column stack built in Tidy is still there when the user switches to Compare. That is
+    // so a column stack built in Organize is still there when the user switches to Compare. That is
     // deliberate continuity, but until now nothing pinned WHICH half of it is deliberate: the stack
     // survives only while it still describes real folders in the tree the pane actually has. These
     // three tests fix that boundary, so a future change to the rail cannot quietly turn shared

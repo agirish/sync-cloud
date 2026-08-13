@@ -318,7 +318,7 @@ struct ReviewCardView: View {
                 leftPath: item.leftItemPath,
                 rightPath: item.rightItemPath,
                 fileManager: fileManager,
-                // The same session cache Verify All and the Tidy scans use. Without it this path
+                // The same session cache Verify All and the lens scans use. Without it this path
                 // only *said* it reused the bulk hashing: stepping back to an item, or verifying
                 // one Verify All had already hashed, re-read and re-hashed both sides from disk.
                 // Keyed on (path, mtime, size), so an edited file is bypassed rather than served.

@@ -11,7 +11,7 @@ struct StatPill: View {
     let color: Color
     let systemImage: String
     /// Optional affordance symbol at the capsule's trailing edge (e.g. a chevron when the
-    /// pill doubles as a button). Nil — the default, used by Tidy's static pills — delegates
+    /// pill doubles as a button). Nil — the default, used by the lens workspaces' static pills — delegates
     /// to the shared `Pill`, whose 5pt spacing is 1pt tighter than this pill's original 6pt
     /// (an accepted tightening when the look was unified on Design's variant).
     var trailingSystemImage: String? = nil

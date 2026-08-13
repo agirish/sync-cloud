@@ -249,7 +249,7 @@ struct PaneColumnsView: View {
                 // and that takes the preview with it.
                 //
                 // `placement` is the signal because its contract is already "nil on surfaces with no
-                // action bar", which is why the Tidy rail (where this column shipped first) never had
+                // action bar", which is why the single-source rail (where this column shipped first) never had
                 // the problem.
                 //
                 // Deliberately NOT also `isActivePane`, though that would be the more precise reading
@@ -397,7 +397,7 @@ struct PaneColumnsView: View {
             //
             // Gated on THIS pane's `showsPreview`, because the stored width is one process-wide
             // key shared by up to three `PaneColumnsView` instances (both comparison panes and
-            // the Tidy rail): ending a drag in one pane fired this handler in every pane, and a
+            // the single-source rail): ending a drag in one pane fired this handler in every pane, and a
             // pane whose preview is hidden had its viewport untouched by that drag — revealing
             // there force-scrolled a stack the user may have deliberately scrolled back.
             //

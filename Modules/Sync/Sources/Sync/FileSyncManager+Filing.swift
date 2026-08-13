@@ -1053,7 +1053,7 @@ extension FileSyncManager {
             migrated += 1
         }
         filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
-        Logger.shared.info("Migrated \(migrated) remembered filing rule(s) into Automations — manage them under Tidy ▸ Automations")
+        Logger.shared.info("Migrated \(migrated) remembered filing rule(s) into rules — manage them under Organize ▸ Rules")
     }
 
     // MARK: Rejections + "Try another" (negative feedback)

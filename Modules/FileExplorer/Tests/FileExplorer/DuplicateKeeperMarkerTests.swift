@@ -2,7 +2,7 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Pins the pure marker mapping behind the Tidy card's keeper column: only rows the user can
+/// Pins the pure marker mapping behind the Duplicates card's keeper column: only rows the user can
 /// actually pick draw a radio; groups without a keeper choice get a plain dot instead.
 @Suite struct DuplicateKeeperMarkerTests {
     @Test func keeperShowsFilledRadioRegardlessOfChoice() {

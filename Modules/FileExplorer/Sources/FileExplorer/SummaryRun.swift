@@ -25,7 +25,7 @@ import Design
 /// The colour therefore moves to the glyph, which is a non-text indicator and answers to 3:1 rather
 /// than 4.5:1, and the words take the standard label hierarchy: the count at `.primary` because it
 /// is the fact, the noun at `.secondary` because it only names it. That is strictly more readable
-/// than what it replaces, and it is the same treatment ``TidyView/scannedFolderChip(_:)`` already
+/// than what it replaces, and it is the same treatment ``LensWorkspaceView/scannedFolderChip(_:)`` already
 /// used — which is why the scope now reads as the first member of the readout instead of an oddity
 /// between two groups.
 struct SummaryRun: View {

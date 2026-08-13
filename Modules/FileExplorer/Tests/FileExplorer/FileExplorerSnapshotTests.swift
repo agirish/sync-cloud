@@ -287,7 +287,7 @@ import Sync
     /// Collapsed file "Versions" group: type badge, middle-truncating name, subtitle,
     /// green reclaim figure, disclosure chevron. Collapsed deliberately — expansion would
     /// pull async QuickLook thumbnails into the tree.
-    @Test func tidyGroupCardCollapsedVersions() {
+    @Test func duplicateGroupCardCollapsedVersions() {
         let group = DuplicateGroup(
             matchType: .versions,
             name: "Quarterly Report final revised (2).pdf",
@@ -314,7 +314,7 @@ import Sync
     /// copy would read the same too, and an action row that offers a per-group trash while the
     /// group stays out of "Apply recommended". Rendered because none of that is provable from
     /// geometry — the badge, the note and the button label are the whole claim.
-    @Test func tidyGroupCardExpandedSameText() {
+    @Test func duplicateGroupCardExpandedSameText() {
         let group = DuplicateGroup(
             matchType: .sameText,
             name: "Jul 2023.pdf",
@@ -339,7 +339,7 @@ import Sync
     /// tree synchronous): keeper radio vs selectable radio, breadcrumbs with the provider
     /// crumb, Keep/Move-to-Trash fate chips, the safety note, and the action row including
     /// "Compare copies".
-    @Test func tidyGroupCardExpandedIdenticalFolders() {
+    @Test func duplicateGroupCardExpandedIdenticalFolders() {
         let group = DuplicateGroup(
             matchType: .identical,
             name: "Tax 2025",
@@ -363,7 +363,7 @@ import Sync
     /// Compact-density twin of the expanded card above (same fixture, same canvas): pins the
     /// density behavior nothing else snapshots — tighter header/row padding and the hidden
     /// secondary detail lines — so a compact regression can't hide behind a green comfortable run.
-    @Test func tidyGroupCardExpandedIdenticalFoldersCompact() {
+    @Test func duplicateGroupCardExpandedIdenticalFoldersCompact() {
         let group = DuplicateGroup(
             matchType: .identical,
             name: "Tax 2025",

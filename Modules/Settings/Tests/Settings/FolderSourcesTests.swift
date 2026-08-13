@@ -6,7 +6,7 @@ import Sync
 @testable import Settings
 
 /// Folder sources in Settings (roadmap 1a): the curated list of plain folders, merged into
-/// `availableProviders` so every downstream surface — panes, Tidy, the diff engine, the CLI — gets
+/// `availableProviders` so every downstream surface — panes, the lens workspaces, the diff engine, the CLI — gets
 /// one for free, and the four things the roadmap flagged as likely to bite.
 @Suite struct FolderSourcesTests {
 

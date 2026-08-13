@@ -111,7 +111,7 @@ import Sync
     }
 
     @Test func kindImageClassMatchesAnyImageExtension() {
-        // `kind:image` is the same class alias the Tidy search resolves — one vocabulary across
+        // `kind:image` is the same class alias the lens search resolves — one vocabulary across
         // surfaces (it used to be Tidy-only, so `kind:image` in Compare matched nothing).
         let query = DifferenceSearch.parse("kind:image")
         #expect(query.matches(diff("Photos/a.jpg"), pathRootName: nil))
@@ -122,7 +122,7 @@ import Sync
         #expect(!query.matches(diff("Docs/noext"), pathRootName: nil))
     }
 
-    @Test func kindClassTableIsSharedWithTheTidySearch() {
+    @Test func kindClassTableIsSharedWithTheLensSearch() {
         // Both surfaces resolve `kind:` aliases through the same table; if they ever fork, the
         // "one vocabulary" promise (and the shared suggestion copy) silently breaks.
         #expect(DuplicateSearch.kindClasses == DifferenceSearch.kindClasses)
@@ -132,7 +132,7 @@ import Sync
 
     @Test func repeatedKindTokensAreLastWins() {
         // A path has ONE extension, so two conjunctive kind: tokens are a guaranteed dead-end;
-        // parse keeps only the last, like the Tidy and Log families.
+        // parse keeps only the last, like the lens and Log families.
         let query = DifferenceSearch.parse("kind:pdf kind:png")
         #expect(query.tokens == [.kind("png")])
         #expect(query.matches(diff("a.png"), pathRootName: nil))

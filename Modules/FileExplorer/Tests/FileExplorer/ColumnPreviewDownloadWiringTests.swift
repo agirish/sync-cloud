@@ -50,7 +50,7 @@ import UniformTypeIdentifiers
 /// carries. See `docs/flaky-tests.md` mechanism 9.
 ///
 /// Which leaves the token free to be the one this pane really is: `isSingleSource: true` mounts the
-/// Tidy rail, so it derives `.singleSource`, and the post below sends from `.singleSource` because
+/// single-source rail, so it derives `.singleSource`, and the post below sends from `.singleSource` because
 /// that is what the rail's own preview column would send.
 ///
 /// The `.default` the app runs on is no longer exercised end to end from here. Both halves of that

@@ -24,7 +24,7 @@ public struct DetailsSidebar: View {
     /// An explicit path to inspect, overriding the pane selection — set by "Get Info" on a
     /// differences-table row, whose file has no pane selection to derive from. nil = follow selection.
     public let overridePath: String?
-    /// True when the inspector is showing the single-source Tidy rail (which is the left pane). The
+    /// True when the inspector is showing the single-source rail (which is the left pane). The
     /// right pane is hidden there, so its (possibly stale) selection from a prior Compare session must
     /// not drive the inspector — otherwise the panel would describe a file in the wrong provider.
     public let singleSource: Bool
@@ -125,7 +125,7 @@ public struct DetailsSidebar: View {
     }
     
     /// The right pane's selection, treated as empty in single-source mode: the right pane is hidden
-    /// on the Tidy rail, so its lingering selection must not leak into what the inspector shows.
+    /// on the single-source rail, so its lingering selection must not leak into what the inspector shows.
     private var rightSelectionPaths: Set<String> {
         singleSource ? [] : syncManager.selectedRightPaths
     }

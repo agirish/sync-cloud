@@ -2,9 +2,9 @@ import SwiftUI
 
 /// The app's one blank-panel template (backlog H3): icon + title + message, an optional
 /// caption line for the safety contract ("Nothing is removed without your confirmation…"),
-/// and up to two actions. Every tab's "nothing here" state — Differences, Tidy, Filing, the
+/// and up to two actions. Every workspace's "nothing here" state — Compare, Organize, the
 /// Activity Log — renders through this so an empty panel always looks intentional and always
-/// offers the next step. Modeled on the Tidy Duplicates pre-scan (the L4 gold standard).
+/// offers the next step. Modeled on the Duplicates pre-scan (the L4 gold standard).
 ///
 /// All copy is parameterized — this view hard-codes layout, never words.
 public struct EmptyStateView: View {

@@ -38,7 +38,7 @@ public struct DestinationSearchOutcome: Equatable, Sendable {
 /// The folder tree behind the destination picker.
 ///
 /// Deliberately **not** `PaneChildrenIndex`. That index is built from a pane's published tree,
-/// which is rooted at the pane's *focused* path — for the Tidy rail that is the lens folder (the
+/// which is rooted at the pane's *focused* path — for the single-source rail that is the lens folder (the
 /// loose-files inbox, say), so browsing it could only ever offer destinations inside the folder you
 /// are filing out of. The picker has to reach the whole provider.
 ///

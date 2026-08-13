@@ -9,7 +9,7 @@ import Design
 ///
 /// Three defects lived here, and all three were invisible to every existing suite for the same
 /// reason: `searchQueries` is `@State` seeded empty, SwiftUI is undrivable from a unit test, and so
-/// *no test had ever rendered this screen with a live query in it*. `TidyView.init`'s
+/// *no test had ever rendered this screen with a live query in it*. `LensWorkspaceView.init`'s
 /// `initialSearchQueries` is the seam that fixes that; these are what it buys.
 ///
 ///   * Organize's overview drew a live "N of M" over sections it neither filters nor counts —
@@ -26,7 +26,7 @@ import Design
 ///
 /// `.machinePinned(.pixelSampling)`, like every suite here that reads a live renderer back.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct TidyHeaderReadoutTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct LensHeaderReadoutTests {
 
     private static let canvas = CGSize(width: 720, height: 620)
 
@@ -111,11 +111,11 @@ import Design
     /// The rail selection goes through a fresh `ScratchDefaults` and `.defaultAppStorage` rather
     /// than `UserDefaults.standard`: other suites in this target write that key and Swift Testing
     /// runs suites in parallel, so the faithful copy would make every render here race them.
-    private func mount(_ manager: FileSyncManager, lens: TidyLens = .filing,
-                       rail: OrganizeLens?, queries: [TidyLens: String]) -> Mounted {
-        let defaults = ScratchDefaults("TidyHeaderReadoutTests")
+    private func mount(_ manager: FileSyncManager, lens: WorkspaceLensKind = .filing,
+                       rail: OrganizeLens?, queries: [WorkspaceLensKind: String]) -> Mounted {
+        let defaults = ScratchDefaults("LensHeaderReadoutTests")
         if let rail { defaults.set(rail.rawValue, forKey: OrganizeLens.defaultsKey) }
-        let subject = TidyView(syncManager: manager, lens: lens,
+        let subject = LensWorkspaceView(syncManager: manager, lens: lens,
                                providerName: "Projects", scanTargetFolder: "/root",
                                onFindDuplicates: {}, initialSearchQueries: queries)
             .defaultAppStorage(defaults)

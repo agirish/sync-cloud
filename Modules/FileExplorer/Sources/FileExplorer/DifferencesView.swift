@@ -963,7 +963,7 @@ public struct DifferencesView: View {
                 // else is listed even at zero, so the menu's shape stays constant.
                 ForEach(DifferenceFilter.allCases.filter { $0.isOffered(failedCount: filterCounts[.failed, default: 0]) },
                         id: \.self) { filter in
-                    // Count appended to each dropdown row (Tidy's `Identical (312)` pattern);
+                    // Count appended to each dropdown row (the Duplicates lens's `Identical (312)` pattern);
                     // the collapsed menu button below stays just the active filter's name.
                     Text("\(filter.displayName(leftName: paneNames.left, rightName: paneNames.right)) (\(filterCounts[filter, default: 0]))")
                         .tag(filter)
@@ -1452,7 +1452,7 @@ public struct DifferencesView: View {
         //
         // So this asks `CurrentSelection` rather than assuming the answer is its own row.
         // `singleSource: false` unconditionally: `compareBottomListActive` gates this whole view
-        // to Compare, and Tidy shows `TidyView` instead, so the rail's hidden-right-pane case
+        // to Compare, and the lens workspaces show `LensWorkspaceView` instead, so the rail's hidden-right-pane case
         // cannot reach here.
         .onKeyPress(.space) {
             guard let onQuickLook, let targetPath = DifferencesQuery.spaceQuickLookTarget(
@@ -1715,7 +1715,7 @@ public struct DifferencesView: View {
 
     /// The recognized filter words as removable chips (Design's shared `TokenChipsRow`): a human
     /// reading of the query, each with an ✕ that edits its exact word back out of the raw text —
-    /// mirroring the Tidy search's chips. The labels stay this view's `tokenLabel` because the
+    /// mirroring the lens search's chips. The labels stay this view's `tokenLabel` because the
     /// `only:` chips name the live panes.
     private func tokenChips(_ chips: [DifferenceSearch.Chip]) -> some View {
         HStack(spacing: 6) {
@@ -1838,7 +1838,7 @@ public struct DifferencesView: View {
     // MARK: Empty state
 
     /// The table's blank overlay, on the app's unified empty-state template (H3). The filtered-to-
-    /// empty branches offer one click out (mirroring Tidy's "Clear Filters") instead of a blank
+    /// empty branches offer one click out (mirroring the lens workspace's "Clear Filters") instead of a blank
     /// table that reads like there are no differences.
     @ViewBuilder
     private var emptyState: some View {

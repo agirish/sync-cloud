@@ -91,7 +91,7 @@ public struct FileTreeView: View, Equatable {
     /// the "Open Settings" buttons.
     public let onOpenSettings: (() -> Void)?
 
-    /// True when this pane is the Tidy single-source rail rather than one of the two comparison
+    /// True when this pane is the single-source rail rather than one of the two comparison
     /// panes. The rail has no "other pane" to compare or copy across, so its row menu drops the
     /// comparison-only items (Ignore, Copy/Move to the other provider) and renames "Compare only
     /// this folder" to a plain "Open".
@@ -99,7 +99,7 @@ public struct FileTreeView: View, Equatable {
 
     /// Shared placement scratch space, owned by the host (one per pane). This view fills its live
     /// geometry (`rowBottoms`/`viewportHeight`) from row/viewport probes; the host reads the edge
-    /// straight from its own `body`. `nil` on the Tidy rail, which has no action bar.
+    /// straight from its own `body`. `nil` on the single-source rail, which has no action bar.
     private let placement: PaneBarPlacement?
     /// Called when a SCROLL crossing flips the resolved edge — the host re-renders (with animation)
     /// so the bar cross-fades. Selection-driven placement needs no callback: changing the selection
@@ -107,7 +107,7 @@ public struct FileTreeView: View, Equatable {
     private let onBarEdgeFlip: (() -> Void)?
 
     /// How this pane presents its tree. Defaults to `.tree` so every existing caller — most
-    /// importantly the Tidy single-source rail — is unaffected until it opts in; only the two
+    /// importantly the single-source rail — is unaffected until it opts in; only the two
     /// comparison panes pass `.columns`.
     public let viewMode: PaneViewMode
     /// Path → children for this pane's published tree, used only by the columns presentation.
@@ -150,7 +150,7 @@ public struct FileTreeView: View, Equatable {
     /// draw for free: `PaneListSelectionStyler` turns the system highlight off (to get the accent
     /// instead of OS gray) and the window is pinned to `controlActiveState == .active` (to stop the
     /// glass graying out), so between them nothing was left to say WHICH pane holds the selection.
-    /// Defaults true — the Tidy rail is the only pane on screen.
+    /// Defaults true — the single-source rail is the only pane on screen.
     public let isActivePane: Bool
 
     /// Presents the row menu's Quick Look through the HOST's panel, when the host offers one.
@@ -249,8 +249,8 @@ public struct FileTreeView: View, Equatable {
         self.otherSelection = otherSelection
         self.isLeft = isLeft
         self.delegate = delegate
-        // A difference is a statement about the OTHER pane, and the rail has no other pane: Tidy
-        // scans one folder. The badges it drew came from whatever Compare last scanned, so Tidy
+        // A difference is a statement about the OTHER pane, and the rail has no other pane: a lens
+        // scans one folder. The badges it drew came from whatever Compare last scanned, so the rail
         // showed counts against a provider it isn't looking at — and left them standing after the
         // scan that produced them was long stale. Emptying the index here, rather than at each of
         // the three render sites, means neither presentation can reintroduce the badge.
@@ -467,8 +467,8 @@ public struct FileTreeView: View, Equatable {
     /// Comparison-only, deliberately. `ignoredPaths` means "exclude from the Left↔Right diff": it
     /// is set and cleared through the row menu's "Ignore in comparison", which `FileContextMenu`
     /// already drops on the single-source rail because there is nothing over there to compare
-    /// against. Striking the rows anyway told a Tidy user their folders were excluded from
-    /// something Tidy does not do, and offered no way to undo it — so the rail renders every row
+    /// against. Striking the rows anyway told a lens user their folders were excluded from
+    /// something a lens scan does not do, and offered no way to undo it — so the rail renders every row
     /// plain. The stored ignores are untouched; Compare still honors them.
     static func rowIsIgnored(_ node: FileNode, currentPath: String, delegate: FileActionDelegate, isSingleSource: Bool) -> Bool {
         guard !isSingleSource else { return false }
@@ -708,7 +708,7 @@ public struct FileTreeView: View, Equatable {
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
         // Clicking below the last row deselects. Depth is `nil`: Tree mode has no column stack, so
-        // there is nothing to truncate — this surface (and the Tidy rail, which is always Tree)
+        // there is nothing to truncate — this surface (and the single-source rail, which is always Tree)
         // only clears.
         .background(PaneBackgroundDeselect {
             Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") tree empty area")
@@ -837,7 +837,7 @@ public struct FileTreeView: View, Equatable {
     /// subtrees where a named space can't be resolved (the lookup silently degraded to global
     /// anyway, while the viewport half measured locally — the mismatched frames of reference were
     /// the premature flip). The placement math subtracts the viewport's global origin.
-    /// Withheld on the Tidy rail (no action bar to place).
+    /// Withheld on the single-source rail (no action bar to place).
     @ViewBuilder
     private func rowPositionProbe(for node: FileNode) -> some View {
         if placement != nil {
@@ -924,7 +924,7 @@ struct FileContextMenu: View {
     let currentPath: String
     let delegate: FileActionDelegate
     let otherPaneName: String
-    /// True on the Tidy single-source rail: no opposite pane exists, so the comparison-only items
+    /// True on the single-source rail: no opposite pane exists, so the comparison-only items
     /// (Ignore, Copy/Move to the other provider, Copy from the other pane) are dropped and the
     /// folder-focus item reads as a plain "Open" rather than "Compare only this folder".
     let isSingleSource: Bool

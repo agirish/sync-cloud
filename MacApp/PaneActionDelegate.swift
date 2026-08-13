@@ -14,7 +14,7 @@ struct PaneActionDelegate: FileActionDelegate {
     let isLeft: Bool
     let leftProviderId: String
     let rightProviderId: String
-    /// True when this delegate serves the Tidy single-source rail: there is no visible sibling
+    /// True when this delegate serves the single-source rail: there is no visible sibling
     /// pane, so linked navigation (the 🔗 toggle) must not drag the hidden right pane along.
     let isSingleSource: Bool
     let forceRefreshAction: () -> Void

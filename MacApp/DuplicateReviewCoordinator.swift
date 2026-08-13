@@ -4,7 +4,7 @@ import Events
 import FileExplorer
 import Design
 
-/// The duplicate-review flow handed off from Tidy to Compare, extracted from `ContentView`:
+/// The duplicate-review flow handed off from the Duplicates lens to Compare, extracted from `ContentView`:
 /// opening two copies side by side (`compareCopies`), the keep-left / trash-right banner and its
 /// actions, and the teardown/restore plumbing driven by `CompareReviewReducer`. The reducer stays
 /// the single place the review DECISIONS live; this coordinator owns the effect EXECUTION — the
@@ -50,10 +50,10 @@ struct DuplicateReviewCoordinator {
     /// path) — `duplicateReviewActive` compares them against the reviewed copies.
     let currentLeftPath: @MainActor () -> String
     let currentRightPath: @MainActor () -> String
-    /// Whether a Tidy scan/inspect targets the right pane (see `PaneLogic.tidyTargetsRightPane`).
-    let tidyTargetIsRight: @MainActor () -> Bool
-    /// The provider root of the pane a Tidy action targets, tilde-expanded.
-    let tidyProviderRootExpanded: @MainActor () -> String
+    /// Whether a lens scan/inspect targets the right pane (see `PaneLogic.lensTargetsRightPane`).
+    let lensTargetIsRight: @MainActor () -> Bool
+    /// The provider root of the pane a lens action targets, tilde-expanded.
+    let lensProviderRootExpanded: @MainActor () -> String
 
     /// Reloads both pane trees and runs a diff scan (the host's `refreshAction`).
     let refreshAction: @MainActor () -> Void
@@ -76,18 +76,18 @@ struct DuplicateReviewCoordinator {
 
     /// Opens two copies of a duplicate *folder* group side by side in Compare: the keeper on the
     /// left (kept), the redundant copy on the right (the delete candidate). Duplicate groups never
-    /// span providers (the finder walks a single provider tree), so both copies share the Tidy
+    /// span providers (the finder walks a single provider tree), so both copies share the lens
     /// provider root — this pins both panes to that provider, focuses each on its copy, and runs the
-    /// diff. Switching to Compare doesn't disturb the Tidy tab's scan results, so the user can tab
+    /// diff. Switching to Compare doesn't disturb the lens scan results, so the user can tab
     /// back to the duplicate list and compare the next pair.
     ///
-    /// Changing a provider id normally clears the Tidy results and resets navigation (see the id
+    /// Changing a provider id normally clears the lens results and resets navigation (see the id
     /// `onChange` handlers) — both would sabotage this, wiping the duplicate list the user must be
     /// able to return to and the focus set just below. So each id change is suppressed via
     /// `pendingSwapProviderChanges`, exactly as a pane swap does.
     func compareCopies(keep: DuplicateCopy, delete: DuplicateCopy) {
-        let providerId = tidyTargetIsRight() ? rightProviderId : leftProviderId
-        let providerRoot = tidyProviderRootExpanded()
+        let providerId = lensTargetIsRight() ? rightProviderId : leftProviderId
+        let providerRoot = lensProviderRootExpanded()
         let keepPath = (keep.path as NSString).expandingTildeInPath
         let deletePath = (delete.path as NSString).expandingTildeInPath
         // PathBoundary is boundary-safe on "/" ("/a/Docs" never claims "/a/DocsBackup"); a copy
@@ -96,7 +96,7 @@ struct DuplicateReviewCoordinator {
         guard !providerRoot.isEmpty,
               let keepRel = PathBoundary.relativize(keepPath, under: providerRoot),
               let deleteRel = PathBoundary.relativize(deletePath, under: providerRoot) else {
-            Logger.shared.warning("Compare copies: a copy path sits outside the Tidy provider root — skipping")
+            Logger.shared.warning("Compare copies: a copy path sits outside the lens provider root — skipping")
             return
         }
         // Snapshot the Compare setup so exiting the review restores it — but when a review is already
@@ -111,7 +111,7 @@ struct DuplicateReviewCoordinator {
         // duplicateReview is set below, after the panes are pinned.
         dispatchReview(.compareCopiesStarted)
 
-        // Suppress the id onChange for each id that actually changes, so neither clears the Tidy
+        // Suppress the id onChange for each id that actually changes, so neither clears the lens
         // duplicate results nor resets the focus applied just below.
         let plan = ProviderPinPlan.make(
             currentLeft: leftProviderId, currentRight: rightProviderId,
@@ -127,7 +127,7 @@ struct DuplicateReviewCoordinator {
         // The suppression above also skips resetNavigation's comparison invalidation, so drop the
         // OLD comparison's differences here — they carry absolute paths for roots the panes are
         // about to stop showing, and would stay actionable until the re-diff lands. Targeted so
-        // the Tidy duplicate results survive (the whole reason the onChange is suppressed).
+        // the duplicate results survive (the whole reason the onChange is suppressed).
         syncManager.invalidateDifferencesForPaneRetarget()
         syncManager.focusOn(relativePath: keepRel, isLeft: true)
         syncManager.focusOn(relativePath: deleteRel, isLeft: false)
@@ -261,7 +261,7 @@ struct DuplicateReviewCoordinator {
     /// Puts both Compare panes back to a saved setup — used when a duplicate review ends, so pinning
     /// both panes to the duplicate's provider never permanently repoints the user's right pane. The
     /// id onChanges are suppressed (as `compareCopies` does) so the restore can't clear the surviving
-    /// Tidy results or reset navigation; then each pane re-focuses its saved folder and rescans.
+    /// lens results or reset navigation; then each pane re-focuses its saved folder and rescans.
     /// Ending any active guided review is the reducer's job (it always pairs `.endGuidedReview` with
     /// `.restoreCompareState`), so it is deliberately NOT done here.
     private func restoreCompareState(_ saved: SavedCompareState) {
@@ -276,7 +276,7 @@ struct DuplicateReviewCoordinator {
             pairKey: IgnoredItemsStore.pairKey(saved.leftProviderId, saved.rightProviderId))
         // Same targeted invalidation as compareCopies: the review's diff of the two copies must
         // not stay actionable while the restored panes' trees load (the suppression above skips
-        // the full reset that would normally clear it — and would also wipe the Tidy results).
+        // the full reset that would normally clear it — and would also wipe the lens results).
         syncManager.invalidateDifferencesForPaneRetarget()
         syncManager.focusOn(relativePath: saved.leftRelativePath, isLeft: true)
         syncManager.focusOn(relativePath: saved.rightRelativePath, isLeft: false)
@@ -317,7 +317,7 @@ struct DuplicateReviewCoordinator {
             // That stat is the ONLY suspension between the user's click and the trash, and it
             // exists precisely for the case where it is slow: an unmounted cloud or SMB keeper can
             // take seconds to answer. Seconds in which the window is live — "Done" sits right
-            // beside the destructive button, and Tidy's list is one tab away, so the user can end
+            // beside the destructive button, and the Duplicates list is one tab away, so the user can end
             // this review or open a DIFFERENT pair through `compareCopies` before the answer lands.
             // Either way the review this task was started for is no longer the one on screen:
             // trashing would delete a copy the user has stopped looking at, and the
@@ -352,7 +352,7 @@ struct DuplicateReviewCoordinator {
     }
 }
 
-/// A live "compare two duplicate copies" review handed off from Tidy to the Compare tab. Holds the
+/// A live "compare two duplicate copies" review handed off from the Duplicates lens to the Compare tab. Holds the
 /// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right —
 /// plus the Compare setup to put back when the review ends.
 struct DuplicateCompareContext: Equatable {
@@ -366,7 +366,7 @@ struct DuplicateCompareContext: Equatable {
     let keepIsDirectory: Bool
     let keepScannedSize: Int
     /// The two copies as provider-root-relative paths — used to re-focus the panes when the user
-    /// returns to Compare after a Tidy detour reset the shared left pane to the rail's root.
+    /// returns to Compare after a lens detour reset the shared left pane to the rail's root.
     let keeperRelativePath: String
     let redundantRelativePath: String
     /// Where Compare was before this review pinned both panes to the duplicate's provider — restored

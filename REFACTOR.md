@@ -403,7 +403,7 @@ Recorded so they are not re-flagged by a future review:
 
 | File | Size | Why skipped |
 |---|---|---|
-| `Modules/FileExplorer/.../TidyView.swift` | 4330 | Independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
+| `Modules/FileExplorer/.../LensWorkspaceView.swift` | 4330 | Independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
 | `Modules/FileExplorer/.../DifferencesView.swift` | 2308 | Header compaction ladder + review mode + search + table. The genuinely coupled part (the collapse rule) was already extracted to `DifferencesView.isCollapsedToHeaderStrip` in `517b1f0`. |
 | `Modules/Design/.../LiquidGlassStyle.swift` | 1015 | Mostly sprawl — hue table, `GlassLevel`, Clear-glass constants, card modifiers. **Partial exception:** four near-identical card modifiers whose clip/chrome *ordering* differs per path. Worth a look if anyone is in there anyway; not worth a dedicated pass. |
 | `MacApp/ContentView.swift` | 3153 | Audited in the second sweep. The genuinely coupled part is item 9 (the suppression counter); the rest is composition — layout modifiers, `.onChange` mirrors of Settings, sheet/inspector plumbing — already thinned by `ContentView+SplitLayout`, `ContentView+Toolbar`, `PaneLogic`, `CompareReviewReducer`, and `DuplicateReviewCoordinator`. Splitting further buys nothing item 9 doesn't. |

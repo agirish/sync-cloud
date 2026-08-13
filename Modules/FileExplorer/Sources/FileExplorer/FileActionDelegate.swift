@@ -137,7 +137,7 @@ extension FileActionDelegate {
     public var clipboardHasItems: Bool { true }
 
     /// No-op default so the protocol can grow without every test double having to. The menu item
-    /// that reaches this is gated on `isSingleSource` — only the Tidy rail draws it, and its host
+    /// that reaches this is gated on `isSingleSource` — only the single-source rail draws it, and its host
     /// implements the method — so this arm is never taken from the UI.
     public func handleChooseDestination(_ nodes: [FileNode], isMove: Bool) {}
 

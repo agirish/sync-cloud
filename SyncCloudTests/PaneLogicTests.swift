@@ -125,23 +125,23 @@ import Sync
     // `CurrentSelectionTests` now owns these cases (alphabetical-not-hash-order, left-first, empty,
     // plus the single-source rule this pair never covered).
 
-    // MARK: tidyTargetsRightPane
+    // MARK: lensTargetsRightPane
 
-    @Test func testTidySingleSourceAlwaysTargetsLeftEvenWithStaleRightSelection() {
-        // The Tidy rail IS the left pane, so single-source mode must never target the right pane —
+    @Test func testASingleSourceScanAlwaysTargetsLeftEvenWithStaleRightSelection() {
+        // The single-source rail IS the left pane, so single-source mode must never target the right pane —
         // even when a selection lingers in the hidden right pane from a prior Compare session (which
         // would otherwise make `activePane` resolve to `.right` and aim the scan at the wrong provider).
-        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: false, activePane: .right))
-        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: false, activePane: .left))
-        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: false, activePane: nil))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, activePane: .right))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, activePane: .left))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, activePane: nil))
     }
 
-    @Test func testTidyCompareFollowsTheFocusedPane() {
-        // In compare mode a Tidy scan launched from a menu targets the pane the user is working in.
-        #expect(PaneLogic.tidyTargetsRightPane(isCompare: true, activePane: .right))
-        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: true, activePane: .left))
+    @Test func testALensScanInCompareFollowsTheFocusedPane() {
+        // In compare mode a lens scan launched from a menu targets the pane the user is working in.
+        #expect(PaneLogic.lensTargetsRightPane(isCompare: true, activePane: .right))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, activePane: .left))
         // No selection → left is the natural default (the caller falls back to the left pane).
-        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: true, activePane: nil))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, activePane: nil))
     }
 
     // MARK: fullPath

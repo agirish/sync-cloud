@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Proves Tidy's two hashing entry points actually CONSULT the session hash cache.
+/// Proves the duplicate finder's two hashing entry points actually CONSULT the session hash cache.
 ///
-/// Verify has used `ContentHashCache` since it was written; Tidy's duplicate scan and merge planner
+/// Verify has used `ContentHashCache` since it was written; the duplicate scan and merge planner
 /// called the same hasher with no cache at all, so a scan after a Verify — or a second scan, or the
 /// keeper tree re-walked once per redundant copy during a merge — re-read and re-hashed everything.
 /// Wiring it up is a one-argument change, which is exactly the kind that can be made and then
@@ -86,11 +86,11 @@ import Foundation
         #expect(warm.duplicateGroups.count == 1)
     }
 
-    /// The headline claim: Verify and Tidy stop paying for each other's work. Verify hashes through
-    /// the shared cache; a Tidy scan of the same files must then find those digests already there.
-    /// Proved the same way — by what Verify leaves behind being the thing Tidy answers from.
+    /// The headline claim: Verify and the duplicate finder stop paying for each other's work. Verify hashes through
+    /// the shared cache; a duplicates scan of the same files must then find those digests already there.
+    /// Proved the same way — by what Verify leaves behind being the thing the duplicates scan answers from.
     @MainActor
-    @Test func aVerifyPopulatesTheCacheThatTidyThenReadsFrom() async throws {
+    @Test func aVerifyPopulatesTheCacheThatADuplicatesScanThenReadsFrom() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheCrossFeature")
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/report.pdf")

@@ -5,7 +5,7 @@ import Sync
 
 /// The four new per-lens grammars, and above all the rule that shapes them: a lens only declares a
 /// token it can actually bind, and its placeholder advertises exactly those.
-@Suite struct TidyLensSearchTests {
+@Suite struct LensSearchTests {
 
     // MARK: Rename
 
@@ -50,7 +50,7 @@ import Sync
     /// And the placeholder must never advertise what the parser doesn't recognize — the placeholder
     /// IS the vocabulary lesson, so a token named there that doesn't bind is a lie.
     @Test func renamePlaceholderAdvertisesOnlyBindableTokens() {
-        let placeholder = TidyLensSearch.placeholder(for: .rename)
+        let placeholder = LensSearch.placeholder(for: .rename)
         #expect(placeholder.contains("kind:"))
         #expect(placeholder.contains("is:folder"))
         #expect(!placeholder.contains("mb"), "Rename can't bind a size token, so it must not offer one")
@@ -176,7 +176,7 @@ import Sync
 
     /// Automations has no size token: a rule isn't a file, so there's nothing to weigh.
     @Test func automationsPlaceholderAdvertisesOnlyBindableTokens() {
-        let placeholder = TidyLensSearch.placeholder(for: .automations)
+        let placeholder = LensSearch.placeholder(for: .automations)
         #expect(placeholder.contains("is:enabled"))
         #expect(placeholder.contains("kind:pdf"))
         #expect(!placeholder.contains("mb"))

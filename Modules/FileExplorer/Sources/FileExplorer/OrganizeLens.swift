@@ -82,7 +82,7 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     /// value to write for "no lens picked", and inventing one would make the unselected state
     /// something you could fail to migrate.
     ///
-    /// Declared here rather than beside `Workspace.defaultsKey` because `TidyView` reads it
+    /// Declared here rather than beside `Workspace.defaultsKey` because `LensWorkspaceView` reads it
     /// directly — it owns the rail — and `MacApp` cannot be imported from this module.
     public static let defaultsKey = "selectedOrganizeLens"
 
@@ -183,16 +183,16 @@ extension OrganizeLens {
 
 extension OrganizeLens {
 
-    /// The ``TidyLens`` whose search grammar, "N of M" readout and list apparatus this lens uses.
+    /// The ``WorkspaceLensKind`` whose search grammar, "N of M" readout and list apparatus this lens uses.
     ///
-    /// The rail is the *vocabulary*; `TidyLens` remains the *machinery* key — it owns the per-lens
+    /// The rail is the *vocabulary*; `WorkspaceLensKind` remains the *machinery* key — it owns the per-lens
     /// search grammars and scroll state, and those are keyed by apparatus rather than by rail item.
     /// Three rail items share `.filing`'s apparatus because their rows are filing rows; `.names`
     /// borrows `.rename`'s because that is where the risky-name grammar lives.
     ///
     /// `.restructure` has no apparatus of its own yet and answers `.filing`, so its query parks in
     /// the same slot rather than in a grammar that would read it differently.
-    public var searchLens: TidyLens {
+    public var searchLens: WorkspaceLensKind {
         switch self {
         case .toFile, .renames, .restructure: return .filing
         case .duplicates: return .duplicates
@@ -201,7 +201,7 @@ extension OrganizeLens {
         }
     }
 
-    /// The rail item a programmatic caller naming a ``TidyLens`` is asking for.
+    /// The rail item a programmatic caller naming a ``WorkspaceLensKind`` is asking for.
     ///
     /// Not a strict inverse of ``searchLens`` and cannot be: three rail items share `.filing`, so
     /// this picks the one that *is* the filing queue. `.storage` answers `nil` — it is a workspace
@@ -212,8 +212,8 @@ extension OrganizeLens {
     /// answers `.renames` directly — already resolved. A bridge that answered `.names` handed
     /// every caller a value that must not be stored or presented, and each one had to remember
     /// ``resolvedForPresentation`` for itself; `Workspace.destination(for:)` was that one caller,
-    /// and now the resolution has one owner. Pinned by `TidyLensFoldReachabilityTests`.
-    public init?(_ lens: TidyLens) {
+    /// and now the resolution has one owner. Pinned by `LensFoldReachabilityTests`.
+    public init?(_ lens: WorkspaceLensKind) {
         switch lens {
         case .filing: self = .toFile
         case .duplicates: self = .duplicates
@@ -232,7 +232,7 @@ extension OrganizeLens {
     ///
     /// **On the lens rather than on the view, because it is the lens's own words** — the same place
     /// ``title``, ``symbol`` and ``carriesBadge`` live — and because a pure function of two enums
-    /// can be asserted directly. It was a private method on `TidyView` taking the *badge*, and
+    /// can be asserted directly. It was a private method on `LensWorkspaceView` taking the *badge*, and
     /// `badge ?? 0` read a nil — which means "no number to show" — as zero, so a never-scanned queue
     /// said "0 loose files **this scan found**", asserting a scan that had not happened. That is
     /// exactly the conflation ``RailItemState`` splits apart, still being made by the words beside

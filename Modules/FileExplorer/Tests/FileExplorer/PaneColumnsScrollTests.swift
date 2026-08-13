@@ -895,7 +895,7 @@ import Sync
     // MARK: - Scoping the hold to the gesture's own pane
     //
     // One app-wide monitor feeds one tracker, but up to three column stacks consult it (both
-    // comparison panes and the Tidy rail). Unscoped, a vertical flick in pane A — its momentum
+    // comparison panes and the single-source rail). Unscoped, a vertical flick in pane A — its momentum
     // keeping `lastEventAt` fresh — made pane B's watchdog revert B's own programmatic reveal,
     // so the deepest column stayed hidden. The scoped query answers per asking view.
 

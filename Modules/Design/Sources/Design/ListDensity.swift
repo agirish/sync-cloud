@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// How tightly the long lists (the Differences table, Tidy group cards, Filing suggestions)
+/// How tightly the long lists (the Differences table, Duplicates group cards, Filing suggestions)
 /// pack their rows (backlog H7). Comfortable is the app's unchanged default look; Compact is
 /// the power user's opt-in for scanning 1,000+ rows. Stored in UserDefaults via
 /// `ListDensity.defaultsKey`, mirroring the other appearance options in `LiquidGlass`.
@@ -59,11 +59,11 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
 /// Pure row measurements per density — a small testable type so the numbers live in one
 /// place instead of scattered across view literals.
 public struct ListDensityMetrics: Equatable, Sendable {
-    /// Vertical padding of a card's always-visible header row (Tidy group header).
+    /// Vertical padding of a card's always-visible header row (Duplicates group header).
     public let cardHeaderVerticalPadding: CGFloat
     /// Vertical padding of a row inside an expanded card (a duplicate copy row).
     public let cardRowVerticalPadding: CGFloat
-    /// Spacing between cards in a card list (Tidy groups, Filing suggestions).
+    /// Spacing between cards in a card list (Duplicates groups, Filing suggestions).
     public let cardListSpacing: CGFloat
     /// Outer padding around a card list.
     public let cardListPadding: CGFloat

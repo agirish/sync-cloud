@@ -4,7 +4,7 @@ import Sync
 
 // MARK: - Per-lens token grammars
 //
-// Search in Tidy is a FILTER over what a lens already has on screen — never a disk walk. Each of
+// Search in a lens workspace is a FILTER over what a lens already has on screen — never a disk walk. Each of
 // the five lenses gets the same shape (structured tokens where they parse, plain substring on
 // everything else, built on Design's shared `TokenQuery` core) but its OWN token table.
 //
@@ -15,10 +15,10 @@ import Sync
 //
 // The accepted consequence: the grammar is deliberately NOT uniform. A token learned in Duplicates
 // is not necessarily a token in Rename. The per-lens placeholder is what teaches each vocabulary,
-// which is why `TidyLensSearch.placeholder(for:)` is five different strings rather than one shared
+// which is why `LensSearch.placeholder(for:)` is five different strings rather than one shared
 // one.
 
-/// The one place the Tidy lenses answer `kind:` for a FILE, so they can't disagree about what
+/// The one place the Organize lenses answer `kind:` for a FILE, so they can't disagree about what
 /// `image` covers. An exact extension match, or one of the shared class aliases from
 /// `DifferenceSearch.kindClasses` — the same table Compare uses.
 ///
@@ -44,8 +44,8 @@ enum LensKind {
 /// The vocabulary each lens advertises. This is the ONLY thing teaching the user which tokens bind
 /// where, so each string must name exactly the tokens its lens declares — never a token it would
 /// silently treat as free text.
-enum TidyLensSearch {
-    static func placeholder(for lens: TidyLens) -> String {
+enum LensSearch {
+    static func placeholder(for lens: WorkspaceLensKind) -> String {
         switch lens {
         case .duplicates: return "kind:pdf, >5mb…"
         case .rename: return "Search names — kind:pdf, is:folder"
@@ -57,7 +57,7 @@ enum TidyLensSearch {
 
     /// The search toggle's tooltip and accessibility label — names what THIS lens searches, since
     /// that differs per lens.
-    static func help(for lens: TidyLens) -> String {
+    static func help(for lens: WorkspaceLensKind) -> String {
         switch lens {
         case .duplicates: return "Search duplicate groups by name, kind, or size"
         case .rename: return "Search risky names by name, path, or reason"
@@ -116,7 +116,7 @@ enum RenameBacklogSearch {
 
 // MARK: - Rename
 
-/// Tidy ▸ Rename. Filters `riskyNames`.
+/// The Renames search. Filters `riskyNames`.
 ///
 /// The thin one, deliberately: `RiskyName` carries no size and no date, so this grammar has no
 /// size tokens at all — not disabled ones, not ignored ones. `>5mb` here is plain free text, and
@@ -175,7 +175,7 @@ enum RiskyNameSearch {
 
 // MARK: - Organize
 
-/// Tidy ▸ Organize. Filters `filingSuggestions`, upstream of the confidence grouping.
+/// The Filing search. Filters `filingSuggestions`, upstream of the confidence grouping.
 ///
 /// `confidence:` binds to the tier the card actually SHOWS (`FilingConfidenceTier`), not to the
 /// raw destination confidence — a suggestion with no candidate at all displays under "Needs your
@@ -284,7 +284,7 @@ enum FilingSearch {
 
 // MARK: - Automations
 
-/// Tidy ▸ Automations. Filters `automationRules`.
+/// The Automations search. Filters `automationRules`.
 ///
 /// `kind:` binds to `FileKind` — the coarse family a rule can actually test (`image`, `pdf`,
 /// `video`, `audio`, `archive`, `document`) — because a RULE matches a kind rather than being a
@@ -353,7 +353,7 @@ enum AutomationSearch {
 
 // MARK: - Storage
 
-/// Tidy ▸ Storage. Filters the report's three ranked FILE lists (largest / stale / reclaim
+/// The Storage search. Filters the report's three ranked FILE lists (largest / stale / reclaim
 /// candidates).
 ///
 /// The treemap is deliberately NOT filtered. It is a part-of-whole picture of the scanned tree,

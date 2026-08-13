@@ -359,7 +359,7 @@ public class FileSyncManager: ObservableObject {
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
-    // MARK: Tidy — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
+    // MARK: Duplicates — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
 
     /// The Find Duplicates scan lifecycle (see ``ScanLifecycle``). The legacy per-field property
     /// names below forward onto it, so app-side call sites are unchanged.
@@ -383,7 +383,7 @@ public class FileSyncManager: ObservableObject {
         set { duplicateScanLifecycle.status = newValue }
     }
     /// Numeric progress for the duplicate scan's hashing phase; nil during the walk phase (total
-    /// unknown) and whenever no scan is running. Drives the determinate bar in Tidy.
+    /// unknown) and whenever no scan is running. Drives the determinate bar in the lens workspace.
     ///
     /// Deliberately NOT folded into ``duplicateScanLifecycle``: its projected publisher
     /// (`$duplicateScanProgress`) — and its exact per-write emission cadence — is a tested
@@ -404,7 +404,7 @@ public class FileSyncManager: ObservableObject {
     /// IDs of duplicate groups whose merge is currently in flight. A merge can run for minutes
     /// (it re-hashes the keeper, copies unique files, then trashes the folded copy); this both
     /// guards re-entry — a second click would re-plan against the half-merged keeper and mint
-    /// " 2" junk copies — and drives the Tidy card's disabled/progress state while it runs.
+    /// " 2" junk copies — and drives the lens card's disabled/progress state while it runs.
     @Published public internal(set) var mergingGroupIDs: Set<DuplicateGroup.ID> = []
     /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard;
     /// internal — tests reach it via @testable, and nothing outside the module ever did).

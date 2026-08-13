@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Reclaimed-space payoff (H5)
 
-/// Accumulates the bytes reclaimed across resolves within one Tidy session — a view-level tally only,
+/// Accumulates the bytes reclaimed across resolves within one Duplicates session — a view-level tally only,
 /// deliberately not new engine/Sync state. Pure so the count-up payoff (H5) can be unit-tested.
 ///
 /// The engine already publishes how much is *still* reclaimable (`duplicateSummary.reclaimableBytes`,

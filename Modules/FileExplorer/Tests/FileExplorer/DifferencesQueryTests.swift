@@ -152,7 +152,7 @@ import Sync
     }
 
     @Test func testCountsIgnoresSearchTextAndEmptyListYieldsZeroes() {
-        // Counts reflect the whole diff (search is not a parameter), matching Tidy's menu.
+        // Counts reflect the whole diff (search is not a parameter), matching the Duplicates lens's menu.
         #expect(DifferencesQuery.counts([], failedIDs: []).isEmpty)
         // A single filter's count matches `filtered` with an empty search over the same list.
         let list = [

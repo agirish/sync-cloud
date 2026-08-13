@@ -9,7 +9,7 @@ import Design
 /// careful never to conflate *ran and found nothing* with *never looked* — a zero would be a claim
 /// a lens that has not scanned cannot make — and the rail used to throw that distinction away,
 /// drawing both as an item with no badge. Two surfaces describing one set of facts had two
-/// vocabularies; now they have one, and `TidyView` derives both from the same counts.
+/// vocabularies; now they have one, and `LensWorkspaceView` derives both from the same counts.
 enum RailItemState: Equatable {
     /// This lens has findings here. The count is the whole scoped list, never the filtered view.
     case reporting(Int)
@@ -171,7 +171,7 @@ struct RailItemLabel: View {
 
 /// The one chip naming what Organize is answering about.
 ///
-/// **A view of its own rather than a `@ViewBuilder` inside `TidyView`, so it can be rendered and
+/// **A view of its own rather than a `@ViewBuilder` inside `LensWorkspaceView`, so it can be rendered and
 /// read back.** That is not a stylistic preference: this row has already truncated its contents to
 /// identical stubs once, and four tests compared those stubs and saw no difference — the header's
 /// trailing controls clipped, nothing logged, and a probe that only asked whether the band was
@@ -335,7 +335,7 @@ struct OrganizeOverview: View {
     /// structure finding is "723 things" — is arithmetic over incompatible units, and this app has
     /// already rejected it once: the "All" rail item carries no badge because "a number here would
     /// have to mean the sum of six different kinds of thing, which is not a quantity anyone wants"
-    /// (`TidyView.organizeOverviewRailItem`). A ledger is a wider surface than a badge but not a
+    /// (`LensWorkspaceView.organizeOverviewRailItem`). A ledger is a wider surface than a badge but not a
     /// different kind of claim, so the same rule holds. What is here instead is three facts that
     /// are each true on their own terms and that no single lens can state.
     struct Ledger: Equatable {
@@ -365,7 +365,7 @@ struct OrganizeOverview: View {
 
         /// The ledger for a set of sections.
         ///
-        /// A static function over the sections rather than arithmetic inside `TidyView`, so the two
+        /// A static function over the sections rather than arithmetic inside `LensWorkspaceView`, so the two
         /// derivations that could go wrong can be asserted without mounting a view: that a lens is
         /// counted as *run* whenever it is not `notScanned` — `clean` is a completed check and the
         /// commonest way to undercount is to count only the reporting ones — and that the
@@ -431,7 +431,7 @@ struct OrganizeOverview: View {
     /// The passes this host can actually start.
     ///
     /// **Not every pass is always runnable, and the missing one is not a bug.** Folder memory is
-    /// driven by an optional handler — `TidyView.onUpdateFolderMemory` is `(() -> Void)?`, and the
+    /// driven by an optional handler — `LensWorkspaceView.onUpdateFolderMemory` is `(() -> Void)?`, and the
     /// CLI-driven and preview hosts pass nothing — so its card must be able to explain the state
     /// without offering a button that would do nothing. A `Set` rather than a closure so a test can
     /// state the host's capabilities as a value.

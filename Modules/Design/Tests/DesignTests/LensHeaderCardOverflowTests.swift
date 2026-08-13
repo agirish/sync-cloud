@@ -8,7 +8,7 @@ import Testing
 /// A geometry proxy answers "how big am I", never "how much was I offered". A `LensHeaderCard`
 /// whose row cannot compress does not shrink into the width it is given — it draws at the width it
 /// needs and overflows its container — so a `.onGeometryChange` on the card reports the *drawn*
-/// width. `TidyView` fed exactly that number to `OrganizeRailMetrics.style(...)`, which then asked
+/// width. `LensWorkspaceView` fed exactly that number to `OrganizeRailMetrics.style(...)`, which then asked
 /// "does the width the rail forced hold the rail?", answered yes at every window size, and left the
 /// card hanging over the source pane on one side and off the window on the other.
 ///
@@ -33,7 +33,7 @@ import Testing
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { cardReported = $0 }
 
-        // The probe `TidyView` measures instead: a zero-height, width-flexible sibling in the same
+        // The probe `LensWorkspaceView` measures instead: a zero-height, width-flexible sibling in the same
         // stack, which takes the proposal and cannot be widened by what the card draws.
         let stack = VStack(spacing: 0) {
             Color.clear.frame(height: 0)
@@ -50,7 +50,7 @@ import Testing
         #expect(cardReported > offered,
                 """
                 the card now reports \(cardReported) for an offered \(offered) — SwiftUI has started \
-                clamping an incompressible row, and the reasoning on `TidyView`'s probe (and this \
+                clamping an incompressible row, and the reasoning on `LensWorkspaceView`'s probe (and this \
                 test) needs rewriting rather than deleting
                 """)
         #expect(probeReported == offered,

@@ -8,7 +8,7 @@ visual surfaces that regressed silently in past review rounds. Suites live in fo
   middle truncation), ProgressDialog, the action bar's three weights + divider (enabled and
   disabled)
 - `Modules/FileExplorer` — `FileExplorerSnapshotTests`: StatPill variants, treemap tiles
-  (AccentLabel light-hue pairing on the amber tile), TidyGroupCard (collapsed versions group +
+  (AccentLabel light-hue pairing on the amber tile), DuplicateGroupCard (collapsed versions group +
   expanded identical-folders group with note), ConditionChip wrapping in FlowLayout
 - `Modules/Dashboard` — `DashboardSnapshotTests`: PaneHeader (fresh / stale freshness pill /
   the 400 pt and 250 pt degradation ladder: pill hides, logo drops, name truncates, nav

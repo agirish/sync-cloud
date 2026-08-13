@@ -1,13 +1,13 @@
 import SwiftUI
 
 /// The removable token-filter chips shared by every token search (Compare's Differences search,
-/// Tidy's duplicate search, the Activity Log search): each recognized word as a capsule with a
+/// the Duplicates lens's search, the Activity Log search): each recognized word as a capsule with a
 /// monospaced label and a padded ✕ that edits that exact word back out of the raw query text.
 /// A chip superseded by a later same-family word (the grammars parse last-wins) renders dimmed
 /// and struck through, so the chips read as the query the filter actually runs.
 ///
 /// Renders JUST the chips in a 6pt HStack — no surrounding spacers — so call sites keep their
-/// own alignment (Compare/Log lead-align with a trailing Spacer; Tidy right-aligns the row under
+/// own alignment (Compare/Log lead-align with a trailing Spacer; the lens workspace right-aligns the row under
 /// its compact field and appends its suggestions).
 public struct TokenChipsRow: View {
 

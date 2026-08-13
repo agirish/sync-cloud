@@ -54,7 +54,7 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         isLeft ? "paneViewModeLeft" : "paneViewModeRight"
     }
 
-    /// UserDefaults key for the Tidy rail's mode.
+    /// UserDefaults key for the single-source rail's mode.
     ///
     /// The rail renders through the same `FileTreeView` as the comparison panes but is a different
     /// surface — narrow, single-source, re-rooted per lens — so it gets a key of its own rather
@@ -69,14 +69,14 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// was any way to open a folder with one click, which is exactly what Columns is for.
     ///
     /// The rail does share `leftBrowsePath` with the left comparison pane, because it shares that
-    /// pane's focus, selection and history too — entering Tidy already re-roots the left pane. A
+    /// pane's focus, selection and history too — entering Organize already re-roots the left pane. A
     /// column stack left in the rail therefore survives into Compare's left pane, showing the
     /// folder you were last in. That is the same continuity the shared focus already provides.
     public static let railDefaultsKey = "paneViewModeRail"
 
     /// UserDefaults key for the Browse workspace's mode.
     ///
-    /// Browse draws the same pane as the Tidy rail — it IS the left pane, at full window width —
+    /// Browse draws the same pane as the single-source rail — it IS the left pane, at full window width —
     /// but for the same reason the rail does not inherit the left comparison pane's key, Browse
     /// does not inherit the rail's: a stack chosen for a 220pt rail beside a lens is not a choice
     /// about a full-width file browser, and flipping Browse to Tree must not silently restack
@@ -189,7 +189,7 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// ⋯ menu at narrow widths), and from a column's empty-area context menu — the place Finder keeps
     /// its view options.
     ///
-    /// Shared by both panes and the Tidy rail, like `columnWidthDefaultsKey`: this is a reading
+    /// Shared by both panes and the single-source rail, like `columnWidthDefaultsKey`: this is a reading
     /// preference ("do I want to see file contents while I browse"), not a per-surface layout choice.
     /// That sharing is what makes the header's pill worth offering on a pane too narrow to show a
     /// preview itself — see `showsPreviewToggle`.

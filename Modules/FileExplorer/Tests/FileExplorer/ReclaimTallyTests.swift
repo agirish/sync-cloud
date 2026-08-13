@@ -1,7 +1,7 @@
 import Testing
 @testable import FileExplorer
 
-/// Coverage for the Tidy reclaimed-space tally (H5) — the pure view-level accumulator behind the
+/// Coverage for the Duplicates reclaimed-space tally (H5) — the pure view-level accumulator behind the
 /// count-up payoff. The animation/glow live in the view; only the math and caption are testable here.
 @Suite struct ReclaimTallyTests {
 

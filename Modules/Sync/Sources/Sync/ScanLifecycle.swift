@@ -1,6 +1,6 @@
 import Foundation
 
-/// The scan lifecycle one Tidy lens publishes: the running flag and status line while a scan is
+/// The scan lifecycle one lens publishes: the running flag and status line while a scan is
 /// in flight, the has-completed flag that drives the lens's intro-vs-results state, and the root
 /// the on-screen results were scanned from.
 ///

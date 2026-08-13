@@ -206,7 +206,7 @@ public struct CommandPaletteView: View {
 /// test that mounted the whole palette could see the text and *nothing* about the selection
 /// highlight, which is the one thing the palette's keyboard-only operation depends on. Rendering the
 /// list on its own is what makes the highlight measurable, exactly as `ScopeChipLabel` is extracted
-/// from `TidyView` so the scope chip's label can be.
+/// from `LensWorkspaceView` so the scope chip's label can be.
 ///
 /// ## Drawn in the ARRAY's order, with a header wherever the group changes
 ///

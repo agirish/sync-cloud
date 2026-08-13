@@ -196,7 +196,7 @@ import Sync
     }
 
     /// **The row's own side decides the scan root, not the focused pane.** A right-click does not
-    /// necessarily move focus, so aiming at `tidyTargetIsRight`'s pane would scan a different
+    /// necessarily move focus, so aiming at `lensTargetIsRight`'s pane would scan a different
     /// provider from the one the row is in and answer about the wrong tree.
     @Test func theScanIsAimedAtTheRowsOwnSide() {
         var sides: [Bool] = []

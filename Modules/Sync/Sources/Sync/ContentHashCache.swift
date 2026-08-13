@@ -89,7 +89,7 @@ public actor ContentHashCache {
     /// ZERO. Measured, replaying a scan twice — 18 000 files against a 20 000 cap gives 100 %
     /// hits; 23 122 files against the same cap gives 0.0 %.
     ///
-    /// That is not hypothetical. A Tidy scan hashes every file whose size collides with another,
+    /// That is not hypothetical. A duplicates scan hashes every file whose size collides with another,
     /// and on the trees this was sized against that is 23 122 of 33 580 files in one provider and
     /// 25 148 of 35 100 in the other — 48 270 together, since Verify and both scans share this
     /// cache. At the old 20 000 the cache returned nothing at all for those trees while still

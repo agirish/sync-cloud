@@ -4,8 +4,8 @@ import Foundation
 
 /// The auto-rescan refreshes **the subject**, not wherever the pane is standing.
 ///
-/// `autoRescanTidyLensIfShowing` fires on every pane-folder change and used to target
-/// `tidyScanRootExpanded`. With a scope set that is the queue-destroying failure the design rejects
+/// `autoRescanLensIfShowing` fires on every pane-folder change and used to target
+/// `lensScanRootExpanded`. With a scope set that is the queue-destroying failure the design rejects
 /// live-binding to prevent, arriving through a different door: browse from a scoped `Legal` into
 /// some other previously-scanned folder and the rescan silently republishes `filingSuggestions`
 /// with *that* folder's files, which the `Legal` scope then filters to nothing. To File empties and
@@ -38,15 +38,15 @@ import Foundation
 
     @Test func theAutoRescanPrefersTheScopeOverThePane() throws {
         let source = try Self.contentView()
-        let body = try Self.body(of: "func autoRescanTidyLensIfShowing() {", in: source)
-        #expect(body.contains("let target = organizeScope?.path ?? tidyScanRootExpanded"),
+        let body = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
+        #expect(body.contains("let target = organizeScope?.path ?? lensScanRootExpanded"),
                 "the auto-rescan is aimed at the pane again — browsing will replace a scoped queue")
         // Both arms must use it. Leaving either on the pane root reintroduces the defect for that
         // lens alone, which is the shape that hides: five lenses behave and one does not.
         #expect(body.contains("autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: target)"))
         #expect(body.contains("folder: URL(fileURLWithPath: target)"))
         // And neither arm may still read the pane directly.
-        #expect(!body.contains("let root = tidyScanRootExpanded"),
+        #expect(!body.contains("let root = lensScanRootExpanded"),
                 "an arm is still resolving the pane's folder as its scan target")
     }
 
@@ -60,7 +60,7 @@ import Foundation
         let source = try Self.contentView()
 
         let duplicates = try Self.body(of: "func findDuplicatesAction() {", in: source)
-        #expect(duplicates.contains("let root = organizeScope?.path ?? tidyScanRootExpanded"),
+        #expect(duplicates.contains("let root = organizeScope?.path ?? lensScanRootExpanded"),
                 "Find Duplicates is aimed at the pane again — a scoped scan will answer about wherever the user last browsed")
 
         let filing = try Self.body(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {",
@@ -68,15 +68,15 @@ import Foundation
         #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
                 "the filing scan is aimed at the pane again")
         // The provider root stays the taxonomy root in both, for the reason below.
-        #expect(filing.contains("let root = tidyProviderRootExpanded"))
+        #expect(filing.contains("let root = lensProviderRootExpanded"))
     }
 
     @Test func theProviderRootIsStillTheTaxonomyRoot() throws {
         // The scope narrows what is *scanned*; destinations still anchor at the provider root, or a
         // rule's "Home/Utilities/…" would nest under whatever subtree happened to be scoped.
         let source = try Self.contentView()
-        let body = try Self.body(of: "func autoRescanTidyLensIfShowing() {", in: source)
-        #expect(body.contains("let root = tidyProviderRootExpanded"))
+        let body = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
+        #expect(body.contains("let root = lensProviderRootExpanded"))
         #expect(body.contains("providerRoot: URL(fileURLWithPath: root)"))
     }
 

@@ -78,7 +78,7 @@ func automationConditionChipText(_ condition: AutomationCondition, people: [Pers
 
 /// The Automations lens's host-owned view state.
 ///
-/// It lives outside the lens because the lens's controls ride ``TidyView``'s shared header card
+/// It lives outside the lens because the lens's controls ride ``LensWorkspaceView``'s shared header card
 /// now: the "Preview all" button is rendered up there and has to be able to flip this lens into
 /// its results view. Owned by the host as a `@StateObject`, so it survives the lens being
 /// rebuilt.
@@ -94,7 +94,7 @@ public final class AutomationsLensState: ObservableObject {
 /// plain-words automations and rules taught by example (the migrated "remembered" rules, now
 /// `mentions` conditions). Rules steer Organize's suggestions on every scan; here they can also be dry-run
 /// over the focused folder and their matches filed for real after per-file confirmation. Rendered
-/// inside ``TidyView``'s content card, so this view provides only the inner rule-list /
+/// inside ``LensWorkspaceView``'s content card, so this view provides only the inner rule-list /
 /// previewing / results states.
 public struct AutomationsLens: View {
     @ObservedObject public var syncManager: FileSyncManager
@@ -176,7 +176,7 @@ public struct AutomationsLens: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { syncManager.ensureAutomationRulesLoaded() }
         // A new dry run retires any per-file review still in progress — the review's rows belong to
-        // the report this run is about to replace (see `dryRunRunningChanged`). TidyView applies the
+        // the report this run is about to replace (see `dryRunRunningChanged`). LensWorkspaceView applies the
         // same rule to its lenses' session state on scan start.
         .onChange(of: syncManager.isRunningAutomationDryRun) { _, isRunning in
             filing.dryRunRunningChanged(to: isRunning)

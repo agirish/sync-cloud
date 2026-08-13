@@ -69,7 +69,7 @@ import Sync
         let defaults = ScratchDefaults("FilingRefineRouteCostTests")
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         let host = NSHostingView(rootView: AnyView(
-            TidyView(syncManager: m, lens: .filing, providerName: "Projects",
+            LensWorkspaceView(syncManager: m, lens: .filing, providerName: "Projects",
                      scanTargetFolder: "/root/Downloads", onFindDuplicates: {})
                 .defaultAppStorage(defaults)
                 .frame(width: size.width, height: size.height)))

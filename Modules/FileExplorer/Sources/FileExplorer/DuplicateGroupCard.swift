@@ -10,7 +10,7 @@ struct DuplicateGroupCard: View {
     let isExpanded: Bool
     let providerName: String?
     let scanRoot: String?
-    /// Row measurements per the appearance density setting (H7), injected by the owner (TidyView
+    /// Row measurements per the appearance density setting (H7), injected by the owner (LensWorkspaceView
     /// reads the @AppStorage once and passes the resolved metrics down); comfortable is the
     /// pre-H7 look.
     let densityMetrics: ListDensityMetrics
@@ -178,7 +178,7 @@ struct DuplicateGroupCard: View {
     @ViewBuilder
     private var thumbnailStrip: some View {
         if !group.isDirectory {
-            // Horizontal scroll so a many-copy group (or a narrow Tidy pane) never runs the tiles
+            // Horizontal scroll so a many-copy group (or a narrow lens pane) never runs the tiles
             // off the card — the cap bounds how many render, this bounds how wide they reach.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {

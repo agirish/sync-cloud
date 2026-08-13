@@ -101,7 +101,7 @@ import Sync
     /// borderless window's own buffer and every comparison reads as zero difference — "nothing
     /// painted", whatever the code did.
     private func mount(_ manager: FileSyncManager, configure: (() -> Void)? = nil) -> Mounted {
-        let subject = TidyView(syncManager: manager, lens: .filing,
+        let subject = LensWorkspaceView(syncManager: manager, lens: .filing,
                                providerName: "Projects", scanTargetFolder: "/root/Downloads",
                                onFindDuplicates: {}, onConfigureCloudRefine: configure)
             .frame(width: Self.canvas.width, height: Self.canvas.height)
@@ -233,7 +233,7 @@ import Sync
     @Test func changingTheCloudSettingUpdatesTheButtonOnTheNextRender() throws {
         // The liveness claim behind the design: `filingCloudRefineAvailable` is not `@Published`
         // and nothing observes the defaults key, so the button depends on SwiftUI re-rendering
-        // TidyView when the Settings overlay closes — which ContentView does, because dismissing
+        // LensWorkspaceView when the Settings overlay closes — which ContentView does, because dismissing
         // it flips `showSettings` and re-runs the body containing this lens.
         //
         // Asserted on ONE mounted view across a setting change, not on two fresh mounts: two mounts

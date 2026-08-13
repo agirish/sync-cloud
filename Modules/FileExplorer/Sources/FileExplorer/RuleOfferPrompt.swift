@@ -3,7 +3,7 @@ import Sync
 
 // MARK: - Learned-rule offer/review models
 //
-// The inline "teach a rule" flow that follows a filing move, extracted verbatim from TidyView
+// The inline "teach a rule" flow that follows a filing move, extracted verbatim from LensWorkspaceView
 // (which owns the @State driving it — everything here is plumbed via explicit params/bindings,
 // so the views stay dumb and the state machine stays in one place).
 

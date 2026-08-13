@@ -129,7 +129,7 @@ manual check can be turned into a gate, turn it into a gate.
 - [ ] **Touching a card ends the landing mark.** Right-click a file that has copies → *Find
   duplicates of this* → land with its group expanded and ringed in the accent. Click any card's
   header → the ring goes, and does not come back until the next handoff. (Still manual: `@State`
-  written on an uninstalled `TidyView` does not persist — probed and confirmed — and a card click
+  written on an uninstalled `LensWorkspaceView` does not persist — probed and confirmed — and a card click
   cannot be driven headlessly.)
 
 Two things worth an eye that no fixture can judge:
@@ -149,7 +149,7 @@ wiring, which no `swift test` process can drive (a `Button` is not an `NSControl
 
 - [ ] **Clearing spend history updates the Organize setup card.** Organize ▸ *History* ▸ **Clear
   History** ▸ close the sheet. The setup card's *last run ~$x.xx* must be gone, not still quoting
-  the run you just erased. (The bug: `TidyView` cached the figure and presented the sheet with no
+  the run you just erased. (The bug: `LensWorkspaceView` cached the figure and presented the sheet with no
   `onDismiss` — `SettingsView` presents the same sheet and always got this right.)
 - [ ] **Settings ▸ Advanced ▸ Saved scan data reads and clears.** Both rows show a size after a
   Duplicates/Verify run and a Storage analysis respectively; **Clear** takes each to *None* and
@@ -166,6 +166,6 @@ signal, the write-queue ordering). One host wiring cannot be:
   Right-click a file with copies → *Find duplicates of this* → land on the ringed group. Set a
   match-type filter and type a query. Switch to Compare, then back to Duplicates. The filter and
   query you set must still be there — no re-scroll to the old group, no re-cleared search. (The
-  TidyView-side callback is tested; what a unit test cannot reach is `ContentView` actually
+  LensWorkspaceView-side callback is tested; what a unit test cannot reach is `ContentView` actually
   clearing `duplicateRevealRequest` in response — two lines behind `if !isRunningTests`-free but
   view-mounted wiring.)

@@ -98,7 +98,7 @@ import Design
     /// `groundedGlassCard` is wrapped around it. So the whole-card render above can see the text
     /// and nothing about the selection highlight — which is the one thing a keyboard-only surface
     /// depends on. `PaletteResultsList` exists to be measurable here, the same reason
-    /// `ScopeChipLabel` is extracted from `TidyView`.
+    /// `ScopeChipLabel` is extracted from `LensWorkspaceView`.
     static func renderList(rows: [PaletteRow], selection: Int?, scheme: ColorScheme,
                            width: CGFloat = 620, height: CGFloat = 460) -> NSBitmapImageRep {
         let subject = PaletteResultsList(rows: rows, selection: .constant(selection),

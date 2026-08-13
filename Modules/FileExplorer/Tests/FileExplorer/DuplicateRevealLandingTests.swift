@@ -9,7 +9,7 @@ import Sync
 /// handed a reveal request, resolving through its own `.task` exactly as it does when the
 /// workspace switch mounts it.
 ///
-/// **Mounted, not called.** The tempting shape is to build a `TidyView` value and invoke
+/// **Mounted, not called.** The tempting shape is to build a `LensWorkspaceView` value and invoke
 /// `applyRevealRequest()` on it — which writes `@State` on a view SwiftUI never installed, so
 /// every assertion afterwards reads back the initial values and passes with the whole feature
 /// disconnected. These mount the view and read back what it PAINTS, so the task, the state writes
@@ -70,7 +70,7 @@ import Sync
     /// "nothing painted", whatever the code did.
     ///
     /// This used to pass `lens: .duplicates`, which nothing in the app can build. Since Duplicates
-    /// folded from a workspace into an Organize rail item, `TidyView` is always given `lens:
+    /// folded from a workspace into an Organize rail item, `LensWorkspaceView` is always given `lens:
     /// .filing` and finds Duplicates through `@AppStorage(OrganizeLens.defaultsKey)` — so the old
     /// mount made `lens` and `effectiveLens` equal where the app keeps them apart, and two real
     /// bugs lived in exactly that gap (a chip's ✕ and the "Nothing matches" button both wrote
@@ -93,7 +93,7 @@ import Sync
                        onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
         let defaults = ScratchDefaults("DuplicateRevealLandingTests")
         defaults.set(OrganizeLens.duplicates.rawValue, forKey: OrganizeLens.defaultsKey)
-        let subject = TidyView(syncManager: manager, lens: .filing,
+        let subject = LensWorkspaceView(syncManager: manager, lens: .filing,
                                providerName: "Projects", scanTargetFolder: "/root",
                                onFindDuplicates: {}, revealRequest: request,
                                onRevealHandled: onRevealHandled)
@@ -127,7 +127,7 @@ import Sync
                                                   "duplicates selected"))
 
         let defaults = ScratchDefaults("DuplicateRevealLandingTests-overview")
-        let view = TidyView(syncManager: Self.manager(groups: groups), lens: .filing,
+        let view = LensWorkspaceView(syncManager: Self.manager(groups: groups), lens: .filing,
                             providerName: "Projects", scanTargetFolder: "/root",
                             onFindDuplicates: {}, revealRequest: nil)
             .defaultAppStorage(defaults)          // nothing stored: no rail item is selected

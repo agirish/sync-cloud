@@ -3,7 +3,7 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// Coverage for the Tidy ▸ Duplicates token search: `kind:` / size parsing, keeper-size matching,
+/// Coverage for the Duplicates lens token search: `kind:` / size parsing, keeper-size matching,
 /// name substring, and backward-compatible free text.
 @Suite struct DuplicateSearchTests {
 

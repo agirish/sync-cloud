@@ -85,7 +85,7 @@ import Testing
     }
 
     @Test func testAPlainTintedPillStillTakesTheSharedPillPath() throws {
-        // Guard the other direction: the many plain Tidy pills must not be dragged onto the
+        // Guard the other direction: the many plain lens pills must not be dragged onto the
         // composed surface by this change. Two tints that differ only in hue must still differ.
         let warning = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.warning)))
         let info = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.info)))

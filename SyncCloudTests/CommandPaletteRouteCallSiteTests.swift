@@ -46,7 +46,7 @@ import Sync
     ///
     /// This app has already measured `@AppStorage` *losing* a standard-domain write outright rather
     /// than delivering it late — it is why the defaults-backed suites mount their own
-    /// `ScratchDefaults` — and `TidyView` holds both of these keys in `@AppStorage`. Written raw, a
+    /// `ScratchDefaults` — and `LensWorkspaceView` holds both of these keys in `@AppStorage`. Written raw, a
     /// ⌘K route to "Organize ▸ Duplicates" could land on Organize and leave the rail wherever it
     /// already was, intermittently, with nothing to see and nothing logged.
     @Test func theRouteWritesOrganizesStateThroughAppStorage() throws {
@@ -86,7 +86,7 @@ import Sync
 
     /// **The palette describes one pane, and must act on that same pane.**
     ///
-    /// `tidyProviderRootExpanded` follows the *focused* pane in Compare, so with the right pane
+    /// `lensProviderRootExpanded` follows the *focused* pane in Compare, so with the right pane
     /// focused every folder and recent row in the index is relative to the right provider's tree.
     /// Three places then assumed the left one: the reveal focused `isLeft: true` (handing a path
     /// from one provider's tree to the other's, so the pane jumped to a folder that most likely
@@ -94,7 +94,7 @@ import Sync
     /// choosing a source switched the left pane. `paletteProviderId` names the rule once.
     @Test func thePaletteRevealsIntoThePaneItIndexed() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        #expect(host.contains("var aimedAtRight: Bool { tidyTargetIsRight }"),
+        #expect(host.contains("var aimedAtRight: Bool { lensTargetIsRight }"),
                 "there is no single answer for which pane the palette is aimed at")
         #expect(host.contains("var paletteProviderId: String { aimedAtRight ? rightProviderId : leftProviderId }"),
                 "the provider read no longer goes through the aim")
@@ -112,13 +112,13 @@ import Sync
                 "choosing a source from ⌘K switches the pane the palette was not describing")
         #expect(host.contains("chooseFolderSource { id in aimProvider(id) }"),
                 "adding a source from ⌘K still points a pane the palette was not describing")
-        #expect(Self.codeOnly(host).components(separatedBy: "tidyTargetIsRight").count - 1 == 1,
+        #expect(Self.codeOnly(host).components(separatedBy: "lensTargetIsRight").count - 1 == 1,
                 "the aimed-pane rule is stated in more than one place again")
     }
 
     /// **The aim is read before the workspace moves.**
     ///
-    /// `tidyProviderRootExpanded` and `tidyTargetIsRight` both follow the focused pane, and only
+    /// `lensProviderRootExpanded` and `lensTargetIsRight` both follow the focused pane, and only
     /// Compare has two panes — so switching to Organize makes them the LEFT pane's answers. A
     /// scope string taken from a right-pane index and resolved afterwards fails `OrganizeScope`,
     /// which writes `""` and silently clears the scope instead of setting it: "organize legal"
@@ -126,14 +126,14 @@ import Sync
     @Test func theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let body = try #require(Self.aimOrganizeBody(host), "aimOrganize is gone — this scan is vacuous")
-        let read = try #require(body.range(of: "let root = tidyProviderRootExpanded"),
+        let read = try #require(body.range(of: "let root = lensProviderRootExpanded"),
                                 "aimOrganize no longer resolves a provider root")
         let move = try #require(body.range(of: "workspaceSelection.wrappedValue = .filing"),
                                 "aimOrganize no longer enters Organize")
         #expect(read.lowerBound < move.lowerBound,
                 "the root is read after the workspace changes, so it names the wrong pane")
         // The scope write shares the hazard: `setOrganizeScope` resolves against the LIVE
-        // `tidyProviderRootExpanded`, so calling it after the move measures the scope against the
+        // `lensProviderRootExpanded`, so calling it after the move measures the scope against the
         // left pane's root unconditionally — the same silent clear, one line later.
         let write = try #require(body.range(of: "if let scope { setOrganizeScope(scope) }"),
                                  "aimOrganize no longer routes the scope through the one owner")

@@ -108,7 +108,7 @@ struct CloudDownloadRoutingTests {
         #expect(received == posted, "a default post did not arrive on the channel the app runs on")
     }
 
-    /// The three pane surfaces map onto three distinct tokens — in particular the Tidy rail is not
+    /// The three pane surfaces map onto three distinct tokens — in particular the single-source rail is not
     /// confusable with the left pane just because both may pass `isLeft == true`.
     @Test func paneTokensAreDistinctPerSurface() {
         #expect(PaneToken(isLeft: true, isSingleSource: false) == .left)

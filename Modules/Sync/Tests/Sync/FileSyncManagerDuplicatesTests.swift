@@ -3,7 +3,7 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// Manager-level coverage for Tidy: the end-to-end scan (real files, so the SHA-256 layer runs)
+/// Manager-level coverage for the duplicate finder: the end-to-end scan (real files, so the SHA-256 layer runs)
 /// and the resolve path (mock disk, so we can assert what gets trashed without touching ~/.Trash).
 @Suite struct FileSyncManagerDuplicatesTests {
 
@@ -499,7 +499,7 @@ import Combine
         #expect(manager.hasFoundDuplicates == false)
     }
 
-    // MARK: Numeric scan progress (drives Tidy's determinate bar)
+    // MARK: Numeric scan progress (drives the lens's determinate bar)
 
     @MainActor
     @Test func duplicateScanProgressPublishesMonotonicallyThenResets() async throws {
@@ -680,7 +680,7 @@ import Combine
     @Test func planMergeCopiesWhenNameIsFreeEvenIfBytesExistUnderAnotherName() async throws {
         // The name-preserving principle survives the retry fix: destination name FREE, but the
         // bytes happen to live in that folder under the user's own different name — copy
-        // anyway. Losing a meaningfully-named file is the worse surprise; a later Tidy scan
+        // anyway. Losing a meaningfully-named file is the worse surprise; a later duplicates scan
         // reconciles byte-duplicates. (The retry skip applies ONLY when the name is taken,
         // where the fold could never have kept the name anyway.)
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")

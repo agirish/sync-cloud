@@ -39,7 +39,7 @@ import SwiftUI
         #expect(PaneViewMode.stored(isLeft: true, in: d) == .columns)
     }
 
-    /// The Tidy rail stores separately from both comparison panes. It shares the LEFT pane's
+    /// The single-source rail stores separately from both comparison panes. It shares the LEFT pane's
     /// underlying state (focus, selection, history, browse path), so reading its presentation from
     /// the left key would be the easy mistake — and would mean choosing Tree for a comparison
     /// silently un-stacked the rail, and vice versa.

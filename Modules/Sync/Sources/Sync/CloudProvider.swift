@@ -21,7 +21,7 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
         case dropBox = "Dropbox"
         case googleDrive = "Google Drive"
         /// A plain folder the user added as a source — no account, no cloud behind it. Everything
-        /// downstream of `CloudProvider` (panes, Tidy, the diff engine, undo, history, automations,
+        /// downstream of `CloudProvider` (panes, the lens workspaces, the diff engine, undo, history, automations,
         /// the CLI) treats it exactly like any other source; the case exists so the two places that
         /// *are* type-gated can tell the difference: name rules (a local volume accepts what a local
         /// volume accepts, see `ProviderNameRules.violation`) and the Google Drive date-noise

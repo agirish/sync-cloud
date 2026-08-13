@@ -8,7 +8,7 @@ import Design
 /// Storage Lens — the read-only "where does my space go?" surface. A treemap of the top areas over
 /// three ranked lists (largest files, long-untouched files, and reclaim candidates). The only
 /// action it offers is a Finder reveal: it never moves, deletes, or evicts a file. Rendered as the
-/// Tidy workspace's read-only Storage lens.
+/// Storage workspace's read-only lens.
 struct StorageLensView: View {
     @ObservedObject var syncManager: FileSyncManager
 
@@ -63,7 +63,7 @@ struct StorageLensView: View {
     private var report: StorageLensReport? { syncManager.storageLensReport }
 
     var body: some View {
-        // The toolbar card that used to head this view is gone: Tidy's shared LensHeaderCard now
+        // The toolbar card that used to head this view is gone: the shared LensHeaderCard now
         // carries Storage's Re-analyze control, its total/largest/reclaim pills and its search, so
         // this view renders the content card alone. That's what makes Storage's header the same
         // 81pt as the other four lenses — it used to have no header at all until a report landed.
@@ -351,7 +351,7 @@ struct StorageLensView: View {
 ///
 /// **Internal, and `CaseIterable`, because Storage has a rail now.** These were the section
 /// headings of one long scroll and nothing outside this file needed them; the rail turns each into
-/// a destination, so `TidyView` builds its items from `allCases` — a fourth section is then a rail
+/// a destination, so `LensWorkspaceView` builds its items from `allCases` — a fourth section is then a rail
 /// item the day it is added rather than a heading someone has to remember to announce.
 enum StorageSection: String, Hashable, CaseIterable, Identifiable {
     case largest, stale, reclaim

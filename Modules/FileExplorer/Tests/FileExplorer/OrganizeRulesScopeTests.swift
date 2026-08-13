@@ -84,11 +84,11 @@ import Design
         } else {
             defaults.removeObject(forKey: OrganizeLens.defaultsKey)
         }
-        // The scope goes through the key `TidyView` actually reads, and as a STORED string — the
+        // The scope goes through the key `LensWorkspaceView` actually reads, and as a STORED string — the
         // hazard a persisted, user-arrangeable value has is that a fixture built from the in-memory
         // default never exercises what a real launch reads off disk.
         defaults.set(scope ?? "", forKey: OrganizeScopeDefaults.pathKey)
-        let subject = TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
+        let subject = LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                                scanTargetFolder: Self.root, onFindDuplicates: {},
                                providerRoot: Self.root)
             .defaultAppStorage(defaults)

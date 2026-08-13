@@ -61,7 +61,7 @@ import Sync
     @Test func testEachPaneSurfaceDerivesItsOwnToken() {
         #expect(treeView(isLeft: true, otherPaneName: nil).paneToken == .left)
         #expect(treeView(isLeft: false, otherPaneName: nil).paneToken == .right)
-        // The Tidy rail passes isLeft: true and must NOT be confusable with the left pane.
+        // The single-source rail passes isLeft: true and must NOT be confusable with the left pane.
         #expect(treeView(isLeft: true, otherPaneName: nil, isSingleSource: true).paneToken == .singleSource)
     }
 

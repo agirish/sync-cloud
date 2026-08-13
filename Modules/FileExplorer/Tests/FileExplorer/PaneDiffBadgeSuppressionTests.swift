@@ -6,8 +6,8 @@ import Sync
 /// Pins the difference accessories — a row's status glyph and a folder's contained-count pill —
 /// to the COMPARISON panes.
 ///
-/// A difference is a statement about the other pane, and the Tidy rail has no other pane. It was
-/// badging its folders from whatever Compare last scanned, so Tidy showed counts against a
+/// A difference is a statement about the other pane, and the single-source rail has no other pane. It was
+/// badging its folders from whatever Compare last scanned, so the rail showed counts against a
 /// provider it isn't looking at. `FileTreeView.init` empties the index for the rail, which is the
 /// single gate: the tree rows, and `PaneColumnsView` (handed this same stored property), all read
 /// it, so asserting on the property covers both presentations.
@@ -75,7 +75,7 @@ import Sync
         #expect(rendered.status(forNodeId: "/root/Health/report.pdf") == .missingOnRight)
     }
 
-    /// Tidy rail: nothing to badge, whatever the host hands in.
+    /// The single-source rail: nothing to badge, whatever the host hands in.
     @Test func testSingleSourceRailDropsEveryBadge() {
         let rendered = pane(isSingleSource: true).diffIndex
         #expect(rendered.containedDiffCount(forNodeId: "/root/Health") == 0)

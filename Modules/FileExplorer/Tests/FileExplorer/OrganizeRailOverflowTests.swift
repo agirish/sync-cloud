@@ -7,9 +7,9 @@ import Design
 /// **Does the row stay inside the card it is drawn in?** — the question every width assertion in
 /// `OrganizeRailTests` is one step away from, and the one the shipped rail failed.
 ///
-/// The fixture is `TidyView.lensTitle`'s shape rebuilt from the real `RailItemLabel`s: six items at
+/// The fixture is `LensWorkspaceView.lensTitle`'s shape rebuilt from the real `RailItemLabel`s: six items at
 /// their widest rung inside a `LensHeaderCard`, in a column too narrow to hold them. It is a
-/// replica rather than the view itself — `lensTitle` is private to a `TidyView` that needs a
+/// replica rather than the view itself — `lensTitle` is private to a `LensWorkspaceView` that needs a
 /// `FileSyncManager` — so what it can prove is about the SHAPE: that wrapping the row in the
 /// horizontal `ScrollView` is what keeps an over-wide rail from widening its card, and that
 /// without it the card grows and takes the space its neighbour is drawn in.

@@ -185,8 +185,8 @@ import FileExplorer
     ///
     /// The lens is also **resolved before it is stored**. `.names` folds into `.renames`, and the
     /// rail has no item for the folded lens, so writing an unresolved `.names` into the selection
-    /// key leaves the rail with nothing highlighted. `TidyLensFoldReachabilityTests` pins the fold
-    /// at `TidyView`'s read; this is the other writer of the same key, and the existing scan's
+    /// key leaves the rail with nothing highlighted. `LensFoldReachabilityTests` pins the fold
+    /// at `LensWorkspaceView`'s read; this is the other writer of the same key, and the existing scan's
     /// `contains("paletteRailLens = lens")` matches with `?.resolvedForPresentation` deleted.
     @Test func aLensWithoutAScopeStillMovesTheRail() throws {
         let host = try Self.host()

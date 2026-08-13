@@ -199,7 +199,7 @@ import Foundation
     ///
     /// Without this the durable key would be inert in the surface that uses it: a gather walks
     /// paths, nothing computes 10,171 digests to answer "whose is this?", and the persisted
-    /// fingerprint index only exists once a Tidy scan has run. The digest is still the key — it is
+    /// fingerprint index only exists once a duplicates scan has run. The digest is still the key — it is
     /// what survives the file moving — but the recorded path is how the queue finds it before
     /// anything has fingerprinted the tree.
     @Test func aFingerprintKeyedVerdictIsFoundByPathWhenNoDigestIsInHand() {

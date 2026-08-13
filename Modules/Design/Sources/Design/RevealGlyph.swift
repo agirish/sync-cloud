@@ -1,6 +1,6 @@
 /// Single source of truth for the "Reveal in Finder" glyph. Reveal actions appear in the
 /// Dashboard details sidebar, the tree right-click menu, the Differences row menu, and the
-/// Tidy group card, so the constant lives here in Design — the one module both Dashboard and
+/// Duplicates group card, so the constant lives here in Design — the one module both Dashboard and
 /// FileExplorer already import.
 ///
 /// The magnifier (`magnifyingglass`) is reserved for SEARCH (the Differences search toggle,

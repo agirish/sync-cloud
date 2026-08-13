@@ -10,19 +10,19 @@ import Testing
     @Test func aScannedFolderIsTheSubject() {
         // The defect case: scoped scan of TODO, clean result. The claim must name TODO —
         // and must NOT reach for the provider.
-        let message = TidyView.duplicatesCleanMessage(scanRootName: "TODO", providerName: "iCloud")
+        let message = LensWorkspaceView.duplicatesCleanMessage(scanRootName: "TODO", providerName: "iCloud")
         #expect(message.contains("in “TODO”"))
         #expect(!message.contains("iCloud"))
     }
 
     @Test func noKnownRootFallsBackToTheProvider() {
         // With no completed scan root recorded there is no narrower true claim available.
-        let message = TidyView.duplicatesCleanMessage(scanRootName: nil, providerName: "iCloud")
+        let message = LensWorkspaceView.duplicatesCleanMessage(scanRootName: nil, providerName: "iCloud")
         #expect(message.contains("across iCloud"))
     }
 
     @Test func noRootAndNoProviderStillReadsAsASentence() {
-        let message = TidyView.duplicatesCleanMessage(scanRootName: nil, providerName: nil)
+        let message = LensWorkspaceView.duplicatesCleanMessage(scanRootName: nil, providerName: nil)
         #expect(message.contains("across this provider"))
     }
 }

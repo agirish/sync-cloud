@@ -83,7 +83,7 @@ import Testing
     // MARK: The apparatus bridge
 
     @Test func eachLensBorrowsTheApparatusThatFitsItsRows() {
-        // `TidyLens` is the machinery key — per-lens search grammars and parked queries hang off
+        // `WorkspaceLensKind` is the machinery key — per-lens search grammars and parked queries hang off
         // it. Three rail items share `.filing`'s because their rows are filing rows; names borrows
         // `.rename`'s because that is where the risky-name grammar lives.
         #expect(OrganizeLens.toFile.searchLens == .filing)
@@ -101,7 +101,7 @@ import Testing
         #expect(OrganizeLens(.filing) == .toFile)
         #expect(OrganizeLens(.duplicates) == .duplicates)
         // `.renames`, not the folded `.names`: the bridge answers the PRESENTED rail item, so no
-        // caller can mint the folded case — see `TidyLensFoldReachabilityTests`.
+        // caller can mint the folded case — see `LensFoldReachabilityTests`.
         #expect(OrganizeLens(.rename) == .renames)
         #expect(OrganizeLens(.automations) == .rules)
         // Storage is still a workspace of its own, so it is NOT a rail item. A non-nil answer here

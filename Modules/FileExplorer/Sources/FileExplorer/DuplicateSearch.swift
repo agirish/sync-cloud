@@ -2,7 +2,7 @@ import Foundation
 import Design
 import Sync
 
-/// Structured tokens for the Tidy ▸ Duplicates search — `kind:` plus size comparators on top of a
+/// Structured tokens for the Duplicates lens search — `kind:` plus size comparators on top of a
 /// name substring — reusing the Compare grammar (and its `DifferenceSearch.parseSize`) so one
 /// vocabulary works across surfaces. A query with no recognized tokens is a plain case-insensitive
 /// match on the group's name, so an empty field shows everything. Pure, so it's unit-tested without
@@ -66,7 +66,7 @@ enum DuplicateSearch {
 
     // MARK: Chips (UI)
 
-    /// A recognized filter word paired with a human label, so the Tidy search field can render
+    /// A recognized filter word paired with a human label, so the lens search field can render
     /// removable chips like Compare's. `raw` is the exact word typed (e.g. `>5mb`), so a chip's ✕
     /// removes precisely that word; the label formats sizes the way the app displays them.
     struct Chip: Equatable, DimmableTokenChip {

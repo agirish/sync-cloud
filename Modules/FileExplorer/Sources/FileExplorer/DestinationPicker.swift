@@ -37,7 +37,7 @@ public struct DestinationRequest: Equatable, Sendable {
 /// choice (nil when cancelled), which the host commits exactly as it would the picker's own — one
 /// path through the transfer, whichever surface chose the folder.
 ///
-/// Held by the window rather than by either surface that raises it: the Tidy rail and the Organize
+/// Held by the window rather than by either surface that raises it: the single-source rail and the Organize
 /// workspace are siblings, and two cards bound to two states would be two pickers to keep in step.
 public struct PendingDestination: Identifiable {
     public let id = UUID()

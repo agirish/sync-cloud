@@ -27,7 +27,7 @@ import Foundation
         #expect(CurrentSelection.primaryPanePath(left: many, right: []) == "/a/alpha")
     }
 
-    /// The Tidy rail hides the right pane, so a selection left behind in it must not surface.
+    /// The single-source rail hides the right pane, so a selection left behind in it must not surface.
     /// Both the rail's Space handler and the Info inspector rely on this.
     @Test func singleSourceIgnoresTheHiddenRightPane() {
         #expect(CurrentSelection.primaryPanePath(left: [], right: ["/a/alpha"], singleSource: true) == nil)

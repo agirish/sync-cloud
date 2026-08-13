@@ -3,11 +3,11 @@ import Foundation
 @testable import Sync
 
 /// Pins `invalidateDifferencesForPaneRetarget`, the targeted invalidation used by the
-/// suppressed provider-change paths (Tidy's "Compare copies" hand-off and its restore). Those
-/// paths deliberately suppress the provider-id onChange so the Tidy duplicate results survive —
+/// suppressed provider-change paths (the Duplicates lens's "Compare copies" hand-off and its restore). Those
+/// paths deliberately suppress the provider-id onChange so the duplicate results survive —
 /// which means they must clear the OLD comparison's differences themselves (the rows carry
 /// absolute paths for roots the panes no longer show and stay actionable during the tree-load
-/// window), while leaving the Tidy state — the original reason for the suppression — untouched.
+/// window), while leaving the lens state — the original reason for the suppression — untouched.
 @Suite struct PaneRetargetInvalidationTests {
 
     private func makeDifference() -> FileDifference {
@@ -36,7 +36,7 @@ import Foundation
     }
 
     /// The core contract: every published diff-presentation field is dropped synchronously, and
-    /// every piece of Tidy duplicate state survives.
+    /// every piece of duplicate state survives.
     @MainActor
     @Test func retargetInvalidationClearsDifferencesButKeepsDuplicates() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -50,7 +50,7 @@ import Foundation
         manager.lastScanDate = Date()
         manager.hasScanned = true
 
-        // ...plus live Tidy duplicate results the user must be able to return to.
+        // ...plus live duplicate results the user must be able to return to.
         let group = makeGroup()
         manager.duplicateGroups = [group]
         manager.duplicateScanRoot = "/root"
@@ -67,7 +67,7 @@ import Foundation
         #expect(manager.lastScanDate == nil)
         #expect(manager.hasScanned == false)
 
-        // Untouched: the Tidy duplicate state (the whole reason the callers suppress the
+        // Untouched: the duplicate state (the whole reason the callers suppress the
         // provider-id onChange instead of letting resetNavigation run).
         #expect(manager.duplicateGroups == [group])
         #expect(manager.duplicateScanRoot == "/root")
@@ -111,7 +111,7 @@ import Foundation
 
     /// The full reset keeps its contract too: `invalidateComparisonState` (now routed through
     /// the shared subset) still clears the trees AND the differences, and still leaves the
-    /// Tidy duplicate state alone — pinning the refactor as behavior-preserving.
+    /// the duplicate state alone — pinning the refactor as behavior-preserving.
     @MainActor
     @Test func fullInvalidationStillClearsTreesAndDifferences() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())

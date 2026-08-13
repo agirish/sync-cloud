@@ -219,7 +219,7 @@ public struct PersonTagIndex: Sendable, Equatable {
     /// **This is what makes the durable key usable before anything has fingerprinted the tree.**
     /// A digest identifies a document but says nothing about where it is, and a gather walks paths:
     /// nothing computes 10,171 fingerprints to answer "whose is this?", and the persisted
-    /// fingerprint index only exists once a Tidy scan has run. So a fingerprint-keyed tag is also
+    /// fingerprint index only exists once a duplicates scan has run. So a fingerprint-keyed tag is also
     /// findable at the path it was made at — the weaker match, used only when no digest is in hand.
     private var byRecordedPath: [String: [String: PersonTagVerdict]] = [:]
     /// `personId` → every path a confirmation was recorded at, so the gather can surface documents

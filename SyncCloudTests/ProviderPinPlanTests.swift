@@ -6,7 +6,7 @@ import Testing
 /// writes that REALLY change a stored value (SwiftUI fires `onChange` only for a real change),
 /// so seeding the counter with it can neither strand a leftover unit (which would swallow the
 /// user's next real provider switch) nor under-count (which would let the onChange wipe the
-/// Tidy results the retarget is protecting).
+/// lens results the retarget is protecting).
 @Suite struct ProviderPinPlanTests {
 
     // MARK: Both sides change — the distinct-provider pane swap
@@ -35,7 +35,7 @@ import Testing
         #expect(plan.suppressCount == 0)
     }
 
-    // MARK: One side changes — compareCopies pinning both panes to the Tidy provider
+    // MARK: One side changes — compareCopies pinning both panes to the lens provider
 
     @Test func pinningWhenLeftAlreadyMatchesWritesOnlyRight() {
         // compareCopies targets one provider for BOTH panes; the left pane is usually already

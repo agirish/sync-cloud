@@ -26,7 +26,7 @@ public struct NativeAlerts {
     }
 
     /// A Finder-style destructive confirm/cancel alert whose summary is supplied by the caller.
-    /// Used by flows that build their own "what will happen" message (e.g. Tidy). The confirm
+    /// Used by flows that build their own "what will happen" message (e.g. the Duplicates lens). The confirm
     /// button is the destructive Return default, matching `confirmDelete`.
     /// - Returns: True if the user chose the confirm button.
     public static func confirmDestructive(messageText: String, informativeText: String, confirmTitle: String) -> Bool {

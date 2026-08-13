@@ -22,7 +22,7 @@ enum NameNormalizeGlyph {
 /// Organize's risky-names list (the former Rename lens, and the Name Normalizer before that):
 /// every cloud-hostile file
 /// & folder names, previews the safe replacement for each, and fixes them in one undoable pass.
-/// Its own intro / scanning / results / all-clean states; rendered inside ``TidyView``'s content card.
+/// Its own intro / scanning / results / all-clean states; rendered inside ``LensWorkspaceView``'s content card.
 struct RenameLens: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.

@@ -29,7 +29,7 @@ import Testing
     }
 
     @Test func providerSwitchAfterTheReviewWentInactiveReleasesItsPin() {
-        // INACTIVE: the user has already moved on — entering a Tidy lens re-focuses the shared
+        // INACTIVE: the user has already moved on — entering an Organize lens re-focuses the shared
         // left pane, which is exactly how this state is reached — so the OTHER pane is still
         // pinned to the duplicate's provider by `compareCopies`. That pin is bookkeeping the user
         // never chose, and dropping the snapshot without releasing it stranded their other pane on
@@ -91,7 +91,7 @@ import Testing
     }
 
     @Test func leavingCompareWithAnActiveReviewKeepsIt() {
-        // An active review (both panes still on the copies) survives the Tidy round-trip.
+        // An active review (both panes still on the copies) survives the Organize round-trip.
         let left = CompareReviewEvent.tabSwitched(toCompare: false, fromCompare: true)
         #expect(effects(left, state(review: true, active: true, guided: true)) == [])
         #expect(effects(left, state(review: false)) == [])

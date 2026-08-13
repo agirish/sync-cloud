@@ -99,7 +99,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
 
 /// The persisted order of a pane bar: which items are on it, and where.
 ///
-/// Shared by both Compare panes and the Tidy rail — one arrangement, because the point of Compare's
+/// Shared by both Compare panes and the single-source rail — one arrangement, because the point of Compare's
 /// side-by-side layout is that the two panes read as the same instrument pointed at two providers.
 /// What stays per-pane is *state* (provider, hue wash, breadcrumb, whether Back is enabled), not the
 /// arrangement.
@@ -239,7 +239,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     }
 
     /// The arrangement restricted to what this host can actually offer — a header with no view-mode
-    /// binding has no View control to place, and the Tidy rail has no Columns mode to preview.
+    /// binding has no View control to place, and the single-source rail has no Columns mode to preview.
     public func resolved(available: [PaneBarItem]) -> [PaneBarItem] {
         items.filter { $0.isSpacer || available.contains($0) }
     }

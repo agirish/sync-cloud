@@ -17,9 +17,9 @@ import SwiftUI
 struct PaneBarCustomizeSheet: View {
     /// What the pane you opened this from can actually draw.
     ///
-    /// The arrangement is shared by both Compare panes and the Tidy rail, so it necessarily contains
+    /// The arrangement is shared by both Compare panes and the single-source rail, so it necessarily contains
     /// items a given pane has no use for — Collapse Pane is in the *default* arrangement and only the
-    /// Tidy rail ever draws it, and Preview only exists in Columns view. Without this the sheet showed
+    /// single-source rail ever draws it, and Preview only exists in Columns view. Without this the sheet showed
     /// a Collapse Pane pill on the track of a Compare pane whose bar does not have one, which reads as
     /// a bug in the sheet. Those items are still fully editable here; they are just marked as not
     /// applying to the pane in front of you.

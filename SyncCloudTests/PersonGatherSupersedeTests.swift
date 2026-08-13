@@ -235,7 +235,7 @@ import Sync
     /// **Which of the two handlers does the clearing is the substance of this test.** Each id has
     /// one handler that returns early — while providers are still being discovered, and again on a
     /// pane swap, whose `pendingSwapProviderChanges` suppression exists so the swap's own
-    /// navigation is not reset — and one that runs unconditionally. A swap moves the single Tidy
+    /// navigation is not reset — and one that runs unconditionally. A swap moves the single lens
     /// source onto the other provider exactly as a manual pick does, so a clear behind those
     /// returns would leave the gather standing in the case that looks most like it did not change.
     @Test func everyProviderSwitchClearsTheGatherWhicheverPaneMoved() throws {

@@ -200,7 +200,7 @@ import Testing
     // MARK: What the host cannot offer, and what it doesn't know about yet
 
     @Test func testItemsTheHostCannotOfferAreNotDrawnAndNotInTheMenu() {
-        // The Tidy rail has no Columns mode, so no preview to toggle; a comparison pane doesn't
+        // The single-source rail has no Columns mode, so no preview to toggle; a comparison pane doesn't
         // collapse individually. Neither should leave a dead entry in ⋯.
         let railish: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let plan = PaneBarLayout.plan(arrangement: .default, available: railish, depth: 0)

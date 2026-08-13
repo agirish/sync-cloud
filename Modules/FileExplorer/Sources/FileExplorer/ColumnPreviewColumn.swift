@@ -180,7 +180,7 @@ extension EnvironmentValues {
 struct ColumnPreviewColumn: View {
     let item: ColumnPreviewItem
     /// Room held clear at the bottom for the pane's action bar, which overlays this column on a
-    /// comparison pane. `0` where there is no bar — the Tidy rail. See the call site in
+    /// comparison pane. `0` where there is no bar — the single-source rail. See the call site in
     /// `PaneColumnsView` for the measurement.
     var actionBarClearance: CGFloat = 0
     /// The pane this preview belongs to, so a download started HERE is watched by that pane — the

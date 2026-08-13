@@ -338,7 +338,7 @@ scars from it.
 | **One detector of eight shipped.** Dead weight, backlog, mirrored inbox, echo names and shadow axes are designed and unbuilt. | `StructureDivergence` | A 1,200-folder branch with 52 pass-throughs gets the same answer as a tidy one: silence. §4.3 is one of these eight — build it as part of §5.2, not twice. |
 | **`memberCount` sums the *vouched* schemes only** — a scheme of one is dropped as drift before the card is drawn. | `StructureFinding.memberCount` | The card reads `12 folders` on a 13-year family and the odd year out is invisible. **A scheme dropped as evidence is still a folder the plan must find a home for.** |
 | **The rename pass already owns a review-and-apply path** — per-folder plans, "as one undoable change", and a *left alone, for a stated reason* tail. | `RenamePassLens`, `onApply` | The plan shares it rather than growing a second one. `ROADMAP.md` 20 makes that its scheduling constraint. |
-| **The one paid control names its model, names its batch size, and raises a spend pre-flight with a real estimate.** Its branch is *is a key stored*, not *is cloud switched on*. | `TidyView.refineButton` | §5.6 reuses it verbatim — same slot, same words up to the ellipsis, same billing sentence. Nothing new to design. |
+| **The one paid control names its model, names its batch size, and raises a spend pre-flight with a real estimate.** Its branch is *is a key stored*, not *is cloud switched on*. | `LensWorkspaceView.refineButton` | §5.6 reuses it verbatim — same slot, same words up to the ellipsis, same billing sentence. Nothing new to design. |
 | **Answers and applied plans both invalidate the check that asked them.** | v3.1 review; `Refine` is already a generation-bumper | §5.3 and §5.5 must bump a structure generation and recompute, or the lens re-suggests what it was just told. |
 
 ### 5.1 The scoped read — small
@@ -435,7 +435,7 @@ is ever deleted; folders go to the Trash.
 then there is no judgement left; the judgement is *what should these folders be called* — the one
 question the tree cannot answer and a model can.
 
-Reuses `TidyView.refineButton` wholesale: the invitation when no key is stored, `Ask Opus about N
+Reuses `LensWorkspaceView.refineButton` wholesale: the invitation when no key is stored, `Ask Opus about N
 folder names` when one is, and the existing spend pre-flight. Three things it adds:
 
 - **An itemised payload disclosure** — folder paths and candidate vocabularies always; *up to 5 file

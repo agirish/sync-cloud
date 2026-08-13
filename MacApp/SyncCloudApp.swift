@@ -34,7 +34,7 @@ struct SyncCloudApp: App {
     /// shared FileSyncManager, its trees, and mid-session toggles — lives on. Deliberately
     /// @State, not @AppStorage: it must reset on every app launch.
     @State private var hasBootstrappedSession = false
-    /// The active duplicate-copy review (Tidy's "Compare copies" hand-off). App-owned for the
+    /// The active duplicate-copy review (the Duplicates lens's "Compare copies" hand-off). App-owned for the
     /// same reason as `hasBootstrappedSession`: its provider pins live in @AppStorage and the
     /// FileSyncManager's pane focus survives a window close + Dock reopen, so the review context
     /// — the banner, the trash-right action, and above all the restore snapshot that un-pins the

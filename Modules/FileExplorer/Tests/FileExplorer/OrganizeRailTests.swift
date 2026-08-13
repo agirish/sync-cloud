@@ -194,7 +194,7 @@ import Design
     /// Mounts Organize with a **named rail selection**.
     ///
     /// The selection has to go through the defaults the view itself reads, because that is where
-    /// `TidyView` keeps it — and it is not optional for a fixture: with the key unset the rail
+    /// `LensWorkspaceView` keeps it — and it is not optional for a fixture: with the key unset the rail
     /// resolves to `nil`, which is the *overview*, where no lens's actions are drawn at all. A
     /// suite that forgot this measured the overview and reported that a full queue and an empty
     /// one inked the action band identically. The innermost `defaultAppStorage` wins.
@@ -222,7 +222,7 @@ import Design
         // Both callbacks are supplied because both gate a control this suite measures: the Rescan
         // menu's "Update folder memory" item, and the "Refine with Claude…" invitation, which is
         // withheld outright when there is no Settings to open.
-        let subject = TidyView(syncManager: manager, lens: .filing, providerName: "Projects",
+        let subject = LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                                scanTargetFolder: scanTarget, onFindDuplicates: {},
                                onUpdateFolderMemory: {}, onConfigureCloudRefine: {},
                                providerRoot: providerRoot)
@@ -699,7 +699,7 @@ import Design
         // The distinction `OrganizeOverviewState` is careful about and the rail used to throw away:
         // both drew as "an item with no badge". Asserted on the state the width model and the label
         // both read, so the two cannot drift.
-        var counts = TidyView.RailCounts(toFile: 0, duplicates: 0, names: 0, renames: 0,
+        var counts = LensWorkspaceView.RailCounts(toFile: 0, duplicates: 0, names: 0, renames: 0,
                                          restructure: 0, rules: 3)
         counts.scanned = [.duplicates]
         #expect(counts.state(.duplicates) == .clean)
@@ -853,7 +853,7 @@ import Design
     /// row. There is nothing left to shed, and an `HStack` that runs out of room draws over its
     /// neighbour rather than clipping — which is the defect the screenshots showed.
     ///
-    /// Recorded as a measurement so the horizontal scroll in `TidyView.lensTitle` reads as the
+    /// Recorded as a measurement so the horizontal scroll in `LensWorkspaceView.lensTitle` reads as the
     /// answer to a case that exists rather than as belt-and-braces someone can tidy away.
     /// **A rail item has to fit the row, now that the row clips.**
     ///
@@ -1403,7 +1403,7 @@ import Design
         // recording rather than quietly dropping.**
         //
         // Row 1 reserves only the search toggle now, so the rail sheds below ~668pt of card. The
-        // harness cannot get there: `TidyView` lays its header out at roughly 750pt however narrow
+        // harness cannot get there: `LensWorkspaceView` lays its header out at roughly 750pt however narrow
         // the canvas, and below that the leading cluster is *clipped* rather than shed. Measured by
         // sweeping `leadingExtent` down the canvas — 627pt drawn at every width from 1100 to 750,
         // then 685 / 642 / 592 / 542 / 492 at 700 / 650 / 600 / 550 / 500, which is a fixed cluster

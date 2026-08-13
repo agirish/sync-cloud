@@ -52,7 +52,7 @@ enum OrganizeRailStyle: Equatable, Sendable {
 ///   row 1's leading side and the model only ever measured the rail, so it was short by 21pt on
 ///   every Organize lens. That button has since been removed and the leading half is the rail
 ///   alone — but the lesson outlives it: anything put back on this side of the row belongs in
-///   ``leadingWidth(scale:state:)``, not merely in `TidyView.lensTitle`.
+///   ``leadingWidth(scale:state:)``, not merely in `LensWorkspaceView.lensTitle`.
 ///
 /// Together those came to ~63pt at four badges, which is why the row truncated while the
 /// arithmetic reported room. The failure mode worth remembering is not the size of the error but
@@ -107,7 +107,7 @@ enum OrganizeRailMetrics {
     /// Row 1 width the rail can never have: **the search toggle, and nothing else.**
     ///
     /// This was a per-lens number — 490 for To File, 420 for the other five — because the lens's
-    /// own controls sat opposite the rail. They are on row 2 now (see `TidyView.lensTrailing`),
+    /// own controls sat opposite the rail. They are on row 2 now (see `LensWorkspaceView.lensTrailing`),
     /// and this constant is the reason they moved: the rail spells out at 693pt, so a 490pt
     /// reserve meant row 1 wanted **1,183pt of card** before it would show six names. Most windows
     /// are narrower than that, so most windows got the glyph-only rail — the shed was the normal

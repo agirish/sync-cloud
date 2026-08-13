@@ -56,7 +56,7 @@ struct ContentView: View {
     /// `UserDefaults.standard.set` — which this app has already been bitten by and documented:
     /// `@AppStorage`'s process-wide storage location per (store, key) can **lose** a standard-domain
     /// write outright rather than deliver it late, which is why the defaults-backed test suites
-    /// mount with their own `ScratchDefaults`. `TidyView` holds both keys in `@AppStorage`, so a
+    /// mount with their own `ScratchDefaults`. `LensWorkspaceView` holds both keys in `@AppStorage`, so a
     /// route could land on Organize and leave the rail on whatever lens it was already showing,
     /// intermittently and with nothing to see. Writing through the same property wrapper puts both
     /// sides on one storage location, which is the path every other writer in the app already takes.
@@ -86,7 +86,7 @@ struct ContentView: View {
     /// later real provider switches are never suppressed.
     @State private var pendingSwapProviderChanges: Int = 0
 
-    /// Active "compare two duplicate copies" handoff from Tidy: the keeper (left pane) and the
+    /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left pane) and the
     /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
     /// the right copy is trashed. Drives the keep-left / trash-right banner over Compare; nil when
     /// no such review is in progress. App-owned (a binding, like `hasBootstrappedSession`): a
@@ -157,7 +157,7 @@ struct ContentView: View {
         static let railFractionKey = "tidyRailFraction"
     }
 
-    /// The single-source source rail's share of the content width when expanded (Tidy). Persisted
+    /// The single-source source rail's share of the content width when expanded (the lens workspaces). Persisted
     /// like the other split fractions; the workspace fills the rest.
     @AppStorage(RailLayout.railFractionKey) var railFraction: Double = 0.28
     /// Live rail-split fraction while dragging; nil when idle (persisted once on release).
@@ -187,9 +187,9 @@ struct ContentView: View {
     @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .compare
     /// Which lens is showing inside Organize, or `nil` for its overview.
     ///
-    /// Lives beside the workspace rather than inside `TidyView` because programmatic navigation
+    /// Lives beside the workspace rather than inside `LensWorkspaceView` because programmatic navigation
     /// needs to write it: "Find duplicates of this" names a lens, and since the fold that lens is
-    /// one rail item inside Organize rather than a workspace of its own. `TidyView` reads the same
+    /// one rail item inside Organize rather than a workspace of its own. `LensWorkspaceView` reads the same
     /// key through its own `@AppStorage`, so the two cannot disagree.
     @AppStorage(OrganizeLens.defaultsKey) var selectedOrganizeLens: OrganizeLens?
     /// Set while a ⌘F query has been turned into a person gather. Clearing it returns the pane to
@@ -201,7 +201,7 @@ struct ContentView: View {
     ///
     /// Beside the lens selection and for the same reason: programmatic callers set it. "Organize
     /// This Folder…" from a folder's context menu and the ⌘K command both name a folder, and both
-    /// have to be able to re-aim Organize before any scan has run. `TidyView` reads the same key
+    /// have to be able to re-aim Organize before any scan has run. `LensWorkspaceView` reads the same key
     /// through its own `@AppStorage`, so the two cannot disagree.
     ///
     /// Never written directly — see ``setOrganizeScope(_:)``, which is where the provider root is
@@ -210,11 +210,11 @@ struct ContentView: View {
 
     /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
     /// one selection now, and a second copy of it would be a second thing to keep in step.
-    var selectedLens: TidyLens? { selectedWorkspace.lens }
+    var selectedLens: WorkspaceLensKind? { selectedWorkspace.lens }
 
     /// The file a pane row's "Find duplicates of this" asked the Duplicates lens to reveal.
     ///
-    /// Held HERE and not inside `TidyView`, because the workspace switch that carries the user
+    /// Held HERE and not inside `LensWorkspaceView`, because the workspace switch that carries the user
     /// there mounts that view: state set on the way in has to outlive the mount. Not persisted —
     /// it names a scan that only exists in this session.
     @State var duplicateRevealRequest: DuplicateRevealRequest?
@@ -307,7 +307,7 @@ struct ContentView: View {
     /// exactly as it did before the setting existed.
     @AppStorage(PaneViewMode.defaultsKey(isLeft: true)) private var leftViewModeRaw = PaneViewMode.default.rawValue
     @AppStorage(PaneViewMode.defaultsKey(isLeft: false)) private var rightViewModeRaw = PaneViewMode.default.rawValue
-    /// The Tidy rail's own presentation, on its own key so switching a comparison pane never
+    /// The single-source rail's own presentation, on its own key so switching a comparison pane never
     /// restacks the rail. Columns by default for the same reason the panes are: a resting Columns
     /// pane is one full-width column listing exactly what the tree listed, so this changes what a
     /// click *does* — one click opens a folder instead of needing the row menu's Open.
@@ -336,7 +336,7 @@ struct ContentView: View {
     /// Which of the three stored presentations the pane on screen right now is reading.
     ///
     /// **One member, deliberately.** Three surfaces draw `FileTreeView` — the two comparison panes,
-    /// the Tidy rail, and Browse — and before Browse existed the choice was a bare
+    /// the single-source rail, and Browse — and before Browse existed the choice was a bare
     /// `layoutMode == .singleSource ? rail : pane` ternary restated at each of its three call
     /// sites. Adding a third surface to two of them and missing the third is not a hypothetical:
     /// the missed one would show Browse in the rail's stack and write the user's choice into the
@@ -347,7 +347,7 @@ struct ContentView: View {
     }
 
     /// The destination question on screen, if any. Held here because both surfaces that raise it —
-    /// the Tidy rail's row menu and an Organize card's "Choose folder…" — are children of this view.
+    /// the single-source rail's row menu and an Organize card's "Choose folder…" — are children of this view.
     @State var pendingDestination: PendingDestination?
     /// The recents the on-screen picker was opened with.
     ///
@@ -383,7 +383,7 @@ struct ContentView: View {
     /// is the entire point of this verb.
     func requestDestination(for nodes: [FileNode], isMove: Bool) {
         guard let first = nodes.first else { return }
-        let root = tidyProviderRootExpanded
+        let root = lensProviderRootExpanded
         let commit: (String) -> Void = { destination in
             if isMove {
                 actionHandler?.moveItems(nodes, toPath: destination)
@@ -410,7 +410,7 @@ struct ContentView: View {
                 firstItemName: first.name,
                 isMove: isMove,
                 providerRoot: root,
-                providerName: tidyProviderName.isEmpty ? "this provider" : tidyProviderName,
+                providerName: lensProviderName.isEmpty ? "this provider" : lensProviderName,
                 // The selection's own parent, NOT the rail's current directory. In Columns,
                 // clicking a folder drills into it, so the rail's current directory IS the folder
                 // being moved — opening there would land the picker inside the selection and greet
@@ -449,7 +449,7 @@ struct ContentView: View {
     /// is both honest and useful — it lands you on the deepest folder the two still share instead
     /// of on an empty column claiming a folder that isn't there.
     func applyColumnNavigation(_ path: PaneBrowsePath, isLeft: Bool) {
-        // Only the comparison layout has a sibling to mirror into; the Tidy rail has none. The
+        // Only the comparison layout has a sibling to mirror into; the single-source rail has none. The
         // link-or-⌥ test is the same one the breadcrumb and the tree's drill-in already apply, so
         // all three ways of walking into a folder obey one setting.
         let mirror = layoutMode == .compare
@@ -492,7 +492,7 @@ struct ContentView: View {
         )
     }
 
-    /// Binding for the same switch on the Tidy rail, writing the rail's own key.
+    /// Binding for the same switch on the single-source rail, writing the rail's own key.
     var railViewModeBinding: Binding<PaneViewMode> {
         Binding(get: { railViewMode }, set: { railViewModeRaw = $0.rawValue })
     }
@@ -779,7 +779,7 @@ struct ContentView: View {
                     //
                     // **Armed here, opened when provider discovery finishes** — the same wait the
                     // first-run card takes, and for a sharper reason. Discovery is async and fills
-                    // `availableProviders`, so at this point `tidyProviderRootExpanded` is still
+                    // `availableProviders`, so at this point `lensProviderRootExpanded` is still
                     // empty and the palette's folder index resolves to NOTHING. Opened here it
                     // logged "19 rows from 0 folders" on a tree of 3,013 — a diagnostic showing a
                     // state no user can ever be in, which is worse than no diagnostic.
@@ -885,7 +885,7 @@ struct ContentView: View {
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // The Get-Info override also goes stale when the comparison context changes underneath it:
-        // a provider switch (its file is on the old provider) or a tab switch (Tidy is single-source
+        // a provider switch (its file is on the old provider) or a tab switch (Organize is single-source
         // and shows its own selection). Without these, `DetailsSidebar` — which prefers `overridePath`
         // over everything — keeps showing the old-provider/old-tab file, defeating the single-source
         // guard. `resetNavigation` only clears selections when non-empty, so the selection onChanges
@@ -895,7 +895,7 @@ struct ContentView: View {
         // gather is an answer about the whole SOURCE, read off `filingFolderProfile`, so after a
         // switch its card lists files from a tree this window no longer shows — and its "Open"
         // joins the OLD profile root to a relative path and then relativizes that against the NEW
-        // `tidyProviderRootExpanded`, which cannot match: the button silently degrades to a Finder
+        // `lensProviderRootExpanded`, which cannot match: the button silently degrades to a Finder
         // reveal. `clearLensResultsForProviderSwitch()` in the handler above is the list that owns
         // "no stale Tidy result outlives its provider", and it structurally cannot reach this one —
         // that list is the manager's, while the gather takes the lens slot from `ContentView`'s own
@@ -903,7 +903,7 @@ struct ContentView: View {
         //
         // **This pair, not the handler above, because this is what every writer of the ids trips.**
         // That handler returns early while providers are still being discovered and again on a pane
-        // swap — and a swap moves the single Tidy source onto the other provider just as surely as
+        // swap — and a swap moves the single lens source onto the other provider just as surely as
         // picking one from the source menu does, so a gather must not survive it either.
         .onChange(of: leftProviderId) { _, _ in
             infoPath = nil
@@ -938,7 +938,7 @@ struct ContentView: View {
             // are already on still does not throw the gather away.
             clearPersonScope()
             restoreStorageLensIfShowing()
-            autoRescanTidyLensIfShowing()
+            autoRescanLensIfShowing()
         }
         // The workspace is @AppStorage, so quitting on Storage means the next launch STARTS there
         // and `onChange` never fires — the restore has to be attempted on appearance too, or the
@@ -946,15 +946,15 @@ struct ContentView: View {
         // provider discovery finishes, which is why its own change is a trigger as well.
         // `restoreStorageLens` declines when a build is running or results already exist, so the
         // three triggers cannot fight: whichever arrives first wins and the rest are no-ops.
-        // `autoRescanTidyLensIfShowing` rides the same trio under the same contract, for the two
+        // `autoRescanLensIfShowing` rides the same trio under the same contract, for the two
         // lenses whose results are recomputed rather than restored.
         .onAppear {
             restoreStorageLensIfShowing()
-            autoRescanTidyLensIfShowing()
+            autoRescanLensIfShowing()
         }
-        .onChange(of: tidyScanRootExpanded) { _, _ in
+        .onChange(of: lensScanRootExpanded) { _, _ in
             restoreStorageLensIfShowing()
-            autoRescanTidyLensIfShowing()
+            autoRescanLensIfShowing()
         }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
@@ -1124,8 +1124,8 @@ struct ContentView: View {
     // MARK: - Pane visibility & content layout
 
     /// The resolved arrangement of the panes and workspace, which now start directly under the
-    /// window toolbar. Comparison tabs stack two panes over the workspace; the single-source Tidy
-    /// tab docks one collapsible rail beside a workspace that's always shown.
+    /// window toolbar. Comparison tabs stack two panes over the workspace; the single-source
+    /// workspaces dock one collapsible rail beside a workspace that's always shown.
     enum ContentLayout {
         /// Compare: panes over workspace.
         case compareSplit
@@ -1189,7 +1189,7 @@ struct ContentView: View {
     /// where the inbox lives now. Fired only from the bar itself — the programmatic
     /// scan actions (Find Duplicates / loose files from a Compare menu) set the workspace directly
     /// and bypass this, so they keep scanning the folder the user picked.
-    func presentTidyRail(for workspace: Workspace) {
+    func presentLensRail(for workspace: Workspace) {
         // The lens itself no longer changes where the rail opens — it is the guard that this is a
         // lensed workspace at all, which is what makes the early return correct for Compare.
         guard workspace.lens != nil else { return }
@@ -1326,7 +1326,7 @@ struct ContentView: View {
 
     /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for the
     /// path (not Finder's Get Info). Opens the inspector in place on the current tab — the inspector
-    /// is available on both Compare and Tidy, so this no longer yanks the Tidy rail over to Compare.
+    /// is available on both Compare and Organize, so this no longer yanks the single-source rail over to Compare.
     func showInfo(for path: String) {
         infoPath = path
         withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
@@ -1619,30 +1619,30 @@ struct ContentView: View {
         refreshAction()
     }
 
-    // MARK: Tidy — Find Duplicates
+    // MARK: Lens scans — Find Duplicates
 
-    /// Whether a Tidy scan/inspect should target the right pane. Always false in single-source Tidy
-    /// (the rail is the left pane), so a stale right-pane selection can't silently aim Tidy at the
-    /// hidden provider. In compare mode the focused pane wins. See `PaneLogic.tidyTargetsRightPane`.
-    var tidyTargetIsRight: Bool {
-        PaneLogic.tidyTargetsRightPane(isCompare: layoutMode == .compare, activePane: activePane)
+    /// Whether a lens scan/inspect should target the right pane. Always false in a single-source workspace
+    /// (the rail is the left pane), so a stale right-pane selection can't silently aim the scan at the
+    /// hidden provider. In compare mode the focused pane wins. See `PaneLogic.lensTargetsRightPane`.
+    var lensTargetIsRight: Bool {
+        PaneLogic.lensTargetsRightPane(isCompare: layoutMode == .compare, activePane: activePane)
     }
 
-    /// The provider name for the pane a Tidy scan targets: the single-source rail is always the left
+    /// The provider name for the pane a lens scan targets: the single-source rail is always the left
     /// pane; in compare mode it follows the focused pane.
-    var tidyProviderName: String {
-        tidyTargetIsRight ? paneNames.right : paneNames.left
+    var lensProviderName: String {
+        lensTargetIsRight ? paneNames.right : paneNames.left
     }
 
-    /// The absolute (tilde-expanded) folder a Tidy scan walks: the targeted pane's current directory
+    /// The absolute (tilde-expanded) folder a lens scan walks: the targeted pane's current directory
     /// (always the left rail in single-source; the focused pane in compare) — **including where the
     /// pane is browsing**, so clicking through columns moves the target and the "Scan '<folder>'"
-    /// offer follows in real time. See `PaneLogic.tidyScanRoot`.
-    var tidyScanRootExpanded: String {
-        PaneLogic.tidyScanRoot(
-            focusRootExpanded: ((tidyTargetIsRight ? currentRightPath : currentLeftPath) as NSString)
+    /// offer follows in real time. See `PaneLogic.lensScanRoot`.
+    var lensScanRootExpanded: String {
+        PaneLogic.lensScanRoot(
+            focusRootExpanded: ((lensTargetIsRight ? currentRightPath : currentLeftPath) as NSString)
                 .expandingTildeInPath,
-            browsePath: tidyTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath)
+            browsePath: lensTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath)
     }
 
     /// The coverage the ⌂ badge is resolved against for one pane — nil where the badge never
@@ -1676,16 +1676,16 @@ struct ContentView: View {
     }
 
     /// Opens Duplicates on one row's file. Aimed at the row's OWN side rather than at
-    /// `tidyTargetIsRight`'s focused pane: a right-click does not necessarily move focus, and a
+    /// `lensTargetIsRight`'s focused pane: a right-click does not necessarily move focus, and a
     /// scan aimed at the other pane would answer about a different provider entirely.
     func findDuplicatesOfAction(_ node: FileNode, isLeft: Bool) {
         revealCoordinator.findDuplicates(of: node, isLeft: isLeft)
     }
 
-    /// Switches to the Tidy tab and kicks off a duplicate scan of **the subject** — the scope when
+    /// Switches to the Duplicates lens and kicks off a duplicate scan of **the subject** — the scope when
     /// one is set, the focused pane's folder otherwise.
     ///
-    /// **The scope, not the pane, for the same reason `autoRescanTidyLensIfShowing` targets it.**
+    /// **The scope, not the pane, for the same reason `autoRescanLensIfShowing` targets it.**
     /// The scan target is browse-aware and moves on every column click, so a pane-targeted scan
     /// answers about wherever the user last clicked while every control that starts it is captioned
     /// for the scope — the overview's Rescan help says "every file in scope is hashed". Scoped to
@@ -1699,7 +1699,7 @@ struct ContentView: View {
     /// did ("re-runs the current subject's scan"). The re-aim branch sets the scope first and then
     /// calls this, so it targets the folder it just aimed at.
     func findDuplicatesAction() {
-        let root = organizeScope?.path ?? tidyScanRootExpanded
+        let root = organizeScope?.path ?? lensScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Find Duplicates in \(root)")
         show(.duplicates)
@@ -1707,13 +1707,13 @@ struct ContentView: View {
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
 
-    /// Switches to the Tidy tab's Storage lens and builds a read-only storage picture of the focused
+    /// Switches to the Storage workspace and builds a read-only storage picture of the focused
     /// folder (same target-root helper as Find Duplicates). Walk + analyze only — nothing moves.
     /// Shows the saved Storage report for the current root, if Storage is what's on screen and
     /// nothing has been analyzed yet. Safe to call from any trigger — see the call sites.
     func restoreStorageLensIfShowing() {
         guard selectedWorkspace == .storage else { return }
-        let root = tidyScanRootExpanded
+        let root = lensScanRootExpanded
         guard !root.isEmpty else { return }
         syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
     }
@@ -1729,7 +1729,7 @@ struct ContentView: View {
     /// Organize's "can this cost money?" question is deliberately NOT asked here. It lives inside
     /// the scan, which stops before it walks anything expensive — so this stays a plain
     /// synchronous call that cannot race a scan the user starts a moment later.
-    func autoRescanTidyLensIfShowing() {
+    func autoRescanLensIfShowing() {
         // Keyed on the LENS now, not the workspace: duplicates and filing are two rail items
         // inside one workspace, so `selectedWorkspace` can no longer tell them apart. The overview
         // deliberately rescans nothing — it reports what each lens already knows, and starting two
@@ -1740,7 +1740,7 @@ struct ContentView: View {
         // This fires on every pane-folder change — and, now that the scan target is browse-aware,
         // on every column click too, which the eligibility gates absorb: the manager declines once
         // anything has run this session, so browsing can only ever refresh the remembered subject
-        // on a fresh lens, never replace a queue. It targeted `tidyScanRootExpanded`. With a
+        // on a fresh lens, never replace a queue. It targeted `lensScanRootExpanded`. With a
         // scope set that is the queue-destroying failure the design rejects live-binding to
         // prevent, arriving through a different door: browse from a scoped `Legal` into some other
         // previously-scanned folder and the rescan silently replaces `filingSuggestions` with that
@@ -1750,7 +1750,7 @@ struct ContentView: View {
         // The subject is the scope, so that is what gets refreshed. The manager still declines
         // unless the target is one scanned to completion before and nothing has run this session,
         // so pointing it at a never-scanned scope is a no-op rather than a surprise scan.
-        let target = organizeScope?.path ?? tidyScanRootExpanded
+        let target = organizeScope?.path ?? lensScanRootExpanded
         switch lens {
         case .duplicates:
             guard !target.isEmpty else { return }
@@ -1759,11 +1759,11 @@ struct ContentView: View {
         // The one filing scan publishes all three of these lists, so any of them showing is a
         // reason to refresh it.
         case .toFile, .names, .renames:
-            let root = tidyProviderRootExpanded
+            let root = lensProviderRootExpanded
             guard !target.isEmpty, !root.isEmpty else { return }
             syncManager.autoRescanFilingIfEligible(
                 folder: URL(fileURLWithPath: target), providerRoot: URL(fileURLWithPath: root),
-                providerName: tidyProviderName, nameProvider: tidyProviderType)
+                providerName: lensProviderName, nameProvider: lensProviderType)
         // Restructure reads the profile rather than the disk, and rules are configuration —
         // neither goes stale because a folder changed.
         case .restructure, .rules:
@@ -2046,14 +2046,14 @@ struct ContentView: View {
     /// ``setOrganizeScope(_:)``.
     func organizeFolderAction(_ node: FileNode) {
         let folder = (node.id as NSString).expandingTildeInPath
-        let providerRoot = tidyProviderRootExpanded
+        let providerRoot = lensProviderRootExpanded
         guard !folder.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Organize for \(folder)")
         setOrganizeScope(folder)
         show(.toFile)
         syncManager.startFindFilingSuggestions(
             folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerRoot),
-            providerName: tidyProviderName, nameProvider: tidyProviderType)
+            providerName: lensProviderName, nameProvider: lensProviderType)
     }
 
     /// The one write of Organize's scope, and the one place the root is normalized away.
@@ -2068,7 +2068,7 @@ struct ContentView: View {
 
     /// The subtree Organize is answering about, or nil for the global view.
     ///
-    /// Re-resolved on read rather than stored, exactly as `TidyView` does: the provider can change
+    /// Re-resolved on read rather than stored, exactly as `LensWorkspaceView` does: the provider can change
     /// under a persisted path, and a scope belonging to a tree that is no longer showing degrades
     /// to the global view instead of filtering every lens to nothing.
     var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }
@@ -2078,7 +2078,7 @@ struct ContentView: View {
     /// the filter would disagree about the same string.
     private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope? {
         guard let path, !path.isEmpty else { return nil }
-        return OrganizeScope(path: path, providerRoot: tidyProviderRootExpanded)
+        return OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)
     }
 
     /// Navigate to a lens inside Organize — both halves, always.
@@ -2092,7 +2092,7 @@ struct ContentView: View {
     }
 
     func buildStorageLensAction() {
-        let root = tidyScanRootExpanded
+        let root = lensScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Storage Lens for \(root)")
         selectedWorkspace = .storage
@@ -2118,8 +2118,8 @@ struct ContentView: View {
             glassLevel: glassLevel,
             currentLeftPath: { currentLeftPath },
             currentRightPath: { currentRightPath },
-            tidyTargetIsRight: { tidyTargetIsRight },
-            tidyProviderRootExpanded: { tidyProviderRootExpanded },
+            lensTargetIsRight: { lensTargetIsRight },
+            lensProviderRootExpanded: { lensProviderRootExpanded },
             refreshAction: { refreshAction() },
             applyProviderPinAssignments: { applyProviderPinAssignments($0) }
         )
@@ -2137,10 +2137,10 @@ struct ContentView: View {
         }
     }
 
-    /// The provider root of the pane a Tidy/Filing action targets (the left rail in single-source;
+    /// The provider root of the pane a lens action targets (the left rail in single-source;
     /// the focused pane in compare).
-    var tidyProviderRootExpanded: String {
-        let id = tidyTargetIsRight ? rightProviderId : leftProviderId
+    var lensProviderRootExpanded: String {
+        let id = lensTargetIsRight ? rightProviderId : leftProviderId
         return (settings.path(for: id) as NSString).expandingTildeInPath
     }
 
@@ -2148,8 +2148,8 @@ struct ContentView: View {
     /// rail in single-source; the focused pane in compare). See `SettingsManager.nameRuleType(for:)`
     /// for the two substitutions it makes: OneDrive for an unresolvable id, and the user's
     /// `folderNameRule` for a folder source.
-    var tidyProviderType: CloudProvider.ProviderType {
-        settings.nameRuleType(for: tidyTargetIsRight ? rightProviderId : leftProviderId)
+    var lensProviderType: CloudProvider.ProviderType {
+        settings.nameRuleType(for: lensTargetIsRight ? rightProviderId : leftProviderId)
     }
 
     /// Toggles the shared Quick Look panel for `url`: opens a preview of that file, or — when the
@@ -2196,17 +2196,17 @@ struct ContentView: View {
     /// walks + evaluates on-device and publishes what *would* happen; no file is moved. Triggered from
     /// the Automations lens's own button, so the pane is already on that lens when this runs.
     func startAutomationPreviewAction(only: UUID? = nil) {
-        let root = tidyScanRootExpanded
+        let root = lensScanRootExpanded
         // Destinations anchor at the provider root, not the focused subfolder — so a rule's
         // "Home/Utilities/…" template files into the provider root even when previewing inside a
         // subfolder, instead of nesting the tree under whatever folder happened to be focused.
-        let providerRoot = tidyProviderRootExpanded
+        let providerRoot = lensProviderRootExpanded
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
         show(.rules)
         syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
                                           destinationRoot: URL(fileURLWithPath: providerRoot),
-                                          providerName: tidyProviderName, only: only)
+                                          providerName: lensProviderName, only: only)
     }
 
     /// The folder a Filing scan targets right now — **the focused folder, always.**
@@ -2232,8 +2232,8 @@ struct ContentView: View {
     /// folders to 0 and five of the six lenses go dark on launch. The inbox is the right subject
     /// for To File and the wrong one for everything else.
     var filingScanTargetFolder: String? {
-        let focused = tidyScanRootExpanded
-        guard !focused.isEmpty, !tidyProviderRootExpanded.isEmpty else { return nil }
+        let focused = lensScanRootExpanded
+        guard !focused.isEmpty, !lensProviderRootExpanded.isEmpty else { return nil }
         return focused
     }
 
@@ -2245,7 +2245,7 @@ struct ContentView: View {
     /// that is not there is worse than no shortcut. nil when the setting is blank or the folder is
     /// missing, and blank is a state the Settings field can now express.
     var filingInboxFolder: String? {
-        let root = tidyProviderRootExpanded
+        let root = lensProviderRootExpanded
         guard !root.isEmpty else { return nil }
         let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
             .trimmingCharacters(in: .whitespaces)
@@ -2266,7 +2266,7 @@ struct ContentView: View {
     /// loose files, and To File then reported "Nothing to do in TODO" without TODO ever having been
     /// enumerated.
     func findFilingSuggestionsAction(ignoringCache: Bool = false) {
-        let root = tidyProviderRootExpanded
+        let root = lensProviderRootExpanded
         // The provider root is the taxonomy the scan files AGAINST, so it is required whichever
         // folder is being enumerated. `filingScanTargetFolder` folded that check in; the scope
         // branch needs it stated.
@@ -2276,11 +2276,11 @@ struct ContentView: View {
         selectedWorkspace = .filing
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root),
-                                               providerName: tidyProviderName,
+                                               providerName: lensProviderName,
                                                // Names come back on this pass — see
                                                // `detectRiskyNames`. The ruleset is the scanned
                                                // provider's, not whichever pane is focused later.
-                                               nameProvider: tidyProviderType,
+                                               nameProvider: lensProviderType,
                                                ignoringCache: ignoringCache)
     }
 
@@ -2291,7 +2291,7 @@ struct ContentView: View {
     /// no interest in — every already-filed one that changed — and its payoff is the *next* scan,
     /// not this one. Tying it to Rescan would make the common act pay for the occasional one.
     func updateFolderMemoryAction() {
-        let root = tidyProviderRootExpanded
+        let root = lensProviderRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested a folder-memory re-survey of \(root)")
         Task { await syncManager.resurveyFilingMemory(root: URL(fileURLWithPath: root)) }
@@ -2315,7 +2315,7 @@ struct ContentView: View {
         let diffIndex: DiffStatusIndex
         let otherPaneName: String?
         let hasOnlyHiddenEntries: Bool
-        /// How this pane presents its tree. The comparison panes, the Tidy rail and Browse all
+        /// How this pane presents its tree. The comparison panes, the single-source rail and Browse all
         /// reach Columns, each from its own stored key — see `resolvedViewMode(isLeft:)`.
         let viewMode: PaneViewMode
         /// Path → children for the columns presentation, cached per publish by the manager. `nil`
@@ -2390,7 +2390,7 @@ struct ContentView: View {
                 onBack: { syncManager.goBack(isLeft: isLeft) },
                 onForward: { syncManager.goForward(isLeft: isLeft) },
                 onNavigate: { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) },
-                // The Tidy rail has no visible sibling: ⌥-click (and the 🔗-linked crumb click)
+                // The single-source rail has no visible sibling: ⌥-click (and the 🔗-linked crumb click)
                 // must behave as plain navigation there, never drive the hidden right pane.
                 onNavigateBoth: layoutMode == .singleSource
                     ? { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) }
@@ -2404,7 +2404,7 @@ struct ContentView: View {
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
                 } },
                 sortOption: $syncManager.sortOption,
-                // Only the single-source Tidy rail collapses itself (back to the spine); the two
+                // Only the single-source rail collapses itself (back to the spine); the two
                 // comparison panes never collapse individually, and Browse cannot — the pane IS
                 // the window there, so there is no spine to collapse into and nothing beside it
                 // that the space would go to.
@@ -2515,7 +2515,7 @@ struct ContentView: View {
         // without this a folder picked here could never be un-picked. Only swallow the key when
         // there's actually a selection here; otherwise let it bubble (dialogs, etc.).
         //
-        // The Tidy rail reads its RAW selection rather than `barNodes`: the action bar (and with it
+        // The single-source rail reads its RAW selection rather than `barNodes`: the action bar (and with it
         // `barSelectionNodes`) is compare-only, so gating on it alone made Escape dead on the one
         // surface that has neither a bar nor its ✕ to fall back on. Compare's gate is unchanged —
         // see `PaneLogic.escapeClearsSelection`.
@@ -2553,7 +2553,7 @@ struct ContentView: View {
 
     /// The Info inspector — the former Details tab, now a toggleable right-side panel showing metadata
     /// for the current selection. Available on both Compare (both-sides status) and the single-source
-    /// Tidy rail. `DetailsSidebar` handles the no-selection empty state itself.
+    /// single-source rail. `DetailsSidebar` handles the no-selection empty state itself.
     private var infoInspector: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -2730,7 +2730,7 @@ struct ContentView: View {
     }
 
     /// The Compare busy state: the whole placeholder becomes the scan while the first one runs
-    /// (the Tidy pattern) — livelier than a spinning button glyph.
+    /// (the lens workspace pattern) — livelier than a spinning button glyph.
     ///
     /// It reports **elapsed time and nothing else**, because elapsed time is the only honest number
     /// available. A percentage would need a total, and the walk that produces one
@@ -2823,7 +2823,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func treeView(_ pane: PaneContext) -> some View {
-        // The Tidy rail is the only pane on screen: it shows no action bar, so it takes no placement
+        // The single-source rail is the only pane on screen: it shows no action bar, so it takes no placement
         // scratch space and no flip callback (`placement`'s own contract), and it has no sibling to
         // be subordinate to, so its selection wears the full-strength wash.
         let isRail = layoutMode == .singleSource
@@ -2843,7 +2843,7 @@ struct ContentView: View {
             hasOnlyHiddenEntries: pane.hasOnlyHiddenEntries,
             rootPath: settings.path(for: pane.providerId),
             onOpenSettings: openProviderSettings,
-            // The Tidy rail is a single source with no opposite pane, so its row menu drops the
+            // The single-source rail has no opposite pane, so its row menu drops the
             // comparison-only items and renames "Compare only this folder" to "Open".
             isSingleSource: layoutMode == .singleSource,
             // Shared placement scratch space this pane fills from live geometry; `paneColumn` reads
@@ -2933,7 +2933,7 @@ struct ContentView: View {
                 // next would scan wherever the user last browsed instead of the source. Narrowing
                 // is the scope's job now — it is sticky and visible, unlike a pane position.
                 if newWorkspace != previous {
-                    presentTidyRail(for: newWorkspace)
+                    presentLensRail(for: newWorkspace)
                 }
             }
         )
@@ -2991,7 +2991,7 @@ struct ContentView: View {
                        guard let root = syncManager.filingFolderProfile?.root else { return }
                        let full = ((root as NSString).expandingTildeInPath as NSString)
                            .appendingPathComponent(relative)
-                       let paneRoot = tidyProviderRootExpanded
+                       let paneRoot = lensProviderRootExpanded
                        guard !paneRoot.isEmpty,
                              let inPane = PathBoundary.relativize(full, under: paneRoot) else {
                            // Outside this pane's provider — there is no pane to open it in.
@@ -3012,10 +3012,10 @@ struct ContentView: View {
                        //
                        // It does discard a deliberate collapse, and permanently: the override is
                        // `@AppStorage` and nothing restores it when the gather clears. That is the
-                       // same trade `presentTidyRail` already makes on entering a lens from the
+                       // same trade `presentLensRail` already makes on entering a lens from the
                        // bar, and the alternative is a click that does nothing.
                        if contentLayout == .singleCollapsed { togglePanesForCurrentTab() }
-                       syncManager.focusOn(relativePath: inPane, isLeft: !tidyTargetIsRight)
+                       syncManager.focusOn(relativePath: inPane, isLeft: !lensTargetIsRight)
                    },
                    // Expanded, like every other reader of `FolderProfile.root` — it is stored
                    // tilde-form ("~/Documents"), so the unexpanded join produced a path that
@@ -3046,7 +3046,7 @@ struct ContentView: View {
         // Stable outer container: keeps this bottom pane's identity constant across tab
         // switches, so selecting Details doesn't reset the vertical split or collapse the panes.
         VStack(spacing: 0) {
-        // Keep-left / trash-right banner for a duplicate-copy review handed off from Tidy. Sits
+        // Keep-left / trash-right banner for a duplicate-copy review handed off from the Duplicates lens. Sits
         // above the diff so it shows even when the two copies are identical (empty diff → the
         // "Everything is in sync" placeholder). Hidden the moment either pane is navigated away
         // from the reviewed copies, so the scoped trash can't fire against the wrong folder.
@@ -3063,14 +3063,14 @@ struct ContentView: View {
         } else if let lens = selectedLens {
             // The lens workspaces' right-hand slot. ONE construction site for all of them, and
             // deliberately so: a `switch` with a branch per lens would give each its own view
-            // identity, and TidyView's @State — the per-lens parked queries, the expanded search,
+            // identity, and LensWorkspaceView's @State — the per-lens parked queries, the expanded search,
             // the reclaim tally, the filed/dismissed session flags — would reset on every switch.
             // Storage renders its own read-only surface beneath the shared header card.
-            TidyView(
+            LensWorkspaceView(
                 syncManager: syncManager,
                 lens: lens,
-                providerName: tidyProviderName,
-                scanTargetFolder: tidyScanRootExpanded,
+                providerName: lensProviderName,
+                scanTargetFolder: lensScanRootExpanded,
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: { findFilingSuggestionsAction() },
                 onFindFilingSuggestionsFresh: { findFilingSuggestionsAction(ignoringCache: true) },
@@ -3092,11 +3092,11 @@ struct ContentView: View {
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
-                providerRoot: tidyProviderRootExpanded,
+                providerRoot: lensProviderRootExpanded,
                 filingInboxFolder: filingInboxFolder,
                 onQuickLook: { toggleQuickLook($0) },
                 onBuildStorage: buildStorageLensAction,
-                // The single Tidy source is the left provider; its picker shows in the workspace only
+                // The single lens source is the left provider; its picker shows in the workspace only
                 // while the rail is collapsed (expanded, the rail header owns the provider dropdown).
                 showSourcePicker: panesHiddenForCurrentTab,
                 providers: settings.enabledProviders,
@@ -3122,7 +3122,7 @@ struct ContentView: View {
                 onFindDuplicatesOf: { path in revealCoordinator.findDuplicates(ofPath: path) }
             )
         } else if compareBottomListActive {
-            // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in
+            // DifferencesView renders its own two cards (toolbar + table); the workspace bar lives in
             // the window toolbar.
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil)
         } else {

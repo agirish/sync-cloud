@@ -55,13 +55,13 @@ import Foundation
         #expect(!source.contains("private func tidyRailRelativePath"),
                 "the rail's inbox resolver is back — Organize opens on TODO again on a fresh install")
 
-        let body = try Self.body(of: "func presentTidyRail(for workspace: Workspace) {", in: source)
+        let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: source)
         #expect(body.contains("focusOn(relativePath: \"\", isLeft: true)"),
                 "the rail no longer opens at the provider root — it is being positioned somewhere else again")
         // The key, not the word "inbox": the body's own comment explains what was removed and says
         // "inbox" four times, so a scan for the word would fail a correct implementation.
         #expect(!body.contains("filingInboxRelativePathKey"),
-                "presentTidyRail reads the inbox setting again, so opening Organize moves the pane")
+                "presentLensRail reads the inbox setting again, so opening Organize moves the pane")
     }
 
     /// The setting can express "off", which it could not.
@@ -112,7 +112,7 @@ import Foundation
         #expect(!body.contains("inbox"),
                 "filingScanTargetFolder mentions the inbox again — it must not decide the subject")
         // Non-vacuity: a body that had collapsed to nothing would satisfy the `!contains` above.
-        #expect(body.contains("tidyScanRootExpanded"))
+        #expect(body.contains("lensScanRootExpanded"))
     }
 
     @Test func pointingAtAFolderSetsTheScopeAndTheRootClearsIt() throws {
@@ -128,7 +128,7 @@ import Foundation
         // cannot drift about what a stored provider root means.
         #expect(source.contains("organizeScopePath = resolvedOrganizeScope(path)?.path ?? \"\""))
         #expect(source.contains("private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope?"))
-        #expect(source.contains("OrganizeScope(path: path, providerRoot: tidyProviderRootExpanded)"))
+        #expect(source.contains("OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)"))
     }
 
     @Test func theScopeIsMigratedAtLaunch() throws {

@@ -10,7 +10,7 @@ import FileExplorer
 /// bindings and closures, so a test can stand in for the view and pin the execution contracts:
 ///
 /// - the suppression counter is seeded BEFORE any provider-id write is applied (an id onChange
-///   that fires against an unseeded counter wipes the Tidy results the retarget is protecting),
+///   that fires against an unseeded counter wipes the lens results the retarget is protecting),
 /// - `compareCopies` keeps the ORIGINAL restore snapshot when a second pair is compared without
 ///   ending the first review (the panes are already pinned — capturing again would "restore" to
 ///   the pinned provider and leak it),
@@ -40,8 +40,8 @@ private final class Harness {
     // Live-context stand-ins (ContentView resolves these from providers + pane state).
     var currentLeftPath = ""
     var currentRightPath = ""
-    var tidyTargetIsRight = false
-    var tidyProviderRoot = "/scan/root"
+    var lensTargetIsRight = false
+    var lensProviderRoot = "/scan/root"
 
     // Recorded effects.
     var refreshCount = 0
@@ -68,8 +68,8 @@ private final class Harness {
             glassLevel: .frosted,
             currentLeftPath: { self.currentLeftPath },
             currentRightPath: { self.currentRightPath },
-            tidyTargetIsRight: { self.tidyTargetIsRight },
-            tidyProviderRootExpanded: { self.tidyProviderRoot },
+            lensTargetIsRight: { self.lensTargetIsRight },
+            lensProviderRootExpanded: { self.lensProviderRoot },
             refreshAction: { self.refreshCount += 1 },
             applyProviderPinAssignments: { plan in
                 self.pendingCounterAtApply.append(self.pendingSwapProviderChanges)
@@ -90,15 +90,15 @@ private final class Harness {
         return made
     }
 
-    /// A review as `compareCopies` would set it up, with panes "pinned" to the Tidy provider.
+    /// A review as `compareCopies` would set it up, with panes "pinned" to the lens provider.
     func installReview(
         keepRel: String = "Docs", deleteRel: String = "Backup/Docs",
         restore: SavedCompareState? = nil
     ) -> DuplicateCompareContext {
         let review = DuplicateCompareContext(
             groupName: "Docs",
-            keepPath: "\(tidyProviderRoot)/\(keepRel)",
-            deletePath: "\(tidyProviderRoot)/\(deleteRel)",
+            keepPath: "\(lensProviderRoot)/\(keepRel)",
+            deletePath: "\(lensProviderRoot)/\(deleteRel)",
             keepIsDirectory: true,
             keepScannedSize: 1234,
             keeperRelativePath: keepRel,
@@ -107,7 +107,7 @@ private final class Harness {
                 leftProviderId: "icloud", rightProviderId: "dropbox",
                 leftRelativePath: "Was/Left", rightRelativePath: "Was/Right"))
         duplicateReview = review
-        // compareCopies pins both panes to the Tidy provider (left pane's, here).
+        // compareCopies pins both panes to the lens provider (left pane's, here).
         rightId = leftId
         return review
     }
@@ -178,7 +178,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
             delete: duplicateCopy(path: "/scan/root/Backup/Docs", keeper: false))
 
-        // Both panes pinned to the Tidy provider (the left pane's, since tidyTargetIsRight=false):
+        // Both panes pinned to the lens provider (the left pane's, since lensTargetIsRight=false):
         // only the right id really changes, so the plan carries exactly that one write.
         #expect(harness.leftId == "icloud")
         #expect(harness.rightId == "icloud")
@@ -338,9 +338,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     @Test func providerSwitchAfterTheReviewWentInactiveReleasesTheOtherPanesPin() throws {
         let harness = Harness()
-        _ = harness.installReview()   // pins rightId to the left (Tidy) provider
+        _ = harness.installReview()   // pins rightId to the left (lens) provider
         #expect(harness.rightId == harness.leftId)
-        // The panes are NOT on the two copies — entering a Tidy lens re-focused the shared left
+        // The panes are NOT on the two copies — entering an Organize lens re-focused the shared left
         // pane — so the review is inactive and the right pane's pin is stale bookkeeping.
         // The user now repoints the rail (the LEFT pane) to a third provider.
         harness.leftId = "onedrive"
@@ -431,10 +431,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     /// The success path, end to end on a real temp tree: the confirmed trash actually removes the
     /// right copy, the review is torn down with its Compare setup restored, the Duplicates list
-    /// drops just that copy, and the user lands back on the Tidy tab. Needs a real fixture because
+    /// drops just that copy, and the user lands back on the Duplicates lens. Needs a real fixture because
     /// the keeper-drift gate stats the keeper (existence AND, for files, byte size vs the scan
     /// snapshot) before anything is trashed.
-    @Test func confirmingTrashesTheRightCopyAndReturnsToTidy() async throws {
+    @Test func confirmingTrashesTheRightCopyAndReturnsToDuplicates() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -446,7 +446,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
 
         let harness = Harness()
-        harness.tidyProviderRoot = root.path
+        harness.lensProviderRoot = root.path
         let review = harness.installReview()   // keepPath = <root>/Docs, deletePath = <root>/Backup/Docs
         // The Duplicates list still holds the group this review came from.
         harness.syncManager.duplicateGroups = [
@@ -499,7 +499,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
         let harness = Harness(fileManager: stat)
-        harness.tidyProviderRoot = root.path
+        harness.lensProviderRoot = root.path
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
         let first = harness.installReview()   // Docs (keep) ↔ Backup/Docs (delete candidate)
@@ -507,7 +507,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         harness.coordinator.trashRightCopy(first)
         await waitUntil("the keeper stat is in flight") { stat.isStatting }
 
-        // Inside that window: back to Tidy, compare another pair. The review the trash was
+        // Inside that window: back to Organize, compare another pair. The review the trash was
         // authorized for is no longer the one on screen.
         let second = harness.installReview(keepRel: "Photos", deleteRel: "Old/Photos")
         stat.release()
@@ -525,7 +525,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// The same window, entered through the other control that sits in it: "Done" is rendered
     /// directly beside the destructive button, so it is one stray click away during the whole stat.
     /// A trash that resumes afterwards deletes a copy for a review that no longer exists, and drags
-    /// the user back to Tidy from wherever they went.
+    /// the user back to Organize from wherever they went.
     @Test func endingTheReviewWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-done-\(UUID().uuidString)")
@@ -538,7 +538,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
         let harness = Harness(fileManager: stat)
-        harness.tidyProviderRoot = root.path
+        harness.lensProviderRoot = root.path
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
         let review = harness.installReview()
@@ -556,7 +556,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(FileManager.default.fileExists(atPath: review.deletePath))
         #expect(harness.duplicateReview == nil)
         #expect(harness.appliedPlans.count == 1, "only Done's own restore ran")
-        #expect(harness.workspace == .compare, "an abandoned trash must not yank the user back to Tidy")
+        #expect(harness.workspace == .compare, "an abandoned trash must not yank the user back to Organize")
     }
 
     // MARK: dispatchReview — returning to Compare mid-review
@@ -564,7 +564,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     @Test func returningToCompareRefocusesBothCopiesAndRescans() {
         let harness = Harness()
         let review = harness.installReview()
-        // A Tidy detour reset the shared left pane elsewhere.
+        // A lens detour reset the shared left pane elsewhere.
         harness.syncManager.focusOn(relativePath: "", isLeft: true)
 
         harness.coordinator.dispatchReview(.tabSwitched(toCompare: true, fromCompare: false))

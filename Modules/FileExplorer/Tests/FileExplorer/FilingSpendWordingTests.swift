@@ -17,12 +17,12 @@ import Foundation
 @Suite struct FilingSpendWordingTests {
 
     private static func refine(reused: Int) -> String {
-        TidyView.refineHelp(FileSyncManager.FilingRefineSummary(asked: 4, reused: reused,
+        LensWorkspaceView.refineHelp(FileSyncManager.FilingRefineSummary(asked: 4, reused: reused,
                                                                 classified: 2, changed: 1))
     }
 
     private static func reuse(reused: Int) -> String {
-        TidyView.reuseHelp(FileSyncManager.FilingCacheReuse(reused: reused, classified: 2))
+        LensWorkspaceView.reuseHelp(FileSyncManager.FilingCacheReuse(reused: reused, classified: 2))
     }
 
     /// **Neither tooltip says "they" about one file.**

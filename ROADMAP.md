@@ -54,7 +54,7 @@ Every file classifies into exactly one state, from one walk of the tree:
 
 ### 1b. The Backup lens — the report
 
-**What:** A fifth **workspace** (`Workspace.backup`, with a matching `TidyLens.backup` behind it),
+**What:** A fifth **workspace** (`Workspace.backup`, with a matching `WorkspaceLensKind.backup` behind it),
 sitting after Storage in the bar. Note the shape this now takes: the two-level *Compare | Tidy* +
 lens picker is gone — `Workspace` collapsed both levels into the flat toolbar bar — so "add a lens"
 and "add a top-level tab" are the same act, and the cost is a bar segment rather than a structural
@@ -990,7 +990,7 @@ keys; a merged column still needs a sort story.
 
 ### Drop the "Identical" badge from the majority row
 
-**Now:** every duplicate row wears a green *Identical* badge in the leading slot (`TidyView`, the
+**Now:** every duplicate row wears a green *Identical* badge in the leading slot (`LensWorkspaceView`, the
 `.identical` case). On a real scan that fires on the overwhelming majority — the *Overlapping* and
 *needs review* cases, the only ones needing a human decision, wear identical weight and are lost in
 the run.
@@ -1009,7 +1009,7 @@ weight starts tracking how much attention it deserves.
 
 ### Make the Duplicates stat pills the filter
 
-**Now:** `TidyView` renders the header tally as `StatPill(...)` — *N groups*, *N redundant*,
+**Now:** `LensWorkspaceView` renders the header tally as `StatPill(...)` — *N groups*, *N redundant*,
 *N need review*, *N skipped* — capsule-shaped, semantically coloured, and completely inert. The
 real filter is a separate `All ⌄` menu at the far right of the same row. The pill reading "263 need
 review" is exactly the control someone reaches for to see those 263.

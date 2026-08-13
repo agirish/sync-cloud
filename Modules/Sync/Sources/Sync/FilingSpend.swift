@@ -125,7 +125,7 @@ public enum FilingSpendStore {
     }
 }
 
-/// Compact formatting for Filing spend figures, shared by the Tidy lens and Settings.
+/// Compact formatting for Filing spend figures, shared by the Organize workspace and Settings.
 public enum FilingSpendFormat {
     public static func cost(_ value: Double) -> String {
         value >= 0.01 ? String(format: "~$%.2f", value) : String(format: "~$%.4f", value)

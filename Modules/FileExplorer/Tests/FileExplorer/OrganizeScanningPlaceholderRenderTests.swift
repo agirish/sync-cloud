@@ -28,7 +28,7 @@ import Sync
     private static let contentBand = CGRect(x: 0, y: 110, width: 700, height: 410)
 
     /// Non-backdrop pixels in the content band of a scanning lens.
-    private func paintedInBand(lens: TidyLens, chip: OrganizeLens,
+    private func paintedInBand(lens: WorkspaceLensKind, chip: OrganizeLens,
                                appearance: NSAppearance.Name,
                                scanning: (FileSyncManager) -> Void) throws -> Int {
         let manager = FileSyncManager()
@@ -41,7 +41,7 @@ import Sync
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         defaults.set(chip.rawValue, forKey: OrganizeLens.defaultsKey)
 
-        let subject = TidyView(syncManager: manager, lens: lens, providerName: "Projects",
+        let subject = LensWorkspaceView(syncManager: manager, lens: lens, providerName: "Projects",
                                scanTargetFolder: "/root/Documents", onFindDuplicates: {},
                                onBuildStorage: {})
             .defaultAppStorage(defaults)

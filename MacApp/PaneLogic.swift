@@ -47,7 +47,7 @@ final class PaneSelectionSequencer {
 /// plus how many of ContentView's id `onChange` handlers those writes will fire.
 ///
 /// Every programmatic pane retarget (pane swap, `compareCopies`, `restoreCompareState`) must
-/// suppress the id onChanges its writes trigger — otherwise the handlers clear the Tidy results
+/// suppress the id onChanges its writes trigger — otherwise the handlers clear the lens results
 /// and reset navigation, sabotaging the retarget. The suppression protocol is a hand-counted
 /// contract: exactly one `pendingSwapProviderChanges` unit per id that ACTUALLY changes (SwiftUI's
 /// `onChange` never fires for an equal-value write), or the counter strands and silently swallows
@@ -126,7 +126,7 @@ enum PaneLogic {
     }
 
     /// - Parameters:
-    ///   - isSingleSource: the Tidy rail, which has no opposite pane at all.
+    ///   - isSingleSource: the single-source rail, which has no opposite pane at all.
     ///   - query: empty means no search is running, so there is nothing to annotate and the other
     ///     tree must not be walked — that walk is the only part of a search that touches a tree the
     ///     user is not looking at.
@@ -370,7 +370,7 @@ enum PaneLogic {
     /// none — the same truncation a click on a *file* in that column performs, which is why both go
     /// through `PaneBrowsePath.truncate(toDepth:)`.
     ///
-    /// `depth` is nil where there is no column to truncate to: Tree mode, the Tidy rail, and the
+    /// `depth` is nil where there is no column to truncate to: Tree mode, the single-source rail, and the
     /// dead space past the last column. Closing the stack from a click *past* it would be a
     /// navigation the user did not ask for.
     static func backgroundDeselectPath(from browsePath: PaneBrowsePath, depth: Int?) -> PaneBrowsePath? {
@@ -401,7 +401,7 @@ enum PaneLogic {
     /// key) rather than let it bubble to a dialog.
     ///
     /// The gate used to be the action bar's resolved selection alone — and that bar is hard-gated to
-    /// COMPARE (`paneActionBarSideActive`), so on the single-source Tidy rail `hasActionBarSelection`
+    /// COMPARE (`paneActionBarSideActive`), so on the single-source rail `hasActionBarSelection`
     /// is always false and Escape was always `.ignored`. The rail is precisely the surface that needs
     /// this most: it shows no action bar, so it has no ✕ either, and the file lists offer no deselect
     /// gesture — a folder picked there could never be un-picked, the exact state the Escape handler
@@ -418,13 +418,13 @@ enum PaneLogic {
         isSingleSource ? paneHasSelection : hasActionBarSelection
     }
 
-    /// Which pane a single-source Tidy scan/inspect should target. The Tidy rail is always the LEFT
+    /// Which pane a single-source lens scan/inspect should target. The single-source rail is always the LEFT
     /// pane, so in single-source mode the answer is always "left" — even when a selection lingers in
     /// the (hidden) right pane from a prior Compare session, which would otherwise make `activePane`
-    /// resolve to `.right` and silently aim Tidy's scans (Find Duplicates / Organize / Rename /
+    /// resolve to `.right` and silently aim the lens scans (Find Duplicates / Organize / Rename /
     /// Storage) at the wrong provider while the rail shows the left one. In compare mode the focused
-    /// pane still wins, so a Tidy scan launched from a Compare menu targets the pane the user is in.
-    static func tidyTargetsRightPane(isCompare: Bool, activePane: ActivePane?) -> Bool {
+    /// pane still wins, so a lens scan launched from a Compare menu targets the pane the user is in.
+    static func lensTargetsRightPane(isCompare: Bool, activePane: ActivePane?) -> Bool {
         isCompare && activePane == .right
     }
 
@@ -437,16 +437,16 @@ enum PaneLogic {
         return (expandedRoot as NSString).appendingPathComponent(relativePath)
     }
 
-    /// The folder a Tidy scan targets: the focus root, walked down to where the pane is
+    /// The folder a lens scan targets: the focus root, walked down to where the pane is
     /// **browsing**. Column clicks move `PaneBrowsePath`, not the pane's comparison focus — that
-    /// split is deliberate (browsing must not rescan the comparison) but it left every Tidy scan
+    /// split is deliberate (browsing must not rescan the comparison) but it left every lens scan
     /// and the "Scan '<folder>'" offer reading only the focus root, so clicking through columns
     /// never moved the target and the offer sat dead at the root no matter what was selected.
     ///
     /// At rest (no columns open) the focus root is returned **unchanged**, trailing slashes and
     /// all — the join below normalizes them, and normalizing a root nothing was joined onto would
     /// change paths for panes that never browsed.
-    static func tidyScanRoot(focusRootExpanded root: String, browsePath: PaneBrowsePath) -> String {
+    static func lensScanRoot(focusRootExpanded root: String, browsePath: PaneBrowsePath) -> String {
         guard !root.isEmpty, !browsePath.isEmpty else { return root }
         return browsePath.currentDirectory(treeRoot: root)
     }

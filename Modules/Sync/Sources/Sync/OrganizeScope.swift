@@ -14,7 +14,7 @@ import Foundation
 ///
 /// The second half of the defect was that scope was a **side-effect of whichever scan last ran**
 /// rather than something the user set. Navigating away left the list answering about where you had
-/// been; `TidyView.targetMoved(from:)` exists precisely because that gap was already felt.
+/// been; `LensWorkspaceView.targetMoved(from:)` exists precisely because that gap was already felt.
 ///
 /// So scope becomes a first-class thing Organize owns: **the pane proposes, the scope is explicit
 /// and sticky, and browsing never silently moves it.**
@@ -180,7 +180,7 @@ extension OrganizeScope {
 
 /// What Organize is answering about right now, and whether the pane has wandered off it.
 ///
-/// Split out of `TidyView.targetMoved(from:)` because the rule has a **precedence** in it, and a
+/// Split out of `LensWorkspaceView.targetMoved(from:)` because the rule has a **precedence** in it, and a
 /// precedence buried in a `??` chain inside a private view method is a rule no test can reach. The
 /// three-deep chain is the whole content of the answer, so it is stated here and asserted directly.
 public enum OrganizeAim {
