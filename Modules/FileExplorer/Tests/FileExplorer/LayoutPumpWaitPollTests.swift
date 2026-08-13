@@ -41,15 +41,20 @@ import Testing
     /// would also zero the requirement, the condition would hold on the first pass, and the
     /// load-bearing `held` assertion would pass vacuously against exactly the change it exists to
     /// catch. A demand that moves with the thing under test cannot measure it.
-    private static let passesDemanded = 25
+    private static let passesDemanded = 3
+
+    /// The floor these tests run against — five, not the production fifty. See
+    /// ``LayoutPumpWaitTests/testFloor``: the shapes asserted here do not depend on the magnitude,
+    /// and depending on it cost ~5–7 seconds per pass on a saturated CI main actor.
+    private static let testFloor = 5
 
     /// Keeps the literal above meaningful: it must be reachable within the floor, or the test
     /// below would be measuring the deadline instead.
     @Test func theDemandUsedByTheseTestsSitsBelowTheFloor() {
-        #expect(Self.passesDemanded < LayoutPumpWait.pumpFloor,
+        #expect(Self.passesDemanded < Self.testFloor,
                 """
                 \(Self.passesDemanded) passes is not reachable within a floor of \
-                \(LayoutPumpWait.pumpFloor) — the floor test below would be measuring the deadline.
+                \(Self.testFloor) — the floor test below would be measuring the deadline.
                 """)
     }
 
@@ -59,7 +64,7 @@ import Testing
         var passes = 0
         let needed = Self.passesDemanded
 
-        let outcome = await LayoutPumpWait.poll(upTo: 0) {
+        let outcome = await LayoutPumpWait.poll(upTo: 0, floor: Self.testFloor) {
             passes += 1
             return passes >= needed
         }
@@ -81,13 +86,13 @@ import Testing
     /// post-deadline re-check and the fact that a never-true condition stops at all, not the
     /// floor's magnitude. It catches neither mutation listed on the suite, and that is correct.
     @Test func aConditionThatNeverHoldsStillGetsAVerdict() async {
-        let outcome = await LayoutPumpWait.poll(upTo: 0) { false }
+        let outcome = await LayoutPumpWait.poll(upTo: 0, floor: Self.testFloor) { false }
 
         #expect(!outcome.held, "a condition that is never true was reported as held")
-        #expect(outcome.passes == LayoutPumpWait.pumpFloor + 1,
+        #expect(outcome.passes == Self.testFloor + 1,
                 """
                 A never-true condition spent \(outcome.passes) passes against a floor of \
-                \(LayoutPumpWait.pumpFloor) — the loop's post-deadline re-check has changed shape.
+                \(Self.testFloor) — the loop's post-deadline re-check has changed shape.
                 """)
     }
 
@@ -110,18 +115,18 @@ import Testing
     /// else.
     @Test func aLiveDeadlineCarriesTheWaitPastTheFloor() async {
         var passes = 0
-        let needed = LayoutPumpWait.pumpFloor + 2
+        let needed = Self.testFloor + 2
         // Frozen: every read is the same instant, so `now() < deadline` is true forever.
         let frozen = Date(timeIntervalSince1970: 1_770_000_000)
 
-        let outcome = await LayoutPumpWait.poll(upTo: 60, now: { frozen }) {
+        let outcome = await LayoutPumpWait.poll(upTo: 60, floor: Self.testFloor, now: { frozen }) {
             passes += 1
             return passes >= needed
         }
 
         #expect(outcome.held,
                 """
-                A condition needing \(needed) passes — two past the \(LayoutPumpWait.pumpFloor) \
+                A condition needing \(needed) passes — two past the \(Self.testFloor) \
                 floor — was cut off at \(outcome.passes) with the deadline still live. The \
                 deadline is not carrying the wait beyond the floor.
                 """)

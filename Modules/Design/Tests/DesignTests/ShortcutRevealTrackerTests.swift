@@ -46,13 +46,20 @@ import Testing
     /// passed and `pollFloor` polls have been made. **The poll count is the diagnosis, so it goes
     /// in the message** — a wait that gave up after 4 of them was starved and says nothing about
     /// the tracker, while one that gave up after 50 was genuinely disproved.
+    ///
+    /// `floor` is overridden **only by the floor's own case below**, which asserts a shape — a
+    /// demand under the floor is served once the deadline is spent — that does not depend on the
+    /// floor being fifty. Depending on it was expensive: a poll costs seconds on a saturated CI
+    /// main actor, so that one test was spending ~184s of a 665s CI step. Every real wait here
+    /// takes the default.
     private func waitUntil(_ what: Comment,
                            timeout: TimeInterval = 5,
+                           floor: Int = ShortcutRevealTrackerTests.pollFloor,
                            sourceLocation: SourceLocation = #_sourceLocation,
                            _ condition: () -> Bool) async {
         var polls = 0
         let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while polls < Self.pollFloor || ContinuousClock.now < deadline {
+        while polls < floor || ContinuousClock.now < deadline {
             polls += 1
             if condition() { return }
             try? await Task.sleep(nanoseconds: 5_000_000)
@@ -169,14 +176,29 @@ import Testing
     /// `pollFloor`. Deriving it defeats its own mutation test: zeroing the floor would also zero
     /// the requirement, and the condition would hold on the first poll against exactly the change
     /// the test exists to catch.
-    private static let pollsDemanded = 25
+    private static let pollsDemanded = 3
+
+    /// The floor the case below runs against — five, not the production fifty. A literal for the
+    /// same reason `pollsDemanded` is one: derived from `pollFloor` it would move with the thing
+    /// under test.
+    private static let testFloor = 5
 
     /// Keeps that literal meaningful — and it is the only case that catches a floor lowered to just
     /// *under* the demand, since the loop's post-deadline `#expect` re-evaluates the condition once
     /// more and so buys a 25th poll from a floor of 24. The real guarantee is `pollFloor + 1`.
     @Test func theDemandUsedByTheFloorCaseSitsBelowTheFloor() {
-        #expect(Self.pollsDemanded < Self.pollFloor,
-                "\(Self.pollsDemanded) polls is not reachable within a floor of \(Self.pollFloor) — the floor case below would be measuring the deadline")
+        #expect(Self.pollsDemanded < Self.testFloor,
+                "\(Self.pollsDemanded) polls is not reachable within a floor of \(Self.testFloor) — the floor case below would be measuring the deadline")
+    }
+
+    /// **The production floor's VALUE**, pinned here because the case below no longer exercises
+    /// it. Fifty is the measured figure from `docs/flaky-tests.md` mechanism 2 — the same number
+    /// `LayoutPumpWait.pumpFloor` carries, deliberately, because the unit that starves is
+    /// main-actor turns either way.
+    @Test func theProductionPollFloorIsStillFifty() {
+        #expect(Self.pollFloor == 50,
+                "the floor every real wait here uses is now \(Self.pollFloor) — see docs/flaky-tests.md mechanism 2")
+        #expect(Self.testFloor < Self.pollFloor, "the test floor is no longer the cheaper one")
     }
 
     /// **The floor outlives an expired deadline** — the property the flake fix rests on, pinned
@@ -192,12 +214,13 @@ import Testing
     /// turns this red without any assertion of mine; the count then says by how much.
     @Test func theFloorOutlivesAnExpiredDeadline() async {
         var polls = 0
-        await waitUntil("a condition needing \(Self.pollsDemanded) polls never held", timeout: 0) {
+        await waitUntil("a condition needing \(Self.pollsDemanded) polls never held",
+                        timeout: 0, floor: Self.testFloor) {
             polls += 1
             return polls >= Self.pollsDemanded
         }
         #expect(polls >= Self.pollsDemanded,
-                "the condition was evaluated only \(polls) times against a floor of \(Self.pollFloor)")
+                "the condition was evaluated only \(polls) times against a floor of \(Self.testFloor)")
     }
 
     /// Nothing armed, nothing scheduled — the timer is torn down rather than left to fire into a
