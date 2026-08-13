@@ -485,6 +485,21 @@ folder names` when one is, and the existing spend pre-flight. Three things it ad
 
 Deliberately last: a paid pass must not be the only way to get a good answer.
 
+### 5.7 The two states this adds — no work of its own, but they need their own words
+
+The lens's existing three states are distinct on purpose and **none borrows another's words** — *no
+profile* means the detectors have nothing to read, *no findings* means they ran and the tree agrees,
+a list means it does not. Two more arrive with the work above, and they ship with §5.1 and §5.5
+respectively rather than as an item:
+
+- **Planned, not applied.** The finding card carries the plan's ledger inline and its trigger reads
+  `Review 8 operations`. A drafted plan survives the sheet closing; whether it survives a re-survey
+  is an Open question, and until that is settled the card says it does not.
+- **Applied.** *8 folders renamed, 92 files carried, none moved*, plus `Undo this reorganisation`
+  backed by the inverse plan already on disk. **The finding is gone because the generation bumped
+  and the detector re-ran** — never because it was marked done. Those are different states and only
+  one of them is true.
+
 ---
 
 ## Order
