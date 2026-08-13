@@ -54,7 +54,7 @@ import Foundation
 
     private static func refine(classified: Int, changed: Int = 0,
                                outcome: FileSyncManager.FilingRefineSummary.Outcome) -> String {
-        TidyView.refineHelp(FileSyncManager.FilingRefineSummary(
+        LensWorkspaceView.refineHelp(FileSyncManager.FilingRefineSummary(
             asked: 4, reused: 0, classified: classified, changed: changed, outcome: outcome))
     }
 

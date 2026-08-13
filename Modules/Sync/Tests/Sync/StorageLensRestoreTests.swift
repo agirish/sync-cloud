@@ -110,7 +110,7 @@ import Testing
         second.storageLensStoreURL = url
         #expect(second.restoreStorageLens(root: root))
         #expect(second.storageLensReport == scanned)                  // same numbers
-        #expect(second.hasBuiltStorageLens)
+        #expect(second.storageLensLifecycle.hasCompleted)
         #expect(second.storageLensLifecycle.isRestored)               // …and it says so
         #expect(second.storageLensLifecycle.completedAt == first.storageLensLifecycle.completedAt)
     }
@@ -314,7 +314,7 @@ import Testing
 
         #expect(manager.storageLensReport == nil)
         #expect(manager.storageLensRoot == nil)
-        #expect(!manager.hasBuiltStorageLens)
+        #expect(!manager.storageLensLifecycle.hasCompleted)
         #expect(manager.storageLensLifecycle.completedAt == nil)
         #expect(!manager.storageLensLifecycle.isRestored)
     }

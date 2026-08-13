@@ -163,7 +163,7 @@ public struct AutomationsLens: View {
 
     public var body: some View {
         Group {
-            if syncManager.isRunningAutomationDryRun {
+            if syncManager.automationDryRunLifecycle.isRunning {
                 previewingState
             } else if let filingRow = filing.current {
                 filingReviewState(filingRow)
@@ -178,7 +178,7 @@ public struct AutomationsLens: View {
         // A new dry run retires any per-file review still in progress — the review's rows belong to
         // the report this run is about to replace (see `dryRunRunningChanged`). LensWorkspaceView applies the
         // same rule to its lenses' session state on scan start.
-        .onChange(of: syncManager.isRunningAutomationDryRun) { _, isRunning in
+        .onChange(of: syncManager.automationDryRunLifecycle.isRunning) { _, isRunning in
             filing.dryRunRunningChanged(to: isRunning)
         }
         .sheet(item: $editingRule) { rule in
@@ -310,7 +310,7 @@ public struct AutomationsLens: View {
     private var previewingState: some View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
-            Text(syncManager.automationDryRunStatus.isEmpty ? "Previewing…" : syncManager.automationDryRunStatus)
+            Text(syncManager.automationDryRunLifecycle.status ?? "Previewing…")
                 .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()

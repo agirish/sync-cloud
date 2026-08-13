@@ -35,7 +35,7 @@ import Foundation
         m.hasSuggestedFiling = true
 
         m.automationDryRun = nil
-        m.hasRunAutomationDryRun = true
+        m.automationDryRunLifecycle.hasCompleted = true
 
         m.riskyNames = [
             RiskyName(id: "/old/Q3: final.pdf", relativePath: "Q3: final.pdf",
@@ -55,7 +55,7 @@ import Foundation
         // Not vacuous: all four really are populated before the switch.
         #expect(!m.duplicateGroups.isEmpty)
         #expect(m.hasSuggestedFiling)
-        #expect(m.hasRunAutomationDryRun)
+        #expect(m.automationDryRunLifecycle.hasCompleted)
         #expect(!m.riskyNames.isEmpty)
 
         m.clearLensResultsForProviderSwitch()
@@ -63,7 +63,7 @@ import Foundation
         #expect(m.duplicateGroups.isEmpty, "duplicates outlived the provider switch")
         #expect(m.hasFoundDuplicates == false, "the duplicates lens still reports a completed scan")
         #expect(m.hasSuggestedFiling == false, "filing outlived the provider switch")
-        #expect(m.hasRunAutomationDryRun == false, "the automation dry-run outlived the provider switch")
+        #expect(m.automationDryRunLifecycle.hasCompleted == false, "the automation dry-run outlived the provider switch")
         // The one that shipped broken.
         #expect(m.riskyNames.isEmpty, "the risky-name finding outlived the provider switch")
         #expect(m.hasScannedNames == false,

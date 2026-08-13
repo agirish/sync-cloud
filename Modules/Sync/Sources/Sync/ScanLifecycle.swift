@@ -10,15 +10,16 @@ import Foundation
 /// only the duplicate scan carried an epoch guard against stale progress hops. One value type per
 /// lens keeps the five lifecycles structurally identical; the manager's `beginScan` /
 /// `updateScan` / `endScan` / `completeScan` helpers (below) enforce one state machine for all of
-/// them. The old per-lens property names live on as computed forwarders in `FileSyncManager`, so
-/// existing app-side call sites read exactly what they always did.
+/// them. The heavily-used legacy per-lens property names (running/has-completed/root) live on as
+/// computed forwarders in `FileSyncManager`; the per-lens status forwarders — where the idle
+/// spelling had split into `""`-vs-nil — are gone, and every reader asks the lifecycle itself.
 public struct ScanLifecycle: Sendable {
     /// True while the lens's scan is running.
     public internal(set) var isRunning = false
 
     /// Human-readable progress for the running scan (e.g. "Hashing 340 candidates…").
-    /// nil when no scan is running. Lenses whose legacy status property was a non-optional
-    /// `String` surface this as `""` through their forwarder.
+    /// nil when no scan is running — nil is the ONE spelling of "idle", for every lens; the
+    /// legacy `?? ""` forwarders that let three lenses spell it as `""` are gone.
     public internal(set) var status: String?
 
     /// True once a scan has completed at least once (drives the empty-vs-results state).

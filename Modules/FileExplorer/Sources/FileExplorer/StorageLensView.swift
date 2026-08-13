@@ -133,7 +133,7 @@ struct StorageLensView: View {
     private var buildingState: some View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
-            Text(syncManager.storageLensStatus.isEmpty ? "Analyzing…" : syncManager.storageLensStatus)
+            Text(syncManager.storageLensLifecycle.status ?? "Analyzing…")
                 .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()

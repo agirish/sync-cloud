@@ -51,7 +51,7 @@ import Testing
         } else {
             Issue.record("expected a wouldFile verdict")
         }
-        #expect(m.hasRunAutomationDryRun)
+        #expect(m.automationDryRunLifecycle.hasCompleted)
     }
 
     @Test func collisionAtDestinationBecomesNeedsAttention() async throws {

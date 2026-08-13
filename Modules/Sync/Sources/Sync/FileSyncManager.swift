@@ -377,11 +377,6 @@ public class FileSyncManager: ObservableObject {
         get { duplicateScanLifecycle.isRunning }
         set { duplicateScanLifecycle.isRunning = newValue }
     }
-    /// Human-readable progress for the running duplicate scan (e.g. "Hashing 340 candidates").
-    public var duplicateScanStatus: String? {
-        get { duplicateScanLifecycle.status }
-        set { duplicateScanLifecycle.status = newValue }
-    }
     /// Numeric progress for the duplicate scan's hashing phase; nil during the walk phase (total
     /// unknown) and whenever no scan is running. Drives the determinate bar in the lens workspace.
     ///
@@ -433,17 +428,6 @@ public class FileSyncManager: ObservableObject {
         get { storageLensLifecycle.root }
         set { storageLensLifecycle.root = newValue }
     }
-    /// True once a Storage Lens build has completed at least once (drives the intro-vs-report state).
-    public var hasBuiltStorageLens: Bool {
-        get { storageLensLifecycle.hasCompleted }
-        set { storageLensLifecycle.hasCompleted = newValue }
-    }
-    /// Human-readable progress for the running build (e.g. "Analyzing iCloud…"). This lens's
-    /// legacy status was a non-optional `String`, so the lifecycle's idle nil reads as "".
-    public var storageLensStatus: String {
-        get { storageLensLifecycle.status ?? "" }
-        set { storageLensLifecycle.status = newValue }
-    }
     /// Numeric progress for the build; the walk phase has no granular count, so it stays 0 (the UI
     /// shows an indeterminate spinner). Reserved for a future determinate pass — kept as its own
     /// stored property (like `duplicateScanProgress`) rather than folded into the lifecycle.
@@ -484,12 +468,6 @@ public class FileSyncManager: ObservableObject {
     public var hasScannedNames: Bool {
         get { nameScanLifecycle.hasCompleted }
         set { nameScanLifecycle.hasCompleted = newValue }
-    }
-    /// Human-readable progress for the running scan (e.g. "Scanning iCloud…"). This lens's legacy
-    /// status was a non-optional `String`, so the lifecycle's idle nil reads as "".
-    public var nameScanStatus: String {
-        get { nameScanLifecycle.status ?? "" }
-        set { nameScanLifecycle.status = newValue }
     }
     /// True while a "Fix all" / per-row normalize pass is applying renames.
     @Published public var isNormalizingNames = false
@@ -574,11 +552,6 @@ public class FileSyncManager: ObservableObject {
     public var isSuggestingFiles: Bool {
         get { filingScanLifecycle.isRunning }
         set { filingScanLifecycle.isRunning = newValue }
-    }
-    /// Human-readable progress for the running Filing scan.
-    public var filingScanStatus: String? {
-        get { filingScanLifecycle.status }
-        set { filingScanLifecycle.status = newValue }
     }
     /// True once a Filing scan has completed at least once.
     public var hasSuggestedFiling: Bool {
@@ -698,28 +671,13 @@ public class FileSyncManager: ObservableObject {
     @Published public var automationRules: [AutomationRule] = []
     /// Guards the one-time load so the empty default array can't overwrite persisted rules.
     var didLoadAutomationRules = false
-    /// The dry-run preview lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
-    /// Its `root` stays nil — the published report carries its own root string.
+    /// The dry-run preview lifecycle (see ``ScanLifecycle``); read/written directly — this lens
+    /// has no legacy forwarders left. Its `root` stays nil — the published report carries its
+    /// own root string.
     @Published public internal(set) var automationDryRunLifecycle = ScanLifecycle()
     /// The most recent dry-run preview — what the enabled rules *would* do — or nil before any run.
     /// This surface never moves a file; the report is illustration only.
     @Published public var automationDryRun: AutomationDryRunReport?
-    /// True while a dry-run preview is walking the folder and evaluating rules.
-    public var isRunningAutomationDryRun: Bool {
-        get { automationDryRunLifecycle.isRunning }
-        set { automationDryRunLifecycle.isRunning = newValue }
-    }
-    /// Human-readable progress for the running dry run. This lens's legacy status was a
-    /// non-optional `String`, so the lifecycle's idle nil reads as "".
-    public var automationDryRunStatus: String {
-        get { automationDryRunLifecycle.status ?? "" }
-        set { automationDryRunLifecycle.status = newValue }
-    }
-    /// True once a dry-run preview has completed at least once (drives the empty-vs-results state).
-    public var hasRunAutomationDryRun: Bool {
-        get { automationDryRunLifecycle.hasCompleted }
-        set { automationDryRunLifecycle.hasCompleted = newValue }
-    }
     /// The in-flight preview task, so the UI can cancel it and a restart supersedes it.
     var automationDryRunTask: Task<Void, Never>?
     /// The capped folder list SENT to the classifier (bounded for token cost).

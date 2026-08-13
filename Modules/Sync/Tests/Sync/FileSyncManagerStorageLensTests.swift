@@ -33,9 +33,9 @@ import Foundation
         #expect(report.largest.first?.name == "a.pdf")
         // Completion labels: root + has-completed publish WITH the results.
         #expect(manager.storageLensRoot == root)
-        #expect(manager.hasBuiltStorageLens)
+        #expect(manager.storageLensLifecycle.hasCompleted)
         #expect(manager.isBuildingStorageLens == false)
-        #expect(manager.storageLensStatus == "")
+        #expect(manager.storageLensLifecycle.status == nil)
         #expect(manager.storageLensProgress == 0)
     }
 
@@ -83,9 +83,9 @@ import Foundation
 
         #expect(manager.storageLensReport == before, "a cancelled build must not replace the prior report")
         #expect(manager.storageLensRoot == rootA, "the label must still match the on-screen results")
-        #expect(manager.hasBuiltStorageLens, "hasCompleted flips only on completion")
+        #expect(manager.storageLensLifecycle.hasCompleted, "hasCompleted flips only on completion")
         #expect(manager.isBuildingStorageLens == false)
-        #expect(manager.storageLensStatus == "")
+        #expect(manager.storageLensLifecycle.status == nil)
         #expect(manager.storageLensProgress == 0)
     }
 
@@ -94,7 +94,7 @@ import Foundation
         let manager = FileSyncManager()
         manager.cancelBuildStorageLens()   // no task in flight
         #expect(manager.isBuildingStorageLens == false)
-        #expect(manager.hasBuiltStorageLens == false)
+        #expect(manager.storageLensLifecycle.hasCompleted == false)
         #expect(manager.storageLensReport == nil)
     }
 
@@ -115,7 +115,7 @@ import Foundation
 
         #expect(manager.storageLensReport == nil)
         #expect(manager.storageLensRoot == nil)
-        #expect(manager.hasBuiltStorageLens == false)
+        #expect(manager.storageLensLifecycle.hasCompleted == false)
     }
 
     @MainActor
@@ -130,7 +130,7 @@ import Foundation
         await manager.storageLensTask?.value       // let the cancelled build unwind
 
         #expect(manager.storageLensReport == nil, "the cancelled build must not republish")
-        #expect(manager.hasBuiltStorageLens == false)
+        #expect(manager.storageLensLifecycle.hasCompleted == false)
         #expect(manager.storageLensRoot == nil)
         #expect(manager.isBuildingStorageLens == false)
     }
@@ -154,7 +154,7 @@ import Foundation
         let report = try #require(manager.storageLensReport)
         #expect(report.totalBytes == 9000, "only the newest build's report may land")
         #expect(manager.storageLensRoot == rootB)
-        #expect(manager.hasBuiltStorageLens)
+        #expect(manager.storageLensLifecycle.hasCompleted)
         #expect(manager.isBuildingStorageLens == false)
     }
 
@@ -171,7 +171,7 @@ import Foundation
         await manager.buildStorageLens(root: root)
 
         #expect(manager.storageLensReport == nil, "the dropped build must not publish")
-        #expect(manager.hasBuiltStorageLens == false)
+        #expect(manager.storageLensLifecycle.hasCompleted == false)
         #expect(manager.isBuildingStorageLens, "the dropped call must not clear the real build's running flag")
     }
 }

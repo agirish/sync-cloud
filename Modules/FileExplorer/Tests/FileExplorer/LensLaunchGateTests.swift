@@ -77,7 +77,7 @@ import Design
         #expect(!m.hasSuggestedFiling, "To File would open on results at launch")
         #expect(!m.hasFoundDuplicates, "Duplicates would open on results at launch")
         #expect(!m.hasScannedNames, "Renames would open on results at launch")
-        #expect(!m.hasBuiltStorageLens, "Storage would open on results at launch")
+        #expect(!m.storageLensLifecycle.hasCompleted, "Storage would open on results at launch")
         // And Restructure's, which is the one that had to be declared because it has no scan.
         #expect(!m.hasReviewedStructure, "Restructure would open on results at launch")
     }

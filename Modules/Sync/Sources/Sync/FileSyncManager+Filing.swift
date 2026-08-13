@@ -27,7 +27,7 @@ extension FileSyncManager {
     /// The phase a running Filing scan is in. Suggestions are published once, at the very end of the
     /// scan, so the results stay empty while phases 2–3 (on-device content + intelligent homes) keep
     /// refining. Surfacing the phase — and, for the slow later passes, "suggestions still improving" —
-    /// through `filingScanStatus` keeps the scanning view from reading as finished before it is. This
+    /// through `filingScanLifecycle.status` keeps the scanning view from reading as finished before it is. This
     /// is additive: it only shapes the status string, it doesn't change what the scan does.
     public enum FilingScanPhase: Sendable, Equatable {
         /// Phase 1 — reading the loose files in the picked folder.
@@ -1195,11 +1195,11 @@ extension FileSyncManager {
         let preAwaitGeneration = filingSuggestionsGeneration
         let ownsStatusLine = !filingScanLifecycle.isRunning
         if ownsStatusLine {
-            filingScanStatus = FilingScanPhase.lookingForDifferent.status
+            filingScanLifecycle.status = FilingScanPhase.lookingForDifferent.status
         }
         defer {
             if ownsStatusLine, filingScanLifecycle.epoch == preAwaitEpoch {
-                filingScanStatus = nil
+                filingScanLifecycle.status = nil
             }
         }
         let excluded = allRejected.compactMap { Self.relativePath($0, under: root) }

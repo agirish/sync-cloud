@@ -260,7 +260,7 @@ extension FileSyncManager {
     public func clearAutomationDryRun() {
         automationDryRunTask?.cancel()
         automationDryRun = nil
-        hasRunAutomationDryRun = false
+        automationDryRunLifecycle.hasCompleted = false
     }
 
     /// Walks `root`'s loose files, evaluates the enabled rules on-device, and publishes the report.
@@ -274,7 +274,7 @@ extension FileSyncManager {
         fileManager fm: FileManaging? = nil,
         now: Date = Date()
     ) async {
-        guard !isRunningAutomationDryRun else { return }
+        guard !automationDryRunLifecycle.isRunning else { return }
         ensureAutomationRulesLoaded()
         let fileManager = fm ?? self.fileManager
         // Destinations resolve against the provider root; callers that don't distinguish (tests
@@ -381,7 +381,7 @@ extension FileSyncManager {
         self.automationDryRun = report
         // The report carries its own root string, so the lifecycle's `root` stays nil here —
         // only the completion flag is published.
-        self.hasRunAutomationDryRun = true
+        self.automationDryRunLifecycle.hasCompleted = true
         Logger.shared.info("Automations dry run: \(root.lastPathComponent) — \(looseFiles.count) file(s), "
             + "\(report.wouldFileCount) would file, \(report.needsAttentionCount) need a look "
             + "(a preview — nothing moved yet)")
@@ -508,7 +508,7 @@ extension FileSyncManager {
             let remaining = report.rows.filter { !filedPaths.contains($0.id) }
             if remaining.isEmpty {
                 automationDryRun = nil
-                hasRunAutomationDryRun = false
+                automationDryRunLifecycle.hasCompleted = false
             } else {
                 automationDryRun = AutomationDryRunReport(root: report.root, providerName: report.providerName,
                                                           filesScanned: report.filesScanned, rows: remaining)

@@ -3585,7 +3585,7 @@ public struct LensWorkspaceView: View {
                 ProgressView()
                     .controlSize(.large)
             }
-            Text(syncManager.duplicateScanStatus ?? "Analyzing…")
+            Text(syncManager.duplicateScanLifecycle.status ?? "Analyzing…")
                 .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -3973,7 +3973,7 @@ public struct LensWorkspaceView: View {
     private var filingScanningState: some View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
-            Text(syncManager.filingScanStatus ?? "Analyzing…")
+            Text(syncManager.filingScanLifecycle.status ?? "Analyzing…")
                 .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()

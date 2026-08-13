@@ -32,7 +32,7 @@ extension FileSyncManager {
         storageLensRoot = nil
         storageLensLifecycle.completedAt = nil
         storageLensLifecycle.isRestored = false
-        hasBuiltStorageLens = false
+        storageLensLifecycle.hasCompleted = false
     }
 
     // MARK: Restore
