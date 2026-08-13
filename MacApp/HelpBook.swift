@@ -106,12 +106,12 @@ enum HelpBook {
                 related: ["browse-workspace", "choose-folders", "scan"]
             )),
             Topic(id: "browse-workspace", title: "Browse your files", systemImage: "folder", article: Article(
-                intro: "Browse is the plain file browser: one provider's tree at the full width of the window, with nothing proposed and nothing changed. It's where you go to work on files by hand, without a lens's opinion.",
+                intro: "Browse is where SyncCloud opens, and it's the plain file browser: one provider's tree at the full width of the window, with nothing proposed and nothing changed. It's where you go to work on files by hand, without a lens's opinion.",
                 blocks: [
                     .bullets([
                         "Move through Finder-style columns — clicking a folder opens the next column — or switch the pane to a tree; the choice is remembered for Browse on its own.",
-                        "Select a file and a preview column shows it beside the list; Space opens Quick Look.",
-                        "⌘F searches the tree you're browsing; ⌘K jumps to any folder by name.",
+                        "In columns, selecting a file opens a preview beside the list; Space opens Quick Look in either view.",
+                        "⌘F searches the tree you're browsing; ⌘K jumps to a recent, pinned, or already-surveyed folder by name.",
                         "Right-click a folder for “Organize This Folder…”, or a file for “Find duplicates of this” — each lands in the matching Organize lens.",
                     ]),
                     .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),

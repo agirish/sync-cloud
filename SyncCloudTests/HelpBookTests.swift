@@ -78,7 +78,7 @@ import Testing
     }
 
     @Test func testQueryNarrowsToMatchingTopics() {
-        // "keeper" appears only in the Tidy topic's body.
+        // "keeper" appears only in the Duplicates topic's body.
         let results = HelpBook.filteredSections(matching: "keeper")
         let matchedIDs = results.flatMap(\.topics).map(\.id)
         #expect(matchedIDs == ["tidy-duplicates"])
@@ -98,19 +98,6 @@ import Testing
         #expect(HelpBook.filteredSections(matching: "zzzznotatopic").isEmpty)
     }
 
-    /// No article may teach dragging or dropping.
-    ///
-    /// Cross-pane drag & drop was removed in `4d55246`, but the "Copy and move" topic went on
-    /// telling users "Drag items between panes to copy; hold ⇧ or ⌘ while dropping to move"
-    /// until `94f1776`'s follow-up. Every other test here pins only STRUCTURE — sections exist,
-    /// copy is non-empty, ids are unique, related links resolve — so an article can document a
-    /// deleted feature and stay green. This is the app teaching the user something false, which
-    /// is worse than a stale code comment.
-    ///
-    /// Asserted through `filteredSections(matching:)` because that is the same body-text search
-    /// the Help window itself runs, so it covers every block type without this test having to
-    /// know their shapes. If a future feature legitimately involves dragging (resizing a divider,
-    /// say), narrow this to the cross-pane transfer wording rather than deleting it.
     /// Every workspace the bar offers has a help topic. Browse shipped without one — the Help
     /// book described the app as Compare-plus-cleanup for a whole release while the bar's first
     /// segment went unexplained.
@@ -132,6 +119,19 @@ import Testing
         }
     }
 
+    /// No article may teach dragging or dropping.
+    ///
+    /// Cross-pane drag & drop was removed in `4d55246`, but the "Copy and move" topic went on
+    /// telling users "Drag items between panes to copy; hold ⇧ or ⌘ while dropping to move"
+    /// until `94f1776`'s follow-up. Every other test here pins only STRUCTURE — sections exist,
+    /// copy is non-empty, ids are unique, related links resolve — so an article can document a
+    /// deleted feature and stay green. This is the app teaching the user something false, which
+    /// is worse than a stale code comment.
+    ///
+    /// Asserted through `filteredSections(matching:)` because that is the same body-text search
+    /// the Help window itself runs, so it covers every block type without this test having to
+    /// know their shapes. If a future feature legitimately involves dragging (resizing a divider,
+    /// say), narrow this to the cross-pane transfer wording rather than deleting it.
     @Test func testNoArticleTeachesDragAndDrop() {
         let dragHits = HelpBook.filteredSections(matching: "drag")
             .flatMap(\.topics).map(\.id)

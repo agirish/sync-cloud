@@ -211,9 +211,11 @@ import FileExplorer
         #expect(Set(keys).count == 5)
     }
 
-    /// A stored selection that no longer reads lands in Browse. (Not a fresh install — that
-    /// keeps `@AppStorage`'s own Compare default; `WorkspaceSelection.default`'s doc says why
-    /// the two deliberately differ.)
+    /// A stored selection that no longer reads lands in Browse — and so does a fresh install,
+    /// which is a separate constant reached by a separate path (`ContentView.selectedWorkspace`'s
+    /// own `@AppStorage` default). The two disagreed for a release while both files claimed they
+    /// did not; `theFirstRunDefaultAgreesWithTheFallback` above is what holds them together now.
+    /// This test owns only the fallback half.
     ///
     /// Asserted as the CONCRETE place, not as `.default == .default`, which is the shape that
     /// cannot fail: the point of this test is that the default moved, so it has to name where to.

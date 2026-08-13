@@ -50,18 +50,25 @@ struct ContentView: View {
     /// here would be a second answer to what has been typed.
     @State var showCommandPalette = false
 
-    /// Organize's rail selection and scope, **as `@AppStorage` rather than raw `UserDefaults`**.
+    /// Organize's rail selection, **as `@AppStorage` rather than raw `UserDefaults`**.
     ///
-    /// `aimOrganize` writes both when ⌘K routes to a lens or a folder, and it wrote them through
+    /// `aimOrganize` writes it when ⌘K routes to a lens, and it wrote it through
     /// `UserDefaults.standard.set` — which this app has already been bitten by and documented:
     /// `@AppStorage`'s process-wide storage location per (store, key) can **lose** a standard-domain
     /// write outright rather than deliver it late, which is why the defaults-backed test suites
-    /// mount with their own `ScratchDefaults`. `LensWorkspaceView` holds both keys in `@AppStorage`, so a
+    /// mount with their own `ScratchDefaults`. `LensWorkspaceView` holds this key in `@AppStorage`, so a
     /// route could land on Organize and leave the rail on whatever lens it was already showing,
     /// intermittently and with nothing to see. Writing through the same property wrapper puts both
     /// sides on one storage location, which is the path every other writer in the app already takes.
+    ///
+    /// **The scope has no second spelling here.** This pair used to be a pair: a `paletteScopePath`
+    /// sat beside it on the same defaults key as ``organizeScopePath``, so the same key had one
+    /// property documented "never written directly" and another the palette wrote raw — which is
+    /// how the palette came to carry its own copy of the root-means-no-scope normalization. The
+    /// palette's write now goes through ``setOrganizeScope(_:)`` like every other, and the second
+    /// writable spelling is gone rather than merely unused; `theRouteCannotMintASecondEncodingOfTheGlobalView`
+    /// pins its absence by name.
     @AppStorage(OrganizeLens.defaultsKey) var paletteRailLens: OrganizeLens?
-    @AppStorage(OrganizeScopeDefaults.pathKey) var paletteScopePath: String = ""
 
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
@@ -2117,7 +2124,7 @@ struct ContentView: View {
     func buildStorageLensAction() {
         let root = lensScanRootExpanded
         guard !root.isEmpty else { return }
-        Logger.shared.info("User requested Storage Lens for \(root)")
+        Logger.shared.info("Storage: requested for \(root)")
         selectedWorkspace = .storage
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
     }
@@ -2225,7 +2232,7 @@ struct ContentView: View {
         // subfolder, instead of nesting the tree under whatever folder happened to be focused.
         let providerRoot = lensProviderRootExpanded
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
-        Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
+        Logger.shared.info("User requested Rules preview for \(root)\(only == nil ? "" : " (single rule)")")
         show(.rules)
         syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
                                           destinationRoot: URL(fileURLWithPath: providerRoot),

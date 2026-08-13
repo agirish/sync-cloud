@@ -96,7 +96,7 @@ struct DuplicateReviewCoordinator {
         guard !providerRoot.isEmpty,
               let keepRel = PathBoundary.relativize(keepPath, under: providerRoot),
               let deleteRel = PathBoundary.relativize(deletePath, under: providerRoot) else {
-            Logger.shared.warning("Compare copies: a copy path sits outside the lens provider root — skipping")
+            Logger.shared.warning("Compare copies: a copy path sits outside the scanned provider root — skipping")
             return
         }
         // Snapshot the Compare setup so exiting the review restores it — but when a review is already

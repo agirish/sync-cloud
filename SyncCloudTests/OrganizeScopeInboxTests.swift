@@ -52,7 +52,12 @@ import Foundation
         // comment that explains the removal names it, and a scan that cannot tell code from the
         // prose describing it is this suite's standing hazard — stated at the top of the file, and
         // the reason `body(of:in:)` exists.
-        #expect(!source.contains("private func tidyRailRelativePath"),
+        // Matched on the SHAPE, over comment-stripped code, and both halves are load-bearing.
+        // The resolver was `tidyRailRelativePath` when it was deleted; the tidy* member family
+        // has since been renamed lens*, so pinning the old spelling guarded a name this
+        // codebase can no longer produce. Stripping comments is what lets the pattern be this
+        // broad: ContentView still explains the removal in prose that names the old symbol.
+        #expect(!sourceCodeOnly(source).contains("RailRelativePath"),
                 "the rail's inbox resolver is back — Organize opens on TODO again on a fresh install")
 
         let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: source)

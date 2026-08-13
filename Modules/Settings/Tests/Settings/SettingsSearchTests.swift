@@ -168,8 +168,16 @@ import Testing
             // The tab itself, too: "filing" stopped appearing anywhere on screen when the
             // "Filing" section header became "Inbox and rules", so — like "tidy" — the word only
             // finds the settings that kept it as an alias keyword.
-            #expect(results.contains { $0.tab == .filing },
-                    "'\(query)' reaches nothing on Organize — the word left the tab silently")
+            //
+            // **Asserted as the entry, not as the tab**, which is the difference between a guard
+            // and a decoration. `$0.tab == .filing` cannot fail: "Remembered rules" sits on the
+            // same tab carrying the keyword "filing rules", and matching is case-insensitive
+            // SUBSTRING — so "filing" reached this tab before the alias keyword was added and
+            // would go on reaching it after the alias was deleted. Naming the title the keyword
+            // exists to reach is what makes deleting it red, the same shape as
+            // `looseFilesInboxIsFindableByTheWordsItsControlUses` below.
+            #expect(results.contains { $0.title == "Loose-files inbox" && $0.tab == .filing },
+                    "'\(query)' does not reach the Loose-files inbox — the alias keyword left the entry that carries it")
         }
     }
 

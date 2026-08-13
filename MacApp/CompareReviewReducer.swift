@@ -14,7 +14,7 @@ import Foundation
 /// event by `CompareReviewReducerTests`, so a future handler can't quietly diverge.
 enum CompareReviewEvent: Equatable {
     /// The bottom tab changed. `toCompare`/`fromCompare` are whether the new/old tab is the
-    /// Compare tab (kept as bools so this stays independent of `ContentView.BottomTab`).
+    /// Compare tab (kept as bools so this stays independent of the retired `ContentView.BottomTab`).
     case tabSwitched(toCompare: Bool, fromCompare: Bool)
     /// The user manually switched a pane's provider (a change they chose — don't restore the
     /// comparison). `isLeft` says which pane they repointed: while a duplicate review is set but

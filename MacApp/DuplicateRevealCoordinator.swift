@@ -31,7 +31,7 @@ struct DuplicateRevealCoordinator {
     /// Starts a Find Duplicates scan of `root`.
     let startScan: @MainActor (URL) -> Void
 
-    /// What to do about a request for `filePath`, given what the Duplicates workspace is holding.
+    /// What to do about a request for `filePath`, given what the Duplicates lens is holding.
     enum Decision: Equatable {
         /// The results on screen already cover this file — reveal against them, no scan.
         case revealInExistingResults

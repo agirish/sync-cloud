@@ -222,7 +222,17 @@ extension ContentView {
         // and the scope key was written `""`, silently clearing the scope instead of setting
         // it. The object of "organize legal" was discarded, which is the one thing the verb rows
         // exist to prevent.
+        //
+        // **Both halves of the aim are captured here, for the one reason.** Which pane, not just
+        // which root: `aimedAtRight` is computed, and it reads `layoutMode == .compare && activePane
+        // == .right`. The line below leaves Compare, so re-reading it afterwards answers `false`
+        // however the palette was aimed — and a right-pane scope was being revealed into the LEFT
+        // pane, relativized against the RIGHT provider's root. That is precisely the "path from one
+        // provider's tree handed to the other's" failure `revealInSourcePane`'s own doc describes
+        // as fixed; the fix had reached `root` and stopped there. A value that follows the
+        // workspace has to be read on this side of the move or not read at all.
         let root = lensProviderRootExpanded
+        let revealIntoLeft = !aimedAtRight
         // Through `setOrganizeScope(_:)` — **the one write of Organize's scope**, where pointing at
         // the provider root CLEARS the scope rather than storing it as one — and BEFORE the
         // workspace moves, for the reason above: the owner resolves against the live
@@ -239,7 +249,7 @@ extension ContentView {
         // write this app has already watched go missing.
         paletteRailLens = lens?.resolvedForPresentation
         guard let scope else { return }
-        revealInSourcePane(scope, root: root, isLeft: !aimedAtRight)
+        revealInSourcePane(scope, root: root, isLeft: revealIntoLeft)
     }
 
     /// Points the source pane at an absolute folder inside the current provider.

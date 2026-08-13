@@ -162,7 +162,7 @@ public struct SettingsView: View {
 
         /// The tabs the layout fit-guard (`SettingsLayoutTests`) deliberately does NOT hold to
         /// "lays out inside the sheet's opening without scrolling". Every other tab is measured;
-        /// `everyTabIsFitTestedOrExplicitlyExempt` derives the measured list from `allCases`
+        /// `everyTabIsEitherFitTestedOrExplicitlyExempt` derives the measured list from `allCases`
         /// minus this set, so a new case cannot skip the guard silently — it either joins the
         /// fit list or earns a line here.
         ///
@@ -2749,7 +2749,10 @@ struct FilingSpendHistorySheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Cloud Filing Spend").scaledFont(.headline)
+                // "Cloud AI", not "Cloud Filing": the workspace this sheet was named for is
+                // Organize now, and the lens it reports on is To File. A twin of this header
+                // lives in `FileExplorer`'s `FilingSpendHistoryView` and has to say the same.
+                Text("Cloud AI Spend").scaledFont(.headline)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎")
             }

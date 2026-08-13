@@ -123,9 +123,19 @@ import Sync
     /// scope string taken from a right-pane index and resolved afterwards fails `OrganizeScope`,
     /// which writes `""` and silently clears the scope instead of setting it: "organize legal"
     /// loses its folder. Ordering is the whole fix, so ordering is what this asserts.
+    ///
+    /// **Three values, one hazard**, and the third was the one that stayed broken: this suite used
+    /// to pin the reveal as `isLeft: !aimedAtRight` — an expression *evaluated after* the move —
+    /// under a comment claiming it was a captured aim. The prose described the fix and the
+    /// assertion pinned the bug, so the bug could not be fixed without turning this red. Every
+    /// value that follows the focused pane is now required to be BOUND above the move and PASSED
+    /// below it, which is a shape rather than a spelling.
     @Test func theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        let body = try #require(Self.aimOrganizeBody(host), "aimOrganize is gone — this scan is vacuous")
+        // Comment-stripped, and via the shared reader: the needles below are ordinary prose about
+        // this very function, and its comments already quote `setOrganizeScope(_:)` by name.
+        let body = try declarationBody(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {",
+                                       in: host)
         let read = try #require(body.range(of: "let root = lensProviderRootExpanded"),
                                 "aimOrganize no longer resolves a provider root")
         let move = try #require(body.range(of: "workspaceSelection.wrappedValue = .filing"),
@@ -139,17 +149,21 @@ import Sync
                                  "aimOrganize no longer routes the scope through the one owner")
         #expect(write.lowerBound < move.lowerBound,
                 "the scope is set after the workspace changes, so the owner resolves it against the wrong pane")
-        // And the reveal is given that captured aim rather than re-reading it.
-        #expect(body.contains("revealInSourcePane(scope, root: root, isLeft: !aimedAtRight)"),
+        // **Which pane, on the same terms as which root.** `aimedAtRight` is a computed property
+        // over `layoutMode`, so an `isLeft: !aimedAtRight` written at the reveal is not a captured
+        // aim at all — it is evaluated after the line above has left Compare, and answers `false`
+        // for a right-pane route. Asserted as the pair the root is: BOUND before the move…
+        let aim = try #require(body.range(of: "let revealIntoLeft = !aimedAtRight"),
+                               "aimOrganize no longer captures which pane the palette was aimed at")
+        #expect(aim.lowerBound < move.lowerBound,
+                "the aim is captured after the workspace changes, so it names the wrong pane")
+        // …and PASSED at the reveal, rather than the expression being re-read there. The absence
+        // check is the half that matters: handing the binding over while leaving a second live
+        // read behind is the state that reads as fixed and is not.
+        #expect(body.contains("revealInSourcePane(scope, root: root, isLeft: revealIntoLeft)"),
+                "the reveal is not given the captured aim")
+        #expect(!body.contains("isLeft: !aimedAtRight"),
                 "the reveal re-reads an aim the workspace switch has already moved")
-    }
-
-    static func aimOrganizeBody(_ host: String) -> String? {
-        guard let start = host.range(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {")
-        else { return nil }
-        let rest = host[start.upperBound...]
-        guard let end = rest.range(of: "\n    }") else { return nil }
-        return String(rest[..<end.lowerBound])
     }
 
     /// Every route case is applied. A `default:` arm would let a case added to `PaletteRoute` — a

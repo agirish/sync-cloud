@@ -62,13 +62,18 @@ enum FirstRunWelcome {
         Page(art: .welcome,
              title: "Welcome to SyncCloud",
              blurb: "Browse your files, compare two cloud folders side by side, and let SyncCloud clean up what it finds — duplicates, loose files, names that don't travel."),
-        // Browse leads the bar, so it leads the tour. (It is NOT where a fresh install opens —
-        // that is Compare, ContentView.selectedWorkspace's own default; Browse is only where an
-        // unreadable stored selection lands. Workspace.WorkspaceSelection.default documents why
-        // the two deliberately differ, so the blurb below must not claim to be the landing page.)
+        // Browse leads the bar, so it leads the tour — and it is also where a fresh install opens,
+        // which is why the blurb below may say so. The two constants that answer that question now
+        // agree: `ContentView.selectedWorkspace`'s `@AppStorage` default (what a first run gets,
+        // because `migrateSelection` returns nil when nothing is stored) and
+        // `WorkspaceSelection.default` (where an unreadable stored selection lands) are both
+        // `.browse`. They were `.compare` and `.browse` for a release while both files claimed
+        // otherwise, so this is a claim with a guard under it rather than a reading of one file:
+        // `theFirstRunDefaultAgreesWithTheFallback` fails if they part again. If it ever does, the
+        // blurb goes back to describing Browse without naming it the landing page.
         Page(art: .browse,
              title: "Browse your files",
-             blurb: "One tree at full width, in columns or as an outline — one provider at a time. Press Space to preview a file, and ⌘K to jump to any folder by name."),
+             blurb: "SyncCloud opens here — one provider's tree at full width, in columns or as an outline. Press Space to preview a file, and ⌘K to jump to a folder by name."),
         Page(art: .compare,
              title: "Compare side by side",
              blurb: "Point each pane at a folder in iCloud, OneDrive, Google Drive, Dropbox — or any folder on your Mac. SyncCloud shows exactly what differs: files on only one side, and ones that changed."),

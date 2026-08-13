@@ -190,9 +190,10 @@ import FileExplorer
     /// `contains("paletteRailLens = lens")` matches with `?.resolvedForPresentation` deleted.
     @Test func aLensWithoutAScopeStillMovesTheRail() throws {
         let host = try Self.host()
-        let body = try #require(
-            CommandPaletteRouteCallSiteTests.aimOrganizeBody(host),
-            "aimOrganize is gone — this scan would be vacuous")
+        // The shared comment-stripping reader, like every other body scan in this target — the
+        // suite next door used to keep a private slicer for this one declaration, over RAW source.
+        let body = try declarationBody(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {",
+                                       in: host)
         let lensWrite = try #require(body.range(of: "paletteRailLens = lens"),
                                      "aimOrganize no longer writes the rail selection")
         let scopeGuard = try #require(body.range(of: "guard let scope else { return }"),

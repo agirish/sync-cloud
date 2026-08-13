@@ -177,8 +177,12 @@ extension Workspace {
     ]
 
     /// The raw value `Rename` persisted under, as both a Tidy lens and (briefly) a workspace.
-    /// Kept as a named constant because the migration has to keep answering for it long after the
-    /// case is gone.
+    ///
+    /// **Nothing in the migration reads this any more** — the `Rename` arm resolves through
+    /// ``retiredWorkspaceRawValues``. Its one reader is `TopPaneVisibilityTests`, which asserts
+    /// the retired key does *not* survive a fanned-out override map; the constant is what keeps
+    /// that assertion from spelling the legacy string itself. Kept for that, not for the
+    /// migration.
     static let retiredRenameRawValue = "Rename"
 
     /// Where a session that ended on the old two-level selection resumes.

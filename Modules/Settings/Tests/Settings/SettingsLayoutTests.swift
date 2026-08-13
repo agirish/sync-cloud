@@ -20,10 +20,12 @@ import Testing
 /// for every tab, so General, Sync, Organize, Duplicates and Advanced are checked too
 /// (`everyMustFitTabFitsTheClampedOpening`).
 ///
-/// Three tabs are excluded, for reasons that are properties of those tabs: Providers grows with
-/// the Mac's provider list and People with the household roster, and Intelligence is long by
-/// nature and expected to scroll — see `intelligenceLaysOutWithoutReachingForTheKeychain`, which
-/// is here for a different reason again. General was previously excluded as well, on the grounds
+/// The excluded tabs, and each one's reason, are recorded in ONE place — `SettingsTab`'s
+/// ``SettingsView/SettingsTab/exemptFromFitGuard`` — and `everyTabIsEitherFitTestedOrExplicitlyExempt`
+/// holds `mustFitTabs` to be exactly `allCases` minus that set. This paragraph used to restate the
+/// three reasons, which made it the third copy of a list that had already gone stale once: the old
+/// Organize kept a "long by nature" exemption after the split made it short. Read them there.
+/// General was previously excluded as well, on the grounds
 /// that it "reaches for SMAppService on appear, which a `swift test` host can block on".
 /// Measured, that does not bite in this harness: the reads are in `.task`, which an offscreen
 /// `NSHostingView` driven only by `layoutSubtreeIfNeeded` never fires. It is measured here like
@@ -330,6 +332,20 @@ import Testing
         let height = laidOutHeight(IntelligenceSettingsTab(syncManager: nil), width: Self.contentWidth)
 
         #expect(height > 0)
+
+        // **And the exemption is falsifiable.** `height > 0` is true of anything that lays out at
+        // all, so until now nothing could see whether this tab still deserved its line in
+        // `exemptFromFitGuard` — a tab going short and keeping a stale "long by nature" exemption
+        // is the exact failure that set was created to stop, and Organize had already done it once.
+        // Measured on the fit guard's own terms — the clamped width and opening of a 1280×800
+        // display, as `everyMustFitTabFitsTheClampedOpening` uses — so the two answers are
+        // comparable. If this ever fails, the exemption is what should go, not this line.
+        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
+        let clampedHeight = laidOutHeight(
+            IntelligenceSettingsTab(syncManager: nil),
+            width: SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow))
+        #expect(clampedHeight > opening,
+                "Intelligence now fits (\(clampedHeight)pt in a \(opening)pt opening); drop its exemption")
     }
 
     // MARK: - The other tabs
