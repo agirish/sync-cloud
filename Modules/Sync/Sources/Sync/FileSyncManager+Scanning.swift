@@ -1,6 +1,62 @@
 import Events
 import Foundation
 
+/// A span measured on two clocks, because one of them counts time the Mac spent asleep.
+///
+/// **`[load] left #1 shallow first paint 19 nodes (walk 8887.98 s …)`** — a listing of nineteen
+/// entries, reported as taking two and a half hours. The same log holds **1.4 s** for the identical
+/// walk, and 25s, 85s, 191s, 334s and 990s besides. `CFAbsoluteTimeGetCurrent` is a wall clock: it
+/// keeps running while the machine sleeps, so the number spans everything that happened between two
+/// lines of code rather than the work between them. With one clock a genuinely slow walk and a
+/// laptop lid closed mid-walk print the same thing — and the slow ones are the ones worth finding.
+/// The five-figure entries have been drowning out whatever the real spread is.
+///
+/// `SuspendingClock` stops while the system is asleep; `ContinuousClock` does not. Reporting the
+/// first and naming the difference when it is material separates the two.
+///
+/// **What it does not separate:** a process that is merely descheduled or App-Napped. Both clocks
+/// keep running through that, because the machine is awake — so a large `active` still means "this
+/// took a long time", not necessarily "this did a long time's work". That distinction needs a CPU
+/// clock and is a different question from the one this answers.
+struct Elapsed {
+    private let active: SuspendingClock.Instant
+    private let wall: ContinuousClock.Instant
+
+    init() {
+        active = SuspendingClock.now
+        wall = ContinuousClock.now
+    }
+
+    /// `nnn.n ms` under a second, `n.nn s` above it — the shape ``FileSyncManager/durationText(since:)``
+    /// established, so a log line reads the same whichever measured it. A span the machine slept
+    /// through gains a clause rather than a bigger number.
+    var text: String {
+        Self.describe(active: Self.seconds(SuspendingClock.now - active),
+                      wall: Self.seconds(ContinuousClock.now - wall))
+    }
+
+    /// The formatting, separated from the clocks so it can be tested against spans no test could
+    /// produce by waiting — the interesting one being an hour of sleep, which is exactly the case
+    /// that motivated the type.
+    static func describe(active: Double, wall: Double) -> String {
+        let asleep = wall - active
+        // A tenth of a second is below the resolution anything here cares about, and is the order
+        // of the skew two separate clock reads produce on their own.
+        guard asleep >= 0.1 else { return format(active) }
+        return "\(format(active)) + \(format(asleep)) asleep"
+    }
+
+    private static func format(_ seconds: Double) -> String {
+        seconds < 1 ? String(format: "%.1f ms", seconds * 1000)
+                    : String(format: "%.2f s", seconds)
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        let parts = duration.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+}
+
 extension FileSyncManager {
     
     // MARK: - Core Scanning Operations
@@ -30,7 +86,7 @@ extension FileSyncManager {
             // (a 6 s load read as 6,095 s). Reuses the spinner's existing per-load generation
             // rather than minting a second identity that could disagree with it.
             let tag = "\(isLeft ? "left" : "right") #\(loadToken)"
-            let startedAt = CFAbsoluteTimeGetCurrent()
+            let startedAt = Elapsed()
             Logger.shared.debug("[load] \(tag) start \(path)\(relativeSuffix(isLeft: isLeft))")
 
             // What this load ended up doing. Set at every exit; the default is what an exit that
@@ -63,7 +119,7 @@ extension FileSyncManager {
                 // The one line per load that carries its outcome AND its duration. Emitted from
                 // the `defer` so every exit is covered, including ones added later.
                 Logger.shared.debug(
-                    "[load] \(tag) \(outcome) in \(Self.durationText(since: startedAt))"
+                    "[load] \(tag) \(outcome) in \(startedAt.text)"
                     + (strandedSpinner ? "; cleared its stale loading spinner" : ""))
             }
 
@@ -110,9 +166,9 @@ extension FileSyncManager {
             let currentTree = isLeft ? rawLeftTree : rawRightTree
             let lastFocus = isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
             if currentTree.isEmpty || lastFocus != focusPath {
-                let shallowStart = CFAbsoluteTimeGetCurrent()
+                let shallowStart = Elapsed()
                 let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
-                let shallowWalk = Self.durationText(since: shallowStart)
+                let shallowWalk = shallowStart.text
                 guard !Task.isCancelled else {
                     outcome = "superseded during the shallow walk (walk \(shallowWalk))"
                     return
@@ -128,9 +184,9 @@ extension FileSyncManager {
                     + " (walk \(shallowWalk), publish \(Self.durationText(since: shallowPublishStart)))")
             }
 
-            let deepStart = CFAbsoluteTimeGetCurrent()
+            let deepStart = Elapsed()
             let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
-            let deepWalk = Self.durationText(since: deepStart)
+            let deepWalk = deepStart.text
 
             guard !Task.isCancelled else {
                 outcome = "superseded during the deep walk (walk \(deepWalk))"
@@ -229,6 +285,9 @@ extension FileSyncManager {
 
     /// `nnn.n ms` under a second, `n.nn s` above it — one shape for every duration the load
     /// records print, so the log can be scanned (and parsed) without unit guessing.
+    ///
+    /// - Note: prefer ``Elapsed`` for anything that can run long. This reads one wall clock and so
+    ///   cannot say whether a large number is work or a sleeping Mac; see that type.
     nonisolated static func durationText(since start: CFAbsoluteTime) -> String {
         let seconds = CFAbsoluteTimeGetCurrent() - start
         return seconds < 1 ? String(format: "%.1f ms", seconds * 1000) : String(format: "%.2f s", seconds)
@@ -552,7 +611,7 @@ extension FileSyncManager {
         // start line pairs with its outcome even when a refresh supersedes the scan mid-flight
         // (which publishes nothing and, before this, logged nothing at all).
         let scanTag = "#\(request.generation)"
-        let scanStart = CFAbsoluteTimeGetCurrent()
+        let scanStart = Elapsed()
         Logger.shared.info("Internal scan \(scanTag) comparing \(request.left.displayName) and \(request.right.displayName)")
 
         let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
@@ -638,7 +697,7 @@ extension FileSyncManager {
                     // Before the tasks are created, not after: a detached task starts running as
                     // soon as it exists, so a clock started below them would already have missed
                     // the beginning of the work it claims to measure.
-                    let walkStart = CFAbsoluteTimeGetCurrent()
+                    let walkStart = Elapsed()
                     let leftWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
                     }
@@ -651,7 +710,7 @@ extension FileSyncManager {
                         leftWalk.cancel()
                         rightWalk.cancel()
                     }
-                    let walk = Self.durationText(since: walkStart)
+                    let walk = walkStart.text
                     let diffStart = CFAbsoluteTimeGetCurrent()
                     defer {
                         let diff = Self.durationText(since: diffStart)
@@ -750,7 +809,7 @@ extension FileSyncManager {
             // change set exists to remove, just triggered by a setting instead of by omission:
             // at `minimumLevel == .info` every scan would log that it began and none that it
             // ended. The two lines are one record and must live or die together.
-            Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(Self.durationText(since: scanStart))")
+            Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(scanStart.text)")
 
             if autoVerifySameSizeDuringScan {
                 // Unstructured on purpose: hashing must not extend the scan (isScanning would
@@ -762,7 +821,7 @@ extension FileSyncManager {
             // said anything again — indistinguishable from one still running, and the reason the
             // "Internal scan" lines outnumbered the "Scan completed" ones.
             Logger.shared.info(
-                "[scan] \(scanTag) discarded after \(Self.durationText(since: scanStart))"
+                "[scan] \(scanTag) discarded after \(scanStart.text)"
                 + " (\(Task.isCancelled ? "cancelled" : isLatestRequest ? "no result" : "superseded by #\(scanRequestGeneration)"))")
         }
 
