@@ -60,10 +60,3 @@ struct SummaryRun: View {
         .accessibilityLabel("\(count.formatted()) \(label)")
     }
 }
-
-/// The hairline that splits the summary row into its two halves: the focus chips that navigate, and
-/// the readout that describes whichever list they landed you on.
-///
-/// Load-bearing, not decoration. Dropping the readout's capsules separates the two groups by weight,
-/// but weight alone is a gradient — the rule is categorical ("left of this line is clickable"), and
-/// a line is how you say a categorical thing. It is also what stops the scope from reading as a

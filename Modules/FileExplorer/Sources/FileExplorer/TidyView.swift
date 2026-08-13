@@ -1231,9 +1231,9 @@ public struct TidyView: View {
         // identical capsules. Moving a slot means swapping it, not adding it.
         //
         // And no arm draws a leading divider any more: row 2 is purely the readout now, so a rule
-        // at its head separates prose from the left edge of the card. `SummaryZoneDivider` marks
-        // the boundary between controls and prose, and with the controls a row above there is no
-        // boundary on this row to mark.
+        // at its head separates prose from the left edge of the card. The divider that used to sit
+        // here (`SummaryZoneDivider`, deleted) marked the boundary between controls and prose, and
+        // with the controls a row above there is no boundary on this row to mark.
         //
         // **The scope chip draws for EVERY Organize lens, for the same reason the rail does** — and
         // it very nearly repeated the rail's exact bug. It was first written inside
