@@ -94,10 +94,9 @@ Tabs never shrink to mark-only — five identical cloud marks name nothing.
 ### Cold start — exactly one ＋, on the tab bar
 
 At one tab there is no strip and therefore **no ＋ anywhere** (Fig. 9). That is accepted rather than
-patched: a ＋ on the pane bar would be redundant the moment the strip appears, and every item on that
-bar acts
-on the pane's *contents* (view, sort, hidden files, new folder, delete, search) while a new tab
-acts on its container. So the pane bar is untouched — no new `PaneBarItem`, no `PaneBarMigration`
+patched: a ＋ on the pane bar would be redundant the moment the strip appears, and every item on
+that bar acts on the pane's *contents* (view, sort, hidden files, new folder, delete, search) while
+a new tab acts on its container. So the pane bar is untouched — no new `PaneBarItem`, no `PaneBarMigration`
 step, nothing new in the customize sheet, and the 250pt snapshots and ladder tests keep asserting
 the bar they assert today.
 
@@ -153,6 +152,41 @@ folder it closed on.
 
 Drag files onto a tab (Fig. 8, right — needs the removed row `.draggable`; see the context table),
 and dragging a tab out of the window (there is no second window).
+
+### What the existing tests already decide
+
+Three constraints, each enforced by a test that will fail rather than warn. Checked 2026-08-12.
+
+1. **The strip is a sibling inside `paneColumn`'s `VStack(spacing: 0)`, never a wrapper around the
+   header and list.** `PaneQuickLookScopeTests.testTheHandlerIsAttachedToTheFileList` requires the
+   literal `"            treeView(pane)\n"` — exact indentation — so re-nesting that VStack fails it
+   with a message about the list's nesting rather than about tabs. This costs nothing: one insertion
+   point in one function serves Browse, both Compare panes and the rail, and `browseLayout` does not
+   change, so `BrowseWorkspaceCallSiteTests` is untouched.
+2. **Tab cycling is a menu command, not a key handler on the column.**
+   `PaneQuickLookScopeTests.testTheSplitLayoutListensForNoKeysAtAll` asserts
+   `ContentView+SplitLayout.swift` contains no `.onKeyPress(` at all, and the reason it gives is the
+   one that applies here: that file's every subject is a whole pane column, so a handler on one
+   reaches that pane's search field. ⌃⇥, ⇧⌘[ and ⇧⌘] belong in `ShortcutCommands`.
+3. **The rung ladder has to take the font scale.** The three rungs are measured text in an app
+   that scales its own type — the trap §2's Prep 1 records. Follow `HeaderLadder`
+   (`init(facts:scale:)`, priced from `Design.LabelMetrics`), not `PaneBarLadder`, whose arithmetic
+   is constant: the string `scale` does not appear in `PaneBarArrangement.swift` at all.
+
+### Boundary with §2
+
+The two are independent and can land in either order — titles cost horizontal track on the header's
+own bar, tabs cost vertical above it, and they share no source file or fixture. **That is a
+consequence of the ＋ living on the strip rather than on the pane bar** (see *Cold start*): a new
+`PaneBarItem` would have been `main`-only work landing in the file §2 rewrites on `v2.x` and ports
+across a 116-line divergence.
+
+Two things to settle when the second of the two lands:
+
+- At the rail's 220pt the strip's count chevron sits ~34pt above the bar's ⋯ — two overflow
+  affordances, different meanings. Distinguishable (a number against three dots), but that is the
+  width to render.
+- **Icon Only governs the bar, never the strip.** A tab without its name is nothing.
 
 ---
 
