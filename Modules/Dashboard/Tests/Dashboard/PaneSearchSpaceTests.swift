@@ -60,6 +60,49 @@ import SwiftUI
         return found
     }
 
+    /// The fixture window: key, and **never ordered in**.
+    ///
+    /// This suite used to `makeKeyAndOrderFront`, which stood a 560×120 titled window — an empty
+    /// title bar over a pane header with "tax" in its field — in the middle of the user's desktop
+    /// for the length of every package run. `DetailsWhereItLivesTests` had already measured the
+    /// general form of this ("ordered in" and "on a display" are separate things); here the
+    /// stronger answer holds, because nothing in these tests reads the backing store: the key is
+    /// delivered by hand through `sendEvent`, and what routes it is the responder chain, not the
+    /// window server.
+    ///
+    /// Measured three ways, both tests, same verdict — key and ordered front (the old arrangement),
+    /// key and never ordered in (this one), and no key at all: all three pass, including the two
+    /// halves that would go vacuous first, the field holding first responder and the query growing
+    /// a space. `makeKey()` is what is kept, because focus is the thing these tests are about and
+    /// it is one call rather than none; `ExpandingSearchFieldTests` mounts its field the same way.
+    ///
+    /// `windowIsUnseen` is the guard: it fails if a later edit orders this window in again.
+    private static func unseenWindow(hosting host: NSView) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        window.makeKey()
+        window.layoutIfNeeded()
+        return window
+    }
+
+    /// The other direction, and the one a well-meant edit trips: a fixture window the user can see.
+    ///
+    /// Both halves of "unseen" are named rather than just the mechanism this suite happens to use —
+    /// an ordered-in window parked past every display (what `DetailsWhereItLivesTests` does, because
+    /// its card must render) would be just as fine. What fails here is a window standing on a
+    /// screen. Mutation-verified by restoring `makeKeyAndOrderFront`.
+    ///
+    /// The screen half goes vacuous on a host with no displays attached; the visibility half does
+    /// not, and it is the one that carries this suite.
+    private static func windowIsUnseen(_ window: NSWindow,
+                                       sourceLocation: SourceLocation = #_sourceLocation) {
+        let frame = window.frame
+        #expect(!window.isVisible || NSScreen.screens.allSatisfy { !$0.frame.intersects(frame) },
+                "the fixture window is on a display at \(frame) — it covers whatever the user is doing for the length of the run",
+                sourceLocation: sourceLocation)
+    }
+
     /// A real space keystroke, delivered the way the window system delivers one.
     private static func sendSpace(to window: NSWindow) {
         guard let event = NSEvent.keyEvent(
@@ -82,11 +125,7 @@ import SwiftUI
     func anAncestorHandlerStealsTheSpace() async {
         let box = Box()
         let host = NSHostingView(rootView: Harness(box: box).frame(width: 560))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        window.layoutIfNeeded()
+        let window = Self.unseenWindow(hosting: host)
 
         let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
         #expect(focused.held, "the revealed field should exist and be editable (\(focused.pumps) pumps)")
@@ -100,6 +139,7 @@ import SwiftUI
                 "the ancestor never saw the space — the scoping rule this test exists to pin has changed, and PaneQuickLookScopeTests now guards a hazard that no longer exists")
         #expect(!box.query.contains(" "),
                 "the space reached the query as well — the two handlers are not in conflict after all")
+        Self.windowIsUnseen(window)
     }
 
     /// The control, and the shipped arrangement: the same field with no Space handler above it takes
@@ -116,11 +156,7 @@ import SwiftUI
                 searchText: Binding(get: { box.query }, set: { box.query = $0 }),
                 searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
             .frame(width: 560))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        window.layoutIfNeeded()
+        let window = Self.unseenWindow(hosting: host)
 
         let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
         #expect(focused.held, "the revealed field should exist (\(focused.pumps) pumps)")
@@ -129,5 +165,6 @@ import SwiftUI
         let typed = await LayoutPumpWait.pump(window, upTo: 5) { box.query.contains(" ") }
         #expect(typed.held, "a space typed into an unobstructed field should reach the query (\(typed.pumps) pumps, query \"\(box.query)\") — if this fails the harness cannot deliver a keystroke and the test above proves nothing")
         #expect(!box.ancestorSawSpace, "there is no ancestor handler in this arm")
+        Self.windowIsUnseen(window)
     }
 }

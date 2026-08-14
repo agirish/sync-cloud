@@ -39,19 +39,41 @@ import Sync
 /// posting the notification AppKit would post. Both mutations that matter — a panel that refuses
 /// key, a resign handler that does nothing — are still killed by that pair.
 ///
-/// `.serialized` because these order real windows in and out, which is process-wide state.
+/// `.serialized` because these build real windows, real child windows and the controller's app-wide
+/// event monitors, all of which are process-wide state. (They no longer *order* any of it in; see
+/// `makeHost`.)
 @MainActor
 @Suite(.serialized) struct CommandPalettePanelTests {
 
     /// A host to hang the panel on. `.titled` so it can take key the way the real window does;
     /// ordered out and released at the end of each test rather than `close()`d — closing a titled
     /// window in a test host has ended runs with no verdict before.
+    ///
+    /// **Key, and never ordered in.** This used to `makeKeyAndOrderFront`, which put a 900×600
+    /// window — dimmed by the palette's own scrim — over the user's desktop half a dozen times
+    /// every app-target run. Nothing here reads a pixel: what these tests are about is the panel's
+    /// parentage, its frame, and what the controller does on dismissal, and all three are object
+    /// state that an unordered window has in full. The suite's own note above says the rest: real
+    /// key transfer is not observable in this host anyway.
+    ///
+    /// **Parking it off the displays instead was tried first and does not work — measured, twice.**
+    /// A plain `NSWindow` created at `(-2900, -2600)` and moved back there after being ordered in
+    /// came up at `(-860, -513)`, a corner still on screen, because AppKit's `constrainFrameRect`
+    /// runs on every frame change to a visible titled window. Overriding that constraint away moved
+    /// the window to `(460, 728)` instead — squarely on the display — and desynchronised the panel
+    /// from its host along the way, failing `presentingRaisesAPanelParentedToAndSizedWithTheHost`
+    /// too. An ordered-in titled window goes where AppKit wants it; the way to keep one out of sight
+    /// is not to order it in. (`DetailsWhereItLivesTests` in Dashboard *does* park its window, and
+    /// can: it is borderless, which is the case the constraint skips.)
+    ///
+    /// Not ordering it in is not enough by itself, which is `present`'s business — see there.
+    /// `theHostAndItsPanelStayOutOfSight` is the guard over both.
     private func makeHost() -> NSWindow {
         let host = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 900, height: 600),
                             styleMask: [.titled, .closable, .resizable],
                             backing: .buffered, defer: false)
         host.isReleasedWhenClosed = false
-        host.makeKeyAndOrderFront(nil)
+        host.makeKey()
         return host
     }
 
@@ -67,6 +89,19 @@ import Sync
                      people: [], registry: nil, isScanning: false, hasSurvey: false)
     }
 
+    /// Presents the palette over `host` and immediately takes the pair back off the screen.
+    ///
+    /// **The `orderOut` is not tidiness, it is the second half of keeping this suite invisible, and
+    /// it has to be here rather than in `makeHost`.** `present` raises the panel with a
+    /// `makeKeyAndOrderFront` of its own, and **ordering a child window front orders its parent in
+    /// too** — measured directly: a titled parent that was never ordered in reads `isVisible ==
+    /// false` right up until a borderless child of it is ordered front, and `true` immediately
+    /// after. So the production code puts both windows on screen no matter what the fixture did
+    /// beforehand, and the fixture's only move is to put them straight back.
+    ///
+    /// Nothing is composited in between: this returns to the runloop only after the `orderOut`, so
+    /// there is no frame for the window server to draw. Everything these tests read — parentage,
+    /// frames, the resize follow, the dismissal callbacks — is object state a hidden window keeps.
     @discardableResult
     private func present(_ controller: CommandPalettePanelController, over host: NSWindow,
                          onRun: @escaping (PaletteRoute) -> Void = { _ in },
@@ -74,6 +109,7 @@ import Sync
         let state = CommandPaletteState(index: index)
         controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
                            onRun: onRun, onDismiss: onDismiss)
+        host.orderOut(nil)
         return state
     }
 
@@ -113,6 +149,29 @@ import Sync
         // this app's, and `theWindowClassCanBecomeKeyAtAll` holds it.
         #expect(panel?.canBecomeKey == true)
         teardown(host, controller)
+    }
+
+    /// **Neither of the real windows this suite builds may appear on the user's screen.**
+    ///
+    /// The panel is checked as well as the host, and it is the one that could drift: the controller
+    /// raises it with `makeKeyAndOrderFront` of its own, so "the host is not visible" alone would
+    /// not settle it — a scrim sized to the host and shown anyway is exactly the 900×600 gray sheet
+    /// this suite used to flash over whatever the user was doing.
+    ///
+    /// It is a window being *visible* that is checked, not where its frame sits: a window parked off
+    /// every display would be just as acceptable, and `makeHost`'s note says why that route is not
+    /// open to a titled window. Verified by mutation: with `present`'s `orderOut` dropped, both
+    /// halves fail — and that both fail is itself the measurement that a child window follows its
+    /// parent's visibility rather than needing to be suppressed on its own.
+    @Test func theHostAndItsPanelStayOutOfSight() throws {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        present(controller, over: host)
+        let panel = try #require(host.childWindows?.first, "no panel was raised")
+
+        #expect(!host.isVisible, "the host window is on screen at \(host.frame)")
+        #expect(!panel.isVisible, "the palette panel is on screen at \(panel.frame)")
     }
 
     /// **Click-away, for the half of it that key state actually owns: another window.**
