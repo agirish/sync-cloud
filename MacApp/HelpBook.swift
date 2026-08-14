@@ -113,6 +113,7 @@ enum HelpBook {
                         "In columns, selecting a file opens a preview beside the list; Space opens Quick Look in either view.",
                         "Hold two places at once with tabs: right-click a folder and choose “Open in New Tab”, or press ⌘T to open a second tab on the folder you are in. The strip appears as soon as there is a second tab.",
                         "Each tab keeps its own folder, selection, search and Back history, and the tabs you leave open come back the next time you launch. ⇧⌘] and ⇧⌘[ step between them; ⌘W closes one, and closes the window on the last.",
+                        "Drag a tab along the strip to reorder it. Right-click one to pin it: a pinned tab sits at the front, keeps its place when the strip runs out of room, survives “Close Other Tabs”, and drops its ✕ so a stray click can't take it.",
                         "⌘F searches the tree you're browsing; ⌘K jumps to a recent, pinned, or already-surveyed folder by name.",
                         "Right-click a folder for “Organize This Folder…”, or a file for “Find duplicates of this” — each lands in the matching Organize lens.",
                     ]),

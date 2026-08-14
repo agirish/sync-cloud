@@ -158,6 +158,24 @@ extension FileSyncManager {
         return tab
     }
 
+    /// Drag-to-reorder from the strip. **No capture and no apply**: the pane does not move, so its
+    /// live state is not involved at all — which is why this is the one verb that returns nothing.
+    @MainActor public func moveTab(id: UUID, to index: Int, isLeft: Bool) {
+        var list = paneTabs(isLeft: isLeft)
+        guard let from = list.index(of: id) else { return }
+        list.move(from: from, to: index)
+        setPaneTabs(list, isLeft: isLeft)
+    }
+
+    /// Pin / unpin, from a tab's context menu. **No capture and no apply**, like `moveTab`: the
+    /// pane does not move, only the order and the chip's own state.
+    @MainActor public func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool) {
+        var list = paneTabs(isLeft: isLeft)
+        guard list.index(of: id) != nil else { return }
+        if pinned { list.pin(id: id) } else { list.unpin(id: id) }
+        setPaneTabs(list, isLeft: isLeft)
+    }
+
     /// Replaces a pane's list outright — the launch seed, and the only write that is not one of the
     /// verbs above.
     @MainActor public func setPaneTabs(_ list: PaneTabList, isLeft: Bool) {

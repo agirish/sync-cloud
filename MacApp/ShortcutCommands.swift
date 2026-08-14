@@ -652,9 +652,11 @@ struct NewTabCommand: View {
     @FocusedValue(\.newTab) private var newTab
 
     var body: some View {
-        // "here", because it opens the CURRENT folder — the result is two tabs with the same name,
-        // and the title is the only thing that says so before the strip appears.
-        Button("New Tab Here") { newTab?() }
+        // **"New Tab", not "New Tab Here".** The roadmap's Fig. 9 names the menu item plainly and
+        // puts the "here" on the ＋'s tooltip, which is the control that needs it: a File-menu item
+        // reading "New Tab Here" asks the reader to wonder where "here" is before they have a strip
+        // to look at.
+        Button("New Tab") { newTab?() }
             .keyboardShortcut(AppChord.newTab.key, modifiers: AppChord.newTab.modifiers)
             .disabled(newTab == nil)
     }

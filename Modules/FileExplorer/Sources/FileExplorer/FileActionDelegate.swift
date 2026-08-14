@@ -138,6 +138,21 @@ public protocol FileActionDelegate: Sendable {
     /// tabs**, and the only entry point that opens the new tab somewhere different from the one
     /// you are in. Folders only: a tab is a location.
     func handleOpenInNewTab(_ node: FileNode)
+
+    /// A new tab on the folder the pane is showing — the background menu's version of ⌘T.
+    ///
+    /// **The only right-click route to a tab that works at ONE tab.** The row menu's "Open in New
+    /// Tab" needs a folder under the pointer and the strip's own menu needs a strip, which does not
+    /// exist until there are two tabs; without this, the state every install starts in has no mouse
+    /// route to a second tab at all.
+    func handleNewTab(at path: String)
+
+    /// Whether this pane has a tab to close — false at one tab, where the only thing left to close
+    /// is the window, and a menu item reading "Close Tab" that closes the window is a trap.
+    var canCloseTab: Bool { get }
+
+    /// Closes the pane's active tab.
+    func handleCloseTab()
 }
 
 extension FileActionDelegate {
@@ -198,7 +213,10 @@ extension FileActionDelegate {
     public var canOrganizeFolder: Bool { false }
     public func handleOrganizeFolder(_ node: FileNode) {}
 
-    /// Same default, same reason, and declared as a requirement above for the same one.
+    /// Same default, same reason, and declared as requirements above for the same one.
     public var canOpenInNewTab: Bool { false }
     public func handleOpenInNewTab(_ node: FileNode) {}
+    public func handleNewTab(at path: String) {}
+    public var canCloseTab: Bool { false }
+    public func handleCloseTab() {}
 }

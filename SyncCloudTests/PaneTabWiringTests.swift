@@ -46,6 +46,13 @@ import Sync
         return String(rest[..<end.lowerBound])
     }
 
+    private static func fileExplorer(_ name: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/\(name)")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     private static func source(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // SyncCloudTests
@@ -386,22 +393,83 @@ import Sync
                 "the strip is not given the seam reserve")
     }
 
+    /// **The strip slides in** (roadmap Fig. 10). ⌘T opens the folder you are already in, so both
+    /// chips say the same thing and nothing else on screen changes — the strip's arrival is the
+    /// only feedback there is, and an abrupt one reads as a glitch rather than a result.
+    @Test func theStripArrivesWithAnAnimation() throws {
+        let content = try Self.source("ContentView.swift")
+        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
+        let body = String(content[column.upperBound...].prefix(20_000))
+        #expect(body.contains(".transition(.move(edge: .top)"),
+                "the strip appears with no transition — nothing marks the arrival ⌘T is fed back by")
+        // Keyed on PRESENCE, not on the tab count: opening a third tab while the strip is already
+        // up must not animate the header and the list under it.
+        #expect(body.contains("value: paneShowsTabStrip(isLeft: isLeft)"),
+                "the strip's animation is keyed on something other than its own presence")
+    }
+
+    /// Pinning is wired, and it saves — a pin that did not survive a quit would be a worse
+    /// promise than no pin at all.
+    @Test func pinningIsWiredAndPersisted() throws {
+        let content = try Self.source("ContentView.swift")
+        #expect(content.contains("onSetPinned: { id, pinned in setTabPinned(pinned, id: id, isLeft: isLeft) }"),
+                "the strip's pin action is wired to nothing")
+        let body = try Self.memberBody("func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("syncManager.setTabPinned("), "pinning does not reach the manager")
+        #expect(body.contains("saveBrowseTabs(isLeft: isLeft)"), "a pin does not survive a quit")
+        // Pinning moves no pane, so it must not pay for a reload.
+        #expect(!body.contains("refreshForTabSwitch"), "pinning reloads the tree for nothing")
+    }
+
+    // MARK: The right-click routes
+
+    /// **The pane's own background menu offers New Tab.** It is the only right-click route that
+    /// works at ONE tab — the row menu needs a folder under the pointer and the strip's menu needs
+    /// a strip, and neither exists in the state every install starts in.
+    @Test func thePaneBackgroundMenuOffersANewTab() throws {
+        let shared = try Self.memberBody("static func tabActions(at path: String, delegate: FileActionDelegate)",
+                                         in: Self.fileExplorer("FileTreeView.swift"))
+        #expect(shared.contains("delegate.canOpenInNewTab"), "the item is offered by hosts with no strip")
+        #expect(shared.contains("handleNewTab(at: path)"), "New Tab is wired to nothing")
+        #expect(shared.contains("delegate.canCloseTab"),
+                "Close Tab is offered at one tab, where it would close the window instead")
+
+        // …and both view modes' background menus actually build it.
+        for file in ["FileTreeView.swift", "PaneColumnsView.swift"] {
+            #expect(try Self.fileExplorer(file).contains("SharedFileMenuItems.tabActions("),
+                    "\(file)'s empty-area menu has no tab items")
+        }
+    }
+
+    /// Discovery beats tidiness: the row menu's tab item sits above Quick Look, not at the bottom
+    /// of the folder branch (roadmap Fig. 11).
+    @Test func openInNewTabSitsAheadOfQuickLook() throws {
+        let code = try Self.fileExplorer("FileTreeView.swift")
+        let tab = try #require(code.range(of: "Label(\"Open in New Tab\""),
+                               "the row menu no longer offers Open in New Tab")
+        let quickLook = try #require(code.range(of: "Label(\"Quick Look\""))
+        #expect(tab.lowerBound < quickLook.lowerBound,
+                "Open in New Tab sank below Quick Look — it is the whole discovery story for tabs")
+    }
+
     // MARK: The row menu's entry point
 
     /// The discovery route. ⌘T opens the folder you are already in, so this is the only entry
-    /// point that produces a second tab somewhere else — and it is gated on the delegate's own
-    /// capability, like the two menu items beside it.
+    /// point that produces a second tab somewhere else — gated on the delegate's own capability
+    /// like the two items beside it, and on the row being a FOLDER, because a tab is a location.
     @Test func theRowMenuOffersOpenInNewTabForFoldersOnly() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let menu = try #require(source.range(of: "if singleNode.isDirectory {"),
-                                "the row menu's folder branch is gone")
-        let body = String(source[menu.upperBound...].prefix(1_200))
-        #expect(body.contains("delegate.canOpenInNewTab"),
+        let code = try Self.fileExplorer("FileTreeView.swift")
+        let item = try #require(code.range(of: "Label(\"Open in New Tab\""),
+                                "the row menu no longer offers Open in New Tab")
+        // The gate is the two lines above the label, not a block further up: the item moved out of
+        // the folder branch to sit ahead of Quick Look, so it carries its own `isDirectory` test.
+        let lead = String(code[..<item.lowerBound].suffix(300))
+        #expect(lead.contains("singleNode.isDirectory"), "a FILE can be opened as a tab")
+        #expect(lead.contains("delegate.canOpenInNewTab"),
                 "Open in New Tab is offered by hosts that have no strip to open a tab in")
-        #expect(body.contains("handleOpenInNewTab(singleNode)"),
+        let after = String(code[item.upperBound...].prefix(200))
+        #expect(after.contains("handleOpenInNewTab(singleNode)") || lead.contains("handleOpenInNewTab(singleNode)"),
                 "Open in New Tab is not wired to the delegate")
     }
 }

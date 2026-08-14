@@ -30,10 +30,22 @@ public enum PaneTabsStore {
     public struct Entry: Codable, Equatable, Sendable {
         public var providerId: String
         public var relativePath: String
+        /// Whether this tab was pinned. **Optional on the way in**, so a strip written before
+        /// pinning existed still decodes — the whole file is rejected on a missing key otherwise,
+        /// and a user's tabs would silently vanish on the first launch after an upgrade.
+        public var pinned: Bool
 
-        public init(providerId: String, relativePath: String) {
+        public init(providerId: String, relativePath: String, pinned: Bool = false) {
             self.providerId = providerId
             self.relativePath = relativePath
+            self.pinned = pinned
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            providerId = try c.decode(String.self, forKey: .providerId)
+            relativePath = try c.decode(String.self, forKey: .relativePath)
+            pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         }
     }
 
@@ -55,7 +67,9 @@ public enum PaneTabsStore {
     /// Writes the strip. Called on every tab mutation, which is cheap: this is at most a handful of
     /// short strings, and `UserDefaults` coalesces its own writes to disk.
     public static func save(tabs: [PaneTab], selected: Int, to defaults: UserDefaults = .standard) {
-        let entries = tabs.map { Entry(providerId: $0.providerId, relativePath: $0.combinedRelativePath) }
+        let entries = tabs.map {
+            Entry(providerId: $0.providerId, relativePath: $0.combinedRelativePath, pinned: $0.isPinned)
+        }
         guard let data = try? JSONEncoder().encode(entries),
               let raw = String(data: data, encoding: .utf8) else { return }
         defaults.set(raw, forKey: tabsKey)
@@ -87,7 +101,8 @@ public enum PaneTabsStore {
             guard isKnownProvider(entry.providerId) else { continue }
             let path = folderExists(entry.providerId, entry.relativePath) ? entry.relativePath : ""
             if index == selected { selectedAfterDrops = restored.count }
-            restored.append(PaneTab(providerId: entry.providerId, relativePath: path))
+            restored.append(PaneTab(providerId: entry.providerId, relativePath: path,
+                                    isPinned: entry.pinned))
         }
         guard !restored.isEmpty else { return nil }
         // The selected entry itself may be one of the dropped ones; the nearest survivor is a

@@ -2486,8 +2486,15 @@ struct ContentView: View {
                     onCloseOthers: { closeOtherTabs(keeping: $0, isLeft: isLeft) },
                     onDuplicate: { duplicateTab(id: $0, isLeft: isLeft) },
                     onCopyPath: { copyTabPath(id: $0, isLeft: isLeft) },
+                    onReorder: { id, index in moveTab(id: id, to: index, isLeft: isLeft) },
+                    onSetPinned: { id, pinned in setTabPinned(pinned, id: id, isLeft: isLeft) },
                     onNew: { openNewTabHere(isLeft: isLeft) })
                     .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+                    // **The strip's arrival IS the feedback for ⌘T** (roadmap Fig. 10): the new tab
+                    // opens on the folder you are already in, so both chips say the same thing and
+                    // nothing else on screen changes. Sliding in from the top is what tells you it
+                    // worked.
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
             PaneHeader(
                 title: pane.title,
@@ -2620,6 +2627,9 @@ struct ContentView: View {
                 // a file shows the bar at once and clearing the selection fades it out.
                 .animation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
         }
+        // Keyed on the strip's PRESENCE, not on the tab count: a tab opening or closing while the
+        // strip is already up must not animate the header and list below it.
+        .animation(.easeOut(duration: 0.18), value: paneShowsTabStrip(isLeft: isLeft))
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked here could never be un-picked. Only swallow the key when
         // there's actually a selection here; otherwise let it bubble (dialogs, etc.).
@@ -2953,7 +2963,12 @@ struct ContentView: View {
             onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) },
             onOrganizeFolder: { node in organizeFolderAction(node) },
             onOrganizeScope: { node in setOrganizeScope(node.id) },
-            onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) })
+            onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) },
+            onNewTabHere: { path in openInNewTab(absolutePath: path, isLeft: pane.isLeft) },
+            // Resolved at fire time, not captured: a menu held open is not re-armed by a republish,
+            // and the active tab can have moved under it.
+            onCloseTab: { closeTab(id: syncManager.paneTabs(isLeft: pane.isLeft).active.id,
+                                   isLeft: pane.isLeft) })
     }
 
     @ViewBuilder

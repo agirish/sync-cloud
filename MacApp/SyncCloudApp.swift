@@ -517,22 +517,24 @@ struct SyncCloudApp: App {
             // is a one-window app, so there is no "New Window" to displace and ⌘N had nothing
             // to do. All four route to the focused pane (or its selection) via the focused
             // values ContentView publishes — see `ShortcutCommands.swift`.
+            // **In the roadmap's own order** (§1, Fig. 9): the folder item the menu opened with,
+            // then the two tab items together, then the rest. Close Tab sits beside New Tab rather
+            // than in AppKit's `.saveItem` group, which renders after this one and would have put
+            // it below Delete Selection — a long way from the item it is the opposite of.
             CommandGroup(replacing: .newItem) {
+                NewFolderCommand()          // ⇧⌘N
                 NewTabCommand()             // ⌘T
+                CloseTabCommand()           // ⌘W
                 ReopenClosedTabCommand()    // no chord — see the type
                 Divider()
-                NewFolderCommand()          // ⇧⌘N
                 RescanCommand()             // ⌘R
                 Divider()
                 DeleteSelectionCommand()    // ⌘⌫
             }
-            // File ▸ Close, replaced by Close Tab. It is the same key and very nearly the same act:
-            // on the last tab this closes the window, which is what ⌘W did before and what Finder
-            // does. Replacing `.saveItem` — the group AppKit puts Close in — rather than adding a
-            // second ⌘W, which would leave two items competing for one key equivalent.
-            CommandGroup(replacing: .saveItem) {
-                CloseTabCommand()           // ⌘W
-            }
+            // `.saveItem` is where AppKit puts File ▸ Close, and Close Tab has taken its key and
+            // its job (on the last tab it closes the window). Emptied rather than left alone, or
+            // two items would register ⌘W and AppKit would silently pick one.
+            CommandGroup(replacing: .saveItem) { }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the four show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which
             // surface the window shows — not what the app does to any file.

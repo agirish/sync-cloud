@@ -24,9 +24,9 @@ import Design
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneTabStripRenderTests {
 
     func item(_ title: String, active: Bool = false, mark: String = "folder.fill",
-                     path: String = "/Users/x/Documents") -> PaneTabStrip.Item {
+                     path: String = "/Users/x/Documents", pinned: Bool = false) -> PaneTabStrip.Item {
         PaneTabStrip.Item(id: UUID(), title: title, markImageName: mark,
-                          isActive: active, fullPath: path)
+                          isActive: active, fullPath: path, isPinned: pinned)
     }
 
     /// Mounts a strip at `width` and returns the bitmap.
@@ -310,6 +310,60 @@ import Design
             height: CGFloat(alone.pixelsHigh))
         #expect(differingPixels(alone, paired, in: closeBox) > 20,
                 "the lone tab draws a ✕ that would close the window")
+    }
+
+    // MARK: Pinned tabs
+
+    /// A pinned chip wears a pin where an unpinned one wears its ✕ — the two strips are otherwise
+    /// identical, so the box isolates that slot.
+    @Test func aPinnedTabWearsAPinInsteadOfItsCloseButton() {
+        let ids = [UUID(), UUID()]
+        func strip(pinnedFirst: Bool) -> [PaneTabStrip.Item] {
+            [PaneTabStrip.Item(id: ids[0], title: "Finance", markImageName: "folder.fill",
+                               isActive: true, fullPath: "/x/Finance", isPinned: pinnedFirst),
+             PaneTabStrip.Item(id: ids[1], title: "Finance", markImageName: "folder.fill",
+                               isActive: false, fullPath: "/x/Photos", isPinned: false)]
+        }
+        let pinned = render(items: strip(pinnedFirst: true), width: 900)
+        let plain = render(items: strip(pinnedFirst: false), width: 900)
+        let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Finance"],
+                                              scale: 1).tabWidth
+        let perPoint = pinned.size.width > 0 ? CGFloat(pinned.pixelsWide) / pinned.size.width : 1
+        let slot = NSRect(x: (LiquidGlass.cardGutter + width - PaneTabStripLadder.tabPadding
+                             - PaneTabStripLadder.closeSide) * perPoint,
+                          y: 0,
+                          width: PaneTabStripLadder.closeSide * perPoint,
+                          height: CGFloat(pinned.pixelsHigh))
+        #expect(differingPixels(pinned, plain, in: slot) > 20,
+                "a pinned tab is drawn exactly like an unpinned one — nothing says it is pinned")
+        // The name is untouched: pinning is a position and a protection, not a shrink to mark-only.
+        let title = titleBox(of: pinned, tabWidth: width)
+        #expect(differingPixels(pinned, plain, in: title) < 20, "pinning moved the chip's name")
+    }
+
+    /// **Pinned tabs never fold away.** They are pinned precisely so they stay reachable, and the
+    /// active tab is still named by the header underneath it when it folds.
+    @Test func pinnedTabsKeepTheirSlotsWhenTheStripRunsOutOfRoom() {
+        let items = [item("Pinned", pinned: true), item("A"), item("B"), item("C"), item("D", active: true)]
+        let shown = PaneTabStrip.visible(items, slots: 2)
+        #expect(shown.map(\.title) == ["Pinned", "D"],
+                "a pinned tab was folded away, or the active tab was")
+
+        // With every slot taken by pins, the pins win — an active tab folded away still has the
+        // header under it saying where the pane is.
+        let allPinned = [item("P1", pinned: true), item("P2", pinned: true), item("Q", active: true)]
+        #expect(PaneTabStrip.visible(allPinned, slots: 2).map(\.title) == ["P1", "P2"])
+    }
+
+    /// **The overflow menu lists the folded-away tabs newest first** (roadmap Fig. 7). A menu's
+    /// contents never reach the bitmap, so this is the one claim in this file made against a value
+    /// rather than against pixels — and it is here rather than in the ladder tests because it is
+    /// about what the strip DRAWS in that menu.
+    @Test func theOverflowMenuListsTheNewestTabsFirst() {
+        let items = ["A", "B", "C", "D", "E"].map { item($0) }
+        let hidden = PaneTabStrip.hidden(from: items, showing: [items[0], items[1]])
+        #expect(hidden.map(\.title) == ["E", "D", "C"],
+                "the overflow menu buries the tabs you just opened at the bottom")
     }
 
     /// An empty strip is not a state the app can reach, but this view is public and every rung

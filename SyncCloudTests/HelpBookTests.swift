@@ -119,6 +119,7 @@ import Testing
         let copy = (browse?.article.blocks ?? []).map(String.init(describing:)).joined(separator: " ")
         #expect(copy.contains("Open in New Tab"), "Help does not name the way tabs are discovered")
         #expect(copy.contains("⌘T"), "Help does not give the chord")
+        #expect(copy.contains("pin it"), "Help does not mention pinning, which has no other teacher")
     }
 
     /// Retired product vocabulary stays out of the copy. "Filing" became Organize's To File lens
@@ -133,7 +134,7 @@ import Testing
         }
     }
 
-    /// No article may teach dragging or dropping.
+    /// No article may teach the CROSS-PANE drag & drop that was removed.
     ///
     /// Cross-pane drag & drop was removed in `4d55246`, but the "Copy and move" topic went on
     /// telling users "Drag items between panes to copy; hold ⇧ or ⌘ while dropping to move"
@@ -142,17 +143,20 @@ import Testing
     /// deleted feature and stay green. This is the app teaching the user something false, which
     /// is worse than a stale code comment.
     ///
-    /// Asserted through `filteredSections(matching:)` because that is the same body-text search
-    /// the Help window itself runs, so it covers every block type without this test having to
-    /// know their shapes. If a future feature legitimately involves dragging (resizing a divider,
-    /// say), narrow this to the cross-pane transfer wording rather than deleting it.
-    @Test func testNoArticleTeachesDragAndDrop() {
-        let dragHits = HelpBook.filteredSections(matching: "drag")
-            .flatMap(\.topics).map(\.id)
-        #expect(dragHits.isEmpty, "Help topics still mention dragging: \(dragHits)")
+    /// **Narrowed from "no article mentions dragging" when tab reordering landed**, which is what
+    /// the previous version of this test told the next reader to do rather than delete it: the
+    /// strip's reorder drag is a drag that genuinely exists, and a blanket ban would have been
+    /// answered by rewording the Help copy to avoid a true word. The phrases below are the removed
+    /// feature's own, and the last check is the other half — the drag that DOES exist is still
+    /// taught, so this narrowing cannot quietly become a deletion.
+    @Test func testNoArticleTeachesCrossPaneDragAndDrop() {
+        for phrase in ["drag items", "drag files", "between panes", "dropping"] {
+            let hits = HelpBook.filteredSections(matching: phrase).flatMap(\.topics).map(\.id)
+            #expect(hits.isEmpty, "Help topics still teach “\(phrase)”: \(hits)")
+        }
 
-        let dropHits = HelpBook.filteredSections(matching: "dropping")
-            .flatMap(\.topics).map(\.id)
-        #expect(dropHits.isEmpty, "Help topics still mention dropping: \(dropHits)")
+        let reorder = HelpBook.filteredSections(matching: "drag a tab").flatMap(\.topics).map(\.id)
+        #expect(reorder.contains("browse-workspace"),
+                "the one drag the app has is no longer taught — this test has become a ban on a word")
     }
 }

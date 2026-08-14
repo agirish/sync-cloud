@@ -155,6 +155,25 @@ import Foundation
         #expect(manager.leftRelativePath == "B")
     }
 
+    /// Reordering touches the strip and nothing else — the pane keeps its folder, its selection
+    /// and its history, because no tab was left and none was arrived at.
+    @MainActor
+    @Test func reorderingDoesNotMoveThePane() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "A"),
+                                     PaneTab(providerId: "iCloud", relativePath: "B"),
+                                     PaneTab(providerId: "iCloud", relativePath: "C")])
+        let first = manager.leftPaneTabs.tabs[0].id
+        manager.focusOn(relativePath: "A/Deep", isLeft: true)
+        manager.selectedLeftPaths = ["/r/A/Deep/x.pdf"]
+
+        manager.moveTab(id: first, to: 2, isLeft: true)
+
+        #expect(manager.leftPaneTabs.tabs.map(\.relativePath) == ["B", "C", "A"])
+        #expect(manager.leftRelativePath == "A/Deep", "the pane moved on a reorder")
+        #expect(manager.selectedLeftPaths == ["/r/A/Deep/x.pdf"], "the selection was cleared by a reorder")
+        #expect(manager.leftPaneTabs.active.relativePath == "A", "the live tab changed on a reorder")
+    }
+
     // MARK: The two lists
 
     /// The right pane has its own list, and the left pane's verbs must not reach it — Browse's

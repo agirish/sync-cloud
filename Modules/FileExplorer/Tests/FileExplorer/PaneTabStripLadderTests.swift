@@ -220,6 +220,28 @@ import Design
         #expect(!code.contains("a string that is definitely not in the columns view"))
     }
 
+    /// **Drag-to-reorder exists, is simultaneous, and needs real movement.** Fig. 8 calls this the
+    /// free half of the drag work (dropping FILES on a tab is the expensive half and is not here).
+    /// The three things that keep it from breaking tab-switching: a minimum distance, a
+    /// `simultaneousGesture` so the `Button` still fires, and an index computed from the chip's own
+    /// stride rather than a drop target that could disagree with what is drawn.
+    @Test func tabsCanBeDraggedIntoAnotherOrder() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/PaneTabStrip.swift")
+        let code = try String(contentsOf: url, encoding: .utf8)
+        #expect(code.contains("struct PaneTabStrip"), "this is not the strip — the scan is vacuous")
+        let gesture = try #require(code.range(of: "DragGesture(minimumDistance: 6)"),
+                                   "the reorder drag is gone, or fires on a click")
+        let body = String(code[gesture.upperBound...].prefix(900))
+        #expect(body.contains("onReorder("), "the drag is wired to nothing")
+        #expect(body.contains("PaneTabStripLadder.tabGap"),
+                "the drop index ignores the gap between chips, so it drifts one tab per few dragged")
+        #expect(code.contains(".simultaneousGesture(\n            DragGesture(minimumDistance: 6)")
+                || code.contains(".simultaneousGesture(DragGesture(minimumDistance: 6)"),
+                "the reorder drag is not simultaneous — it can swallow the click that switches tabs")
+    }
+
     @Test func aCommandDoubleClickOnAFolderOpensItInANewTab() throws {
         let code = try source()
         let gesture = try #require(code.range(of: "TapGesture(count: 2)"),

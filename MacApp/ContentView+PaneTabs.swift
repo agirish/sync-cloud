@@ -198,6 +198,24 @@ extension ContentView {
         }
     }
 
+    /// Drag-to-reorder. **Not through `tabAction`**: the pane does not move, so there is no
+    /// provider to write, no search field to swap and no reload to drive — only the strip and what
+    /// is saved of it change.
+    /// Pin / unpin, from a tab's context menu. Like `moveTab`, the pane does not move — only the
+    /// strip's order and that chip's own state — so this does not go through `tabAction`.
+    func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool) {
+        guard !isBootstrappingProviders else { return }
+        Logger.shared.info("User \(pinned ? "pinned" : "unpinned") a browse tab")
+        syncManager.setTabPinned(pinned, id: id, isLeft: isLeft)
+        saveBrowseTabs(isLeft: isLeft)
+    }
+
+    func moveTab(id: UUID, to index: Int, isLeft: Bool) {
+        guard !isBootstrappingProviders else { return }
+        syncManager.moveTab(id: id, to: index, isLeft: isLeft)
+        saveBrowseTabs(isLeft: isLeft)
+    }
+
     func reopenClosedTab(isLeft: Bool) {
         tabAction(isLeft: isLeft) {
             syncManager.reopenClosedTab(isLeft: isLeft,
@@ -228,7 +246,11 @@ extension ContentView {
         tabs[list.selectedIndex] = PaneTab(
             id: list.active.id,
             providerId: leftProviderId,
-            relativePath: syncManager.combinedRelativePath(isLeft: true))
+            relativePath: syncManager.combinedRelativePath(isLeft: true),
+            // Carried over: this entry is rebuilt from the LIVE pane, which knows nothing about
+            // pinning, so reading it from anywhere but the list would unpin the active tab on the
+            // next thing that saves.
+            isPinned: list.active.isPinned)
         PaneTabsStore.save(tabs: tabs, selected: list.selectedIndex)
     }
 
@@ -365,7 +387,8 @@ enum PaneTabChips {
                 // for a folder source anyway.
                 markImageName: resolved?.markImageName ?? "folder.fill",
                 isActive: isActive,
-                fullPath: PaneLogic.fullPath(root: resolved?.root ?? "", relativePath: path))
+                fullPath: PaneLogic.fullPath(root: resolved?.root ?? "", relativePath: path),
+                isPinned: tab.isPinned)
         }
     }
 }

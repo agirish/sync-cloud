@@ -855,6 +855,7 @@ public struct FileTreeView: View, Equatable {
         SharedFileMenuItems.refresh(delegate: delegate)
         Divider()
         SharedFileMenuItems.newFolder(at: currentPath, delegate: delegate)
+        SharedFileMenuItems.tabActions(at: currentPath, delegate: delegate)
         SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
             delegate.handlePasteToPath(currentPath)
         }
@@ -897,6 +898,29 @@ enum SharedFileMenuItems {
     /// The empty-area menu pastes into the current folder (handlePasteToPath) while the
     /// row menu pastes relative to the clicked node (handlePaste), so the action comes
     /// from the caller; the label and the clipboard gating stay shared.
+    /// New Tab / Close Tab for a pane's own background menu — the right-click route that works
+    /// with no folder under the pointer and no strip on screen (see `handleNewTab(at:)`).
+    ///
+    /// Beside New Folder rather than at the top, because the roadmap's Fig. 9 groups the three
+    /// pane-container actions together and leaves Refresh where it has always been.
+    ///
+    /// `@MainActor` because the two capability reads are — `canOpenInNewTab` and `canCloseTab` ask
+    /// the live pane, unlike the other items here, whose enablement is a plain value.
+    @MainActor @ViewBuilder
+    static func tabActions(at path: String, delegate: FileActionDelegate) -> some View {
+        if delegate.canOpenInNewTab {
+            Button(action: { delegate.handleNewTab(at: path) }) {
+                Label("New Tab", systemImage: "plus.rectangle.on.rectangle")
+            }
+            // Withheld at one tab: there is no tab left to close, only the window.
+            if delegate.canCloseTab {
+                Button(action: { delegate.handleCloseTab() }) {
+                    Label("Close Tab", systemImage: "xmark.rectangle")
+                }
+            }
+        }
+    }
+
     static func pasteHere(clipboardHasItems: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label("Paste here", systemImage: "doc.on.clipboard")
@@ -972,6 +996,14 @@ struct FileContextMenu: View {
                 // there is no FileActionHandler reveal to delegate to.
                 Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: singleNode.id)]) }) {
                     Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
+                }
+                // **Ahead of Quick Look, deliberately** (roadmap Fig. 11). With no ＋ on screen
+                // until a second tab exists, this item is the whole discovery story for tabs — it
+                // earns a place people's eyes actually reach rather than the bottom of the menu.
+                if singleNode.isDirectory, delegate.canOpenInNewTab {
+                    Button(action: { delegate.handleOpenInNewTab(singleNode) }) {
+                        Label("Open in New Tab", systemImage: "plus.rectangle.on.rectangle")
+                    }
                 }
                 Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
                     Label("Quick Look", systemImage: "doc.viewfinder")
@@ -1057,17 +1089,6 @@ struct FileContextMenu: View {
                 }
 
                 if singleNode.isDirectory {
-                    // **The discovery route for tabs.** ⌘T opens the folder you are already in, so
-                    // this is the one entry point that produces a second tab pointing somewhere
-                    // else — and someone who never right-clicks a folder never learns tabs exist,
-                    // which is the trade Finder makes too. First in the folder branch because it
-                    // is a navigation, like the Open below it, rather than a pass over contents.
-                    if delegate.canOpenInNewTab {
-                        Button(action: { delegate.handleOpenInNewTab(singleNode) }) {
-                            Label("Open in New Tab", systemImage: "plus.rectangle.on.rectangle")
-                        }
-                        Divider()
-                    }
                     // Point Organize at this folder. The counterpart to "Find duplicates of this"
                     // on the file branch above, and the reason Organize's lenses are permanent
                     // places rather than chips: this has to land somewhere before any scan has

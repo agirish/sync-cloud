@@ -92,6 +92,11 @@ struct PaneActionDelegate: FileActionDelegate {
     /// `isEquivalent` like the other closures beside it: it reads the view's live state back
     /// through its property wrappers rather than a snapshot.
     let onOpenInNewTab: (FileNode) -> Void
+    /// A new tab on a folder named by PATH — the background menu's version of ⌘T, which has no
+    /// node under the pointer to hand over.
+    let onNewTabHere: (String) -> Void
+    /// Closes this pane's active tab.
+    let onCloseTab: () -> Void
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
@@ -228,6 +233,19 @@ struct PaneActionDelegate: FileActionDelegate {
 
     /// A real pane is behind this delegate, so it has a strip to open a tab in.
     var canOpenInNewTab: Bool { true }
+
+    /// Only past a second tab: at one, the sole thing left to close is the window, and an item
+    /// reading "Close Tab" that closes the window is a trap. Read from the manager rather than
+    /// captured, so the menu is right on the render it opens in.
+    var canCloseTab: Bool { syncManager.paneTabs(isLeft: isLeft).count > 1 }
+
+    func handleNewTab(at path: String) {
+        onNewTabHere(path)
+    }
+
+    func handleCloseTab() {
+        onCloseTab()
+    }
 
     func handleOpenInNewTab(_ node: FileNode) {
         // Folders only — a tab is a location. Asserted here as well as in the menu, so the

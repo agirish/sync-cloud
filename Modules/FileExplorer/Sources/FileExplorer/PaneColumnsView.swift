@@ -716,6 +716,9 @@ struct PaneColumnsView: View {
             SharedFileMenuItems.refresh(delegate: delegate)
             Divider()
             SharedFileMenuItems.newFolder(at: directory, delegate: delegate)
+            // The column's own directory, so "New Tab" from the third column opens a tab THERE
+            // rather than at whatever the pane's scope happens to be.
+            SharedFileMenuItems.tabActions(at: directory, delegate: delegate)
             SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
                 delegate.handlePasteToPath(directory)
             }

@@ -45,6 +45,14 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
     /// showing), and `Sync` cannot see it. The host maps between them.
     public var searchQuery: String
     public var searchIsExpanded: Bool
+    /// Whether this tab is pinned to the leading end of the strip.
+    ///
+    /// Pinning is about **keeping a place reachable**, and that is all it is: a pinned tab sits
+    /// ahead of the unpinned ones, never folds away behind the overflow count, survives Close Other
+    /// Tabs, and drops its ✕ so a stray click cannot take it. It is deliberately NOT Safari's
+    /// mark-only chip — five identical cloud marks name nothing (roadmap §1), so a pinned tab keeps
+    /// its name and wears a pin instead.
+    public var isPinned: Bool
 
     public init(id: UUID = UUID(),
                 providerId: String,
@@ -53,7 +61,8 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
                 history: PaneNavigationHistory? = nil,
                 selection: Set<String> = [],
                 searchQuery: String = "",
-                searchIsExpanded: Bool = false) {
+                searchIsExpanded: Bool = false,
+                isPinned: Bool = false) {
         self.id = id
         self.providerId = providerId
         self.relativePath = relativePath
@@ -69,6 +78,7 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
         self.selection = selection
         self.searchQuery = searchQuery
         self.searchIsExpanded = searchIsExpanded
+        self.isPinned = isPinned
     }
 
     /// Where this tab is, as one path under the provider root — focus scope and column stack
@@ -149,7 +159,12 @@ public struct PaneTabList: Equatable, Sendable {
                                       history: snapshot.history,
                                       selection: snapshot.selection,
                                       searchQuery: snapshot.searchQuery,
-                                      searchIsExpanded: snapshot.searchIsExpanded)
+                                      searchIsExpanded: snapshot.searchIsExpanded,
+                                      // **Kept, not taken from the snapshot.** A capture carries
+                                      // the live PANE's contents, and the pane has no idea whether
+                                      // its tab is pinned — reading it from there would unpin a tab
+                                      // every time the user walked away from it.
+                                      isPinned: active.isPinned)
     }
 
     /// Appends `tab` at the trailing end and makes it active.
@@ -194,13 +209,26 @@ public struct PaneTabList: Equatable, Sendable {
     public mutating func closeOthers(keeping id: UUID) {
         guard let keep = index(of: id) else { return }
         let survivor = tabs[keep]
-        let closed = tabs.enumerated().filter { $0.offset != keep }.map(\.element)
+        // **Pinned tabs survive.** "Close the others" means the pile you accumulated, not the two
+        // places you deliberately kept — that is most of what pinning is for.
+        let closed = tabs.enumerated()
+            .filter { $0.offset != keep && !$0.element.isPinned }
+            .map(\.element)
         recentlyClosed.append(contentsOf: closed)
         if recentlyClosed.count > Self.reopenLimit {
             recentlyClosed.removeFirst(recentlyClosed.count - Self.reopenLimit)
         }
-        tabs = [survivor]
-        selectedIndex = 0
+        tabs = tabs.filter { $0.isPinned && $0.id != survivor.id }
+        tabs.append(survivor)
+        // The survivor is unpinned-or-not; either way it is the live one, and pinning it here would
+        // be a decision the user did not make.
+        selectedIndex = tabs.count - 1
+        if survivor.isPinned {
+            // A pinned survivor belongs in the prefix, not appended after it.
+            tabs.removeLast()
+            tabs.insert(survivor, at: tabs.prefix { $0.isPinned }.count)
+            selectedIndex = index(of: survivor.id) ?? 0
+        }
     }
 
     public mutating func select(index: Int) {
@@ -224,6 +252,56 @@ public struct PaneTabList: Equatable, Sendable {
         selectedIndex = (selectedIndex + tabs.count - 1) % tabs.count
     }
 
+    /// The tabs pinned to the leading end, in strip order.
+    public var pinned: [PaneTab] { tabs.filter(\.isPinned) }
+    public var pinnedCount: Int { tabs.prefix { $0.isPinned }.count }
+
+    /// Pins a tab, moving it to the end of the pinned run — the leading end of the strip.
+    ///
+    /// The pinned run is a PREFIX, always. Everything else about pinning (what folds away, what
+    /// Close Other Tabs keeps, where a drag may drop) is stated in terms of that prefix, so the one
+    /// thing this must never do is leave a pinned tab sitting among the unpinned ones.
+    public mutating func pin(id: UUID) {
+        guard let from = index(of: id), !tabs[from].isPinned else { return }
+        let live = active.id
+        var moving = tabs.remove(at: from)
+        moving.isPinned = true
+        tabs.insert(moving, at: tabs.prefix { $0.isPinned }.count)
+        selectedIndex = index(of: live) ?? selectedIndex
+    }
+
+    /// Unpins a tab, dropping it to the head of the unpinned run — where a newly unpinned tab is
+    /// closest to where it just was, rather than at the far end of a long strip.
+    public mutating func unpin(id: UUID) {
+        guard let from = index(of: id), tabs[from].isPinned else { return }
+        let live = active.id
+        var moving = tabs.remove(at: from)
+        moving.isPinned = false
+        tabs.insert(moving, at: tabs.prefix { $0.isPinned }.count)
+        selectedIndex = index(of: live) ?? selectedIndex
+    }
+
+    /// Drag-to-reorder. Moves the tab at `from` so it lands at `to`, and **keeps the same tab
+    /// live** — reordering is about where a chip sits, not about which one you are looking at.
+    ///
+    /// Indices out of range are ignored rather than clamped: a drop index is computed from a
+    /// pointer position, and clamping a wild one would silently move a tab somewhere the user did
+    /// not drop it.
+    ///
+    /// **A drag cannot cross the pin line.** Dropping an unpinned tab among the pinned ones would
+    /// either pin it silently or break the prefix invariant every other rule here rests on; the
+    /// drop is clamped to the tab's own run instead, which is what Chrome and Safari both do.
+    public mutating func move(from: Int, to: Int) {
+        guard from != to, tabs.indices.contains(from), tabs.indices.contains(to) else { return }
+        let pinnedRun = tabs.prefix { $0.isPinned }.count
+        let to = tabs[from].isPinned ? min(to, max(0, pinnedRun - 1)) : max(to, pinnedRun)
+        guard from != to, tabs.indices.contains(to) else { return }
+        let live = active.id
+        let moving = tabs.remove(at: from)
+        tabs.insert(moving, at: to)
+        selectedIndex = index(of: live) ?? min(to, tabs.count - 1)
+    }
+
     /// Duplicate: the same location under a new identity, opened at the end like any other tab.
     /// The selection and the search query are deliberately NOT carried over — a duplicate is a
     /// second view of a folder, not a second copy of what you were doing to it.
@@ -241,6 +319,9 @@ public struct PaneTabList: Equatable, Sendable {
         guard let tab = recentlyClosed.popLast() else { return nil }
         // A new id: the closed one may still be on the stack (Close Other Tabs pushes several at
         // once), and two chips sharing an id is a `ForEach` collision.
+        // Reopened UNPINNED, whatever it was: `open` appends at the trailing end, and a pinned tab
+        // landing there would break the prefix. Getting the place back is what this is for; getting
+        // its pin back is one click.
         let reopened = PaneTab(providerId: tab.providerId,
                                relativePath: tab.relativePath,
                                browsePath: tab.browsePath,

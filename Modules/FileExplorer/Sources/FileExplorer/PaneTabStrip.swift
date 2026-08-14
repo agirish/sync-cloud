@@ -30,16 +30,21 @@ public struct PaneTabStrip: View {
         /// the chip that tells them apart.
         public let markImageName: String
         public let isActive: Bool
+        /// Pinned to the leading end: wears a pin instead of a ✕, and never folds away behind the
+        /// overflow count.
+        public let isPinned: Bool
         /// The full path, for the chip's tooltip — the strip's answer to "which Documents is this?"
         /// for anyone who wants more than the mark.
         public let fullPath: String
 
-        public init(id: UUID, title: String, markImageName: String, isActive: Bool, fullPath: String) {
+        public init(id: UUID, title: String, markImageName: String, isActive: Bool,
+                    fullPath: String, isPinned: Bool = false) {
             self.id = id
             self.title = title
             self.markImageName = markImageName
             self.isActive = isActive
             self.fullPath = fullPath
+            self.isPinned = isPinned
         }
     }
 
@@ -49,6 +54,10 @@ public struct PaneTabStrip: View {
     let onCloseOthers: (UUID) -> Void
     let onDuplicate: (UUID) -> Void
     let onCopyPath: (UUID) -> Void
+    /// Drag-to-reorder: this tab, dropped at that index.
+    let onReorder: (UUID, Int) -> Void
+    /// Pin or unpin this tab.
+    let onSetPinned: (UUID, Bool) -> Void
     let onNew: () -> Void
     /// Track the strip must keep clear at its LEADING and TRAILING edges.
     ///
@@ -64,6 +73,10 @@ public struct PaneTabStrip: View {
     /// Which chip the pointer is over — the ✕ shows on that one and on the active tab, and nowhere
     /// else (v4.x roadmap §1's anatomy). Held here rather than per chip so only one can be lit.
     @State private var hoveredTab: UUID?
+    /// The chip being dragged, and how far it has travelled. Held here so the dragged chip can be
+    /// lifted above its neighbours while every other chip stays where it is.
+    @State private var draggingTab: UUID?
+    @State private var dragOffset: CGFloat = 0
 
     public init(items: [Item],
                 leadingInset: CGFloat = 0,
@@ -73,6 +86,8 @@ public struct PaneTabStrip: View {
                 onCloseOthers: @escaping (UUID) -> Void,
                 onDuplicate: @escaping (UUID) -> Void,
                 onCopyPath: @escaping (UUID) -> Void,
+                onReorder: @escaping (UUID, Int) -> Void = { _, _ in },
+                onSetPinned: @escaping (UUID, Bool) -> Void = { _, _ in },
                 onNew: @escaping () -> Void) {
         self.items = items
         self.leadingInset = leadingInset
@@ -82,6 +97,8 @@ public struct PaneTabStrip: View {
         self.onCloseOthers = onCloseOthers
         self.onDuplicate = onDuplicate
         self.onCopyPath = onCopyPath
+        self.onReorder = onReorder
+        self.onSetPinned = onSetPinned
         self.onNew = onNew
     }
 
@@ -156,17 +173,44 @@ public struct PaneTabStrip: View {
     }
 
     private func visible(_ layout: PaneTabStripLadder.Layout) -> [Item] {
-        // The visible window always contains the ACTIVE tab: folding away the tab the pane is
-        // showing would leave a strip that describes somewhere else entirely.
-        guard layout.visibleCount < items.count else { return items }
-        let activeIndex = items.firstIndex(where: \.isActive) ?? 0
-        let start = min(max(0, activeIndex - layout.visibleCount + 1), items.count - layout.visibleCount)
-        return Array(items[start..<(start + layout.visibleCount)])
+        Self.visible(items, slots: layout.visibleCount)
+    }
+
+    /// Which chips are drawn when there is not room for all of them.
+    ///
+    /// Two things always survive, and the order matters when they compete for the last slot:
+    /// **the pinned tabs**, which are pinned precisely so they stay reachable, and **the active
+    /// tab**, because a strip that folds away the pane's own tab describes somewhere else
+    /// entirely. Pinned first — an active tab folded away is still named by the header underneath
+    /// it, while a folded-away pin has nothing left to say it exists.
+    ///
+    /// Static so this can be tested; the window it picks is otherwise only visible in pixels.
+    static func visible(_ items: [Item], slots: Int) -> [Item] {
+        guard slots < items.count else { return items }
+        guard slots > 0 else { return [] }
+        let pinned = items.filter(\.isPinned)
+        guard pinned.count < slots else { return Array(pinned.prefix(slots)) }
+
+        let rest = items.filter { !$0.isPinned }
+        let free = slots - pinned.count
+        let activeIndex = rest.firstIndex(where: \.isActive) ?? 0
+        let start = min(max(0, activeIndex - free + 1), max(0, rest.count - free))
+        return pinned + Array(rest[start..<min(rest.count, start + free)])
     }
 
     private func hiddenItems(_ layout: PaneTabStripLadder.Layout) -> [Item] {
-        let shown = Set(visible(layout).map(\.id))
-        return items.filter { !shown.contains($0.id) }
+        Self.hidden(from: items, showing: visible(layout))
+    }
+
+    /// The folded-away tabs, **newest first** (roadmap Fig. 7).
+    ///
+    /// New tabs land at the trailing end, so list order puts the ones you just opened at the bottom
+    /// of a menu you only opened because the strip ran out of room — the wrong end for the tab you
+    /// are most likely reaching for. Static so the order can be tested: a menu's contents never
+    /// reach the bitmap, so this is the only way to see it at all.
+    static func hidden(from items: [Item], showing shown: [Item]) -> [Item] {
+        let visible = Set(shown.map(\.id))
+        return items.filter { !visible.contains($0.id) }.reversed()
     }
 
     // MARK: - The chip
@@ -185,12 +229,23 @@ public struct PaneTabStrip: View {
                     .truncationMode(.middle)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                // **No ✕ on a lone tab.** The strip is normally hidden at one tab, but View ▸ Tab
-                // Bar keeps it — and there the close button would be a ✕ that closes the WINDOW
-                // (there is no tab left to fall back to), which is a trap rather than a shortcut.
-                // Finder draws none there either. Close Tab in the context menu is disabled for the
-                // same reason and by the same count.
-                if items.count > 1 {
+                if item.isPinned {
+                    // **A pin instead of a ✕.** Pinning is protection from a stray click as much as
+                    // it is a position, so the pinned chip has no close button at all — Chrome and
+                    // Safari both drop it — and the glyph is what says why. It sits in the ✕'s slot
+                    // so the chip's width arithmetic is unchanged.
+                    Image(systemName: "pin.fill")
+                        .scaledFont(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: PaneTabStripLadder.closeSide,
+                               height: PaneTabStripLadder.closeSide)
+                        .help("Pinned — right-click to unpin")
+                } else if items.count > 1 {
+                    // **No ✕ on a lone tab.** The strip is normally hidden at one tab, but View ▸
+                    // Tab Bar keeps it — and there the close button would be a ✕ that closes the
+                    // WINDOW (there is no tab left to fall back to), which is a trap rather than a
+                    // shortcut. Finder draws none there either. Close Tab in the context menu is
+                    // disabled for the same reason and by the same count.
                     closeButton(item)
                 }
             }
@@ -200,6 +255,34 @@ public struct PaneTabStrip: View {
         }
         .buttonStyle(.hoverAffordance(.segment))
         .background(alignment: .bottom) { activeGround(item) }
+        // **Drag to reorder** (roadmap Fig. 8, left — the half that costs nothing; dropping FILES
+        // on a tab is the other half and is deliberately not here).
+        //
+        // `simultaneousGesture` with a 6pt minimum, so a click still selects: the chip is a
+        // `Button`, and a drag gesture that consumed the press would take tab-switching with it.
+        // The drop index is arithmetic rather than a drop target — every chip on these two rungs is
+        // exactly `width` wide, so the index is the translation over one chip's stride, which needs
+        // no second view and cannot disagree with what is drawn.
+        .offset(x: draggingTab == item.id ? dragOffset : 0)
+        .zIndex(draggingTab == item.id ? 1 : 0)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { value in
+                    draggingTab = item.id
+                    dragOffset = value.translation.width
+                }
+                .onEnded { value in
+                    let stride = width + PaneTabStripLadder.tabGap
+                    let steps = stride > 0 ? Int((value.translation.width / stride).rounded()) : 0
+                    if steps != 0, let from = items.firstIndex(where: { $0.id == item.id }) {
+                        let to = min(max(0, from + steps), items.count - 1)
+                        if to != from { onReorder(item.id, to) }
+                    }
+                    draggingTab = nil
+                    dragOffset = 0
+                }
+        )
+        .animation(.easeOut(duration: 0.16), value: draggingTab)
         .onHover { hovering in
             // Only ever clear the id this chip set: the pointer can enter the next chip before this
             // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that
@@ -352,6 +435,7 @@ public struct PaneTabStrip: View {
         Button("Close Other Tabs") { onCloseOthers(item.id) }
             .disabled(items.count < 2)
         Divider()
+        Button(item.isPinned ? "Unpin Tab" : "Pin Tab") { onSetPinned(item.id, !item.isPinned) }
         Button("Duplicate") { onDuplicate(item.id) }
         Button("Copy Path") { onCopyPath(item.id) }
     }

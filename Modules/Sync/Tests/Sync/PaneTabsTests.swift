@@ -160,6 +160,127 @@ import Foundation
         #expect(tabs.recentlyClosed.last?.relativePath == "F19")
     }
 
+    // MARK: Pinning
+
+    /// The pinned run is a PREFIX, always — every other pinning rule is stated in terms of it.
+    private func isPartitioned(_ list: PaneTabList) -> Bool {
+        list.tabs.map(\.isPinned) == list.tabs.map(\.isPinned).sorted { $0 && !$1 }
+    }
+
+    @Test func pinningMovesATabToTheLeadingEnd() {
+        var tabs = list(["A", "B", "C"], selected: 0)
+        tabs.pin(id: tabs.tabs[2].id)
+        #expect(tabs.tabs.map(\.relativePath) == ["C", "A", "B"])
+        #expect(tabs.pinnedCount == 1)
+        #expect(isPartitioned(tabs))
+        // …and the tab you were looking at is still the one you are looking at.
+        #expect(tabs.active.relativePath == "A")
+    }
+
+    @Test func pinningASecondTabKeepsThePinnedRunInPinOrder() {
+        var tabs = list(["A", "B", "C"], selected: 0)
+        tabs.pin(id: tabs.tabs[2].id)          // C
+        tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "B" })!.id)
+        #expect(tabs.tabs.map(\.relativePath) == ["C", "B", "A"])
+        #expect(tabs.pinnedCount == 2)
+        #expect(isPartitioned(tabs))
+    }
+
+    /// Unpinning drops the tab to the head of the unpinned run — closest to where it just was.
+    @Test func unpinningDropsToTheHeadOfTheRest() {
+        var tabs = list(["A", "B", "C"], selected: 0)
+        tabs.pin(id: tabs.tabs[0].id)
+        tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "B" })!.id)
+        tabs.unpin(id: tabs.tabs.first(where: { $0.relativePath == "A" })!.id)
+        #expect(tabs.tabs.map(\.relativePath) == ["B", "A", "C"])
+        #expect(tabs.pinnedCount == 1)
+        #expect(isPartitioned(tabs))
+    }
+
+    /// **Pinned tabs survive Close Other Tabs** — that is most of what pinning is for.
+    @Test func closeOthersKeepsThePinnedOnes() {
+        var tabs = list(["A", "B", "C", "D"], selected: 0)
+        tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "D" })!.id)
+        let keep = tabs.tabs.first { $0.relativePath == "B" }!.id
+        tabs.closeOthers(keeping: keep)
+        #expect(tabs.tabs.map(\.relativePath) == ["D", "B"])
+        #expect(tabs.active.relativePath == "B")
+        #expect(isPartitioned(tabs))
+    }
+
+    /// Keeping a PINNED tab leaves it in the prefix rather than appended after it.
+    @Test func closeOthersKeepingAPinnedTabHoldsThePartition() {
+        var tabs = list(["A", "B", "C"], selected: 0)
+        tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "A" })!.id)
+        tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "B" })!.id)
+        let keep = tabs.tabs.first { $0.relativePath == "B" }!.id
+        tabs.closeOthers(keeping: keep)
+        #expect(tabs.tabs.map(\.relativePath) == ["A", "B"])
+        #expect(tabs.active.relativePath == "B")
+        #expect(isPartitioned(tabs))
+    }
+
+    /// A drag cannot cross the pin line in either direction.
+    @Test func aDragCannotCrossThePinLine() {
+        var tabs = list(["A", "B", "C", "D"], selected: 0)
+        tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "A" })!.id)   // ["A", "B", "C", "D"]
+        tabs.move(from: 3, to: 0)     // D, unpinned, dropped onto the pinned slot
+        #expect(tabs.tabs.map(\.relativePath) == ["A", "D", "B", "C"])
+        #expect(isPartitioned(tabs))
+
+        tabs.move(from: 0, to: 3)     // A, pinned, dragged into the unpinned run
+        #expect(tabs.tabs.first?.relativePath == "A", "a pinned tab was dragged out of the prefix")
+        #expect(isPartitioned(tabs))
+    }
+
+    /// A capture carries the live PANE's contents, and the pane has no idea about pinning.
+    @Test func capturingThePaneDoesNotUnpinItsTab() {
+        var tabs = list(["A", "B"], selected: 0)
+        tabs.pin(id: tabs.tabs[0].id)
+        tabs.captureActive(PaneTab(providerId: "iCloud", relativePath: "A/Deep"))
+        #expect(tabs.active.isPinned, "walking around inside a pinned tab unpinned it")
+        #expect(tabs.active.relativePath == "A/Deep")
+    }
+
+    /// A reopened tab comes back unpinned — `open` appends at the trailing end, and a pinned tab
+    /// there would break the prefix.
+    @Test func aReopenedTabComesBackUnpinned() {
+        var tabs = list(["A", "B"], selected: 0)
+        tabs.pin(id: tabs.tabs[1].id)
+        let pinned = tabs.tabs.first { $0.isPinned }!.id
+        _ = tabs.close(id: pinned)
+        let reopened = tabs.reopenLastClosed()
+        #expect(reopened?.isPinned == false)
+        #expect(isPartitioned(tabs))
+    }
+
+    // MARK: Reorder
+
+    /// Dragging a tab moves the chip, **not** which tab you are looking at.
+    @Test func reorderingKeepsTheSameTabLive() {
+        var tabs = list(["A", "B", "C"], selected: 2)
+        tabs.move(from: 0, to: 2)
+        #expect(tabs.tabs.map(\.relativePath) == ["B", "C", "A"])
+        #expect(tabs.active.relativePath == "C", "reordering changed which tab is live")
+    }
+
+    @Test func reorderingTheLiveTabKeepsItLive() {
+        var tabs = list(["A", "B", "C"], selected: 0)
+        tabs.move(from: 0, to: 2)
+        #expect(tabs.active.relativePath == "A")
+        #expect(tabs.selectedIndex == 2)
+    }
+
+    /// A drop index comes from a pointer position, so a wild one is refused rather than clamped —
+    /// clamping would silently land the tab somewhere the user did not drop it.
+    @Test func anImpossibleDropIsRefused() {
+        var tabs = list(["A", "B"], selected: 0)
+        tabs.move(from: 0, to: 7)
+        tabs.move(from: -1, to: 1)
+        tabs.move(from: 1, to: 1)
+        #expect(tabs.tabs.map(\.relativePath) == ["A", "B"])
+    }
+
     // MARK: Names
 
     @Test func aTabIsNamedForItsLeafFolder() {
@@ -237,6 +358,33 @@ import Foundation
 
     /// No key at all is what tells the caller to seed from the pane's own stored provider, so it
     /// must be distinguishable from an empty strip — which cannot exist.
+    @Test func pinsSurviveAQuit() {
+        let defaults = ScratchDefaults("PaneTabsStore-pins")
+        var list = PaneTabList(tabs: [PaneTab(providerId: "iCloud", relativePath: "Finance"),
+                                      PaneTab(providerId: "iCloud", relativePath: "Photos")])
+        list.pin(id: list.tabs[1].id)
+        PaneTabsStore.save(tabs: list.tabs, selected: list.selectedIndex, to: defaults)
+
+        let loaded = PaneTabsStore.load(from: defaults)
+        #expect(loaded?.entries.map(\.pinned) == [true, false])
+        let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in true })
+        #expect(restored?.tabs.map(\.isPinned) == [true, false])
+        #expect(restored?.pinnedCount == 1)
+    }
+
+    /// **A strip written before pinning existed still decodes.** `Codable` rejects the whole file
+    /// on a missing key, and that file is the user's tabs — they would vanish on the first launch
+    /// after the upgrade, with nothing to say why.
+    @Test func aStripWrittenBeforePinningStillDecodes() {
+        let defaults = ScratchDefaults("PaneTabsStore-legacy")
+        defaults.set(#"[{"providerId":"iCloud","relativePath":"Finance"}]"#, forKey: PaneTabsStore.tabsKey)
+        let loaded = PaneTabsStore.load(from: defaults)
+        #expect(loaded?.entries.count == 1)
+        #expect(loaded?.entries.first?.pinned == false)
+    }
+
     @Test func nothingStoredReadsAsNothingRatherThanAsAnEmptyStrip() {
         let defaults = ScratchDefaults("PaneTabsStore-empty")
         #expect(PaneTabsStore.load(from: defaults) == nil)

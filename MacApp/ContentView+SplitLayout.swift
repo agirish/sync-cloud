@@ -383,7 +383,10 @@ struct SeamPaneControls: View {
             // Washes in `engagedWash`, not the raw hue: the pill underneath is already the raw
             // accent, so on light there is nothing for a raw wash to shift against.
             .buttonStyle(.hoverAffordance(.glyph, tint: engagedWash, shape: .circle))
-            .help("Swap the left and right panes")
+            // The tab lists move with the panes — see `FileSyncManager.swapPanes`. Said here
+            // because it is the one consequence of ⇄ that is invisible until you look up and find
+            // the other pane's tabs where yours were.
+            .help("Swap the left and right panes, tabs and all")
 
             // Stays NEUTRAL while everything around it goes to the hue: this hairline has to read
             // against the frosted wash above it *and* against the solid `accentFillColor` below it
