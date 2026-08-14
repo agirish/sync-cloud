@@ -749,6 +749,43 @@ written twice. The fix is to stop dividing raw medians: subtract the probe basel
 before taking the ratio, or assert on the absolute difference between the arms, which stayed stable
 across the very runs whose ratio moved from 2.44x to 1.77x and back to 2.78x.
 
+**Third failure the same day, and now FIXED — the test asserts the saving, not the ratio.** It fired
+again ~40 minutes later at `1.7239` on `2e2ec8f2`, another commit that cannot reach this code. Per
+the line above, that made it a fix rather than a third write-up. Two corrections to what is written
+above, both found by measuring instead of reasoning:
+
+- **"the absolute difference stayed stable" was too strong.** The savings were 12.26, 13.15, 11.77
+  and **24.73** — the rerun is a 2x outlier, because its `searched` arm was inflated to 38.63ms. The
+  accurate claim is narrower and is the one the fix rests on: **the saving never approaches zero, and
+  the failing runs' savings (11.77ms, 11.15ms) sit inside the passing runs' range.** The ratio is
+  what separates pass from fail; the saving does not, which is exactly why it is the better bar.
+- **The bar never had the headroom its comment claimed** ("set well under the measured speedup"). An
+  idle, isolated, single-suite run measured **2.02** — 0.22 above a 1.8 bar under the best conditions
+  this machine offers. Three flakes were not bad luck; the bar was sitting in the noise.
+
+Eight runs, idle-and-isolated through full-CI contention:
+
+| condition | searched | computed | saving | ratio |
+|---|---|---|---|---|
+| CI pass `869be3ca` | 20.11ms | 7.85ms | 12.26ms | 2.56x |
+| CI pass `a76f45b9` | 22.32ms | 9.17ms | 13.15ms | 2.44x |
+| CI **fail** `b012c1c7` | 27.11ms | 15.34ms | 11.77ms | 1.77x |
+| CI pass (rerun) | 38.63ms | 13.90ms | 24.73ms | 2.78x |
+| CI **fail** `2e2ec8f2` | 26.56ms | 15.41ms | 11.15ms | 1.72x |
+| local idle x3 | 22-23ms | 9.05-11.25ms | 11.51-13.93ms | 2.02-2.49x |
+
+Ratio range 1.72-2.78, crossing its bar twice. Saving range 11.15-24.73ms, never near zero. The test
+now asserts `saving > 6.0ms` — 46% below the smallest ever measured — and **the mutation proves it
+still discriminates**: putting the six-child search back in the computed arm gives `saving=0.08ms`
+and fails. Both contention modes push the saving the safe way, additive leaving it flat and
+multiplicative widening it, which is why no load-scaling is needed.
+
+The probe is now printed and **explicitly not asserted on**. The old type comment claimed the bar
+"stretches by that factor" and no code ever did that — a load-scaling that existed only in prose. It
+could not have worked anyway: the probe read **9.2ms idle and 7.4ms on the contended CI run that
+failed**, so it is anti-correlated with the starvation it was meant to detect. **A probe that never
+feeds an assertion is never checked, and this one had been wrong for as long as it had been there.**
+
 ### 7. The machine decides the verdict — the keyboard
 
 **Symptom.** A mounted-view test spends its whole deadline and reports the end state it started
