@@ -111,9 +111,10 @@ More on the **[feature site](https://agirish.github.io/sync-cloud/)**.
 
 ## Requirements
 
-- **macOS 15.0 (Sequoia) or later** for the app.
-- On-device AI filing additionally needs **macOS 26 + Apple Intelligence** (it degrades gracefully
-  without it). Cloud AI filing needs an Anthropic API key.
+- **macOS 26 or later** for the app — `project.yml` sets `deploymentTarget: "26.0"` and every
+  `Package.swift` declares `platforms: [.macOS("26.0")]`, so an earlier system cannot run it.
+- On-device AI filing additionally needs **Apple Intelligence** (it degrades gracefully without
+  it). Cloud AI filing needs an Anthropic API key.
 - **Xcode 26+** and **Swift 6.0+** to build — every `Package.swift` here declares
   `swift-tools-version: 6.0`, which an older toolchain cannot even parse, and the app
   target's deployment floor is macOS 26 (`dbdfe48a`), which needs the macOS 26 SDK.
@@ -199,8 +200,8 @@ so neither `swift test` nor CI ever runs them; each names its variable in its ow
 
 ## Roadmap
 
-Planned enhancements (backing up the folders that exist in only one place, using any folder as a
-source, saved folder-pair presets, an in-app text diff viewer, a menu-bar status item, and more) are
+Planned enhancements (backing up the folders that exist in only one place, saved folder-pair
+presets, an in-app text diff viewer, a menu-bar status item, and more) are
 tracked in [`ROADMAP.md`](ROADMAP.md). Deliberately
 deferred edge cases live in [`DEFERRED_ENHANCEMENTS.md`](DEFERRED_ENHANCEMENTS.md), and internal
 code that is correct but entangled enough to be worth restructuring against a major release is
