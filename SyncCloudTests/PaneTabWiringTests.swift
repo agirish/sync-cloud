@@ -561,4 +561,106 @@ import Sync
         #expect(after.contains("handleOpenInNewTab(singleNode)") || lead.contains("handleOpenInNewTab(singleNode)"),
                 "Open in New Tab is not wired to the delegate")
     }
+
+    // MARK: Compare — both panes wear the strip
+
+    /// The term that makes Compare readable: **a second tab on either pane draws the strip on
+    /// both.** Without it the pane that grew the tab has its header pushed 34pt down and every row
+    /// after it names a different folder on the left than on the right.
+    @Test func inCompareOnePanesSecondTabDrawsBothStrips() {
+        #expect(PaneTabStripVisibility.shows(own: false, sibling: true, isCompare: true, switchIsOn: false),
+                "the sibling grew a second tab and this pane drew nothing — the two rows are now offset")
+        #expect(PaneTabStripVisibility.shows(own: true, sibling: false, isCompare: true, switchIsOn: false),
+                "the pane with the tabs does not draw its own strip")
+    }
+
+    /// …and the other direction, which is the one that costs a 34pt row if it goes wrong. Browse and
+    /// the single-source rail have no sibling on screen, so the sibling's list must not reach them —
+    /// the right pane's list exists in both, it is simply not shown.
+    @Test func outsideCompareTheSiblingsTabsDrawNothing() {
+        #expect(!PaneTabStripVisibility.shows(own: false, sibling: true, isCompare: false, switchIsOn: false),
+                "Browse drew a strip because the hidden right pane has two tabs")
+        #expect(!PaneTabStripVisibility.shows(own: false, sibling: false, isCompare: true, switchIsOn: false),
+                "a strip is drawn with one tab on each side and the switch off")
+        #expect(PaneTabStripVisibility.shows(own: false, sibling: false, isCompare: false, switchIsOn: true),
+                "View ▸ Tab Bar no longer shows the strip")
+    }
+
+    /// The call-site half: the rule is fed the SIBLING's list and the layout, not just this pane's.
+    /// Reading `paneTabs(isLeft: isLeft)` twice would pass every rule test above and still ship the
+    /// offset rows.
+    @Test func theStripGateAsksBothPanes() throws {
+        let rule = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(rule.contains("PaneTabStripVisibility.shows("),
+                "the gate is built by hand — the tested rule is unused")
+        #expect(rule.contains("paneTabs(isLeft: !isLeft)"),
+                "the gate never asks the sibling pane, so Compare's two rows can sit at different heights")
+        #expect(rule.contains("layoutMode == .compare"),
+                "the gate does not restrict the sibling term to Compare")
+        #expect(rule.contains("tabBarVisible"), "View ▸ Tab Bar no longer shows the strip")
+    }
+
+    // MARK: Compare — a linked pane opens the tab too
+
+    /// The mirror lands on the deepest folder the sibling genuinely has. A tab naming a folder that
+    /// pane does not carry is a chip that cannot be navigated to, and the two sides are being
+    /// compared precisely because they differ.
+    @Test func aMirroredTabIsPrunedToWhatTheSiblingHas() {
+        let has: Set<String> = ["Photos", "Photos/2024"]
+        #expect(PaneTabMirror.landing(for: "Photos/2024") { has.contains($0) } == "Photos/2024",
+                "a folder the sibling has in full was still pruned")
+        #expect(PaneTabMirror.landing(for: "Photos/2024/June") { has.contains($0) } == "Photos/2024",
+                "the mirror did not stop at the deepest shared folder")
+        #expect(PaneTabMirror.landing(for: "Taxes/2024") { has.contains($0) } == "",
+                "a folder the sibling shares nothing of did not fall back to its root")
+        #expect(PaneTabMirror.landing(for: "") { _ in true } == "",
+                "the root mirrored as something other than the root")
+    }
+
+    /// A folder missing halfway down must not be walked past — pruning stops, it does not skip.
+    ///
+    /// **The fixture is the whole test.** The obvious one — a sibling holding `Photos` and
+    /// `Photos/2024/June` — cannot tell the two apart, because skipping `2024` next asks about
+    /// `Photos/June`, which is not there either, and a `continue` in place of the `break` returned
+    /// the same answer. This sibling *does* have `Photos/June`, so a skipping walk assembles a
+    /// path out of two folders that are not parent and child.
+    @Test func theMirrorStopsAtTheFirstMissingFolder() {
+        let has: Set<String> = ["Photos", "Photos/June"]
+        #expect(PaneTabMirror.landing(for: "Photos/2024/June") { has.contains($0) } == "Photos",
+                "the walk skipped a missing folder and landed on a path with a hole in it")
+    }
+
+    /// Both entry points mirror, and both go through the one predicate.
+    @Test func bothWaysOfOpeningATabMirrorOntoTheLinkedPane() throws {
+        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let here = try Self.memberBody("func openNewTabHere(isLeft: Bool)", in: code)
+        #expect(here.contains("guard tabsOpenOnBothPanes else { return }"),
+                "⌘T and the ＋ do not open a tab on the linked pane")
+        #expect(here.contains("openTabHere(isLeft: !isLeft)"),
+                "the mirrored ⌘T does not target the other pane")
+
+        let openThere = try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)", in: code)
+        #expect(openThere.contains("mirrorOpenInNewTab(relative, from: isLeft)"),
+                "Open in New Tab does not mirror onto the linked pane")
+
+        let mirror = try Self.memberBody("private func mirrorOpenInNewTab(", in: code)
+        #expect(mirror.contains("guard tabsOpenOnBothPanes else { return }"),
+                "the mirror runs unlinked, or in Browse, where there is no sibling")
+        #expect(mirror.contains("PaneTabMirror.landing("),
+                "the mirror copies the path outright instead of pruning it")
+        #expect(mirror.contains("expandingTildeInPath"),
+                "the sibling's root is compared unexpanded, so every mirror prunes to its root")
+    }
+
+    /// **One setting, every way of walking into a folder.** The mirror predicate is the same
+    /// expression `applyColumnNavigation` uses; two copies would let a link mean one thing for a
+    /// drill and another for a tab, and nothing on screen would say which.
+    @Test func theMirrorObeysTheSameLinkTestAsAMirroredDrill() throws {
+        let predicate = "layoutMode == .compare\n            && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))"
+        #expect(try Self.source("ContentView+PaneTabs.swift").contains(predicate),
+                "the tab mirror invented its own link test")
+        #expect(try Self.source("ContentView.swift").contains(predicate),
+                "the mirrored drill's link test moved — the two have drifted apart")
+    }
 }

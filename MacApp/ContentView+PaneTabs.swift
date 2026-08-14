@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Dashboard
 import Design
 import Events
 import FileExplorer
@@ -42,12 +43,14 @@ extension ContentView {
             })
     }
 
-    /// Whether this pane draws a strip at all: more than one tab, or the Tab Bar switch is on.
-    ///
-    /// Ticked-and-disabled past one tab is enforced by `shortcutTabBar`, so this can be the plain
-    /// disjunction it looks like.
+    /// Whether this pane draws a strip at all — see `PaneTabStripVisibility` for the rule, which is
+    /// not the plain "does this pane have two tabs" it started as.
     func paneShowsTabStrip(isLeft: Bool) -> Bool {
-        syncManager.paneTabs(isLeft: isLeft).showsStrip || tabBarVisible
+        PaneTabStripVisibility.shows(
+            own: syncManager.paneTabs(isLeft: isLeft).showsStrip,
+            sibling: syncManager.paneTabs(isLeft: !isLeft).showsStrip,
+            isCompare: layoutMode == .compare,
+            switchIsOn: tabBarVisible)
     }
 
     /// Track the tab strip gives up to the seam controls, which are drawn OVER this row.
@@ -123,6 +126,16 @@ extension ContentView {
     /// provider root instead would throw away the folder you pressed ⌘T from, which is worse for
     /// being tidier.
     func openNewTabHere(isLeft: Bool) {
+        openTabHere(isLeft: isLeft)
+        // **Mirrored as the verb reads, not as a path.** ⌘T's whole contract is that the pane does
+        // not move, so the sibling gets a new tab at *its* current folder rather than being
+        // teleported to this one's. Linked and in step — which is what linked means — those are the
+        // same folder, and drifted they at least both keep their place.
+        guard tabsOpenOnBothPanes else { return }
+        openTabHere(isLeft: !isLeft)
+    }
+
+    private func openTabHere(isLeft: Bool) {
         let providerId = isLeft ? leftProviderId : rightProviderId
         let here = syncManager.combinedRelativePath(isLeft: isLeft)
         tabAction(isLeft: isLeft) {
@@ -155,6 +168,44 @@ extension ContentView {
             return syncManager.openTab(PaneTab(providerId: providerId, relativePath: relative),
                                        isLeft: isLeft, currentProviderId: providerId)
         }
+        mirrorOpenInNewTab(relative, from: isLeft)
+    }
+
+    /// The sibling's half of Open in New Tab, when the panes are linked.
+    ///
+    /// **Pruned, not copied.** The two sides are being compared precisely because they differ, so
+    /// the folder just opened over here may not exist over there; `PaneTabMirror` walks the sibling
+    /// as deep as it genuinely can — the same treatment `applyColumnNavigation` gives a mirrored
+    /// drill, for the same reason. A tab naming a folder that pane does not have would be a chip
+    /// that cannot be navigated to.
+    private func mirrorOpenInNewTab(_ relative: String, from isLeft: Bool) {
+        guard tabsOpenOnBothPanes else { return }
+        let other = !isLeft
+        let providerId = other ? leftProviderId : rightProviderId
+        // Expanded, for the reason `openInNewTab` gives above: a tilde root exists on no disk, so
+        // every mirror would prune away to the sibling's root.
+        let root = (settings.path(for: providerId) as NSString).expandingTildeInPath
+        let landing = PaneTabMirror.landing(for: relative) { candidate in
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(
+                atPath: PaneLogic.fullPath(root: root, relativePath: candidate), isDirectory: &isDirectory)
+            return exists && isDirectory.boolValue
+        }
+        tabAction(isLeft: other) {
+            Logger.shared.info("Linked panes: also opened “\(landing.isEmpty ? "the source root" : landing)” in a new tab on the other pane")
+            return syncManager.openTab(PaneTab(providerId: providerId, relativePath: landing),
+                                       isLeft: other, currentProviderId: providerId)
+        }
+    }
+
+    /// Whether opening a tab on one pane opens one on the other too.
+    ///
+    /// The same test `applyColumnNavigation` applies to a mirrored drill — Compare only, and the
+    /// seam's 🔗 or a held ⌥ — so every way of opening a folder, in this window or in a new tab,
+    /// obeys the one setting rather than each growing its own answer.
+    private var tabsOpenOnBothPanes: Bool {
+        layoutMode == .compare
+            && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))
     }
 
     func selectTab(id: UUID, isLeft: Bool) {
@@ -326,6 +377,44 @@ struct BrowseTabPersistence: ViewModifier {
         content
             .onChange(of: syncManager.leftRelativePath) { _, _ in save() }
             .onChange(of: syncManager.leftBrowsePath) { _, _ in save() }
+    }
+}
+
+
+/// Whether a pane draws a tab strip.
+///
+/// A rule rather than the one-line disjunction it was, because of the middle term: **in Compare,
+/// one pane growing a second tab draws the strip on BOTH panes.** The two panes are read as one
+/// row — headers, breadcrumbs and lists all line up across the seam — and a strip on one side only
+/// pushes that side's header 34pt down, so every row after it names a different folder on the left
+/// than on the right. The sibling's strip holds one chip and a ＋, which is also the discoverable
+/// way to give that side a second tab.
+///
+/// Browse has no sibling, and the single-source rail's other pane is not on screen: both take the
+/// own-pane term alone. Ticked-and-disabled past one tab is enforced by `shortcutTabBar`, so the
+/// switch stays a plain disjunct.
+enum PaneTabStripVisibility {
+    static func shows(own: Bool, sibling: Bool, isCompare: Bool, switchIsOn: Bool) -> Bool {
+        own || switchIsOn || (isCompare && sibling)
+    }
+}
+
+
+/// Where a mirrored tab lands on the sibling pane.
+///
+/// The deepest prefix of the folder that pane genuinely has, which is "" — its root — when it has
+/// none of it. Separate from the caller so the walk can be tested against a set of folders instead
+/// of against a disk, and because the empty-string result is the case worth pinning: it is what a
+/// pane that shares nothing with the other gets, and it must still be a tab rather than nothing.
+enum PaneTabMirror {
+    static func landing(for relativePath: String, exists: (String) -> Bool) -> String {
+        var walked: [String] = []
+        for component in relativePath.split(separator: "/") {
+            let candidate = (walked + [String(component)]).joined(separator: "/")
+            guard exists(candidate) else { break }
+            walked.append(String(component))
+        }
+        return walked.joined(separator: "/")
     }
 }
 
