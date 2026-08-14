@@ -518,10 +518,20 @@ struct SyncCloudApp: App {
             // to do. All four route to the focused pane (or its selection) via the focused
             // values ContentView publishes — see `ShortcutCommands.swift`.
             CommandGroup(replacing: .newItem) {
+                NewTabCommand()             // ⌘T
+                ReopenClosedTabCommand()    // no chord — see the type
+                Divider()
                 NewFolderCommand()          // ⇧⌘N
                 RescanCommand()             // ⌘R
                 Divider()
                 DeleteSelectionCommand()    // ⌘⌫
+            }
+            // File ▸ Close, replaced by Close Tab. It is the same key and very nearly the same act:
+            // on the last tab this closes the window, which is what ⌘W did before and what Finder
+            // does. Replacing `.saveItem` — the group AppKit puts Close in — rather than adding a
+            // second ⌘W, which would leave two items competing for one key equivalent.
+            CommandGroup(replacing: .saveItem) {
+                CloseTabCommand()           // ⌘W
             }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the four show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which
@@ -529,6 +539,7 @@ struct SyncCloudApp: App {
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
                 Divider()
+                ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P
                 ToggleInspectorCommand()        // ⌘I
@@ -548,6 +559,11 @@ struct SyncCloudApp: App {
                 GoBackCommand()             // ⌘[
                 GoForwardCommand()          // ⌘]
                 Divider()
+                NextTabCommand()            // ⇧⌘]
+                PreviousTabCommand()        // ⇧⌘[
+                Divider()
+                // ⌃⇥ — the other pane in Compare, the next tab in Browse. One key, one item, and
+                // a title that names which of the two it is about to do (`PaneFocusSwitch`).
                 SwitchPaneFocusCommand()    // ⌃⇥
             }
             // Compare ▸ the differences header's two bulk actions. Their availability is the

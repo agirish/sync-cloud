@@ -16,16 +16,17 @@ extension FileSyncManager {
     }
 
     /// The pane's live position, as the value a tab holds. `providerId` comes from the host for the
-    /// reason above; nothing else does.
+    /// reason above; so does the search field, through `paneSearchSnapshot`.
     @MainActor public func captureTab(isLeft: Bool, providerId: String) -> PaneTab {
-        PaneTab(id: paneTabs(isLeft: isLeft).active.id,
-                providerId: providerId,
-                relativePath: isLeft ? leftRelativePath : rightRelativePath,
-                browsePath: isLeft ? leftBrowsePath : rightBrowsePath,
-                history: isLeft ? leftHistory : rightHistory,
-                selection: isLeft ? selectedLeftPaths : selectedRightPaths,
-                searchQuery: "",
-                searchIsExpanded: false)
+        let search = paneSearchSnapshot?(isLeft) ?? (query: "", isExpanded: false)
+        return PaneTab(id: paneTabs(isLeft: isLeft).active.id,
+                       providerId: providerId,
+                       relativePath: isLeft ? leftRelativePath : rightRelativePath,
+                       browsePath: isLeft ? leftBrowsePath : rightBrowsePath,
+                       history: isLeft ? leftHistory : rightHistory,
+                       selection: isLeft ? selectedLeftPaths : selectedRightPaths,
+                       searchQuery: search.query,
+                       searchIsExpanded: search.isExpanded)
     }
 
     /// Writes a parked tab over the pane and asks for the reload it implies.

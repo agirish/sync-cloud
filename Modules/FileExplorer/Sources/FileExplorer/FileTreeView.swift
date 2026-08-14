@@ -1057,6 +1057,17 @@ struct FileContextMenu: View {
                 }
 
                 if singleNode.isDirectory {
+                    // **The discovery route for tabs.** ⌘T opens the folder you are already in, so
+                    // this is the one entry point that produces a second tab pointing somewhere
+                    // else — and someone who never right-clicks a folder never learns tabs exist,
+                    // which is the trade Finder makes too. First in the folder branch because it
+                    // is a navigation, like the Open below it, rather than a pass over contents.
+                    if delegate.canOpenInNewTab {
+                        Button(action: { delegate.handleOpenInNewTab(singleNode) }) {
+                            Label("Open in New Tab", systemImage: "plus.rectangle.on.rectangle")
+                        }
+                        Divider()
+                    }
                     // Point Organize at this folder. The counterpart to "Find duplicates of this"
                     // on the file branch above, and the reason Organize's lenses are permanent
                     // places rather than chips: this has to land somewhere before any scan has

@@ -2132,6 +2132,18 @@ public class FileSyncManager: ObservableObject {
     /// The right pane's tabs — Compare's right-hand side. Independent of the left list; ⇄ swaps
     /// the two wholesale, exactly as it swaps the paths they are lists of.
     @Published public var rightPaneTabs = PaneTabList(single: PaneTab(providerId: ""))
+
+    /// What a pane's search field currently holds, asked of the host when a tab is parked.
+    ///
+    /// A tab owns its query (v4.x roadmap §1) and the field is the host's `@State` — `Sync` cannot
+    /// see `PaneSearchFieldState`, which also carries a walk index and a reveal nonce derived from
+    /// a tree the parked tab is not showing. So the one direction that has to cross the boundary
+    /// does it here, and the other direction needs nothing: every tab verb RETURNS the tab it
+    /// applied, and the host reads the query off that.
+    ///
+    /// Unset outside the app — every test of the tab verbs then parks an empty query, which is
+    /// exactly what a pane with no search field would hold.
+    public var paneSearchSnapshot: (@MainActor (Bool) -> (query: String, isExpanded: Bool))?
     
     // Navigation and Scanning methods moved to extensions
     

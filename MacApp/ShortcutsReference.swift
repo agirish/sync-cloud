@@ -15,6 +15,25 @@ enum ShortcutsReference {
         let items: [Item]
     }
 
+    /// Where to break `groups` into two columns so their row counts come out closest.
+    ///
+    /// Counts a header as a row, because it occupies one. Never returns 0 or `count`, so both
+    /// columns hold something even for a degenerate list.
+    static func balancedSplit(_ groups: [Group]) -> Int {
+        guard groups.count > 1 else { return groups.count }
+        let weights = groups.map { $0.items.count + 1 }
+        let total = weights.reduce(0, +)
+        var running = 0
+        var best = 1
+        var bestGap = Int.max
+        for index in 1..<groups.count {
+            running += weights[index - 1]
+            let gap = abs(running - (total - running))
+            if gap < bestGap { bestGap = gap; best = index }
+        }
+        return best
+    }
+
     static let groups: [Group] = [
         Group(title: "General", items: [
             // First, because it is the one entry that teaches all the others: hold it and the
@@ -56,6 +75,20 @@ enum ShortcutsReference {
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),
+        ]),
+        Group(title: "Tabs", items: [
+            Item(keys: "⌘ T", action: "New tab, at the folder this pane is showing"),
+            Item(keys: "⌘ W", action: "Close the tab — or the window, on the last one"),
+            Item(keys: "⇧⌘ ] / ⇧⌘ [", action: "Next / previous tab"),
+            // The split is stated, because one chord doing two things is exactly what a reference
+            // is for: ⌃⇥ has always been the pane switch, and Browse has one pane for it to switch
+            // between. The Go menu's item names whichever it will do.
+            Item(keys: "⌃ ⇥", action: "Next tab in Browse — the other pane in Compare"),
+            Item(keys: "⇧⌘ T", action: "Show or hide the tab bar"),
+            Item(keys: "Right-click a folder", action: "Open that folder in a new tab"),
+            Item(keys: "⌘-double-click a folder", action: "Open it in a new tab, in Columns"),
+            // ⌘1…⌘9 are the workspaces', and a reader coming from Finder or Safari will try them.
+            Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)", action: "Switch workspace — never tabs"),
         ]),
         Group(title: "Differences", items: [
             Item(keys: "⌘ → / ⌘ ←", action: "Copy the selected differences to the right / left pane"),
@@ -121,14 +154,18 @@ struct ShortcutsReferenceView: View {
 /// The rows themselves, split from the ScrollView so the fits-the-window test can measure their
 /// laid-out height — a ScrollView reports whatever frame it is given, never its content's size.
 ///
-/// Two columns of groups, split at the midpoint, because one column of the full reference is
-/// taller than a small display. The split is positional, not by name: the pin test already
-/// holds the group list, and a fifth group would flow to the left column and simply move the
-/// measured height the fits test checks.
+/// Two columns of groups, because one column of the full reference is taller than a small display.
+///
+/// **Split where the ROWS balance, not at the middle of the list.** It was the midpoint, and a
+/// fifth group broke it: three groups landed left and two right, giving a 29-row column against a
+/// 15-row one and a content height of 918pt against a 640pt window — the exact failure
+/// `theReferenceFitsItsWindowWithoutScrolling` exists to catch, on a window the user cannot
+/// enlarge. Balancing by row count keeps the reading order (General, Panes, Tabs, …) and puts the
+/// break wherever the two columns come out closest, so a sixth group cannot reintroduce it.
 struct ShortcutsReferenceContent: View {
     var body: some View {
         let groups = ShortcutsReference.groups
-        let mid = (groups.count + 1) / 2
+        let mid = ShortcutsReference.balancedSplit(groups)
         HStack(alignment: .top, spacing: 32) {
             column(Array(groups[..<mid]))
             column(Array(groups[mid...]))

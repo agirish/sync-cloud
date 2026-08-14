@@ -129,6 +129,15 @@ public protocol FileActionDelegate: Sendable {
     /// "where do the loose files in here belong" has no meaning aimed at a single file, which
     /// already has a home.
     func handleOrganizeFolder(_ node: FileNode)
+
+    /// Whether this host can open a folder in a new tab. Gated for the same reason the two above
+    /// are: a conformer with no pane strip behind it draws nothing rather than a door onto a no-op.
+    var canOpenInNewTab: Bool { get }
+
+    /// Opens this folder in a new tab of the pane the row belongs to — **the discovery route for
+    /// tabs**, and the only entry point that opens the new tab somewhere different from the one
+    /// you are in. Folders only: a tab is a location.
+    func handleOpenInNewTab(_ node: FileNode)
 }
 
 extension FileActionDelegate {
@@ -188,4 +197,8 @@ extension FileActionDelegate {
     /// from the day it was written.
     public var canOrganizeFolder: Bool { false }
     public func handleOrganizeFolder(_ node: FileNode) {}
+
+    /// Same default, same reason, and declared as a requirement above for the same one.
+    public var canOpenInNewTab: Bool { false }
+    public func handleOpenInNewTab(_ node: FileNode) {}
 }

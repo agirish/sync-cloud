@@ -85,6 +85,23 @@ public extension AppChord {
     /// scene with no window tabs for macOS to claim it for.
     static let switchPaneFocus = AppChord(.tab, .control)
 
+    // Tabs
+    //
+    // Finder's own mapping throughout, with one deliberate deviation recorded in the v4.x roadmap:
+    // **⌘1…⌘9 do not select tabs**, because the workspaces own every ⌘-digit. Nothing here can be
+    // reclaimed for them without taking a workspace's key away.
+    static let newTab = AppChord("t", .command)
+    /// Closes the tab — and, on the last one, the window, which is what Finder does and what makes
+    /// ⌘W keep meaning "get rid of this" rather than acquiring an exception.
+    static let closeTab = AppChord("w", .command)
+    /// ⇧⌘] / ⇧⌘[, so the unshifted pair stays pane back/forward.
+    static let nextTab = AppChord("]", [.shift, .command])
+    static let previousTab = AppChord("[", [.shift, .command])
+    /// View ▸ Tab Bar. ⇧⌘T is Finder's, and it is free here — Reopen Closed Tab therefore has no
+    /// chord at all rather than an ⌥ one, which would be the single kind that can fire through the
+    /// ⌥-hold reveal (see `foldAllDifferences`).
+    static let tabBar = AppChord("t", [.shift, .command])
+
     // Differences
     static let reviewDifferences = AppChord("r", [.shift, .command])
     static let verifyDifferences = AppChord("v", [.shift, .command])
@@ -118,6 +135,7 @@ public extension AppChord {
         settings, infoInspector, activityLog, shortcutsReference, commandPalette,
         findInPane, paneBack, paneForward, rescan, newFolder, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
+        newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,
     ]
 }

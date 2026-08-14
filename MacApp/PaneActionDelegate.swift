@@ -88,6 +88,10 @@ struct PaneActionDelegate: FileActionDelegate {
     /// than rescans, so the other four lenses re-answer for free either way; To File keeps whatever
     /// the last scan found until the user asks for a new one.
     let onOrganizeScope: (FileNode) -> Void
+    /// Opens a folder in a new tab of THIS pane — see ``handleOpenInNewTab(_:)``. Ignored by
+    /// `isEquivalent` like the other closures beside it: it reads the view's live state back
+    /// through its property wrappers rather than a snapshot.
+    let onOpenInNewTab: (FileNode) -> Void
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
@@ -221,6 +225,16 @@ struct PaneActionDelegate: FileActionDelegate {
 
     /// A real window is behind this delegate, so the row menu may offer the door.
     var canOrganizeFolder: Bool { true }
+
+    /// A real pane is behind this delegate, so it has a strip to open a tab in.
+    var canOpenInNewTab: Bool { true }
+
+    func handleOpenInNewTab(_ node: FileNode) {
+        // Folders only — a tab is a location. Asserted here as well as in the menu, so the
+        // guarantee travels with the handler rather than with its one respectful caller.
+        guard node.isDirectory else { return }
+        onOpenInNewTab(node)
+    }
 
     func handleOrganizeFolder(_ node: FileNode) {
         // Folders only. The menu gates on this too; asserting it here as well keeps the guarantee

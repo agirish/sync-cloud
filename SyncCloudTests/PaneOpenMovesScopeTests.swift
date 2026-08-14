@@ -33,7 +33,7 @@ import Sync
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
             onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in },
-            onOrganizeScope: scoped)
+            onOrganizeScope: scoped, onOpenInNewTab: { _ in })
     }
 
     private static func folder(_ path: String) -> FileNode {
@@ -83,7 +83,7 @@ import Sync
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
             onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { scanned.append($0.id) },
-            onOrganizeScope: { scoped.append($0.id) })
+            onOrganizeScope: { scoped.append($0.id) }, onOpenInNewTab: { _ in })
 
         d.handleFocus(Self.folder("/Users/u/Documents/Legal"))
         #expect(scoped == ["/Users/u/Documents/Legal"])

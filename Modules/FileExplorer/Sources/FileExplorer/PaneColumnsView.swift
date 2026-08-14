@@ -813,6 +813,15 @@ struct PaneColumnsView: View {
         // `selection`, so the multi-select `dba5cd3` restored is untouched: the flattening it fixed
         // came from assigning on EVERY tap, modifiers included.
         .contentShape(Rectangle())
+        // ⌘-DOUBLE-click a folder opens it in a new tab. Deliberately the double: plain ⌘-click is
+        // multi-select and must stay that way (`clickNavigates` refuses ⌘ for exactly that reason),
+        // so the second click is what distinguishes "add this to the selection" from "take me there
+        // in a new tab". Declared BEFORE the single-tap gesture so the two are siblings rather than
+        // one wrapping the other — the single tap still runs on the first click, unchanged.
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            guard clickModifiers.contains(.command), node.isDirectory, delegate.canOpenInNewTab else { return }
+            delegate.handleOpenInNewTab(node)
+        })
         .simultaneousGesture(TapGesture().onEnded {
             // ⌘ and ⇧ clicks are the List's business — extend and range-select, no navigation.
             guard PaneViewMode.clickNavigates(modifiers: clickModifiers) else { return }

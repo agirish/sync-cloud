@@ -93,6 +93,24 @@ struct ContentView: View {
     /// later real provider switches are never suppressed.
     @State private var pendingSwapProviderChanges: Int = 0
 
+    /// The same counter for a **tab switch**, which also writes a provider id behind the user's
+    /// back and must not have `resetNavigation()` run over the navigation it has just restored.
+    ///
+    /// Its own counter rather than the swap's, and not private because `ContentView+PaneTabs`
+    /// writes it: sharing one would let a swap consume a tab switch's suppression (or the reverse)
+    /// and reset exactly the state the other had moved.
+    @State var pendingTabProviderChanges: Int = 0
+
+    /// View ▸ Tab Bar. **Off by default** — the strip appears when a second tab does, which is
+    /// Finder's behaviour and what keeps an install that never opens one unchanged. Ticking it
+    /// keeps a one-tab strip (and therefore a permanent ＋) on screen at the cost of a row that
+    /// restates the folder name the header already shows.
+    ///
+    /// App-wide rather than per pane, matching the other reading preferences (`paneColumnShowsPreview`):
+    /// "do I want a tab bar" is a question about the app, not about one of three surfaces that all
+    /// draw the same pane.
+    @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
+
     /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left pane) and the
     /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
     /// the right copy is trashed. Drives the keep-left / trash-right banner over Compare; nil when
@@ -117,7 +135,10 @@ struct ContentView: View {
     /// (a Differences row, the Info inspector) and by the panel closing. See
     /// `CurrentSelection.previewFollow`, which is the rule this flag is an input to.
     @State var quickLookFollowsPane = false
-    @State private var isBootstrappingProviders: Bool = true
+    /// Not private: `ContentView+PaneTabs` refuses a tab switch while this is true, for the reason
+    /// `swapPanesAction` refuses a swap — a provider `onChange` bails on its own bootstrap guard
+    /// without decrementing the suppression counter, which would strand it.
+    @State var isBootstrappingProviders: Bool = true
     /// The `openCommandPaletteOnLaunch` diagnostic, waiting for provider discovery — see the
     /// bootstrap case that sets it.
     @State private var paletteOnLaunchArmed = false
@@ -805,6 +826,12 @@ struct ContentView: View {
                     paletteOnLaunchArmed = UserDefaults.standard.bool(forKey: "openCommandPaletteOnLaunch")
                 case .createActionHandler:
                     actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
+                    // How the manager reads a pane's search field when it parks a tab. The field is
+                    // this view's `@State` and `Sync` cannot see its type — see `paneSearchSnapshot`.
+                    syncManager.paneSearchSnapshot = { [self] isLeft in
+                        let state = isLeft ? leftPaneSearch : rightPaneSearch
+                        return (query: state.query, isExpanded: state.isExpanded)
+                    }
                 case .rewireUndoManager:
                     syncManager.undoManager = undoManager
                 case .syncProviderQuirkSettings:
@@ -849,6 +876,10 @@ struct ContentView: View {
                         // put each pane back on the folder it showed last session before the
                         // initial refresh scans.
                         await restoreLastPaneFocusIfEnabled()
+                        // After the focus restore, deliberately: both answer "where was this pane",
+                        // and the strip's own active tab is the more specific answer — it carries
+                        // the column stack as well as the scope, and the parked tabs beside it.
+                        restoreBrowseTabs()
                         if !settings.enabledProviders.isEmpty {
                             refreshAction()
                         }
@@ -865,6 +896,13 @@ struct ContentView: View {
             // so skip the reset (which would wipe it) and let swapPanesAction drive the rescan.
             if pendingSwapProviderChanges > 0 {
                 pendingSwapProviderChanges -= 1
+                return
+            }
+            // A tab switch flips this id too, and the tab it switched to carries the navigation
+            // this handler's `resetNavigation()` would wipe. Same shape as the swap above, own
+            // counter — see `pendingTabProviderChanges`.
+            if pendingTabProviderChanges > 0 {
+                pendingTabProviderChanges -= 1
                 return
             }
             Logger.shared.info("User switched left provider to \(newId)")
@@ -890,6 +928,10 @@ struct ContentView: View {
                 pendingSwapProviderChanges -= 1
                 return
             }
+            if pendingTabProviderChanges > 0 {
+                pendingTabProviderChanges -= 1
+                return
+            }
             Logger.shared.info("User switched right provider to \(newId)")
             // Mirror of the left handler above, releasing the pin from the LEFT pane instead.
             reviewCoordinator.dispatchReview(.providerSwitched(isLeft: false))
@@ -901,6 +943,11 @@ struct ContentView: View {
         // The Info inspector reads the selection directly, so a selection change no longer needs to
         // switch tabs — it just clears any explicit "Get Info" target so the inspector follows the
         // new selection.
+        // The saved tab strip follows the live pane — see `BrowseTabPersistence`. ONE modifier
+        // rather than its two `onChange`s written here: adding a second to this chain tipped the
+        // body over the type-checker's budget outright ("unable to type-check this expression in
+        // reasonable time"), which is a hazard this file is already close enough to feel.
+        .modifier(BrowseTabPersistence(syncManager: syncManager) { saveBrowseTabs(isLeft: true) })
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // The Get-Info override also goes stale when the comparison context changes underneath it:
@@ -2415,6 +2462,23 @@ struct ContentView: View {
         let placement = isLeft ? leftPlacement : rightPlacement
         let barAtTop = placement.resolveAtTop(selection: Set(barNodes.map(\.id)))
         return VStack(spacing: 0) {
+            // The tab strip, and it is a SIBLING of the header and the list — never a wrapper
+            // around them. Two reasons, one of them enforced: re-nesting this VStack fails
+            // `PaneQuickLookScopeTests.testTheHandlerIsAttachedToTheFileList`, which requires the
+            // list's exact indentation, with a message about Quick Look rather than about tabs. And
+            // one insertion point here serves Browse, both Compare panes and the Organize/Storage
+            // rail, because they are all this one function.
+            if paneShowsTabStrip(isLeft: isLeft) {
+                PaneTabStrip(
+                    items: paneTabItems(isLeft: isLeft),
+                    onSelect: { selectTab(id: $0, isLeft: isLeft) },
+                    onClose: { closeTab(id: $0, isLeft: isLeft) },
+                    onCloseOthers: { closeOtherTabs(keeping: $0, isLeft: isLeft) },
+                    onDuplicate: { duplicateTab(id: $0, isLeft: isLeft) },
+                    onCopyPath: { copyTabPath(id: $0, isLeft: isLeft) },
+                    onNew: { openNewTabHere(isLeft: isLeft) })
+                    .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+            }
             PaneHeader(
                 title: pane.title,
                 provider: settings.availableProviders.first(where: { $0.id == pane.providerId }),
@@ -2856,11 +2920,38 @@ struct ContentView: View {
         }
     }
 
+    /// The row menu's and the file list's delegate for one pane.
+    ///
+    /// Lifted out of the file list's call site, where it used to sit as one 870-character argument.
+    /// That line was load-bearing in an unwanted way: `QuickLookOriginTests` reads a fixed window of
+    /// source after the list's opening paren to check the pane's row menu is routed to the host's
+    /// Quick Look panel, and one more argument on the delegate pushed `onQuickLook:` out of that
+    /// window — a test failing about Quick Look because a tab handler was added three arguments
+    /// earlier. (Naming that view here in prose would break the same scan, since it anchors on the
+    /// literal: this comment deliberately does not.)
+    private func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {
+        PaneActionDelegate(
+            handler: actionHandler, syncManager: syncManager, settings: settings,
+            isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId,
+            isSingleSource: layoutMode == .singleSource,
+            forceRefreshAction: forceRefreshAction,
+            onGetInfo: { showInfo(for: $0) },
+            onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) },
+            ignoreStateToken: syncManager.effectiveIgnoredPaths,
+            keptNamesToken: syncManager.keptNamesStore?.names ?? [],
+            homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId),
+            onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) },
+            onOrganizeFolder: { node in organizeFolderAction(node) },
+            onOrganizeScope: { node in setOrganizeScope(node.id) },
+            onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) })
+    }
+
     @ViewBuilder
     private func treeView(_ pane: PaneContext) -> some View {
         // The single-source rail is the only pane on screen: it shows no action bar, so it takes no placement
         // scratch space and no flip callback (`placement`'s own contract), and it has no sibling to
         // be subordinate to, so its selection wears the full-strength wash.
+
         let isRail = layoutMode == .singleSource
         FileTreeView(
             tree: pane.tree,
@@ -2870,7 +2961,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths, keptNamesToken: syncManager.keptNamesStore?.names ?? [], homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId), onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) }, onOrganizeFolder: { node in organizeFolderAction(node) }, onOrganizeScope: { node in setOrganizeScope(node.id) }),
+            delegate: paneActionDelegate(for: pane),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),

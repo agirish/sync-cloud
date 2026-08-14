@@ -66,6 +66,50 @@ private struct SwitchPaneFocusKey: FocusedValueKey {
     typealias Value = PaneFocusSwitch
 }
 
+private struct NewTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct CloseTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct CycleTabKey: FocusedValueKey {
+    typealias Value = (Bool) -> Void
+}
+
+private struct ReopenClosedTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct TabBarVisibleKey: FocusedValueKey {
+    typealias Value = TabBarSwitch
+}
+
+/// View ▸ Tab Bar's state, which a `Binding<Bool>` cannot carry.
+///
+/// The switch has THREE states, not two: off, on, and **on-because-a-second-tab-is-open** — where
+/// it is ticked and disabled, so it can never hide a strip whose tabs would then be unreachable.
+/// A nil binding (how every other view switch in this file spells "disabled") renders unticked and
+/// disabled, which would show the tab bar's switch OFF while a tab bar is on screen.
+struct TabBarSwitch {
+    let isOn: Bool
+    /// A second tab is open: the strip is on screen whatever the preference says.
+    let isForced: Bool
+    let set: (Bool) -> Void
+
+    /// The rule, as a value: a second tab forces the switch on and freezes it there.
+    ///
+    /// Extracted so it can be tested — `ContentView` is a `View` with `@State` and cannot be
+    /// instantiated in a test — and pinned at its call site by
+    /// `PaneTabWiringTests.theTabBarSwitchIsResolvedThroughTheRule`, because a rule nothing calls
+    /// is one revert away from being decoration.
+    static func resolve(hasSecondTab: Bool, preference: Bool,
+                        set: @escaping (Bool) -> Void) -> TabBarSwitch {
+        TabBarSwitch(isOn: hasSecondTab || preference, isForced: hasSecondTab, set: set)
+    }
+}
+
 /// ⌃⇥'s payload: where it will move focus, and doing it.
 ///
 /// The name travels with the action for the same reason `FoldAllAction` carries its verb — the menu
@@ -79,14 +123,33 @@ private struct SwitchPaneFocusKey: FocusedValueKey {
 struct PaneFocusSwitch {
     /// The pane this moves focus TO, by its provider display name.
     let targetName: String
+    /// What the item reads instead of "Focus <pane>", when the chord is not a pane switch at all.
+    ///
+    /// **⌃⇥ means two different things, and it has to.** In Compare it moves focus between the two
+    /// panes; in Browse there is only one pane, so the chord is dead there — which is exactly why
+    /// the v4.x roadmap scopes tab cycling onto it rather than spending a new chord. One key, one
+    /// menu item, and a title that says which of the two you are about to get.
+    let overrideTitle: String?
     let run: () -> Void
+
+    init(targetName: String, overrideTitle: String? = nil, run: @escaping () -> Void) {
+        self.targetName = targetName
+        self.overrideTitle = overrideTitle
+        self.run = run
+    }
+
+    /// Browse's form: the chord cycles this pane's tabs, and the item says so.
+    static func nextTab(run: @escaping () -> Void) -> PaneFocusSwitch {
+        PaneFocusSwitch(targetName: "", overrideTitle: "Next Tab", run: run)
+    }
 
     /// The menu item's title. A rule rather than an inline ternary because it is the ONLY resting
     /// answer to "which pane is focused?" — the panes carry no indicator — so it is worth a test.
     /// The `nil` form is what a disabled item shows: it names no pane, because there is no second
     /// pane to name on a single-source workspace.
     static func menuTitle(for focus: PaneFocusSwitch?) -> String {
-        focus.map { "Focus \($0.targetName)" } ?? "Focus Other Pane"
+        guard let focus else { return "Focus Other Pane" }
+        return focus.overrideTitle ?? "Focus \(focus.targetName)"
     }
 }
 
@@ -162,6 +225,38 @@ extension FocusedValues {
         get { self[SwitchPaneFocusKey.self] }
         set { self[SwitchPaneFocusKey.self] = newValue }
     }
+
+    /// ⌘T — a new tab on the focused pane, at the folder it is showing.
+    var newTab: (() -> Void)? {
+        get { self[NewTabKey.self] }
+        set { self[NewTabKey.self] = newValue }
+    }
+
+    /// ⌘W. Never `nil` while a pane exists: on the last tab it closes the WINDOW, as Finder does,
+    /// so the item must stay enabled rather than becoming a dead ⌘W.
+    var closeTab: (() -> Void)? {
+        get { self[CloseTabKey.self] }
+        set { self[CloseTabKey.self] = newValue }
+    }
+
+    /// ⇧⌘] / ⇧⌘[ — `true` is forward. One value for both directions, so a pane that cannot cycle
+    /// disables the pair together.
+    var cycleTab: ((Bool) -> Void)? {
+        get { self[CycleTabKey.self] }
+        set { self[CycleTabKey.self] = newValue }
+    }
+
+    /// File ▸ Reopen Closed Tab; `nil` when nothing has been closed this session.
+    var reopenClosedTab: (() -> Void)? {
+        get { self[ReopenClosedTabKey.self] }
+        set { self[ReopenClosedTabKey.self] = newValue }
+    }
+
+    /// View ▸ Tab Bar.
+    var tabBarVisible: TabBarSwitch? {
+        get { self[TabBarVisibleKey.self] }
+        set { self[TabBarVisibleKey.self] = newValue }
+    }
 }
 
 // MARK: - ContentView's half
@@ -213,6 +308,18 @@ struct ShortcutValuePublisher: ViewModifier {
     /// keyboard then, and the palette offers its own Find action that calls `beginPaneSearch()`
     /// after it dismisses — but it is a second behaviour change and worth naming.
     let beginPaneSearch: (() -> Void)?
+
+    // The tab chords. All five suspend with the rest: a destination picker is up because an
+    // in-flight file operation is waiting on an answer, and a tab switch under it would move the
+    // pane the pick is describing.
+    let newTab: (() -> Void)?
+    /// Never `nil` while a pane exists — on the last tab it closes the WINDOW, which is what
+    /// Finder's ⌘W does and what keeps this from being a chord that dies at one tab.
+    let closeTab: (() -> Void)?
+    let cycleTab: ((Bool) -> Void)?
+    let reopenClosedTab: (() -> Void)?
+    let tabBar: TabBarSwitch?
+
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
     /// file operation is waiting on an answer — but focused values are published by the still-
@@ -239,6 +346,11 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveSwitchPaneFocus: PaneFocusSwitch? { suspended ? nil : switchPaneFocus }
     var effectiveCommandPalette: (() -> Void)? { suspended ? nil : commandPalette }
     var effectiveBeginPaneSearch: (() -> Void)? { suspended ? nil : beginPaneSearch }
+    var effectiveNewTab: (() -> Void)? { suspended ? nil : newTab }
+    var effectiveCloseTab: (() -> Void)? { suspended ? nil : closeTab }
+    var effectiveCycleTab: ((Bool) -> Void)? { suspended ? nil : cycleTab }
+    var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
+    var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
 
     func body(content: Content) -> some View {
         content
@@ -255,6 +367,11 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.switchPaneFocus, effectiveSwitchPaneFocus)  // ⌃⇥
             .focusedSceneValue(\.commandPalette, effectiveCommandPalette)     // ⌘K
             .focusedSceneValue(\.beginPaneSearch, effectiveBeginPaneSearch)   // ⌘F
+            .focusedSceneValue(\.newTab, effectiveNewTab)                     // ⌘T
+            .focusedSceneValue(\.closeTab, effectiveCloseTab)                 // ⌘W
+            .focusedSceneValue(\.cycleTab, effectiveCycleTab)                 // ⇧⌘] / ⇧⌘[
+            .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
+            .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
     }
 }
 
@@ -274,6 +391,11 @@ extension ContentView {
             switchPaneFocus: switchPaneFocusAction,
             commandPalette: toggleCommandPalette,
             beginPaneSearch: beginPaneSearch,
+            newTab: { openNewTabHere(isLeft: shortcutTabTargetIsLeft) },
+            closeTab: shortcutCloseTab,
+            cycleTab: shortcutCycleTab,
+            reopenClosedTab: shortcutReopenClosedTab,
+            tabBar: shortcutTabBar,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
@@ -299,6 +421,39 @@ extension ContentView {
     /// The pane the pane-scoped chords act on — the same rule ⌘F resolves its field with, so
     /// "the focused pane" can never mean two different panes to two different shortcuts.
     private var shortcutTargetIsLeft: Bool { paneSearchTargetIsLeft }
+
+    /// …and the same rule for the tab chords, named separately only so this file reads as what it
+    /// is: a tab acts on the pane its strip belongs to, which is the focused one.
+    var shortcutTabTargetIsLeft: Bool { paneSearchTargetIsLeft }
+
+    /// ⌘W. Always live: on the last tab it closes the window, which is Finder's behaviour and the
+    /// reason this is not withheld at one tab.
+    var shortcutCloseTab: (() -> Void)? {
+        let isLeft = shortcutTabTargetIsLeft
+        return { closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id, isLeft: isLeft) }
+    }
+
+    /// ⇧⌘] / ⇧⌘[. `nil` at one tab — there is nowhere to cycle to, and a live item would be a
+    /// chord that silently does nothing.
+    var shortcutCycleTab: ((Bool) -> Void)? {
+        let isLeft = shortcutTabTargetIsLeft
+        guard syncManager.paneTabs(isLeft: isLeft).count > 1 else { return nil }
+        return { forward in cycleTab(forward: forward, isLeft: isLeft) }
+    }
+
+    var shortcutReopenClosedTab: (() -> Void)? {
+        let isLeft = shortcutTabTargetIsLeft
+        guard syncManager.paneTabs(isLeft: isLeft).canReopen else { return nil }
+        return { reopenClosedTab(isLeft: isLeft) }
+    }
+
+    /// View ▸ Tab Bar — **ticked and disabled while the pane holds a second tab**, so the switch
+    /// can never hide a strip whose tabs would then be unreachable.
+    var shortcutTabBar: TabBarSwitch {
+        TabBarSwitch.resolve(
+            hasSecondTab: syncManager.paneTabs(isLeft: shortcutTabTargetIsLeft).showsStrip,
+            preference: tabBarVisible) { tabBarVisible = $0 }
+    }
 
     var shortcutGoBack: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
@@ -488,6 +643,77 @@ struct SwitchPaneFocusCommand: View {
         Button(PaneFocusSwitch.menuTitle(for: focus)) { focus?.run() }
             .keyboardShortcut(AppChord.switchPaneFocus.key, modifiers: AppChord.switchPaneFocus.modifiers)
             .disabled(focus == nil)
+    }
+}
+
+// MARK: Tabs
+
+struct NewTabCommand: View {
+    @FocusedValue(\.newTab) private var newTab
+
+    var body: some View {
+        // "here", because it opens the CURRENT folder — the result is two tabs with the same name,
+        // and the title is the only thing that says so before the strip appears.
+        Button("New Tab Here") { newTab?() }
+            .keyboardShortcut(AppChord.newTab.key, modifiers: AppChord.newTab.modifiers)
+            .disabled(newTab == nil)
+    }
+}
+
+struct CloseTabCommand: View {
+    @FocusedValue(\.closeTab) private var close
+
+    var body: some View {
+        Button("Close Tab") { close?() }
+            .keyboardShortcut(AppChord.closeTab.key, modifiers: AppChord.closeTab.modifiers)
+            .disabled(close == nil)
+    }
+}
+
+struct NextTabCommand: View {
+    @FocusedValue(\.cycleTab) private var cycle
+
+    var body: some View {
+        Button("Next Tab") { cycle?(true) }
+            .keyboardShortcut(AppChord.nextTab.key, modifiers: AppChord.nextTab.modifiers)
+            .disabled(cycle == nil)
+    }
+}
+
+struct PreviousTabCommand: View {
+    @FocusedValue(\.cycleTab) private var cycle
+
+    var body: some View {
+        Button("Previous Tab") { cycle?(false) }
+            .keyboardShortcut(AppChord.previousTab.key, modifiers: AppChord.previousTab.modifiers)
+            .disabled(cycle == nil)
+    }
+}
+
+/// **No chord, deliberately.** ⇧⌘T is View ▸ Tab Bar (Finder's mapping), and the only free
+/// alternative would carry ⌥ — the one kind of chord that fires through the ⌥-hold reveal.
+struct ReopenClosedTabCommand: View {
+    @FocusedValue(\.reopenClosedTab) private var reopen
+
+    var body: some View {
+        Button("Reopen Closed Tab") { reopen?() }
+            .disabled(reopen == nil)
+    }
+}
+
+/// A noun with a tick, like every other view switch here — never a Show/Hide pair.
+struct ToggleTabBarCommand: View {
+    @FocusedValue(\.tabBarVisible) private var tabBar
+
+    var body: some View {
+        Toggle("Tab Bar", isOn: Binding(
+            get: { tabBar?.isOn ?? false },
+            set: { tabBar?.set($0) }
+        ))
+        .keyboardShortcut(AppChord.tabBar.key, modifiers: AppChord.tabBar.modifiers)
+        // Ticked AND disabled while a second tab is open: the switch must never hide a strip whose
+        // tabs would then be unreachable.
+        .disabled(tabBar == nil || tabBar?.isForced == true)
     }
 }
 

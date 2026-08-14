@@ -216,6 +216,13 @@ extension ContentView {
     /// to something not on screen would be worse than a disabled one, and the menu item names the
     /// destination pane, which there is no second of.
     var switchPaneFocusAction: PaneFocusSwitch? {
+        // **⌃⇥ cycles tabs in Browse.** There is one pane there, so the chord has always been dead
+        // — and a strip is exactly the second thing to move between that it was missing. Compare
+        // keeps it as a pane switch, where two panes exist; the menu item's title says which.
+        if layoutMode != .compare, selectedWorkspace == .browse {
+            guard syncManager.paneTabs(isLeft: true).count > 1 else { return nil }
+            return .nextTab { cycleTab(forward: true, isLeft: true) }
+        }
         guard layoutMode == .compare else { return nil }
         let target = PaneLogic.focusSwitchTarget(isSingleSource: false,
                                                  focusedSide: syncManager.focusedPaneSide,

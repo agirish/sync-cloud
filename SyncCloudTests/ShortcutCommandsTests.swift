@@ -22,6 +22,8 @@ import Foundation
             switchPaneFocus: PaneFocusSwitch(targetName: "Dropbox", run: {}),
             commandPalette: {},
             beginPaneSearch: {},
+            newTab: {}, closeTab: {}, cycleTab: { _ in }, reopenClosedTab: {},
+            tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
             suspended: suspended
         )
     }
