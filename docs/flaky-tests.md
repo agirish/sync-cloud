@@ -27,6 +27,11 @@ cluster whose membership changes between runs is the signature of
 `--no-parallel` rather than by any of the steps below. Note the exception it makes to step 4:
 there, passing in isolation *is* evidence.
 
+**Only the app-target step red, with window assertions failing in under 0.1s?** If the expectations
+read `nil` or `[]` for a panel or a child window, check whether the screen was **locked** —
+[mechanism 11](#11-the-screen-was-locked--windows-that-never-attach). It costs one rerun and no
+bisect, and `pmset` will not show it.
+
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
 *spends* its whole ceiling — 25s or 32s per test — before failing. Real geometry bugs fail
@@ -1068,6 +1073,72 @@ released look identical from the outside — that is the whole reason `releasedB
 **See.** `Modules/Sync/Tests/Sync/TestSupport.swift` (`ParkGate.park`, `FirstStatGate`,
 `awaitSignal`); mechanism 8 above for why the bound records its own expiry; mechanism 3 for the
 other way suites-in-parallel decides a verdict.
+
+---
+
+### 11. The screen was locked — windows that never attach
+
+**Symptom.** Only the **app-target** step fails; all seven package suites pass. Several
+`CommandPalettePanelTests` fail together, and every expectation says the same thing in a different
+way — the panel was never there:
+
+```
+presentingRaisesAPanelParentedToAndSizedWithTheHost  → (panel → nil) != nil
+theHostAndItsPanelStayOutOfSight                     → (host.childWindows → []).first → nil
+resigningKeyDismissesThePalette                      → childWindows → []
+presentingAgainReplacesAndRetiresTheOneItReplaced    → (host.childWindows?.count → 0) == 1
+thePanelFollowsTheHostWhenItResizes
+```
+
+Each fails in **well under a tenth of a second** — 0.079s, 0.041s, 0.032s. That timing is the
+fastest way to tell this from everything above it: a starved test *spends* its ceiling
+(mechanism 1, step 1 of triage), while this one gets a definite, immediate "no window" and stops.
+
+**Mechanism.** The login session is **locked** — not merely the display asleep. A locked session
+takes the windows out of the on-screen list and stops new ones being attached, so
+`present()` returns having created no child window. Nothing is starved and nothing is racing;
+the window genuinely does not exist, which is why the assertions read `nil` and `[]` rather than a
+stale or half-settled value.
+
+**This is not mechanism 1.** There the window exists and CoreAnimation will not tick for it, so an
+animated end state never lands. Here there is no window to animate. The two share a cause upstream
+(nobody is at the machine) and need opposite responses: mechanism 1 is fixed in the test by
+injecting `nil` animation, and no amount of animation injection helps a window that was never
+attached.
+
+**Check it in one command** — and note `pmset` alone will *not* tell you, because a locked screen
+and a merely-slept display look the same there:
+
+```sh
+swift -e 'import CoreGraphics
+print(((CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool) ?? false ? "LOCKED" : "UNLOCKED")'
+```
+
+The same lock is why `screencapture -l<windowid>` fails with *"could not create image from
+window"*, so if you were also trying to grab a screenshot when the suite went red, that failure and
+this one are the same fact.
+
+**Response: re-run it unlocked. Do not bisect.** Measured on 2026-08-14, one commit
+(`9392107e`), one build, nothing edited between the two runs:
+
+| Session | package suites | app-target step |
+|---|---|---|
+| Locked | success | **failure** — the five tests above |
+| Unlocked (rerun of that same run) | success | **success** |
+
+**`5c851773` is innocent, and it is the commit you will suspect.** It is "Keep the test suites'
+windows off the user's screen", it touches exactly these tests, and it is the immediately
+preceding commit — so a red on the commit after it reads as fallout. Its own run was green, and
+the rerun above cleared its successor without a line changing. Blaming it would have meant
+reverting the fix that stops fixture windows covering the user's desktop.
+
+**The standing risk.** The runner is this Mac (see *Runner*), so any unattended overnight push can
+land on a locked screen. Until the app-target step either refuses to run locked or these tests stop
+requiring real attachment, a lone red on that step with sub-0.1s window failures is this, and costs
+one rerun.
+
+**See.** `SyncCloudTests/CommandPalettePanelTests.swift`; mechanism 1 for the display-asleep
+sibling; mechanism 8 for the run that produces no verdict at all.
 
 ---
 
