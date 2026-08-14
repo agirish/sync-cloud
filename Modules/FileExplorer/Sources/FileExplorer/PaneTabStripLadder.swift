@@ -191,7 +191,11 @@ public enum PaneTabStripLadder {
         // hidden count depends on how many fit, which depends on the width of the count — so it is
         // solved by walking down rather than by dividing, and a strip of 12 tabs whose "11" is
         // wider than its "9" cannot round its way into an overflowing row.
-        var visible = max(1, Int((available - plus) / (floor + tabGap)))
+        // Clamped to the tabs that exist: the estimate ignores the overflow (which only reduces
+        // capacity, so walking down from it is right), but with a wide pane and few tabs it can
+        // come out above `count` — and a rung claiming to show more chips than there are is
+        // incoherent even where nothing currently reads it that way.
+        var visible = min(count, max(1, Int((available - plus) / (floor + tabGap))))
         while visible >= 1 {
             let hidden = count - visible
             // Children: the visible tabs, the overflow (when there is one), the spacer, the ＋.
@@ -209,13 +213,16 @@ public enum PaneTabStripLadder {
 
     /// The rail's rung: the active tab named, a count for the rest, and the ＋.
     private static func chipRung(available: CGFloat, count: Int, scale: CGFloat) -> Layout {
-        // Children: the chip, the count, the spacer, the ＋.
+        // A one-tab strip has no count to draw — and reserving room for the one it will not draw
+        // is track taken from the only thing on this rung that has to survive, the name.
+        let hidden = count - 1
+        let children = hidden > 0 ? 4 : 3      // chip, count?, spacer, ＋
         let chipWidth = available
             - plusWidth(scale: scale)
-            - countWidth(hidden: count - 1, scale: scale)
-            - gaps(children: 4)
+            - (hidden > 0 ? countWidth(hidden: hidden, scale: scale) : 0)
+            - gaps(children: children)
         return Layout(rung: .chip, tabWidth: max(0, min(maxTabWidth, chipWidth)),
-                      visibleCount: 1, overflowCount: count - 1)
+                      visibleCount: 1, overflowCount: hidden)
     }
 
     /// Everything the strip will draw, in points — what a "does it overflow" test measures, and the
@@ -228,11 +235,12 @@ public enum PaneTabStripLadder {
                 + plusWidth(scale: scale)
                 + gaps(children: layout.visibleCount + (layout.showsOverflow ? 1 : 0) + 2)
         case .chip:
-            // The chip rung draws a plain COUNT, not the chevron menu — priced as what it draws.
+            // The chip rung draws a plain COUNT, not the chevron menu — priced as what it draws,
+            // and it draws none at one tab, which is one fewer child as well as one fewer element.
             return layout.tabWidth
                 + (layout.showsOverflow ? countWidth(hidden: layout.overflowCount, scale: scale) : 0)
                 + plusWidth(scale: scale)
-                + gaps(children: 4)
+                + gaps(children: layout.showsOverflow ? 4 : 3)
         }
     }
 }

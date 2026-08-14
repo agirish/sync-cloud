@@ -63,6 +63,34 @@ import Foundation
     /// registered, rendered, and invisible to all three "for every chord" tests that read the
     /// registry. Counted from the source, so adding a member without listing it fails here rather
     /// than silently narrowing what the other tests cover.
+    /// **No two chords are the same chord.** The registry exists so a chord is declared once; it
+    /// cannot stop two of them being declared identically, and two menu items sharing a key
+    /// equivalent is not a build error — AppKit simply picks one, so the loser looks like a chord
+    /// that does nothing. Worth an invariant now that the app registers nineteen of them.
+    ///
+    /// Compared on what actually reaches the responder chain — the key character and the modifier
+    /// set — rather than on `display`, which two different chords could in principle render alike.
+    @Test func noTwoChordsCollide() {
+        var seen: [String: Int] = [:]
+        for chord in AppChord.registry {
+            let key = "\(chord.key.character)|\(chord.modifiers.rawValue)"
+            seen[key, default: 0] += 1
+        }
+        let collisions = seen.filter { $0.value > 1 }.keys.sorted()
+        #expect(collisions.isEmpty, "two registered chords share a key equivalent: \(collisions)")
+    }
+
+    /// …and none of them collides with the workspace family, which is generated rather than
+    /// declared and so is invisible to the check above. This is the one the tab work had to think
+    /// about: ⌘1…⌘N are the workspaces', which is why tabs deliberately have no ⌘-digit.
+    @Test func noChordCollidesWithAWorkspaceDigit() {
+        let digits = Set((1...9).map { String(AppChord.workspace($0).key.character) })
+        for chord in AppChord.registry where chord.modifiers == .command {
+            #expect(!digits.contains(String(chord.key.character)),
+                    "\(chord.display) collides with a workspace's ⌘-digit")
+        }
+    }
+
     @Test func everyDeclaredChordIsInTheRegistry() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

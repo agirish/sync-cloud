@@ -111,10 +111,12 @@ enum HelpBook {
                     .bullets([
                         "Move through Finder-style columns — clicking a folder opens the next column — or switch the pane to a tree; the choice is remembered for Browse on its own.",
                         "In columns, selecting a file opens a preview beside the list; Space opens Quick Look in either view.",
+                        "Hold two places at once with tabs: right-click a folder and choose “Open in New Tab”, or press ⌘T to open a second tab on the folder you are in. The strip appears as soon as there is a second tab.",
+                        "Each tab keeps its own folder, selection, search and Back history, and the tabs you leave open come back the next time you launch. ⇧⌘] and ⇧⌘[ step between them; ⌘W closes one, and closes the window on the last.",
                         "⌘F searches the tree you're browsing; ⌘K jumps to a recent, pinned, or already-surveyed folder by name.",
                         "Right-click a folder for “Organize This Folder…”, or a file for “Find duplicates of this” — each lands in the matching Organize lens.",
                     ]),
-                    .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
+                    .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing — tabs and all. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
                 ],
                 related: ["what-is-synccloud", "choose-folders", "tidy-duplicates"]
             )),

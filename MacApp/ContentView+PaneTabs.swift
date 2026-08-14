@@ -268,7 +268,13 @@ extension ContentView {
         let active = restored.active
         if active.providerId != leftProviderId,
            settings.availableProviders.contains(where: { $0.id == active.providerId }) {
-            pendingTabProviderChanges += 1
+            // **No suppression counter here, deliberately.** This runs inside the provider
+            // bootstrap, where the id's `onChange` bails on `isBootstrappingProviders` *without*
+            // decrementing — so arming the counter would strand it at one and silently swallow the
+            // user's next real source switch, leaving that switch's navigation un-reset. The
+            // bootstrap guard IS the suppression here; `applyProviderSelection` two lines earlier
+            // writes both ids the same way. `tabAction` arms the counter because it runs later,
+            // when the handler is live.
             leftProviderId = active.providerId
         }
         syncManager.applyTab(active, isLeft: true)

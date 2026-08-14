@@ -1347,6 +1347,11 @@ struct ContentView: View {
             pendingSwapProviderChanges = plan.suppressCount
         }
         applyProviderPinAssignments(plan)
+        // The swap moved the LISTS as well as the panes, so the saved strip is now the other
+        // pane's. Saved explicitly rather than left to the path `onChange`, which does not fire
+        // when both panes happened to be showing the same folder — and then the strip on disk is
+        // the one that just left.
+        saveBrowseTabs(isLeft: true)
         refreshAction()
     }
 

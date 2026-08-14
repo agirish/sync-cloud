@@ -107,6 +107,20 @@ import Testing
         #expect(HelpBook.sectionTitle(forTopicID: "browse-workspace") == "Getting started")
     }
 
+    /// **Tabs are findable in Help.** The feature's own discovery route is a right-click, which the
+    /// roadmap accepts as a weakness — so Help is where someone who never right-clicks a folder
+    /// finds out tabs exist at all. Searched rather than read off one topic, which is the shape the
+    /// tests below use: it holds wherever the copy ends up living.
+    @Test func testTabsAreDocumented() {
+        let hits = HelpBook.filteredSections(matching: "tab").flatMap(\.topics).map(\.id)
+        #expect(hits.contains("browse-workspace"),
+                "Help describes Browse without its tabs — the one surface that could teach them")
+        let browse = HelpBook.topic(id: "browse-workspace")
+        let copy = (browse?.article.blocks ?? []).map(String.init(describing:)).joined(separator: " ")
+        #expect(copy.contains("Open in New Tab"), "Help does not name the way tabs are discovered")
+        #expect(copy.contains("⌘T"), "Help does not give the chord")
+    }
+
     /// Retired product vocabulary stays out of the copy. "Filing" became Organize's To File lens
     /// and "tidy" left the product's voice with it; both survived in Help long after every other
     /// surface was reworded, because nothing looked. Same search-based shape as the drag test

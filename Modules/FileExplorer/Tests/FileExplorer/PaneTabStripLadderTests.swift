@@ -155,6 +155,29 @@ import Design
         #expect(layout.tabWidth <= PaneTabStripLadder.maxTabWidth)
     }
 
+    /// A one-tab strip in a narrow pane reserves no room for a count it will not draw — that track
+    /// belongs to the one thing this rung has to keep, the name.
+    @Test func aOneTabChipRungReservesNoCount() {
+        let narrow = PaneTabStripLadder.layout(available: 200, titles: ["Immigration"], scale: 1)
+        let withCount = PaneTabStripLadder.layout(available: 200, titles: ["Immigration", "Photos"], scale: 1)
+        #expect(narrow.overflowCount == 0)
+        #expect(narrow.tabWidth > withCount.tabWidth,
+                "the one-tab strip gave up room for a count that is never drawn")
+        #expect(PaneTabStripLadder.drawnWidth(narrow, scale: 1) <= 200.01)
+    }
+
+    /// Never more chips than there are tabs, at any width.
+    @Test func theRungNeverClaimsMoreChipsThanTabs() {
+        for width in stride(from: CGFloat(1400), through: 120, by: -7) {
+            for titles in [["A"], ["A", "B"], five] {
+                let layout = PaneTabStripLadder.layout(available: width, titles: titles, scale: 1)
+                #expect(layout.visibleCount <= titles.count,
+                        "\(layout.visibleCount) chips claimed for \(titles.count) tabs at \(width)pt")
+                #expect(layout.overflowCount >= 0)
+            }
+        }
+    }
+
     /// No tabs at all is not a state the app can reach (`PaneTabList` is never empty), but the
     /// ladder is public and must answer rather than divide by zero.
     @Test func noTabsAnswersWithNothingToDraw() {

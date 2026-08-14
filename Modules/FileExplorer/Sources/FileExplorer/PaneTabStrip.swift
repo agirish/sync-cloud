@@ -185,7 +185,14 @@ public struct PaneTabStrip: View {
                     .truncationMode(.middle)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                closeButton(item)
+                // **No ✕ on a lone tab.** The strip is normally hidden at one tab, but View ▸ Tab
+                // Bar keeps it — and there the close button would be a ✕ that closes the WINDOW
+                // (there is no tab left to fall back to), which is a trap rather than a shortcut.
+                // Finder draws none there either. Close Tab in the context menu is disabled for the
+                // same reason and by the same count.
+                if items.count > 1 {
+                    closeButton(item)
+                }
             }
             .padding(.horizontal, PaneTabStripLadder.tabPadding)
             .frame(width: width, height: PaneTabStripLadder.tabHeight)

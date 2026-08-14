@@ -660,13 +660,36 @@ struct NewTabCommand: View {
     }
 }
 
+/// ⌘W — and **it replaces File ▸ Close, so it has to still close things this app's tabs know
+/// nothing about.**
+///
+/// The app has three auxiliary `Window` scenes (Keyboard Shortcuts, Activity Log, Sync History).
+/// None of them publishes a focused value, so with one of them key this item's value is `nil` — and
+/// as a plain `.disabled(close == nil)` item it left ⌘W dead in all three, having taken the standard
+/// Close group's place. That is a regression the tab feature has no business causing, so a `nil`
+/// value falls back to what the item replaced: close the key window.
+///
+/// The same fallback covers the suspended case (a destination pick is up), where ⌘W closing the
+/// window is exactly what it did before this existed.
 struct CloseTabCommand: View {
     @FocusedValue(\.closeTab) private var close
 
+    /// What ⌘W does when nothing publishes a tab to close.
+    ///
+    /// Static and injectable so the rule can be tested: the live path reads the key window, which a
+    /// unit test has none of.
+    static func run(_ close: (() -> Void)?, closeWindow: () -> Void) {
+        if let close { close() } else { closeWindow() }
+    }
+
     var body: some View {
-        Button("Close Tab") { close?() }
-            .keyboardShortcut(AppChord.closeTab.key, modifiers: AppChord.closeTab.modifiers)
-            .disabled(close == nil)
+        // Never disabled — see above. The title stays "Close Tab" because the main window is where
+        // this is ever read; on an auxiliary window the menu item is a chord, not a label anyone
+        // goes looking for.
+        Button("Close Tab") {
+            Self.run(close) { NSApp.keyWindow?.performClose(nil) }
+        }
+        .keyboardShortcut(AppChord.closeTab.key, modifiers: AppChord.closeTab.modifiers)
     }
 }
 

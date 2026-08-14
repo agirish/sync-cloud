@@ -284,6 +284,34 @@ import Design
                 "the one visible tab has no name drawn on it")
     }
 
+    /// A lone tab wears no ✕ — clicking it would close the window, since there is no tab left to
+    /// fall back to. The count is what decides it, so the same chip drawn beside a second tab does
+    /// have one.
+    ///
+    /// **The two strips are made to share a layout on purpose.** Both chips are titled "Finance" in
+    /// a wide pane, so the full rung caps them both at the same natural width and the first chip
+    /// occupies the same box in each render — leaving the ✕ as the only thing that can differ
+    /// there. Comparing a one-tab strip against a two-tab one at their own widths compares two
+    /// different boxes, and an ink count inside the active chip's ground saturates either way.
+    @Test func aLoneTabHasNoCloseButton() {
+        let alone = render(items: [item("Finance", active: true)], width: 900)
+        let paired = render(items: [item("Finance", active: true), item("Finance")], width: 900)
+        let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance"], scale: 1).tabWidth
+        #expect(width == PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Finance"],
+                                                   scale: 1).tabWidth,
+                "the fixture's two strips no longer share a chip width — the box below compares nothing")
+
+        let perPoint = alone.size.width > 0 ? CGFloat(alone.pixelsWide) / alone.size.width : 1
+        let closeBox = NSRect(
+            x: (LiquidGlass.cardGutter + width - PaneTabStripLadder.tabPadding
+                - PaneTabStripLadder.closeSide) * perPoint,
+            y: 0,
+            width: PaneTabStripLadder.closeSide * perPoint,
+            height: CGFloat(alone.pixelsHigh))
+        #expect(differingPixels(alone, paired, in: closeBox) > 20,
+                "the lone tab draws a ✕ that would close the window")
+    }
+
     /// An empty strip is not a state the app can reach, but this view is public and every rung
     /// indexes into `items`. Drawing nothing beats trapping inside a pane's body.
     @Test func anEmptyStripDrawsNothingRatherThanTrapping() {

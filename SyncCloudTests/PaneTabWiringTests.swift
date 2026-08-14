@@ -32,6 +32,20 @@ import Sync
         return String(rest[..<end.lowerBound])
     }
 
+    /// One TYPE's body — to its closing brace at column zero.
+    ///
+    /// Separate from `memberBody` because the two close at different indentations, and using the
+    /// member form on a type silently returns the first member instead: `CloseTabCommand`'s slice
+    /// stopped at its static helper and the scan below reported the item as still disabled. A
+    /// scan that reads the wrong region is worse than no scan, so the two are named apart.
+    private static func typeBody(_ declaration: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: declaration),
+                                 "\(declaration) is gone — this scan would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n}\n"), "\(declaration) never closes at column zero")
+        return String(rest[..<end.lowerBound])
+    }
+
     private static func source(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // SyncCloudTests
@@ -48,6 +62,16 @@ import Sync
         #expect(try Self.source("ShortcutCommands.swift").contains("struct TabBarSwitch"),
                 "this is not the shortcuts file")
         #expect(try !Self.source("ContentView.swift").contains("a string that is definitely not in ContentView"))
+
+        // Both slicers, against a member and a type whose contents are known — a helper that
+        // returned the wrong region would make every scan below pass on the wrong text, which is
+        // exactly what `typeBody` was added for.
+        let commands = try Self.source("ShortcutCommands.swift")
+        #expect(try Self.typeBody("struct CloseTabCommand: View {", in: commands).contains("keyboardShortcut"),
+                "the type slice does not reach the item's body")
+        #expect(try Self.memberBody("static func run(_ close: (() -> Void)?", in: commands)
+                    .contains("closeWindow()"),
+                "the member slice does not reach the rule's body")
     }
 
     // MARK: Where the strip is mounted
@@ -137,9 +161,7 @@ import Sync
     /// …and the item disables on it, which is the half a value cannot state.
     @Test func theTabBarItemDisablesWhileTheSwitchIsForced() throws {
         let commands = try Self.source("ShortcutCommands.swift")
-        let item = try #require(commands.range(of: "struct ToggleTabBarCommand: View {"),
-                                "the Tab Bar menu item is gone")
-        let body = String(commands[item.upperBound...].prefix(700))
+        let body = try Self.typeBody("struct ToggleTabBarCommand: View {", in: commands)
         #expect(body.contains("isForced == true"),
                 "the Tab Bar item stays clickable while a second tab is open")
     }
@@ -273,6 +295,59 @@ import Sync
         let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool)", in: sync)
         #expect(!apply.contains("syncPathsFromHistory()") && !apply.contains("refreshSubject"),
                 "applyTab rings the refresh itself — it runs before the provider id is written")
+    }
+
+    // MARK: ⌘W, which replaced File ▸ Close
+
+    /// **⌘W must still close a window that has no tabs.** This item takes the standard Close
+    /// group's place, and the app has three auxiliary `Window` scenes — Keyboard Shortcuts,
+    /// Activity Log, Sync History — none of which publishes a focused value. Disabled on `nil`,
+    /// which is how every other item in that file spells "not available", left ⌘W dead in all
+    /// three.
+    @Test func closeFallsBackToTheWindowWhenNoTabIsPublished() {
+        var closedWindow = false
+        CloseTabCommand.run(nil) { closedWindow = true }
+        #expect(closedWindow, "⌘W does nothing on a window that publishes no tab to close")
+    }
+
+    @Test func closeTakesTheTabWhenThereIsOne() {
+        var closedTab = false
+        var closedWindow = false
+        CloseTabCommand.run({ closedTab = true }) { closedWindow = true }
+        #expect(closedTab)
+        #expect(!closedWindow, "⌘W closed the window as well as the tab")
+    }
+
+    /// The item itself must not be disabled, or the fallback above can never run.
+    @Test func theCloseItemIsNeverDisabled() throws {
+        let body = try Self.typeBody("struct CloseTabCommand: View {",
+                                     in: Self.source("ShortcutCommands.swift"))
+        #expect(!body.contains(".disabled("),
+                "⌘W is disabled when no tab is published — it is also this app's only Close")
+        #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
+    }
+
+    // MARK: The launch restore
+
+    /// **The restore must NOT arm the suppression counter.** It runs inside the provider
+    /// bootstrap, where the id's `onChange` bails on `isBootstrappingProviders` without
+    /// decrementing — so an armed counter strands at one and silently swallows the user's next
+    /// real source switch, leaving that switch's navigation un-reset. `tabAction` arms it because
+    /// it runs later, when the handler is live; these two must not be made to look alike.
+    @Test func theLaunchRestoreDoesNotArmTheSuppressionCounter() throws {
+        let body = try Self.memberBody("func restoreBrowseTabs()",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("leftProviderId = active.providerId"),
+                "the restore no longer applies its tab's source — this check is vacuous")
+        #expect(!body.contains("pendingTabProviderChanges"),
+                "the launch restore arms a counter the bootstrap guard will never decrement")
+    }
+
+    /// The swap moves the lists as well as the panes, so what is saved has to move with them.
+    @Test func swappingThePanesSavesTheStrip() throws {
+        let body = try Self.memberBody("func swapPanesAction()", in: Self.source("ContentView.swift"))
+        #expect(body.contains("saveBrowseTabs(isLeft: true)"),
+                "a swap leaves the saved strip describing the pane that just left")
     }
 
     // MARK: The seam
