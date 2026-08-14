@@ -86,12 +86,30 @@ public struct PaneTabStrip: View {
     }
 
     public var body: some View {
+        // A strip with nothing in it is not a state the app can reach — `PaneTabList` is never
+        // empty — but this view is public and every rung below indexes into `items`. Drawing
+        // nothing beats trapping in a pane's body.
+        if items.isEmpty {
+            EmptyView()
+        } else {
+            stripBody
+        }
+    }
+
+    private var stripBody: some View {
         GeometryReader { geo in
-            // The ladder is offered what is actually free, not the pane's width: a rung chosen
-            // against track the seam controls are sitting on would put a chip under them.
-            let layout = PaneTabStripLadder.layout(available: geo.size.width - leadingInset - trailingInset,
-                                                   titles: items.map(\.title),
-                                                   scale: fontScale)
+            // **The ladder is offered what is actually free**, which is the pane's width less the
+            // strip's own gutters and the track the seam controls sit on — not `geo.size.width`.
+            //
+            // Measured: at the rail's 220pt the two 5pt gutters put the chip rung 10pt over
+            // budget, and since that rung sizes its chip to consume everything left, the overrun
+            // came out of the ONE element that has to survive there — the count of parked tabs was
+            // squeezed to nothing. The wider rungs hid it, because their slack sits in a flexible
+            // spacer that simply absorbed the error.
+            let layout = PaneTabStripLadder.layout(
+                available: geo.size.width - 2 * LiquidGlass.cardGutter - leadingInset - trailingInset,
+                titles: items.map(\.title),
+                scale: fontScale)
             strip(layout)
                 .frame(width: geo.size.width, height: PaneTabStripLadder.stripHeight, alignment: .leading)
         }
@@ -113,7 +131,17 @@ public struct PaneTabStrip: View {
                 activeChipMenu(width: layout.tabWidth)
             }
             if layout.showsOverflow {
-                overflowMenu(hidden: hiddenItems(layout))
+                switch layout.rung {
+                case .full, .compact:
+                    // The ONLY way to reach a folded-away tab, so it is a menu.
+                    overflowMenu(hidden: hiddenItems(layout))
+                case .chip:
+                    // A count, not a second menu. The active chip beside it already lists every
+                    // tab — two controls that open the same list, 30pt apart, is one more than the
+                    // rail has room to explain, and the roadmap's chip rung asks for "a count for
+                    // the rest" rather than a second switcher.
+                    overflowCount(layout.overflowCount)
+                }
             }
             // The empty stretch, double-clickable — and it needs the `contentShape` to be hit at
             // all, since an `HStack`'s spacer paints nothing.
@@ -241,19 +269,37 @@ public struct PaneTabStrip: View {
                     .scaledFont(PaneTabStripLadder.titleFont)
                     .truncationMode(.middle)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .scaledFont(.system(size: 9, weight: .semibold))
             }
             .padding(.horizontal, PaneTabStripLadder.tabPadding)
-            .frame(width: max(0, width), height: PaneTabStripLadder.tabHeight)
         }
         .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        // **The system's indicator, and it has to be.** A `chevron.down` drawn in the label here
+        // renders as nothing: the borderless menu style lays its label out itself and dropped the
+        // trailing image — seen in a render, with the chip ending flush after its title and no
+        // affordance at all on the one rung whose whole job is to say "there are others". Rather
+        // than fight the chrome from outside (the house rule, and it loses here), the indicator is
+        // the system's. `theChipRungWearsAChevron` renders it back.
+        .menuIndicator(.visible)
+        // **A cap, not a fill.** Sized to exactly the track left over, this row has zero slack, and
+        // the one compressible child — the count of parked tabs — is what gave way: it rendered
+        // clipped, then vanished. The chip takes what its name needs up to the cap and the spacer
+        // absorbs the rest, so the count always has its own room.
+        .frame(maxWidth: max(0, width))
+        .frame(height: PaneTabStripLadder.tabHeight)
+        .fixedSize(horizontal: true, vertical: false)
         .background(alignment: .bottom) { activeGround(active) }
         .help(active.fullPath)
         .contextMenu { menu(for: active) }
+    }
+
+    /// The chip rung's count of parked tabs — inert on purpose; the switcher is the chip's chevron.
+    private func overflowCount(_ count: Int) -> some View {
+        Text("\(count)")
+            .scaledFont(PaneTabStripLadder.controlFont)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .frame(height: PaneTabStripLadder.tabHeight)
+            .help("\(count) more \(count == 1 ? "tab" : "tabs") — the name above opens them")
     }
 
     private func overflowMenu(hidden: [Item]) -> some View {

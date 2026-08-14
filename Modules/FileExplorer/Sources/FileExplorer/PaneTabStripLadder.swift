@@ -78,7 +78,9 @@ public enum PaneTabStripLadder {
     /// are folded behind the count.
     public struct Layout: Equatable, Sendable {
         public let rung: Rung
-        /// Width of each visible chip. In `.chip` this is the active tab's menu button.
+        /// Width of each visible chip. On `.full` and `.compact` it is what each chip is drawn at;
+        /// on `.chip` it is a **cap** — the chip takes what its name needs up to this, and the
+        /// strip's spacer absorbs the rest (see `PaneTabStrip.activeChipMenu`).
         public let tabWidth: CGFloat
         public let visibleCount: Int
         public let overflowCount: Int
@@ -109,24 +111,45 @@ public enum PaneTabStripLadder {
                 chromeWidth + LabelMetrics.width(of: title, font: titleFont, scale: scale)))
     }
 
-    /// The trailing ＋.
-    public static func plusWidth(scale: CGFloat) -> CGFloat { plusSide + tabGap }
+    /// **Every width here is an element's own, with no gap folded into it**, and the gaps are
+    /// counted once, from the number of children the `HStack` actually has.
+    ///
+    /// The first cut of this file embedded "and the gap before me" in each width, which double-
+    /// counted in one place and under-counted in another — and the under-count landed on the chip
+    /// rung, where the leading element consumes everything left, so the strip's count of parked
+    /// tabs rendered clipped. Counting children is the form that cannot drift: the strip's row is
+    /// `[tabs…] [overflow?] [spacer] [＋]`, and the spacer is a real child (it is what a double-
+    /// click opens a tab on) so it takes a gap on both sides even at zero width.
+    static func gaps(children: Int) -> CGFloat { CGFloat(max(0, children - 1)) * tabGap }
 
-    /// The count chevron that folds the surplus — "3 ⌄", so its width moves with both the digits
-    /// and the font.
+    /// The trailing ＋, on its own.
+    public static func plusWidth(scale: CGFloat) -> CGFloat { plusSide }
+
+    /// The chevron menu that folds the surplus away — "3 ⌄", so its width moves with the digits and
+    /// the font. The `.full` and `.compact` rungs' overflow, where it is the only way to reach a
+    /// folded-away tab.
     public static func overflowWidth(hidden: Int, scale: CGFloat) -> CGFloat {
-        LabelMetrics.width(of: "\(hidden)", font: controlFont, scale: scale)
+        countWidth(hidden: hidden, scale: scale)
             + 3
             + LabelMetrics.symbolWidth("chevron.down", font: controlFont, scale: scale)
-            + 2 * 6
-            + tabGap
+    }
+
+    /// The chip rung's plain count — a number rather than a second switcher, so no chevron.
+    public static func countWidth(hidden: Int, scale: CGFloat) -> CGFloat {
+        LabelMetrics.width(of: "\(hidden)", font: controlFont, scale: scale) + 2 * 6
     }
 
     /// The widest strip that still has to fall back to `.chip`: below two tabs at the floor plus a
     /// count and a ＋, "one tab and a chevron" is strictly worse than naming the active tab and
     /// menuing the rest, which is what `.chip` does.
+    ///
+    /// Priced at a two-digit count — the widest a real strip reaches — so the threshold does not
+    /// move as tabs are opened.
     public static func chipCeiling(scale: CGFloat) -> CGFloat {
-        2 * floorWidth(scale: scale) + 2 * tabGap + overflowWidth(hidden: 9, scale: scale) + plusWidth(scale: scale)
+        2 * floorWidth(scale: scale)
+            + overflowWidth(hidden: 99, scale: scale)
+            + plusWidth(scale: scale)
+            + gaps(children: 4)
     }
 
     /// The rung for an offered width.
@@ -137,23 +160,25 @@ public enum PaneTabStripLadder {
     /// `ViewThatFits` here would BUILD every rung to measure it, on every render of a pane.
     public static func layout(available: CGFloat, titles: [String], scale: CGFloat) -> Layout {
         let count = titles.count
-        guard count > 1 else {
-            // One tab draws no strip at all (Finder's rule), so there is nothing to lay out. The
-            // caller checks `showsStrip`; this is the answer that cannot mislead if it does not.
-            return Layout(rung: .full, tabWidth: 0, visibleCount: count, overflowCount: 0)
+        guard count > 0 else {
+            return Layout(rung: .full, tabWidth: 0, visibleCount: 0, overflowCount: 0)
         }
+        // **One tab is laid out like any other.** It is usually not drawn at all — the pane checks
+        // `PaneTabList.showsStrip` first, Finder's rule — but View ▸ Tab Bar keeps a one-tab strip
+        // on screen deliberately, and a rung that answered "zero wide" for that case rendered a
+        // strip holding nothing but its ＋. Whether to draw a strip is the caller's question; how
+        // wide its chips are is this one's, and the two were tangled here.
 
         let floor = floorWidth(scale: scale)
         let plus = plusWidth(scale: scale)
 
         if available < chipCeiling(scale: scale) {
-            let chipWidth = max(0, available - plus - overflowWidth(hidden: count - 1, scale: scale))
-            return Layout(rung: .chip, tabWidth: min(maxTabWidth, chipWidth),
-                          visibleCount: 1, overflowCount: count - 1)
+            return chipRung(available: available, count: count, scale: scale)
         }
 
         // Every tab visible, sharing the track evenly and capped by what the longest name needs.
-        let share = (available - plus - CGFloat(count) * tabGap) / CGFloat(count)
+        // Children: the tabs, the spacer, the ＋.
+        let share = (available - plus - gaps(children: count + 2)) / CGFloat(count)
         if share >= floor {
             let needed = titles.map { naturalWidth(title: $0, scale: scale) }.max() ?? floor
             return Layout(rung: .full, tabWidth: min(share, needed),
@@ -169,19 +194,28 @@ public enum PaneTabStripLadder {
         var visible = max(1, Int((available - plus) / (floor + tabGap)))
         while visible >= 1 {
             let hidden = count - visible
-            let used = CGFloat(visible) * (floor + tabGap)
+            // Children: the visible tabs, the overflow (when there is one), the spacer, the ＋.
+            let used = CGFloat(visible) * floor
                 + (hidden > 0 ? overflowWidth(hidden: hidden, scale: scale) : 0)
                 + plus
+                + gaps(children: visible + (hidden > 0 ? 1 : 0) + 2)
             if used <= available { break }
             visible -= 1
         }
-        guard visible >= 1 else {
-            let chipWidth = max(0, available - plus - overflowWidth(hidden: count - 1, scale: scale))
-            return Layout(rung: .chip, tabWidth: min(maxTabWidth, chipWidth),
-                          visibleCount: 1, overflowCount: count - 1)
-        }
+        guard visible >= 1 else { return chipRung(available: available, count: count, scale: scale) }
         return Layout(rung: .compact, tabWidth: floor,
                       visibleCount: visible, overflowCount: count - visible)
+    }
+
+    /// The rail's rung: the active tab named, a count for the rest, and the ＋.
+    private static func chipRung(available: CGFloat, count: Int, scale: CGFloat) -> Layout {
+        // Children: the chip, the count, the spacer, the ＋.
+        let chipWidth = available
+            - plusWidth(scale: scale)
+            - countWidth(hidden: count - 1, scale: scale)
+            - gaps(children: 4)
+        return Layout(rung: .chip, tabWidth: max(0, min(maxTabWidth, chipWidth)),
+                      visibleCount: 1, overflowCount: count - 1)
     }
 
     /// Everything the strip will draw, in points — what a "does it overflow" test measures, and the
@@ -189,13 +223,16 @@ public enum PaneTabStripLadder {
     public static func drawnWidth(_ layout: Layout, scale: CGFloat) -> CGFloat {
         switch layout.rung {
         case .full, .compact:
-            return CGFloat(layout.visibleCount) * (layout.tabWidth + tabGap)
+            return CGFloat(layout.visibleCount) * layout.tabWidth
                 + (layout.showsOverflow ? overflowWidth(hidden: layout.overflowCount, scale: scale) : 0)
                 + plusWidth(scale: scale)
+                + gaps(children: layout.visibleCount + (layout.showsOverflow ? 1 : 0) + 2)
         case .chip:
+            // The chip rung draws a plain COUNT, not the chevron menu — priced as what it draws.
             return layout.tabWidth
-                + (layout.showsOverflow ? overflowWidth(hidden: layout.overflowCount, scale: scale) : 0)
+                + (layout.showsOverflow ? countWidth(hidden: layout.overflowCount, scale: scale) : 0)
                 + plusWidth(scale: scale)
+                + gaps(children: 4)
         }
     }
 }

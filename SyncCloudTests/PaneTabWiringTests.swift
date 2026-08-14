@@ -15,6 +15,23 @@ import Sync
 @MainActor
 @Suite struct PaneTabWiringTests {
 
+    /// One member's body: from its declaration to the first line that is a closing brace at
+    /// member indentation.
+    ///
+    /// **Not a fixed character window.** A window is what `QuickLookOriginTests` uses, and this
+    /// change is what showed the cost: one more argument on an unrelated call site pushed the line
+    /// it looks for out of range, and a *tab* handler failed a *Quick Look* test. Slicing to the
+    /// member's own end cannot go stale as the member grows, and a member that outgrows its own
+    /// closing brace is not a thing.
+    private static func memberBody(_ declaration: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: declaration),
+                                 "\(declaration) is gone — this scan would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"),
+                               "\(declaration) never closes at member indentation")
+        return String(rest[..<end.lowerBound])
+    }
+
     private static func source(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // SyncCloudTests
@@ -59,6 +76,24 @@ import Sync
                 "the strip is not a sibling inside the column's VStack")
     }
 
+    /// **Drawn only when there is something to draw.** At one tab the strip must occupy no space
+    /// at all — an empty 34pt row above every pane is what an install that never opens a second tab
+    /// would otherwise get, and the whole "unchanged unless you use it" claim rests on this `if`.
+    @Test func theStripIsGatedOnHavingTabsOrTheSwitch() throws {
+        let content = try Self.source("ContentView.swift")
+        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
+        let body = String(content[column.upperBound...].prefix(20_000))
+        let gate = try #require(body.range(of: "if paneShowsTabStrip(isLeft: isLeft) {"),
+                                "the strip is built unconditionally — one tab now costs a 34pt row")
+        let strip = try #require(body.range(of: "PaneTabStrip("))
+        #expect(gate.lowerBound < strip.lowerBound, "the gate does not guard the strip")
+
+        let rule = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(rule.contains("showsStrip"), "the gate no longer asks the tab list")
+        #expect(rule.contains("tabBarVisible"), "View ▸ Tab Bar no longer shows the strip")
+    }
+
     /// One call site, so Compare's two panes and the Organize/Storage rail get the strip for free.
     /// A second would be the plumbing this design exists to avoid.
     @Test func thereIsExactlyOnePlaceThatBuildsAStrip() throws {
@@ -94,9 +129,7 @@ import Sync
     /// The call-site half: the resolver is what the focused value actually publishes.
     @Test func theTabBarSwitchIsResolvedThroughTheRule() throws {
         let commands = try Self.source("ShortcutCommands.swift")
-        let resolver = try #require(commands.range(of: "var shortcutTabBar: TabBarSwitch {"),
-                                    "the focused value no longer publishes a TabBarSwitch")
-        let body = String(commands[resolver.upperBound...].prefix(400))
+        let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {", in: commands)
         #expect(body.contains("TabBarSwitch.resolve("),
                 "shortcutTabBar builds the switch by hand — the tested rule is unused")
     }
@@ -131,12 +164,115 @@ import Sync
     /// when the pane has a second tab to cycle to.
     @Test func browseResolvesTheChordToATabCycle() throws {
         let search = try Self.source("ContentView+PaneSearch.swift")
-        let action = try #require(search.range(of: "var switchPaneFocusAction: PaneFocusSwitch? {"),
-                                  "the ⌃⇥ resolver is gone")
-        let body = String(search[action.upperBound...].prefix(700))
+        let body = try Self.memberBody("var switchPaneFocusAction: PaneFocusSwitch? {", in: search)
         #expect(body.contains(".nextTab"), "⌃⇥ never cycles tabs — the Browse branch is missing")
         #expect(body.contains("paneTabs(isLeft: true).count > 1"),
                 "⌃⇥ offers a tab cycle with only one tab to cycle")
+    }
+
+    // MARK: What the chips say
+
+    private func list(_ paths: [String], selected: Int, providers: [String] = []) -> PaneTabList {
+        let tabs = paths.enumerated().map { index, path in
+            PaneTab(providerId: index < providers.count ? providers[index] : "iCloud", relativePath: path)
+        }
+        return PaneTabList(tabs: tabs, selectedIndex: selected)
+    }
+
+    private let iCloud = PaneTabChips.Source(displayName: "iCloud Drive",
+                                             markImageName: "icloud", root: "~/Documents")
+
+    /// **The active chip reads the LIVE pane; every other chip reads its own parked snapshot.**
+    /// The active entry in the list is stale by construction, so a strip drawn entirely from the
+    /// list is correct when you arrive and wrong one click later.
+    @Test func theActiveChipFollowsThePaneAndTheParkedOnesDoNot() {
+        let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
+                                       liveProviderId: "Dropbox",
+                                       livePath: "Finance/US/2024",
+                                       source: { _ in self.iCloud })
+        #expect(items[0].title == "2024", "the active chip is naming its parked snapshot, not the pane")
+        #expect(items[0].isActive)
+        #expect(items[1].title == "Photos", "a parked chip moved with the pane")
+        #expect(!items[1].isActive)
+    }
+
+    /// A tab at a source root has no folder to name.
+    @Test func aChipAtTheRootWearsItsSourcesName() {
+        let items = PaneTabChips.items(list(["", "Photos"], selected: 0),
+                                       liveProviderId: "iCloud", livePath: "",
+                                       source: { _ in self.iCloud })
+        #expect(items[0].title == "iCloud Drive")
+    }
+
+    /// A source removed mid-session: the chip still says which source it meant rather than going
+    /// blank, and wears the folder mark `ProviderLogo` draws for a source with no brand.
+    @Test func aChipWhoseSourceIsGoneStillNamesIt() {
+        let items = PaneTabChips.items(list(["", "Photos"], selected: 0, providers: ["iCloud", "Dropbox"]),
+                                       liveProviderId: "iCloud", livePath: "",
+                                       source: { _ in nil })
+        #expect(items[0].title == "iCloud")
+        #expect(items[0].markImageName == "folder.fill")
+    }
+
+    /// **The tooltip's path is expanded.** A source's stored root may carry a tilde; the chip's
+    /// help tag is the strip's answer to "which Documents is this?", and `~/Documents/Finance`
+    /// answers it worse than the real path does.
+    @Test func theChipsPathIsExpanded() {
+        let items = PaneTabChips.items(list(["Finance"], selected: 0),
+                                       liveProviderId: "iCloud", livePath: "Finance",
+                                       source: { _ in self.iCloud })
+        #expect(!items[0].fullPath.hasPrefix("~"), "the chip's path still carries a tilde")
+        #expect(items[0].fullPath.hasSuffix("/Documents/Finance"))
+    }
+
+    // MARK: Whether a switch changes the source
+
+    @Test func aTabOnTheSameSourceWritesNoProviderId() {
+        #expect(PaneTabProviderSwitch.decide(arrived: "iCloud", current: "iCloud",
+                                             isAvailable: { _ in true }) == .keep)
+    }
+
+    @Test func aTabOnAnotherAvailableSourceIsAdopted() {
+        #expect(PaneTabProviderSwitch.decide(arrived: "Dropbox", current: "iCloud",
+                                             isAvailable: { _ in true }) == .adopt("Dropbox"))
+    }
+
+    /// The invisible one: a tab whose source has been removed must not have its folder rendered
+    /// under whatever source the pane happens to be showing.
+    @Test func aTabOnASourceThatIsGoneIsRefusedRatherThanReinterpreted() {
+        #expect(PaneTabProviderSwitch.decide(arrived: "Dropbox", current: "iCloud",
+                                             isAvailable: { _ in false }) == .unavailable("Dropbox"))
+    }
+
+    /// The call site: adopting is what arms the suppression counter, and without that the provider
+    /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
+    @Test func adoptingASourceArmsTheSuppressionCounter() throws {
+        let body = try Self.memberBody("private func tabAction(isLeft: Bool",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let adopt = try #require(body.range(of: "case .adopt(let id):"),
+                                 "the provider decision is no longer handled by case")
+        #expect(String(body[adopt.upperBound...]).contains("pendingTabProviderChanges += 1"),
+                "adopting a source does not suppress the navigation reset")
+    }
+
+    /// …and every arrival reloads. `applyTab` deliberately does not ring `refreshSubject` — it
+    /// cannot, because the provider id is written after it returns — so the pane would keep showing
+    /// the previous tab's tree if this were dropped.
+    @Test func everyArrivalDrivesOneReload() throws {
+        let body = try Self.memberBody("private func tabAction(isLeft: Bool",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("refreshForTabSwitch()"),
+                "a tab switch never reloads — the pane keeps the previous tab's tree")
+        // The other half of the same rule, one layer down: `applyTab` must NOT ring the refresh
+        // itself, or it fires before the provider id is written and loads the new tab's path under
+        // the old tab's root.
+        let sync = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift"),
+                              encoding: .utf8)
+        let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool)", in: sync)
+        #expect(!apply.contains("syncPathsFromHistory()") && !apply.contains("refreshSubject"),
+                "applyTab rings the refresh itself — it runs before the provider id is written")
     }
 
     // MARK: The seam
@@ -168,9 +304,7 @@ import Sync
     /// The call-site half: the pane column asks the rule rather than spelling a number.
     @Test func thePaneColumnReservesTheSeamThroughTheRule() throws {
         let tabs = try Self.source("ContentView+PaneTabs.swift")
-        let resolver = try #require(tabs.range(of: "func seamInset(isLeft: Bool, leading: Bool)"),
-                                    "the seam reserve is gone")
-        let body = String(tabs[resolver.upperBound...].prefix(300))
+        let body = try Self.memberBody("func seamInset(isLeft: Bool, leading: Bool)", in: tabs)
         #expect(body.contains("PaneTabSeam.inset("), "the seam reserve is spelled by hand")
         let content = try Self.source("ContentView.swift")
         #expect(content.contains("leadingInset: seamInset(isLeft: isLeft, leading: true)"),

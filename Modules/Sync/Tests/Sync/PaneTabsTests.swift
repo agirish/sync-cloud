@@ -175,6 +175,29 @@ import Foundation
         #expect(PaneTab(providerId: "iCloud").displayName(providerName: "iCloud Drive") == "iCloud Drive")
     }
 
+    /// **The two positions a tab carries have to agree.** `applyTab` publishes the pane's path out
+    /// of the tab's HISTORY, so a constructor that seeded a history disagreeing with `relativePath`
+    /// would land the pane somewhere the chip does not name. Every way of making a tab is checked
+    /// here, because the invariant is what lets `applyTab` pick either one.
+    @Test func everyConstructedTabHasAHistoryThatAgreesWithItsPath() {
+        let plain = PaneTab(providerId: "iCloud", relativePath: "Finance/US")
+        #expect(plain.history.current == plain.relativePath)
+
+        let root = PaneTab(providerId: "iCloud")
+        #expect(root.history.current == root.relativePath)
+
+        var list = PaneTabList(single: plain)
+        list.duplicate(id: plain.id)
+        #expect(list.active.history.current == list.active.relativePath, "a duplicate disagrees with itself")
+
+        list.captureActive(PaneTab(providerId: "iCloud", relativePath: "Photos"))
+        #expect(list.active.history.current == list.active.relativePath, "a capture disagrees with itself")
+
+        _ = list.close(at: 1)
+        let reopened = list.reopenLastClosed()
+        #expect(reopened?.history.current == reopened?.relativePath, "a reopened tab disagrees with itself")
+    }
+
     /// A tab seeded at a folder must be able to walk back OUT of it, or Back is dead in a restored
     /// tab and the pane has a location with no way home.
     @Test func aSeededTabCanGoBackToItsRoot() {
@@ -257,6 +280,34 @@ import Foundation
         #expect(restored?.active.providerId == "iCloud")
         // The stored index pointed at entry 1, which is entry 0 of what survived.
         #expect(restored?.selectedIndex == 0)
+    }
+
+    /// **The selection follows its own entry, not its index.** Dropping an entry ahead of the
+    /// selected one shifts it down; a clamp would land on a different folder and say nothing.
+    @Test func theSelectionFollowsItsOwnTabPastDroppedOnes() {
+        let entries = [PaneTabsStore.Entry(providerId: "Gone", relativePath: "A"),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "B"),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "C"),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "D")]
+        let restored = PaneTabsStore.restore(
+            entries: entries, selected: 2,
+            isKnownProvider: { $0 == "iCloud" },
+            folderExists: { _, _ in true })
+        #expect(restored?.tabs.map(\.relativePath) == ["B", "C", "D"])
+        #expect(restored?.active.relativePath == "C", "the restored strip opened on the wrong tab")
+    }
+
+    /// And when the selected entry is itself dropped, the nearest survivor takes over rather than
+    /// the strip refusing to restore.
+    @Test func aDroppedSelectionFallsBackRatherThanLosingTheStrip() {
+        let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "A"),
+                       PaneTabsStore.Entry(providerId: "Gone", relativePath: "B")]
+        let restored = PaneTabsStore.restore(
+            entries: entries, selected: 1,
+            isKnownProvider: { $0 == "iCloud" },
+            folderExists: { _, _ in true })
+        #expect(restored?.count == 1)
+        #expect(restored?.active.relativePath == "A")
     }
 
     @Test func everySourceGoneRestoresNothingAtAll() {

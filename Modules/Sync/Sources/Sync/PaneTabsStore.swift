@@ -77,15 +77,22 @@ public enum PaneTabsStore {
                                selected: Int,
                                isKnownProvider: (String) -> Bool,
                                folderExists: (_ providerId: String, _ relativePath: String) -> Bool) -> PaneTabList? {
-        let restored: [PaneTab] = entries.compactMap { entry in
-            guard isKnownProvider(entry.providerId) else { return nil }
+        var restored: [PaneTab] = []
+        // **Where the stored selection ends up after entries are dropped.** Clamping the stored
+        // index into the shortened list is right only by accident: drop entry 0 of four with entry
+        // 2 selected and a clamp lands on the wrong tab, silently opening the pane somewhere the
+        // user did not leave it. Counting the survivors ahead of it is the answer that holds.
+        var selectedAfterDrops: Int?
+        for (index, entry) in entries.enumerated() {
+            guard isKnownProvider(entry.providerId) else { continue }
             let path = folderExists(entry.providerId, entry.relativePath) ? entry.relativePath : ""
-            return PaneTab(providerId: entry.providerId, relativePath: path)
+            if index == selected { selectedAfterDrops = restored.count }
+            restored.append(PaneTab(providerId: entry.providerId, relativePath: path))
         }
         guard !restored.isEmpty else { return nil }
-        // The selected index refers to the stored list; after dropping entries it can point past the
-        // end, and the closest surviving tab is a better answer than tab 0.
-        let index = min(selected, restored.count - 1)
+        // The selected entry itself may be one of the dropped ones; the nearest survivor is a
+        // better answer than tab 0, and both are better than refusing the whole strip.
+        let index = selectedAfterDrops ?? min(selected, restored.count - 1)
         return PaneTabList(tabs: restored, selectedIndex: index)
     }
 }

@@ -240,6 +240,57 @@ import Design
                 "the chip rung drew no name for the active tab")
     }
 
+    /// The chip rung draws the count of parked tabs — the number is the only thing on that rung
+    /// that says the strip holds more than the one folder it names.
+    @Test func theChipRungDrawsHowManyTabsAreParked() {
+        let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
+                    item("Medical"), item("Finance")]
+        let two = [item("Immigration", active: true), item("Photos")]
+        #expect(PaneTabStripLadder.layout(available: 220, titles: five.map(\.title), scale: 1).rung == .chip)
+        #expect(PaneTabStripLadder.layout(available: 220, titles: two.map(\.title), scale: 1).rung == .chip)
+
+        // "4" against "1": same rung, same active chip, different count — so the pixels that differ
+        // are the count itself. An ink count could not tell these apart at all.
+        let many = render(items: five, width: 220)
+        let few = render(items: two, width: 220)
+        // The count's own band: past the chip (which ends around half way on this fixture) and
+        // short of the ＋. Measured off the render rather than guessed — the first cut of this box
+        // started at 55% and sat just past the digit, which reported three differing pixels and
+        // read exactly like "the count is not drawn".
+        let countBox = NSRect(x: CGFloat(many.pixelsWide) * 0.52, y: 0,
+                              width: CGFloat(many.pixelsWide) * 0.20, height: CGFloat(many.pixelsHigh))
+        #expect(differingPixels(many, few, in: countBox) > 20,
+                "the chip rung draws no count — nothing says the other tabs exist")
+        // And it is not merely a smudge: a clipped digit was the state this rung shipped in for
+        // three renders, so the count's own ink is compared against the empty band beside it.
+        let emptyBand = NSRect(x: CGFloat(many.pixelsWide) * 0.75, y: 0,
+                               width: CGFloat(many.pixelsWide) * 0.10, height: CGFloat(many.pixelsHigh))
+        #expect(inked(many, in: countBox) > inked(many, in: emptyBand) + 40,
+                "the chip rung's count is clipped to almost nothing")
+    }
+
+    /// **View ▸ Tab Bar at one tab draws a real chip, not a bare ＋.** The ladder used to answer
+    /// "zero wide" for a one-tab strip on the reasoning that one tab draws no strip — true of the
+    /// PANE's decision, and false of this one, which is the state that switch exists to produce.
+    @Test func aOneTabStripDrawsItsTab() {
+        let rep = render(items: [item("Finance", active: true)], width: 620)
+        let named = render(items: [item("Finance", active: true)], width: 620)
+        let blank = render(items: [item("", active: true)], width: 620)
+        #expect(inked(rep) > 200, "a one-tab strip drew almost nothing")
+        let box = titleBox(of: named,
+                           tabWidth: PaneTabStripLadder.layout(available: 620 - 10,
+                                                               titles: ["Finance"], scale: 1).tabWidth)
+        #expect(differingPixels(named, blank, in: box) > 100,
+                "the one visible tab has no name drawn on it")
+    }
+
+    /// An empty strip is not a state the app can reach, but this view is public and every rung
+    /// indexes into `items`. Drawing nothing beats trapping inside a pane's body.
+    @Test func anEmptyStripDrawsNothingRatherThanTrapping() {
+        let rep = render(items: [], width: 620)
+        #expect(inked(rep) < 50, "an empty strip painted something")
+    }
+
     /// The strip is one 34pt row, at every rung — it shares the pane's vertical budget with a
     /// header pinned at 81pt, and a strip that grew a second row would push the list down.
     @Test func theStripIsOneRowAtEveryRung() {

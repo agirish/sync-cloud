@@ -29,13 +29,21 @@ extension FileSyncManager {
                        searchIsExpanded: search.isExpanded)
     }
 
-    /// Writes a parked tab over the pane and asks for the reload it implies.
+    /// Writes a parked tab over the pane. **Does not reload — the caller owns that.**
     ///
     /// The comparison state goes first and unconditionally: the trees, the differences and the
     /// verification results were built for the folder pair this pane is leaving, and a tab switch
     /// that left them on screen would show one pane's new contents against the other pane's answer
     /// to the old question. This is `resetNavigation`'s opening, minus the part that resets the
     /// navigation — here the navigation is precisely what is being restored.
+    ///
+    /// **Why the refresh is the caller's and not `refreshSubject`'s.** A tab can carry a different
+    /// provider, and the id lives in the host's `@AppStorage` — written *after* this returns. The
+    /// subject is delivered synchronously, so ringing it here starts a load of the new tab's PATH
+    /// under the old tab's ROOT: a walk of a folder that usually does not exist there, superseded a
+    /// beat later by the real one. Harmless in the end and wrong in the middle, which is the kind of
+    /// thing that shows up once as a flash of the wrong tree. The host writes the id, then reloads
+    /// once — `ContentView.tabAction`.
     @MainActor public func applyTab(_ tab: PaneTab, isLeft: Bool) {
         invalidateComparisonState()
         clearSessionIgnoredPaths()
@@ -44,15 +52,17 @@ extension FileSyncManager {
             leftHistory = tab.history
             leftBrowsePath = tab.browsePath
             selectedLeftPaths = tab.selection
+            // From the tab's own history rather than its `relativePath`, which is the same value by
+            // construction — every initializer seeds the history from the path, and a capture takes
+            // both off a pane `syncPathsFromHistory` has already put in step. Taking it from the
+            // history is what keeps Back working in the tab that arrives.
+            if leftRelativePath != tab.history.current { leftRelativePath = tab.history.current }
         } else {
             rightHistory = tab.history
             rightBrowsePath = tab.browsePath
             selectedRightPaths = tab.selection
+            if rightRelativePath != tab.history.current { rightRelativePath = tab.history.current }
         }
-        // Publishes the tab's path out of its own history and rings the refresh — the same door
-        // `focusOn` and `goBack` leave through, so a tab switch reloads by exactly the route every
-        // other navigation does.
-        syncPathsFromHistory()
     }
 
     // MARK: - The verbs

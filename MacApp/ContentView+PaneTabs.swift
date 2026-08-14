@@ -27,30 +27,19 @@ extension ContentView {
 
     // MARK: - What the strip renders
 
-    /// This pane's chips. Resolved per render off the manager's list plus the settings' providers —
-    /// the strip itself never sees either.
+    /// This pane's chips, through `PaneTabChips` — the rule is over there so it can be tested;
+    /// this half is only the lookup of who each tab's provider is.
     func paneTabItems(isLeft: Bool) -> [PaneTabStrip.Item] {
-        let list = syncManager.paneTabs(isLeft: isLeft)
-        let liveProviderId = isLeft ? leftProviderId : rightProviderId
-        return list.tabs.enumerated().map { index, tab in
-            let isActive = index == list.selectedIndex
-            // **The active chip reads the LIVE pane, not its own stored copy.** The active entry is
-            // a snapshot from when the tab was last parked (see `PaneTab`), so a chip drawn from it
-            // would keep naming the folder you arrived in while the pane walked on.
-            let providerId = isActive ? liveProviderId : tab.providerId
-            let provider = settings.availableProviders.first { $0.id == providerId }
-            let path = isActive ? syncManager.combinedRelativePath(isLeft: isLeft)
-                                : tab.combinedRelativePath
-            let name = path.isEmpty ? (provider?.displayName ?? providerId)
-                                    : (path as NSString).lastPathComponent
-            let root = settings.path(for: providerId)
-            return PaneTabStrip.Item(
-                id: tab.id,
-                title: name,
-                markImageName: provider?.imageName ?? "folder.fill",
-                isActive: isActive,
-                fullPath: path.isEmpty ? root : root + "/" + path)
-        }
+        PaneTabChips.items(
+            syncManager.paneTabs(isLeft: isLeft),
+            liveProviderId: isLeft ? leftProviderId : rightProviderId,
+            livePath: syncManager.combinedRelativePath(isLeft: isLeft),
+            source: { id in
+                guard let provider = settings.availableProviders.first(where: { $0.id == id }) else { return nil }
+                return PaneTabChips.Source(displayName: provider.displayName,
+                                           markImageName: provider.imageName,
+                                           root: provider.path)
+            })
     }
 
     /// Whether this pane draws a strip at all: more than one tab, or the Tab Bar switch is on.
@@ -90,14 +79,24 @@ extension ContentView {
         paneSearchState(isLeft: isLeft).wrappedValue = PaneSearchFieldState(
             query: arrived.searchQuery, isExpanded: arrived.searchIsExpanded)
 
-        let currentProviderId = isLeft ? leftProviderId : rightProviderId
-        if arrived.providerId != currentProviderId,
-           settings.availableProviders.contains(where: { $0.id == arrived.providerId }) {
+        switch PaneTabProviderSwitch.decide(
+            arrived: arrived.providerId,
+            current: isLeft ? leftProviderId : rightProviderId,
+            isAvailable: { id in settings.availableProviders.contains { $0.id == id } }) {
+        case .keep:
+            break
+        case .adopt(let id):
             // One suppressed change, then this method drives the single reload — exactly the shape
             // `swapPanesAction` uses, and on its OWN counter: two features sharing one would have a
             // swap eat a tab switch's suppression and reset the navigation it just restored.
             pendingTabProviderChanges += 1
-            if isLeft { leftProviderId = arrived.providerId } else { rightProviderId = arrived.providerId }
+            if isLeft { leftProviderId = id } else { rightProviderId = id }
+        case .unavailable(let id):
+            // The tab names a source that has since been removed. The pane stays on the source it
+            // is showing rather than silently rendering this tab's folder under someone else's
+            // root — and it says so, because a tab that quietly means something different from
+            // what its chip claims is worse than one that fails loudly.
+            Logger.shared.warning("Tab points at source “\(id)”, which is no longer available — the pane stayed on its current source")
         }
         saveBrowseTabs(isLeft: isLeft)
         refreshForTabSwitch()
@@ -126,10 +125,12 @@ extension ContentView {
     func openNewTabHere(isLeft: Bool) {
         let providerId = isLeft ? leftProviderId : rightProviderId
         let here = syncManager.combinedRelativePath(isLeft: isLeft)
-        Logger.shared.info("User opened a new tab at “\(here.isEmpty ? "the source root" : here)”")
         tabAction(isLeft: isLeft) {
-            syncManager.openTab(PaneTab(providerId: providerId, relativePath: here),
-                                isLeft: isLeft, currentProviderId: providerId)
+            // Logged from inside, so a refused action (the bootstrap guard) leaves no line claiming
+            // it happened — he audits this log.
+            Logger.shared.info("User opened a new tab at “\(here.isEmpty ? "the source root" : here)”")
+            return syncManager.openTab(PaneTab(providerId: providerId, relativePath: here),
+                                       isLeft: isLeft, currentProviderId: providerId)
         }
     }
 
@@ -137,7 +138,11 @@ extension ContentView {
     /// route, and the only entry point that opens the new tab somewhere *different*.
     func openInNewTab(absolutePath: String, isLeft: Bool) {
         let providerId = isLeft ? leftProviderId : rightProviderId
-        let root = settings.path(for: providerId)
+        // **Expanded.** A source's stored path may be written with a tilde, while a row's id is
+        // always absolute — `relativize` compares them as strings, so an unexpanded root matches
+        // nothing and this whole entry point becomes a silent no-op. `PaneLogic.fullPath` and
+        // `PaneLogic.paneFocusRestores` each expand for the same reason.
+        let root = (settings.path(for: providerId) as NSString).expandingTildeInPath
         guard let relative = PathBoundary.relativize(absolutePath, under: root) else {
             // A folder outside this pane's root has no tab to be opened as: the strip is a list of
             // locations under one source, and inventing one here would name a path the pane could
@@ -145,10 +150,10 @@ extension ContentView {
             Logger.shared.warning("Ignored Open in New Tab for a path outside the pane's source: \(absolutePath)")
             return
         }
-        Logger.shared.info("User opened “\(relative)” in a new tab")
         tabAction(isLeft: isLeft) {
-            syncManager.openTab(PaneTab(providerId: providerId, relativePath: relative),
-                                isLeft: isLeft, currentProviderId: providerId)
+            Logger.shared.info("User opened “\(relative)” in a new tab")
+            return syncManager.openTab(PaneTab(providerId: providerId, relativePath: relative),
+                                       isLeft: isLeft, currentProviderId: providerId)
         }
     }
 
@@ -206,6 +211,7 @@ extension ContentView {
         guard let item = paneTabItems(isLeft: isLeft).first(where: { $0.id == id }) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.fullPath, forType: .string)
+        Logger.shared.info("User copied a tab's path: \(item.fullPath)")
     }
 
     // MARK: - Persistence and the launch seed
@@ -244,10 +250,13 @@ extension ContentView {
             isKnownProvider: { id in settings.availableProviders.contains { $0.id == id } },
             folderExists: { providerId, relativePath in
                 guard !relativePath.isEmpty else { return true }
-                let root = settings.path(for: providerId)
+                // Expanded, for the reason `openInNewTab` gives: a tilde root never exists on disk,
+                // so every restored tab would fall back to its provider's root and the strip would
+                // come back pointing at nothing in particular.
                 var isDirectory: ObjCBool = false
                 let exists = FileManager.default.fileExists(
-                    atPath: (root as NSString).appendingPathComponent(relativePath),
+                    atPath: PaneLogic.fullPath(root: settings.path(for: providerId),
+                                               relativePath: relativePath),
                     isDirectory: &isDirectory)
                 return exists && isDirectory.boolValue
             })
@@ -309,5 +318,67 @@ enum PaneTabSeam {
         guard isCompare else { return 0 }
         // The left pane gives up its TRAILING edge, the right pane its LEADING one.
         return leading == isLeft ? 0 : reserve
+    }
+}
+
+
+/// What a pane's tab strip renders, as a rule.
+///
+/// Lifted out of `ContentView` so it can be tested at all, and because it holds the one thing about
+/// the strip that is easy to get subtly wrong: **the active chip reads the LIVE pane, and every
+/// other chip reads its own parked snapshot.** The active entry in the list is a snapshot from when
+/// that tab was last parked (see `PaneTab`), so a chip drawn from it keeps naming the folder you
+/// arrived in while the pane walks on — a strip that is correct on arrival and wrong a click later,
+/// which is exactly the kind of thing a screenshot taken at the wrong moment makes look fine.
+enum PaneTabChips {
+    /// What the host knows about one source. `nil` for a source that is no longer available.
+    struct Source: Equatable {
+        let displayName: String
+        let markImageName: String
+        /// As stored — possibly with a tilde. Expanded here, never at the call site.
+        let root: String
+    }
+
+    static func items(_ list: PaneTabList,
+                      liveProviderId: String,
+                      livePath: String,
+                      source: (String) -> Source?) -> [PaneTabStrip.Item] {
+        list.tabs.enumerated().map { index, tab in
+            let isActive = index == list.selectedIndex
+            let providerId = isActive ? liveProviderId : tab.providerId
+            let path = isActive ? livePath : tab.combinedRelativePath
+            let resolved = source(providerId)
+            // A tab at a source root has no folder to name, so it wears the source's name — and
+            // the raw id if even that is gone, which at least says which source it meant.
+            let name = path.isEmpty ? (resolved?.displayName ?? providerId)
+                                    : (path as NSString).lastPathComponent
+            return PaneTabStrip.Item(
+                id: tab.id,
+                title: name,
+                // A source with no bundled mark wears a folder, which is what `ProviderLogo` draws
+                // for a folder source anyway.
+                markImageName: resolved?.markImageName ?? "folder.fill",
+                isActive: isActive,
+                fullPath: PaneLogic.fullPath(root: resolved?.root ?? "", relativePath: path))
+        }
+    }
+}
+
+/// Whether a tab switch also changes the pane's source.
+///
+/// A rule rather than an `if` at the call site because the middle case is invisible: a tab whose
+/// source has been removed since it was opened must NOT have its folder rendered under whatever
+/// source the pane happens to be showing, and there is nothing on screen to tell you that happened.
+enum PaneTabProviderSwitch: Equatable {
+    /// The pane is already on this tab's source.
+    case keep
+    /// Write the id — and suppress the reset its `onChange` would otherwise run.
+    case adopt(String)
+    /// The tab names a source that is gone. Stay put, and say so.
+    case unavailable(String)
+
+    static func decide(arrived: String, current: String, isAvailable: (String) -> Bool) -> PaneTabProviderSwitch {
+        guard arrived != current else { return .keep }
+        return isAvailable(arrived) ? .adopt(arrived) : .unavailable(arrived)
     }
 }

@@ -142,12 +142,25 @@ import Design
 
     // MARK: The degenerate cases
 
-    /// One tab draws no strip, so the layout for one is inert rather than a rung with a width that
-    /// something might draw.
-    @Test func oneTabHasNoStripToLayOut() {
+    /// **One tab still gets a real chip.** Usually there is no strip at all — the pane checks
+    /// `showsStrip` — but View ▸ Tab Bar keeps a one-tab strip on screen on purpose, and this
+    /// returned zero width for that case: a strip with nothing in it but its ＋.
+    @Test func oneTabIsLaidOutLikeAnyOther() {
         let layout = PaneTabStripLadder.layout(available: 620, titles: ["Finance"], scale: 1)
-        #expect(layout.tabWidth == 0)
+        #expect(layout.rung == .full)
+        #expect(layout.visibleCount == 1)
         #expect(layout.overflowCount == 0)
+        #expect(layout.tabWidth >= PaneTabStripLadder.floorWidth(scale: 1),
+                "the one visible tab is drawn narrower than a chip's floor")
+        #expect(layout.tabWidth <= PaneTabStripLadder.maxTabWidth)
+    }
+
+    /// No tabs at all is not a state the app can reach (`PaneTabList` is never empty), but the
+    /// ladder is public and must answer rather than divide by zero.
+    @Test func noTabsAnswersWithNothingToDraw() {
+        let layout = PaneTabStripLadder.layout(available: 620, titles: [], scale: 1)
+        #expect(layout.visibleCount == 0)
+        #expect(layout.tabWidth == 0)
     }
 
     /// A pane narrower than anything sensible still answers, and answers with the rung that keeps
@@ -157,5 +170,59 @@ import Design
         #expect(layout.rung == .chip)
         #expect(layout.visibleCount == 1)
         #expect(layout.tabWidth >= 0)
+    }
+}
+
+
+/// The pane column's ⌘-double-click, which opens a folder in a new tab.
+///
+/// A source scan, and it is the honest form: the gesture cannot be exercised from a test — a
+/// `TapGesture` installs no recognizer an `NSEvent` can reach, which this repo has measured more
+/// than once. What a scan CAN hold is that the gesture exists, that it is a *double*, that it is a
+/// sibling of the single-tap navigation rather than a replacement for it, and that it is gated on
+/// ⌘ and on a folder — the four things that make it not break plain clicking.
+@Suite struct PaneColumnOpenInNewTabGestureTests {
+
+    private func source() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/PaneColumnsView.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// The positive control: the scan reads the file it claims to.
+    @Test func theScanCanActuallyFail() throws {
+        let code = try source()
+        #expect(code.contains("struct PaneColumnsView"))
+        #expect(!code.contains("a string that is definitely not in the columns view"))
+    }
+
+    @Test func aCommandDoubleClickOnAFolderOpensItInANewTab() throws {
+        let code = try source()
+        let gesture = try #require(code.range(of: "TapGesture(count: 2)"),
+                                   "the ⌘-double-click gesture is gone")
+        let body = String(code[gesture.upperBound...].prefix(400))
+        #expect(body.contains("clickModifiers.contains(.command)"),
+                "the double-click opens a tab without ⌘ — plain double-click now forks the pane")
+        #expect(body.contains("node.isDirectory"), "a FILE can be opened as a tab")
+        #expect(body.contains("delegate.canOpenInNewTab"),
+                "a host with no strip is offered the gesture anyway")
+        #expect(body.contains("handleOpenInNewTab"), "the gesture is wired to nothing")
+    }
+
+    /// **Simultaneous, and declared beside the single tap rather than around it.** The single-click
+    /// navigation is the pane's most delicate contract — it already has a "dead click" regression in
+    /// its history — and a double-tap that consumed the first click would take column navigation
+    /// with it.
+    @Test func theDoubleTapDoesNotReplaceTheSingleTap() throws {
+        let code = try source()
+        #expect(code.contains(".simultaneousGesture(TapGesture(count: 2)"),
+                "the double-click is not a simultaneous gesture — it can swallow the single click")
+        let double = try #require(code.range(of: ".simultaneousGesture(TapGesture(count: 2)"))
+        let single = try #require(code.range(of: ".simultaneousGesture(TapGesture().onEnded"),
+                                  "the single-click column navigation is gone")
+        #expect(double.lowerBound < single.lowerBound || single.lowerBound < double.lowerBound)
+        #expect(code.components(separatedBy: ".simultaneousGesture(TapGesture().onEnded").count - 1 == 1,
+                "there is more than one single-tap handler on a column row")
     }
 }
