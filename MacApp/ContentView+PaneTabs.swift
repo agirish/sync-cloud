@@ -61,6 +61,11 @@ extension ContentView {
         syncManager.paneTabs(isLeft: isLeft).showsStrip || tabBarVisible
     }
 
+    /// Track the tab strip gives up to the seam controls, which are drawn OVER this row.
+    func seamInset(isLeft: Bool, leading: Bool) -> CGFloat {
+        PaneTabSeam.inset(isCompare: layoutMode == .compare, isLeft: isLeft, leading: leading)
+    }
+
     // MARK: - The one door
 
     /// Runs a tab verb and settles everything that follows from it: the provider id, the search
@@ -279,5 +284,30 @@ struct BrowseTabPersistence: ViewModifier {
         content
             .onChange(of: syncManager.leftRelativePath) { _, _ in save() }
             .onChange(of: syncManager.leftBrowsePath) { _, _ in save() }
+    }
+}
+
+
+/// How much of the tab strip the seam controls take.
+///
+/// **⇄ and 🔗 are drawn on top of this row.** `SeamPaneControls` is an overlay on the panes region
+/// pinned 8pt from its top and straddling the pane boundary — which is exactly where a strip's
+/// trailing ＋ (left pane) and leading chip (right pane) sit. Measured on the shipping app: the
+/// left pane's ＋ landed about five points from ⇄, near enough to read as one control.
+///
+/// A named rule rather than a ternary at the call site because it is wrong in two directions and
+/// only one of them is visible: too little and the controls overlap, too much and Browse — which
+/// has no seam at all — loses track it should keep. `PaneTabWiringTests` pins both.
+enum PaneTabSeam {
+    /// The seam capsule is two 26pt halves offset 13pt back from the boundary, so it reaches 13pt
+    /// into each pane; 26 gives the strip's own gap on top of that.
+    static let reserve: CGFloat = 26
+
+    /// The inset for one edge of one pane's strip. Zero everywhere but the two edges that touch a
+    /// seam, which exists only in Compare.
+    static func inset(isCompare: Bool, isLeft: Bool, leading: Bool) -> CGFloat {
+        guard isCompare else { return 0 }
+        // The left pane gives up its TRAILING edge, the right pane its LEADING one.
+        return leading == isLeft ? 0 : reserve
     }
 }

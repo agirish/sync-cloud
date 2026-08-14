@@ -2471,6 +2471,11 @@ struct ContentView: View {
             if paneShowsTabStrip(isLeft: isLeft) {
                 PaneTabStrip(
                     items: paneTabItems(isLeft: isLeft),
+                    // Keep the seam's ⇄ / 🔗 capsule clear. It straddles the pane boundary at this
+                    // exact height, so in Compare it lands on the left pane's ＋ and on the right
+                    // pane's first chip — measured on the shipping app before this existed.
+                    leadingInset: seamInset(isLeft: isLeft, leading: true),
+                    trailingInset: seamInset(isLeft: isLeft, leading: false),
                     onSelect: { selectTab(id: $0, isLeft: isLeft) },
                     onClose: { closeTab(id: $0, isLeft: isLeft) },
                     onCloseOthers: { closeOtherTabs(keeping: $0, isLeft: isLeft) },

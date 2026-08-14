@@ -50,10 +50,24 @@ public struct PaneTabStrip: View {
     let onDuplicate: (UUID) -> Void
     let onCopyPath: (UUID) -> Void
     let onNew: () -> Void
+    /// Track the strip must keep clear at its LEADING and TRAILING edges.
+    ///
+    /// **The seam controls sit on top of this row.** In Compare, ⇄ and 🔗 straddle the pane
+    /// boundary at the top of the panes region — measured against the shipping app, the left pane's
+    /// ＋ lands directly under ⇄ with about five points between them. The strip cannot see the
+    /// layout it is in, so the pane column passes the reserve; it is zero everywhere else, which is
+    /// Browse and the rail.
+    let leadingInset: CGFloat
+    let trailingInset: CGFloat
 
     @Environment(\.appFontScale) private var fontScale
+    /// Which chip the pointer is over — the ✕ shows on that one and on the active tab, and nowhere
+    /// else (v4.x roadmap §1's anatomy). Held here rather than per chip so only one can be lit.
+    @State private var hoveredTab: UUID?
 
     public init(items: [Item],
+                leadingInset: CGFloat = 0,
+                trailingInset: CGFloat = 0,
                 onSelect: @escaping (UUID) -> Void,
                 onClose: @escaping (UUID) -> Void,
                 onCloseOthers: @escaping (UUID) -> Void,
@@ -61,6 +75,8 @@ public struct PaneTabStrip: View {
                 onCopyPath: @escaping (UUID) -> Void,
                 onNew: @escaping () -> Void) {
         self.items = items
+        self.leadingInset = leadingInset
+        self.trailingInset = trailingInset
         self.onSelect = onSelect
         self.onClose = onClose
         self.onCloseOthers = onCloseOthers
@@ -71,7 +87,9 @@ public struct PaneTabStrip: View {
 
     public var body: some View {
         GeometryReader { geo in
-            let layout = PaneTabStripLadder.layout(available: geo.size.width,
+            // The ladder is offered what is actually free, not the pane's width: a rung chosen
+            // against track the seam controls are sitting on would put a chip under them.
+            let layout = PaneTabStripLadder.layout(available: geo.size.width - leadingInset - trailingInset,
                                                    titles: items.map(\.title),
                                                    scale: fontScale)
             strip(layout)
@@ -105,7 +123,8 @@ public struct PaneTabStrip: View {
                 .onTapGesture(count: 2) { onNew() }
             newTabButton
         }
-        .padding(.horizontal, LiquidGlass.cardGutter)
+        .padding(.leading, LiquidGlass.cardGutter + leadingInset)
+        .padding(.trailing, LiquidGlass.cardGutter + trailingInset)
     }
 
     private func visible(_ layout: PaneTabStripLadder.Layout) -> [Item] {
@@ -146,6 +165,12 @@ public struct PaneTabStrip: View {
         }
         .buttonStyle(.hoverAffordance(.segment))
         .background(alignment: .bottom) { activeGround(item) }
+        .onHover { hovering in
+            // Only ever clear the id this chip set: the pointer can enter the next chip before this
+            // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that
+            // just lit.
+            if hovering { hoveredTab = item.id } else if hoveredTab == item.id { hoveredTab = nil }
+        }
         .help(item.fullPath)
         .contextMenu { menu(for: item) }
     }
@@ -187,9 +212,11 @@ public struct PaneTabStrip: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.glyph))
-        // Shown on the active tab and on hover. `opacity` rather than absence, so a chip's title
-        // does not re-flow under the pointer.
-        .opacity(item.isActive ? 1 : 0.45)
+        // **On the active tab, and on the one under the pointer.** A row of chips each wearing a
+        // permanent ✕ reads as a row of things to dismiss rather than places to go — and the strip
+        // is mostly parked tabs. `opacity` rather than absence, so the title does not re-flow (and
+        // does not resize) as the pointer crosses the strip.
+        .opacity(item.isActive || hoveredTab == item.id ? 1 : 0)
         .help("Close this tab (⌥ to close the others)")
     }
 

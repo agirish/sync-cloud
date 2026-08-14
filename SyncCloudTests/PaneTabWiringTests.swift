@@ -139,6 +139,44 @@ import Sync
                 "⌃⇥ offers a tab cycle with only one tab to cycle")
     }
 
+    // MARK: The seam
+
+    /// The seam's ⇄ / 🔗 capsule is drawn on top of the strip, and it lands on the left pane's ＋.
+    @Test func theStripGivesUpTheEdgeTheSeamControlsSitOn() {
+        #expect(PaneTabSeam.inset(isCompare: true, isLeft: true, leading: false) == PaneTabSeam.reserve,
+                "the left pane's ＋ stays under the seam controls")
+        #expect(PaneTabSeam.inset(isCompare: true, isLeft: false, leading: true) == PaneTabSeam.reserve,
+                "the right pane's first chip stays under the seam controls")
+    }
+
+    /// …and only that edge. The other three would be track given up for nothing.
+    @Test func noOtherEdgeGivesUpTrack() {
+        #expect(PaneTabSeam.inset(isCompare: true, isLeft: true, leading: true) == 0)
+        #expect(PaneTabSeam.inset(isCompare: true, isLeft: false, leading: false) == 0)
+    }
+
+    /// Browse and the Organize/Storage rail have no seam — one pane, nothing straddling anything.
+    @Test func aSinglePaneWorkspaceKeepsItsWholeStrip() {
+        for isLeft in [true, false] {
+            for leading in [true, false] {
+                #expect(PaneTabSeam.inset(isCompare: false, isLeft: isLeft, leading: leading) == 0,
+                        "a single-pane workspace lost strip track to a seam it does not have")
+            }
+        }
+    }
+
+    /// The call-site half: the pane column asks the rule rather than spelling a number.
+    @Test func thePaneColumnReservesTheSeamThroughTheRule() throws {
+        let tabs = try Self.source("ContentView+PaneTabs.swift")
+        let resolver = try #require(tabs.range(of: "func seamInset(isLeft: Bool, leading: Bool)"),
+                                    "the seam reserve is gone")
+        let body = String(tabs[resolver.upperBound...].prefix(300))
+        #expect(body.contains("PaneTabSeam.inset("), "the seam reserve is spelled by hand")
+        let content = try Self.source("ContentView.swift")
+        #expect(content.contains("leadingInset: seamInset(isLeft: isLeft, leading: true)"),
+                "the strip is not given the seam reserve")
+    }
+
     // MARK: The row menu's entry point
 
     /// The discovery route. ⌘T opens the folder you are already in, so this is the only entry
