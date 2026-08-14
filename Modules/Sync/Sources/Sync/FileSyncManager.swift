@@ -2120,6 +2120,18 @@ public class FileSyncManager: ObservableObject {
     @Published public var leftHistory = PaneNavigationHistory()
     /// Back/forward stack for the right pane; independent of the left pane's.
     @Published public var rightHistory = PaneNavigationHistory()
+
+    /// The left pane's tabs. Browse's strip is this one; so is the Organize/Storage rail's, which
+    /// is the same pane at 220pt. Seeded with a single tab whose provider id is a placeholder the
+    /// host replaces on launch — `FileSyncManager` has never known which providers exist, and this
+    /// is not the place to start.
+    ///
+    /// See `PaneTab` for why the ACTIVE entry here is a stale snapshot by construction: the live
+    /// position is `leftRelativePath` and friends, and this list holds only what is parked.
+    @Published public var leftPaneTabs = PaneTabList(single: PaneTab(providerId: ""))
+    /// The right pane's tabs — Compare's right-hand side. Independent of the left list; ⇄ swaps
+    /// the two wholesale, exactly as it swaps the paths they are lists of.
+    @Published public var rightPaneTabs = PaneTabList(single: PaneTab(providerId: ""))
     
     // Navigation and Scanning methods moved to extensions
     

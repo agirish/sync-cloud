@@ -3,7 +3,10 @@ import Foundation
 
 /// Back/forward stack for one pane's focused relative path. Each pane owns an independent
 /// history, so the back button in a pane's header only undoes that pane's navigation.
-public struct PaneNavigationHistory: Equatable {
+/// `Sendable` because a parked tab carries one (`PaneTab`), and a public struct's conformance is
+/// not inferred across a module boundary the way an internal one's is. Two value fields, no
+/// reference types: the conformance is a statement of what this already was.
+public struct PaneNavigationHistory: Equatable, Sendable {
     /// Visited relative paths, oldest first. Always contains at least the root entry `""`.
     public private(set) var entries: [String] = [""]
     /// Index of the current entry.
@@ -459,6 +462,12 @@ extension FileSyncManager {
         // Travels with the tree it indexes, like the history beside it: after a swap the left pane
         // shows what the right one did, so it must be looking at the same folder within it.
         swap(&leftBrowsePath, &rightBrowsePath)
+        // **The two LISTS swap, not the two active tabs.** ⇄ already moves each pane's location
+        // wholesale to the other side, and a tab list is a list of locations for one pane — so
+        // moving the pane without its parked tabs would leave a strip whose other tabs belong to
+        // the folder tree that just left. The active entries stay correct by construction: each is
+        // a snapshot of the pane it travelled with.
+        swap(&leftPaneTabs, &rightPaneTabs)
 
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)
