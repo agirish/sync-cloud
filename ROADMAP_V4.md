@@ -141,7 +141,8 @@ Tab context menu: New Tab · Close Tab · Close Other Tabs · Duplicate · Copy 
 | Browse → Organize | The rail shows the left list, same active tab, same folder — what the path already does. |
 | Browse → Compare | Browse's tabs are the left pane's; the right pane has its own list. |
 | ⇄ swap | Swaps the two **lists**, not the two active tabs — it already swaps the paths wholesale. Tooltip needs a line. |
-| 🔗 link both | Acts on the two active tabs only. |
+| 🔗 link both | **Opening** a tab mirrors onto the sibling; **switching** between tabs does not (see below). |
+| Compare's strip | Shown on **both** panes when either holds a second tab, so the two panes' headers stay on one line. |
 | Storage | Rail + lens, same as Organize. |
 | Closing the last tab | Never closes a pane. The strip hides; the pane stays. |
 
@@ -150,6 +151,41 @@ Tab context menu: New Tab · Close Tab · Close Other Tabs · Duplicate · Copy 
 One key, `browseTabs` = `[{providerId, relativePath}]`, plus `browseSelectedTab`. Seed from the
 stored provider and browse path on first launch, so an upgrading install opens with one tab on the
 folder it closed on.
+
+### Mirroring tab *switches* on linked panes — not built
+
+The 🔗 link now carries into **opening** a tab: right-click ▸ Open in New Tab, ⌘-double-click and
+⌘T each open on the sibling too, on the same predicate a mirrored column drill uses
+(`layoutMode == .compare && (isLinked || ⌥)`), pruned to the deepest folder the sibling genuinely
+has. Switching between tabs does **not** mirror, so two panes that grew their tabs together
+diverge at the first ⇧⌘] — which is the state the link exists to prevent.
+
+Deferred rather than skipped, because it needs a **pairing rule** and the cheap one is wrong:
+
+- **By index** — switch the sibling to the same position. One line, and it silently desyncs: a
+  close, a reorder, a pin or a single unlinked ⌘T on either side shifts one list against the other,
+  and from then on every switch sends the sibling somewhere unrelated with nothing on screen
+  saying so.
+- **By path** — switch the sibling to *its* tab on the same relative folder. Correct when there is
+  one, undefined when there is not: open a new tab there (a switch that silently grows a list), or
+  leave the sibling where it is (the panes stay out of step, which is what this was to fix).
+- **By pairing** — record a shared id when a tab is mirrored into existence, and switch by it.
+  The only one that survives divergence, and the only one that adds persisted state to a format
+  that deliberately stores `{providerId, relativePath, pinned}` and nothing session-shaped.
+
+Two questions come with it, and they are why this is not a follow-up commit:
+
+- **Does closing mirror too?** If switches pair but closes do not, the pairing is stale the first
+  time a paired tab is closed on one side, and a switch then has to decide between an id that names
+  nothing and falling back to a rule already rejected above.
+- **What does the sibling do when its paired tab's folder has since gone?** The open-mirror prunes
+  at creation time; a *switch* arrives at a tab that already names a folder, so pruning there would
+  quietly move a tab off the location its chip claims — the one thing `PaneTabChips` is built to
+  prevent.
+
+Recommendation: **pairing, with closes mirrored**, and only once someone has run linked Compare
+long enough to say whether an unmirrored switch is actually a nuisance. Nothing about the shipped
+behaviour has to change to add it — `mirrorOpenInNewTab` is where a pair id would be minted.
 
 ### Out of scope for the first landing
 
