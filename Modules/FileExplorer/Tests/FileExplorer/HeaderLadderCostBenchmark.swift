@@ -96,9 +96,12 @@ struct HeaderLadderCostBenchmark {
         return (view, rows, targets, sections, facts, dressing)
     }
 
-    /// The floor the saving must clear, in milliseconds. Calibrated from eight runs whose savings
-    /// spanned 11.15ms to 24.73ms — idle-and-isolated, and under the contention of a full CI suite —
-    /// so this sits 46% below the smallest one ever measured. It is deliberately not tighter: the
+    /// The floor the saving must clear, in milliseconds. Calibrated from nine runs whose savings
+    /// spanned 10.40ms to 24.73ms — idle-and-isolated, and under the contention of a full CI suite —
+    /// so this sits 42% below the smallest one ever measured. The 10.40ms is the run that validated
+    /// this change on CI, and it is the most informative of the nine: it measured a **1.65x** ratio,
+    /// lower than either of the two failures this replaced, so the old bar would have taken CI red a
+    /// fourth time on the very commit that fixed it. It is deliberately not tighter: the
     /// regression it guards (the search returning, or the arithmetic becoming expensive) drives the
     /// saving to roughly zero, so margin costs almost nothing in sensitivity and buys the headroom
     /// three ratio flakes proved this measurement needs.

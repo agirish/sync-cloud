@@ -773,11 +773,17 @@ Eight runs, idle-and-isolated through full-CI contention:
 | CI pass (rerun) | 38.63ms | 13.90ms | 24.73ms | 2.78x |
 | CI **fail** `2e2ec8f2` | 26.56ms | 15.41ms | 11.15ms | 1.72x |
 | local idle x3 | 22-23ms | 9.05-11.25ms | 11.51-13.93ms | 2.02-2.49x |
+| CI pass `2ec1a442` (the fix) | 26.39ms | 15.99ms | 10.40ms | **1.65x** |
 
-Ratio range 1.72-2.78, crossing its bar twice. Saving range 11.15-24.73ms, never near zero. The test
-now asserts `saving > 6.0ms` — 46% below the smallest ever measured — and **the mutation proves it
-still discriminates**: putting the six-child search back in the computed arm gives `saving=0.08ms`
-and fails. Both contention modes push the saving the safe way, additive leaving it flat and
+**The last row is the validation, and it is the one to remember.** The commit that fixed this
+measured a *lower* ratio than either failure it replaced — 1.65x against 1.77x and 1.72x — under the
+same full-suite contention. The old bar would have taken CI red a fourth time on the fix itself. The
+saving read 10.40ms and passed.
+
+Ratio range 1.65-2.78, crossing its bar three times out of nine. Saving range 10.40-24.73ms, never
+near zero. The test now asserts `saving > 6.0ms` — 42% below the smallest ever measured — and **the
+mutation proves it still discriminates**: putting the six-child search back in the computed arm
+gives `saving=0.08ms` and fails. Both contention modes push the saving the safe way, additive leaving it flat and
 multiplicative widening it, which is why no load-scaling is needed.
 
 The probe is now printed and **explicitly not asserted on**. The old type comment claimed the bar
