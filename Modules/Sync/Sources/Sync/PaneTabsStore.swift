@@ -105,9 +105,17 @@ public enum PaneTabsStore {
                                     isPinned: entry.pinned))
         }
         guard !restored.isEmpty else { return nil }
-        // The selected entry itself may be one of the dropped ones; the nearest survivor is a
-        // better answer than tab 0, and both are better than refusing the whole strip.
-        let index = selectedAfterDrops ?? min(selected, restored.count - 1)
+        // **The pinned run is a prefix, and a file is not a promise.** Every rule in `PaneTabList`
+        // is stated in terms of that prefix; a strip whose stored order interleaves them — a
+        // hand-edited plist, or a format that grows a reorder we did not think about — would leave
+        // `pinnedCount` and `pinned` disagreeing about the same list. Sorted here, once, where the
+        // untrusted data comes in. `sorted(by:)` is stable in the only sense that matters: equal
+        // elements keep their relative order, so pins stay in pin order and the rest in theirs.
+        let live = restored[min(selectedAfterDrops ?? 0, restored.count - 1)].id
+        restored = restored.enumerated()
+            .sorted { ($0.element.isPinned ? 0 : 1, $0.offset) < ($1.element.isPinned ? 0 : 1, $1.offset) }
+            .map(\.element)
+        let index = restored.firstIndex { $0.id == live } ?? 0
         return PaneTabList(tabs: restored, selectedIndex: index)
     }
 }

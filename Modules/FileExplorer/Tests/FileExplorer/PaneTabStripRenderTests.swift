@@ -312,6 +312,53 @@ import Design
                 "the lone tab draws a ✕ that would close the window")
     }
 
+    // MARK: The reorder drag
+
+    /// **The gap tracks the drop index** (roadmap Fig. 8): the chips the dragged tab has passed
+    /// step aside by exactly one stride, and everything else stands still. Priced from the same
+    /// stride the drop index uses, so what the row shows and where the tab lands cannot disagree.
+    @Test func theChipsStepAsideForTheDraggedTab() {
+        let items = ["A", "B", "C", "D"].map { item($0) }
+        let stride: CGFloat = 100
+        let dragged = items[0].id
+
+        // Dragged two strides right: B and C step left, D is untouched, and the dragged chip is
+        // excluded (it rides the pointer instead).
+        func step(_ index: Int, offset: CGFloat) -> CGFloat {
+            PaneTabStrip.displacement(of: items[index], items: items, visible: items,
+                                      dragging: dragged, offset: offset, stride: stride)
+        }
+        #expect(step(1, offset: 205) == -stride)
+        #expect(step(2, offset: 205) == -stride)
+        #expect(step(3, offset: 205) == 0)
+        #expect(step(0, offset: 205) == 0, "the dragged chip is displaced twice")
+
+        // …and nothing moves until the drag has covered half a stride.
+        #expect(step(1, offset: 20) == 0)
+
+        // The other direction, from the trailing end.
+        let backwards = PaneTabStrip.displacement(of: items[1], items: items, visible: items,
+                                                  dragging: items[3].id, offset: -205, stride: stride)
+        #expect(backwards == stride)
+    }
+
+    /// **The preview and the drop are one rule**, so the row cannot animate a move it will not make.
+    /// Both refusals below were real: a drag across the pin line, which `PaneTabList.move` rejects,
+    /// and a drag past the last visible chip, which would drop the tab into the folded-away region
+    /// where — from the strip — it looks like it vanished.
+    @Test func aDropCannotCrossThePinLineOrLeaveWhatIsOnScreen() {
+        let items = [item("P", pinned: true), item("A"), item("B"), item("C")]
+
+        // An unpinned tab dragged hard left stops at the head of the unpinned run.
+        #expect(PaneTabStrip.dropIndex(from: 3, steps: -9, items: items, visible: items) == 1)
+        // A pinned tab dragged right stays inside the pinned run — here, exactly where it is.
+        #expect(PaneTabStrip.dropIndex(from: 0, steps: 9, items: items, visible: items) == 0)
+
+        // With C folded away, a drag right from B stops at B: there is nothing visible past it.
+        let shown = [items[0], items[1], items[2]]
+        #expect(PaneTabStrip.dropIndex(from: 2, steps: 3, items: items, visible: shown) == 2)
+    }
+
     // MARK: Pinned tabs
 
     /// A pinned chip wears a pin where an unpinned one wears its ✕ — the two strips are otherwise

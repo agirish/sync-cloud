@@ -377,6 +377,24 @@ import Foundation
     /// **A strip written before pinning existed still decodes.** `Codable` rejects the whole file
     /// on a missing key, and that file is the user's tabs — they would vanish on the first launch
     /// after the upgrade, with nothing to say why.
+    /// A stored strip that interleaves pinned and unpinned tabs comes back partitioned. The file
+    /// is not a promise — every rule in `PaneTabList` reads the pinned run as a PREFIX, and a list
+    /// that broke it would have `pinnedCount` and `pinned` disagreeing about itself.
+    @Test func aStoredStripThatBreaksThePartitionIsRepairedOnTheWayIn() {
+        let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "A"),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "B", pinned: true),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "C"),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "D", pinned: true)]
+        let restored = PaneTabsStore.restore(entries: entries, selected: 2,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in true })
+        #expect(restored?.tabs.map(\.relativePath) == ["B", "D", "A", "C"],
+                "the restored strip interleaves pinned and unpinned tabs")
+        #expect(restored?.pinnedCount == 2)
+        // …and the tab that was selected is still the one selected, wherever the sort put it.
+        #expect(restored?.active.relativePath == "C")
+    }
+
     @Test func aStripWrittenBeforePinningStillDecodes() {
         let defaults = ScratchDefaults("PaneTabsStore-legacy")
         defaults.set(#"[{"providerId":"iCloud","relativePath":"Finance"}]"#, forKey: PaneTabsStore.tabsKey)

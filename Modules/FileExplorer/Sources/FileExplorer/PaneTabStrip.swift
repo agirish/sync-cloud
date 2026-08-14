@@ -138,8 +138,9 @@ public struct PaneTabStrip: View {
         HStack(spacing: PaneTabStripLadder.tabGap) {
             switch layout.rung {
             case .full, .compact:
-                ForEach(visible(layout)) { item in
-                    chip(item, width: layout.tabWidth)
+                let shown = visible(layout)
+                ForEach(shown) { item in
+                    chip(item, width: layout.tabWidth, visible: shown)
                 }
             case .chip:
                 // The active tab keeps its name and gains the chevron: at the rail's width a row of
@@ -174,6 +175,56 @@ public struct PaneTabStrip: View {
 
     private func visible(_ layout: PaneTabStripLadder.Layout) -> [Item] {
         Self.visible(items, slots: layout.visibleCount)
+    }
+
+    /// Where a dragged tab would land: the index it is dropped at, given how far it has travelled.
+    ///
+    /// **One rule, two consumers** — the live preview (which chips step aside) and the drop itself.
+    /// They were separate arithmetic for one commit and could already disagree in two ways: a drag
+    /// across the pin line, which `PaneTabList.move` refuses but the preview happily animated, and a
+    /// drag past the last VISIBLE chip on the compact rung, which would have dropped the tab into
+    /// the folded-away region — where it looks, from the strip, like it vanished.
+    ///
+    /// Returns `from` when the drop is a no-op, so a caller can treat "no move" and "moved to where
+    /// it already was" identically.
+    static func dropIndex(from: Int, steps: Int, items: [Item], visible: [Item]) -> Int {
+        guard items.indices.contains(from) else { return from }
+        var to = min(max(0, from + steps), items.count - 1)
+
+        // Never across the pin line: pinned tabs are a prefix, and a drop that broke it would
+        // either silently pin a tab or leave the list disagreeing with itself.
+        let pinnedRun = items.prefix { $0.isPinned }.count
+        to = items[from].isPinned ? min(to, max(0, pinnedRun - 1)) : max(to, pinnedRun)
+
+        // Never past what is on screen: dragging a chip into the overflow is not a move anyone can
+        // see, and the chip would appear to disappear.
+        let shown = Set(visible.map(\.id))
+        let drawn = items.indices.filter { shown.contains(items[$0].id) }
+        if let first = drawn.first, let last = drawn.last, shown.contains(items[from].id) {
+            to = min(max(to, first), last)
+        }
+        return min(max(0, to), items.count - 1)
+    }
+
+    /// How far a chip steps aside while another is dragged over it.
+    ///
+    /// One stride, in the direction that opens the gap — right for a chip the dragged tab has moved
+    /// in front of, left for one it has moved behind. Zero for everything outside the range the
+    /// drag currently spans, which is most of the strip.
+    ///
+    /// Static and priced from the same stride the drop index uses, so what the row shows during the
+    /// drag and where the tab actually lands cannot disagree — that mismatch is the whole failure
+    /// mode of a hand-drawn reorder.
+    static func displacement(of item: Item, items: [Item], visible: [Item], dragging: UUID?,
+                             offset: CGFloat, stride: CGFloat) -> CGFloat {
+        guard let dragging, dragging != item.id, stride > 0,
+              let from = items.firstIndex(where: { $0.id == dragging }),
+              let index = items.firstIndex(where: { $0.id == item.id }) else { return 0 }
+        let steps = Int((offset / stride).rounded())
+        let to = dropIndex(from: from, steps: steps, items: items, visible: visible)
+        if to > from, index > from, index <= to { return -stride }
+        if to < from, index < from, index >= to { return stride }
+        return 0
     }
 
     /// Which chips are drawn when there is not room for all of them.
@@ -215,7 +266,7 @@ public struct PaneTabStrip: View {
 
     // MARK: - The chip
 
-    private func chip(_ item: Item, width: CGFloat) -> some View {
+    private func chip(_ item: Item, width: CGFloat, visible: [Item]) -> some View {
         Button {
             onSelect(item.id)
         } label: {
@@ -263,7 +314,13 @@ public struct PaneTabStrip: View {
         // The drop index is arithmetic rather than a drop target — every chip on these two rungs is
         // exactly `width` wide, so the index is the translation over one chip's stride, which needs
         // no second view and cannot disagree with what is drawn.
-        .offset(x: draggingTab == item.id ? dragOffset : 0)
+        // The dragged chip rides the pointer; every chip it has passed steps aside by one stride,
+        // so the GAP tracks the drop index rather than the row sitting still until you let go
+        // (roadmap Fig. 8, left).
+        .offset(x: draggingTab == item.id
+                ? dragOffset
+                : Self.displacement(of: item, items: items, visible: visible, dragging: draggingTab,
+                                    offset: dragOffset, stride: width + PaneTabStripLadder.tabGap))
         .zIndex(draggingTab == item.id ? 1 : 0)
         .simultaneousGesture(
             DragGesture(minimumDistance: 6)
@@ -275,7 +332,8 @@ public struct PaneTabStrip: View {
                     let stride = width + PaneTabStripLadder.tabGap
                     let steps = stride > 0 ? Int((value.translation.width / stride).rounded()) : 0
                     if steps != 0, let from = items.firstIndex(where: { $0.id == item.id }) {
-                        let to = min(max(0, from + steps), items.count - 1)
+                        // The same rule the preview animated — see `dropIndex`.
+                        let to = Self.dropIndex(from: from, steps: steps, items: items, visible: visible)
                         if to != from { onReorder(item.id, to) }
                     }
                     draggingTab = nil
@@ -283,6 +341,8 @@ public struct PaneTabStrip: View {
                 }
         )
         .animation(.easeOut(duration: 0.16), value: draggingTab)
+        // The neighbours' step-aside, and the settle when the list re-orders under them.
+        .animation(.easeOut(duration: 0.16), value: dragOffset)
         .onHover { hovering in
             // Only ever clear the id this chip set: the pointer can enter the next chip before this
             // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that

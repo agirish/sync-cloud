@@ -422,6 +422,54 @@ import Sync
         #expect(!body.contains("refreshForTabSwitch"), "pinning reloads the tree for nothing")
     }
 
+    /// **The File menu, read off the running app rather than out of the source.**
+    ///
+    /// The test host IS the app, so `NSApp.mainMenu` is the menu AppKit built from the `.commands`
+    /// declarations — which makes this the one check that sees what the group replacements actually
+    /// produced. Two of them are invisible to a source scan and both would ship silently:
+    /// `CommandGroup(replacing: .saveItem)` failing to remove AppKit's own Close (two items
+    /// registering ⌘W, one of them dead), and the tab items landing in the wrong group and so in
+    /// the wrong place — the roadmap's Fig. 9 puts Close Tab beside New Tab, not below Delete.
+    @Test func theFileMenuIsInTheRoadmapsOrder() throws {
+        let file = try #require(NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu,
+                                "the app has no File menu — this check would be vacuous")
+        let titles = file.items.map(\.title).filter { !$0.isEmpty }
+        #expect(titles.prefix(4) == ["New Folder…", "New Tab", "Close Tab", "Reopen Closed Tab"],
+                "the File menu opens with \(titles.prefix(4)) — Fig. 9 puts the tab items with New Folder")
+
+        // AppKit's own Close is gone, and exactly one item claims ⌘W. Two would leave one of them
+        // dead, and which one AppKit picks is not something this app decides.
+        #expect(!titles.contains("Close"), "the standard File ▸ Close is still there beside Close Tab")
+        // **Close All (⌥⌘W) goes with it, deliberately.** It came from the same group, and this app
+        // is one window plus three utilities — while ⌥ chords are the one kind that fire through
+        // the ⌥-hold reveal, so putting it back by hand would break an invariant `AppChordTests`
+        // guards for the whole app. Pinned so the loss reads as a decision rather than an oversight.
+        #expect(!titles.contains("Close All"),
+                "Close All is back — it registers an ⌥ chord, which fires through the ⌥-hold reveal")
+        let closers = file.items.filter { $0.keyEquivalent == "w" }
+        #expect(closers.count == 1, "\(closers.count) items register ⌘W")
+        #expect(closers.first?.title == "Close Tab")
+
+        // Reopen Closed Tab has no chord on purpose: ⇧⌘T is the Tab Bar, and an ⌥ chord is the one
+        // kind that can fire through the ⌥-hold reveal.
+        let reopen = try #require(file.items.first { $0.title == "Reopen Closed Tab" })
+        #expect(reopen.keyEquivalent.isEmpty, "Reopen Closed Tab has acquired a chord")
+    }
+
+    /// The View menu's Tab Bar switch, same source: a checkmark item, above the other switches.
+    @Test func theViewMenuCarriesTheTabBarSwitch() throws {
+        let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
+                                "the app has no View menu")
+        let titles = view.items.map(\.title).filter { !$0.isEmpty }
+        let tabBar = try #require(titles.firstIndex(of: "Tab Bar"), "View ▸ Tab Bar is gone")
+        let hidden = try #require(titles.firstIndex(of: "Hidden Files"))
+        #expect(tabBar < hidden, "Tab Bar sits below the other switches")
+        #expect(view.items.first { $0.title == "Tab Bar" }?.keyEquivalent == "t")
+        // A noun with a tick, never a Show/Hide pair.
+        #expect(!titles.contains { $0.hasPrefix("Show Tab") || $0.hasPrefix("Hide Tab") },
+                "the tab bar switch became a Show/Hide pair")
+    }
+
     // MARK: The right-click routes
 
     /// **The pane's own background menu offers New Tab.** It is the only right-click route that

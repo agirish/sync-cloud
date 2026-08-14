@@ -533,7 +533,14 @@ struct SyncCloudApp: App {
             }
             // `.saveItem` is where AppKit puts File ▸ Close, and Close Tab has taken its key and
             // its job (on the last tab it closes the window). Emptied rather than left alone, or
-            // two items would register ⌘W and AppKit would silently pick one.
+            // two items would register ⌘W and AppKit would silently pick one — measured: leaving
+            // this out puts "Close" and "Close All" back, with two items claiming ⌘W.
+            //
+            // **Close All (⌥⌘W) goes with it, and that is the price.** This app is one window plus
+            // three utility windows, so the loss is small; putting it back by hand is not an option
+            // that costs nothing, because an ⌥ chord is the one kind that fires through the ⌥-hold
+            // reveal (see `AppChord.foldAllDifferences`), which is an invariant the whole app is
+            // held to. `theFileMenuIsInTheRoadmapsOrder` pins the absence so it stays a decision.
             CommandGroup(replacing: .saveItem) { }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the four show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which

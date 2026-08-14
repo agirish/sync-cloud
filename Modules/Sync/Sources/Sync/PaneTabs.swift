@@ -207,28 +207,21 @@ public struct PaneTabList: Equatable, Sendable {
     /// ⌥-click on a ✕, and the context menu's Close Other Tabs. The kept tab becomes active
     /// whether or not it already was — the gesture is "leave me with this one".
     public mutating func closeOthers(keeping id: UUID) {
-        guard let keep = index(of: id) else { return }
-        let survivor = tabs[keep]
+        guard index(of: id) != nil else { return }
         // **Pinned tabs survive.** "Close the others" means the pile you accumulated, not the two
         // places you deliberately kept — that is most of what pinning is for.
-        let closed = tabs.enumerated()
-            .filter { $0.offset != keep && !$0.element.isPinned }
-            .map(\.element)
+        //
+        // Two filters over the same predicate rather than a rebuild: filtering preserves order, so
+        // the pinned prefix and the survivor's place in it hold by construction. The first cut of
+        // this appended the survivor and then moved it back when it turned out to be pinned, which
+        // was three branches doing what `filter` does in one.
+        let closed = tabs.filter { !$0.isPinned && $0.id != id }
         recentlyClosed.append(contentsOf: closed)
         if recentlyClosed.count > Self.reopenLimit {
             recentlyClosed.removeFirst(recentlyClosed.count - Self.reopenLimit)
         }
-        tabs = tabs.filter { $0.isPinned && $0.id != survivor.id }
-        tabs.append(survivor)
-        // The survivor is unpinned-or-not; either way it is the live one, and pinning it here would
-        // be a decision the user did not make.
-        selectedIndex = tabs.count - 1
-        if survivor.isPinned {
-            // A pinned survivor belongs in the prefix, not appended after it.
-            tabs.removeLast()
-            tabs.insert(survivor, at: tabs.prefix { $0.isPinned }.count)
-            selectedIndex = index(of: survivor.id) ?? 0
-        }
+        tabs = tabs.filter { $0.isPinned || $0.id == id }
+        selectedIndex = index(of: id) ?? 0
     }
 
     public mutating func select(index: Int) {
