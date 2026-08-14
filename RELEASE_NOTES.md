@@ -5,62 +5,9 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.0 — DRAFT, not released
+## v4.0
 
-> **This section is a draft.** v4.0 has not been cut and this is not final copy.
-> Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. **Delete this whole block when the release is cut.**
->
-> **Re-derive the commit count against the tagged commit** —
-> `git log --oneline v3.1..<sha> | wc -l`. It is not a fact about the release until
-> the tag exists: this draft said 223, the audit made it 234, it was 257 a few
-> hours later, and 274 by the audit after that. Any number written here is stale by
-> the time it is read, which is why the lede carries `NNN` until the tag exists.
->
-> The audit this block used to say still needed running **has now run**, against
-> the shipped code rather than against commit messages. It cost five more entries
-> and corrected four hard facts, and the four are worth naming because every one
-> of them came from a commit message that the code then contradicted:
->
-> - The fold-all chord was written **⌥⌘F**. The shipped chord is **⇧⌘F**, and
->   `AppChord` forbids ⌥ chords by test — an ⌥ chord fires from inside the ⌥-hold
->   reveal, which is the bug that rule exists to prevent. The notes were about to
->   advertise, as a feature, the exact chord the codebase removed as a defect.
-> - The person offer said **↩ takes it**. The shipped chord is **⌘↩**; plain ↩ and
->   ⇧↩ are the find's own next/previous. Three stale source comments still assert
->   the old design, which is almost certainly where the note came from.
-> - The concurrency divergence was quoted at **1.69%**. That is the figure for the
->   five-page reader; through the reader this release actually ships it is
->   **0.83%**, and the note claimed "that exact reader".
-> - The same-text replay was quoted at **251 groups, identically across two runs**.
->   251 was measured before the PDFKit lane landed; the shipped lane gives **248,
->   twice**, and about five groups in 250 move between full runs. The commit that
->   retired the figure says so in terms.
->
-> Five entries came out because the defect they describe was **created inside this
-> range**: the 1,375-document person measurement (a re-dressing of the "36 → 0"
-> claim already cut once), ⌘K standing aside for the destination picker, Organize's
-> ledger tiles, the "Reading 61 documents…" clause, and the welcome tour's
-> "workspaces that did not exist" — `Workspace.swift` at v3.1 still declares
-> `case duplicates`, so the tour was right about it and this range made it wrong.
->
-> Earlier passes had already cut four the same way: the cross-person check and its
-> "36 → 0", the treemap's accountable tail (`v3.1:…/TreemapView.swift` had one
-> already), "the pane bar gains Delete" (a new *button* dressed as a new capability),
-> and "a fresh window opens on Browse". The work is real in all of them; the
-> before-and-afters were ours.
->
-> The `v3.0..HEAD` review waves that close this range were checked the same way and
-> earn no entries: their most serious findings — a file's identity riding on the
-> per-launch hash seed, and surnames parsed as month names — are in
-> `ContentFingerprint.swift` and `FileNameDate.swift`, **neither of which exists at
-> `v3.1`**. Fixes to this range's own work, however alarming they read.
->
-> **Still to write when the work lands:** the Restructure *plan* (it ships
-> report-only here), and anything else that arrives before the cut.
-
-**The largest release SyncCloud has had** — NNN commits,
-<!-- fill from: git log --oneline v3.1..<tagged-sha> | wc -l -->
+**The largest release SyncCloud has had** — 284 commits,
 against v3.0's 181 and v1.0's 142 (both verified against their tags) — and a
 major for the reason v2.0 was one: the shape of the app changed. The workspace bar
 goes from five segments to four, and two of them are new answers to "what is this place for". Duplicates
