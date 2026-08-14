@@ -37,6 +37,20 @@ public struct PaneHeader: View {
     /// When set, shows a collapse button in the nav cluster — used by the single-source rail to
     /// collapse itself back to the spine directly (not only via the titlebar pane toggle). nil on the
     /// comparison panes, which don't collapse individually.
+    /// A new tab on this pane's folder, and closing its active one — the header card's own
+    /// right-click route to the tab strip.
+    ///
+    /// **The bar itself does not change**: no new glyph, no new `PaneBarItem`, nothing in the
+    /// customize sheet (v4.x roadmap §1's Fig. 9 is explicit about that). This is the menu you get
+    /// by right-clicking the card, which is where a Mac user reaches for "act on this pane" — and
+    /// it is the only tab route that works with no folder under the pointer AND no strip on screen.
+    ///
+    /// Optional so every other host of this header — the tests, and any surface with no tabs behind
+    /// it — simply gets no items rather than a door onto a no-op.
+    public let onNewTab: (() -> Void)?
+    /// `nil` at one tab: what is left to close then is the window, and an item reading "Close Tab"
+    /// that closes the window is a trap.
+    public let onCloseTab: (() -> Void)?
     public let onCollapse: (() -> Void)?
     /// Triggers a scan/refresh — moved off the titlebar into each pane's nav cluster. nil hides it.
     public let onRefresh: (() -> Void)?
@@ -159,6 +173,8 @@ public struct PaneHeader: View {
         onManageProviders: @escaping () -> Void = {},
         onChooseFolder: (() -> Void)? = nil,
         sortOption: Binding<SortOption>,
+        onNewTab: (() -> Void)? = nil,
+        onCloseTab: (() -> Void)? = nil,
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
@@ -192,6 +208,8 @@ public struct PaneHeader: View {
         self.onManageProviders = onManageProviders
         self.onChooseFolder = onChooseFolder
         self._sortOption = sortOption
+        self.onNewTab = onNewTab
+        self.onCloseTab = onCloseTab
         self.onCollapse = onCollapse
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
@@ -1337,6 +1355,16 @@ public struct PaneHeader: View {
     /// try first. The ⋯ menu carries the same Customize entry for anyone who doesn't think to.
     @ViewBuilder
     private func barContextMenu() -> some View {
+        // Tabs first: they act on the pane, while everything below acts on the bar's own
+        // appearance. No key equivalents — the chords are registered once, in the menu bar; a
+        // `.keyboardShortcut` here would register a second pair, one per pane.
+        if let onNewTab {
+            Button("New Tab") { onNewTab() }
+            if let onCloseTab {
+                Button("Close Tab") { onCloseTab() }
+            }
+            Divider()
+        }
         Picker("Icon Size", selection: $iconSizeRaw) {
             ForEach(PaneBarIconSize.allCases, id: \.rawValue) { size in
                 Text(size.displayName).tag(size.rawValue)

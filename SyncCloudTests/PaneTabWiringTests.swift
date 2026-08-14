@@ -46,6 +46,19 @@ import Sync
         return String(rest[..<end.lowerBound])
     }
 
+    /// Source with its comment lines removed.
+    ///
+    /// **Every negative assertion below must go through this.** A scan for the ABSENCE of something
+    /// is answered by any comment that mentions it — this file has now tripped over its own prose
+    /// twice: a doc comment naming `FileTreeView(` broke a Quick Look scan, and a comment
+    /// explaining why the header menu registers no `keyboardShortcut` made the check for one pass.
+    /// `ShortcutCommandsTests` carries the same helper for the same reason.
+    private static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     private static func fileExplorer(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -300,7 +313,8 @@ import Sync
             .appendingPathComponent("Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift"),
                               encoding: .utf8)
         let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool)", in: sync)
-        #expect(!apply.contains("syncPathsFromHistory()") && !apply.contains("refreshSubject"),
+        let applyCode = Self.codeOnly(apply)
+        #expect(!applyCode.contains("syncPathsFromHistory()") && !applyCode.contains("refreshSubject"),
                 "applyTab rings the refresh itself — it runs before the provider id is written")
     }
 
@@ -329,7 +343,7 @@ import Sync
     @Test func theCloseItemIsNeverDisabled() throws {
         let body = try Self.typeBody("struct CloseTabCommand: View {",
                                      in: Self.source("ShortcutCommands.swift"))
-        #expect(!body.contains(".disabled("),
+        #expect(!Self.codeOnly(body).contains(".disabled("),
                 "⌘W is disabled when no tab is published — it is also this app's only Close")
         #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
     }
@@ -346,7 +360,7 @@ import Sync
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(body.contains("leftProviderId = active.providerId"),
                 "the restore no longer applies its tab's source — this check is vacuous")
-        #expect(!body.contains("pendingTabProviderChanges"),
+        #expect(!Self.codeOnly(body).contains("pendingTabProviderChanges"),
                 "the launch restore arms a counter the bootstrap guard will never decrement")
     }
 
@@ -419,7 +433,8 @@ import Sync
         #expect(body.contains("syncManager.setTabPinned("), "pinning does not reach the manager")
         #expect(body.contains("saveBrowseTabs(isLeft: isLeft)"), "a pin does not survive a quit")
         // Pinning moves no pane, so it must not pay for a reload.
-        #expect(!body.contains("refreshForTabSwitch"), "pinning reloads the tree for nothing")
+        #expect(!Self.codeOnly(body).contains("refreshForTabSwitch"),
+                "pinning reloads the tree for nothing")
     }
 
     /// **The File menu, read off the running app rather than out of the source.**
@@ -488,6 +503,32 @@ import Sync
             #expect(try Self.fileExplorer(file).contains("SharedFileMenuItems.tabActions("),
                     "\(file)'s empty-area menu has no tab items")
         }
+    }
+
+    /// **Right-clicking the header card offers a new tab.** It is the surface a Mac user reaches
+    /// for to act on a pane, and it was the one place with no tab route at all — the row menu needs
+    /// a folder under the pointer, the strip's menu needs a strip, and the pane's background menu
+    /// needs empty space below the rows, which a full column does not have.
+    ///
+    /// The bar itself is untouched: no glyph, no `PaneBarItem`, nothing in the customize sheet.
+    @Test func theHeaderCardsMenuOffersANewTab() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
+        let header = try String(contentsOf: url, encoding: .utf8)
+        let menu = try Self.memberBody("private func barContextMenu() -> some View {", in: header)
+        #expect(menu.contains("Button(\"New Tab\")"), "the header card's menu has no New Tab")
+        #expect(menu.contains("Button(\"Close Tab\")"), "the header card's menu has no Close Tab")
+        #expect(menu.contains("Customize Pane Bar…"), "the menu lost what it already carried")
+        // No chord badges: the pair is registered once in the menu bar, and a `.keyboardShortcut`
+        // here would register a second pair — one per pane.
+        #expect(!Self.codeOnly(menu).contains("keyboardShortcut"),
+                "the header menu registers its own chords, so ⌘T is claimed twice")
+
+        // …and the call site withholds Close Tab at one tab rather than offering to close the window.
+        let content = try Self.source("ContentView.swift")
+        #expect(content.contains("onCloseTab: syncManager.paneTabs(isLeft: isLeft).count > 1"),
+                "the header menu offers Close Tab at one tab, where it would close the window")
     }
 
     /// Discovery beats tidiness: the row menu's tab item sits above Quick Look, not at the bottom

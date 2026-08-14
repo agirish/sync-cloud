@@ -2520,6 +2520,13 @@ struct ContentView: View {
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
                 } },
                 sortOption: $syncManager.sortOption,
+                // The header card's right-click route to tabs — the one that works with no folder
+                // under the pointer and no strip on screen. `nil` for Close Tab at one tab: the
+                // item withholds itself rather than offering to close the window.
+                onNewTab: { openNewTabHere(isLeft: isLeft) },
+                onCloseTab: syncManager.paneTabs(isLeft: isLeft).count > 1
+                    ? { closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id, isLeft: isLeft) }
+                    : nil,
                 // Only the single-source rail collapses itself (back to the spine); the two
                 // comparison panes never collapse individually, and Browse cannot — the pane IS
                 // the window there, so there is no spine to collapse into and nothing beside it
