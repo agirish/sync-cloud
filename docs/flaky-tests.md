@@ -718,6 +718,37 @@ becomes the result. The suspicion was worth checking rather than waving away: th
 lengthened a main-actor pump in a suite that runs in parallel with this benchmark, which is a real
 causal path, just not the one that fired.
 
+**Second failure, 2026-08-14 — interleaving was necessary but not sufficient.** The same test
+failed the v4.0 cut commit at `speedup → 1.7669 > 1.8`, on a commit that changes two version
+strings, a generated plist and a markdown file — nothing this benchmark can reach, and the
+benchmark file itself unchanged since `7afac3a4`. The arms are interleaved now, as the entry above
+prescribes, and it failed anyway. Three CI runs of the identical benchmark, one commit apart:
+
+| commit | searched | computed | speedup |
+|---|---|---|---|
+| `869be3ca` pass | 20.11ms | 7.85ms | 2.56x |
+| `a76f45b9` pass | 22.32ms | 9.17ms | 2.44x |
+| `b012c1c7` fail | 27.11ms | 15.34ms | **1.77x** |
+| `b012c1c7` rerun | 38.63ms | 13.90ms | 2.78x |
+
+**Both arms picked up nearly the same *absolute* time, not the same proportion** — +4.8ms and
++6.2ms. That is the signature of an additive term, and interleaving does not remove one: it cancels
+load that *drifts between* the arms, while a steady overhead present during both survives. An
+additive `d` collapses a ratio whenever the arms differ in magnitude, because `(a+d)/(b+d) < a/b`,
+and here the computed arm is a third the size of the searched one — so the same milliseconds cost
+it proportionally far more. The rerun makes the point from the other side: `searched` was the
+slowest of all four at 38.63ms and the ratio still passed comfortably, because that run's inflation
+was multiplicative rather than additive.
+
+Note the probe median was **7.3ms on all three of the original runs, failing and passing alike**,
+and the sibling columns benchmark reported `slowdown=1.00x` during the failure. The probe did not
+see this. Do not read a healthy probe as evidence the machine was quiet.
+
+**If it fires a third time, fix it rather than documenting it again** — this entry has now been
+written twice. The fix is to stop dividing raw medians: subtract the probe baseline from each arm
+before taking the ratio, or assert on the absolute difference between the arms, which stayed stable
+across the very runs whose ratio moved from 2.44x to 1.77x and back to 2.78x.
+
 ### 7. The machine decides the verdict — the keyboard
 
 **Symptom.** A mounted-view test spends its whole deadline and reports the end state it started
