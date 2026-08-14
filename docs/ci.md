@@ -181,6 +181,35 @@ superseded it, so something ate its run. For an *intermediate* SHA of a burst,
 cancelled-with-a-newer-green-descendant is the expected state, but remember its
 content passed only as part of the descendant, not on its own.
 
+### One commit on `main` does not build: `cb2147b9` — skip it when bisecting
+
+`cb2147b9` ("Retire the Tidy machinery names") **fails to compile**, and it is on
+`main` and under the `v4.0` tag. `git bisect` will land on it eventually; when it
+does, `git bisect skip` is the answer. It is the only such commit — its child
+`b4ac3a21` builds.
+
+The break is one call. That commit renamed `TidyView` to `LensWorkspaceView`, and
+`Modules/FileExplorer/Tests/FileExplorer/FilingSpendWordingTests.swift:57` still
+reads `TidyView.refineHelp(…)`. At that commit no type named `TidyView` is
+declared anywhere, `refineHelp` lives on `LensWorkspaceView.swift:2458`, and the
+FileExplorer test target is `path: "Tests/FileExplorer"` with no `exclude:` and no
+`sources:` — so SPM compiles that file and the symbol cannot resolve. The child
+commit spells it `LensWorkspaceView.refineHelp`.
+
+**Two things let it through, and both are worth knowing rather than the commit
+itself.** The fix was written but **amended into the following commit instead of
+this one**, so the branch tip was always green and the defect existed only at an
+intermediate SHA. And tip-only verdicts (above) mean no run ever compiled this SHA
+on its own — the policy that saves the machine 4-7 minutes per superseded commit
+is exactly the policy that cannot catch this. The general rule: **when a rename
+lands, let each commit build before writing the next one**, because nothing in CI
+is watching the commits between pushes.
+
+It is **not** being repaired. `cb2147b9` is an ancestor of the published `v4.0`
+tag, so rewriting it would change every SHA after it and orphan both the tag and
+the GitHub release that points at it. A broken build at one intermediate commit is
+much cheaper than that.
+
 ## Runner
 
 Registered as `synccloud-mac` (labels `self-hosted`, `macOS`), installed at
