@@ -296,8 +296,12 @@ public struct PaneTabList: Equatable, Sendable {
     }
 
     /// Duplicate: the same location under a new identity, opened at the end like any other tab.
-    /// The selection and the search query are deliberately NOT carried over — a duplicate is a
-    /// second view of a folder, not a second copy of what you were doing to it.
+    ///
+    /// The selection, the search query **and the back/forward history** are deliberately not
+    /// carried over — a duplicate is a second view of a folder, not a second copy of what you were
+    /// doing to it. The history is the one worth naming explicitly: it comes back seeded from the
+    /// path by `PaneTab`'s initializer, so the new tab can walk *up* from where it opened but
+    /// cannot walk *back* through somewhere it has never been.
     public mutating func duplicate(id: UUID) {
         guard let index = index(of: id) else { return }
         let source = tabs[index]

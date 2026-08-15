@@ -947,7 +947,8 @@ struct ContentView: View {
         // rather than its two `onChange`s written here: adding a second to this chain tipped the
         // body over the type-checker's budget outright ("unable to type-check this expression in
         // reasonable time"), which is a hazard this file is already close enough to feel.
-        .modifier(BrowseTabPersistence(syncManager: syncManager) { saveBrowseTabs(isLeft: true) })
+        .modifier(BrowseTabPersistence(syncManager: syncManager,
+                                       leftProviderId: leftProviderId) { saveBrowseTabs(isLeft: true) })
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // The Get-Info override also goes stale when the comparison context changes underneath it:

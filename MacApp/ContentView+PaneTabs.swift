@@ -132,16 +132,23 @@ extension ContentView {
         // teleported to this one's. Linked and in step — which is what linked means — those are the
         // same folder, and drifted they at least both keep their place.
         guard tabsOpenOnBothPanes else { return }
-        openTabHere(isLeft: !isLeft)
+        openTabHere(isLeft: !isLeft, mirrored: true)
     }
 
-    private func openTabHere(isLeft: Bool) {
+    /// `mirrored` changes **only the log line**, and that is the whole reason it exists: a mirrored
+    /// ⌘T opens the sibling at its own folder, so without it the two panes emit the *same* sentence
+    /// in the same second and the log reads as one keystroke firing twice. He audits this log, and a
+    /// phantom double-fire is exactly the kind of thing it should not have to be reasoned away.
+    private func openTabHere(isLeft: Bool, mirrored: Bool = false) {
         let providerId = isLeft ? leftProviderId : rightProviderId
         let here = syncManager.combinedRelativePath(isLeft: isLeft)
         tabAction(isLeft: isLeft) {
             // Logged from inside, so a refused action (the bootstrap guard) leaves no line claiming
             // it happened — he audits this log.
-            Logger.shared.info("User opened a new tab at “\(here.isEmpty ? "the source root" : here)”")
+            let where_ = here.isEmpty ? "the source root" : here
+            Logger.shared.info(mirrored
+                ? "Linked panes: also opened a new tab at “\(where_)” on the other pane"
+                : "User opened a new tab at “\(where_)”")
             return syncManager.openTab(PaneTab(providerId: providerId, relativePath: here),
                                        isLeft: isLeft, currentProviderId: providerId)
         }
@@ -208,17 +215,25 @@ extension ContentView {
             && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))
     }
 
+    /// Selecting and cycling log at **debug**, not info.
+    ///
+    /// Every other tab verb here is INFO, matching "User switched to <workspace>" and the rest of
+    /// the app's `User <verbed>` house style. These two are the exception because ⌃⇥ held down walks
+    /// the whole strip: at INFO a single impatient cycle buries the line above it, and the log's
+    /// value to him is that the interesting lines are still findable.
     func selectTab(id: UUID, isLeft: Bool) {
         tabAction(isLeft: isLeft) {
-            syncManager.switchTab(to: id, isLeft: isLeft,
-                                  currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            Logger.shared.debug("User selected a browse tab")
+            return syncManager.switchTab(to: id, isLeft: isLeft,
+                                         currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
     }
 
     func cycleTab(forward: Bool, isLeft: Bool) {
         tabAction(isLeft: isLeft) {
-            syncManager.cycleTab(forward: forward, isLeft: isLeft,
-                                 currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            Logger.shared.debug("User cycled to the \(forward ? "next" : "previous") browse tab")
+            return syncManager.cycleTab(forward: forward, isLeft: isLeft,
+                                        currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
     }
 
@@ -226,26 +241,38 @@ extension ContentView {
     /// meaning "get rid of this" instead of acquiring an exception nobody would remember.
     func closeTab(id: UUID, isLeft: Bool) {
         guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {
+            Logger.shared.info("User pressed Close Tab on the pane's last tab — closing the window")
             NSApp.keyWindow?.performClose(nil)
             return
         }
+        // Named before it goes, because after the close there is nothing left to name it by — and a
+        // closed tab is the one tab verb that throws away state (its history, its selection) with
+        // only a ten-deep undo behind it.
+        let closing = paneTabItems(isLeft: isLeft).first { $0.id == id }?.title ?? "a tab"
         tabAction(isLeft: isLeft) {
-            syncManager.closeTab(id: id, isLeft: isLeft,
-                                 currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            Logger.shared.info("User closed the browse tab “\(closing)”")
+            return syncManager.closeTab(id: id, isLeft: isLeft,
+                                        currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
     }
 
     func closeOtherTabs(keeping id: UUID, isLeft: Bool) {
+        // The count is the point of this line: this is the one gesture in the feature that closes
+        // several tabs at once, and "how many did that just take" is unanswerable afterwards.
+        let list = syncManager.paneTabs(isLeft: isLeft)
+        let closing = list.tabs.filter { !$0.isPinned && $0.id != id }.count
         tabAction(isLeft: isLeft) {
-            syncManager.closeOtherTabs(keeping: id, isLeft: isLeft,
-                                       currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            Logger.shared.info("User closed \(closing) other browse tab\(closing == 1 ? "" : "s")\(list.pinnedCount > 0 ? ", keeping \(list.pinnedCount) pinned" : "")")
+            return syncManager.closeOtherTabs(keeping: id, isLeft: isLeft,
+                                              currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
     }
 
     func duplicateTab(id: UUID, isLeft: Bool) {
         tabAction(isLeft: isLeft) {
-            syncManager.duplicateTab(id: id, isLeft: isLeft,
-                                     currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            Logger.shared.info("User duplicated a browse tab")
+            return syncManager.duplicateTab(id: id, isLeft: isLeft,
+                                            currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
     }
 
@@ -261,16 +288,23 @@ extension ContentView {
         saveBrowseTabs(isLeft: isLeft)
     }
 
+    /// Debug, like selecting: a drag emits one line and changes nothing but where a chip sits.
     func moveTab(id: UUID, to index: Int, isLeft: Bool) {
         guard !isBootstrappingProviders else { return }
+        Logger.shared.debug("User reordered a browse tab")
         syncManager.moveTab(id: id, to: index, isLeft: isLeft)
         saveBrowseTabs(isLeft: isLeft)
     }
 
     func reopenClosedTab(isLeft: Bool) {
         tabAction(isLeft: isLeft) {
-            syncManager.reopenClosedTab(isLeft: isLeft,
-                                        currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            // Inside the verb, so a press with nothing on the stack writes no line claiming a tab
+            // came back — the item is always enabled, so that press is a real thing a user does.
+            guard let tab = syncManager.reopenClosedTab(
+                isLeft: isLeft, currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            else { return nil }
+            Logger.shared.info("User reopened the closed tab “\(tab.combinedRelativePath.isEmpty ? "the source root" : tab.combinedRelativePath)”")
+            return tab
         }
     }
 
@@ -287,8 +321,17 @@ extension ContentView {
 
     /// Saves the left pane's strip. **The left one only** — see `PaneTabsStore` for why Compare's
     /// right-hand location is not something a Browse feature should start restoring.
+    ///
+    /// **Refuses while the providers are still bootstrapping**, which is not belt-and-braces: the
+    /// launch sequence points the pane at its stored folder *before* `restoreBrowseTabs` reads the
+    /// stored strip, and that first move fires the `onChange` this hangs off. The pane at that
+    /// moment holds the freshly-initialised one-tab list, so a save landing in the window between
+    /// those two steps overwrites the user's whole strip with a single tab — and the restore then
+    /// reads back what it just lost. Whether the window opens at all depends on when SwiftUI runs a
+    /// view update across the `await` in between, which is not a thing to leave to timing. Every
+    /// other tab entry point already refuses here; this was the one that did not.
     func saveBrowseTabs(isLeft: Bool) {
-        guard isLeft else { return }
+        guard isLeft, !isBootstrappingProviders else { return }
         let list = syncManager.leftPaneTabs
         // The ACTIVE entry is a stale snapshot by construction, so it is written from the live pane
         // rather than from the list — otherwise quitting saves the folder the tab was parked at
@@ -363,20 +406,34 @@ extension ContentView {
 /// Keeps the saved strip in step with the live pane.
 ///
 /// **The active tab IS the live pane** (see `PaneTab`), so a strip written only when a tab opens or
-/// closes would restore every tab at the folder it was created in. Both halves of "where a tab is"
-/// are watched: the comparison scope, and — the half that moves in Columns — the column stack.
+/// closes would restore every tab at the folder it was created in. All three halves of "where a tab
+/// is" are watched: the comparison scope, the column stack (the half that moves in Columns), and
+/// the **source**.
 ///
-/// A `ViewModifier` rather than two `onChange`s in `ContentView.body` because that chain is already
+/// The source is the one that is easy to leave out and the one that bites hardest. Switching source
+/// while sitting at the root changes *nothing else* — `resetNavigation` finds the history already
+/// default, the column stack already empty and the relative path already `""`, so neither path
+/// `onChange` fires and nothing saves. The stored active entry keeps naming the old source, and
+/// because `restoreBrowseTabs` writes the restored tab's provider over `selectedLeftProviderId`,
+/// the next launch does not merely fail to follow the switch — it actively undoes it, reopening on
+/// the source the user navigated away from. That is a regression of behaviour that predates tabs,
+/// caused by the strip becoming a second, staler answer to "which source was this pane on".
+///
+/// A `ViewModifier` rather than `onChange`s in `ContentView.body` because that chain is already
 /// long enough that adding two more tipped it past the type-checker's budget. One modifier, and its
 /// body is type-checked on its own.
 struct BrowseTabPersistence: ViewModifier {
     @ObservedObject var syncManager: FileSyncManager
+    /// The left pane's source. A plain `String` rather than the `@AppStorage` binding: this only
+    /// needs to notice that it changed, and taking the value keeps the modifier testable as a value.
+    let leftProviderId: String
     let save: () -> Void
 
     func body(content: Content) -> some View {
         content
             .onChange(of: syncManager.leftRelativePath) { _, _ in save() }
             .onChange(of: syncManager.leftBrowsePath) { _, _ in save() }
+            .onChange(of: leftProviderId) { _, _ in save() }
     }
 }
 

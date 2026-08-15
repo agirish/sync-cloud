@@ -210,4 +210,141 @@ import Foundation
         #expect(manager.rightPaneTabs.count == 2)
         #expect(manager.rightPaneTabs.tabs.map(\.relativePath) == ["L1", "L2"])
     }
+
+    // MARK: The verbs that had no manager-level test at all
+    //
+    // Each of the five below was written because a mutation survived the whole 2,173-test suite:
+    // `closeOtherTabs` never moving the pane, `duplicateTab` doing nothing, `setTabPinned` doing
+    // nothing, `captureTab` ignoring the search snapshot, and `applyTab` no longer clearing the
+    // comparison state. The model half of each was covered; the manager half — the half that moves
+    // the actual pane — was not, which is the seam this file exists to hold.
+
+    /// **Close Other Tabs from a PARKED tab has to move the pane.** The gesture is "leave me with
+    /// this one", so the pane must end up looking at the tab that survived — not still showing a
+    /// folder whose chip has just been closed out from under it.
+    @MainActor
+    @Test func closingTheOtherTabsFromAParkedOneMovesThePaneToIt() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "iCloud", relativePath: "Keep"),
+                                     PaneTab(providerId: "iCloud")])
+        let keep = manager.leftPaneTabs.tabs[1].id
+        // Live on the FIRST tab, somewhere of its own, so "the pane moved" is unambiguous.
+        manager.focusOn(relativePath: "Finance", isLeft: true)
+
+        let arrived = manager.closeOtherTabs(keeping: keep, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(arrived?.id == keep, "the pane did not move to the tab that was kept")
+        #expect(manager.leftPaneTabs.count == 1)
+        #expect(manager.leftRelativePath == "Keep",
+                "the pane is still showing the folder of a tab that no longer exists")
+    }
+
+    /// …and from the tab already live it must NOT move — the return is the host's signal to skip a
+    /// reload, and a reload here would be work for a pane that has not gone anywhere.
+    @MainActor
+    @Test func closingTheOtherTabsFromTheLiveOneLeavesThePanePut() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        let live = manager.leftPaneTabs.active.id
+        manager.focusOn(relativePath: "Finance", isLeft: true)
+
+        let arrived = manager.closeOtherTabs(keeping: live, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(arrived == nil, "closing the others around the live tab reported a move")
+        #expect(manager.leftPaneTabs.count == 1)
+        #expect(manager.leftRelativePath == "Finance", "the pane moved when nothing asked it to")
+    }
+
+    /// Duplicate opens a second chip on the same folder and goes there. The half that fails when
+    /// `duplicate` is a no-op is the COUNT — landing on the right folder is what the pane was
+    /// already showing.
+    @MainActor
+    @Test func duplicatingATabOpensASecondChipOnTheSameFolderAndGoesThere() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud")])
+        manager.focusOn(relativePath: "Finance/US", isLeft: true)
+        let original = manager.leftPaneTabs.active.id
+
+        let arrived = manager.duplicateTab(id: original, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.leftPaneTabs.count == 2, "duplicate did not open a second tab")
+        #expect(arrived?.id != original, "the pane stayed on the original rather than the copy")
+        #expect(manager.leftRelativePath == "Finance/US")
+        // The original is left parked where it was, which is the capture doing its job.
+        #expect(manager.leftPaneTabs.tabs[0].combinedRelativePath == "Finance/US")
+    }
+
+    /// Pinning through the manager reaches the list — and, because pinning REORDERS, the pane must
+    /// still be on the tab it was on. That second half is the one a no-op mutation cannot fail, so
+    /// it is asserted against a tab that genuinely moves position.
+    ///
+    /// **Asserted on identity, not on paths.** The first draft named the three tabs by folder and
+    /// expected them back in that order; it failed with `["C", "", "B"]`, because switching away
+    /// from the first tab captures the LIVE pane into it and this pane had been nowhere. That is
+    /// the design working — the active tab is the pane, not a value beside it — so the fixture is
+    /// what was wrong, and ids are the thing pinning is actually supposed to preserve.
+    @MainActor
+    @Test func pinningThroughTheManagerReordersTheStripWithoutMovingThePane() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "iCloud")])
+        let ids = manager.leftPaneTabs.tabs.map(\.id)
+        manager.switchTab(to: ids[1], isLeft: true, currentProviderId: "iCloud")
+        let liveBefore = manager.leftPaneTabs.active.id
+
+        manager.setTabPinned(true, id: ids[2], isLeft: true)
+
+        #expect(manager.leftPaneTabs.tabs.map(\.id) == [ids[2], ids[0], ids[1]],
+                "pinning did not move the tab to the leading end")
+        #expect(manager.leftPaneTabs.active.id == liveBefore,
+                "the reorder took the live tab with it")
+        #expect(manager.leftPaneTabs.tabs[0].isPinned)
+
+        manager.setTabPinned(false, id: ids[2], isLeft: true)
+        #expect(manager.leftPaneTabs.pinnedCount == 0, "unpinning through the manager did nothing")
+        #expect(manager.leftPaneTabs.active.id == liveBefore, "unpinning moved the pane")
+    }
+
+    /// **The search field travels with the tab**, and the manager can only read it through the
+    /// host's `paneSearchSnapshot` hook. Nothing else in the suite installs that hook, so without
+    /// this the whole channel could be cut and every test would still pass.
+    @MainActor
+    @Test func aParkedTabKeepsTheSearchTheHostReportsForIt() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        manager.paneSearchSnapshot = { isLeft in
+            isLeft ? (query: "invoice", isExpanded: true) : (query: "", isExpanded: false)
+        }
+        let first = manager.leftPaneTabs.tabs[0].id
+        let second = manager.leftPaneTabs.tabs[1].id
+
+        manager.switchTab(to: second, isLeft: true, currentProviderId: "iCloud")
+
+        let parked = try #require(manager.leftPaneTabs.tabs.first { $0.id == first })
+        #expect(parked.searchQuery == "invoice", "the parked tab lost the query the host reported")
+        #expect(parked.searchIsExpanded, "the parked tab lost the field's expanded state")
+        // And the tab arrived at carries its own — which for a tab that has been nowhere is empty.
+        #expect(manager.leftPaneTabs.active.searchQuery == "")
+        #expect(manager.leftPaneTabs.active.id == second)
+    }
+
+    /// **A tab switch drops the comparison.** The differences, the trees and the verification
+    /// results were computed for the folder pair the pane is leaving; carried across a switch they
+    /// would show one pane's new contents against the other pane's answer to the old question —
+    /// and a stale "in sync" is the most expensive wrong answer this app can give.
+    @MainActor
+    @Test func switchingTabsThrowsAwayTheComparisonBuiltForTheOldFolder() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        manager.differences = [FileDifference(relativePath: "stale.pdf",
+                                              leftItemPath: "/l/stale.pdf",
+                                              rightItemPath: "/r/stale.pdf",
+                                              type: .missingOnRight,
+                                              action: .copyToRight,
+                                              description: "missing")]
+        manager.hasScanned = true
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.differences.isEmpty,
+                "the previous folder's differences survived a tab switch")
+        #expect(!manager.hasScanned,
+                "the pane claims a scan it ran against the tab it just left")
+    }
 }

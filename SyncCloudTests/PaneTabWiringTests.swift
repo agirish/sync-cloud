@@ -637,7 +637,7 @@ import Sync
         let here = try Self.memberBody("func openNewTabHere(isLeft: Bool)", in: code)
         #expect(here.contains("guard tabsOpenOnBothPanes else { return }"),
                 "⌘T and the ＋ do not open a tab on the linked pane")
-        #expect(here.contains("openTabHere(isLeft: !isLeft)"),
+        #expect(here.contains("openTabHere(isLeft: !isLeft"),
                 "the mirrored ⌘T does not target the other pane")
 
         let openThere = try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)", in: code)
@@ -651,6 +651,124 @@ import Sync
                 "the mirror copies the path outright instead of pruning it")
         #expect(mirror.contains("expandingTildeInPath"),
                 "the sibling's root is compared unexpanded, so every mirror prunes to its root")
+    }
+
+    // MARK: What the launch sequence may not overwrite
+
+    /// **The save has to refuse during the provider bootstrap.**
+    ///
+    /// The launch sequence points the pane at its stored folder and *then* reads the stored strip.
+    /// That first move fires the persistence `onChange`, and the pane at that instant still holds
+    /// the freshly-initialised one-tab list — so a save landing in between overwrites the user's
+    /// whole strip with a single tab, and the restore reads back what it just destroyed. Whether
+    /// the window opens at all comes down to when SwiftUI runs a view update across the `await`
+    /// between the two steps, which is not a thing to leave to timing.
+    @Test func theStripIsNotSavedWhileTheProvidersAreStillBootstrapping() throws {
+        let rule = try Self.memberBody("func saveBrowseTabs(isLeft: Bool)",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(rule.contains("!isBootstrappingProviders"),
+                "a save during launch can overwrite the stored strip before the restore reads it")
+    }
+
+    /// **The source is part of where a tab is**, and it is the half that moves without either path
+    /// moving: switching source at the root leaves the history default, the column stack empty and
+    /// the relative path `""`, so neither path `onChange` fires. Left unwatched, the stored entry
+    /// keeps naming the old source — and because the restore writes the tab's provider over
+    /// `selectedLeftProviderId`, the next launch actively undoes the switch.
+    @Test func theSavedStripFollowsTheSourceAndNotOnlyThePath() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        let modifier = try Self.typeBody("struct BrowseTabPersistence: ViewModifier {", in: source)
+        #expect(modifier.contains("onChange(of: leftProviderId)"),
+                "a source switch at the root is never saved, so the next launch reopens the old one")
+        #expect(modifier.contains("onChange(of: syncManager.leftRelativePath)"),
+                "the scope is no longer watched")
+        #expect(modifier.contains("onChange(of: syncManager.leftBrowsePath)"),
+                "the column stack is no longer watched")
+
+        // …and the call site actually feeds it. A modifier watching a value nobody passes is the
+        // shape this repo has shipped before.
+        #expect(try Self.source("ContentView.swift").contains("leftProviderId: leftProviderId"),
+                "BrowseTabPersistence is built without the source it watches")
+    }
+
+    // MARK: Log coverage
+
+    /// **Every verb that changes the strip writes a line**, because he audits `~/sync-cloud.log`
+    /// and the app's house style logs far smaller things than these ("User toggled hidden files",
+    /// "User changed sort option").
+    ///
+    /// Named one by one rather than scanned as a family: a blanket "every func in this file logs"
+    /// passes the moment a verb is renamed out of the pattern, which is the blind spot this repo
+    /// has hit before. The positive control is `theScanCanActuallyFail` above plus the deliberate
+    /// omission asserted underneath.
+    @Test func everyVerbThatChangesTheStripIsLogged() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        let verbs = [
+            "private func openTabHere(isLeft: Bool, mirrored: Bool = false)",
+            "func openInNewTab(absolutePath: String, isLeft: Bool)",
+            "private func mirrorOpenInNewTab(",
+            "func selectTab(id: UUID, isLeft: Bool)",
+            "func cycleTab(forward: Bool, isLeft: Bool)",
+            "func closeTab(id: UUID, isLeft: Bool)",
+            "func closeOtherTabs(keeping id: UUID, isLeft: Bool)",
+            "func duplicateTab(id: UUID, isLeft: Bool)",
+            "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
+            "func moveTab(id: UUID, to index: Int, isLeft: Bool)",
+            "func reopenClosedTab(isLeft: Bool)",
+            "func copyTabPath(id: UUID, isLeft: Bool)",
+        ]
+        for verb in verbs {
+            let body = try Self.memberBody(verb, in: source)
+            #expect(body.contains("Logger.shared."),
+                    "“\(verb)” changes the strip and writes nothing to the log")
+        }
+    }
+
+    /// The two that are deliberately quieter, and the two that are deliberately louder — a level
+    /// this file picked on purpose is worth pinning, because "make it consistent" would otherwise
+    /// flatten them on the next pass.
+    @Test func cyclingIsQuietAndClosingIsNot() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        for quiet in ["func selectTab(id: UUID, isLeft: Bool)",
+                      "func cycleTab(forward: Bool, isLeft: Bool)",
+                      "func moveTab(id: UUID, to index: Int, isLeft: Bool)"] {
+            let body = try Self.memberBody(quiet, in: source)
+            #expect(body.contains("Logger.shared.debug"),
+                    "“\(quiet)” logs at info — holding ⌃⇥ then buries the lines worth reading")
+        }
+        for loud in ["func closeTab(id: UUID, isLeft: Bool)",
+                     "func closeOtherTabs(keeping id: UUID, isLeft: Bool)"] {
+            let body = try Self.memberBody(loud, in: source)
+            #expect(body.contains("Logger.shared.info"),
+                    "“\(loud)” throws tabs away at debug level")
+        }
+    }
+
+    /// **A mirrored ⌘T must not log the same sentence as the one that caused it.** Both panes open
+    /// a tab at their own folder, so without a distinct line the log shows one keystroke firing
+    /// twice in the same second — which reads as a bug in the very log used to rule bugs out.
+    @Test func theMirroredNewTabSaysItIsTheMirror() throws {
+        let body = try Self.memberBody("private func openTabHere(isLeft: Bool, mirrored: Bool = false)",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("mirrored"), "the log line cannot tell a mirrored ⌘T from a real one")
+        #expect(body.contains("Linked panes:"),
+                "the mirrored line does not say the link is why it happened")
+        #expect(try Self.memberBody("func openNewTabHere(isLeft: Bool)",
+                                    in: Self.source("ContentView+PaneTabs.swift"))
+                    .contains("mirrored: true"),
+                "the mirror is opened without marking itself as one")
+    }
+
+    /// Reopen logs from *inside* the verb, so a press with an empty stack — the item is always
+    /// enabled, so that press is a real thing a user does — writes no line claiming a tab came back.
+    @Test func reopenOnlyClaimsATabWhenOneComesBack() throws {
+        let body = try Self.memberBody("func reopenClosedTab(isLeft: Bool)",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let guardIndex = try #require(body.range(of: "else { return nil }"),
+                                      "reopen no longer distinguishes an empty stack")
+        let log = try #require(body.range(of: "Logger.shared.info"))
+        #expect(guardIndex.upperBound < log.lowerBound,
+                "reopen logs before it knows whether anything came back")
     }
 
     /// **One setting, every way of walking into a folder.** The mirror predicate is the same
