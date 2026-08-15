@@ -127,7 +127,7 @@ extension ContentView {
         // DIFFERS from the pane's, so a discarded tab always answers yes here — which is what it
         // needs, since the verb that applied it had already dropped the trees.
         if PaneTabArrival.needsReload(arrivingAt: arrived, fromProvider: fromProvider, fromFocus: fromFocus) {
-            refreshForTabSwitch()
+            refreshForTabSwitch(movedPane: isLeft)
         }
     }
 
@@ -136,10 +136,18 @@ extension ContentView {
     /// A provider change writes `@AppStorage` a beat after `applyTab` returns, so this runs after
     /// that write and drives the single reload. Asking twice is free when nothing moved:
     /// `refreshTreesAndScan` dedupes an identical in-flight target rather than restarting it.
-    private func refreshForTabSwitch() {
+    /// - Parameter movedPane: the side the switch happened on. **Only that pane is walked**: the
+    ///   other's tree is a walk of a root and focus the switch did not touch, so re-walking it
+    ///   rebuilds something identical — 15–36ms of every switch, measured on a real strip, spent on
+    ///   a pane nobody moved. The scan still runs and still compares both; the untouched pane
+    ///   contributes the tree it already holds.
+    private func refreshForTabSwitch(movedPane isLeft: Bool) {
         guard let left = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let right = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else { return }
-        Task { await syncManager.refreshTreesAndScan(left: left, right: right) }
+        Task {
+            await syncManager.refreshTreesAndScan(left: left, right: right,
+                                                  reloading: .movedPane(isLeft: isLeft))
+        }
     }
 
     // MARK: - The verbs, as the UI names them

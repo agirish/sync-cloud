@@ -353,8 +353,21 @@ extension FileSyncManager {
     /// - Parameters:
     ///   - left: Cloud provider for the left pane (root path and display name).
     ///   - right: Cloud provider for the right pane.
-    public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider) async {
-        let key = makeRefreshKey(left: left, right: right)
+    /// - Parameter reloading: which panes need their tree walked again. `.both` is the answer for
+    ///   everything that changes what a walk would produce — a file operation, a forced rescan, a
+    ///   sort or hidden-files change, a provider switch — and it is the default so every existing
+    ///   caller keeps its behaviour exactly.
+    ///
+    ///   A **tab switch** is the one caller that knows better: it re-points one pane and leaves the
+    ///   other alone, so walking the other rebuilds a tree identical to the one it already has.
+    ///   This is deliberately "don't ask" rather than "skip if it looks unchanged": every staleness
+    ///   source in this manager clears `prefetchedTrees` and *nothing else* — not the live tree, not
+    ///   `lastLoadedFocusPath` — so a load that inferred "same focus, already loaded, nothing to do"
+    ///   would serve pre-operation state after a copy or a delete. The scan still runs, and still
+    ///   compares both panes; the untouched one contributes the tree it already holds.
+    public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider,
+                                    reloading: PaneReloadScope = .both) async {
+        let key = makeRefreshKey(left: left, right: right, reloading: reloading)
         // The launch bootstrap fires several identical refreshes (the explicit initial one plus
         // the provider-id onChange that resets navigation). A refresh already in flight for the
         // exact same target loads both panes on its own, so skip the duplicate rather than
@@ -378,9 +391,16 @@ extension FileSyncManager {
             // the disk on its own detached worker — so run them concurrently. Serially they
             // doubled time-to-first-render, and panes on different volumes don't even
             // contend for I/O. Cancelling this task cancels both child loads.
-            async let leftLoad: Void = self.loadTree(path: leftRoot, isLeft: true)
-            async let rightLoad: Void = self.loadTree(path: rightRoot, isLeft: false)
-            _ = await (leftLoad, rightLoad)
+            switch reloading {
+            case .both:
+                async let leftLoad: Void = self.loadTree(path: leftRoot, isLeft: true)
+                async let rightLoad: Void = self.loadTree(path: rightRoot, isLeft: false)
+                _ = await (leftLoad, rightLoad)
+            case .leftOnly:
+                await self.loadTree(path: leftRoot, isLeft: true)
+            case .rightOnly:
+                await self.loadTree(path: rightRoot, isLeft: false)
+            }
             guard !Task.isCancelled else { return }
             
             let currentLeftFull = (leftRoot as NSString).appendingPathComponent(leftRelativePath)

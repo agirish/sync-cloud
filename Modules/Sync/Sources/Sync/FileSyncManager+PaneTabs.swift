@@ -65,16 +65,27 @@ extension FileSyncManager {
         // screen. `PaneTabArrival` is the shared rule; the host asks it the same question to decide
         // whether to run the scan, and the two must agree or a pane ends up invalidated and never
         // reloaded.
-        // And when the scope DOES move but the source does not, the fast-path cache is kept: it is
-        // keyed by absolute path, so every subtree in it still describes the same folders on the
-        // same disk. That is what makes the arriving tab paint from memory instead of from a disk
-        // walk — the same fast path breadcrumb and drill-down navigation already take, and the
-        // reason those are instant while a tab switch was not.
-        let sourceChanged = tab.providerId != currentProviderId
+        // **Scoped to the pane that moved.** The differences belong to a folder *pair*, so they go
+        // either way; a pane's TREE is a walk of one root at one focus, and neither changes for the
+        // pane standing still. Dropping both was re-adopting the other pane's tree for nothing —
+        // 15–36ms of every switch, measured on a real strip.
+        //
+        // The fast-path cache is kept across a move **inside one source** and dropped when the source
+        // changes. Keeping it is what lets the arriving tab paint from memory rather than from a
+        // disk walk — the same fast path breadcrumb and drill-down navigation already take.
+        //
+        // The reason for the other half is **memory, not staleness**: entries are keyed by absolute
+        // path, so the ones a departed source left behind are still true descriptions of folders
+        // that still exist. But they are also whole walked trees — this app's iCloud root measures
+        // 39,399 nodes — and never dropping them lets one per visited source accumulate for the
+        // session. That is what `invalidateComparisonState` means by the old root's tree being
+        // "dead weight", and it is worth keeping.
         if PaneTabArrival.needsReload(arrivingAt: tab,
                                       fromProvider: currentProviderId,
                                       fromFocus: isLeft ? leftRelativePath : rightRelativePath) {
-            invalidateComparisonState(keepingPrefetchedTrees: !sourceChanged)
+            if tab.providerId != currentProviderId { prefetchedTrees.removeAll() }
+            invalidatePaneTree(isLeft: isLeft)
+            invalidateDifferencesForPaneRetarget()
             clearSessionIgnoredPaths()
         }
 

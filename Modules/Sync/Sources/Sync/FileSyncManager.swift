@@ -1708,6 +1708,25 @@ public class FileSyncManager: ObservableObject {
         /// config didSet requested while a same-target refresh was in flight (e.g. switching
         /// to the Tags sort mid-scan left the panes tag-less and old-sorted).
         let config: Int
+        /// Which panes this refresh will actually walk.
+        ///
+        /// Part of the key so a one-pane refresh and a two-pane one for the same target are never
+        /// mistaken for each other: without it, a tab switch's `.leftOnly` refresh in flight would
+        /// swallow a `.both` that arrived a moment later as a duplicate, and the right pane would
+        /// keep a tree nobody reloaded.
+        let reloading: PaneReloadScope
+    }
+
+    /// Which panes a refresh walks. See `refreshTreesAndScan(left:right:reloading:)`.
+    public enum PaneReloadScope: Equatable, Sendable {
+        /// Both panes — the answer for anything that changes what a walk would produce.
+        case both
+        /// Only the left pane; the right keeps the tree it is already showing.
+        case leftOnly
+        /// Only the right pane.
+        case rightOnly
+
+        public static func movedPane(isLeft: Bool) -> PaneReloadScope { isLeft ? .leftOnly : .rightOnly }
     }
 
     /// Epoch of "what a load/scan would produce". Bumped whenever something makes an
@@ -1735,12 +1754,14 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// The dedupe identity for a refresh of the given targets under the current config epoch.
-    internal func makeRefreshKey(left: CloudProvider, right: CloudProvider) -> RefreshKey {
+    internal func makeRefreshKey(left: CloudProvider, right: CloudProvider,
+                                 reloading: PaneReloadScope = .both) -> RefreshKey {
         RefreshKey(
             leftId: left.id, leftPath: left.path,
             rightId: right.id, rightPath: right.path,
             leftRel: leftRelativePath, rightRel: rightRelativePath,
-            config: scanConfigGeneration
+            config: scanConfigGeneration,
+            reloading: reloading
         )
     }
     /// Monotonic per-pane load tokens: each `loadTree` call claims the next value. The deferred

@@ -394,6 +394,53 @@ import Foundation
                 "the pane kept cached subtrees of the source it just left")
     }
 
+    /// **A tab switch reloads only the pane it moved.** The other pane's tree is a walk of a root
+    /// and a focus the switch did not touch, so walking it again rebuilds something identical — on
+    /// a real strip that measured 15–36ms of every switch spent on a pane nobody moved.
+    ///
+    /// `.both` stays the default for every other caller, which is what keeps a file operation, a
+    /// forced rescan and a sort change rebuilding both panes. See `PaneReloadScopeTranscript` for
+    /// the controlled fixture diff that measures exactly that.
+    @MainActor
+    @Test func aTabSwitchInvalidatesOnlyThePaneItMoved() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "iCloud", relativePath: "Elsewhere")])
+        manager.leftTree = [FileNode(id: "/l/A", name: "A", isDirectory: true, children: [])]
+        manager.rightTree = [FileNode(id: "/r/B", name: "B", isDirectory: true, children: [])]
+        manager.lastLoadedLeftFocusPath = ""
+        manager.lastLoadedRightFocusPath = ""
+        manager.leftItemCount = 1
+        manager.rightItemCount = 1
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.leftTree.isEmpty, "the moving pane kept a tree walked for the folder it left")
+        #expect(manager.lastLoadedLeftFocusPath == nil)
+        #expect(!manager.rightTree.isEmpty,
+                "the pane that did not move had its tree dropped, so it re-walks for nothing")
+        #expect(manager.lastLoadedRightFocusPath == "",
+                "the still pane was marked unloaded, which is what makes it re-walk")
+        #expect(manager.rightItemCount == 1)
+        // The comparison still goes: one pane moving DOES change the folder pair.
+        #expect(!manager.hasScanned)
+    }
+
+    /// And the scope the host hands the refresh names that same pane — one rule, or a pane ends up
+    /// invalidated and never reloaded.
+    @MainActor
+    @Test func theReloadScopeNamesTheMovedPane() {
+        #expect(FileSyncManager.PaneReloadScope.movedPane(isLeft: true) == .leftOnly)
+        #expect(FileSyncManager.PaneReloadScope.movedPane(isLeft: false) == .rightOnly)
+        // Part of the refresh key, so a one-pane refresh in flight cannot swallow a two-pane one
+        // as a duplicate and leave the other pane holding a tree nobody reloaded.
+        let m = FileSyncManager()
+        let l = CloudProvider(id: "L", displayName: "L", imageName: "", path: "/l", type: .iCloud)
+        let r = CloudProvider(id: "R", displayName: "R", imageName: "", path: "/r", type: .iCloud)
+        #expect(m.makeRefreshKey(left: l, right: r, reloading: .leftOnly)
+                != m.makeRefreshKey(left: l, right: r, reloading: .both),
+                "a one-pane refresh and a two-pane one share a key")
+    }
+
     // MARK: A tab whose source has been removed
 
     /// **A dead tab is discarded, not merely warned about.**

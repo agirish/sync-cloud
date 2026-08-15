@@ -326,7 +326,7 @@ import Sync
     @Test func theReloadIsDrivenByTheHostAndNotByApplyTab() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        #expect(body.contains("refreshForTabSwitch()"),
+        #expect(body.contains("refreshForTabSwitch(movedPane: isLeft)"),
                 "a tab switch never reloads — a source change would keep the previous tab's tree")
         let sync = try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -732,7 +732,7 @@ import Sync
         #expect(host.contains("PaneTabArrival.needsReload("),
                 "the host rescans on every tab switch, or decides with its own copy of the rule")
         let gate = try #require(host.range(of: "PaneTabArrival.needsReload("))
-        let refresh = try #require(host.range(of: "refreshForTabSwitch()"),
+        let refresh = try #require(host.range(of: "refreshForTabSwitch(movedPane:"),
                                    "the reload is gone entirely — a source switch would never load")
         #expect(gate.lowerBound < refresh.lowerBound, "the gate does not guard the reload")
 

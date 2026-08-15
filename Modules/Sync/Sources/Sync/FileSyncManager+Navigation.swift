@@ -228,6 +228,34 @@ extension FileSyncManager {
             + "mirrored to depth \(mirrored.depth) in \(String(format: "%.1fms", elapsed))")
     }
 
+    /// Drops **one** pane's tree, so it reloads while the other keeps what it is showing.
+    ///
+    /// `invalidateComparisonState` is symmetric because a comparison is symmetric — the differences
+    /// belong to a folder *pair*. A pane's TREE does not: it is a walk of one root at one focus, and
+    /// neither of those changes for a pane that did not move. Re-pointing one pane was therefore
+    /// dropping and re-adopting the other one's tree for nothing, which on a real strip measured
+    /// 15–36ms of a tab switch spent rebuilding a pane the switch never touched.
+    ///
+    /// **Not the prefetch cache**, deliberately: it is keyed by absolute path, so its entries stay
+    /// true descriptions of folders that still exist, and every genuine staleness source — a file
+    /// operation, a forced rescan, a sort or hidden-files change — clears it on its own.
+    ///
+    /// The caller still drops the comparison (`invalidateDifferencesForPaneRetarget`): one pane
+    /// moving does change the pair.
+    @MainActor public func invalidatePaneTree(isLeft: Bool) {
+        if isLeft {
+            rawLeftTree = []
+            if !leftTree.isEmpty { leftTree = [] }
+            if leftItemCount != 0 { leftItemCount = 0 }
+            lastLoadedLeftFocusPath = nil
+        } else {
+            rawRightTree = []
+            if !rightTree.isEmpty { rightTree = [] }
+            if rightItemCount != 0 { rightItemCount = 0 }
+            lastLoadedRightFocusPath = nil
+        }
+    }
+
     /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing
     /// folders that no longer exist.
     ///
@@ -368,17 +396,11 @@ extension FileSyncManager {
     /// whenever a pane's provider or its root path changes; the caller's rescan repopulates
     /// (with `hasScanned` false and `differences` empty the UI shows "No Scan Performed",
     /// never a false "Everything is in sync").
-    /// - Parameter keepingPrefetchedTrees: retain the fast-path cache. **Only correct when the pane
-    ///   roots are unchanged** — a move *within* one root, where every cached subtree still
-    ///   describes the same folders on the same disk. A tab switch is that: the cache is keyed by
-    ///   absolute path, and serving the arriving focus from it is the same fast path breadcrumb and
-    ///   drill-down navigation already take, which is why those are instant and a tab switch was
-    ///   not. Clearing it there threw away the one thing that could make the switch free, and cost
-    ///   a ~100ms disk walk to rebuild a tree that was already in memory. Default `false`, because
-    ///   a *root* change genuinely does make the cache dead weight.
-    @MainActor public func invalidateComparisonState(keepingPrefetchedTrees: Bool = false) {
-        // Keyed by absolute path, so it survives exactly as far as the roots do.
-        if !keepingPrefetchedTrees { prefetchedTrees.removeAll() }
+    @MainActor public func invalidateComparisonState() {
+        // Drop the prefetch cache too (keyed by absolute path): after a provider/root change the
+        // old root's fully-walked tree is dead weight, and this method documents clearing "both
+        // pane trees" — the fast-path cache is part of that state and its rescan repopulates it.
+        prefetchedTrees.removeAll()
         rawLeftTree = []
         rawRightTree = []
         if !leftTree.isEmpty { leftTree = [] }
