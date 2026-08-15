@@ -187,6 +187,15 @@ public struct PaneTabStrip: View {
     ///
     /// Returns `from` when the drop is a no-op, so a caller can treat "no move" and "moved to where
     /// it already was" identically.
+    /// How many tabs "Close Other Tabs" would actually close, keeping `item` and every pinned tab.
+    ///
+    /// A rule rather than a `count < 2` at the two call sites, because the answer is not the number
+    /// of tabs: pins survive the gesture, so a strip of three whose other two are pinned has nothing
+    /// to close. Both the menu item and the ⌥-✕ tooltip ask this same question.
+    static func closableOthers(of item: Item, in items: [Item]) -> Int {
+        items.filter { $0.id != item.id && !$0.isPinned }.count
+    }
+
     static func dropIndex(from: Int, steps: Int, items: [Item], visible: [Item]) -> Int {
         guard items.indices.contains(from) else { return from }
         var to = min(max(0, from + steps), items.count - 1)
@@ -395,7 +404,11 @@ public struct PaneTabStrip: View {
         // is mostly parked tabs. `opacity` rather than absence, so the title does not re-flow (and
         // does not resize) as the pointer crosses the strip.
         .opacity(item.isActive || hoveredTab == item.id ? 1 : 0)
-        .help("Close this tab (⌥ to close the others)")
+        // The ⌥ half drops out of the tooltip when there is nothing for it to close — every other
+        // tab pinned — rather than promising a modifier that would do nothing.
+        .help(Self.closableOthers(of: item, in: items) > 0
+              ? "Close this tab (⌥ to close the others)"
+              : "Close this tab")
     }
 
     // MARK: - The narrow rungs
@@ -492,8 +505,12 @@ public struct PaneTabStrip: View {
         Divider()
         Button("Close Tab") { onClose(item.id) }
             .disabled(items.count < 2)
+        // **Not `items.count < 2`.** Close Other Tabs keeps the pinned ones, so with three tabs of
+        // which the other two are pinned there is nothing for it to close — and a count-based gate
+        // leaves it enabled, doing nothing, on a menu whose other items all do something. Gated on
+        // whether a closable other exists, which is the same question the verb asks.
         Button("Close Other Tabs") { onCloseOthers(item.id) }
-            .disabled(items.count < 2)
+            .disabled(Self.closableOthers(of: item, in: items) == 0)
         Divider()
         Button(item.isPinned ? "Unpin Tab" : "Pin Tab") { onSetPinned(item.id, !item.isPinned) }
         Button("Duplicate") { onDuplicate(item.id) }

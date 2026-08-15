@@ -194,6 +194,36 @@ import Design
         #expect(layout.visibleCount == 1)
         #expect(layout.tabWidth >= 0)
     }
+
+    // MARK: Close Other Tabs, when the others are pinned
+
+    /// **Pins survive Close Other Tabs**, so the number of tabs is not the number it would close.
+    /// A `count < 2` gate leaves the item enabled on a strip where it does nothing — the one item
+    /// on that menu that would lie about being available.
+    ///
+    /// In *this* suite because `PaneTabStrip` is `@MainActor` and this one is too. Written into the
+    /// gesture suite below first, it compiled and then trapped at runtime in
+    /// `_swift_task_checkIsolatedSwift` — an isolation crash rather than a failure, which takes the
+    /// whole bundle down and reports as `signal code 5` with no test named.
+    @Test func closeOtherTabsCountsOnlyTheTabsItWouldActuallyClose() {
+        func tab(_ title: String, pinned: Bool = false) -> PaneTabStrip.Item {
+            PaneTabStrip.Item(id: UUID(), title: title, markImageName: "folder.fill",
+                              isActive: false, fullPath: "/r/\(title)", isPinned: pinned)
+        }
+        let target = tab("Target")
+        let pinnedA = tab("Pinned A", pinned: true)
+        let pinnedB = tab("Pinned B", pinned: true)
+        let plain = tab("Plain")
+
+        #expect(PaneTabStrip.closableOthers(of: target, in: [target, pinnedA, pinnedB]) == 0,
+                "a strip whose every other tab is pinned still offers to close them")
+        #expect(PaneTabStrip.closableOthers(of: target, in: [target, pinnedA, plain]) == 1)
+        #expect(PaneTabStrip.closableOthers(of: target, in: [target]) == 0,
+                "a lone tab counted itself")
+        // A pinned tab's own menu still closes the unpinned others — pinning protects the tab, it
+        // does not disarm the gesture.
+        #expect(PaneTabStrip.closableOthers(of: pinnedA, in: [pinnedA, pinnedB, plain]) == 1)
+    }
 }
 
 
