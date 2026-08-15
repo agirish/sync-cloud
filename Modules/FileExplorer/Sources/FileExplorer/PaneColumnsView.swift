@@ -1082,11 +1082,17 @@ struct PaneRowBottomsKey: PreferenceKey {
     }
 }
 
-/// A column row: the tree row plus a trailing chevron on folders.
+/// A column row: the tree row minus a folder's date, plus a trailing chevron on folders.
 ///
 /// Wraps `FileRowView` rather than reimplementing it, so the icon, name, cloud badge, difference
 /// badge and contained-count pill can't drift between the two presentations — they are the same
 /// view, and the chevron is the only thing Columns adds.
+///
+/// **The folder date is withheld here rather than dropped from `FileRowView`** (see
+/// `showsFolderDate`): the tree keeps it, exactly as Finder keeps Date Modified in List view while
+/// its column view shows name and chevron alone. With the date gone the chevron is the last thing
+/// on the row, so it lands on the trailing edge by construction — no spacer of its own, which is
+/// why nothing here has to change to place it.
 struct ColumnRowView: View {
     let row: PaneRow
     let isIgnored: Bool
@@ -1118,7 +1124,8 @@ struct ColumnRowView: View {
                         fonts: fonts, riskyReason: riskyReason, isOnThisMacOnly: isOnThisMacOnly,
                         awaitingDownloadID: awaitingDownloadID,
                         searchContext: searchContext, isLeftPane: isLeftPane,
-                        otherPaneName: otherPaneName, accent: accent)
+                        otherPaneName: otherPaneName, accent: accent,
+                        showsFolderDate: false)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(fonts.chevron)

@@ -1297,6 +1297,47 @@ struct FileRowView: View {
     /// The pane's accent, for the “N matches” count. Passed rather than inherited — see
     /// `PaneSearchAnnotation.accent`.
     var accent: Color = .accentColor
+    /// Whether a FOLDER row carries its modification date. Files are untouched either way: a file's
+    /// size is the number this app is about, and it stays in both presentations.
+    ///
+    /// False in Columns (see `ColumnRowView`), which is where the date buys least and costs most. It
+    /// is the entry's own mtime — when something was last added or removed directly inside that
+    /// folder, not when anything beneath it changed — so on a tree of filing folders it reports the
+    /// last tidy rather than anything about the contents. Against that it holds 76.4pt of a 210pt
+    /// column at the default text size (66.4pt for `Dec 25, 2025` in the caption font plus the row's
+    /// 10pt gap, and more as the font scales), which is the difference between 77.6pt of room for a
+    /// name and 154pt: `Birth Certificate` needs 95.7pt and truncates today. Finder draws the same
+    /// line — Date Modified is a List-view column, and its column view shows name and chevron only.
+    ///
+    /// **This is a property of the PRESENTATION, not of the Browse workspace.** `PaneViewMode`
+    /// defaults to `.columns` and each of the three surfaces that draws a pane keeps its own stored
+    /// mode (`browseDefaultsKey`, `defaultsKey(isLeft:)`, `railDefaultsKey`), so the date goes from
+    /// Browse, from a comparison pane and from the Organize rail alike whenever that surface is in
+    /// Columns — and stays in every one of them in Tree. That is deliberate: `isSingleSource`
+    /// already separates the two comparison panes from the single-source ones, but **nothing below
+    /// `ContentView` separates Browse from the Organize rail** — they are the same pane at two
+    /// widths, told apart by a stored key up there rather than by anything the pane can see. A
+    /// Browse-only rule is therefore not a one-line change but the shape `previewEnabled` has:
+    /// resolved in `ContentView` against `PaneViewMode.previewColumnKey(isBrowse:)` and threaded
+    /// down as a binding, for a row-level detail rather than a whole column. It is also what the
+    /// column floor already says matters in a row: `minimumColumnWidth` justifies itself by the
+    /// icon, name, contained-differences count and difference badge, and names no date.
+    ///
+    /// **Where the date still is**, because Columns is the default mode and this is the only place
+    /// it was on screen: the details sidebar's `Modified:` row, which covers folders as well as
+    /// files, and Tree. Not the preview column — `ColumnPreview.item` returns nil for a directory,
+    /// so a selected folder raises no preview to carry it. That is Finder's arrangement too (Get
+    /// Info, not the column), and it is the reason this withholds the date rather than the pane
+    /// dropping `modificationDate` from what it publishes.
+    ///
+    /// One consequence to know before "fixing" it: `SortOption.dateModified` still sorts by a key
+    /// that Columns no longer displays anywhere. Finder's column view does exactly the same, so it
+    /// is deliberate rather than an oversight — the sort is chosen by name in a menu, not read off
+    /// the rows.
+    ///
+    /// Defaulted true, so the tree panes, the single-source rail in Tree and every existing test
+    /// render exactly the row they rendered before this existed.
+    var showsFolderDate: Bool = true
 
     /// The badge task's `.task(id:)` key: this row's path, and the pane's watch for it.
     ///
@@ -1368,11 +1409,24 @@ struct FileRowView: View {
     }()
 
     /// Size for files, date modified for directories (a directory's fileSize is just the
-    /// entry size, not its contents); nil when the scan didn't populate the metadata.
+    /// entry size, not its contents); nil when the scan didn't populate the metadata, and nil for
+    /// a folder on a surface that withholds the date — see `showsFolderDate`.
     private var secondaryText: String? {
+        Self.secondaryText(for: node, showsFolderDate: showsFolderDate)
+    }
+
+    /// The rule behind `secondaryText`, as a pure function of the row's scalars.
+    ///
+    /// Static and non-private because the property it backs is private to a view whose body no test
+    /// can drive — a SwiftUI row is not an `NSControl` — and the thing worth pinning is *which* of
+    /// the two strings a row asks for, which is decided here and nowhere else. The rendering half
+    /// is pinned separately, by `ColumnRowDateTests` comparing painted pixels: a rule with no
+    /// call-site test is one revert from being unused.
+    @MainActor
+    static func secondaryText(for node: FileRowInfo, showsFolderDate: Bool) -> String? {
         if node.isDirectory {
-            guard let date = node.modificationDate else { return nil }
-            return Self.modifiedFormatter.string(from: date)
+            guard showsFolderDate, let date = node.modificationDate else { return nil }
+            return modifiedFormatter.string(from: date)
         }
         guard let size = node.fileSize else { return nil }
         return FileSizeFormat.byteCount.string(fromByteCount: Int64(size))
