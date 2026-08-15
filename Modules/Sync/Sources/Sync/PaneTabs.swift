@@ -13,6 +13,24 @@ import Foundation
 /// learn what a tab is, because at any instant the app has exactly the same amount of pane state it
 /// had before tabs existed. Only the strip and the four verbs that move between tabs know.
 ///
+/// Whether arriving at a tab costs a reload, or is a move inside what the pane already has.
+///
+/// **One rule, two callers, and they must not drift**: the manager decides from it whether to drop
+/// the trees and the comparison, and the host decides from it whether to run the scan. Two copies
+/// would let a switch invalidate without reloading — a pane holding no tree and no scan until the
+/// user pressed Refresh.
+///
+/// A pane's tree is a walk of one **root** at one **focus**, and the comparison is about one pair of
+/// focused folders. So a switch that changes neither is not a cheaper reload, it is *no* reload:
+/// nothing it touches — the column stack, the selection, the history, the search field — is an input
+/// to either. That is the same reason drilling through columns has never rescanned, and a tab is a
+/// location in exactly the sense a column stack is.
+public enum PaneTabArrival {
+    public static func needsReload(arrivingAt tab: PaneTab, fromProvider: String, fromFocus: String) -> Bool {
+        tab.providerId != fromProvider || tab.history.current != fromFocus
+    }
+}
+
 /// What a tab owns is the v4.x roadmap companion §1 table, and the reason each is here rather than shared:
 ///
 /// - `providerId` — two tabs reading "Documents" from different clouds is the case the provider

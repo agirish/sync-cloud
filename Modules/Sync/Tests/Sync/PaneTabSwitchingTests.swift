@@ -365,9 +365,16 @@ import Foundation
     /// results were computed for the folder pair the pane is leaving; carried across a switch they
     /// would show one pane's new contents against the other pane's answer to the old question —
     /// and a stale "in sync" is the most expensive wrong answer this app can give.
+    ///
+    /// **The two tabs must be at different folders**, which the first version of this test got
+    /// wrong: it used two tabs at the root, so nothing about the comparison's subject changed and
+    /// the assertion was really "a switch always clears". That is not the claim — the claim is in
+    /// the name, *built for the old folder* — and once a same-folder switch correctly stopped
+    /// clearing anything, the fixture was the thing that had to move.
     @MainActor
     @Test func switchingTabsThrowsAwayTheComparisonBuiltForTheOldFolder() async throws {
-        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "iCloud", relativePath: "Elsewhere")])
         manager.differences = [FileDifference(relativePath: "stale.pdf",
                                               leftItemPath: "/l/stale.pdf",
                                               rightItemPath: "/r/stale.pdf",
@@ -382,5 +389,39 @@ import Foundation
                 "the previous folder's differences survived a tab switch")
         #expect(!manager.hasScanned,
                 "the pane claims a scan it ran against the tab it just left")
+    }
+
+    /// …and the other side, which is what the user actually asked for: **a switch inside one folder
+    /// keeps the comparison and asks for no scan.** The differences are about a pair of focused
+    /// folders; a tab that shares the focus shares the answer. Refreshing is the Refresh button's
+    /// job, and drilling through columns — which moves the same column stack a tab carries — has
+    /// never rescanned either.
+    @MainActor
+    @Test func switchingInsideOneFolderKeepsTheComparisonAndAsksForNoScan() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        manager.differences = [FileDifference(relativePath: "real.pdf",
+                                              leftItemPath: "/l/real.pdf",
+                                              rightItemPath: "/r/real.pdf",
+                                              type: .missingOnRight,
+                                              action: .copyToRight,
+                                              description: "missing")]
+        manager.hasScanned = true
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.differences.count == 1,
+                "a switch that did not change the folder pair threw the comparison away")
+        #expect(manager.hasScanned, "the pane forgot a scan that is still true of what it shows")
+
+        // And the rule the host reads to decide whether to run one at all agrees.
+        #expect(!PaneTabArrival.needsReload(arrivingAt: manager.leftPaneTabs.active,
+                                            fromProvider: "iCloud", fromFocus: ""),
+                "the host would rescan for a move inside one folder")
+        #expect(PaneTabArrival.needsReload(arrivingAt: PaneTab(providerId: "iCloud", relativePath: "Other"),
+                                           fromProvider: "iCloud", fromFocus: ""),
+                "a tab at another folder does not ask for a reload")
+        #expect(PaneTabArrival.needsReload(arrivingAt: PaneTab(providerId: "Dropbox"),
+                                           fromProvider: "iCloud", fromFocus: ""),
+                "a tab on another source does not ask for a reload")
     }
 }

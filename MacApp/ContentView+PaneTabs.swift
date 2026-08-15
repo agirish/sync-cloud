@@ -72,6 +72,11 @@ extension ContentView {
         // swallow the user's next real source switch. `swapPanesAction` refuses for the same reason.
         guard !isBootstrappingProviders else { return }
 
+        // Read BEFORE the verb runs, because the verb moves the pane: these two are what the
+        // arriving tab is compared against to decide whether anything needs reloading at all.
+        let fromProvider = isLeft ? leftProviderId : rightProviderId
+        let fromFocus = isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath
+
         guard let arrived = verb() else {
             saveBrowseTabs(isLeft: isLeft)
             return
@@ -102,15 +107,22 @@ extension ContentView {
             Logger.shared.warning("Tab points at source “\(id)”, which is no longer available — the pane stayed on its current source")
         }
         saveBrowseTabs(isLeft: isLeft)
-        refreshForTabSwitch()
+        // **Only when the arriving tab is somewhere else.** The same rule `applyTab` used to decide
+        // whether to drop anything, asked with the values captured above — the two have to agree, or
+        // a pane ends up invalidated and never reloaded. A switch inside one source at one scope
+        // reloads nothing and rescans nothing: it moves the column stack, the selection and the
+        // history, none of which the trees or the differences are computed from. Refreshing is the
+        // Refresh button's job.
+        if PaneTabArrival.needsReload(arrivingAt: arrived, fromProvider: fromProvider, fromFocus: fromFocus) {
+            refreshForTabSwitch()
+        }
     }
 
-    /// The reload a tab switch asks for.
+    /// The reload a tab switch asks for, when it asks for one.
     ///
-    /// `applyTab` has already rung `refreshSubject`, which this view turns into a refresh — but a
-    /// provider change writes `@AppStorage` a beat later, so the refresh that ran may have read the
-    /// old source. Asking again is free when nothing moved: `refreshTreesAndScan` dedupes an
-    /// identical in-flight target rather than restarting it.
+    /// A provider change writes `@AppStorage` a beat after `applyTab` returns, so this runs after
+    /// that write and drives the single reload. Asking twice is free when nothing moved:
+    /// `refreshTreesAndScan` dedupes an identical in-flight target rather than restarting it.
     private func refreshForTabSwitch() {
         guard let left = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let right = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else { return }
@@ -398,7 +410,11 @@ extension ContentView {
             // when the handler is live.
             leftProviderId = active.providerId
         }
-        syncManager.applyTab(active, isLeft: true)
+        // `leftProviderId` is the id the pane is now on — written just above when the tab named a
+        // different one — so the rule sees a source change only when there genuinely was none to
+        // adopt. At launch the pane is at its root and the tab usually is not, so this normally
+        // invalidates anyway; the bootstrap's own refresh two steps later is the reload.
+        syncManager.applyTab(active, isLeft: true, currentProviderId: leftProviderId)
     }
 }
 

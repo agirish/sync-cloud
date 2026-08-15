@@ -297,22 +297,24 @@ import Sync
                 "adopting a source does not suppress the navigation reset")
     }
 
-    /// …and every arrival reloads. `applyTab` deliberately does not ring `refreshSubject` — it
-    /// cannot, because the provider id is written after it returns — so the pane would keep showing
-    /// the previous tab's tree if this were dropped.
-    @Test func everyArrivalDrivesOneReload() throws {
+    /// …and an arrival that DOES move the pane reloads exactly once, from the host.
+    ///
+    /// The "which arrivals" half is `theScanIsGatedOnTheSameRuleTheInvalidationUses` above — a
+    /// switch inside one source at one scope reloads nothing. What is pinned here is the half that
+    /// has not changed: `applyTab` must not ring `refreshSubject` itself, because it runs *before*
+    /// the provider id is written and would load the new tab's path under the old tab's root.
+    @Test func theReloadIsDrivenByTheHostAndNotByApplyTab() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(body.contains("refreshForTabSwitch()"),
-                "a tab switch never reloads — the pane keeps the previous tab's tree")
-        // The other half of the same rule, one layer down: `applyTab` must NOT ring the refresh
-        // itself, or it fires before the provider id is written and loads the new tab's path under
-        // the old tab's root.
+                "a tab switch never reloads — a source change would keep the previous tab's tree")
         let sync = try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift"),
                               encoding: .utf8)
-        let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool)", in: sync)
+        // Sliced on the prefix, not the whole signature: this scan broke once already when the
+        // parameter list grew, reporting "applyTab is gone" for a member that was right there.
+        let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool", in: sync)
         let applyCode = Self.codeOnly(apply)
         #expect(!applyCode.contains("syncPathsFromHistory()") && !applyCode.contains("refreshSubject"),
                 "applyTab rings the refresh itself — it runs before the provider id is written")
@@ -689,6 +691,42 @@ import Sync
         // shape this repo has shipped before.
         #expect(try Self.source("ContentView.swift").contains("leftProviderId: leftProviderId"),
                 "BrowseTabPersistence is built without the source it watches")
+    }
+
+    // MARK: The scan a tab switch does not run
+
+    /// **A tab switch inside one source at one scope reloads nothing and rescans nothing.**
+    ///
+    /// The trees walk one root at one focus and the differences are about one pair of focused
+    /// folders, so a switch that changes neither leaves both correct. Refreshing is the Refresh
+    /// button's job — and drilling through columns, which moves the same column stack a tab
+    /// carries, has never rescanned either.
+    ///
+    /// The two halves must ask **one** rule: the manager decides from it whether to drop the trees
+    /// and the comparison, the host decides from it whether to run the scan. Two copies would let a
+    /// switch invalidate without reloading, leaving a pane with no tree and no scan until the user
+    /// pressed Refresh — strictly worse than the rescan this removes.
+    @Test func theScanIsGatedOnTheSameRuleTheInvalidationUses() throws {
+        let host = try Self.memberBody("private func tabAction(isLeft: Bool, _ verb: () -> PaneTab?)",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(host.contains("PaneTabArrival.needsReload("),
+                "the host rescans on every tab switch, or decides with its own copy of the rule")
+        let gate = try #require(host.range(of: "PaneTabArrival.needsReload("))
+        let refresh = try #require(host.range(of: "refreshForTabSwitch()"),
+                                   "the reload is gone entirely — a source switch would never load")
+        #expect(gate.lowerBound < refresh.lowerBound, "the gate does not guard the reload")
+
+        // Captured BEFORE the verb runs, because the verb moves the pane — read afterwards, the
+        // "from" focus IS the arriving tab's focus and the rule says "no reload" for every switch,
+        // including the source changes that genuinely need one.
+        //
+        // **Asserted as an ORDER, not as a presence.** Checking only that the line exists passed
+        // with the read moved below `verb()` — the mutation this test is for.
+        let read = try #require(host.range(of: "let fromFocus = isLeft ? syncManager.leftRelativePath"),
+                                "the pane's focus before the switch is never captured")
+        let verb = try #require(host.range(of: "verb() else {"), "the verb call is gone")
+        #expect(read.upperBound < verb.lowerBound,
+                "the focus is read after the pane has already moved, so the rule always says no")
     }
 
     // MARK: Log coverage
