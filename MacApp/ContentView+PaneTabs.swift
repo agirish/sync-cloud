@@ -415,11 +415,10 @@ extension ContentView {
                 return exists && isDirectory.boolValue
             })
         // Nothing to restore only when the strip is genuinely the state a fresh install opens in:
-        // one tab, at the root, unpinned. **A single PINNED tab at the root is not that** — the pin
-        // is a decision the user made, and skipping the restore would drop it silently.
-        guard let restored,
-              restored.count > 1 || !restored.active.relativePath.isEmpty || restored.active.isPinned
-        else { return }
+        // one tab, at the root, unpinned. The rule lives on `PaneTabList` because it has to read
+        // the tab's COMBINED location rather than its scope, and getting that wrong here skipped
+        // the restore outright for a single tab drilled down from the root — see `isSeedState`.
+        guard let restored, !restored.isSeedState else { return }
         Logger.shared.info("Restored \(restored.count) browse tab\(restored.count == 1 ? "" : "s")")
         syncManager.setPaneTabs(restored, isLeft: true)
         // The restored ACTIVE tab is the pane's position, so it has to be applied like any other

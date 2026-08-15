@@ -158,6 +158,22 @@ public struct PaneTabList: Equatable, Sendable {
     /// keeps an install that never opens a second tab pixel-identical to the one before tabs.
     public var showsStrip: Bool { tabs.count > 1 }
 
+    /// Whether this strip is indistinguishable from the one a fresh launch already seeds, so a
+    /// restore would replace an identical list with a new one whose ids nothing else knows about.
+    ///
+    /// **"At the root" means the COMBINED location, not the scope.** A pane's position is two
+    /// values (see `PaneTab.browsePath`) and a tab drilled straight down from the root has an
+    /// *empty scope* with a full column stack — so a test on `relativePath` alone reads that tab as
+    /// "at the root" and throws the stack away. That is not hypothetical: it is precisely the
+    /// one-tab-drilled-four-columns case the stack is persisted for, and testing the wrong half
+    /// silently skipped its entire restore.
+    ///
+    /// A pinned single tab at the root is deliberately NOT this: the pin is a decision the user
+    /// made, and skipping the restore would drop it with nothing said.
+    public var isSeedState: Bool {
+        tabs.count == 1 && active.combinedRelativePath.isEmpty && !active.isPinned
+    }
+
     public var canReopen: Bool { !recentlyClosed.isEmpty }
 
     public func index(of id: UUID) -> Int? { tabs.firstIndex { $0.id == id } }

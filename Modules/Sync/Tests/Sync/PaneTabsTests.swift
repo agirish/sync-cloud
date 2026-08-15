@@ -583,6 +583,46 @@ import Foundation
         #expect(deep.stack.relativePath == "A/B")
     }
 
+    /// **The user's actual case, and the fixture whose absence hid a regression.** Drilling straight
+    /// down from the root — no re-rooting — leaves the scope EMPTY and puts every component in the
+    /// stack. Every other fixture here has a non-empty scope, so none of them exercised the shape
+    /// where `relativePath` comes back `""` while the tab is four columns deep.
+    ///
+    /// That shape is what broke `restoreBrowseTabs`: its "is this the fresh-install strip?" guard
+    /// read `relativePath`, saw `""`, and skipped the whole restore. `isSeedState` now owns the
+    /// rule and the two tests below pin it.
+    @Test func aTabDrilledFromTheRootKeepsEveryColumnAndReportsAnEmptyScope() {
+        let defaults = ScratchDefaults("PaneTabsStore-rootDrilled")
+        let tab = PaneTab(providerId: "iCloud",
+                          browsePath: PaneBrowsePath(relativePath: "School/US/Aditi/Homework"))
+        PaneTabsStore.save(tabs: [tab], selected: 0, to: defaults)
+        #expect(PaneTabsStore.load(from: defaults)?.entries.first?.stackDepth == 4)
+
+        let restored = PaneTabsStore.restore(entries: PaneTabsStore.load(from: defaults)?.entries ?? [],
+                                             selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in true })
+        #expect(restored?.active.relativePath == "", "a root drill should re-root nothing")
+        #expect(restored?.active.browsePath.depth == 4, "the columns did not survive")
+        #expect(restored?.active.combinedRelativePath == "School/US/Aditi/Homework")
+        // The guard that reads this: an empty SCOPE must not read as "this tab is at the root".
+        #expect(restored?.isSeedState == false,
+                "a strip holding a four-column tab was mistaken for a fresh install and skipped")
+    }
+
+    /// The other direction of that guard — the state it genuinely exists to detect, so the rule is
+    /// pinned from both sides rather than only where it must say no.
+    @Test func aLoneUnpinnedTabAtTheRootIsTheSeedState() {
+        #expect(PaneTabList(single: PaneTab(providerId: "iCloud")).isSeedState == true)
+        // …and each way out of it, separately.
+        #expect(PaneTabList(single: PaneTab(providerId: "iCloud", relativePath: "Finance"))
+                    .isSeedState == false, "a re-rooted tab is not the seed state")
+        #expect(PaneTabList(single: PaneTab(providerId: "iCloud", isPinned: true))
+                    .isSeedState == false, "a pinned tab is a decision the user made")
+        #expect(PaneTabList(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+                    .isSeedState == false, "two tabs is not the seed state")
+    }
+
     /// A tab whose folder is gone loses the stack along with the scope. The components name folders
     /// *under* a path that no longer resolves, so there is nothing for them to be relative to — a
     /// stack kept here would point the pane's New Folder and paste at a path that does not exist.
