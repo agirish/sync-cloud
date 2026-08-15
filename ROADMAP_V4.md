@@ -1,7 +1,8 @@
 # SyncCloud — v4.x roadmap
 
-**Scope:** the 4.x line after v4.0 ships — the **Browse** workspace starting with Finder-style tabs
-(§1), pane chrome that spans every workspace (§2), the Finder borrowings worth taking (§3), the
+**Scope:** the 4.x line after v4.0 ships — the **Browse** workspace, whose Finder-style tabs
+(§1) **shipped on 2026-08-14** leaving one behaviour designed and unbuilt, pane chrome that spans
+every workspace (§2), the Finder borrowings worth taking (§3), the
 storage-layer gaps behind **Organize ▸ Restructure** (§4), the plan surface that lens was
 deliberately shipped without (§5) and the **first folder survey**, run in the background, which is
 what gives a fresh machine anything to read at all (§6). `main` only, with one stated exception:
@@ -25,6 +26,10 @@ renumbered**: §2's are 17–20 and its section sits after §3 there, §5's are 
 so adding any of them could not move a number this file already cites. §4's figures are **real
 renders** through the shipping `LensSetupCard`, not re-creations, and are unnumbered for that reason.
 
+The companion **keeps §1's tab figures after this file dropped its §1 prose**, deliberately: they
+are now the record of what the strip was drawn to be, which is worth more beside the shipped thing
+than a plan repeating what the code says. It carries a shipped banner on that section saying so.
+
 §5 has a **second companion** — its own eight-screen mockup set, in more detail than the four
 figures the main one carries: <https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>.
 
@@ -46,111 +51,24 @@ figures the main one carries: <https://claude.ai/code/artifact/73b57ccc-56f2-443
 
 ---
 
-## 1. Browse tabs
+## 1. Browse tabs — **shipped**, bar one behaviour
 
-**Why:** Browse holds one location, and the two real jobs — compare two folders in one tree, move
-things between two clouds — need two. In a single-window app there is no other mechanism for it.
+Built on 2026-08-14 and landed on `main`. The design that was here — the 34pt strip above the pane
+header, its three width rungs, the anatomy, the chords, the cross-workspace table, persistence, and
+the reasoning behind each — is **deleted rather than archived**, per this file's own rule: git
+history is the record, and a plan kept beside the thing it planned drifts from it. Read the code and
+its tests instead; `MacApp/ContentView+PaneTabs.swift` carries the host-side reasoning and
+`Modules/Sync/Sources/Sync/PaneTabs.swift` the model's.
 
-### The strip
+What shipped beyond the original design, both from using it: **pinned tabs** (a pinned run is always
+a prefix — drag cannot cross the pin line, Close Other Tabs keeps them, a reopened tab comes back
+unpinned), and **Compare's two panes act as one** — either pane holding a second tab draws the strip
+on both, and the 🔗 link mirrors an opened tab onto the sibling, pruned to the deepest folder the two
+still share.
 
-A **34pt card at the top of the pane** (Fig. 2), in the 5pt gutter rhythm, above the pane header.
-It belongs to the *pane*, so Browse shows one, Compare shows one per side, and the Organize/Storage
-rail shows one; in Browse it looks like window chrome only because there the pane is the window.
-
-Hidden at one tab (Fig. 6, Finder's behaviour), so an install that never opens a second tab is
-unchanged. Past the width that fits them, tabs compress to a 96pt floor and the surplus folds behind
-a count chevron (Fig. 7).
-
-Rejected, and why, so they are not re-proposed:
-
-- **Inside the pane header** (Fig. 3) — pinned at 81pt, and it shares a line with `LensHeaderCard`.
-- **Welded to the toolbar** (Fig. 4) — reads as a second row of the workspace bar, and breaks the
-  gap model.
-- **In the breadcrumb row's empty width** — that row is *per-tab content*; a switcher cannot live
-  inside a description of one of its own items.
-
-### What a tab owns
-
-| Per tab | Not per tab (existing shared keys) |
-|---|---|
-| provider, browse path + column stack, selection, back/forward history, search query + expanded | view mode (`paneViewModeBrowse`, per surface), hidden files, preview column (`paneColumnShowsPreview`), column width (`paneColumnWidth`) |
-
-The **active** tab *is* that side's pane state, so switching workspace behaves exactly as today.
-Parked tabs are inert values.
-
-### Anatomy and rungs
-
-Fig. 5. Provider mark · leaf folder name (middle-truncated) · ✕ on hover or when active. The mark is
-load-bearing: two tabs can both read "Documents" from different clouds. Active tab = raised surface
-+ 2pt accent rule beneath; **not** the accent fill, which the workspace bar 40pt above already owns.
-
-Three width rungs (Fig. 15), matching the widths the layout produces:
-
-| Rung | Width | Shows |
-|---|---|---|
-| full | 520+ | tabs at ≤186pt, ＋ at the trailing end |
-| compact | ~340 | tabs at a 96pt floor, surplus behind a count chevron |
-| chip | 220 (rail) | active tab as a chevron-menu, count for the rest, ＋ |
-
-Tabs never shrink to mark-only — five identical cloud marks name nothing.
-
-### Cold start — exactly one ＋, on the tab bar
-
-At one tab there is no strip and therefore **no ＋ anywhere** (Fig. 9). That is accepted rather than
-patched: a ＋ on the pane bar would be redundant the moment the strip appears, and every item on
-that bar acts on the pane's *contents* (view, sort, hidden files, new folder, delete, search) while
-a new tab acts on its container. So the pane bar is untouched — no new `PaneBarItem`, no `PaneBarMigration`
-step, nothing new in the customize sheet, and the 250pt snapshots and ladder tests keep asserting
-the bar they assert today.
-
-Entry points instead: **right-click a folder ▸ Open in New Tab** (Fig. 11 — the discovery route,
-and the one that creates a second tab *somewhere different*), **File ▸ New Tab (⌘T)**, and
-**⌘-double-click** a folder row.
-
-⌘T opens the **current folder**, and the control says so ("New tab here"), because the result is two
-tabs with the same name (Fig. 10) and the strip's arrival is the only feedback. Opening at the
-provider root would look more different and throw away the folder you pressed ⌘T from.
-
-**Trade to accept with open eyes:** someone who never right-clicks a folder never learns tabs exist.
-Finder accepts the same trade. If the feature should announce itself, the lever is shipping
-**View ▸ Tab Bar ticked by default** (Fig. 12) — one tab, one ＋, permanently — at the cost of a
-39pt row that restates the folder name the header already shows. Recommendation: ship it unticked;
-the default is one line to change and the strip already renders correctly at one tab.
-
-### Menus and keyboard
-
-| Chord | Action | Note |
-|---|---|---|
-| ⌘T | File ▸ New Tab | opens the current folder |
-| ⌘W | Close Tab | closes the window on the last tab, as Finder does |
-| ⇧⌘] / ⇧⌘[ | next / previous tab | Finder's own mapping; unshifted ⌘[ / ⌘] stay pane back/forward |
-| ⌃⇥ / ⌃⇧⇥ | next / previous tab **in Browse only** | `switchPaneFocus` keeps it in Compare, where two panes exist. State the split in the shortcuts sheet. |
-| ⇧⌘T | View ▸ **Tab Bar** (checkmark) | one `Toggle("Tab Bar")` — no Show/Hide pair. Ticked **and disabled** while the pane holds a second tab, so it can never hide a strip whose tabs would become unreachable. |
-| ⌘-double-click | Open folder in a new tab | plain ⌘-click stays multi-select |
-| ⌥-click ✕ | Close other tabs | also in the tab's context menu |
-| double-click strip | New tab | the empty stretch needs a `contentShape` to be hit-testable |
-| — | Reopen Closed Tab | File-menu item, **no chord** (⇧⌘T is taken above; not an ⌥ chord) |
-| — | ⌘1…⌘9 | **unavailable** — the workspaces own every ⌘-digit. Deliberate deviation from Finder and Safari; worth a line in the help. |
-
-Tab context menu: New Tab · Close Tab · Close Other Tabs · Duplicate · Copy Path.
-
-### Cross-workspace behaviour (Figs. 13–15)
-
-| Question | Answer |
-|---|---|
-| Browse → Organize | The rail shows the left list, same active tab, same folder — what the path already does. |
-| Browse → Compare | Browse's tabs are the left pane's; the right pane has its own list. |
-| ⇄ swap | Swaps the two **lists**, not the two active tabs — it already swaps the paths wholesale. Tooltip needs a line. |
-| 🔗 link both | **Opening** a tab mirrors onto the sibling; **switching** between tabs does not (see below). |
-| Compare's strip | Shown on **both** panes when either holds a second tab, so the two panes' headers stay on one line. |
-| Storage | Rail + lens, same as Organize. |
-| Closing the last tab | Never closes a pane. The strip hides; the pane stays. |
-
-### Persistence
-
-One key, `browseTabs` = `[{providerId, relativePath}]`, plus `browseSelectedTab`. Seed from the
-stored provider and browse path on first launch, so an upgrading install opens with one tab on the
-folder it closed on.
+The accepted limits it landed with are recorded as **items 14–16 of `DEFERRED_ENHANCEMENTS.md`**,
+which is where limits live rather than here. Dropping files on a tab was never in scope and is
+already ranked in §3. What follows is the one piece of *design* still open.
 
 ### Mirroring tab *switches* on linked panes — not built
 
@@ -186,46 +104,6 @@ Two questions come with it, and they are why this is not a follow-up commit:
 Recommendation: **pairing, with closes mirrored**, and only once someone has run linked Compare
 long enough to say whether an unmirrored switch is actually a nuisance. Nothing about the shipped
 behaviour has to change to add it — `mirrorOpenInNewTab` is where a pair id would be minted.
-
-### Out of scope for the first landing
-
-Drag files onto a tab (Fig. 8, right — needs the removed row `.draggable`; see the context table),
-and dragging a tab out of the window (there is no second window).
-
-### What the existing tests already decide
-
-Three constraints, each enforced by a test that will fail rather than warn. Checked 2026-08-12.
-
-1. **The strip is a sibling inside `paneColumn`'s `VStack(spacing: 0)`, never a wrapper around the
-   header and list.** `PaneQuickLookScopeTests.testTheHandlerIsAttachedToTheFileList` requires the
-   literal `"            treeView(pane)\n"` — exact indentation — so re-nesting that VStack fails it
-   with a message about the list's nesting rather than about tabs. This costs nothing: one insertion
-   point in one function serves Browse, both Compare panes and the rail, and `browseLayout` does not
-   change, so `BrowseWorkspaceCallSiteTests` is untouched.
-2. **Tab cycling is a menu command, not a key handler on the column.**
-   `PaneQuickLookScopeTests.testTheSplitLayoutListensForNoKeysAtAll` asserts
-   `ContentView+SplitLayout.swift` contains no `.onKeyPress(` at all, and the reason it gives is the
-   one that applies here: that file's every subject is a whole pane column, so a handler on one
-   reaches that pane's search field. ⌃⇥, ⇧⌘[ and ⇧⌘] belong in `ShortcutCommands`.
-3. **The rung ladder has to take the font scale.** The three rungs are measured text in an app
-   that scales its own type — the trap §2's Prep 1 records. Follow `HeaderLadder`
-   (`init(facts:scale:)`, priced from `Design.LabelMetrics`), not `PaneBarLadder`, whose arithmetic
-   is constant: the string `scale` does not appear in `PaneBarArrangement.swift` at all.
-
-### Boundary with §2
-
-The two are independent and can land in either order — titles cost horizontal track on the header's
-own bar, tabs cost vertical above it, and they share no source file or fixture. **That is a
-consequence of the ＋ living on the strip rather than on the pane bar** (see *Cold start*): a new
-`PaneBarItem` would have been `main`-only work landing in the file §2 rewrites on `v2.x` and ports
-across a 116-line divergence.
-
-Two things to settle when the second of the two lands:
-
-- At the rail's 220pt the strip's count chevron sits ~34pt above the bar's ⋯ — two overflow
-  affordances, different meanings. Distinguishable (a number against three dots), but that is the
-  width to render.
-- **Icon Only governs the bar, never the strip.** A tab without its name is nothing.
 
 ---
 
@@ -294,6 +172,17 @@ View and Preview carry their state in the fill, which survives text-only untouch
 no Search and no Delete (a 9-item default, so titles fit it more easily). By `CLAUDE.md` this is a
 minor feature on code the maintenance line carries, so it lands on `v2.x` first and is **ported** —
 not cherry-picked — to `main`. Settle whether `v2.x` is still open before starting, not after.
+
+### Two things §1 left for whoever builds this
+
+Tabs landed first, so these are now facts about the screen rather than a boundary to negotiate:
+
+- **At the rail's 220pt the strip's count chevron sits ~34pt above the bar's ⋯** — two overflow
+  affordances stacked, with different meanings (a number against three dots). Distinguishable, but
+  that is the width to render before deciding the bar's own overflow is fine as it is.
+- **Icon Only governs the bar, never the strip.** A tab without its name is nothing — which is the
+  same rule that stopped the strip's narrowest rung shedding tabs to mark-only, because five
+  identical cloud marks name nothing.
 
 ---
 
@@ -677,8 +566,10 @@ checkpoint that cannot be mistaken for a corpus.
 
 **Everything here is post-v4.0.** §4.1 is the only item that improves a screen already shipping.
 
-1. **Tabs**, all three rungs, so Compare and the rail arrive in the same motion rather than as a
-   follow-up.
+1. ~~**Tabs**, all three rungs~~ — **shipped 2026-08-14**, and the "all three rungs in one motion"
+   call held up: Compare and the rail needed no follow-up, because one insertion point in
+   `paneColumn` serves all three. Only §1's *switch mirroring* is left, and it is not next — it
+   wants someone to run linked Compare for a while first.
 2. **Status bar** — small, and it makes tabs feel finished because each tab then reports its contents.
 3. **Sidebar** of pins and recents, ⌘-click opening a new tab.
 4. **Pane bar titles** — independent of all of the above and schedulable whenever; it touches the bar
@@ -699,12 +590,14 @@ checkpoint that cannot be mistaken for a corpus.
 
 ## Open questions
 
-- Ship `View ▸ Tab Bar` ticked or unticked by default (see *Cold start*).
+Two tab questions were answered by building it, and are struck rather than deleted because the
+answer is the useful part: `View ▸ Tab Bar` ships **unticked** (one tab costs no row, and the strip
+renders correctly at one tab if you do tick it), and its tick is **one app-wide preference**,
+`browseTabBarVisible` — matching `paneColumnShowsPreview` rather than `paneViewModeBrowse`.
+
 - Whether ⋯ takes a title in the titled bar. Finder's » does not; recommendation: leave it unlabelled
   and centred on the pill row.
 - Whether `v2.x` is still open when §2 is picked up — it decides which line that work starts on.
-- Whether the tab bar's tick is one app-wide preference or per pane. App-wide matches the other
-  reading preferences (`paneColumnShowsPreview`); per pane matches `paneViewModeBrowse`.
 - Whether a tab shows a scan/download spinner when work is running in a folder it is not showing.
 - **§6: stopgap or replacement?** Settled further than it was: the derivation is not a degraded
   stopgap — role, anchors and axes agree at .997–1.000 and Restructure cannot tell the two profiles

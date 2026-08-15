@@ -3,7 +3,7 @@ import SwiftUI
 
 /// How a pane's tab strip sheds as its pane narrows, and how wide each chip is at every step.
 ///
-/// Three rungs, from the v4.x roadmap §1:
+/// Three rungs, from the v4.x roadmap companion §1:
 ///
 /// | Rung | Roughly | Shows |
 /// |---|---|---|
@@ -18,7 +18,7 @@ import SwiftUI
 /// stated.
 ///
 /// **Priced from `Design.LabelMetrics`, at the app's font scale**, following `HeaderLadder` rather
-/// than `PaneBarLadder`. That is roadmap §1's third existing-test constraint and it is not a style
+/// than `PaneBarLadder`. That is roadmap companion §1's third existing-test constraint and it is not a style
 /// preference: every item on the pane bar is a fixed-size glyph pill, so that ladder is a sum of
 /// constants and the string `scale` does not appear in it at all. A tab is *text*, and the app
 /// scales its own type — so at Large the same five tabs that fit at the default do not, and a

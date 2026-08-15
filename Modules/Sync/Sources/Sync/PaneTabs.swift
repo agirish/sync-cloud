@@ -13,7 +13,7 @@ import Foundation
 /// learn what a tab is, because at any instant the app has exactly the same amount of pane state it
 /// had before tabs existed. Only the strip and the four verbs that move between tabs know.
 ///
-/// What a tab owns is the v4.x roadmap §1 table, and the reason each is here rather than shared:
+/// What a tab owns is the v4.x roadmap companion §1 table, and the reason each is here rather than shared:
 ///
 /// - `providerId` — two tabs reading "Documents" from different clouds is the case the provider
 ///   mark on the chip exists for.
@@ -50,7 +50,7 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
     /// Pinning is about **keeping a place reachable**, and that is all it is: a pinned tab sits
     /// ahead of the unpinned ones, never folds away behind the overflow count, survives Close Other
     /// Tabs, and drops its ✕ so a stray click cannot take it. It is deliberately NOT Safari's
-    /// mark-only chip — five identical cloud marks name nothing (roadmap §1), so a pinned tab keeps
+    /// mark-only chip — five identical cloud marks name nothing (roadmap companion §1), so a pinned tab keeps
     /// its name and wears a pin instead.
     public var isPinned: Bool
 

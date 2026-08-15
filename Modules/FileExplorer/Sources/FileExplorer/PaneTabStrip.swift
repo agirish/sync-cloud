@@ -71,7 +71,7 @@ public struct PaneTabStrip: View {
 
     @Environment(\.appFontScale) private var fontScale
     /// Which chip the pointer is over — the ✕ shows on that one and on the active tab, and nowhere
-    /// else (v4.x roadmap §1's anatomy). Held here rather than per chip so only one can be lit.
+    /// else (v4.x roadmap companion §1's anatomy). Held here rather than per chip so only one can be lit.
     @State private var hoveredTab: UUID?
     /// The chip being dragged, and how far it has travelled. Held here so the dragged chip can be
     /// lifted above its neighbours while every other chip stays where it is.

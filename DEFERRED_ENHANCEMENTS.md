@@ -290,3 +290,62 @@ pre-await snapshot discipline the function already documents for its taxonomy. B
 neither is a one-liner, and the cost today is one file re-billed per "Try another" per scan — small
 against the batch. Do it together with any wider verdict-cache work rather than as a patch.
 **Effort:** low–medium. **Value:** low (cost, not correctness).
+
+---
+
+Items 14–16 were added on **2026-08-14** when Browse tabs landed. Each is a place where the shipped
+feature knowingly stops short of Finder or of its own design; none is a bug, and each was noticed
+while using the thing rather than while reading it.
+
+---
+
+## 14. ⌃⇧⇥ does not cycle tabs backwards
+
+**Today:** ⌃⇥ cycles to the next tab **in Browse only** — `switchPaneFocus` keeps it in Compare,
+where two panes exist to switch between. Its shifted partner ⌃⇧⇥ is registered nowhere: there is no
+backwards cycle on that chord in either workspace. ⇧⌘[ and ⇧⌘] do cycle both directions everywhere,
+so nothing is unreachable — this is a missing *second* way, not a missing capability.
+
+**Enhancement:** register ⌃⇧⇥ as the Browse-scoped previous-tab, mirroring ⌃⇥.
+
+**Why deferred:** the pair has to split the same way ⌃⇥ does — backwards-tab in Browse, backwards
+*pane focus* in Compare — and `switchPaneFocus` has no reverse today, so the Compare half would have
+to be invented to keep the two chords symmetric. Doing only the Browse half leaves ⌃⇥ and ⌃⇧⇥
+scoped differently from each other, which is worse than neither. **Effort:** low. **Value:** low —
+a third route to something two chords already do.
+
+---
+
+## 15. ⌘-double-click opens a new tab in Columns only
+
+**Today:** ⌘-double-clicking a folder row opens it in a new tab in the **Columns** view. The tree
+view has no double-click path at all — `FileTreeView` drives navigation from single taps and
+disclosure, and adding a double-click there reopens the gesture competition that got row
+`.draggable` removed (see `PaneColumnsView.swift`, and item 1 of `ROADMAP_V4.md` §3's ranking).
+Right-click ▸ **Open in New Tab** works in both views, so the tree is not cut off from the feature.
+
+**Enhancement:** a `.simultaneousGesture(TapGesture(count: 2))` on the tree row, matching Columns.
+
+**Why deferred:** the tree's single-tap already carries selection and disclosure, and a second
+recognizer on the same row is exactly the shape that broke column navigation before. It needs a
+proof that a single click still selects and still discloses — the same proof `.draggable` never
+got. **Effort:** low. **Risk:** medium (gesture competition). **Value:** low.
+
+---
+
+## 16. ⌘W closes the window when the focused pane holds one tab, whatever the other pane holds
+
+**Today:** Close Tab closes the **window** when the focused pane is down to its last tab — Finder's
+behaviour, and what keeps ⌘W meaning "get rid of this" rather than acquiring an exception nobody
+would remember. In Compare that reads oddly in one case: the focused pane has one tab, the *other*
+pane has five, and ⌘W takes the window and all six.
+
+**Enhancement:** refuse the window-close while the sibling pane holds more than one tab, or close
+that pane's tab instead.
+
+**Why deferred:** every alternative makes ⌘W conditional on state the user cannot see without
+looking away from the pane they are in, and "⌘W sometimes closes a tab and sometimes the window,
+depending on the other half of the screen" is a worse rule than the Finder one even though this
+particular case is worse under it. The header card's own Close Tab item already withholds itself at
+one tab rather than offering to close the window, so the *menu* route cannot surprise anyone; this
+is the chord only. Revisit if it actually bites. **Effort:** low. **Value:** low.

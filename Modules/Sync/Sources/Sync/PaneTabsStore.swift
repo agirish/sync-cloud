@@ -2,7 +2,7 @@ import Foundation
 
 /// What survives a quit, for the Browse pane's tab strip.
 ///
-/// **One list is persisted, and it is the left pane's.** Two tab lists exist (v4.x roadmap §1: the
+/// **One list is persisted, and it is the left pane's.** Two tab lists exist (v4.x roadmap companion §1: the
 /// two browse paths are what the whole feature is a list of), but Browse *is* the left pane, and
 /// the right pane's list is Compare's — a workspace whose right-hand location has never been
 /// restored across launches. Persisting it would be a behaviour change to Compare smuggled in with
@@ -19,7 +19,7 @@ import Foundation
 /// the same string it did before the quit.
 public enum PaneTabsStore {
 
-    /// The v4.x roadmap §1 key. `[{"providerId": …, "relativePath": …}]` as JSON in a string,
+    /// The v4.x roadmap companion §1 key. `[{"providerId": …, "relativePath": …}]` as JSON in a string,
     /// matching how the rest of the app parks small structured values in defaults.
     public static let tabsKey = "browseTabs"
     public static let selectedKey = "browseSelectedTab"

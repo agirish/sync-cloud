@@ -41,7 +41,7 @@ public struct PaneHeader: View {
     /// right-click route to the tab strip.
     ///
     /// **The bar itself does not change**: no new glyph, no new `PaneBarItem`, nothing in the
-    /// customize sheet (v4.x roadmap §1's Fig. 9 is explicit about that). This is the menu you get
+    /// customize sheet (v4.x roadmap companion §1's Fig. 9 is explicit about that). This is the menu you get
     /// by right-clicking the card, which is where a Mac user reaches for "act on this pane" — and
     /// it is the only tab route that works with no folder under the pointer AND no strip on screen.
     ///
