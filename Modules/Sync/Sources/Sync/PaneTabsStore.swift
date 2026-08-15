@@ -8,19 +8,34 @@ import Foundation
 /// restored across launches. Persisting it would be a behaviour change to Compare smuggled in with
 /// a Browse feature; the right pane still seeds as one tab on its stored provider.
 ///
-/// The stored shape is `[{providerId, relativePath}]` and nothing else, deliberately. Selection,
+/// The stored shape is `[{providerId, relativePath, stackDepth, pinned}]` and nothing else,
+/// deliberately: every field is part of *where a tab is* or *how the strip is arranged*. Selection,
 /// history and the search query are *session* state — a selection restored into a folder whose
 /// contents changed while the app was closed points at files that may not be there, and a search
 /// query restored into a field the user cannot see reads as the pane filtering itself.
 ///
 /// `relativePath` is the tab's **combined** location (scope + column stack), which is the one thing
-/// a person would call "where this tab was". It comes back as the tab's scope with an empty stack:
-/// the pane then shows that folder, which is what was on screen, and the header's path line reads
-/// the same string it did before the quit.
+/// a person would call "where this tab was" — and `stackDepth` says where to cut it back into the
+/// two halves the pane actually holds.
+///
+/// **Why the split has to be stored, rather than re-derived.** The two halves render differently:
+/// scope contributes exactly one column and the stack draws the rest (`columnDirectories`), so a
+/// tab restored entirely as scope comes back showing one full-width column no matter how many the
+/// user had built. The header's path line reads the same either way — it renders the two joined —
+/// which is exactly why this went unnoticed: the breadcrumb was right and only the columns were
+/// gone. Nothing in the combined string says where the cut was, so the depth is stored beside it.
+///
+/// **The format is additive on purpose, and safe in both directions.** `relativePath` keeps meaning
+/// what it always meant, so a strip written by a build without `stackDepth` restores exactly as it
+/// did before (depth 0 — all scope, one column), and a strip written *with* one still restores in
+/// an older build the old way rather than landing it somewhere else. Redefining `relativePath` as
+/// the scope alone would have broken that second direction silently: the older build would reopen
+/// the tab at an ancestor of where the user left it.
 public enum PaneTabsStore {
 
-    /// The v4.x roadmap companion §1 key. `[{"providerId": …, "relativePath": …}]` as JSON in a string,
-    /// matching how the rest of the app parks small structured values in defaults.
+    /// The v4.x roadmap companion §1 key. `[{"providerId": …, "relativePath": …, "stackDepth": …,
+    /// "pinned": …}]` as JSON in a string, matching how the rest of the app parks small structured
+    /// values in defaults. Both trailing keys are optional on the way in; see `Entry`.
     public static let tabsKey = "browseTabs"
     public static let selectedKey = "browseSelectedTab"
 
@@ -30,14 +45,25 @@ public enum PaneTabsStore {
     public struct Entry: Codable, Equatable, Sendable {
         public var providerId: String
         public var relativePath: String
+        /// How many of `relativePath`'s trailing components were the **column stack** rather than
+        /// the scope — i.e. `PaneBrowsePath.depth`. `0` means the whole path is scope, which is
+        /// both the pre-`stackDepth` behaviour and the honest reading of a tab that was opened at a
+        /// folder rather than drilled into it.
+        ///
+        /// A count rather than a second path string because the two halves are a *cut* of one
+        /// location: storing them separately lets a hand-edited plist disagree with itself about
+        /// where the tab was, while a count out of range is clamped on the way back in and cannot.
+        public var stackDepth: Int
         /// Whether this tab was pinned. **Optional on the way in**, so a strip written before
         /// pinning existed still decodes — the whole file is rejected on a missing key otherwise,
         /// and a user's tabs would silently vanish on the first launch after an upgrade.
         public var pinned: Bool
 
-        public init(providerId: String, relativePath: String, pinned: Bool = false) {
+        public init(providerId: String, relativePath: String, stackDepth: Int = 0,
+                    pinned: Bool = false) {
             self.providerId = providerId
             self.relativePath = relativePath
+            self.stackDepth = stackDepth
             self.pinned = pinned
         }
 
@@ -45,8 +71,30 @@ public enum PaneTabsStore {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             providerId = try c.decode(String.self, forKey: .providerId)
             relativePath = try c.decode(String.self, forKey: .relativePath)
+            // Same optionality, and the same reason, as `pinned` directly below: a strip written
+            // before the column stack was persisted must still decode rather than take the user's
+            // whole set of tabs with it.
+            stackDepth = try c.decodeIfPresent(Int.self, forKey: .stackDepth) ?? 0
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         }
+    }
+
+    /// Cuts a stored combined path back into the pane's two halves.
+    ///
+    /// Clamped, because `stackDepth` arrives from a file and a hand-edited plist can say anything.
+    ///
+    /// **The two halves of the clamp are not equally load-bearing**, measured by removing each:
+    /// `max(0,` is the one that matters — `dropLast` traps outright on a negative count ("Can't drop
+    /// a negative number of elements"), so a `-1` in the stored strip would crash the app during
+    /// launch's restore, before a window. The upper `min(…, count)` is belt-and-braces: `dropLast`
+    /// and `suffix` both saturate at the collection's length, so a depth past the end already lands
+    /// on everything-is-stack without it. Kept anyway, so `depth` is a valid count by construction
+    /// rather than by two standard-library behaviours a reader has to know.
+    static func split(relativePath: String, stackDepth: Int) -> (scope: String, stack: PaneBrowsePath) {
+        let components = relativePath.split(separator: "/").map(String.init)
+        let depth = min(max(0, stackDepth), components.count)
+        return (components.dropLast(depth).joined(separator: "/"),
+                PaneBrowsePath(components: Array(components.suffix(depth))))
     }
 
     /// Reads the stored strip. `nil` — not an empty array — when the key has never been written,
@@ -68,7 +116,8 @@ public enum PaneTabsStore {
     /// short strings, and `UserDefaults` coalesces its own writes to disk.
     public static func save(tabs: [PaneTab], selected: Int, to defaults: UserDefaults = .standard) {
         let entries = tabs.map {
-            Entry(providerId: $0.providerId, relativePath: $0.combinedRelativePath, pinned: $0.isPinned)
+            Entry(providerId: $0.providerId, relativePath: $0.combinedRelativePath,
+                  stackDepth: $0.browsePath.depth, pinned: $0.isPinned)
         }
         guard let data = try? JSONEncoder().encode(entries),
               let raw = String(data: data, encoding: .utf8) else { return }
@@ -99,10 +148,20 @@ public enum PaneTabsStore {
         var selectedAfterDrops: Int?
         for (index, entry) in entries.enumerated() {
             guard isKnownProvider(entry.providerId) else { continue }
-            let path = folderExists(entry.providerId, entry.relativePath) ? entry.relativePath : ""
+            // Checked as the COMBINED path, which is the folder the tab was actually showing.
+            // Testing the scope alone would restore a stack into a folder that is gone; the scope
+            // is a prefix of what is checked here, so a combined path that exists proves both.
+            let exists = folderExists(entry.providerId, entry.relativePath)
+            // The fallback drops the stack with the scope, deliberately: the components name
+            // folders *under* a path that no longer resolves, so there is nothing left for them to
+            // be relative to. That is the same "show the root and say so" answer the doc above
+            // gives for the scope.
+            let (scope, stack) = exists
+                ? split(relativePath: entry.relativePath, stackDepth: entry.stackDepth)
+                : ("", PaneBrowsePath())
             if index == selected { selectedAfterDrops = restored.count }
-            restored.append(PaneTab(providerId: entry.providerId, relativePath: path,
-                                    isPinned: entry.pinned))
+            restored.append(PaneTab(providerId: entry.providerId, relativePath: scope,
+                                    browsePath: stack, isPinned: entry.pinned))
         }
         guard !restored.isEmpty else { return nil }
         // **The pinned run is a prefix, and a file is not a promise.** Every rule in `PaneTabList`

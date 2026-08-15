@@ -373,7 +373,12 @@ extension ContentView {
         tabs[list.selectedIndex] = PaneTab(
             id: list.active.id,
             providerId: leftProviderId,
-            relativePath: syncManager.combinedRelativePath(isLeft: true),
+            // **The two halves, not the joined string.** `PaneTabsStore` needs to know where the
+            // cut between them is (it stores the depth), and a tab rebuilt with the combined path
+            // as its scope reports a stack depth of zero — which is exactly how the ACTIVE tab, the
+            // one on screen, used to lose its columns across a quit while parked tabs kept theirs.
+            relativePath: syncManager.leftRelativePath,
+            browsePath: syncManager.leftBrowsePath,
             // Carried over: this entry is rebuilt from the LIVE pane, which knows nothing about
             // pinning, so reading it from anywhere but the list would unpin the active tab on the
             // next thing that saves.

@@ -483,6 +483,118 @@ import Foundation
                                              folderExists: { _, _ in true })
         #expect(restored == nil)
     }
+
+    // MARK: The column stack across a quit
+
+    /// **The regression this section exists for.** A tab drilled four columns deep came back as one
+    /// full-width column: the save joined scope and stack into one string and the restore handed the
+    /// whole thing back as scope, and scope draws exactly one column (`columnDirectories`).
+    ///
+    /// The fixture is deliberately built so the bug and the fix give *different* answers on every
+    /// line: a non-empty scope with a non-empty stack, so restoring everything-as-scope (the old
+    /// behaviour) fails the scope check, the stack check and the depth check rather than passing one
+    /// of them by coincidence.
+    @Test func aDrilledColumnStackSurvivesTheRoundTrip() {
+        let defaults = ScratchDefaults("PaneTabsStore-stack")
+        let tab = PaneTab(providerId: "iCloud",
+                          relativePath: "School",
+                          browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
+        PaneTabsStore.save(tabs: [tab], selected: 0, to: defaults)
+
+        let loaded = PaneTabsStore.load(from: defaults)
+        let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in true })
+        #expect(restored?.active.relativePath == "School", "the scope came back wrong")
+        #expect(restored?.active.browsePath.relativePath == "US/Aditi/Homework",
+                "the column stack did not survive the quit")
+        // What the user actually sees, and the only assertion that speaks in columns: the stack
+        // draws one column per component on top of the scope's own.
+        #expect(restored?.active.browsePath.depth == 3)
+        // …and the joined location is unchanged, which is what keeps the header's path line reading
+        // the same string it did before the quit.
+        #expect(restored?.active.combinedRelativePath == "School/US/Aditi/Homework")
+    }
+
+    /// A tab that was never drilled into is all scope and no stack, and must stay that way — this is
+    /// the ⌘T / Open in New Tab case, and restoring it with a stack would claim columns the user
+    /// never opened.
+    @Test func aTabOpenedAtAFolderRatherThanDrilledComesBackWithNoStack() {
+        let defaults = ScratchDefaults("PaneTabsStore-noStack")
+        PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Finance/US")],
+                           selected: 0, to: defaults)
+        let loaded = PaneTabsStore.load(from: defaults)
+        #expect(loaded?.entries.first?.stackDepth == 0)
+        let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in true })
+        #expect(restored?.active.relativePath == "Finance/US")
+        #expect(restored?.active.browsePath.isEmpty == true)
+    }
+
+    /// **Old strip, new build.** A strip written before the stack was persisted has no `stackDepth`,
+    /// and must decode rather than take the user's whole set of tabs with it — the same hazard
+    /// `aStripWrittenBeforePinningStillDecodes` covers for the pin. It restores the way it always
+    /// did: all scope, one column.
+    @Test func aStripWrittenBeforeTheStackWasPersistedStillDecodes() {
+        let defaults = ScratchDefaults("PaneTabsStore-legacyStack")
+        defaults.set(#"[{"providerId":"iCloud","relativePath":"School/US/Aditi"}]"#,
+                     forKey: PaneTabsStore.tabsKey)
+        let loaded = PaneTabsStore.load(from: defaults)
+        #expect(loaded?.entries.count == 1, "a strip without the new key was rejected wholesale")
+        #expect(loaded?.entries.first?.stackDepth == 0)
+        let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in true })
+        #expect(restored?.active.relativePath == "School/US/Aditi")
+        #expect(restored?.active.browsePath.isEmpty == true)
+    }
+
+    /// **New strip, old build.** The other direction, and the reason the format adds a depth beside
+    /// `relativePath` instead of redefining it as the scope alone: a build that has never heard of
+    /// `stackDepth` reads `relativePath` and must still land on the folder the user left, not on an
+    /// ancestor of it. Asserted on the encoded JSON, which is the only thing that build would see.
+    @Test func theStoredPathStaysTheWholeLocationSoAnOlderBuildLandsOnIt() {
+        let defaults = ScratchDefaults("PaneTabsStore-forward")
+        let tab = PaneTab(providerId: "iCloud",
+                          relativePath: "School",
+                          browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
+        PaneTabsStore.save(tabs: [tab], selected: 0, to: defaults)
+        let raw = defaults.string(forKey: PaneTabsStore.tabsKey) ?? ""
+        #expect(raw.contains(#""relativePath":"School\/US\/Aditi\/Homework""#)
+                    || raw.contains(#""relativePath":"School/US/Aditi/Homework""#),
+                "the stored path is no longer the whole location: \(raw)")
+    }
+
+    /// `stackDepth` arrives from a file, so it is not trusted.
+    ///
+    /// **The negative case is the one with teeth**, and the two are worth telling apart: removing
+    /// `max(0,` from the clamp makes this test die on a `dropLast` trap rather than fail — a `-1` in
+    /// a hand-edited strip crashes the app inside launch's restore, before a window. Removing the
+    /// upper clamp changes nothing at all, because `dropLast` and `suffix` already saturate; the
+    /// over-the-end half below pins the resulting behaviour but guards no code of ours.
+    @Test func aStackDepthOutOfRangeIsClampedRatherThanTrusted() {
+        let negative = PaneTabsStore.split(relativePath: "A/B", stackDepth: -3)
+        #expect(negative.scope == "A/B", "a negative depth should leave the whole path as scope")
+        #expect(negative.stack.isEmpty == true)
+
+        let deep = PaneTabsStore.split(relativePath: "A/B", stackDepth: 9)
+        #expect(deep.scope == "", "a depth past the end should make the whole path the stack")
+        #expect(deep.stack.relativePath == "A/B")
+    }
+
+    /// A tab whose folder is gone loses the stack along with the scope. The components name folders
+    /// *under* a path that no longer resolves, so there is nothing for them to be relative to — a
+    /// stack kept here would point the pane's New Folder and paste at a path that does not exist.
+    @Test func aTabWhoseFolderIsGoneLosesItsStackToo() {
+        let entries = [PaneTabsStore.Entry(providerId: "iCloud",
+                                           relativePath: "School/US/Aditi/Homework", stackDepth: 3)]
+        let restored = PaneTabsStore.restore(entries: entries, selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in false })
+        #expect(restored?.active.relativePath == "")
+        #expect(restored?.active.browsePath.isEmpty == true)
+    }
     /// The count "Close Other Tabs" acts on, which is **not** `count - 1`: pins survive it, so a
     /// strip of three whose other two are pinned has nothing to close. One rule, because the host
     /// logs this number and the strip gates its menu item on it — two spellings is how the menu and
