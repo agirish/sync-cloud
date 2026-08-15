@@ -238,18 +238,21 @@ import Sync
                 isActivePane: true,
                 placement: nil,
                 onBarEdgeFlip: nil,
-                onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
+                onQuickLook: { _ in }, onBackgroundDeselect: { _ in },
+                // Off, and passed as the binding the pane takes: it is not what is being measured
+                // here and it would open on every file selection below.
+                previewEnabled: .constant(false)
             )
         }
     }
 
     private func mount(_ box: Box, delegate: FileActionDelegate) -> NSWindow {
-        // The preview column is switched off in this mount's own `ScratchDefaults` suite rather than
-        // left to whatever the process picked up. It is not what is being measured, it would open on
-        // every file selection below, and `UserDefaults.standard` is never touched — so nothing is
-        // inherited from another suite and nothing leaks to one.
+        // The preview column is switched off at the `Harness` above, which passes the pane its
+        // binding. This mount keeps its own `ScratchDefaults` suite for everything the pane still
+        // reads from defaults (the column widths, the glass hue) rather than taking whatever the
+        // process picked up: `UserDefaults.standard` is never touched, so nothing is inherited from
+        // another suite and nothing leaks to one.
         let store = ScratchDefaults("RiskyNameBadgeColumnsMemoTests")
-        store.set(false, forKey: PaneViewMode.previewColumnDefaultsKey)
 
         let tree = BadgeMemoFixture.tree(side: .left)
         let index = PaneChildrenIndex(tree: tree, treeRoot: BadgeMemoFixture.root)

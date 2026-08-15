@@ -492,7 +492,9 @@ extension ContentView {
         // Tree, and live in Browse-Tree whenever the rail was in Columns.
         let mode = resolvedViewModeBinding(isLeft: shortcutTargetIsLeft)
         guard PaneViewMode.showsPreviewToggle(mode: mode.wrappedValue) else { return nil }
-        return $previewColumnEnabled
+        // Resolved the same way, for the same reason: Browse keeps its own preview preference, so a
+        // chord hardwired to the shared key would turn Compare's preview off from a Browse window.
+        return resolvedPreviewBinding
     }
 
     /// The same 0.15s ease the toolbar button wraps its toggle in — a menu item skipping the

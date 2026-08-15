@@ -96,7 +96,10 @@ import Sync
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
-                onBackgroundDeselect: { _ in }
+                onBackgroundDeselect: { _ in },
+                // On, explicitly — the loop this suite watches for is the preview's. The pane takes
+                // it as a binding now, so the mount states it rather than writing a defaults key.
+                previewEnabled: .constant(true)
             )
             .defaultAppStorage(defaults)
         }
@@ -104,7 +107,6 @@ import Sync
 
     private func mount(_ box: Box, root: String, width: CGFloat) -> NSWindow {
         let defaults = ScratchDefaults("ColumnsRepublishLayoutLoopTests")
-        defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
         defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let host = NSHostingView(rootView: Harness(box: box, root: root, defaults: defaults))

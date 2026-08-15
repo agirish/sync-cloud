@@ -119,6 +119,40 @@ import SwiftUI
 
     // MARK: - Preview toggle
 
+    /// **Browse's preview is not Compare's.** Turning the preview off to compare two providers —
+    /// where it costs the columns doing the comparing half the room — must not take it away from
+    /// Browse, where reading a file IS the task.
+    ///
+    /// The distinctness assertion is the load-bearing one, and it is not a tautology about two
+    /// literals: `ContentView` declares both of its `@AppStorage` properties through this function,
+    /// so if the two arms ever returned the same string the two properties would silently become one
+    /// value again and the split would be gone with nothing else to notice.
+    @Test func testBrowseStoresItsPreviewApartFromEverySurface() {
+        #expect(PaneViewMode.previewColumnKey(isBrowse: true)
+                != PaneViewMode.previewColumnKey(isBrowse: false))
+
+        // Compare, the Organize rail and Storage deliberately share one answer — the two comparison
+        // panes are read against each other, exactly as they share `columnWidthDefaultsKey`.
+        #expect(PaneViewMode.previewColumnKey(isBrowse: false) == PaneViewMode.previewColumnDefaultsKey)
+        #expect(PaneViewMode.previewColumnKey(isBrowse: true) == PaneViewMode.browsePreviewColumnDefaultsKey)
+
+        // Both are a persistence format, so they are pinned as strings rather than only against each
+        // other: renaming one silently resets everyone who had turned the preview off.
+        #expect(PaneViewMode.previewColumnDefaultsKey == "paneColumnShowsPreview")
+        #expect(PaneViewMode.browsePreviewColumnDefaultsKey == "paneColumnShowsPreviewBrowse")
+
+        // Neither key is written by storing the other: Browse's stored "off" leaves Compare's key
+        // absent, so Compare still opens at the default. Both directions, because a migration seeding
+        // one from the other would pass the first half alone.
+        let d = defaults()
+        d.set(false, forKey: PaneViewMode.previewColumnKey(isBrowse: true))
+        #expect(d.object(forKey: PaneViewMode.previewColumnKey(isBrowse: false)) == nil)
+
+        let e = defaults()
+        e.set(false, forKey: PaneViewMode.previewColumnKey(isBrowse: false))
+        #expect(e.object(forKey: PaneViewMode.previewColumnKey(isBrowse: true)) == nil)
+    }
+
     /// The toggle is offered only where flipping it does something: Columns mode. A switch wired to
     /// nothing is worse than no switch.
     @Test func testThePreviewToggleIsOfferedOnlyWhereAPreviewCanAppear() {

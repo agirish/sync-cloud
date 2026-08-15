@@ -125,7 +125,10 @@ import UniformTypeIdentifiers
                 selection: $box.selection, otherSelection: [],
                 isLeft: true, delegate: StubDelegate(),
                 isSingleSource: true,
-                viewMode: .columns, childrenIndex: index, browsePath: $box.browsePath,
+                viewMode: .columns,
+                // On, explicitly: this whole suite is about the preview column's download button.
+                previewEnabled: .constant(true),
+                childrenIndex: index, browsePath: $box.browsePath,
                 downloadChannel: channel
             )
             .defaultAppStorage(defaults)
@@ -154,7 +157,6 @@ import UniformTypeIdentifiers
     private func mount(root: String = root, probe: ProbeSwitch = ProbeSwitch())
     -> (window: NSWindow, host: NSView, channel: NotificationCenter) {
         let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
-        defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(PaneViewMode.defaultColumnWidth),
                      forKey: PaneViewMode.columnWidthDefaultsKey)
         defaults.set(Double(PaneViewMode.defaultPreviewColumnWidth),

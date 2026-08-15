@@ -110,6 +110,15 @@ public struct FileTreeView: View, Equatable {
     /// importantly the single-source rail — is unaffected until it opts in; only the two
     /// comparison panes pass `.columns`.
     public let viewMode: PaneViewMode
+    /// Whether this surface's Columns presentation appends a preview column, handed straight to
+    /// `PaneColumnsView` and written from there and from the header's pill.
+    ///
+    /// A `Binding` rather than an `@AppStorage`, because which stored preference this is depends on the
+    /// surface the host is drawing — Compare and the rail share one, Browse has its own. See
+    /// `PaneViewMode.previewColumnKey(isBrowse:)`. The init parameter defaults to a `.constant`, so a
+    /// caller with no opinion renders exactly the pane it rendered before this existed; see
+    /// `PaneColumnsView.previewEnabled` for why that default is also a hazard worth pinning.
+    public let previewEnabled: Binding<Bool>
     /// Path → children for this pane's published tree, used only by the columns presentation.
     /// Built once per publish by the host; see `PaneChildrenIndex`.
     public let childrenIndex: PaneChildrenIndex?
@@ -240,7 +249,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -272,6 +281,7 @@ public struct FileTreeView: View, Equatable {
         self.searchRevealNonce = searchRevealNonce
         self.isActivePane = isActivePane
         self.viewMode = viewMode
+        self.previewEnabled = previewEnabled
         self.childrenIndex = childrenIndex
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
@@ -315,6 +325,11 @@ public struct FileTreeView: View, Equatable {
             && lhs.searchRevealNonce == rhs.searchRevealNonce
             && lhs.isActivePane == rhs.isActivePane
             && lhs.viewMode == rhs.viewMode
+            // The VALUE, not the binding's identity. `Binding` is not `Equatable` and two bindings onto
+            // the same `@AppStorage` are fresh structs every render, so comparing anything else here
+            // would either never differ (skipping the re-render that shows or hides the preview when the
+            // header's pill is clicked) or always differ.
+            && lhs.previewEnabled.wrappedValue == rhs.previewEnabled.wrappedValue
             && lhs.childrenIndex == rhs.childrenIndex
             && lhs.browsePath == rhs.browsePath
             && lhs.placement === rhs.placement
@@ -634,7 +649,8 @@ public struct FileTreeView: View, Equatable {
                 fonts: rowFonts,
                 search: search,
                 searchRevealTarget: search.hit(at: searchHitIndex)?.path,
-                downloadChannel: downloadChannel
+                downloadChannel: downloadChannel,
+                previewEnabled: previewEnabled
             )
             // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
             // walk the same hits in the same order and switching mode mid-search keeps your place.

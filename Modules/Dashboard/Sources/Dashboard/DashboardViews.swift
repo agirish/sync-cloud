@@ -77,6 +77,15 @@ public struct PaneHeader: View {
     /// This pane's presentation. `nil` hides the switch entirely — the single-source rail has no Columns
     /// mode, so it gets no control for one.
     public var viewMode: Binding<PaneViewMode>?
+    /// The preview toggle's state — the pill, and its twin in the ⋯ menu.
+    ///
+    /// It used to be read here as `@AppStorage`, on the grounds that it was one shared preference with
+    /// one key that a binding would make every call site restate. There are two keys now (Browse keeps
+    /// its own; see `PaneViewMode.previewColumnKey(isBrowse:)`), and this header is drawn on every
+    /// surface, so reading a key here would mean this header deciding for itself which surface it is on
+    /// — the mistake `shortcutPreviewColumn` documents. The host resolves it once and hands the same
+    /// binding to the pill, the column context menu and ⇧⌘P.
+    public var previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault)
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
@@ -131,10 +140,6 @@ public struct PaneHeader: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
-    /// The preview toggle's state. Read here rather than threaded in as a binding: it is one shared
-    /// preference with one key, and a binding would make every call site restate it.
-    @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
-        PaneViewMode.previewColumnDefault
     /// The bar's arrangement and icon size. App-wide keys, not per-pane: one arrangement is shared by
     /// both Compare panes and the single-source rail, so that the two panes stay the same instrument pointed
     /// at two providers. Every header reads the same string, so customizing from either pane moves
@@ -182,6 +187,7 @@ public struct PaneHeader: View {
         isFocused: Bool = false,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
+        previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault),
         onNewFolder: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         selectionCount: Int = 0,
@@ -217,6 +223,7 @@ public struct PaneHeader: View {
         self.isFocused = isFocused
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
+        self.previewEnabled = previewEnabled
         self.onNewFolder = onNewFolder
         self.onDelete = onDelete
         self.selectionCount = selectionCount
@@ -1261,7 +1268,7 @@ public struct PaneHeader: View {
             }
         case .preview:
             if showsPreviewToggle {
-                Toggle(isOn: $previewEnabled) {
+                Toggle(isOn: previewEnabled) {
                     Label("Show Preview", systemImage: previewSymbol)
                 }
             }
@@ -1329,23 +1336,23 @@ public struct PaneHeader: View {
     private func previewTogglePill(controlSize: ControlSize) -> some View {
         let pill = PaneNavMetrics.pill(controlSize)
         return Button {
-            previewEnabled.toggle()
+            previewEnabled.wrappedValue.toggle()
         } label: {
             Image(systemName: previewSymbol)
                 .scaledFont(PaneNavMetrics.glyphFont(controlSize))
-                .foregroundStyle(previewEnabled
+                .foregroundStyle(previewEnabled.wrappedValue
                                  ? AnyShapeStyle(glassHue.onAccentLabelColor)
                                  : AnyShapeStyle(Color.primary.opacity(0.75)))
                 .frame(width: pill.width - PaneNavMetrics.segmentInset, height: pill.height)
-                .background(previewEnabled ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
+                .background(previewEnabled.wrappedValue ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
                             in: Capsule())
                 .contentShape(Capsule())
         }
-        .buttonStyle(.hoverAffordance(previewEnabled ? .filled : .segment, tint: glassHue.accentFillColor))
+        .buttonStyle(.hoverAffordance(previewEnabled.wrappedValue ? .filled : .segment, tint: glassHue.accentFillColor))
         .shortcutKeycap(AppChord.previewColumn.display)
-        .accessibilityAddTraits(previewEnabled ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(previewEnabled.wrappedValue ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel("Preview pane")
-        .help(ShortcutHint.tooltip(previewEnabled
+        .help(ShortcutHint.tooltip(previewEnabled.wrappedValue
                                    ? "The preview pane is showing — click to hide it"
                                    : "Show a preview of the selected file",
                                    AppChord.previewColumn.display))

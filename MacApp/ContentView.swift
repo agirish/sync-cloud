@@ -285,10 +285,17 @@ struct ContentView: View {
     /// Persisted so it stays open/closed across launches. Internal, not private: its toggle sits in
     /// the window toolbar now (ContentView+Toolbar.swift).
     @AppStorage("showCompareInspector") var showInspector: Bool = false
-    /// The Columns preview column — the pane header's pill owns this preference; it is declared
-    /// here as well only so ⇧⌘P (`shortcutPreviewColumn`) has a stored property to flip. Same key,
-    /// same default, one value.
-    @AppStorage(PaneViewMode.previewColumnDefaultsKey) var previewColumnEnabled: Bool = PaneViewMode.previewColumnDefault
+    /// The Columns preview column, as Compare and the single-source rail (Organize, Storage) share it.
+    /// Declared here rather than in the views that draw it because there are two of these keys now and
+    /// only this view knows which surface is on screen — every writer (the header's pill, a column's
+    /// empty-area context menu, ⇧⌘P) goes through `resolvedPreviewBinding`.
+    @AppStorage(PaneViewMode.previewColumnKey(isBrowse: false)) var previewColumnEnabled: Bool =
+        PaneViewMode.previewColumnDefault
+    /// Browse's own preview preference, on its own key so turning the preview off to compare two
+    /// providers does not take it away from browsing. Nothing seeds it from the shared key: Browse
+    /// starts at the default, on. See `PaneViewMode.browsePreviewColumnDefaultsKey`.
+    @AppStorage(PaneViewMode.previewColumnKey(isBrowse: true)) var browsePreviewColumnEnabled: Bool =
+        PaneViewMode.previewColumnDefault
     /// The Info inspector's persisted width, resizable by dragging its leading edge. Defaults to the
     /// former fixed 270pt. Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
     @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 270
@@ -548,6 +555,21 @@ struct ContentView: View {
     func resolvedViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
         if selectedWorkspace == .browse { return browseViewModeBinding }
         return layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft)
+    }
+
+    /// Which stored preview preference the surface on screen is reading and writing.
+    ///
+    /// Shaped like `resolvedViewModeBinding(isLeft:)` and for the same one-member reason, with one
+    /// difference: it takes no side. The two comparison panes are read against each other, so they share
+    /// this answer exactly as they share `columnWidthDefaultsKey` — only Browse stands apart, and the
+    /// rail falls through to the shared key with Compare because Organize and Storage are lens surfaces
+    /// where a preview costs the columns doing the work half the room.
+    ///
+    /// Every writer resolves through here. Three views can flip this — the header's pill, a column's
+    /// empty-area context menu, and ⇧⌘P — and `shortcutPreviewColumn` is the standing record of what a
+    /// second, independent answer to "which surface am I on" costs.
+    var resolvedPreviewBinding: Binding<Bool> {
+        selectedWorkspace == .browse ? $browsePreviewColumnEnabled : $previewColumnEnabled
     }
 
     /// Everything the tree diff indices are derived from, as one Equatable value
@@ -2537,6 +2559,8 @@ struct ContentView: View {
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail and Browse get the switch too, each bound to its own key.
                 viewMode: resolvedViewModeBinding(isLeft: isLeft),
+                // The pill, on the same resolved answer the pane and ⇧⌘P use.
+                previewEnabled: resolvedPreviewBinding,
                 // Targets the pane's current folder, which in Columns is the deepest open column.
                 // One resolution shared with ⇧⌘N — see `beginNewFolder(isLeft:)`.
                 onNewFolder: { beginNewFolder(isLeft: isLeft) },
@@ -3014,6 +3038,9 @@ struct ContentView: View {
             searchRevealNonce: paneSearchState(isLeft: pane.isLeft).wrappedValue.revealNonce,
             isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft),
             viewMode: pane.viewMode,
+            // The same resolved answer the header's pill writes, so the pane and the pill can never be
+            // looking at different keys — and so Browse's preview survives being turned off in Compare.
+            previewEnabled: resolvedPreviewBinding,
             childrenIndex: pane.childrenIndex,
             browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath,
             onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) },

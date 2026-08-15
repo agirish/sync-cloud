@@ -189,12 +189,35 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// ⋯ menu at narrow widths), and from a column's empty-area context menu — the place Finder keeps
     /// its view options.
     ///
-    /// Shared by both panes and the single-source rail, like `columnWidthDefaultsKey`: this is a reading
-    /// preference ("do I want to see file contents while I browse"), not a per-surface layout choice.
-    /// That sharing is what makes the header's pill worth offering on a pane too narrow to show a
-    /// preview itself — see `showsPreviewToggle`.
+    /// Shared by both comparison panes and the single-source rail (Organize, Storage), like
+    /// `columnWidthDefaultsKey`: across those three this is one reading preference ("do I want to see
+    /// file contents while I compare"), not a per-surface layout choice. Browse is the exception —
+    /// see `browsePreviewColumnDefaultsKey`.
     public static let previewColumnDefaultsKey = "paneColumnShowsPreview"
+
+    /// Browse's own preview preference, on its own key for the same reason `browseDefaultsKey` exists:
+    /// Browse draws the same pane the rail does, at full window width instead of in a rail beside a
+    /// lens, and the two are not one decision. Compare and the rail are panes read *against* something
+    /// — the other provider, a lens — where a preview costs the columns doing that work half the room;
+    /// Browse is the pane where reading a file IS the task. Turning the preview off to compare must not
+    /// take it away from browsing.
+    ///
+    /// No migration seeds this from `previewColumnDefaultsKey`: Browse starts at the default, on.
+    public static let browsePreviewColumnDefaultsKey = "paneColumnShowsPreviewBrowse"
+
     public static let previewColumnDefault = true
+
+    /// Which of the two preview keys a surface reads.
+    ///
+    /// One function rather than a condition restated per call site, because there are three writers of
+    /// this preference — the header's pill, a column's empty-area context menu, and ⇧⌘P — and they must
+    /// agree about which surface they are on. `shortcutPreviewColumn` records what a second opinion
+    /// costs: it resolved the *rail's* view mode while the user was looking at Browse, so ⇧⌘P was dead
+    /// in Browse-Columns whenever the rail happened to sit in Tree. Here the app resolves once, in
+    /// `ContentView.resolvedPreviewBinding`, and hands every writer the same binding.
+    public static func previewColumnKey(isBrowse: Bool) -> String {
+        isBrowse ? browsePreviewColumnDefaultsKey : previewColumnDefaultsKey
+    }
 
     /// Whether a pane's header offers the preview toggle.
     ///
@@ -210,11 +233,15 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// `PaneColumnsView.previewSupportable`, which hides the column context menu's item once a pane is
     /// too narrow to hold a preview. The two differ because they govern different scopes. That menu
     /// item is a view option on one column, so withholding it where this pane can show nothing is
-    /// honest; the header's pill writes `previewColumnDefaultsKey`, which is one preference SHARED by
-    /// both comparison panes and the rail, so flipping it in a pane too narrow to show a preview still
-    /// does something everywhere else — it is never the switch wired to nothing that Tree mode would
-    /// give. Widths also change under a splitter drag, and a pill that vanished mid-drag would take
-    /// the setting off screen exactly when widening the pane again should bring the preview back.
+    /// honest; the header's pill is the surface's setting, and widths change under a splitter drag — a
+    /// pill that vanished mid-drag would take the setting off screen exactly when widening the pane
+    /// again should bring the preview back.
+    ///
+    /// That second reason now carries this alone. It used to rest on the pill writing one preference
+    /// SHARED by both comparison panes and the rail, so a flip in a pane too narrow for a preview "still
+    /// did something everywhere else". Browse has its own key (`browsePreviewColumnDefaultsKey`), and a
+    /// Browse window narrow enough for this is a window with nowhere else for the flip to show — the
+    /// drag argument is what keeps the pill there, not the sharing.
     ///
     /// Stated because the divergence looks like an oversight: do not "align" the two without
     /// deciding which scope you mean.

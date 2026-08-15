@@ -82,6 +82,22 @@ struct PaneColumnsView: View {
     /// does not exist. See `docs/flaky-tests.md` mechanism 9.
     var downloadChannel: NotificationCenter = .default
 
+    /// Whether a selected file gets a preview column, as it does in Finder's column view. Read here
+    /// and written from a column's empty-area context menu — the same place Finder keeps its view
+    /// options — while the pane header's pill writes the very same binding.
+    ///
+    /// Threaded rather than read from `UserDefaults` here, because *which* preference this is depends
+    /// on the surface: Compare and the rail share one key, Browse has its own, and only the host can
+    /// see which surface this pane is drawn on. An `@AppStorage` here would be a third opinion about
+    /// that beside the header's and ⇧⌘P's — see `PaneViewMode.previewColumnKey(isBrowse:)`.
+    ///
+    /// The default keeps a pane mounted without one behaving as it always did (preview on, nothing
+    /// persisted), which is what every test that does not care about the preview wants. It is also a
+    /// silent failure if the app ever takes it — a `.constant` binding swallows the context menu's
+    /// write — so that the app passes a real one is pinned separately, by
+    /// `BrowseWorkspaceCallSiteTests.testEveryPreviewWriterGoesThroughTheOneResolver`.
+    var previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault)
+
     /// This pane's identity for download-notification scoping, handed to the preview column so a
     /// download started there is watched by the pane it was started from.
     ///
@@ -96,11 +112,6 @@ struct PaneColumnsView: View {
     /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
     @AppStorage(PaneViewMode.columnWidthDefaultsKey) private var storedColumnWidth: Double =
         Double(PaneViewMode.defaultColumnWidth)
-    /// Whether a selected file gets a preview column, as it does in Finder's column view. Toggled
-    /// from the pane header's pill and from a column's empty-area context menu — the same place
-    /// Finder keeps its view options. One shared preference, not a per-pane one.
-    @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
-        PaneViewMode.previewColumnDefault
     /// The preview pane's width, dragged from the divider on its leading edge.
     @AppStorage(PaneViewMode.previewColumnWidthDefaultsKey) private var storedPreviewWidth: Double =
         Double(PaneViewMode.defaultPreviewColumnWidth)
@@ -197,7 +208,7 @@ struct PaneColumnsView: View {
     /// the trade where it would be ruinous: `showsPreviewColumn` gives a preview no room at all
     /// unless a full column still fits beside it.
     private var previewItem: ColumnPreviewItem? {
-        guard previewEnabled, let deepest = directories.last else { return nil }
+        guard previewEnabled.wrappedValue, let deepest = directories.last else { return nil }
         return ColumnPreview.item(selection: selection,
                                   deepestRows: childrenIndex.children(atPath: deepest) ?? [])
     }
@@ -226,7 +237,7 @@ struct PaneColumnsView: View {
         let previewTarget = previewItem
         let showsPreview = PaneViewMode.showsPreviewColumn(
             paneWidth: paneWidth, columnWidth: columnWidth,
-            isEnabled: previewEnabled, hasPreviewTarget: previewTarget != nil)
+            isEnabled: previewEnabled.wrappedValue, hasPreviewTarget: previewTarget != nil)
         let previewWidth = showsPreview
             ? PaneViewMode.previewPaneWidth(paneWidth: paneWidth, columnWidth: columnWidth,
                                             preferred: preferredPreviewWidth)
@@ -729,7 +740,7 @@ struct PaneColumnsView: View {
             // per row, so anything in it exists once per visible file.
             if previewSupported {
                 Divider()
-                Toggle(isOn: $previewEnabled) {
+                Toggle(isOn: previewEnabled) {
                     Label("Show Preview", systemImage: "sidebar.right")
                 }
             }

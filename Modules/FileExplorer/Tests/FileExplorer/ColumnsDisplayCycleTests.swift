@@ -124,7 +124,11 @@ import Sync
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
-                onBackgroundDeselect: { _ in }
+                onBackgroundDeselect: { _ in },
+                // On, explicitly: these passes are counted with a preview column in the pane. It is
+                // the pane's binding now rather than a key in `defaults`, so a mount that needs the
+                // preview says so at the mount instead of relying on the parameter's default.
+                previewEnabled: .constant(true)
             )
             .defaultAppStorage(defaults)
         }
@@ -132,7 +136,6 @@ import Sync
 
     private func mount(_ box: Box, root: String, width: CGFloat) -> PassCountingWindow {
         let defaults = ScratchDefaults("ColumnsDisplayCycleTests")
-        defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
         defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let host = NSHostingView(rootView: Harness(box: box, root: root, defaults: defaults))
@@ -362,7 +365,6 @@ import Sync
                                badges: Bool = false,
                                badgeCounter: Counter? = nil) -> PassCountingWindow {
         let defaults = ScratchDefaults("ColumnsDisplayCycleTests-two")
-        defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
         defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let host = NSHostingView(rootView: TwoPaneHarness(left: left, right: right, defaults: defaults, badges: badges,

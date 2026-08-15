@@ -134,12 +134,16 @@ import Events
             named: "wide-660-columns")
     }
 
-    /// The preview pill's other resting state, which nothing else pins.
+    /// The preview pill's other resting state, as an image to look at.
     ///
-    /// "Accent-filled while the preview shows, plain while it doesn't" is a claim about painted
-    /// pixels, and the height and control-count tests in `PaneHeaderHeightTests` are both blind to
-    /// it — a pill stuck in one fill would pass every one of them. Two images at the same width, with
-    /// only the setting differing, are what make the state visible to a test at all.
+    /// **It does not pin that state, and this used to claim it did.** The claim was that two images
+    /// at the same width with only the setting differing are what make the pill's fill visible to a
+    /// test at all. Measured, by rendering the pill from a stale `@AppStorage` while the setting said
+    /// off: both references still matched. The pill is ~0.9% of a 660×92 header and
+    /// `assertViewSnapshot` runs at `precision: 0.99`, so a control this small fits inside the
+    /// tolerance — and this suite is `.machinePinned(.referenceImages)`, so it does not run on CI
+    /// either. `PaneHeaderPreviewPillTests` is what actually holds the pill to its state; this image
+    /// is here to be looked at.
     @Test func paneHeaderWideWithPreviewOff() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive",
@@ -181,17 +185,17 @@ import Events
             named: "customize-sheet")
     }
 
-    /// - Parameter previewEnabled: the preview toggle's state, pinned through an injected defaults
-    ///   domain. `PaneHeader` reads it from `@AppStorage`, so left alone these images would render
-    ///   from whatever the test host's standard domain happens to hold — a reference PNG that is a
-    ///   coin flip on the next machine. The same injection pins the glass hue, tint and level the
-    ///   header also reads.
+    /// - Parameter previewEnabled: the preview toggle's state, passed straight in as the binding the
+    ///   header now takes. It used to be pinned through the injected defaults domain, because the
+    ///   header read the preference itself — left alone, these images rendered from whatever the test
+    ///   host's standard domain happened to hold, a reference PNG that was a coin flip on the next
+    ///   machine. The header takes no view on which key it is showing any more, so the value comes
+    ///   straight down; the injected domain still pins the glass hue, tint and level it does read.
     private static func header(providerName: String,
                                viewMode: Binding<PaneViewMode>? = nil,
                                onNewFolder: (() -> Void)? = nil,
                                previewEnabled: Bool = true) -> some View {
         let defaults = ScratchDefaults("DashboardSnapshotTests-header")
-        defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
         return PaneHeader(
             title: "Left",
             provider: CloudProvider(
@@ -211,6 +215,7 @@ import Events
             isRefreshing: false,
             showHiddenFiles: .constant(false),
             viewMode: viewMode,
+            previewEnabled: .constant(previewEnabled),
             onNewFolder: onNewFolder)
         .defaultAppStorage(defaults)
     }

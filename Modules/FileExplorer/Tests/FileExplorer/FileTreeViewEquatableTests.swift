@@ -78,6 +78,7 @@ import Design
         searchRevealNonce: Int = 0,
         isActivePane: Bool = true,
         viewMode: PaneViewMode = .tree,
+        previewEnabled: Bool = true,
         childrenIndex: PaneChildrenIndex? = nil,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         onColumnNavigate: ((PaneBrowsePath) -> Void)? = { _ in },
@@ -94,7 +95,7 @@ import Design
             onOpenSettings: onOpenSettings, isSingleSource: isSingleSource,
             placement: placement, onBarEdgeFlip: onBarEdgeFlip,
             search: search, searchHitIndex: searchHitIndex, searchRevealNonce: searchRevealNonce, isActivePane: isActivePane,
-            viewMode: viewMode, childrenIndex: childrenIndex,
+            viewMode: viewMode, previewEnabled: .constant(previewEnabled), childrenIndex: childrenIndex,
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
             onBackgroundDeselect: onBackgroundDeselect, onQuickLook: onQuickLook,
             downloadChannel: downloadChannel)
@@ -213,6 +214,16 @@ import Design
     @Test("The view mode is noticed — it picks the whole presentation")
     func viewModeIsCompared() {
         #expect(pane() != pane(viewMode: .columns))
+    }
+
+    /// The preview setting arrives as a `Binding`, which is not `Equatable` — so this gate compares
+    /// the VALUE. It has to: the pill that flips it lives in the header, a different view entirely,
+    /// and this one is wrapped in `.equatable()`, so a gate blind to it would leave the pane on
+    /// screen exactly as it was. Two bindings onto the same `@AppStorage` are also fresh structs on
+    /// every render, so anything but the value would either never differ or always differ.
+    @Test("The preview setting is noticed — the header's pill is what flips it")
+    func previewSettingIsCompared() {
+        #expect(pane() != pane(previewEnabled: false))
     }
 
     @Test("A rebuilt children index is noticed — the columns resolve their rows from it")

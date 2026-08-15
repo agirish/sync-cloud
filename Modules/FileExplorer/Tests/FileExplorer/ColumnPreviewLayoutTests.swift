@@ -40,6 +40,12 @@ import UniformTypeIdentifiers
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
+        /// The preview setting, published so `testFlippingTheSettingRelaysAMountedPane` can flip it
+        /// under a pane that is already on screen. The pane takes it as a binding — the app's comes
+        /// from `ContentView`, whose two `@AppStorage` properties are what make Browse's answer
+        /// separate from Compare's — so a test that wants a LIVE flip has to own something
+        /// observable, exactly as the host does.
+        @Published var previewEnabled = true
     }
 
     /// A real directory with real files: the preview's probe is a real `lstat`, and a fabricated
@@ -99,10 +105,16 @@ import UniformTypeIdentifiers
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: isSingleSource, density: .compact, isActivePane: true,
                 placement: placement, onBarEdgeFlip: nil, onQuickLook: { _ in },
-                onBackgroundDeselect: { _ in }
+                onBackgroundDeselect: { _ in },
+                // From the box, not `defaults`: which stored key a surface reads is the host's
+                // decision, so the pane holds no `@AppStorage` for it. The column and preview
+                // WIDTHS still come from `defaults`.
+                previewEnabled: Binding(get: { box.previewEnabled },
+                                        set: { box.previewEnabled = $0 })
             )
-            // Both the preview setting and the column width come from defaults, so the test owns a
-            // domain of its own rather than reading whatever the host process happens to hold.
+            // The column and preview WIDTHS come from defaults, so the test owns a domain of its own
+            // rather than reading whatever the host process happens to hold. (The preview's on/off
+            // setting is threaded in as a binding — see `previewEnabled` above.)
             .defaultAppStorage(defaults)
             // A known ground, for the one test here that reads PIXELS rather than view frames. A
             // hosted pane with no background renders over an undefined backing, and every pixel then
@@ -123,10 +135,10 @@ import UniformTypeIdentifiers
         placement: PaneBarPlacement? = nil
     ) -> (window: NSWindow, host: NSHostingView<Harness>) {
         let defaults = ScratchDefaults("ColumnPreviewLayoutTests")
-        defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(columnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
         defaults.set(Double(previewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let box = Box()
+        box.previewEnabled = previewEnabled
         box.selection = selection
         box.browsePath = browsePath
         let tree = fixture.tree()
@@ -288,8 +300,8 @@ import UniformTypeIdentifiers
     ///
     /// Every other case here mounts a pane with the setting already at its final value, so all of
     /// them would pass against a pane that read the preference once and never looked again. The pill
-    /// in the header writes this key from a different view entirely; nothing but a live flip proves
-    /// the pane hears it. Asserted in both directions, because "off" and "on" reach the layout
+    /// in the header writes this binding from a different view entirely; nothing but a live flip
+    /// proves the pane hears it. Asserted in both directions, because "off" and "on" reach the layout
     /// through different branches — off must give the width back, not merely hide the preview.
     @Test func testFlippingTheSettingRelaysAMountedPane() async throws {
         let fixture = try Fixture()
@@ -298,12 +310,12 @@ import UniformTypeIdentifiers
         await pump(mounted.window, seconds: 0.3)
         #expect(columnWidths(in: mounted.host) == [570])
 
-        mounted.host.rootView.defaults.set(false, forKey: PaneViewMode.previewColumnDefaultsKey)
+        mounted.host.rootView.box.previewEnabled = false
         await pump(mounted.window, seconds: 0.5)
         #expect(columnWidths(in: mounted.host) == [990], "turning the preview off must return its width")
         #expect(previews(in: mounted.host).isEmpty)
 
-        mounted.host.rootView.defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
+        mounted.host.rootView.box.previewEnabled = true
         await pump(mounted.window, seconds: 0.5)
         #expect(columnWidths(in: mounted.host) == [570], "turning it back on must take the width again")
         withExtendedLifetime((fixture, mounted)) {}
