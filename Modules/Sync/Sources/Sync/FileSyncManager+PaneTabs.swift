@@ -206,6 +206,35 @@ extension FileSyncManager {
         setPaneTabs(list, isLeft: isLeft)
     }
 
+    /// Discards a tab that can no longer be shown — its source has been removed since it was opened
+    /// — and leaves the pane on one that can. Returns the tab now live.
+    ///
+    /// **Why this exists rather than a warning.** The verbs apply a tab to the pane before the host
+    /// can rule on its source, because the provider id is the host's `@AppStorage` and only the host
+    /// knows what is still installed. By the time the host finds the source gone, the pane is
+    /// already pointed at that tab's folder path *under the live source's root* — a path that
+    /// usually exists nowhere, so the pane shows an empty folder while the log said it had stayed
+    /// put. Leaving the chip in place also means the next click repeats it.
+    ///
+    /// Dropping the tab is the rule the feature already applies at launch: `PaneTabsStore.restore`
+    /// discards entries whose provider is unknown. Doing it here too means a source removed
+    /// mid-session cannot leave a tab behind that does not work.
+    ///
+    /// The last tab is not closed — a pane always holds one — so it is rebuilt on `currentProviderId`
+    /// at its root, which is the one location certain to exist.
+    @MainActor public func discardTab(id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab {
+        var list = paneTabs(isLeft: isLeft)
+        if list.count > 1, list.index(of: id) != nil {
+            list.close(id: id)
+        } else {
+            list = PaneTabList(single: PaneTab(providerId: currentProviderId))
+        }
+        setPaneTabs(list, isLeft: isLeft)
+        let tab = list.active
+        applyTab(tab, isLeft: isLeft, currentProviderId: currentProviderId)
+        return tab
+    }
+
     /// Replaces a pane's list outright — the launch seed, and the only write that is not one of the
     /// verbs above.
     @MainActor public func setPaneTabs(_ list: PaneTabList, isLeft: Bool) {

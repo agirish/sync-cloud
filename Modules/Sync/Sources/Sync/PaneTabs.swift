@@ -267,6 +267,16 @@ public struct PaneTabList: Equatable, Sendable {
     public var pinned: [PaneTab] { tabs.filter(\.isPinned) }
     public var pinnedCount: Int { tabs.prefix { $0.isPinned }.count }
 
+    /// How many tabs "Close Other Tabs" would actually close, keeping `id` and every pinned tab.
+    ///
+    /// **Not `count - 1`**: pins survive the gesture, so a strip of three whose other two are
+    /// pinned has nothing to close. The host counts this for its log line and the strip gates its
+    /// menu item on the same question — it was written twice, once per type, and two spellings of
+    /// one rule is how the menu and the log come to disagree about the same click.
+    public func closableOthers(keeping id: UUID) -> Int {
+        tabs.filter { $0.id != id && !$0.isPinned }.count
+    }
+
     /// Pins a tab, moving it to the end of the pinned run — the leading end of the strip.
     ///
     /// The pinned run is a PREFIX, always. Everything else about pinning (what folds away, what

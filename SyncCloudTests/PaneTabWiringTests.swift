@@ -286,6 +286,26 @@ import Sync
                                              isAvailable: { _ in false }) == .unavailable("Dropbox"))
     }
 
+    /// …and the call site **acts on it**, which for most of this feature's life it did not.
+    ///
+    /// The branch only logged, under a comment claiming the pane "stayed on its current source".
+    /// That is true of the source and false of the folder: the verb has already applied the tab, so
+    /// the pane is sitting on the removed source's folder path under the LIVE source's root — a
+    /// path that usually exists nowhere, which shows as an empty pane. `discardTab` drops the tab
+    /// and lands the pane on one that works; see `PaneTabSwitchingTests` for both of its cases.
+    @Test func aTabOnASourceThatIsGoneIsDiscardedAndNotJustLogged() throws {
+        let body = try Self.memberBody("private func tabAction(isLeft: Bool",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let branch = try #require(body.range(of: "case .unavailable(let id):"),
+                                  "the removed-source case is no longer handled")
+        let rest = String(body[branch.upperBound...])
+        #expect(rest.contains("syncManager.discardTab("),
+                "a tab on a removed source is only warned about — the pane is left on a path under the wrong root")
+        // And the pane's search field follows the tab it lands on, like every other arrival.
+        #expect(rest.contains("paneSearchState(isLeft: isLeft).wrappedValue"),
+                "the discarded tab's search query is left in the field of the tab that replaced it")
+    }
+
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {
@@ -727,6 +747,41 @@ import Sync
         let verb = try #require(host.range(of: "verb() else {"), "the verb call is gone")
         #expect(read.upperBound < verb.lowerBound,
                 "the focus is read after the pane has already moved, so the rule always says no")
+    }
+
+    /// **The prune must also fire when a pane finishes loading**, not only when its tree changes.
+    ///
+    /// `pruneBrowsePath` refuses while a tree is loading, because progressive loading publishes a
+    /// shallow root-children-only tree first and pruning against that cuts a valid stack to its
+    /// first component. But the deep tree is published *before* `await applyFilters()` and the flag
+    /// is cleared *after* it, so the update carrying the final tree can arrive while the flag is
+    /// still up — the republish handler skips, and the tree does not change again to re-fire it. A
+    /// folder deleted externally would keep its dead stack, which is the whole thing the prune is
+    /// for. The falling edge closes it without depending on which side of an `await` a SwiftUI
+    /// update lands on.
+    @Test func theStackIsAlsoPrunedWhenAPaneFinishesLoading() throws {
+        let body = try Self.typeBody("struct ColumnStackPruning: ViewModifier {",
+                                     in: Self.source("ContentView+PaneTabs.swift"))
+        for flag in ["isLoadingLeftTree", "isLoadingRightTree"] {
+            let handler = try #require(body.range(of: "onChange(of: syncManager.\(flag))"),
+                                       "nothing prunes \(flag)'s pane when it settles")
+            // **Sliced to this handler's own closure, not a fixed window.** A `prefix(200)` here
+            // reached into the NEXT handler and found its guard, so deleting this one's passed —
+            // the mutation that made the point.
+            let rest = body[handler.upperBound...]
+            let end = rest.range(of: "\n            .onChange") ?? rest.range(of: "\n    }")
+            let own = String(rest[..<(end?.lowerBound ?? rest.endIndex)])
+            #expect(own.contains("guard !isLoading else { return }"),
+                    "the \(flag) handler prunes on the RISING edge too, against a tree still loading")
+            #expect(own.contains("prune(isLeft:"), "the \(flag) handler does not prune")
+        }
+        // The republish trigger is still there — the falling edge is an addition, not a swap.
+        #expect(body.contains("onChange(of: syncManager.leftPaneTree)"),
+                "a republish no longer prunes, so a deleted folder keeps its stack until a reload")
+        #expect(body.contains("onChange(of: syncManager.rightPaneTree)"))
+        // And the modifier is actually installed.
+        #expect(try Self.source("ContentView.swift").contains("ColumnStackPruning("),
+                "the pruning modifier is defined and never applied")
     }
 
     // MARK: Log coverage

@@ -394,6 +394,55 @@ import Foundation
                 "the pane kept cached subtrees of the source it just left")
     }
 
+    // MARK: A tab whose source has been removed
+
+    /// **A dead tab is discarded, not merely warned about.**
+    ///
+    /// The verbs apply a tab before the host can rule on its source, so by the time the host finds
+    /// the source gone the pane is already pointed at that tab's folder path under the LIVE source's
+    /// root — a path that usually exists nowhere. The branch used to only log, with a comment
+    /// claiming the pane "stayed on its current source": true of the source, false of the folder,
+    /// and the false half is the one that showed as an empty pane.
+    @MainActor
+    @Test func discardingADeadTabLeavesThePaneOnALiveOne() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "Ghost")])
+        let dead = manager.leftPaneTabs.tabs[1].id
+        // The live pane has to actually BE at "Keep": switching away captures the pane into the
+        // outgoing tab, so a fixture that only names the folder in the tab's initializer has that
+        // name overwritten by wherever the pane really is — the active tab is the pane.
+        manager.focusOn(relativePath: "Keep", isLeft: true)
+        manager.switchTab(to: dead, isLeft: true, currentProviderId: "iCloud")
+        // The pane has already been pointed at the dead tab's path — that is the state the host
+        // discovers the problem in, and the one this has to get out of.
+        #expect(manager.leftRelativePath == "Ghost")
+
+        let landed = manager.discardTab(id: dead, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.leftPaneTabs.count == 1, "the dead tab is still in the strip")
+        #expect(manager.leftPaneTabs.active.providerId == "iCloud")
+        #expect(landed.combinedRelativePath == "Keep")
+        #expect(manager.leftRelativePath == "Keep",
+                "the pane was left on the removed source's folder path")
+    }
+
+    /// The last tab is never closed — a pane always holds one — so a dead one is rebuilt on the
+    /// pane's own source at its root, the one location certain to exist.
+    @MainActor
+    @Test func discardingTheOnlyTabRebuildsItOnTheLiveSourceAtItsRoot() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "GoneDrive", relativePath: "Ghost")])
+        let dead = manager.leftPaneTabs.active.id
+        manager.focusOn(relativePath: "Ghost", isLeft: true)
+
+        let landed = manager.discardTab(id: dead, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.leftPaneTabs.count == 1)
+        #expect(manager.leftPaneTabs.active.providerId == "iCloud",
+                "the rebuilt tab still names the source that is gone")
+        #expect(landed.combinedRelativePath == "")
+        #expect(manager.leftRelativePath == "", "the pane stayed inside the removed source's folder")
+    }
+
     /// **A tab switch drops the comparison.** The differences, the trees and the verification
     /// results were computed for the folder pair the pane is leaving; carried across a switch they
     /// would show one pane's new contents against the other pane's answer to the old question —

@@ -100,11 +100,19 @@ extension ContentView {
             pendingTabProviderChanges += 1
             if isLeft { leftProviderId = id } else { rightProviderId = id }
         case .unavailable(let id):
-            // The tab names a source that has since been removed. The pane stays on the source it
-            // is showing rather than silently rendering this tab's folder under someone else's
-            // root — and it says so, because a tab that quietly means something different from
-            // what its chip claims is worse than one that fails loudly.
-            Logger.shared.warning("Tab points at source “\(id)”, which is no longer available — the pane stayed on its current source")
+            // The tab names a source removed since it was opened, so it cannot be shown at all —
+            // and by now the verb has already pointed the pane at that tab's folder path under the
+            // LIVE source's root, which is a path that usually exists nowhere. The tab goes, and
+            // the pane lands on one that works. `discardTab` says what that means for the last tab.
+            //
+            // This branch used to only warn, with a comment claiming the pane "stayed on its
+            // current source" — true of the source and false of the folder, which is the half that
+            // showed on screen as an empty pane.
+            Logger.shared.warning("Discarded a browse tab: its source “\(id)” is no longer available")
+            let landed = syncManager.discardTab(id: arrived.id, isLeft: isLeft,
+                                                currentProviderId: isLeft ? leftProviderId : rightProviderId)
+            paneSearchState(isLeft: isLeft).wrappedValue = PaneSearchFieldState(
+                query: landed.searchQuery, isExpanded: landed.searchIsExpanded)
         }
         saveBrowseTabs(isLeft: isLeft)
         // **Only when the arriving tab is somewhere else.** The same rule `applyTab` used to decide
@@ -113,6 +121,11 @@ extension ContentView {
         // reloads nothing and rescans nothing: it moves the column stack, the selection and the
         // history, none of which the trees or the differences are computed from. Refreshing is the
         // Refresh button's job.
+        //
+        // Asked of `arrived` rather than of whatever `.unavailable` landed on, and that is right by
+        // construction rather than by luck: `decide` only reports `.unavailable` for a source that
+        // DIFFERS from the pane's, so a discarded tab always answers yes here — which is what it
+        // needs, since the verb that applied it had already dropped the trees.
         if PaneTabArrival.needsReload(arrivingAt: arrived, fromProvider: fromProvider, fromFocus: fromFocus) {
             refreshForTabSwitch()
         }
@@ -272,7 +285,7 @@ extension ContentView {
         // The count is the point of this line: this is the one gesture in the feature that closes
         // several tabs at once, and "how many did that just take" is unanswerable afterwards.
         let list = syncManager.paneTabs(isLeft: isLeft)
-        let closing = list.tabs.filter { !$0.isPinned && $0.id != id }.count
+        let closing = list.closableOthers(keeping: id)
         tabAction(isLeft: isLeft) {
             Logger.shared.info("User closed \(closing) other browse tab\(closing == 1 ? "" : "s")\(list.pinnedCount > 0 ? ", keeping \(list.pinnedCount) pinned" : "")")
             return syncManager.closeOtherTabs(keeping: id, isLeft: isLeft,
@@ -488,6 +501,61 @@ enum PaneTabMirror {
             walked.append(String(component))
         }
         return walked.joined(separator: "/")
+    }
+}
+
+
+/// Keeps each pane's column stack honest about the tree it is standing in.
+///
+/// **Not a tabs concern**, and it lives beside `BrowseTabPersistence` for the reason that modifier
+/// records: `ContentView.body` is at the type-checker's budget, and these four `onChange`s pushed it
+/// over ("unable to type-check this expression in reasonable time") the moment the last two were
+/// added inline. One modifier, type-checked on its own.
+///
+/// Two triggers, and the second is not belt-and-braces:
+///
+/// - **Every republish.** A republish can delete a folder a stack is standing in — externally, or
+///   by the user's own Delete — and without this the columns render nothing while `currentDirectory`
+///   still names the dead folder, which is where New Folder and paste would then act.
+/// - **Every pane settling.** `pruneBrowsePath` refuses while a tree is loading, because progressive
+///   loading publishes a shallow root-children-only tree first and pruning against that cuts a valid
+///   stack to its first component. But the deep tree is published *before* `await applyFilters()`
+///   and the loading flag is cleared *after* it, so the update carrying the final tree can arrive
+///   while the flag is still up — the republish trigger skips, and the tree does not change again to
+///   re-fire it. The falling edge closes that without depending on which side of an `await` a
+///   SwiftUI update happens to land on.
+///
+/// Both skip a pane with nothing to prune: building the children index is a whole-tree walk, and
+/// `canAdvance` counts because a pane resting at its root can still hold a `›` stack pointing into a
+/// folder that has just been deleted.
+struct ColumnStackPruning: ViewModifier {
+    @ObservedObject var syncManager: FileSyncManager
+    let leftTreeRoot: String
+    let rightTreeRoot: String
+
+    private func prune(isLeft: Bool) {
+        let stack = isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath
+        guard !stack.isEmpty || stack.canAdvance else { return }
+        let root = isLeft ? leftTreeRoot : rightTreeRoot
+        syncManager.pruneBrowsePath(
+            isLeft: isLeft,
+            against: isLeft ? syncManager.leftChildrenIndex(treeRoot: root)
+                            : syncManager.rightChildrenIndex(treeRoot: root),
+            treeRoot: root)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: syncManager.leftPaneTree) { _, _ in prune(isLeft: true) }
+            .onChange(of: syncManager.rightPaneTree) { _, _ in prune(isLeft: false) }
+            .onChange(of: syncManager.isLoadingLeftTree) { _, isLoading in
+                guard !isLoading else { return }
+                prune(isLeft: true)
+            }
+            .onChange(of: syncManager.isLoadingRightTree) { _, isLoading in
+                guard !isLoading else { return }
+                prune(isLeft: false)
+            }
     }
 }
 

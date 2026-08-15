@@ -483,4 +483,21 @@ import Foundation
                                              folderExists: { _, _ in true })
         #expect(restored == nil)
     }
+    /// The count "Close Other Tabs" acts on, which is **not** `count - 1`: pins survive it, so a
+    /// strip of three whose other two are pinned has nothing to close. One rule, because the host
+    /// logs this number and the strip gates its menu item on it — two spellings is how the menu and
+    /// the log come to disagree about the same click.
+    @Test func closableOthersCountsWhatTheGestureWouldActuallyClose() {
+        let a = PaneTab(providerId: "iCloud", relativePath: "A")
+        let b = PaneTab(providerId: "iCloud", relativePath: "B", isPinned: true)
+        let c = PaneTab(providerId: "iCloud", relativePath: "C", isPinned: true)
+        let d = PaneTab(providerId: "iCloud", relativePath: "D")
+
+        #expect(PaneTabList(tabs: [b, c, a]).closableOthers(keeping: a.id) == 0,
+                "a strip whose every other tab is pinned reported something to close")
+        #expect(PaneTabList(tabs: [b, a, d]).closableOthers(keeping: a.id) == 1)
+        #expect(PaneTabList(single: a).closableOthers(keeping: a.id) == 0, "a lone tab counted itself")
+        // A pinned tab's own menu still closes the unpinned others.
+        #expect(PaneTabList(tabs: [b, c, d]).closableOthers(keeping: b.id) == 1)
+    }
 }
