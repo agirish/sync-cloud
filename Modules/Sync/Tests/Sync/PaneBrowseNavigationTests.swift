@@ -144,6 +144,9 @@ import Events
 
     @Test func testPruneDropsAStackIntoADeletedFolder() {
         let m = FileSyncManager()
+        // The pane's tree is LOADED — which is now a precondition of pruning at all, and which
+        // every real republish satisfies by definition. See the test below for why.
+        m.lastLoadedLeftFocusPath = ""
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.leftBrowsePath.drill(into: "Gone", atDepth: 1)
 
@@ -153,6 +156,48 @@ import Events
 
         #expect(m.leftBrowsePath.components == ["Documents"])
         #expect(m.leftBrowsePath.currentDirectory(treeRoot: "/r") == "/r/Documents")
+    }
+
+    /// **A dropped tree is not an answer about which folders exist.**
+    ///
+    /// `invalidateComparisonState` clears both trees synchronously, so anything that re-points a
+    /// pane publishes an empty tree one view update before the reload refills it. The republish
+    /// prune fires on that empty publish, and against an empty tree every stack prunes to the root.
+    ///
+    /// This is what put the pane back at its root on **every browse-tab switch, in every
+    /// workspace**: the switch restores the outgoing tab's column stack, then the prune flattened
+    /// it before the tree the stack belongs to had loaded. Reported from the running app after the
+    /// feature shipped — no test saw it, because the whole chain only exists once the manager, the
+    /// host's `onChange` and a real reload are wired together.
+    @Test func testAStackSurvivesAPublishFromATreeThatIsNotLoadedYet() {
+        let m = FileSyncManager()
+        m.lastLoadedLeftFocusPath = ""
+        m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
+        m.leftBrowsePath.drill(into: "US", atDepth: 1)
+
+        // What a tab switch does to the pane before its reload lands.
+        m.invalidateComparisonState()
+
+        let empty = PaneChildrenIndex(tree: PaneTree(side: .left, version: 2, nodes: []), treeRoot: "/r")
+        m.pruneBrowsePath(isLeft: true, against: empty, treeRoot: "/r")
+
+        #expect(m.leftBrowsePath.components == ["Documents", "US"],
+                "the column stack was pruned against a tree that had been dropped, not against one that says the folders are gone")
+    }
+
+    /// The other half, so the guard cannot be widened into "never prune": a tree that is loaded and
+    /// genuinely empty — every folder deleted — still collapses the stack, because that IS an
+    /// answer about which folders exist.
+    @Test func testALoadedButEmptyTreeStillCollapsesTheStack() {
+        let m = FileSyncManager()
+        m.lastLoadedLeftFocusPath = ""
+        m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
+
+        let empty = PaneChildrenIndex(tree: PaneTree(side: .left, version: 2, nodes: []), treeRoot: "/r")
+        m.pruneBrowsePath(isLeft: true, against: empty, treeRoot: "/r")
+
+        #expect(m.leftBrowsePath.components.isEmpty,
+                "a loaded tree with nothing in it left the stack naming a folder that is gone")
     }
 
     // MARK: - The single-source rail shares the left pane's column stack
@@ -196,6 +241,7 @@ import Events
     /// into a folder that is gone.
     @Test func testASharedStackIsStillPrunedAgainstTheTreeItLandsOn() {
         let m = FileSyncManager()
+        m.lastLoadedLeftFocusPath = ""      // a republish only happens on a loaded tree
         m.leftBrowsePath.drill(into: "Receipts", atDepth: 0)
         m.leftBrowsePath.drill(into: "2025", atDepth: 1)
 

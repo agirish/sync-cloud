@@ -236,7 +236,24 @@ extension FileSyncManager {
     /// otherwise leave columns rendering nothing while `currentDirectory` still names it, which is
     /// where New Folder and paste would then act. Assigns only on a real change so an unaffected
     /// stack costs no publish.
+    ///
+    /// **Never against a tree that is not loaded.** An empty tree is not the answer "these folders
+    /// are gone" — it is "there is nothing to ask yet", and pruning against it can only ever return
+    /// the root. `invalidateComparisonState` drops both trees synchronously, so every caller that
+    /// re-points a pane publishes an empty tree one view update before the reload refills it; the
+    /// republish prune then fires on that empty publish and flattens a stack that was perfectly
+    /// valid. That is what made **every browse-tab switch land the pane back at its root**: the
+    /// switch restores the outgoing tab's column stack, and the prune wiped it before the tree the
+    /// stack belongs to had finished loading.
+    ///
+    /// `lastLoadedFocusPath` is the discriminator, and it is exactly the one needed: set when a
+    /// walk completes, cleared by `invalidateComparisonState`. So a tree that is genuinely empty
+    /// because its root has no children still prunes — that is a real answer — while a tree that is
+    /// empty because it was dropped does not. `pruneSelection` skips a loading pane for the same
+    /// reason, and predates this by long enough that the omission here was plainly an oversight
+    /// rather than a decision.
     @MainActor public func pruneBrowsePath(isLeft: Bool, against index: PaneChildrenIndex, treeRoot: String) {
+        guard (isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath) != nil else { return }
         if isLeft {
             let pruned = leftBrowsePath.pruned(against: index, treeRoot: treeRoot)
             if pruned != leftBrowsePath { leftBrowsePath = pruned }

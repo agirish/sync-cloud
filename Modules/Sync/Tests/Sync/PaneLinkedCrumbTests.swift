@@ -162,6 +162,10 @@ import Events
     /// because they differ, so a folder this pane has may be missing over there.
     @Test func testTheSiblingStopsWhereItsOwnTreeStops() {
         let m = FileSyncManager()
+        // The sibling's tree is loaded — which is the only state its stack may be pruned in, and
+        // what the call site means by "if the sibling re-rooted, its tree is being reloaded and the
+        // prune that runs on the next republish is the one that applies".
+        m.lastLoadedRightFocusPath = ""
         m.leftBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices"])
 
         navigate(m, to: "Documents/Invoices/2025")
