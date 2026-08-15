@@ -32,6 +32,14 @@ import Design
 
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func testThePillPaintsItsStateInBothAppearances(appearance: NSAppearance.Name) throws {
+        // **The fixture's premise, stated rather than assumed.** This renders the default arrangement
+        // at a width that seats it, so the pill is on the bar; move `.preview` out of the default and
+        // it is drawn in the ⋯ menu instead, which no render of the bar contains. The measurement
+        // below would then report "moved 0" and blame the pill for not painting — the right number
+        // attached to the wrong cause. This says which it is.
+        #expect(PaneBarArrangement.default.items.contains(.preview),
+                "the default pane bar no longer carries the preview pill — this fixture renders the bar, so re-point it at whatever draws the toggle now")
+
         let on = try Self.rendered(previewEnabled: true, appearance: appearance)
         let off = try Self.rendered(previewEnabled: false, appearance: appearance)
 

@@ -593,7 +593,13 @@ checkpoint that cannot be mistaken for a corpus.
 Two tab questions were answered by building it, and are struck rather than deleted because the
 answer is the useful part: `View ▸ Tab Bar` ships **unticked** (one tab costs no row, and the strip
 renders correctly at one tab if you do tick it), and its tick is **one app-wide preference**,
-`browseTabBarVisible` — matching `paneColumnShowsPreview` rather than `paneViewModeBrowse`.
+`browseTabBarVisible` — app-wide rather than per-surface like `paneViewModeBrowse`.
+
+  That sentence cited `paneColumnShowsPreview` as the app-wide example, and stopped being true on
+  2026-08-15: the preview column now has a Browse sibling, `paneColumnShowsPreviewBrowse`, because
+  turning the preview off to compare two providers was taking it away from browsing too. The tab
+  bar deliberately is *not* that — there is one strip and one answer. The decision here is
+  unchanged; only the example it borrowed has moved.
 
 - Whether ⋯ takes a title in the titled bar. Finder's » does not; recommendation: leave it unlabelled
   and centred on the pill row.
