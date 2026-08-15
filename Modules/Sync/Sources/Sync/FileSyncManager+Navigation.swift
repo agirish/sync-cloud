@@ -253,7 +253,15 @@ extension FileSyncManager {
     /// reason, and predates this by long enough that the omission here was plainly an oversight
     /// rather than a decision.
     @MainActor public func pruneBrowsePath(isLeft: Bool, against index: PaneChildrenIndex, treeRoot: String) {
-        guard (isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath) != nil else { return }
+        // **Both halves of `pruneSelection`'s guard, and the second is not optional.** Progressive
+        // loading publishes a SHALLOW tree — the root's children and nothing under them — before the
+        // deep walk finishes, and that publish sets `lastLoadedFocusPath` like any other. Guarding
+        // on the marker alone therefore still prunes, just against a tree one level deep: the stack
+        // collapses to its first component instead of to the root. That is not a smaller version of
+        // the bug, it is the same bug wearing a plausible answer, and it is what shipped when only
+        // half of this guard was copied across.
+        guard (isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath) != nil,
+              !(isLeft ? isLoadingLeftTree : isLoadingRightTree) else { return }
         if isLeft {
             let pruned = leftBrowsePath.pruned(against: index, treeRoot: treeRoot)
             if pruned != leftBrowsePath { leftBrowsePath = pruned }

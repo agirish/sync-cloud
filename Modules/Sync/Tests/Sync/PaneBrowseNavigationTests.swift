@@ -185,6 +185,31 @@ import Events
                 "the column stack was pruned against a tree that had been dropped, not against one that says the folders are gone")
     }
 
+    /// **The shallow-tree half, which is the one that shipped a second wrong answer.**
+    ///
+    /// Progressive loading publishes the root's children with nothing under them before the deep
+    /// walk finishes, and that publish sets `lastLoadedFocusPath` like any other. Guarding on the
+    /// marker alone therefore still prunes — against a tree exactly one level deep — so the stack
+    /// collapsed to its FIRST component rather than to the root. Reported from the running app as
+    /// "the tab name changes back to the top level parent dir", which is precisely a stack of
+    /// depth 1, and is why `pruneSelection`'s guard has always had two halves.
+    @Test func testAStackSurvivesTheShallowTreeProgressiveLoadingPublishesFirst() {
+        let m = FileSyncManager()
+        m.lastLoadedLeftFocusPath = ""
+        m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
+        m.leftBrowsePath.drill(into: "US", atDepth: 1)
+        m.isLoadingLeftTree = true
+
+        // The shallow publish: Documents exists, nothing under it has been walked yet.
+        let documents = FileNode(id: "/r/Documents", name: "Documents", isDirectory: true, children: [])
+        let shallow = PaneChildrenIndex(tree: PaneTree(side: .left, version: 2, nodes: [documents]),
+                                        treeRoot: "/r")
+        m.pruneBrowsePath(isLeft: true, against: shallow, treeRoot: "/r")
+
+        #expect(m.leftBrowsePath.components == ["Documents", "US"],
+                "the stack was cut to its first component by a tree that is still loading")
+    }
+
     /// The other half, so the guard cannot be widened into "never prune": a tree that is loaded and
     /// genuinely empty — every folder deleted — still collapses the stack, because that IS an
     /// answer about which folders exist.

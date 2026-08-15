@@ -325,6 +325,42 @@ import Foundation
         #expect(manager.leftPaneTabs.active.id == second)
     }
 
+    /// **A switch inside one source at one scope keeps the pane's tree.**
+    ///
+    /// The tree is a walk of one root at one focus. Moving between two tabs that share both is a
+    /// move *inside* the tree the pane already has, so dropping it buys a full re-walk to rebuild
+    /// something identical — which is the visible "every tab switch refreshes the pane", and which
+    /// also republishes the tree empty-then-shallow, straight into the republish prune that
+    /// flattens the column stack the switch just restored. Two user-visible bugs from one
+    /// over-broad invalidation.
+    @MainActor
+    @Test func switchingInsideOneSourceKeepsTheTreeItIsAlreadyShowing() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        manager.leftTree = [FileNode(id: "/r/Documents", name: "Documents", isDirectory: true, children: [])]
+        manager.lastLoadedLeftFocusPath = ""
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(!manager.leftTree.isEmpty,
+                "the pane's tree was dropped for a move inside the tree it was already showing")
+        #expect(manager.lastLoadedLeftFocusPath == "",
+                "the pane was marked unloaded, so its next republish prunes the restored stack")
+    }
+
+    /// …and a switch that DOES change the source drops it, because then it is the wrong tree: it
+    /// walks a root the pane is leaving, and every path in it names a file under that root.
+    @MainActor
+    @Test func switchingToAnotherSourceDropsTheTree() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "Dropbox")])
+        manager.leftTree = [FileNode(id: "/r/Documents", name: "Documents", isDirectory: true, children: [])]
+        manager.lastLoadedLeftFocusPath = ""
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.leftTree.isEmpty,
+                "the pane kept a tree walked from the source it just left")
+    }
+
     /// **A tab switch drops the comparison.** The differences, the trees and the verification
     /// results were computed for the folder pair the pane is leaving; carried across a switch they
     /// would show one pane's new contents against the other pane's answer to the old question —

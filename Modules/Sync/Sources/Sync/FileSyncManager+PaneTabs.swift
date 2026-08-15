@@ -31,11 +31,11 @@ extension FileSyncManager {
 
     /// Writes a parked tab over the pane. **Does not reload — the caller owns that.**
     ///
-    /// The comparison state goes first and unconditionally: the trees, the differences and the
-    /// verification results were built for the folder pair this pane is leaving, and a tab switch
-    /// that left them on screen would show one pane's new contents against the other pane's answer
-    /// to the old question. This is `resetNavigation`'s opening, minus the part that resets the
-    /// navigation — here the navigation is precisely what is being restored.
+    /// The comparison goes first: the differences and the verification results were built for the
+    /// folder pair this pane is leaving, and a tab switch that left them on screen would show one
+    /// pane's new contents against the other pane's answer to the old question. This is
+    /// `resetNavigation`'s opening, minus the part that resets the navigation — here the navigation
+    /// is precisely what is being restored. **The trees are the conditional half**; see below.
     ///
     /// **Why the refresh is the caller's and not `refreshSubject`'s.** A tab can carry a different
     /// provider, and the id lives in the host's `@AppStorage` — written *after* this returns. The
@@ -44,8 +44,30 @@ extension FileSyncManager {
     /// beat later by the real one. Harmless in the end and wrong in the middle, which is the kind of
     /// thing that shows up once as a flash of the wrong tree. The host writes the id, then reloads
     /// once — `ContentView.tabAction`.
-    @MainActor public func applyTab(_ tab: PaneTab, isLeft: Bool) {
-        invalidateComparisonState()
+    /// - Parameter sourceChanged: whether the incoming tab names a different provider than the pane
+    ///   is on. The caller knows; the manager cannot, because the id is the host's `@AppStorage`.
+    @MainActor public func applyTab(_ tab: PaneTab, isLeft: Bool, sourceChanged: Bool = true) {
+        // **The trees only go when they are the wrong trees.**
+        //
+        // A pane's tree is a walk of one root at one focus. A tab switch that changes neither —
+        // the common case by far, because drilling in Columns moves the column stack and leaves
+        // the focus at the source root — is a move *inside* the tree the pane already has, and
+        // dropping it means a full re-walk to rebuild something identical. That is the visible
+        // "every tab switch refreshes the pane", and it is also what opens the window this
+        // feature kept falling into: a dropped tree republishes empty, then shallow, and the
+        // republish prune flattens the column stack the switch has just restored.
+        //
+        // What must go either way is the comparison — the differences, the verification results
+        // and `hasScanned` were computed for the folder pair the pane is leaving, and left on
+        // screen they show one pane's new contents against the other pane's answer to the old
+        // question. `invalidateDifferencesForPaneRetarget` is exactly that half, and is what
+        // `invalidateComparisonState` itself calls after dropping the trees.
+        let sameFocus = (isLeft ? leftRelativePath : rightRelativePath) == tab.history.current
+        if sourceChanged || !sameFocus {
+            invalidateComparisonState()
+        } else {
+            invalidateDifferencesForPaneRetarget()
+        }
         clearSessionIgnoredPaths()
 
         if isLeft {
@@ -76,7 +98,7 @@ extension FileSyncManager {
         list.select(index: target)
         setPaneTabs(list, isLeft: isLeft)
         let tab = list.active
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
@@ -88,7 +110,7 @@ extension FileSyncManager {
         if forward { list.selectNext() } else { list.selectPrevious() }
         setPaneTabs(list, isLeft: isLeft)
         let tab = list.active
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
@@ -98,7 +120,7 @@ extension FileSyncManager {
         list.captureActive(captureTab(isLeft: isLeft, providerId: currentProviderId))
         list.open(tab)
         setPaneTabs(list, isLeft: isLeft)
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
@@ -117,7 +139,7 @@ extension FileSyncManager {
         setPaneTabs(list, isLeft: isLeft)
         guard wasActive else { return nil }
         let tab = list.active
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
@@ -131,7 +153,7 @@ extension FileSyncManager {
         setPaneTabs(list, isLeft: isLeft)
         guard !wasActive else { return nil }
         let tab = list.active
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
@@ -143,7 +165,7 @@ extension FileSyncManager {
         list.duplicate(id: id)
         setPaneTabs(list, isLeft: isLeft)
         let tab = list.active
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
@@ -154,7 +176,7 @@ extension FileSyncManager {
         list.captureActive(captureTab(isLeft: isLeft, providerId: currentProviderId))
         guard let tab = list.reopenLastClosed() else { return nil }
         setPaneTabs(list, isLeft: isLeft)
-        applyTab(tab, isLeft: isLeft)
+        applyTab(tab, isLeft: isLeft, sourceChanged: tab.providerId != currentProviderId)
         return tab
     }
 
