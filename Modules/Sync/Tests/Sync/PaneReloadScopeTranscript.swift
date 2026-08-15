@@ -23,8 +23,13 @@ import Foundation
 
     /// Two roots that differ, so the scan has something to report and a stale comparison would show.
     private static func makeFixture() throws -> (root: URL, left: URL, right: URL) {
+        // **A directory of its own per call.** Three tests in this suite build a fixture, and
+        // swift-testing runs them in parallel by default — CI does not pass `--no-parallel`. On one
+        // shared path each would `removeItem` the others' trees mid-walk, which is a flake that
+        // only ever appears on the machine that runs them concurrently. The transcript is
+        // path-relative, so a per-call name costs its diff nothing.
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("synccloud-reload-scope-fixture", isDirectory: true)
+            .appendingPathComponent("synccloud-reload-scope-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.removeItem(at: root)
         let left = root.appendingPathComponent("left", isDirectory: true)
         let right = root.appendingPathComponent("right", isDirectory: true)
@@ -68,9 +73,15 @@ import Foundation
         // directories exist, it returns the `/var` form either way. Stripping either prefix is what
         // makes the transcript path-free, and a header field relativising while every tree line
         // stayed absolute is exactly what that mismatch looks like.
+        // …and **with or without the leading slash**, because `FileDifference.relativePath` for
+        // this fixture is the absolute path minus its first character. That field was the one thing
+        // left un-relativised, which did not show while the fixture had a fixed directory name and
+        // made the transcript unreproducible the moment it got a per-run one.
         func rel(_ path: String) -> String {
-            for base in [root.path, "/private" + root.path] where path.hasPrefix(base) {
-                return String(path.dropFirst(base.count))
+            for base in [root.path, "/private" + root.path] {
+                if path.hasPrefix(base) { return String(path.dropFirst(base.count)) }
+                let bare = String(base.dropFirst())
+                if path.hasPrefix(bare) { return String(path.dropFirst(bare.count)) }
             }
             return path
         }
@@ -104,7 +115,7 @@ import Foundation
         lines.append(contentsOf: paths(m.rightTree).map { "  \($0)" })
         lines.append("differences")
         lines.append(contentsOf: m.differences
-            .map { "  \($0.relativePath) \($0.type)" }
+            .map { "  \(rel($0.relativePath)) \($0.type)" }
             .sorted())
         return lines.joined(separator: "\n")
     }
@@ -117,8 +128,13 @@ import Foundation
     /// test in the suite. Proven by changing the disk under the right pane and requiring the pane
     /// NOT to notice: a walk would pick the new file up, so still-7 is the only outcome that means
     /// "this pane was not walked".
+    ///
+    /// **Both directions**, because the two arms of the scope are separate code: a `.rightOnly`
+    /// that walked the left would be invisible to a test that only ever moves the left pane, and
+    /// Compare's right pane switches tabs exactly as often as its left one.
     @MainActor
-    @Test func aLeftOnlyRefreshLeavesTheRightPaneExactlyAsItWas() async throws {
+    @Test(arguments: [true, false])
+    func aScopedRefreshLeavesTheOtherPaneExactlyAsItWas(movingLeft: Bool) async throws {
         let fixture = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let m = FileSyncManager()
@@ -128,34 +144,71 @@ import Foundation
                                   path: fixture.right.path, type: .localFolder)
 
         await m.refreshTreesAndScan(left: left, right: right)
-        let rightVersionBefore = m.rightPaneTree.version
-        let rightCountBefore = m.rightItemCount
-        #expect(rightCountBefore > 0, "the fixture never loaded, so this proves nothing")
+        let stillRoot = movingLeft ? fixture.right : fixture.left
+        let stillCount = { movingLeft ? m.rightItemCount : m.leftItemCount }
+        let stillVersion = { movingLeft ? m.rightPaneTree.version : m.leftPaneTree.version }
+        let countBefore = stillCount()
+        let versionBefore = stillVersion()
+        #expect(countBefore > 0, "the fixture never loaded, so this proves nothing")
 
-        // The disk changes under the right pane, and the prefetch cache goes with it — so a walk
-        // genuinely would see the new file.
-        try "new".write(to: fixture.right.appendingPathComponent("appeared.txt"),
+        // The disk changes under the pane that is NOT moving, and the prefetch cache goes with it —
+        // so a walk genuinely would see the new file.
+        try "new".write(to: stillRoot.appendingPathComponent("appeared.txt"),
                         atomically: true, encoding: .utf8)
         m.prefetchedTrees.removeAll()
 
-        m.invalidatePaneTree(isLeft: true)
+        m.invalidatePaneTree(isLeft: movingLeft)
         m.invalidateDifferencesForPaneRetarget()
-        m.focusOn(relativePath: "Finance/US", isLeft: true)
-        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly)
+        m.focusOn(relativePath: "Finance/US", isLeft: movingLeft)
+        await m.refreshTreesAndScan(left: left, right: right,
+                                    reloading: .movedPane(isLeft: movingLeft))
 
-        #expect(m.rightItemCount == rightCountBefore,
-                "the right pane was walked for a switch that only moved the left one")
-        #expect(m.rightPaneTree.version == rightVersionBefore,
-                "the right pane re-adopted a tree identical to the one it already had")
+        #expect(stillCount() == countBefore,
+                "the pane that did not move was walked anyway")
+        #expect(stillVersion() == versionBefore,
+                "the still pane re-adopted a tree identical to the one it already had")
         // …and the pane that DID move is showing its new folder.
-        #expect(m.leftRelativePath == "Finance/US")
-        #expect(m.leftItemCount == 1)
+        #expect((movingLeft ? m.leftRelativePath : m.rightRelativePath) == "Finance/US")
+        #expect((movingLeft ? m.leftItemCount : m.rightItemCount) == 1)
 
         // The control: a `.both` refresh picks the new file up, so the assertion above is about the
         // SCOPE and not about a fixture that could never change.
         await m.refreshTreesAndScan(left: left, right: right)
-        #expect(m.rightItemCount == rightCountBefore + 1,
+        #expect(stillCount() == countBefore + 1,
                 "a full refresh missed a file that appeared on disk")
+    }
+
+    /// **A one-pane refresh must not cancel a two-pane one down to nothing.**
+    ///
+    /// `refreshTreesAndScan` supersedes whatever is in flight. That was safe while every refresh
+    /// loaded both panes; a scoped one is not. Switching tabs while the launch load — or any scan,
+    /// which runs about a second on a 39k-node tree — is still walking would cancel the right
+    /// pane's load and start nothing in its place, leaving it blank. The scopes are unioned, so any
+    /// disagreement with the refresh already running widens the new one to `.both`.
+    @MainActor
+    @Test func aScopedRefreshWidensRatherThanCancellingAWiderOne() async throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let m = FileSyncManager()
+        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder",
+                                 path: fixture.left.path, type: .localFolder)
+        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder",
+                                  path: fixture.right.path, type: .localFolder)
+
+        // Stand in for a `.both` refresh already in flight — the key is what the supersede logic
+        // reads, and it is the only part of an in-flight refresh this decision depends on. Taken
+        // BEFORE the pane moves, as the real one would have been.
+        m.activeRefreshKey = m.makeRefreshKey(left: left, right: right, reloading: .both)
+
+        // …then the tab switch: the left pane moves, so the new key differs and this supersedes
+        // rather than dedupes. Without the union that is where the right pane's load is lost.
+        m.focusOn(relativePath: "Finance/US", isLeft: true)
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly)
+
+        #expect(!m.rightTree.isEmpty,
+                "a one-pane refresh cancelled the two-pane one and left the other pane blank")
+        #expect(!m.leftTree.isEmpty)
+        #expect(m.rightItemCount > 0)
     }
 
     /// A left-pane tab switch, as the app performs one.

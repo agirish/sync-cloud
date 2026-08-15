@@ -366,7 +366,22 @@ extension FileSyncManager {
     ///   would serve pre-operation state after a copy or a delete. The scan still runs, and still
     ///   compares both panes; the untouched one contributes the tree it already holds.
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider,
-                                    reloading: PaneReloadScope = .both) async {
+                                    reloading requested: PaneReloadScope = .both) async {
+        // **A narrower refresh must never cancel a wider one down to nothing.**
+        //
+        // This supersedes whatever is in flight, and before scoping existed that was safe: every
+        // refresh loaded both panes, so cancel-and-restart lost nothing. A one-pane refresh does
+        // not have that property. Switching tabs while the launch load — or any scan, which on a
+        // 39k-node tree runs for about a second — is still walking would cancel the right pane's
+        // load and never start another, leaving that pane blank until something else refreshed it.
+        //
+        // So the scopes are UNIONED rather than replaced: any disagreement with what is running
+        // widens this refresh to `.both`. Identical scopes are left alone, which is what keeps the
+        // duplicate-refresh dedupe below working for a repeated one-pane switch.
+        let reloading: PaneReloadScope = {
+            guard let active = activeRefreshKey, active.reloading != requested else { return requested }
+            return .both
+        }()
         let key = makeRefreshKey(left: left, right: right, reloading: reloading)
         // The launch bootstrap fires several identical refreshes (the explicit initial one plus
         // the provider-id onChange that resets navigation). A refresh already in flight for the

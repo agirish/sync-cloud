@@ -47,39 +47,29 @@ extension FileSyncManager {
     /// - Parameter currentProviderId: the source the pane is on *now*. The caller knows; the manager
     ///   cannot, because the id is the host's `@AppStorage`.
     @MainActor public func applyTab(_ tab: PaneTab, isLeft: Bool, currentProviderId: String) {
-        // **Nothing is dropped for a move inside what the pane already has.**
+        // **Nothing is dropped unless the arriving tab is somewhere else, and then only what is
+        // actually stale.** Three separate questions, and answering them all with one blanket clear
+        // is what produced three user-visible bugs in a row.
         //
-        // The trees walk one root at one focus and the comparison is about one pair of focused
-        // folders, so a switch that changes neither leaves both correct — and dropping them costs
-        // a full re-walk to rebuild something identical, plus a scan the user did not ask for.
-        // That was the reported "switching tabs still refreshes and reloads"; the reload also
-        // republishes the tree empty-then-shallow, straight into the republish prune that flattens
-        // the column stack this method has just restored. Two visible bugs from one clear.
+        // 1. *Does anything need dropping at all?* A tree walks one root at one focus and the
+        //    comparison is about one pair of focused folders, so a switch that changes neither
+        //    leaves both correct. Dropping them cost a full re-walk to rebuild something identical
+        //    plus a scan nobody asked for — and the reload republished the tree empty-then-shallow,
+        //    straight into the republish prune that flattens the column stack this method has just
+        //    restored. Refreshing is the button's job; a tab switch is navigation, and navigation
+        //    here has never rescanned.
+        // 2. *Which pane's tree?* Only the one that moved. A comparison is symmetric; a tree is
+        //    not. Dropping both re-adopted the still pane's tree for nothing — 15–36ms of every
+        //    switch, measured on a real strip.
+        // 3. *And the fast-path cache?* Kept inside one source, so the arriving tab paints from
+        //    memory rather than from a disk walk. Dropped when the SOURCE changes, and for memory
+        //    rather than staleness: its entries are keyed by absolute path and stay true, but they
+        //    are whole walked trees — this app's iCloud root measures 39,399 nodes — so never
+        //    dropping them accumulates one per visited source for the session.
         //
-        // Refreshing is the button's job. A tab switch is a navigation, and navigation here has
-        // never rescanned: drilling through columns moves the same column stack this restores and
-        // leaves the differences alone.
-        //
-        // When the source or the scope DOES change, everything goes — the trees walk the wrong
-        // root, and the differences answer a question about a folder pair that is no longer on
-        // screen. `PaneTabArrival` is the shared rule; the host asks it the same question to decide
+        // `PaneTabArrival` is the shared rule for (1); the host asks it the same question to decide
         // whether to run the scan, and the two must agree or a pane ends up invalidated and never
         // reloaded.
-        // **Scoped to the pane that moved.** The differences belong to a folder *pair*, so they go
-        // either way; a pane's TREE is a walk of one root at one focus, and neither changes for the
-        // pane standing still. Dropping both was re-adopting the other pane's tree for nothing —
-        // 15–36ms of every switch, measured on a real strip.
-        //
-        // The fast-path cache is kept across a move **inside one source** and dropped when the source
-        // changes. Keeping it is what lets the arriving tab paint from memory rather than from a
-        // disk walk — the same fast path breadcrumb and drill-down navigation already take.
-        //
-        // The reason for the other half is **memory, not staleness**: entries are keyed by absolute
-        // path, so the ones a departed source left behind are still true descriptions of folders
-        // that still exist. But they are also whole walked trees — this app's iCloud root measures
-        // 39,399 nodes — and never dropping them lets one per visited source accumulate for the
-        // session. That is what `invalidateComparisonState` means by the old root's tree being
-        // "dead weight", and it is worth keeping.
         if PaneTabArrival.needsReload(arrivingAt: tab,
                                       fromProvider: currentProviderId,
                                       fromFocus: isLeft ? leftRelativePath : rightRelativePath) {
