@@ -29,8 +29,9 @@ there, passing in isolation *is* evidence.
 
 **Only the app-target step red, with window assertions failing in under 0.1s?** If the expectations
 read `nil` or `[]` for a panel or a child window, it is the palette-panel fixture —
-[mechanism 11](#11-five-palette-tests-that-need-a-window-nobody-ordered-in). It costs one rerun, and
-bisecting `MacApp/` will find nothing.
+[mechanism 11](#11-five-palette-tests-that-need-a-window-nobody-ordered-in). On CI it costs one
+rerun; **locally it will not clear, and it fails on an `origin/main` baseline too**, so check that
+before suspecting your tree. Bisecting `MacApp/` will find nothing either way.
 
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
@@ -1108,10 +1109,26 @@ user-facing problem it fixed — a 900×600 host appearing over the desktop six 
 reasoning about `constrainFrameRect` is measured and sound. The fragility is a side effect, and if
 this is fixed the fix belongs in the fixture, not in `MacApp/`.
 
-**It does not reproduce locally.** Run on 2026-08-14 with the session verifiably unlocked
-throughout: `CommandPalettePanelTests` passed, 18 tests, and all five of the names above were
-confirmed present in the run rather than inferred from a green suite. So a local pass is *not*
-evidence the tree is fine — this only shows up on the app-target step in CI.
+**It used to be CI-only; it is not any more.** Run on 2026-08-14 with the session verifiably
+unlocked throughout: `CommandPalettePanelTests` passed, 18 tests, and all five of the names above
+were confirmed present in the run rather than inferred from a green suite.
+
+On **2026-08-15** it reproduced locally, three runs in a row, session `UNLOCKED` each time — and,
+the useful half, **it reproduced identically on a worktree checked out at an unmodified
+`origin/main`**, which is how it was told apart from the branch being tested. Failure counts moved
+between runs (10 issues, then 4, then 5) while the names stayed the same. So the guidance below is
+unchanged, but "a local pass proves nothing" now has a partner: **a local failure of these five
+proves nothing either.** Before suspecting your tree, run the app-target step on a scratch worktree
+at `origin/main`:
+
+```sh
+git worktree add /Users/abhishek/Projects/SyncCloud-baseline --detach origin/main
+cd /Users/abhishek/Projects/SyncCloud-baseline && xcodegen
+arch -arm64 xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
+  -destination 'platform=macOS' -derivedDataPath .dd
+```
+
+If the same five fail there, it is this, and the rerun advice below applies.
 
 **What is NOT established: why it is intermittent.** A locked screen looked like the answer and is
 not confirmed. `9392107e` failed while locked and passed on a rerun, which fit; then `ec7a9e4f`
@@ -1128,10 +1145,13 @@ print(((CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIs
 (A locked session does independently break `screencapture -l<windowid>` — *"could not create image
 from window"* — so if a screenshot failed at the same time, that much is the lock.)
 
-**Response.** Re-run it; that has cleared it every time so far. **Do not bisect `MacApp/`** — the app
-code these tests cover has not changed across any of the failures, and two of the three failing
-commits were documentation-only. Treat a lone red on the app-target step, with window assertions
-failing in under 0.1s, as this.
+**Response.** **On CI**, re-run it; that has cleared it every time so far. **Locally it does not
+clear** — three consecutive runs on 2026-08-15 failed, and so did the `origin/main` baseline beside
+them, so a rerun is not the local remedy. Establish the baseline instead (above) and carry on; a
+local red here is not a verdict on your tree. **Do not bisect `MacApp/`** either way — the app code
+these tests cover has not changed across any of the failures, and two of the three failing commits
+were documentation-only. Treat a lone red on the app-target step, with window assertions failing in
+under 0.1s, as this.
 
 **See.** `SyncCloudTests/CommandPalettePanelTests.swift` (`makeHost`); `5c851773` for why the host
 is no longer ordered in, including the two measurements that ruled out parking it offscreen;
