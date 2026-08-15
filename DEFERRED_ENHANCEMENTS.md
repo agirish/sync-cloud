@@ -349,3 +349,39 @@ depending on the other half of the screen" is a worse rule than the Finder one e
 particular case is worse under it. The header card's own Close Tab item already withholds itself at
 one tab rather than offering to close the window, so the *menu* route cannot surprise anyone; this
 is the chord only. Revisit if it actually bites. **Effort:** low. **Value:** low.
+
+---
+
+## 17. Compare's right pane restores neither its tabs nor its column stack
+
+**Today:** `PaneTabsStore` persists **one** strip and it is the left pane's — a deliberate line held
+since tabs landed, because the right-hand location is Compare's and no Compare workspace has ever
+restored where its right pane was. The right pane seeds as a single tab on its stored provider at
+every launch. `117af0c6` fixed the *left* pane's column stack across a quit (`stackDepth` in the
+stored entry); the right pane has no stored entry to carry one.
+
+**Enhancement:** persist the right pane's strip too — its tabs, and each tab's `stackDepth` — so a
+Compare workspace reopens with both halves where they were left.
+
+**What it would take, and the one trap in it:**
+
+- A second defaults key (`browseTabsRight` / `browseSelectedTabRight`, say). The `Entry` format
+  needs nothing new; `save`/`restore` are already side-agnostic and take the list as a parameter.
+- `saveBrowseTabs(isLeft:)` currently `guard isLeft`s and reads `leftProviderId` /
+  `syncManager.leftRelativePath` / `syncManager.leftBrowsePath`. Both halves of that are per-side
+  and would need threading, along with `restoreBrowseTabs`'s hard-coded `isLeft: true`.
+- **The trap: the right pane's stack cannot be derived from the left, so it has to be stored, not
+  recomputed.** The panes are independent unless the seam link is on (`PaneLinkPreference.isLinked`
+  is `false` unless the user turns it on — there is no `register(defaults:)`), and *even when it is
+  on* the mirror is **pruned**, not copied: `applyColumnNavigation` walks the sibling as deep as its
+  own tree genuinely goes and stops at the deepest shared folder. So a linked right pane routinely
+  sits shallower than the left, and a restore that replayed the left pane's path onto it would open
+  it deeper than the user ever had it — pointing New Folder and paste at a folder that may not exist
+  on that side. Store the right pane's own depth; do not infer it.
+- Restoring the right pane means restoring what it *walks*, so the launch-time load follows the
+  restored scope on both sides rather than only the left.
+
+**Why deferred:** it is a behaviour change to Compare, and it was split off from the left-pane fix
+on purpose so that fix stayed contained to Browse. Nothing here is hard; the pane-side threading is
+mechanical and the trap above is the only judgement call. **Effort:** medium. **Value:** medium —
+it matters exactly as much as Compare workspaces are left set up between sessions.
