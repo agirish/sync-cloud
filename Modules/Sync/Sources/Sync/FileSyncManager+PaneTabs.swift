@@ -65,10 +65,16 @@ extension FileSyncManager {
         // screen. `PaneTabArrival` is the shared rule; the host asks it the same question to decide
         // whether to run the scan, and the two must agree or a pane ends up invalidated and never
         // reloaded.
+        // And when the scope DOES move but the source does not, the fast-path cache is kept: it is
+        // keyed by absolute path, so every subtree in it still describes the same folders on the
+        // same disk. That is what makes the arriving tab paint from memory instead of from a disk
+        // walk — the same fast path breadcrumb and drill-down navigation already take, and the
+        // reason those are instant while a tab switch was not.
+        let sourceChanged = tab.providerId != currentProviderId
         if PaneTabArrival.needsReload(arrivingAt: tab,
                                       fromProvider: currentProviderId,
                                       fromFocus: isLeft ? leftRelativePath : rightRelativePath) {
-            invalidateComparisonState()
+            invalidateComparisonState(keepingPrefetchedTrees: !sourceChanged)
             clearSessionIgnoredPaths()
         }
 

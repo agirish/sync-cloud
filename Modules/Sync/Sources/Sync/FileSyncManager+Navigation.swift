@@ -368,11 +368,17 @@ extension FileSyncManager {
     /// whenever a pane's provider or its root path changes; the caller's rescan repopulates
     /// (with `hasScanned` false and `differences` empty the UI shows "No Scan Performed",
     /// never a false "Everything is in sync").
-    @MainActor public func invalidateComparisonState() {
-        // Drop the prefetch cache too (keyed by absolute path): after a provider/root change the
-        // old root's fully-walked tree is dead weight, and this method documents clearing "both
-        // pane trees" — the fast-path cache is part of that state and its rescan repopulates it.
-        prefetchedTrees.removeAll()
+    /// - Parameter keepingPrefetchedTrees: retain the fast-path cache. **Only correct when the pane
+    ///   roots are unchanged** — a move *within* one root, where every cached subtree still
+    ///   describes the same folders on the same disk. A tab switch is that: the cache is keyed by
+    ///   absolute path, and serving the arriving focus from it is the same fast path breadcrumb and
+    ///   drill-down navigation already take, which is why those are instant and a tab switch was
+    ///   not. Clearing it there threw away the one thing that could make the switch free, and cost
+    ///   a ~100ms disk walk to rebuild a tree that was already in memory. Default `false`, because
+    ///   a *root* change genuinely does make the cache dead weight.
+    @MainActor public func invalidateComparisonState(keepingPrefetchedTrees: Bool = false) {
+        // Keyed by absolute path, so it survives exactly as far as the roots do.
+        if !keepingPrefetchedTrees { prefetchedTrees.removeAll() }
         rawLeftTree = []
         rawRightTree = []
         if !leftTree.isEmpty { leftTree = [] }

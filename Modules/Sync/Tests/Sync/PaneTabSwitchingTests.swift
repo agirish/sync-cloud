@@ -361,6 +361,39 @@ import Foundation
                 "the pane kept a tree walked from the source it just left")
     }
 
+    /// **Moving to another folder in the same source keeps the fast-path cache**, which is what
+    /// makes the arriving tab paint from memory instead of from a ~100ms disk walk. The cache is
+    /// keyed by absolute path, so every subtree in it still describes the same folders on the same
+    /// disk — the same reason breadcrumb and drill-down navigation are already instant.
+    @MainActor
+    @Test func switchingFolderInsideOneSourceKeepsTheCacheThatMakesItPaintInstantly() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "iCloud", relativePath: "Elsewhere")])
+        manager.prefetchedTrees["/r/Elsewhere"] = [
+            FileNode(id: "/r/Elsewhere/a.pdf", name: "a.pdf", isDirectory: false, children: nil)
+        ]
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.prefetchedTrees["/r/Elsewhere"] != nil,
+                "the arriving folder's cached tree was thrown away, so the pane must walk the disk for it")
+    }
+
+    /// …and a SOURCE change drops it, because then the cache describes a disk the pane has left.
+    @MainActor
+    @Test func switchingSourceDropsTheCacheBecauseItDescribesAnotherRoot() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
+                                     PaneTab(providerId: "Dropbox")])
+        manager.prefetchedTrees["/r/Elsewhere"] = [
+            FileNode(id: "/r/Elsewhere/a.pdf", name: "a.pdf", isDirectory: false, children: nil)
+        ]
+
+        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+
+        #expect(manager.prefetchedTrees.isEmpty,
+                "the pane kept cached subtrees of the source it just left")
+    }
+
     /// **A tab switch drops the comparison.** The differences, the trees and the verification
     /// results were computed for the folder pair the pane is leaving; carried across a switch they
     /// would show one pane's new contents against the other pane's answer to the old question —
