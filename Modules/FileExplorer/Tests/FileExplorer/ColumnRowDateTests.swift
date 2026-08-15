@@ -156,6 +156,13 @@ import Sync
 
     /// The positive control, and the reason the zero-difference claims below mean anything: the
     /// tree's row DOES paint a folder date, so this harness demonstrably renders one.
+    ///
+    /// It also pins the DEFAULT, which is the whole of what the tree's date rests on:
+    /// `FileTreeView.treeRow` passes no `showsFolderDate` at all, so flipping the default to false
+    /// would strip dates from both tree panes and the Organize rail — and this test, which likewise
+    /// passes nothing, is what fails. What no test here covers is `treeRow` starting to pass `false`
+    /// explicitly; that is a deliberate design change rather than a regression, and guarding it
+    /// would only make the flag harder to use for the thing it exists for.
     @Test func theTreeRowStillPaintsTheFolderDate() throws {
         let dated = try #require(bitmap(FileRowView(
             node: FileRowInfo(folder(dated: true)), isIgnored: false, diffStatus: nil,
@@ -200,12 +207,19 @@ import Sync
                 "The chevron is \(gap)pt short of the trailing edge — something is being drawn after it, or reserving width beside it")
     }
 
-    /// The same measurement with no chevron, which is what makes the one above mean something: a
-    /// file row leaves a visibly larger gap, so "flush" is a property of the chevron rather than of
-    /// every row this harness renders.
+    /// The same measurement with the chevron taken away, which is what makes the one above mean
+    /// something: "flush" has to be a property of the chevron rather than of every row this harness
+    /// renders.
+    ///
+    /// The A/B is the SAME folder with `showsChevron` flipped, not a file row. A file row is the
+    /// more realistic subject but a confounded one — it reserves the cloud badge's slot
+    /// (`reservesCloudSlot: !isDirectory`), so its gap would be evidence about that slot, and
+    /// removing the reservation later would fail this test for a reason having nothing to do with
+    /// the chevron. Production always pairs a folder with a chevron, so this configuration is
+    /// synthetic on purpose: it changes exactly one thing.
     @Test func aRowWithoutAChevronDoesNotReachTheEdge() throws {
         let rep = try #require(bitmap(ColumnRowView(
-            row: row(file(sized: true)), isIgnored: false, diffStatus: nil,
+            row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: false)))
         let edge = try #require(rightmostPaintedColumn(rep))
         let gap = Double(rep.pixelsWide - 1 - edge) / (Double(rep.pixelsWide) / Self.canvas.width)

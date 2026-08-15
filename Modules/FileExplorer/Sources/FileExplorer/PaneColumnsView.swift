@@ -1086,13 +1086,20 @@ struct PaneRowBottomsKey: PreferenceKey {
 ///
 /// Wraps `FileRowView` rather than reimplementing it, so the icon, name, cloud badge, difference
 /// badge and contained-count pill can't drift between the two presentations — they are the same
-/// view, and the chevron is the only thing Columns adds.
+/// view. Columns differs from the tree in exactly two ways, both decided here: it adds the chevron,
+/// and it withholds a folder's date.
 ///
-/// **The folder date is withheld here rather than dropped from `FileRowView`** (see
-/// `showsFolderDate`): the tree keeps it, exactly as Finder keeps Date Modified in List view while
-/// its column view shows name and chevron alone. With the date gone the chevron is the last thing
-/// on the row, so it lands on the trailing edge by construction — no spacer of its own, which is
-/// why nothing here has to change to place it.
+/// **The date is withheld rather than dropped from `FileRowView`** (see `showsFolderDate`): the
+/// tree keeps it, exactly as Finder keeps Date Modified in List view while its column view shows
+/// name and chevron alone. With the date gone the chevron is the last thing on the row, so it lands
+/// on the row's trailing edge by construction — no spacer of its own, which is why nothing here has
+/// to change to place it.
+///
+/// "Trailing edge" is the ROW's, not the column's. The List insets the row inside the column, so on
+/// screen the chevron sits about 16.5pt clear of the divider — measured in the installed build,
+/// identical on every row, which is the rail Finder draws. A future reader expecting the glyph to
+/// touch the divider would be measuring the wrong thing; `theChevronReachesTheTrailingEdge` pins
+/// the part this view controls, which is the 0.5pt inside the row.
 struct ColumnRowView: View {
     let row: PaneRow
     let isIgnored: Bool
