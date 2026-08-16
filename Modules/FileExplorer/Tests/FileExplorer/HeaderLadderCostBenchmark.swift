@@ -16,18 +16,34 @@ import Testing
 /// that finding implies. If a future edit puts the search back, or makes the arithmetic itself
 /// expensive, this fails.
 ///
-/// The budget is load-scaled the way `ColumnClickCostBenchmark`'s is, and for the same reason: this
-/// machine is also the CI runner, and a full-suite run under CPU starvation stretches every wall
-/// time. A fixed CPU-bound probe interleaved with the samples measures how starved the process
-/// currently is, and the bar stretches by that factor — so a real regression (CPU work, which slows
-/// with the probe) still breaks it while a busy machine does not.
+/// **The claim is the SAVING — `searched - computed` in milliseconds — not the ratio.** It used to be
+/// a ratio, and the ratio flaked three times (2026-08-03, and twice on 2026-08-14), each time on a
+/// commit that could not reach this code. `docs/flaky-tests.md` §6 has the full history; the short
+/// version is that a ratio is the wrong statistic for this measurement:
 ///
-/// The claim is a RATIO, not an absolute: "the computed ladder is at least this much cheaper than the
-/// search". A ratio needs no nominal-cost constant of its own and survives a faster machine.
-/// `.machinePinned(.calibratedTiming)`, alongside `ColumnClickCostBenchmark`. The bar is a ratio
-/// rather than an absolute, so it is less hardware-bound than a latency threshold — but it is still a
-/// wall-time comparison, and a CI machine starved enough to distort both sides unevenly would fail it
-/// for machine reasons.
+/// - Contention lands on the two arms **additively**, and an additive term does not divide out when
+///   the arms differ in magnitude — `(a+d)/(b+d) < a/b`. The computed arm is about a third of the
+///   searched one, so the same stolen milliseconds cost it three times as much proportionally.
+///   Interleaving the samples does not help: it cancels load that *drifts between* the arms, not a
+///   steady overhead present during both.
+/// - Measured over eight runs spanning idle-and-isolated to contended-CI, the ratio ranged 1.72 to
+///   2.78 and crossed its 1.8 bar twice, while the saving stayed within 11.15ms to 24.73ms and never
+///   came close to zero. One idle isolated run scored 2.02 — the old bar had 0.22 of margin at the
+///   best conditions this machine offers, not the comfortable headroom its comment claimed.
+///
+/// The saving is the statistic the regression actually moves. If a future edit puts the search back,
+/// or makes the arithmetic itself expensive, the two arms converge and the saving collapses toward
+/// zero. Both contention modes push it the *safe* way — an additive term leaves it unchanged, and a
+/// multiplicative one widens it (the 24.73ms run is a heavily inflated `searched`).
+///
+/// An absolute millisecond floor is legitimate here for the reason `ColumnClickCostBenchmark` may use
+/// its 120ms budget: `.machinePinned(.calibratedTiming)` means this suite only runs on the machine
+/// these numbers were calibrated on, which is also the CI runner.
+///
+/// The probe is kept, but it is **diagnostic only and deliberately not used in the assertion** — the
+/// previous comment claimed the bar "stretches by that factor" and no code ever did that. It is also
+/// not a usable load signal: it read 9.2ms on an idle machine and 7.4ms on the contended CI run that
+/// failed, so it is anti-correlated with the starvation it was meant to detect.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable, .machinePinned(.calibratedTiming))
 struct HeaderLadderCostBenchmark {
@@ -79,6 +95,17 @@ struct HeaderLadderCostBenchmark {
             leftName: names.left, rightName: names.right, isMove: false, showsCollapseToggle: true)
         return (view, rows, targets, sections, facts, dressing)
     }
+
+    /// The floor the saving must clear, in milliseconds. Calibrated from nine runs whose savings
+    /// spanned 10.40ms to 24.73ms — idle-and-isolated, and under the contention of a full CI suite —
+    /// so this sits 42% below the smallest one ever measured. The 10.40ms is the run that validated
+    /// this change on CI, and it is the most informative of the nine: it measured a **1.65x** ratio,
+    /// lower than either of the two failures this replaced, so the old bar would have taken CI red a
+    /// fourth time on the very commit that fixed it. It is deliberately not tighter: the
+    /// regression it guards (the search returning, or the arithmetic becoming expensive) drives the
+    /// saving to roughly zero, so margin costs almost nothing in sensitivity and buys the headroom
+    /// three ratio flakes proved this measurement needs.
+    private static let minimumSavingMs = 6.0
 
     /// One fixed chunk of CPU-bound work (FNV-1a), timed on the calling thread — the load probe.
     /// The iteration count is FIXED: sizing it by wall time would absorb the slowdown it measures.
@@ -160,17 +187,20 @@ struct HeaderLadderCostBenchmark {
         let searchedMedian = searchedSamples.sorted()[searchedSamples.count / 2]
         let computedMedian = computedSamples.sorted()[computedSamples.count / 2]
         let probeMedian = probes.sorted()[probes.count / 2]
+        let saving = searchedMedian - computedMedian
         let speedup = searchedMedian / computedMedian
+        // `speedup` and `probe` are printed for diagnosis and neither is asserted on — see the type
+        // comment for why the ratio was retired and why the probe cannot stand in for load.
         print("BENCH header rung: searched=\(String(format: "%.2f", searchedMedian))ms "
               + "computed=\(String(format: "%.2f", computedMedian))ms "
+              + "saving=\(String(format: "%.2f", saving))ms "
               + "speedup=\(String(format: "%.2f", speedup))x "
               + "probe=\(String(format: "%.1f", probeMedian))ms")
 
-        // A ratio, so no nominal-cost constant is needed and a faster machine cannot break it. The
-        // bar is set well under the measured speedup so it fails on a regression, not on noise.
-        let note = "computing the rung is only \(String(format: "%.2f", speedup))x cheaper than "
-            + "searching for it (searched \(String(format: "%.2f", searchedMedian))ms, "
-            + "computed \(String(format: "%.2f", computedMedian))ms) — the search may be back"
-        #expect(speedup > 1.8, "\(note)")
+        let note = "computing the rung saves only \(String(format: "%.2f", saving))ms over searching "
+            + "for it (searched \(String(format: "%.2f", searchedMedian))ms, "
+            + "computed \(String(format: "%.2f", computedMedian))ms, "
+            + "\(String(format: "%.2f", speedup))x) — the search may be back"
+        #expect(saving > Self.minimumSavingMs, "\(note)")
     }
 }

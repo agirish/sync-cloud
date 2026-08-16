@@ -629,6 +629,59 @@ becomes the result. The suspicion was worth checking rather than waving away: th
 lengthened a main-actor pump in a suite that runs in parallel with this benchmark, which is a real
 causal path, just not the one that fired.
 
+**It fired twice more and is now FIXED — the test asserts the saving, not the ratio.** Both later
+failures and the fix happened on `main` (SHAs below are that line's; `869be3ca` is the one commit in
+the table this line also carries). This line ran the identical file, so it carried the identical
+defect until the fix was brought over — which is why it is here rather than only there.
+
+Interleaving was necessary but not sufficient. The 2026-08-14 failure came at
+`speedup → 1.7669 > 1.8` on the v4.0 cut commit — two version strings, a generated plist and a
+markdown file, nothing this benchmark can reach — with the arms already interleaved:
+
+| commit (`main`) | searched | computed | speedup |
+|---|---|---|---|
+| `869be3ca` pass | 20.11ms | 7.85ms | 2.56x |
+| `a76f45b9` pass | 22.32ms | 9.17ms | 2.44x |
+| `b012c1c7` fail | 27.11ms | 15.34ms | **1.77x** |
+| `b012c1c7` rerun | 38.63ms | 13.90ms | 2.78x |
+
+**Both arms picked up nearly the same *absolute* time, not the same proportion** — +4.8ms and
++6.2ms. That is the signature of an additive term, and interleaving does not remove one: it cancels
+load that *drifts between* the arms, while a steady overhead present during both survives. An
+additive `d` collapses a ratio whenever the arms differ in magnitude, because `(a+d)/(b+d) < a/b`,
+and here the computed arm is a third the size of the searched one. The rerun makes the point from
+the other side: `searched` was the slowest of all four at 38.63ms and the ratio still passed
+comfortably, because that run's inflation was multiplicative rather than additive.
+
+A third failure ~40 minutes later at `1.7239` made it a fix rather than a third write-up. Two
+corrections to the reasoning above, both found by measuring:
+
+- **"the absolute difference stayed stable" was too strong.** The savings were 12.26, 13.15, 11.77
+  and **24.73** — the rerun is a 2x outlier, because its `searched` arm was inflated. The accurate
+  claim is narrower and is the one the fix rests on: **the saving never approaches zero, and the
+  failing runs' savings (11.77ms, 11.15ms) sit inside the passing runs' range.** The ratio is what
+  separates pass from fail; the saving does not, which is exactly why it is the better bar.
+- **The bar never had the headroom its comment claimed.** An idle, isolated, single-suite run
+  measured **2.02** — 0.22 above a 1.8 bar under the best conditions this machine offers. Three
+  flakes were not bad luck; the bar was sitting in the noise.
+
+Nine runs, idle-and-isolated through full-CI contention, gave a ratio range of 1.65-2.78 crossing
+its bar three times, against a saving range of 10.40-24.73ms that never came near zero. The run that
+validated the fix is the one to remember: it measured a **1.65x** ratio, *lower* than either failure
+it replaced, so the old bar would have gone red a fourth time on the fix itself. Its saving read
+10.40ms and passed.
+
+The test now asserts `saving > 6.0ms` — 42% below the smallest ever measured. **The mutation proves
+it still discriminates**: putting the six-child search back in the computed arm gives `saving=0.08ms`
+and fails. Both contention modes push the saving the safe way, additive leaving it flat and
+multiplicative widening it, which is why no load-scaling is needed.
+
+**The probe is printed and explicitly not asserted on.** The old type comment claimed the bar
+"stretches by that factor" and no code ever did that — a load-scaling that existed only in prose. It
+could not have worked anyway: the probe read **9.2ms idle and 7.4ms on the contended CI run that
+failed**, so it is anti-correlated with the starvation it was meant to detect. **A probe that never
+feeds an assertion is never checked, and this one had been wrong for as long as it had been there.**
+
 ### 7. The machine decides the verdict — the keyboard
 
 **Symptom.** A mounted-view test spends its whole deadline and reports the end state it started
