@@ -750,14 +750,19 @@ it proportionally far more. The rerun makes the point from the other side: `sear
 slowest of all four at 38.63ms and the ratio still passed comfortably, because that run's inflation
 was multiplicative rather than additive.
 
-Note the probe median was **7.3ms on all three of the original runs, failing and passing alike**,
+Note the probe median was **~7.3ms on all three of the original runs, failing and passing alike**,
 and the sibling columns benchmark reported `slowdown=1.00x` during the failure. The probe did not
-see this. Do not read a healthy probe as evidence the machine was quiet.
+see this. Do not read a healthy probe as evidence the machine was quiet. (The failing run's probe is
+quoted as 7.3ms here and 7.4ms at the end of this entry — the same reading rounded from different
+places, not two measurements.)
 
 **If it fires a third time, fix it rather than documenting it again** — this entry has now been
-written twice. The fix is to stop dividing raw medians: subtract the probe baseline from each arm
-before taking the ratio, or assert on the absolute difference between the arms, which stayed stable
-across the very runs whose ratio moved from 2.44x to 1.77x and back to 2.78x.
+written twice. Two fixes were proposed at this point: subtract the probe baseline from each arm
+before taking the ratio, or assert on the absolute difference between the arms.
+**The second was taken and the first is now withdrawn** — read on before acting on it. Subtracting a
+probe baseline cannot work when the probe does not reliably rise with the load (see the end of this
+entry), and the section closes by advising against a CPU probe as a load signal for anything that
+renders; leaving the suggestion here unmarked is how it would get built anyway.
 
 **Third failure the same day, and now FIXED — the test asserts the saving, not the ratio.** It fired
 again ~40 minutes later at `1.7239` on `2e2ec8f2`, another commit that cannot reach this code. Per
@@ -782,8 +787,15 @@ Eight runs, idle-and-isolated through full-CI contention:
 | CI **fail** `b012c1c7` | 27.11ms | 15.34ms | 11.77ms | 1.77x |
 | CI pass (rerun) | 38.63ms | 13.90ms | 24.73ms | 2.78x |
 | CI **fail** `2e2ec8f2` | 26.56ms | 15.41ms | 11.15ms | 1.72x |
-| local idle x3 | 22-23ms | 9.05-11.25ms | 11.51-13.93ms | 2.02-2.49x |
+| local idle x3 | 22-23ms | 9.05-11.25ms | 11.51-13.93ms | 2.02-2.49x[^r] |
 | CI pass `2ec1a442` (the fix) | 26.39ms | 15.99ms | 10.40ms | **1.65x** |
+
+[^r]: Ratios and savings throughout these tables are computed from the unrounded medians and then
+rounded, so a row can differ by 0.01 from the quoted arms recombined (`a76f45b9` reads 2.44x where
+22.32/9.17 gives 2.4340). Each column of the `local idle x3` row is additionally the range over
+three runs, not one run read across: the widest
+saving and the highest ratio come from different runs of the three, so the four columns cannot be
+recombined into a single consistent triple. Every other row is one run and does reproduce exactly.
 
 **The last row is the validation, and it is the one to remember.** The commit that fixed this
 measured a *lower* ratio than either failure it replaced — 1.65x against 1.77x and 1.72x — under the

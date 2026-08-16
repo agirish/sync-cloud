@@ -76,6 +76,18 @@ public enum JurisdictionCandidates {
     ///   - tree: the surveyed nodes. Either the root's children or a single root node; the root
     ///     is identified by `root` and contributes no value of its own.
     ///   - root: the absolute path the tree was walked from. Paths are reported relative to it.
+    ///
+    /// **Two limits on the root handling, neither of them fixed here.** The root node is recognised
+    /// by an exact `node.id == root` string match, with only a trailing slash normalised — so a
+    /// caller that spells `root` with a tilde while the walk stamped absolute ids gets the root
+    /// treated as an ordinary child, and every reported parent gains a level (`Documents/Finance`
+    /// for `Finance`). And when the root IS recognised it is exempt from the survey filter, because
+    /// it is the tree rather than a folder in it. ``FolderSurveyBuilder/build(tree:root:profileId:registry:jurisdictionValues:)``
+    /// takes a different convention — its `tree` is always the root's children and it never looks for
+    /// a root node — so the two agree on paths only while the caller passes matching spellings.
+    /// There is no production caller yet; the §4.2 wiring is where this has to be settled, and it
+    /// should settle it by handing both functions the same shape rather than by teaching this one to
+    /// guess.
     /// - Returns: candidates ordered by ``JurisdictionCandidate/folderCount`` descending, then by
     ///   value, so the dialog shows the one that would change the most folders first and the order
     ///   does not wobble between runs.

@@ -115,6 +115,10 @@ import Testing
     /// writing something that happens to read the same: `ROADMAP_V4.md` — "A name-only profile must
     /// never land on top of a hand-built one — it would degrade To File and Renames with nothing
     /// failing."
+    /// Note the index assertion in here is a control, not coverage: the `profileExists` guard runs
+    /// before the index is ever read, so no path in a refused call can reach `profiles.json`. It is
+    /// kept because it states the intent, but no amendment bug can break it — the tests that do
+    /// cover the amendment are the refusal pair and the in-place amend below.
     @Test func refusesOverAnExistingProfileAndLeavesItByteIdentical() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -556,9 +560,11 @@ import Testing
     /// The `note` the file carries about itself has to describe what the builder actually produced.
     ///
     /// It claimed `anchors` and `axes` were "left empty rather than guessed" and that "filing falls
-    /// back to folder names" — neither true: the survey derives both, and measured them at 99.73%
-    /// and 99.87% against the hand-built profile. These headers exist so a person auditing a bad
-    /// suggestion can trust the artifact, which is exactly the reader a false note misdirects.
+    /// back to folder names" — neither true: the survey derives both, measuring 99.73% for anchors
+    /// and 99.80%-100% across the axes. Quote the floor rather than the best of them — 99.87% is
+    /// `axes.lifecycle` alone, and the weakest axis is `axes.person` at 99.80%. These headers exist
+    /// so a person auditing a bad suggestion can trust the artifact, which is exactly the reader a
+    /// false note misdirects.
     @Test func theEmbeddedNoteDescribesWhatTheSurveyActuallyDerives() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

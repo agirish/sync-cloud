@@ -120,6 +120,15 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
     /// and `FilingRouter.foldersByYear` groups on this while `RenamePlanner` compares its wrong-year
     /// flag against it, so a correctly filed November 2014 statement gets questioned.
     ///
+    /// **A caveat this inherits rather than introduces:** ``looksLikeYear`` accepts any two 4-digit
+    /// parts, so it cannot tell a fiscal span from any other range. `2016-2019` on the reference
+    /// tree is an H-1B *petition* span, and both `FilingRouter.yearFit` and `RenamePlanner.yearFits`
+    /// read an `A-B` key as an Indian Apr-Mar fiscal year. That mis-reading already applies to every
+    /// folder whose own name is such a range and which carries no bare year — it is not new here —
+    /// but the deeper-wins rule can now hand such a key to a folder that previously answered with an
+    /// ancestor's calendar year. Not on this tree: all four both-axes folders are bare-year-deeper,
+    /// so nothing changes answer. Worth knowing before extending the rule.
+    ///
     /// The scan runs **only when both values are components of this entry's own path**, which is
     /// what makes it a depth question at all. That holds for every entry either builder produces
     /// today — verified across all 3,013 folders of the hand-built profile — but a profile that
