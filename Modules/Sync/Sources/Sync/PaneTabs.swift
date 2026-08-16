@@ -31,6 +31,45 @@ public enum PaneTabArrival {
     }
 }
 
+/// Where a **newly opened** tab sits, cut the way the pane it was opened from is cut.
+///
+/// **A pane's location is two values and only one of them draws columns** (`PaneTab.browsePath`):
+/// the scope contributes exactly one column and the stack draws the rest. Every tab-opening verb
+/// used to hand the whole location over as the *scope*, with an empty stack — so a tab opened from
+/// a pane standing four columns deep came back as one full-width column, and there was nothing
+/// wrong with it that persistence could fix. It saved a `stackDepth` of 0 faithfully, restored a
+/// `stackDepth` of 0 faithfully, and every launch reproduced the flattening exactly.
+///
+/// That is what "the columns are collapsed again after a restart" was: not the restore, which had
+/// already been fixed to carry the depth, but **⌘T flattening the stack at the moment the tab was
+/// created**, forever after. `Health/Medical/Included Health/Expert Opinions` with depth 0, in his
+/// own stored strip, written by `User opened a new tab at …` in the log.
+///
+/// One rule for every opener, because they are the same question asked twice:
+///
+/// - **⌘T / ＋ / double-click the strip** open at the pane's own location, so the cut is the pane's
+///   own — the new tab is layout-identical to the one it came from, which is what "new tab *here*"
+///   has to mean.
+/// - **Open in New Tab / ⌘-double-click** open at a folder *under* that pane, so the scope holds
+///   and everything below it becomes stack — the ancestor columns a column browser is for.
+///
+/// A target that is NOT under the pane's scope keeps the old answer (all scope, no stack): the
+/// components would name folders under a path that does not contain them, so there is nothing left
+/// for a stack to be relative to.
+public enum PaneTabOpening {
+    public static func location(of combined: String,
+                                openedFromScope scope: String) -> (scope: String, stack: PaneBrowsePath) {
+        let target = combined.split(separator: "/")
+        let base = scope.split(separator: "/")
+        guard base.count <= target.count, target.starts(with: base) else {
+            return (combined, PaneBrowsePath())
+        }
+        // Through the SAME cut the stored strip is rebuilt with, so a tab opened at a location and
+        // a tab restored to it cannot disagree about where the two halves meet.
+        return PaneTabsStore.split(relativePath: combined, stackDepth: target.count - base.count)
+    }
+}
+
 /// What a tab owns is the v4.x roadmap companion §1 table, and the reason each is here rather than shared:
 ///
 /// - `providerId` — two tabs reading "Documents" from different clouds is the case the provider

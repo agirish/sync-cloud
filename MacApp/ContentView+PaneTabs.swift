@@ -226,6 +226,19 @@ extension ContentView {
     private func openTabHere(isLeft: Bool, mirrored: Bool = false) {
         let providerId = isLeft ? leftProviderId : rightProviderId
         let here = syncManager.combinedRelativePath(isLeft: isLeft)
+        // **Both halves of where the pane is, not the joined string.** Handing `here` over as the
+        // new tab's SCOPE — which is what this did — collapses the column stack at the moment the
+        // tab is created: scope draws exactly one column and the stack draws the rest, so ⌘T from
+        // four open columns produced one full-width column. Persistence then round-tripped that
+        // flattening perfectly, which is why it read as "the columns are collapsed again after a
+        // restart" long after the restore itself had been fixed to carry the depth.
+        //
+        // Through `PaneTabOpening` rather than by reading the two properties directly, so this and
+        // `openInNewTab` below cut a location the same way; from the pane's own location it returns
+        // exactly the pane's own two halves.
+        let cut = PaneTabOpening.location(of: here,
+                                          openedFromScope: isLeft ? syncManager.leftRelativePath
+                                                                  : syncManager.rightRelativePath)
         tabAction(isLeft: isLeft) {
             // Logged from inside, so a refused action (the bootstrap guard) leaves no line claiming
             // it happened — he audits this log.
@@ -233,8 +246,9 @@ extension ContentView {
             Logger.shared.info(mirrored
                 ? "Linked panes: also opened a new tab at “\(where_)” on the other pane"
                 : "User opened a new tab at “\(where_)”")
-            return syncManager.openTab(PaneTab(providerId: providerId, relativePath: here),
-                                       isLeft: isLeft, currentProviderId: providerId)
+            return syncManager.openTab(
+                PaneTab(providerId: providerId, relativePath: cut.scope, browsePath: cut.stack),
+                isLeft: isLeft, currentProviderId: providerId)
         }
     }
 
@@ -254,10 +268,17 @@ extension ContentView {
             Logger.shared.warning("Ignored Open in New Tab for a path outside the pane's source: \(absolutePath)")
             return
         }
+        // Cut against the pane this row belongs to — see `openTabHere`. A folder UNDER the pane's
+        // scope keeps that scope and becomes stack, so the new tab opens with the ancestor columns
+        // rather than as one full-width column; a folder outside it is all scope, as before.
+        let cut = PaneTabOpening.location(of: relative,
+                                          openedFromScope: isLeft ? syncManager.leftRelativePath
+                                                                  : syncManager.rightRelativePath)
         tabAction(isLeft: isLeft) {
             Logger.shared.info("User opened “\(relative)” in a new tab")
-            return syncManager.openTab(PaneTab(providerId: providerId, relativePath: relative),
-                                       isLeft: isLeft, currentProviderId: providerId)
+            return syncManager.openTab(
+                PaneTab(providerId: providerId, relativePath: cut.scope, browsePath: cut.stack),
+                isLeft: isLeft, currentProviderId: providerId)
         }
         mirrorOpenInNewTab(relative, from: isLeft)
     }
@@ -282,10 +303,17 @@ extension ContentView {
                 atPath: PaneLogic.fullPath(root: root, relativePath: candidate), isDirectory: &isDirectory)
             return exists && isDirectory.boolValue
         }
+        // Cut against the SIBLING's scope, not this pane's: the landing was pruned to what that
+        // pane actually has, and cutting it against the wrong pane's scope would put components in
+        // a stack that is not underneath it.
+        let cut = PaneTabOpening.location(of: landing,
+                                          openedFromScope: other ? syncManager.leftRelativePath
+                                                                 : syncManager.rightRelativePath)
         tabAction(isLeft: other) {
             Logger.shared.info("Linked panes: also opened “\(landing.isEmpty ? "the source root" : landing)” in a new tab on the other pane")
-            return syncManager.openTab(PaneTab(providerId: providerId, relativePath: landing),
-                                       isLeft: other, currentProviderId: providerId)
+            return syncManager.openTab(
+                PaneTab(providerId: providerId, relativePath: cut.scope, browsePath: cut.stack),
+                isLeft: other, currentProviderId: providerId)
         }
     }
 

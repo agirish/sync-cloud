@@ -367,6 +367,29 @@ import Sync
                 "a dropped tab is reported below warning, where a launch-time loss would not stand out")
     }
 
+    /// **Every verb that OPENS a tab cuts its location through `PaneTabOpening`.**
+    ///
+    /// A pane's location is two values and only the stack draws columns past the first. All three
+    /// openers used to hand the joined path over as the SCOPE with no stack, so a tab opened from a
+    /// pane four columns deep was flattened the moment it was created — and persistence then
+    /// round-tripped that flattening perfectly, which is why it presented as "the columns are
+    /// collapsed again after a restart" long after the restore had been fixed to carry the depth.
+    /// His stored strip: `Health/Medical/Included Health/Expert Opinions` at `stackDepth` 0.
+    ///
+    /// Scanned as an ABSENCE of the flattening form as well as a presence of the rule — a presence
+    /// check alone passes with a fourth opener added beside them still doing it the old way.
+    @Test func everyTabOpenerCutsItsLocationThroughTheRule() throws {
+        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let uses = code.components(separatedBy: "PaneTabOpening.location(").count - 1
+        #expect(uses == 3, "\(uses) openers cut through the rule — expected ⌘T, Open in New Tab, and the mirror")
+        #expect(code.components(separatedBy: "browsePath: cut.stack").count - 1 == 3,
+                "an opener resolves the cut and then does not use its stack half")
+        for flattened in ["relativePath: here)", "relativePath: relative)", "relativePath: landing)"] {
+            #expect(!code.contains(flattened),
+                    "an opener still hands the joined path over as the scope — the tab opens with its columns collapsed")
+        }
+    }
+
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {

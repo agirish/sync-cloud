@@ -714,3 +714,74 @@ import Foundation
         #expect(PaneTabList(tabs: [b, c, d]).closableOthers(keeping: b.id) == 1)
     }
 }
+
+/// Where a newly opened tab sits — the half that made "the columns are collapsed again after a
+/// restart" a creation bug rather than a persistence one.
+@MainActor
+@Suite struct PaneTabOpeningTests {
+
+    /// **⌘T from a pane four columns deep gives a tab four columns deep.** It gave one full-width
+    /// column: `openTabHere` handed `combinedRelativePath` over as the SCOPE with no stack, so the
+    /// tab was flattened the moment it was created and every save/restore round-tripped that
+    /// flattening perfectly. His stored strip, verbatim:
+    /// `Health/Medical/Included Health/Expert Opinions` at `stackDepth` 0.
+    @Test func openingHereKeepsThePanesOwnColumnCut() {
+        let stack = PaneBrowsePath(components: ["Health", "Medical", "Included Health", "Expert Opinions"])
+        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
+                                          openedFromScope: "")
+        #expect(cut.scope == "", "the whole location became scope, which draws exactly one column")
+        #expect(cut.stack == stack)
+        #expect(cut.stack.depth == 4, "a tab opened from four open columns came back with none")
+    }
+
+    /// The same when the pane's location is split the other way — scope deep, a shallow stack on
+    /// top. The cut is the PANE's, not a fixed one.
+    @Test func openingHereHonoursAScopeThatIsNotTheRoot() {
+        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health",
+                                          openedFromScope: "Health")
+        #expect(cut.scope == "Health")
+        #expect(cut.stack.components == ["Medical", "Included Health"])
+    }
+
+    /// Open in New Tab on a folder UNDER the pane keeps the scope and puts the rest in the stack,
+    /// so the new tab has the ancestor columns a column browser is for.
+    @Test func openingAFolderUnderThePaneGivesItTheAncestorColumns() {
+        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
+                                          openedFromScope: "Health")
+        #expect(cut.scope == "Health")
+        #expect(cut.stack.components == ["Medical", "Included Health", "Expert Opinions"])
+    }
+
+    /// A target that is not under the pane's scope keeps the old answer — all scope, no stack.
+    /// The components would otherwise name folders under a path that does not contain them.
+    @Test func aTargetOutsideTheScopeIsAllScope() {
+        let cut = PaneTabOpening.location(of: "Legal/US", openedFromScope: "Family")
+        #expect(cut.scope == "Legal/US")
+        #expect(cut.stack.isEmpty)
+    }
+
+    /// A pane at its root opening its root is the seed state, and must stay it — otherwise the
+    /// launch restore's `isSeedState` skip stops recognising a fresh install.
+    @Test func openingTheRootFromTheRootIsStillTheRoot() {
+        let cut = PaneTabOpening.location(of: "", openedFromScope: "")
+        #expect(cut.scope == "")
+        #expect(cut.stack.isEmpty)
+    }
+
+    /// **The round trip, end to end**: open a tab from a deep pane, save it, restore it — the
+    /// columns survive. Both halves had to be right for this; the restore already was.
+    @Test func aTabOpenedFromOpenColumnsSurvivesAQuit() throws {
+        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
+                                          openedFromScope: "")
+        let opened = PaneTab(providerId: "iCloud", relativePath: cut.scope, browsePath: cut.stack)
+        let entry = PaneTabsStore.Entry(providerId: opened.providerId,
+                                        relativePath: opened.combinedRelativePath,
+                                        stackDepth: opened.browsePath.depth)
+        #expect(entry.stackDepth == 4, "the strip on disk records no columns to bring back")
+        let restored = try #require(PaneTabsStore.restore(entries: [entry], selected: 0,
+                                                          isKnownProvider: { _ in true },
+                                                          folderExists: { _, _ in true }))
+        #expect(restored.active.browsePath.depth == 4)
+        #expect(restored.active.combinedRelativePath == "Health/Medical/Included Health/Expert Opinions")
+    }
+}
