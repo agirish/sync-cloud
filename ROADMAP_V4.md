@@ -257,15 +257,29 @@ And two things the plan did not know it needed:
   the dialog must let a value be **added** as well as ticked or the tree's third jurisdiction can
   never be recorded at all.
 
-### 4.3 Shadow axis values — medium, independent of both
+### 4.3 Shadow axis values — medium, and it is a report rather than a repair
 
 `StructureDivergence` names this gap and explicitly does not claim it: a year-bearing folder name
-that is not a *bare* year (`IRS Docs - 2023`) is treated as a role, so it joins its parent's
-vocabulary and makes that parent's shape look unique.
+that is not a *bare* year (`IRS Docs - 2023`) is treated as a role rather than as a year.
 
 The pattern is on the real tree — `Finance/US/Income Tax` reports three shapes, one of which is
 `IRS Docs - 2023, IRS Docs - 2024` beside bare years. Its own detector, not a wider `isBareYear`:
 widening that would start swallowing real role names containing digits.
+
+**Reframed by the 2026-08-16 audit, on two measurements.** This item used to say the shadow value
+joins its parent's vocabulary and makes that parent's shape look unique — implying the Shape
+detector is less accurate for it. Adding exactly that rule to `isAxisValued` and re-running the
+whole detector over the live profile returns **the identical finding set**, one family before and
+one after. So the value here is the *report* — naming `IRS Docs - 2023` as a year folder that should
+be `2023` — not accuracy.
+
+**And the rule has to be the narrow one.** **302 folders** carry a four-digit year in a name that is
+not a bare year, and almost all are correct: `01. Jan 2019` monthly statement folders,
+`2005 - 2006` Indian fiscal years. A detector keyed on *the name contains a year* fires 302 times,
+which is precisely the failure `StructureDivergence`'s own doc was written to prevent. Scoped to
+**a shadow year sitting beside bare-year siblings** it fires **5** times. Note also that its
+proposed fix — `IRS Docs - 2023` → `2023`, where `2023` already exists — is a **merge**, so it
+inherits §5.4's decision.
 
 **This is one of §5.2's eight detectors.** Build it once, there — it is listed here because it is
 storage-side and needs neither the plan surface nor a scoped read.
@@ -285,15 +299,30 @@ once** — `immigration_reorg_2026-08-06.json`: 132 file moves, 4 folder renames
 removals, 2 of them mistakes. That log is the worked example, and most of the constraints below are
 scars from it.
 
+**Be exact about which half of that day this surface claims.** Sorting the log's 179 operations by
+whether a folder-name → folder-name mapping could have proposed them: **4 `rename-dir` yes**;
+**108 file moves yes**, because they came from 44 source folders that moved wholesale and are
+therefore folder-level operations; **24 file moves no** — they came from 5 folders whose files were
+split by *content* (`Immigration/TODO` sent files to five different destinations), which is per-file
+judgement and belongs to To File; **39 removals** only through §5.5's opt-in step. The plan surface
+is the shape half. Saying so here is cheaper than discovering it on the first real run.
+
 ### Context
+
+**Audited against the code and the live 3,013-folder profile on 2026-08-16.** The rows marked
+*audit* are ones that re-measuring changed or added; two of them block items below.
 
 | Fact | Where | Consequence |
 |---|---|---|
 | **Restructure compares sibling *families*.** Under a scope pointed at a leaf the `inside` list is frequently empty and the lens falls back to showing the ancestor's findings, faintly — its own doc calls this out. | `RestructureLens.aboutAncestor` | The detectors that read **one subtree alone** (§5.2) are what make a scoped answer non-empty. Without them the plan surface has nothing to open at the depth people scope to. |
-| **One detector of eight shipped.** Dead weight, backlog, mirrored inbox, echo names and shadow axes are designed and unbuilt. | `StructureDivergence` | A 1,200-folder branch with 52 pass-throughs gets the same answer as a tidy one: silence. §4.3 is one of these eight — build it as part of §5.2, not twice. |
-| **`memberCount` sums the *vouched* schemes only** — a scheme of one is dropped as drift before the card is drawn. | `StructureFinding.memberCount` | The card reads `12 folders` on a 13-year family and the odd year out is invisible. **A scheme dropped as evidence is still a folder the plan must find a home for.** |
+| **One detector of eight shipped.** Dead weight, backlog, mirrored inbox, echo names and shadow axes are designed and unbuilt. | `StructureDivergence` | A crowded branch gets the same answer as a tidy one: silence. Measured 2026-08-16, the whole lens returns **one finding, in one of sixteen top-level areas** — so the lens is thin because seven detectors are missing, not because it is unscoped, and that is the argument for §5.2 going first. §4.3 is one of the eight — build it as part of §5.2, not twice. |
+| **`memberCount` sums the *vouched* schemes only** — a scheme of one is dropped as drift before the card is drawn. **And that is only one of two drop paths** *(audit)*: a sibling whose vocabulary is empty — a leaf, or one whose children are all axis values — is dropped *before clustering starts*, so it never becomes a scheme to grey. | `StructureFinding.memberCount`; `StructureDivergence.finding`, the `guard !words.isEmpty` | The card reads **11 folders** on a family of **17**: 11 vouched ＋ 5 unvouched drift ＋ 1 with no vocabulary at all (`CA State`, 3 files, 0 folders). **A folder with no shape is the one the plan most needs to house** — it is evidence for no era, so nothing else will claim it. |
+| **`StructureFinding.id` is the family path** *(audit)*, and `RestructureLens` renders `ForEach(findings)`. | `StructureDivergence.swift`; `RestructureLens.body` | §5.2's whole point is that one family can produce a *Shape* **and** a *Series* **and** an *Ask* — three rows sharing one identity in one `ForEach`. **Put the kind in the identity before the second detector lands**, not after. The same composite key is what §5.3's answer store and *never suggest this again* both need, so it is one decision serving three items. |
+| **Nothing in the app can rebuild a folder profile** *(audit)* — `writeProfile` throws `WriteRefusal.profileExists` and has deliberately no `overwrite:`; `resurveyFilingMemory` writes the corpus and the memory and never a profile; `structureFindings` is memoised and dropped only by `filingFolderProfile`'s `didSet`. | `FilingProfileStore.writeProfile`; `FileSyncManager+FilingSurvey`; `FileSyncManager.structureFindings` | **The blocking one.** The detector reads `FolderProfile.folders`, keyed by relative path, and §5.5 renames exactly those paths. After an Apply the profile describes a tree that no longer exists and the finding is still true of the stale copy. See §5.5 and §5.7. |
+| **`folderSemantics` is decoded by nothing** *(audit)* — the two matches in the Swift tree are both comments. `FolderProfile` decodes five fields; `conventions`, `axes`, `folderSemantics`, `structuralRules` and `canonicalPaths` are read by nobody, and the three live entries are hand-authored prose doctrine. | `FolderProfile`; `folder-profile.json` | §5.3 was specified to write its answer there. It cannot, and should not — see §5.3, which now carries its own store. |
+| **The crowding counts came from a smaller tree** *(audit)*. | live profile, 2026-08-16 | Pass-through is **86**, not 52; single-file leaves **503**, not 434. Both figures print in the mockups as though they were the app's output — **derive them, never paste them**. |
 | **The rename pass already owns a review-and-apply path** — per-folder plans, "as one undoable change", and a *left alone, for a stated reason* tail. | `RenamePassLens`, `onApply` | The plan shares it rather than growing a second one. `ROADMAP.md` 20 makes that its scheduling constraint. |
-| **The one paid control names its model, names its batch size, and raises a spend pre-flight with a real estimate.** Its branch is *is a key stored*, not *is cloud switched on*. | `LensWorkspaceView.refineButton` | §5.6 reuses it verbatim — same slot, same words up to the ellipsis, same billing sentence. Nothing new to design. |
+| **The one paid control names its model, names its batch size, and raises a spend pre-flight with a real estimate.** Its branch is *is a key stored*, not *is cloud switched on*. **It is typed to `[FilingSuggestion]`** *(audit)* and gated on `filingCloudRefineAvailable` ＋ `canRefineFilingSuggestions`. | `LensWorkspaceView.refineButton` | §5.6 reuses the **pattern** — same slot, same words up to the ellipsis, same billing sentence, nothing new to design — but not the function. That is the difference between "small once §5.4 exists" and a day. |
 | **Answers and applied plans both invalidate the check that asked them.** | v3.1 review; `Refine` is already a generation-bumper | §5.3 and §5.5 must bump a structure generation and recompute, or the lens re-suggests what it was just told. |
 
 ### 5.1 The scoped read — small
@@ -304,11 +333,16 @@ Display-only, no new machinery. Fig. 21.
   files, *Ask* asks — so the class of change is legible before the sheet opens.
 - The card states its blast radius: for the flagship family, *a plan here is folder renames, no file
   would move*.
-- **The count stops undercounting** (see Context): the subtitle counts the family and renders the
-  dropped scheme greyed as drift.
+- **The count stops undercounting, on both drop paths** (see Context): the subtitle counts the
+  family, the unvouched scheme renders greyed as drift, and **the shape-less sibling gets a row of
+  its own** — *no shape of its own* is a different sentence from *disagrees with the others*, and
+  this lens's whole discipline is that no state borrows another's words. On the flagship family that
+  is 11 → 17, not 11 → 16.
 - `Reveal` demotes to a link; `Plan…` takes the primary slot.
 - **The rail badge counts only the kinds that carry a plan.** A badge you cannot drive to zero is a
-  badge people stop reading, which is why *Ask* is excluded.
+  badge people stop reading, which is why *Ask* is excluded. **Cheaper than it looks:** the badge is
+  already scoped and already excludes ancestor findings (`RailCounts.restructure`), so filtering by
+  kind is the only new part.
 
 ### 5.2 The remaining detectors, and the crowding strip — medium
 
@@ -317,43 +351,105 @@ Each is a finding kind before it is a plan, and each is worth landing on its own
 Detectors, all specified in `ROADMAP.md` 20: **backlog** (the newest instance of a recurring series
 has no folders yet — worth saying the month it happens rather than thirteen years later),
 **shadow axis** (= §4.3), **echo name** (`PG&E/PGE`), **mirrored inbox** (`Health/TODO/Dental` beside
-`Health/Dental`), **dead weight** (52 pass-through folders, 434 single-file leaves).
+`Health/Dental`), **dead weight** (pass-through folders and single-file leaves).
+
+**What each would actually return here**, dry-run against the live profile on 2026-08-16 — worth
+knowing before building, because two of them cannot be validated on this tree:
+
+| Detector | Fires | Notes |
+|---|---|---|
+| **Backlog** | **10** | `Health/Dental/2025`, `Work/HPE/Compensation/Benefits/2026`, … All plausible, all computable from `fileCount` and `subfolderCount`, which the profile already carries. Best value of the five. |
+| **Echo name** | **1** | A true hit: `Form W-2` beside `Form W2` under `Finance/US/Income Tax/2023/Forms`. **And its only fix is a merge**, which §5.4 refuses — so it lands as a finding with no plan, and the card must say so rather than offering a button that dead-ends. |
+| **Mirrored inbox** | **1** | Only the degenerate `Finance/US/TODO/IRS/IRS`. The 6 Aug TODO drain already cleared the class this tree had. **Build it, but do not expect to validate it here.** |
+| **Shadow axis** | **5** | Under the narrow rule — see §4.3, which the audit reframed. |
+| **Dead weight** | **86 / 503 / 20** | Pass-through, single-file leaves, and **wholly empty**. |
 
 The crowding strip is the answer to *"it sees a lot of folders"*: three counts above the findings,
 each a filter into a list. **Crowding is a property of the scope, not a finding** — always non-zero
-on a real tree — so it never takes a badge.
+on a real tree — so it never takes a badge. The counts are **scope-dependent**, which is the one
+place this item can quietly put an O(folders) sweep behind a scroll: `structureFindings` is memoised
+precisely because the overview asks for it on every render, so every detector here joins that cache
+and the cache key grows a scope.
 
-**Only sub-classes with a stated rule get an Apply.** The 434 single-file leaves get a number and
+**Only sub-classes with a stated rule get an Apply.** The 503 single-file leaves get a number and
 nothing else: a folder can look like debt and be a destination waiting for its next file, and
 nothing in its own shape separates the two. That is the same mistake that had
 `Supporting Documents/Resume` and `Supporting Docs/HPE/Payslips` put back on 6 Aug.
+
+**The 20 wholly empty folders have no path today, and that should be a decision rather than an
+omission.** §5.5's removal step is deliberately scoped to folders *the plan itself emptied*, so a
+folder that was already empty can never be offered — and the 6 Aug lesson applies to exactly these:
+an empty **date bucket** is debt, an empty **category** is a destination, and two of that day's
+removals had to be put back. They are the cheapest real win in this item and the easiest to get
+wrong.
 
 ### 5.3 Ask findings — medium
 
 A finding with **no Apply button**, for a disagreement no fact in the tree settles —
 `Health/Kaiser - PG&E` versus `Health/Medical/Kaiser`, coverage-through-an-employer versus care
-records. Two answers and a *don't ask again*; the answer is written into the profile's
-`folderSemantics` and never asked again, including after a re-survey.
+records. Two answers and a *don't ask again*; the answer is remembered and never asked again,
+including after a re-survey.
 
-Needs the profile **write** path and the generation bump — which every item after it also needs, so
-it is worth doing here rather than inside the plan work.
+**The answer goes in its own store, not in the profile** — corrected by the audit. It was specified
+to land in the profile's `folderSemantics`, and that cannot work twice over: **nothing decodes that
+section** (`FolderProfile` reads five fields; `folderSemantics` has no Swift reader outside two
+comments), and the profile's only write path refuses to write over an existing profile by design.
+Its three live entries are hand-authored doctrine with a prose *why* and rules in English, which
+machine-written answers should not be mixed into even if the file were writable.
+
+So: **a small app-owned store, keyed on detector × folder path.** `PeopleStore`, `PersonTagStore`,
+`StorageLensStore` and `FilingVerdictCache` are four existing precedents for exactly this — one
+per-profile file, written atomically. That key is also the identity *never suggest this again* needs
+(`ROADMAP.md` 20) and the suppression key §5.5 needs, so it is one decision serving three items.
+
+**It therefore no longer needs the profile write path**, and stops being the item that unlocks the
+ones after it. What it still needs is the **generation bump**: `structureFindings` is memoised and
+dropped only by `filingFolderProfile`'s `didSet`, so the cache gains a second trigger or the lens
+re-asks what it was just told. Schedule it on its own merits — which are modest today, since this
+tree holds one Ask-shaped disagreement.
 
 ### 5.4 Choose → map → manifest, with Export and no Apply — large
 
 The whole plan surface, ending in a file rather than in a disk write. Figs. 23–24.
+
+**Two things the audit changed here, and the first one is a prerequisite rather than a detail.**
+
+**Merges are the main case, not a corner.** The mapping editor refuses two sources onto one target
+inside a year — and laid out in full, **the flagship family cannot converge without one, in either
+direction**. 2013's `Federal Tax` · `State Tax (California)` · `State Tax (North Carolina)` has no
+one-to-one image in 2016–2022's `Forms` · `Reference` · `Refund` · `Transcripts`, and the reverse
+has none in 2013's. Nor is it hypothetical: the 6 Aug run **fed 3 destinations from two sources
+each**, and §5.2's one real echo-name hit (`Form W-2` / `Form W2`) is a merge too. So either design
+one — it is the point where *rename* stops being available, so it is a file move, and it needs a
+name-collision policy and a ledger line of its own — or **say plainly that this surface cannot fix
+the flagship family**, in which case the flagship case has to change. Both are honest; presenting
+the family as the case this is for, while refusing the operation it needs, is not.
+
+**Whether the manifest can also be replayed against the profile is a §5.4 question.** See §5.5: the
+app cannot rebuild a folder profile, so what the ledger and the Applied state are *allowed to say*
+depends on a decision that belongs here, in the design of the manifest, rather than inside Apply.
 
 1. **Choose the target shape — nothing pre-selected.** The schemes found, labelled by what they are
    (*the largest group*, *the most recent*), with **Name it myself among them, not behind them**.
    Neither recency nor majority is the authority: the 6 Aug fix went **both ways at once**, because
    H-1B is filed on Form I-129 (a *petition*) and H-4 / H-4 EAD on I-539 / I-765 (*applications*) —
    a fact that exists nowhere in the tree.
+   **Derive *the most recent* from the members' year axis, never from scheme order** *(audit)*. On
+   the flagship family the most recent *vouched* scheme is `IRS Docs - 2023, IRS Docs - 2024`, while
+   the genuinely newest folders — 2023, 2024, 2025 — are all unvouched drift sharing no scheme at
+   all. A label taken from scheme order points at neither. And when the newest members are drift,
+   **say there is no current shape**: that is a true and useful answer, and it is the finding rather
+   than a failure to produce one.
 2. **Tabulate the family group first** where parallel families share a vocabulary. Fixing H-4 alone
    would have left it disagreeing with its two siblings; laid out as a table the cause was visible
    in one glance (each filing lands flat and is foldered later).
 3. **The mapping editor** — one row per distinct source folder name across the family, target
    dropdown, **default keep**, never a guessed mapping. This is where the leverage is: edited once,
-   applied to every member. Two sources onto one target inside one year is a **merge** and is
-   refused on the row (see Open questions).
+   applied to every member. Two sources onto one target inside one year is a **merge**, which is the
+   decision above rather than a row-level refusal to be designed around.
+   **Size it honestly:** the flagship family has **24 distinct child names across 17 members**, not
+   the nine the mockup draws, and several are near-duplicates a dropdown alone cannot resolve
+   (`Payment` / `Payments`, `Forms` / `Tax Returns`).
 4. **The manifest** — ordered typed operations (`create-dir`, `rename-dir`, `move-dir`, `move-file`,
    `keep`), each with its own written justification, and a ledger that separates **files moved from
    files carried** and **folders changed from folders kept**. On the flagship family that reads
@@ -384,14 +480,43 @@ shape of the name: an empty **date bucket** is debt and is ticked; an empty **ca
 destination and is not, with its paths printed inline because there are few enough to read. No file
 is ever deleted; folders go to the Trash.
 
+#### The gap this item cannot close on its own
+
+**Applying a plan makes the lens's own input wrong.** The detector reads `FolderProfile.folders`,
+keyed by relative path; this item renames and moves exactly those paths. Afterwards the profile
+describes a tree that no longer exists, and the finding it produced is still true of the stale copy
+— **three independent paths confirm there is no way back**: `writeProfile` refuses to write over an
+existing profile and has no `overwrite:`, the re-survey writes corpus and memory and never a
+profile, and `structureFindings` is memoised behind `filingFolderProfile`'s `didSet`, which an apply
+cannot pull. §5.7's *Applied* state cannot mean what it says until this is settled.
+
+The cheap answer is to **replay the manifest against the in-memory profile**: it is an ordered list
+of typed path operations, so applying it to the profile's keys is a pure transformation that costs
+no walk and reuses the artifact the plan already produced. That fixes the session. Persistence needs
+one of two decisions, and **it belongs in §5.4** because it decides what the ledger may claim:
+
+- **A deliberate exception to the create-only rule** — write the patched profile under a fresh
+  profile id and re-point `profiles.json`, which `writeProfile` already does when nothing is active.
+  That guard exists to stop a *derived* profile landing on a hand-built one, and this is a different
+  case: the app is recording a change it made itself. Making it an exception is a judgement, not an
+  oversight, and it must be written down as one.
+- **An accepted limit, stated on the card** — the answer is stale until the tree is re-surveyed, and
+  the survey the app can run (§6) cannot produce a profile for a tree that already has one.
+
+**Silently keeping a stale answer is the one option that is not available**, because it is
+indistinguishable on screen from an apply that did nothing.
+
 ### 5.6 Refine with Claude — small once §5.4 exists
 
 **On the mapping, never on the apply.** The plan is derived mechanically from the mapping, so by
 then there is no judgement left; the judgement is *what should these folders be called* — the one
 question the tree cannot answer and a model can.
 
-Reuses `LensWorkspaceView.refineButton` wholesale: the invitation when no key is stored, `Ask Opus about N
-folder names` when one is, and the existing spend pre-flight. Three things it adds:
+Reuses `LensWorkspaceView.refineButton`'s **pattern**: the invitation when no key is stored,
+`Ask Opus about N folder names` when one is, and the existing spend pre-flight. Not the function —
+it is typed to `[FilingSuggestion]` and gated on `filingCloudRefineAvailable` ＋
+`canRefineFilingSuggestions`, so "reuse" here means the same slot, the same words and the same
+billing sentence over a different payload. Three things it adds:
 
 - **An itemised payload disclosure** — folder paths and candidate vocabularies always; *up to 5 file
   names per folder* as a **toggle** (that is the evidence that settled I-129 vs I-539); file
@@ -419,6 +544,14 @@ respectively rather than as an item:
   backed by the inverse plan already on disk. **The finding is gone because the generation bumped
   and the detector re-ran** — never because it was marked done. Those are different states and only
   one of them is true.
+
+  **And that sentence is a claim §5.5 cannot currently keep.** The detector re-runs against the
+  *profile*, which an apply does not change and the app cannot rewrite — so as things stand the
+  finding survives its own fix, unchanged. Whichever answer §5.4 takes to that, this state's words
+  follow from it: a replayed manifest makes *gone because the detector re-ran* true for the session;
+  an accepted limit means this state has to say the answer is stale until the tree is re-surveyed.
+  **Do not ship the sentence before the mechanism** — "marked done" is exactly what it would
+  silently become.
 
 ---
 
@@ -542,14 +675,22 @@ Browse, Compare and the rail — and **§2's pane-bar titles**, shipped 2026-08-
 1. **§5.1 + §5.2** — the scoped read, the crowding strip and the remaining detectors. Pure reporting
    off a survey already in memory; §5.1 fixes the leaf-scope emptiness on its own, and §5.2 lands
    one detector at a time. **§4.3 is one of those detectors** — build it here, not separately.
+   Three small audit items land with these rather than ahead of them: **the kind in
+   `StructureFinding.id`** (before the second detector, or one family's rows collide in one
+   `ForEach`), **the second drop path in §5.1's count**, and the stale *two divergent families* in
+   `StructureDivergence`'s own doc.
 2. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
    screen v4.0 ships. Schedulable against anything above or below it.
-3. **§5.3, Ask findings** — the first item that needs the profile write path and the generation
-   bump, which everything after it needs too.
-4. **§5.4 up to `Export plan…`** — the whole plan surface with no Apply, reviewable against the
-   6 Aug log with nothing at risk.
-5. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
+3. **§5.4 up to `Export plan…`** — the whole plan surface with no Apply, reviewable against the
+   6 Aug log with nothing at risk. **Two decisions come first, not during:** whether *merges* are
+   designed or the flagship case changes, and whether an applied manifest is replayed against the
+   profile. Both decide what the surface may claim, so both belong here.
+4. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
    the app; it waits on the rename pass's review-and-apply path.
+5. **§5.3, Ask findings** — **moved down by the audit.** It sat third because it "needs the profile
+   write path, which everything after it also needs"; with its answers in their own store nothing
+   needs that path, so it competes on its own value — modest today, since this tree holds one
+   Ask-shaped disagreement.
 6. **§5.6, Claude on the mapping** — last, deliberately.
 7. **§6, the first survey** — when a second machine or a second tree makes it real. It cannot fire
    on this one, which has a profile and where the store would refuse the write. Nothing in 1–6 is
@@ -602,12 +743,22 @@ renders correctly at one tab if you do tick it), and its tick is **one app-wide 
   is *going to be* runnable in forty minutes is neither of the two states those were written for. A
   badge that appears mid-survey and a pass card that offers a button pointing at an unfinished
   answer are both worse than counting nothing until the survey lands.
-- **§5.4: merges.** Two source folders mapping onto one target inside a single year is refused on
-  the row rather than designed. A real family will eventually want one, and it is the case where
-  *rename* stops being available and files genuinely have to move.
+- **§5.4: merges — promoted out of this list.** It read *"a real family will eventually want one"*.
+  Measured, **the flagship family cannot converge without one in either direction**, the 6 Aug run
+  performed three, and §5.2's one real echo-name hit is a merge. It is a decision §5.4 takes before
+  it starts, not a question it defers — see §5.4.
+- **§5.4 / §5.5: can an applied manifest be replayed against the profile?** The new one, and the
+  sharpest. The app cannot rebuild a folder profile, so an apply leaves the lens reading a tree that
+  no longer exists. Replaying the manifest against the in-memory profile is cheap and fixes the
+  session; persisting it needs either a stated exception to the create-only write or an accepted
+  limit on the card. See §5.5.
 - **§5.4: does a drafted plan survive a re-survey?** The mockups say no and say so on the card. If
   plans are to be kept, they need identity keyed on **detector × folder path** — the same key
-  *never suggest this again* needs (`ROADMAP.md` 20), stored beside `folderSemantics`.
+  *never suggest this again* needs (`ROADMAP.md` 20) and the same key §5.3's answer store now uses.
+  Not `folderSemantics`: nothing decodes it, and the profile is not rewritable.
 - **§5.2: does the crowding strip render in the clean state?** *The tree agrees with itself* and
-  *this scope has 52 pass-through folders* are both true at once; the mockups show both, which means
+  *this scope has 86 pass-through folders* are both true at once; the mockups show both, which means
   the seal is no longer the only thing on that screen.
+- **§5.2: what happens to the 20 already-empty folders?** The removal step is scoped to folders the
+  plan itself emptied, so today they have no path at all. Offering them means re-deciding the 6 Aug
+  date-bucket-versus-category split without a plan to scope it — cheap to report, easy to get wrong.
