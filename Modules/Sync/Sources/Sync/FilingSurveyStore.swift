@@ -60,13 +60,9 @@ public enum FilingSurveyStore {
         return true
     }
 
-    private static func stamp(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return formatter.string(from: date)
-    }
+    /// The instant both filing artifacts date themselves with — see ``FilingArtifactStamp``, which
+    /// is shared with ``FilingProfileStore`` so the two companion files cannot drift apart.
+    private static func stamp(_ date: Date) -> String { FilingArtifactStamp.string(from: date) }
 
     /// The full on-disk shape, header and all.
     ///

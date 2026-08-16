@@ -252,4 +252,140 @@ import Testing
                 "the link's target was created, so the bytes went through the link")
         #expect(FilingProfileStore.profile(id: "abhishek", in: dir) != nil)
     }
+
+    // MARK: - An index this cannot fully read is refused, not amended
+
+    /// Writes `json` as `profiles.json` in a fresh directory and returns both, with the original
+    /// bytes, so a test can assert the file did not move.
+    private static func withIndex(_ json: String) throws -> (dir: URL, before: Data) {
+        let dir = scratch()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = Data(json.utf8)
+        try data.write(to: FilingProfileStore.indexURL(in: dir))
+        return (dir, data)
+    }
+
+    /// **The index decides one thing — whether anything is already active — and it used to be asked
+    /// twice, by two parsers that disagreed.**
+    ///
+    /// `activeProfileId(in:)` decodes with `JSONDecoder`, which throws on a type mismatch and so
+    /// reported "nothing active" for an index whose `schemaVersion` was quoted; the amendment then
+    /// re-read the same bytes with `JSONSerialization`, which accepts them, found no *Int* schema to
+    /// object to, and re-pointed `activeProfileId` at the new survey. A quoted number is an ordinary
+    /// hand-edit slip, and the profile it aimed away from is the hand-built one.
+    ///
+    /// The parameters are the shapes that split the two readers. Each must refuse, and each must
+    /// leave `profiles.json` byte-for-byte as it was.
+    @Test(arguments: [
+        #"{"schemaVersion": "1", "activeProfileId": "hand-built", "profiles": []}"#,
+        #"{"schemaVersion": 1, "activeProfileId": 123, "profiles": []}"#,
+    ])
+    func anIndexTheStrictReaderRejectsIsRefusedRatherThanRePointed(json: String) throws {
+        let (dir, before) = try Self.withIndex(json)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        #expect(throws: FilingProfileStore.WriteRefusal.self) {
+            try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        }
+        #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == before,
+                "profiles.json was rewritten — an index this cannot read is still the user's")
+        #expect(!FileManager.default.fileExists(
+            atPath: FilingProfileStore.profileURL(id: "abhishek", in: dir).path),
+                "the profile landed even though the index was refused")
+    }
+
+    /// A `profiles` list this cannot read is refused rather than silently emptied.
+    ///
+    /// It used to be `as? [[String: Any]] ?? []`, so an object-keyed `profiles` — or a list with a
+    /// string in it — became an empty array and the rewrite dropped every profile the index named.
+    /// That is precisely the clobber ``FilingProfileStore/WriteRefusal/indexUnreadable`` says it
+    /// exists to prevent: "it names profiles a clobber would orphan".
+    @Test(arguments: [
+        #"{"schemaVersion": 1, "profiles": {"hand-built": {"root": "~/Documents"}}}"#,
+        #"{"schemaVersion": 1, "profiles": ["hand-built"]}"#,
+    ])
+    func aProfilesListThisCannotReadIsRefusedRatherThanEmptied(json: String) throws {
+        let (dir, before) = try Self.withIndex(json)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        #expect(throws: FilingProfileStore.WriteRefusal.self) {
+            try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        }
+        #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == before,
+                "the user's profile list was replaced by a one-element array")
+    }
+
+    /// The control for both refusals above: an index this *can* read, with nothing active, really is
+    /// amended — otherwise the two tests would pass just as well with the write path removed
+    /// altogether.
+    @Test func anIndexItUnderstandsIsStillAmendedInPlace() throws {
+        let (dir, _) = try Self.withIndex(
+            #"{"schemaVersion": 1, "profiles": [{"profileId": "older", "root": "~/Other"}], "note": "kept"}"#)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+
+        let data = try Data(contentsOf: FilingProfileStore.indexURL(in: dir))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["activeProfileId"] as? String == "abhishek")
+        #expect(object["note"] as? String == "kept", "an unrelated field was dropped")
+        let listed = try #require(object["profiles"] as? [[String: Any]])
+        #expect(listed.compactMap { $0["profileId"] as? String }.sorted() == ["abhishek", "older"],
+                "the profile the index already named was not preserved")
+    }
+
+    // MARK: - A half-landed write leaves nothing behind
+
+    /// **The profile is removed when the index write fails**, because the alternative is the one
+    /// state nothing can recover from.
+    ///
+    /// The profile lands first and the index second. If the second throws, the old code left a
+    /// profile on disk that nothing pointed at — and, worse, one that every retry refused with
+    /// `profileExists`, whose contract tells the caller *"this tree already has a profile and I did
+    /// not touch it"*. On a fresh machine, which is the only state this write path exists for, that
+    /// is a permanent block with no hand-built profile to protect.
+    ///
+    /// The failure is induced by making `profiles.json` a directory: an atomic write to it cannot
+    /// succeed, and nothing else about the call changes.
+    @Test func aFailedIndexWriteRollsTheProfileBackAndLeavesTheTreeRetryable() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let blocker = FilingProfileStore.indexURL(in: dir)
+        try FileManager.default.createDirectory(at: blocker, withIntermediateDirectories: true)
+
+        #expect(throws: (any Error).self) {
+            try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        }
+        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        #expect(!FileManager.default.fileExists(atPath: url.path),
+                "the profile survived a failed write — every retry now refuses to overwrite it")
+
+        // And the state it leaves really is retryable: clear the blocker and the same call works.
+        try FileManager.default.removeItem(at: blocker)
+        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) != nil)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+    }
+
+    // MARK: - The file says what it is
+
+    /// The `note` the file carries about itself has to describe what the builder actually produced.
+    ///
+    /// It claimed `anchors` and `axes` were "left empty rather than guessed" and that "filing falls
+    /// back to folder names" — neither true: the survey derives both, and measured them at 99.73%
+    /// and 99.87% against the hand-built profile. These headers exist so a person auditing a bad
+    /// suggestion can trust the artifact, which is exactly the reader a false note misdirects.
+    @Test func theEmbeddedNoteDescribesWhatTheSurveyActuallyDerives() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+
+        let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "abhishek", in: dir))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let note = try #require(object["note"] as? String)
+        #expect(!note.contains("`naming`, `anchors` and `axes` are left empty"),
+                "the note still claims the survey derives no anchors or axes")
+        #expect(note.contains("naming"), "the one field genuinely abstained from should be named")
+        #expect(note.contains("anchors"))
+    }
 }

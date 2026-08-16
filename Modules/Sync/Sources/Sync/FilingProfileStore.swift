@@ -281,8 +281,17 @@ extension FilingProfileStore {
         // would then refuse to replace. Only when nothing is active: re-pointing an index that
         // already names a profile would aim every read at a tree the user did not choose — the
         // same class of harm as the overwrite above, one file over.
-        let index = activeProfileId(in: directory) == nil
-            ? try amendedIndex(in: directory, naming: profile, now: now) : nil
+        //
+        // **Read once.** The decision and the amendment are taken from the SAME parse, because
+        // taking them from two different ones is a hole rather than a redundancy: the decision used
+        // to come from ``activeProfileId(in:)``, whose `JSONDecoder` returns nil for anything it
+        // cannot decode, while the amendment re-read the file with the far more permissive
+        // `JSONSerialization`. A `"schemaVersion": "1"` — a routine hand-edit slip — read as "no
+        // index here" to the first and as a perfectly good index to the second, so an index that
+        // named an active profile got silently re-pointed at this survey.
+        let reading = try indexForAmending(in: directory)
+        let index = reading.activeProfileId == nil
+            ? try amendedIndex(from: reading, naming: profile, now: now) : nil
 
         try FileManager.default.createDirectory(at: directory.appendingPathComponent(id),
                                                 withIntermediateDirectories: true)
@@ -291,25 +300,86 @@ extension FilingProfileStore {
         let document = ProfileDocument(profile: profile, generated: stamp(now), builtBy: builtBy)
         try encoder.encode(document).write(to: url, options: .atomic)
 
-        if let index { try index.write(to: indexURL(in: directory), options: .atomic) }
+        if let index {
+            do {
+                try index.write(to: indexURL(in: directory), options: .atomic)
+            } catch {
+                // The profile landed and the index did not. Left alone that is the worst of the
+                // three possible states: nothing points at the new profile, AND every retry now
+                // throws `profileExists` — whose contract tells the caller "this tree already has a
+                // profile and I did not touch it", which would be false. So undo the half that
+                // succeeded and let the next attempt simply run. Only ever the file this call
+                // created, which the guard above proved was not there. Best-effort by design: if
+                // the removal fails too, the write error is still the one worth reporting.
+                try? FileManager.default.removeItem(at: url)
+                throw error
+            }
+        }
         return url
     }
 
-    /// `profiles.json`'s bytes with `profile` named active, preserving everything already in it.
-    private static func amendedIndex(in directory: URL, naming profile: FolderProfile,
-                                     now: Date) throws -> Data {
-        let url = indexURL(in: directory)
-        var object: [String: Any] = ["schemaVersion": currentSchema]
-        if let data = try? Data(contentsOf: url) {
-            guard let existing = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            else { throw WriteRefusal.indexUnreadable("it is not a JSON object") }
-            if let version = existing["schemaVersion"] as? Int, version != currentSchema {
-                throw WriteRefusal.indexUnreadable("schema \(version), not \(currentSchema)")
-            }
-            object = existing
-            object["schemaVersion"] = currentSchema
+    /// What `profiles.json` holds right now, parsed once for both of the questions the write path
+    /// asks of it: *may this be amended at all*, and *does it already name an active profile*.
+    private struct IndexReading {
+        /// The parsed document, or nil when there is no index file yet.
+        let object: [String: Any]?
+        /// The id the index names active, when it names a usable one.
+        let activeProfileId: String?
+    }
+
+    /// Reads `profiles.json` for amendment, **refusing anything it cannot fully account for**.
+    ///
+    /// Deliberately stricter than ``activeProfileId(in:)``, and the asymmetry is the point. A
+    /// *reader* that cannot understand the index degrades to "no active profile" and the app carries
+    /// on; a *writer* that cannot understand it has to stop, because the fields it would be
+    /// overwriting are the ones it just failed to read. A malformed field is therefore a refusal
+    /// here and an absence there.
+    private static func indexForAmending(in directory: URL) throws -> IndexReading {
+        guard let data = try? Data(contentsOf: indexURL(in: directory)) else {
+            return IndexReading(object: nil, activeProfileId: nil)
         }
-        var profiles = object["profiles"] as? [[String: Any]] ?? []
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw WriteRefusal.indexUnreadable("it is not a JSON object")
+        }
+        // A schema this build does not know is refused — including one that is not a number at all,
+        // which the old check skipped entirely by asking `as? Int` and moving on when it was nil.
+        if let version = object["schemaVersion"], !(version is NSNull) {
+            guard let number = version as? Int else {
+                throw WriteRefusal.indexUnreadable("schemaVersion is not a number")
+            }
+            guard number == currentSchema else {
+                throw WriteRefusal.indexUnreadable("schema \(number), not \(currentSchema)")
+            }
+        }
+        // The field that decides whether anything may be re-pointed gets the same treatment: an
+        // `activeProfileId` that is present but not a string is an index this does not understand,
+        // not an index with nothing active.
+        var active: String?
+        if let raw = object["activeProfileId"], !(raw is NSNull) {
+            guard let id = raw as? String else {
+                throw WriteRefusal.indexUnreadable("activeProfileId is not a string")
+            }
+            active = id.isEmpty ? nil : id
+        }
+        return IndexReading(object: object, activeProfileId: active)
+    }
+
+    /// `profiles.json`'s bytes with `profile` named active, preserving everything already in it.
+    private static func amendedIndex(from reading: IndexReading, naming profile: FolderProfile,
+                                     now: Date) throws -> Data {
+        var object = reading.object ?? [:]
+        object["schemaVersion"] = currentSchema
+        // A `profiles` field that is not a list of objects is refused rather than replaced. It used
+        // to be read as `as? [[String: Any]] ?? []`, so an object-keyed or otherwise unexpected
+        // list quietly became an empty one and the rewrite dropped every profile the index named —
+        // the exact clobber ``WriteRefusal/indexUnreadable`` says it exists to prevent.
+        var profiles: [[String: Any]] = []
+        if let raw = object["profiles"], !(raw is NSNull) {
+            guard let listed = raw as? [[String: Any]] else {
+                throw WriteRefusal.indexUnreadable("profiles is not a list of objects")
+            }
+            profiles = listed
+        }
         if !profiles.contains(where: { $0["profileId"] as? String == profile.profileId }) {
             // No `displayName`: the offline generator writes the person's name, and a folder walk
             // does not know it. An absent field reads as "unknown"; a guessed one reads as a fact.
@@ -323,16 +393,9 @@ extension FilingProfileStore {
                                           options: [.sortedKeys, .prettyPrinted])
     }
 
-    /// The same instant format ``FilingSurveyStore`` stamps its memory with, kept here rather than
-    /// shared because it is six lines of frozen format string and the two stores are deliberately
-    /// separate types. `now` is injected by the caller — `docs/flaky-tests.md` mechanism 5.
-    static func stamp(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return formatter.string(from: date)
-    }
+    /// The instant both filing artifacts date themselves with — see ``FilingArtifactStamp``.
+    /// `now` is injected by the caller — `docs/flaky-tests.md` mechanism 5.
+    static func stamp(_ date: Date) -> String { FilingArtifactStamp.string(from: date) }
 
     /// The on-disk shape, header and all. Mirrors ``FolderProfile``'s decoder field for field —
     /// `folders` as an array (the decoder keys it by `path`), the person axis as a
@@ -343,12 +406,19 @@ extension FilingProfileStore {
         let generated: String
         let builtBy: String
 
+        /// What the file says about itself, for the person who opens it because a suggestion looked
+        /// wrong. **It has to describe what the builder actually produced**, which is why it no
+        /// longer claims `anchors` and `axes` are empty: they are derived and populated, and a
+        /// reader who believed otherwise would go looking for the cause of a bad suggestion in the
+        /// wrong file. Only `naming` is genuinely abstained from.
         static let note = """
             What each folder IS — role, axes, naming convention, and whether it may receive files. \
             Companion to filing-memory.json, which records what a folder has RECEIVED. A profile \
-            written by the app's own survey carries names and counts only: `naming`, `anchors` and \
-            `axes` are left empty rather than guessed, so filing falls back to folder names where \
-            the offline survey would have had a judgement.
+            written by the app's own survey is derived from folder and file NAMES alone — it opens \
+            no documents — so role, anchors, axes and counts are present and measured, while \
+            `naming` is left empty rather than guessed: a wrong convention would have the rename \
+            pass propose renames toward one nobody has. What a walk cannot see at all, and what \
+            this file therefore never carries, is folderSemantics and the jurisdiction vocabulary.
             """
 
         enum Key: String, CodingKey {
