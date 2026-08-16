@@ -89,7 +89,7 @@ import Sync
         let commands = try Self.source("ShortcutCommands.swift")
         #expect(try Self.typeBody("struct CloseTabCommand: View {", in: commands).contains("keyboardShortcut"),
                 "the type slice does not reach the item's body")
-        #expect(try Self.memberBody("static func run(_ close: (() -> Void)?", in: commands)
+        #expect(try Self.memberBody("static func run(_ close: CloseTabAction?", in: commands)
                     .contains("closeWindow()"),
                 "the member slice does not reach the rule's body")
     }
@@ -557,7 +557,7 @@ import Sync
     @Test func closeTakesTheTabWhenThereIsOne() {
         var closedTab = false
         var closedWindow = false
-        CloseTabCommand.run({ closedTab = true }) { closedWindow = true }
+        CloseTabCommand.run(.closeTab({ closedTab = true })) { closedWindow = true }
         #expect(closedTab)
         #expect(!closedWindow, "⌘W closed the window as well as the tab")
     }

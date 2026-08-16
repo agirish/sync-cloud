@@ -10,7 +10,11 @@ import Foundation
 @Suite struct ShortcutCommandsTests {
 
     /// A publisher with every value present, so the suspended case cannot pass vacuously.
-    private func loadedPublisher(suspended: Bool) -> ShortcutValuePublisher {
+    ///
+    /// `closeTab` is injectable because ⌘W is the one chord whose suspended behaviour is a
+    /// *silence* rather than a `nil`, so its tests have to watch what the published action DOES.
+    private func loadedPublisher(suspended: Bool,
+                                 closeTab: @escaping () -> Void = {}) -> ShortcutValuePublisher {
         ShortcutValuePublisher(
             workspace: .constant(.compare),
             goBack: {}, goForward: {}, rescan: {}, newFolder: {},
@@ -22,7 +26,7 @@ import Foundation
             switchPaneFocus: PaneFocusSwitch(targetName: "Dropbox", run: {}),
             commandPalette: {},
             beginPaneSearch: {},
-            newTab: {}, closeTab: {}, cycleTab: { _ in }, reopenClosedTab: {},
+            newTab: {}, closeTab: closeTab, cycleTab: { _ in }, reopenClosedTab: {},
             tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
             suspended: suspended
         )
@@ -268,6 +272,70 @@ import Foundation
                 "⌘F tunnels under the destination picker")
         #expect(loadedPublisher(suspended: false).effectiveBeginPaneSearch != nil,
                 "⌘F is dead even with nothing suspending it")
+    }
+
+    // MARK: ⌘W, whose published value has THREE states
+
+    /// A live tab — the ordinary case, and the control that stops the two below passing because
+    /// nothing was wired up at all.
+    @Test func closeTabClosesTheTabWhenAPaneOffersOne() {
+        var closedTab = false
+        var closedWindow = false
+        let action = loadedPublisher(suspended: false, closeTab: { closedTab = true }).closeTabAction
+        CloseTabCommand.run(action) { closedWindow = true }
+        #expect(closedTab, "⌘W no longer closes the tab a pane published")
+        #expect(!closedWindow, "⌘W closed the window as well as the tab")
+    }
+
+    /// **Suspended, ⌘W does nothing at all — and above all does not close the window.**
+    ///
+    /// The destination picker and the ⌘K palette silence every mirrored chord, and ⌘W's silence
+    /// used to arrive at the item as the very same `nil` an auxiliary window publishes — which the
+    /// item reads as "this window has no tabs" and answers with `performClose`. So the one chord
+    /// that was not really suspended took the whole window out from under the pick, mid-answer, on
+    /// a keystroke the overlay's own scrim exists to refuse.
+    ///
+    /// Both halves asserted: a suspension that closed the *tab* instead would be the tunnelling
+    /// every other value here is nil'd to prevent.
+    @Test func closeTabDoesNothingWhileTheChordsAreSuspended() {
+        var closedTab = false
+        var closedWindow = false
+        let action = loadedPublisher(suspended: true, closeTab: { closedTab = true }).closeTabAction
+        // The distinction the fix rests on: suspended is published, not withheld. Were this `nil`
+        // the run below would take the `closeWindow` branch and the expectation after it would be
+        // reporting the old bug rather than the new rule.
+        #expect(action != nil,
+                "suspension flattened ⌘W back into `nil`, which the item reads as ‘no tabs here’")
+        CloseTabCommand.run(action) { closedWindow = true }
+        #expect(!closedTab, "⌘W closed a tab under an overlay that owns the keyboard")
+        #expect(!closedWindow,
+                "⌘W closed the main window out from under an in-flight destination pick")
+    }
+
+    /// …and the case that must NOT become a no-op with it: the three auxiliary `Window` scenes
+    /// (Keyboard Shortcuts, Activity Log, Sync History) publish no focused value at all, and this
+    /// item replaced the standard Close group, so ⌘W is the only thing that closes them.
+    @Test func closeTabStillClosesAWindowThatPublishesNoTabAtAll() {
+        var closedWindow = false
+        CloseTabCommand.run(nil) { closedWindow = true }
+        #expect(closedWindow, "⌘W is dead on a window that publishes no tab — it is also its Close")
+    }
+
+    /// The wiring the three tests above cannot see: that `\.closeTab` is published from the
+    /// three-state value rather than from `effectiveCloseTab` directly. Republishing the plain
+    /// optional would restore the flattening — `.suspended` would never reach the item — and every
+    /// assertion above would still pass, because they call the rule rather than the scene.
+    ///
+    /// **`everyEffectiveValueIsHandedToAFocusedSceneValue` does not cover it either**, and this is
+    /// the one value it cannot: `effectiveCloseTab` now reaches the scene *through* `closeTabAction`
+    /// rather than by name, so that scan is satisfied by the resolver's own line — measured by
+    /// deleting the publication, which left it green and ⌘W unpublished.
+    @Test func theCloseTabValueIsPublishedThroughItsThreeStateForm() throws {
+        let code = Self.codeOnly(try Self.publisherSource())
+        #expect(code.contains(".focusedSceneValue(\\.closeTab, closeTabAction)"),
+                "⌘W is not published through `closeTabAction`, so the suspended state cannot reach the item")
+        #expect(code.contains("CloseTabAction.resolve(suspended: suspended, effectiveCloseTab)"),
+                "`closeTabAction` no longer resolves the suspension — ⌘W would fall through to the window again")
     }
 
     /// **The ambient panels cannot latch behind a destination pick.**

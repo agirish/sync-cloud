@@ -23,6 +23,14 @@ import Foundation
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")
         #expect(AppChord.switchPaneFocus.display == "⌃⇥")
+        // The tabs. ⌘T/⌘W are Finder's; the cycle pair is SHIFTED so the unshifted ⌘[ / ⌘] stay
+        // pane back/forward, and ⇧⌘T is View ▸ Tab Bar rather than Reopen Closed Tab — which has
+        // no chord at all and so nothing to pin here.
+        #expect(AppChord.newTab.display == "⌘T")
+        #expect(AppChord.closeTab.display == "⌘W")
+        #expect(AppChord.nextTab.display == "⇧⌘]")
+        #expect(AppChord.previousTab.display == "⇧⌘[")
+        #expect(AppChord.tabBar.display == "⇧⌘T")
         #expect(AppChord.reviewDifferences.display == "⇧⌘R")
         #expect(AppChord.verifyDifferences.display == "⇧⌘V")
         #expect(AppChord.differencesList.display == "⌘D")
@@ -91,7 +99,18 @@ import Foundation
         }
     }
 
-    @Test func everyDeclaredChordIsInTheRegistry() throws {
+    /// Every `static let <name> = AppChord(` declaration in `AppChord.swift`.
+    ///
+    /// The parameterised `workspace(_:)` is a `static func` and so is correctly not counted.
+    /// Counted over the whitespace-collapsed whole file rather than line by line, so a declaration
+    /// whose initialiser wraps (`static let x =` / newline / `AppChord(…)`) is still seen. Line-
+    /// scoped, such a member would be invisible here AND absent from the registry — the count
+    /// would balance and the chord would reach none of the sweeps that read this.
+    ///
+    /// Shared by the two tests below, which ask different questions of the same list: that every
+    /// declared chord is in `registry`, and that every declared chord has a display pin. A second
+    /// copy of the parser would be one more place for the list to go stale.
+    static func declaredChordNames() throws -> Set<String> {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/Design/AppChord.swift")
@@ -99,12 +118,6 @@ import Foundation
                                   "cannot read AppChord.swift — this scan would be vacuous")
         try #require(source.count > 500, "AppChord.swift is implausibly short")
 
-        // Every `static let <name> = AppChord(` declaration — the parameterised `workspace(_:)` is
-        // a `static func` and so is correctly not counted.
-        // Counted over the whitespace-collapsed whole file rather than line by line, so a
-        // declaration whose initialiser wraps (`static let x =` / newline / `AppChord(…)`) is still
-        // seen. Line-scoped, such a member would be invisible here AND absent from the registry —
-        // the count would balance and the chord would reach none of the three sweeps.
         let flattened = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         var declared: Set<String> = []
         for fragment in flattened.components(separatedBy: "static let ").dropFirst() {
@@ -112,7 +125,16 @@ import Foundation
             guard fragment.dropFirst(name.count).hasPrefix(" = AppChord(") else { continue }
             declared.insert(String(name))
         }
-        #expect(declared.contains("settings"), "the scan found no declarations — it is vacuous")
+        // `#require`, not `#expect`: a parser that silently matched nothing makes every caller
+        // below pass over an empty list, which is the one failure a coverage scan cannot report.
+        try #require(declared.contains("settings"), "the scan found no declarations — it is vacuous")
+        try #require(declared.count >= 20,
+                     "only \(declared.count) chords parsed — the scan is near-vacuous")
+        return declared
+    }
+
+    @Test func everyDeclaredChordIsInTheRegistry() throws {
+        let declared = try Self.declaredChordNames()
         // **Distinct first, or the count proves nothing.** `registry` is a plain array: listing one
         // member twice balances the count while a genuinely new chord is missing, which is exactly
         // the omission this test exists to catch. Every chord this app registers renders a
@@ -124,5 +146,32 @@ import Foundation
                 \(declared.count) chords are declared but the registry holds \(AppChord.registry.count) \
                 — declared: \(declared.sorted().joined(separator: ", "))
                 """)
+    }
+
+    /// **Every declared chord is pinned by `everyChordRendersItsDocumentedDisplay`.**
+    ///
+    /// The pins themselves stay hand-written — a pin derived from the value it pins asserts
+    /// nothing — but the LIST of them is derived, because the hand-written list is what went
+    /// stale: the tab work declared five chords (⌘T, ⌘W, ⇧⌘], ⇧⌘[, ⇧⌘T) that were registered on
+    /// menu items and rendered on keycaps with no test naming any of them, so a slip in any of
+    /// their modifiers would have failed nothing. The other "for every chord" tests could not see
+    /// it — they read `registry`, which the five were correctly in.
+    ///
+    /// So the next chord fails here on the day it is declared, rather than on the day someone
+    /// remembers this file.
+    @Test func everyDeclaredChordIsPinnedByADisplayExpectation() throws {
+        let declared = try Self.declaredChordNames()
+        let raw = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
+                               "cannot read this test file — the coverage scan would be vacuous")
+        try #require(raw.count > 500, "this file is implausibly short — the scan would be vacuous")
+        // Whole-line comments dropped, or a chord "pinned" only in the prose above would satisfy
+        // this — the commented-decoy hazard the app target's source scans keep being fixed for.
+        let own = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        for name in declared.sorted() {
+            #expect(own.contains("AppChord.\(name).display =="),
+                    "\(name) is declared and registered, but no test pins what it renders")
+        }
     }
 }

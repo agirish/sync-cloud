@@ -71,7 +71,7 @@ private struct NewTabKey: FocusedValueKey {
 }
 
 private struct CloseTabKey: FocusedValueKey {
-    typealias Value = () -> Void
+    typealias Value = CloseTabAction
 }
 
 private struct CycleTabKey: FocusedValueKey {
@@ -107,6 +107,42 @@ struct TabBarSwitch {
     static func resolve(hasSecondTab: Bool, preference: Bool,
                         set: @escaping (Bool) -> Void) -> TabBarSwitch {
         TabBarSwitch(isOn: hasSecondTab || preference, isForced: hasSecondTab, set: set)
+    }
+}
+
+/// ⌘W's payload — **three states, because an optional closure only has two and ⌘W needs three.**
+///
+/// `nil` (nothing published) and `.suspended` used to arrive as the same `nil`, and
+/// `CloseTabCommand` treated that one value as "close the key window". That is right for one of
+/// them and wrong for the other:
+///
+/// - **nothing published** — one of the three auxiliary `Window` scenes (Keyboard Shortcuts,
+///   Activity Log, Sync History) is key. None of them publishes a focused value, and this item
+///   took File ▸ Close's place, so ⌘W still has to close the window. Unchanged.
+/// - **`.suspended`** — the main window is there, but the destination picker or the ⌘K palette
+///   owns the keyboard. ⌘W closed the WINDOW out from under an in-flight pick: the overlay is up
+///   precisely because a file operation is waiting on an answer, and every other chord is silenced
+///   for that reason. Taking the whole window is the one thing worse than tunnelling.
+///
+/// Not a second focused value beside the closure, deliberately: two values that must be read
+/// together are two values one call site can forget to read together, and a `switch` over this is
+/// the compiler noticing when a fourth state appears.
+enum CloseTabAction {
+    /// A pane published a tab to close. On its last tab that closure closes the window itself,
+    /// which is Finder's ⌘W and why this is never withheld at one tab.
+    case closeTab(() -> Void)
+    /// A pane is present but an overlay owns the keyboard: ⌘W does nothing at all.
+    case suspended
+
+    /// The publisher's rule, as a value — static so the three-way resolution can be tested without
+    /// a scene, and so the suspension cannot be expressed anywhere but here.
+    ///
+    /// `suspended` wins over a live closure rather than trusting the caller to have nil'd it: the
+    /// argument is already `effectiveCloseTab`, which is suspension-filtered, so the two agree —
+    /// but a value that decides the same thing twice should not be able to disagree with itself.
+    static func resolve(suspended: Bool, _ close: (() -> Void)?) -> CloseTabAction? {
+        if suspended { return .suspended }
+        return close.map(CloseTabAction.closeTab)
     }
 }
 
@@ -232,9 +268,11 @@ extension FocusedValues {
         set { self[NewTabKey.self] = newValue }
     }
 
-    /// ⌘W. Never `nil` while a pane exists: on the last tab it closes the WINDOW, as Finder does,
-    /// so the item must stay enabled rather than becoming a dead ⌘W.
-    var closeTab: (() -> Void)? {
+    /// ⌘W. Never `nil` while a pane exists — on the last tab it closes the WINDOW, as Finder does,
+    /// so the item stays enabled rather than becoming a dead ⌘W. While the chords are suspended it
+    /// is `.suspended` rather than `nil`, which is what keeps "an overlay owns the keyboard" from
+    /// reading as "this window has no tabs, close it" (see ``CloseTabAction``).
+    var closeTab: CloseTabAction? {
         get { self[CloseTabKey.self] }
         set { self[CloseTabKey.self] = newValue }
     }
@@ -315,6 +353,10 @@ struct ShortcutValuePublisher: ViewModifier {
     let newTab: (() -> Void)?
     /// Never `nil` while a pane exists — on the last tab it closes the WINDOW, which is what
     /// Finder's ⌘W does and what keeps this from being a chord that dies at one tab.
+    ///
+    /// Suspension does not flatten it into `nil` on the way out: it is published as
+    /// ``CloseTabAction``, whose `.suspended` case is what stops ⌘W falling through to
+    /// `performClose` mid-pick. `effectiveCloseTab` below still nils, like every other value here.
     let closeTab: (() -> Void)?
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
@@ -352,6 +394,13 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
 
+    /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
+    /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
+    /// is that the item hears *why* it got nothing, so it stops short of closing the window.
+    var closeTabAction: CloseTabAction? {
+        CloseTabAction.resolve(suspended: suspended, effectiveCloseTab)
+    }
+
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.workspaceSelection, effectiveWorkspace)     // ⌘1…⌘N, one per workspace
@@ -368,7 +417,9 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.commandPalette, effectiveCommandPalette)     // ⌘K
             .focusedSceneValue(\.beginPaneSearch, effectiveBeginPaneSearch)   // ⌘F
             .focusedSceneValue(\.newTab, effectiveNewTab)                     // ⌘T
-            .focusedSceneValue(\.closeTab, effectiveCloseTab)                 // ⌘W
+            // ⌘W — three states, not two: `.suspended` is what the silenced value publishes, so the
+            // item can tell it from the auxiliary windows that publish nothing at all.
+            .focusedSceneValue(\.closeTab, closeTabAction)
             .focusedSceneValue(\.cycleTab, effectiveCycleTab)                 // ⇧⌘] / ⇧⌘[
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
@@ -673,17 +724,28 @@ struct NewTabCommand: View {
 /// Close group's place. That is a regression the tab feature has no business causing, so a `nil`
 /// value falls back to what the item replaced: close the key window.
 ///
-/// The same fallback covers the suspended case (a destination pick is up), where ⌘W closing the
-/// window is exactly what it did before this existed.
+/// **The fallback does NOT cover the suspended case, and that is the point of ``CloseTabAction``.**
+/// While a destination pick or the ⌘K palette is up every mirrored chord is silenced, and ⌘W used
+/// to arrive here as the same `nil` an auxiliary window publishes — so the one chord that was not
+/// silenced closed the main window out from under the pick the user was in the middle of making.
+/// Suspended, ⌘W now does nothing.
 struct CloseTabCommand: View {
     @FocusedValue(\.closeTab) private var close
 
-    /// What ⌘W does when nothing publishes a tab to close.
+    /// What ⌘W does, in all three of its states.
     ///
     /// Static and injectable so the rule can be tested: the live path reads the key window, which a
-    /// unit test has none of.
-    static func run(_ close: (() -> Void)?, closeWindow: () -> Void) {
-        if let close { close() } else { closeWindow() }
+    /// unit test has none of. A `switch` rather than `if let`, so a fourth state cannot be added
+    /// without the compiler asking what ⌘W should do in it.
+    static func run(_ close: CloseTabAction?, closeWindow: () -> Void) {
+        switch close {
+        case .closeTab(let closeTab): closeTab()
+        // An overlay owns the keyboard. Doing nothing is the whole fix: the alternative — falling
+        // through to `closeWindow` — takes the window an in-flight file operation is asking about.
+        case .suspended: break
+        // Nothing published: an auxiliary window, where this item stands in for File ▸ Close.
+        case nil: closeWindow()
+        }
     }
 
     var body: some View {
