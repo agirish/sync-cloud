@@ -174,6 +174,25 @@ import Events
             named: "customize-sheet")
     }
 
+    /// The same sheet with a bar item held over the palette — the remove target, lit.
+    ///
+    /// This state lasts exactly as long as a drag, so nothing else in the suite can reach it, and
+    /// that is precisely why it is worth a picture: the first draft drew the card on
+    /// `Material.regular` and the tiles beneath it read straight through the words "Remove from
+    /// bar". Every geometry assertion passed. Only the image showed it.
+    @Test func paneBarCustomizeSheetRemoving() {
+        let defaults = ScratchDefaults("DashboardSnapshotTests-customize-removing")
+        defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
+        defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
+        assertViewSnapshot(
+            of: PaneBarCustomizeSheet(
+                availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview],
+                showingRemoveTarget: true)
+                .defaultAppStorage(defaults),
+            size: CGSize(width: 600, height: 545),
+            named: "customize-sheet-removing")
+    }
+
     /// - Parameter previewEnabled: the preview toggle's state, pinned through an injected defaults
     ///   domain. `PaneHeader` reads it from `@AppStorage`, so left alone these images would render
     ///   from whatever the test host's standard domain happens to hold — a reference PNG that is a
