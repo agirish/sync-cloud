@@ -30,9 +30,10 @@ there, passing in isolation *is* evidence.
 **Only the app-target step red, with window assertions failing in under 0.1s?** If the expectations
 read `nil` or `[]` for a panel or a child window, it is *probably* the palette-panel fixture —
 [mechanism 11](#11-five-palette-tests-that-need-a-window-nobody-ordered-in). On CI it costs one
-rerun, **and a rerun of the same SHA that fails the same way is a verdict, not this**; locally it
-will not clear, so establish the `origin/main` baseline instead. Bisecting `MacApp/` will find
-nothing *once one of those two has cleared it* — not before.
+rerun, **and a rerun of the same SHA that fails the same way is a verdict, not this**; locally a
+rerun sometimes clears it and sometimes does not, so the `origin/main` baseline is the reliable
+local discriminator. Bisecting `MacApp/` will find nothing *once one of those has cleared it* — not
+before.
 
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
@@ -1202,18 +1203,89 @@ these same five, on the same assertions, just as fast — and this is the app-ta
 one that compiles `MacApp/` at all (`docs/ci.md`), so misreading it costs the one signal that
 surface has.
 
-**Locally it does not clear** — three consecutive runs on 2026-08-15 failed, and so did the
-`origin/main` baseline beside them, so a rerun is not the local remedy. Establish the baseline
-instead (above) and carry on; a local red here is not a verdict on your tree, and a baseline that
-*passes* while your tree fails is the same discriminator from the other side.
+**That discriminator only pays out if the rerun is allowed to finish, and at a busy push cadence it
+is not.** Branch CI is tip-only with `cancel-in-progress`, so every push to `main` kills the run in
+flight — a rerun of `6ac470f6` was evicted before it could answer, and `d81cf6a5`, `a0520ba7` and
+`6ac470f6` all ended cancelled with no verdict at all. **Check that the rerun actually completed
+rather than that it merely started**; a cancelled run is not a pass, and treating one as "it
+cleared" is how this entry would absorb a real regression. If pushes are landing faster than the
+suite runs, the honest move is to hold the next push until one run reports.
+
+**Locally a rerun is unreliable in both directions — do not read either outcome as the answer.**
+This entry said flatly that it does not clear locally, on the strength of three consecutive failures
+on 2026-08-15 with the `origin/main` baseline failing beside them. **That is now falsified**: on
+2026-08-16 another session measured the same worktree, unchanged between runs, failing with 10
+issues across these five and then passing outright on a straight rerun (531 tests, exit 0). So a
+local rerun clears it sometimes. Use the `origin/main` baseline (above) as the local discriminator
+instead of a rerun: a local red here is not a verdict on your tree, and a baseline that *passes*
+while your tree fails is the same discriminator from the other side.
+
+**The display hypothesis was raised, measured, and is DEAD. Do not re-derive it.** The rerun that
+cleared it had followed a `caffeinate -u`, which looked like a lead: mechanism 1 is a display-asleep
+stall, and `c881b7f5` gates the ground-truth walk because an iCloud walk makes no progress with the
+display off, so two of this file's own entries point that way.
+
+It does not survive contact with `pmset -g log`, which recovers display state retrospectively and so
+settles it without needing a new run — no forcing the display down on a machine somebody is working
+at. Verified independently by two sessions:
+
+    09:06:12 off · 09:20:37 on · 09:30:35 off · 09:46:16 on
+
+A captured app-target run at **09:35:45-09:35:53 sits inside a display-OFF window and PASSED** — 531
+tests, exit 0, these five green. An earlier run at 09:17:22 (530 passed) sits inside the other OFF
+window. **Two passes with the display verifiably off.** If display-off caused these failures, neither
+could have happened. The failing runs fall in the 09:20:37-09:30:35 display-ON window, but their
+worktrees are gone and they cannot be timestamped precisely, so the inverted correlation is *not*
+claimed either — only that the proposed direction is refuted.
+
+**The shape was always wrong for it, which is the more general lesson.** Every assertion here is a
+*missing object* — `(panel → nil) != nil`, `(host.childWindows → []).first → nil`, `isPresented →
+false`. The display precedents in this file are all work making **no progress**: a scroll that never
+animates, a walk that never returns. Nothing in these five waits on anything; the window simply is
+not there, and the tests fail in under 0.1s rather than spending a ceiling. **Before reaching for a
+timing or environment cause, check whether the failure spent time or not** — a stall and an absence
+look nothing alike, and this one is an absence.
+
+Same day, the other side of it: CI failed these five on `6ac470f6` while a local run of the
+identical tree passed — so "CI-only" and "local-only" have both now been observed and neither is a
+property of this flake.
+
+**The strongest evidence yet that it is not the tree under test: two sessions hit it on disjoint
+file sets.** One was editing `MacApp/` directly — `ContentView`, `ContentView+PaneTabs`,
+`SyncCloudTests` — and the other touched no `MacApp` file at all (Sync sources, two FileExplorer
+benchmarks, `SettingsView`, docs). Same five tests, same assertions, both cleared by a rerun on one
+side. Two trees with nothing in common between them failing the same way is about as close to
+"neither tree" as circumstantial evidence gets, and it is a better reason not to bisect `MacApp/`
+than the one this entry used to give.
 
 **Do not bisect `MacApp/`** once either discriminator has cleared it — the app code these tests
 cover has not changed across any of the failures, and two of the three failing commits were
 documentation-only. Before that, a lone red on the app-target step with window assertions failing in
 under 0.1s is the *likely* shape of this, not proof of it.
 
-**See.** `SyncCloudTests/CommandPalettePanelTests.swift` (`makeHost`); `5c851773` for why the host
-is no longer ordered in, including the two measurements that ruled out parking it offscreen;
+**The open question is narrower than "should the fixture order the window in", and two remedies are
+already spent.** Do not re-derive either — both are written up with numbers in the fixture itself,
+which is the first thing to read:
+
+- **Park a visible window offscreen** (`makeHost`, and see `5c851773`). Measured twice: a window
+  created at `(-2900, -2600)` came up at `(-860, -513)` because `constrainFrameRect` runs on every
+  frame change to a visible *titled* window; overriding the constraint put it at `(460, 728)`,
+  squarely on the display, and desynchronised the panel from its host so
+  `presentingRaisesAPanelParentedToAndSizedWithTheHost` failed too. `DetailsWhereItLivesTests` in
+  Dashboard parks its window successfully because it is *borderless*, the case the constraint skips.
+- **Skip the `orderOut`** (`present`). It is not tidiness: `present` does its own
+  `makeKeyAndOrderFront`, and ordering a child window front orders its parent in as well — measured,
+  a titled parent never ordered in reads `isVisible == false` right up until a borderless child is
+  ordered front, and `true` immediately after. The host reaches the screen regardless of what the
+  fixture did beforehand; the `orderOut` is the only thing that takes it back off.
+
+So the question actually open is: **why does `host.childWindows` intermittently read `[]` for a
+window whose parentage is object state that ought to survive an `orderOut` entirely?** That is not a
+timing question and not an environment one — see the shape argument above — and it is where anyone
+picking this up should start.
+
+**See.** `SyncCloudTests/CommandPalettePanelTests.swift` (`makeHost`, and `present` for the
+child-orders-parent-in measurement); `5c851773` for why the host is no longer ordered in;
 mechanism 1 for the display-asleep sibling, which is a window that exists and will not animate.
 
 ---

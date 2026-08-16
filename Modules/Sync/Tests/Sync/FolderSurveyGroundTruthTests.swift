@@ -211,13 +211,20 @@ enum FolderSurveyGroundTruth {
     /// skip naming the reason is the honest outcome — the suite is machine-pinned already, so it
     /// carries no CI verdict to lose.
     ///
-    /// **Two limits worth knowing.** It is a skip, so the only test that can say whether the survey
-    /// rules still match the real tree may go a long time without running, and nothing reports that
-    /// — check it deliberately after changing a rule rather than trusting a green package run. And
-    /// the query needs a window server: from an SSH session, or with no display attached,
+    /// **Two limits worth knowing, and the first one bites more often than it looks.** It is a skip,
+    /// so the only test that can say whether the survey rules still match the real tree may go a
+    /// long time without running, and nothing reports that. This machine's display cycles off a
+    /// lot — `pmset -g log` for a single working morning shows off at 09:06, on at 09:20, off at
+    /// 09:30, on at 09:46, off at 09:57 — so "the display happened to be off" is an ordinary
+    /// condition here, not an edge case, and a green package run is routinely a run where this
+    /// suite said nothing at all. **After changing a rule, check deliberately that it ran**; the
+    /// skip reason is printed, so the evidence is there if you look for it.
+    ///
+    /// Second, the query needs a window server: from an SSH session, or with no display attached,
     /// `CGMainDisplayID()` gives the null display and this reads AWAKE, so the gate does not protect
-    /// a headless run. Neither is a reason to drop it — it turns the one observed failure mode from
-    /// an 8,888s hang into an instant, labelled skip.
+    /// a headless run. Neither limit is a reason to drop it — it turns the one observed failure mode
+    /// from an 8,888s hang into an instant, labelled skip — but the coverage this costs is real and
+    /// is paid on ordinary days.
     static var displayIsAwake: Bool { CGDisplayIsAsleep(CGMainDisplayID()) == 0 }
 
     static let report: Report? = {
