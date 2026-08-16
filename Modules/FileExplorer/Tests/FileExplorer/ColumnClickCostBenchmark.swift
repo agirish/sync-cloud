@@ -33,8 +33,12 @@ import Sync
 ///   `max(1.0, …)` floored the multiplier and the bar did not stretch. This test passed that run,
 ///   so there is no inflated ColumnClick median recorded beside it.
 /// - The 9.2ms-idle against 7.4ms-contended pair belongs to the **sibling's** probe, not this one.
-///   It is the direct evidence that a CPU probe is anti-correlated with this machine's starvation;
-///   it is quoted here as the sibling's, because that is what it is.
+///   It is the evidence that the probe did not rise on the run that mattered — and "anti-correlated"
+///   overstates it, which is worth saying because the sibling's own four-run table shows the probe
+///   at 8.5/9.0ms quiet against 15.1/16.2ms contended, rising 1.7-1.9x in the right direction. The
+///   honest verdict is that it is **unreliable**: sometimes it tracks load, and on the one occasion
+///   the bar needed it, it did not. A multiplier that is right most of the time and floors exactly
+///   when a starved run fails is worse than no multiplier, because it looks like protection.
 /// - The 163ms figure is from a separate, earlier deliberate-starvation run, whose `slowdown` print
 ///   was not recorded.
 ///
@@ -185,15 +189,14 @@ import Sync
     /// machine (163ms, nothing regressed) rather than against an idle run, because the scaling that
     /// was supposed to absorb that never fired.
     ///
-    /// **The squeeze is real and worth stating rather than glossing.** A healthy render is ~10ms and
-    /// the regression this exists to chase was reported at ~290ms, so between the 163ms noise floor
-    /// and that signal there is not much room: at 250ms a pane that regressed to 250-289ms would
-    /// pass. The alternative is a tighter bar that fires on a starved run, which is the failure mode
-    /// this whole change is about — and the old 120ms bar was *already* below the noise floor,
-    /// protected only by a multiplier that never applied. So this is strictly better than what it
-    /// replaces, and still not comfortable. If a render regression is ever suspected in that band,
-    /// the number to move is this one, and the thing to measure first is whether 163ms is still the
-    /// worst this machine does.
+    /// **The blind band is 164-249ms, and it is worth naming precisely.** A healthy render is ~10ms
+    /// and the regression this chases was reported at ~290ms, which this bar catches. What escapes
+    /// is a regression landing above the 163ms starvation floor but below 250ms — real, and
+    /// invisible here. The alternative is a tighter bar that fires on a starved run, which is the
+    /// failure mode this whole change is about; the old 120ms bar sat *below* the noise floor,
+    /// protected only by a multiplier that never applied, so it had no honest band at all. If a
+    /// render regression is ever suspected between 164ms and 250ms, this is the number to move, and
+    /// the thing to measure first is whether 163ms is still the worst this machine does.
     private static let budgetMs: Double = 250.0
 
     private func probeMs() -> Double {
@@ -237,8 +240,9 @@ import Sync
         #expect(rowCounts.allSatisfy { $0 > 0 }, "a column materialised no rows: \(rowCounts)")
 
         // Click a file in the deepest column, repeatedly, as the user does walking a folder.
-        // Each render sample is paired with a load probe taken moments before it, so the slowdown
-        // estimate tracks whatever the machine was doing DURING this loop, not at suite start.
+        // Each render sample is still paired with a probe reading, but only so the two appear side
+        // by side in the printed line — there is no slowdown estimate any more, and nothing here is
+        // load-adjusted. See the type comment for the measurements that retired it.
         var samples: [Double] = []
         var probes: [Double] = []
         for i in 0..<8 {

@@ -630,18 +630,19 @@ lengthened a main-actor pump in a suite that runs in parallel with this benchmar
 causal path, just not the one that fired.
 
 **It fired twice more and is now FIXED — the test asserts the saving, not the ratio.** Both later
-failures and the fix happened on `main` (SHAs below are that line's; `869be3ca` is the one commit in
-the table this line also carries). This line ran the identical file, so it carried the identical
+failures and the fix happened on `main`. SHAs below are that line's **except `869be3ca`, which is
+this line's** — it and `main`'s `a76f45b9` are the same change measured on the two lines, not two
+commits. This line ran the identical file, so it carried the identical
 defect until the fix was brought over — which is why it is here rather than only there.
 
 Interleaving was necessary but not sufficient. The 2026-08-14 failure came at
 `speedup → 1.7669 > 1.8` on the v4.0 cut commit — two version strings, a generated plist and a
 markdown file, nothing this benchmark can reach — with the arms already interleaved:
 
-| commit (`main`) | searched | computed | speedup |
+| commit | searched | computed | speedup |
 |---|---|---|---|
-| `869be3ca` pass | 20.11ms | 7.85ms | 2.56x |
-| `a76f45b9` pass | 22.32ms | 9.17ms | 2.44x |
+| `a76f45b9` pass (`main`) | 22.32ms | 9.17ms | 2.44x |
+| `869be3ca` pass (its twin on this line) | 20.11ms | 7.85ms | 2.56x |
 | `b012c1c7` fail | 27.11ms | 15.34ms | **1.77x** |
 | `b012c1c7` rerun | 38.63ms | 13.90ms | 2.78x |
 
@@ -679,8 +680,12 @@ multiplicative widening it, which is why no load-scaling is needed.
 **The probe is printed and explicitly not asserted on.** The old type comment claimed the bar
 "stretches by that factor" and no code ever did that — a load-scaling that existed only in prose. It
 could not have worked anyway: the probe read **9.2ms idle and 7.4ms on the contended CI run that
-failed**, so it is anti-correlated with the starvation it was meant to detect. **A probe that never
-feeds an assertion is never checked, and this one had been wrong for as long as it had been there.**
+failed**. "Anti-correlated" overstates it — the four-run table below has the probe at 8.5/9.0ms
+quiet against 15.1/16.2ms contended, rising in the right direction — so the accurate word is
+**unreliable**: it tracks load sometimes, and did not on the one run whose bar depended on it. A
+multiplier that is right most of the time and floors exactly when a starved run fails is worse than
+none, because it looks like protection. **A probe that never feeds an assertion is never checked, and
+this one had been wrong for as long as it had been there.**
 
 **A saving floor does not guard the second regression, so the arithmetic is now measured directly.**
 The type comment claimed the bar catches both "the search is back" and "the arithmetic itself became
@@ -689,7 +694,9 @@ layout back inside the timed rung loop drives one `rung(fitting:)` from ~20µs t
 **the saving assertion passes right through it at 16.07ms**. A thousandfold regression, invisible to
 the bar that claims to catch it. The fix is not to bring the ratio back — contention is what broke
 that — but to time `rung(fitting:)` on its own, away from any view building, against a 400µs
-ceiling. Three orders of magnitude from the regression it guards, so load cannot reach it.
+ceiling — one to two orders of magnitude from the regression it guards, so load cannot reach it.
+(One reappearing row build is ~4,000µs against that 400µs bar, and the mutation above measured
+19,611µs; an earlier draft said three orders, which overstated the margin by ~30x.)
 
 **Calibrate a bar from a contended run, not a quiet one.** The first ceiling tried was 40µs, chosen
 against an idle 23.73µs and looking generous. Four runs later it was plainly wrong:
@@ -717,7 +724,8 @@ since the point of the entry is a number nobody checked: during the CI run where
 benchmark failed on starvation, this test printed **`slowdown=1.00x`** and passed, so its multiplier
 was floored and its bar unstretched — no inflated ColumnClick median is recorded beside it. The
 9.2ms-idle against 7.4ms-contended pair is the *header* benchmark's probe, and it is the direct
-evidence that a CPU probe is anti-correlated with this machine's starvation. The **163ms with
+evidence that the probe did not rise on the run that mattered — unreliable rather than inverted, per
+the table above. The **163ms with
 nothing regressed** is from a separate, earlier deliberate-starvation run whose `slowdown` print was
 not recorded. Put together: a multiplier that demonstrably does not rise, guarding a bar the
 documented worst case already sits above. It is now a fixed 250ms: above that worst case, still far below the ~290ms click the test was
