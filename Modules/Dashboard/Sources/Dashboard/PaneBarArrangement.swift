@@ -446,14 +446,14 @@ public enum PaneBarLayout {
         let pill = PaneNavMetrics.pill(controlSize)
         var total: CGFloat = 0
         for (index, item) in plan.visible.enumerated() {
-            if needsGap(before: index, in: plan.visible) { total += PaneNavMetrics.itemGap }
+            if needsGap(before: index, in: plan.visible) { total += PaneNavMetrics.itemGap(titled: titled) }
             total += titled
                 ? titledWidth(of: item, pill: pill, compactsViewMode: plan.compactsViewMode,
                               scale: scale)
                 : width(of: item, pill: pill, compactsViewMode: plan.compactsViewMode)
         }
         if !plan.overflow.isEmpty {
-            if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false { total += PaneNavMetrics.itemGap }
+            if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false { total += PaneNavMetrics.itemGap(titled: titled) }
             total += pill.width
         }
         return total

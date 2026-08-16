@@ -174,12 +174,21 @@ import Design
         let deep = bar.terminal
         #expect(!bar.plan(forRung: deep).overflow.isEmpty)
         let pill = PaneNavMetrics.pill(bar.controlSize(forRung: deep))
-        // The overflow contributes exactly a pill and its gap, titled or not.
+        // The overflow contributes exactly a pill and its gap — **priced in BOTH modes**, which is
+        // what this test's name claims and what neither call used to ask for: every `width(of:)`
+        // here omitted `titled:`, so it measured the untitled rung twice and the word "titled" in
+        // the name was answered by nothing.
         let plan = bar.plan(forRung: deep)
-        let withOverflow = PaneBarLayout.width(of: plan, controlSize: bar.controlSize(forRung: deep))
-        let itemsOnly = PaneBarLayout.width(
-            of: PaneBarLayoutPlan(visible: plan.visible, overflow: [], compactsViewMode: plan.compactsViewMode),
-            controlSize: bar.controlSize(forRung: deep))
-        #expect(withOverflow - itemsOnly == pill.width + PaneNavMetrics.itemGap)
+        let itemsOnlyPlan = PaneBarLayoutPlan(visible: plan.visible, overflow: [],
+                                              compactsViewMode: plan.compactsViewMode)
+        for titled in [false, true] {
+            let withOverflow = PaneBarLayout.width(of: plan, controlSize: bar.controlSize(forRung: deep),
+                                                   titled: titled)
+            let itemsOnly = PaneBarLayout.width(of: itemsOnlyPlan,
+                                                controlSize: bar.controlSize(forRung: deep),
+                                                titled: titled)
+            #expect(withOverflow - itemsOnly == pill.width + PaneNavMetrics.itemGap(titled: titled),
+                    "the ⋯ costs more than a pill and its gap with titled=\(titled)")
+        }
     }
 }

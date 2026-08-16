@@ -738,7 +738,7 @@ public struct PaneHeader: View {
         return HStack(alignment: .top, spacing: 0) {
             ForEach(Array(plan.visible.enumerated()), id: \.offset) { index, item in
                 if PaneBarLayout.needsGap(before: index, in: plan.visible) {
-                    Color.clear.frame(width: PaneNavMetrics.itemGap, height: 1)
+                    Color.clear.frame(width: PaneNavMetrics.itemGap(titled: titled), height: 1)
                 }
                 titled
                     ? AnyView(titledItem(item, controlSize: controlSize,
@@ -748,7 +748,7 @@ public struct PaneHeader: View {
             }
             if !plan.overflow.isEmpty {
                 if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false {
-                    Color.clear.frame(width: PaneNavMetrics.itemGap, height: 1)
+                    Color.clear.frame(width: PaneNavMetrics.itemGap(titled: titled), height: 1)
                 }
                 // Untitled in both modes, and aligned with the pill row rather than centred in it.
                 // Finder labels its Action menu, but that is a fixed contextual menu; our analogue
@@ -1515,20 +1515,30 @@ enum PaneNavMetrics {
     /// Between two adjacent bar items. Placed by hand rather than by `HStack(spacing:)` — see
     /// `PaneHeader.barContent` for why a flexible space must cost nothing.
     ///
-    /// 8, not the 6 it was while the bar was glyphs only. Titles changed what this gap separates: an
-    /// item's box is as wide as the wider of its pill and its word, so the *pills* still sit further
-    /// apart than this (New Folder's box is a good 20pt wider than its pill, and that air is on both
-    /// sides of it) while the *words* sit exactly this far apart and nothing else. At 6 the words of
-    /// two neighbouring controls nearly abutted, which read as one long caption rather than two
-    /// labels.
+    /// **8 when the bar wears words, 6 when it is glyphs only — a function, because the caller
+    /// knows which bar it is pricing and a single constant cannot.**
     ///
-    /// It is not free: every gap is paid at every rung, so the widest browse bar goes 447 → 463pt
-    /// titled and the ladder therefore steps down at a pane ~16pt wider than before. That is the
-    /// whole cost — the ladder absorbs it by shedding a pill sooner, never by overflowing.
+    /// Titles changed what this gap separates: an item's box is as wide as the wider of its pill
+    /// and its word, so the *pills* still sit further apart than this (New Folder's box is a good
+    /// 20pt wider than its pill, and that air is on both sides of it) while the *words* sit exactly
+    /// this far apart and nothing else. At 6 the words of two neighbouring controls nearly abutted,
+    /// which read as one long caption rather than two labels.
     ///
-    /// `pairSpacing` deliberately stays at 6, so Back and Forward now sit closer to each other than
-    /// to anything else on the bar. They are one item; this is what makes them look like one.
-    static let itemGap: CGFloat = 8
+    /// **It was widened as a plain constant, and that regressed the untitled bar it was never
+    /// about.** Every gap is paid at every rung, so an untitled rung grew 2pt per gap — 16pt on the
+    /// default browse bar — and the ladder stepped down at a pane that much wider. At the 250pt
+    /// split clamp the cost lands on the one element that has to survive there: the provider
+    /// capsule, whose name is drawn by an AppKit menu label that **clips rather than ellipsises**.
+    /// Looked at rather than computed — `paneHeaderNarrow250WithColumnsControls` went from a
+    /// readable "M" at `v4.0` to a glyph sliced down the middle, while claiming "nothing clipped".
+    /// `PaneNavMetrics`' own note already said not to buy width out of that pill.
+    ///
+    /// So Icon Only and the Large-text fallback price gaps exactly as they did at `v4.0`, which is
+    /// what `theUntitledLadderIsPricedAsItWasBeforeTitles` holds, and only the titled rung pays 8.
+    ///
+    /// `pairSpacing` deliberately stays at 6 in both, so Back and Forward sit closer to each other
+    /// than to anything else on the bar. They are one item; this is what makes them look like one.
+    static func itemGap(titled: Bool) -> CGFloat { titled ? 8 : 6 }
 
     /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
     static func glyphFont(_ controlSize: ControlSize) -> ScaledFont {

@@ -210,6 +210,51 @@ import Design
         }
     }
 
+    // MARK: - The untitled bar is priced as it was before titles
+
+    /// **A gap widened for words must not be charged to a bar that has none.**
+    ///
+    /// `itemGap` went 6 → 8 as a plain constant when the bar learned titles. Both readers —
+    /// `PaneBarLayout.width(of:)` and `PaneHeader.barContent` — charge it at every rung, so every
+    /// *untitled* rung silently grew 2pt per gap as well, and the ladder stepped down at a pane
+    /// ~16pt wider than it used to. The bill lands on the one element that cannot give way at the
+    /// 250pt clamp, which is the provider capsule: its name is drawn by an AppKit menu label that
+    /// **clips rather than ellipsises**, so `paneHeaderNarrow250WithColumnsControls` went from a
+    /// readable "M" to a glyph sliced down the middle. Icon Only and the Large-text fallback are
+    /// both untitled, so both were affected.
+    ///
+    /// **What holds the drawn half of this is `theLadderRendersItsGolden`**, whose 250pt rows pin
+    /// the bar's leading edge at x=77 — the 6pt the capsule lost is exactly that edge moving to 71
+    /// — plus the recorded snapshots. A pixel test counting the name's ink was written for this and
+    /// then deleted: measured against the mutation that puts the gap back to 8, its count did not
+    /// move at all, because a hosting view built here does not render the capsule the way the
+    /// snapshot harness does. A test that cannot fail is worse than no test, and the golden already
+    /// answers the question exactly.
+    @Test func theUntitledLadderIsPricedAsItWasBeforeTitles() {
+        // The values, pinned: the untitled gap is what it was before titles existed.
+        #expect(PaneNavMetrics.itemGap(titled: false) == 6,
+                "an untitled bar is paying for space between words it does not draw")
+        #expect(PaneNavMetrics.itemGap(titled: true) == 8,
+                "the titled bar lost the word spacing it was widened for")
+
+        // …and the arithmetic that spends them: a rung's width must differ between the two modes by
+        // exactly one extra point per gap, and by nothing else the gap can reach.
+        let bar = Self.columnsLadder()
+        for rung in 0...bar.terminal {
+            let plan = bar.plan(forRung: rung)
+            let size = bar.controlSize(forRung: rung)
+            let gaps = (0..<plan.visible.count)
+                .filter { PaneBarLayout.needsGap(before: $0, in: plan.visible) }.count
+                + ((!plan.overflow.isEmpty && (plan.visible.last.map { $0 != .flexibleSpace } ?? false)) ? 1 : 0)
+            let untitled = PaneBarLayout.width(of: plan, controlSize: size, titled: false)
+            let titled = PaneBarLayout.width(of: plan, controlSize: size, titled: true)
+            // Every item is at least as wide titled (a word may beat a pill), so the difference is
+            // the gaps plus the words — never less than the gaps alone.
+            #expect(titled - untitled >= CGFloat(gaps) * 2 - 0.01,
+                    "rung \(rung): the titled bar is not charging its wider gaps")
+        }
+    }
+
     /// The span of one rung's focus rings, measured from the same view `barWidth` measures the
     /// boxes of — so the drawn bar can be compared like with like.
     private func ringSpan(_ view: PaneHeader, rung: Int, ladder: PaneBarLadder) -> CGFloat? {
@@ -686,34 +731,38 @@ import Design
     }
 
     private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
-        (iCloud, 0.9, 250, "71,481/27x17 106,481/27x17 139,481/27x17 174,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
-        (iCloud, 0.9, 410, "206,481/23x17 232,481/23x17 266,481/27x17 299,481/27x17 334,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 0.9, 490, "185,481/23x17 211,481/23x17 245,481/27x17 278,481/27x17 313,481/27x17 348,481/27x17 383,481/27x17 418,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
-        // The bar starts further left of its trailing edge than it used to: titles first (words
-        // wider than their pills), and now 2pt more per gap on top of that. Its controls sit 6pt
-        // higher, from the title line beneath them. Ring heights are unchanged at 20 — the switch
-        // is a pill tall in both modes.
+        (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
+        (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        // **A titled row, and one of only two rows here that is not identical to `v4.0`.** The bar
+        // starts further left of its trailing edge because words are wider than their pills, and
+        // its controls sit 6pt higher to make room for the title line beneath them. Ring heights
+        // are unchanged at 20 — the switch is a pill tall in both modes. This row legitimately
+        // differs from `v4.0`, which had no titles; its sibling is (iCloud, 1.0, 710). Every other
+        // row in this table was checked byte-for-byte against `v4.0` when the untitled gap was put
+        // back to 6, and matched.
         (iCloud, 0.9, 710, "329,473/29x20 361,473/29x20 401,473/33x20 440,473/33x20 481,473/33x20 530,473/33x20 580,473/33x20 621,473/33x20 665,473/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 1.0, 250, "71,481/27x17 106,481/27x17 139,481/27x17 174,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (iCloud, 1.0, 330, "151,481/27x17 186,481/27x17 219,481/27x17 254,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (iCloud, 1.0, 410, "206,481/23x17 232,481/23x17 266,481/27x17 299,481/27x17 334,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        // ONE OF THE TWO ROWS THAT CHANGED SHAPE RATHER THAN POSITION, and the whole price of the
-        // 6→8pt gap. Nine rings became eight: the trailing 23-wide segment is the Preview toggle,
-        // and at this width the wider gaps no longer leave room for it, so the ladder sheds it into
-        // ⋯ one rung earlier than it did. Nothing is lost — Preview is still in the menu — but this
-        // is the number to look at if the gap is ever widened again. Its sibling below is
-        // (longName, 650). Every other row here moved by whole points and kept its shape.
-        (iCloud, 1.0, 490, "216,481/23x17 242,481/23x17 276,481/27x17 309,481/27x17 344,481/27x17 379,481/27x17 414,481/27x17 449,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 570, "211,479/29x20 243,479/29x20 283,479/33x20 322,479/33x20 363,479/33x20 404,479/33x20 445,479/33x20 486,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        // **This row is the one to read if the untitled gap is ever widened again.** Charging the
+        // titled bar's 8pt gap to this untitled rung cost it a control: nine rings became eight as
+        // the trailing 23-wide segment — the Preview toggle — was shed into ⋯ at a width that had
+        // always held it. It is nine again here, matching `v4.0` exactly, and its sibling
+        // (longName, 650) with it. Nothing was ever *lost* (Preview stays in the menu), which is
+        // why a ladder stepping down early is so easy to ship: it is only visible as a control
+        // that used to be on the bar and now is not.
+        (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
         (iCloud, 1.0, 710, "319,472/29x20 351,472/29x20 391,472/33x20 430,472/33x20 471,472/33x20 523,472/33x20 575,472/33x20 617,472/33x20 663,472/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 250, "71,481/27x17 106,481/27x17 139,481/27x17 174,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 410, "231,481/27x17 266,481/27x17 299,481/27x17 334,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 490, "311,481/27x17 346,481/27x17 379,481/27x17 414,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 570, "366,481/23x17 392,481/23x17 426,481/27x17 459,481/27x17 494,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 570, "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
         // The second of the two — same cause, same shed control, 160pt further out because this
         // provider name eats that much of the row before the bar sees any of it.
-        (longName, 1.0, 650, "376,481/23x17 402,481/23x17 436,481/27x17 469,481/27x17 504,481/27x17 539,481/27x17 574,481/27x17 609,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 710, "351,479/29x20 383,479/29x20 423,479/33x20 462,479/33x20 503,479/33x20 544,479/33x20 585,479/33x20 626,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 650, "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
     ]
 
 }
