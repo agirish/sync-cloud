@@ -1250,6 +1250,12 @@ Same day, the other side of it: CI failed these five on `6ac470f6` while a local
 identical tree passed — so "CI-only" and "local-only" have both now been observed and neither is a
 property of this flake.
 
+**And CI flips on near-identical trees too.** It failed these five on `6ac470f6` and passed them on
+`c21c5f4e` — app-target step green, per-step, which is the one that compiles `MacApp` — with nothing
+between the two that either tree's `MacApp` code depends on. So the pass/fail pair now exists on the
+CI side as well as the local side. Read together with the paragraph above, every combination has now
+been observed: CI pass, CI fail, local pass, local fail, on trees that differ in nothing relevant.
+
 **The strongest evidence yet that it is not the tree under test: two sessions hit it on disjoint
 file sets.** One was editing `MacApp/` directly — `ContentView`, `ContentView+PaneTabs`,
 `SyncCloudTests` — and the other touched no `MacApp` file at all (Sync sources, two FileExplorer
