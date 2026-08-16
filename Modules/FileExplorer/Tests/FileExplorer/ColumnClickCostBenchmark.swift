@@ -19,12 +19,30 @@ import Sync
 /// The fixture has to be REALISTIC or the measurement is worthless: a small tree, or one whose
 /// arrays are COW-shared with the assertion, benchmarks at 0.0ms and proves nothing.
 ///
-/// The budget is load-scaled, not fixed: this machine is also the CI runner, and a full-suite run
-/// under deliberate CPU starvation once pushed the median to 163ms with nothing regressed. A fixed
-/// CPU-bound probe timed on the same thread, interleaved with the render samples, measures how
-/// starved this process currently is; the 120ms bar stretches by that factor. A genuine render
-/// regression is CPU work that slows down with the machine exactly as the probe does, so it still
-/// breaks the scaled bar — only the machine being busy no longer does.
+/// **The budget was load-scaled by a probe that cannot see this machine's load, and is now a fixed
+/// number sized against the worst starvation ever measured here.**
+///
+/// The scaling read `slowdown = max(1.0, probeMedian / 10ms)` and multiplied a 120ms bar by it. The
+/// premise — "a genuine render regression is CPU work that slows down with the machine exactly as
+/// the probe does" — is contradicted by measurements taken one file over and recorded in
+/// `docs/flaky-tests.md` §6. During the CI run where `HeaderLadderCostBenchmark` failed on
+/// starvation, **this test reported `slowdown=1.00x`**: the probe sat at nominal while the render
+/// arms were inflated, so `max(1.0, …)` floored the multiplier and the bar never stretched. The
+/// probe read 9.2ms idle against 7.4ms on that contended run — anti-correlated with the thing it
+/// was hired to detect.
+///
+/// It reads that way because a tight FNV loop and a run-loop-driven render are starved by different
+/// things: the loop only wants a core, while the render waits on the main run loop, the window
+/// server and everything else on this Mac. So the scaling was protection that existed in prose,
+/// never fired, and left the real exposure — the run that pushed this median to 163ms with nothing
+/// regressed — sitting above an unstretched 120ms bar.
+///
+/// The fixed 250ms bar covers that 163ms measurement with half again on top, and still fails the
+/// regression this exists for: the reported ~290ms click it was built to chase, against a measured
+/// ~10ms render. An absolute number is legitimate here for the same reason the sibling's is —
+/// `.machinePinned(.calibratedTiming)` means this only ever runs on the machine it was calibrated
+/// on. The probe stays, printed, as diagnosis, and **is deliberately not asserted on**: a probe that
+/// feeds no assertion is never checked, and this one was wrong for as long as it was there.
 @MainActor
 @Suite(.machinePinned(.calibratedTiming)) struct ColumnClickCostBenchmark {
 
@@ -157,9 +175,15 @@ import Sync
     /// exists to measure.
     private static let probeIterations = 100_000
     /// What one probe costs unloaded, in this test process, debug build, on the CI machine.
-    /// Measured 2026-07-28 (samples printed by the test itself). If the toolchain or machine
-    /// changes this number materially, re-measure it from the BENCH print on a quiet run.
+    /// Measured 2026-07-28 (samples printed by the test itself). Kept for reading the printed
+    /// probe against — it no longer scales anything.
     private static let nominalProbeMs: Double = 10.0
+
+    /// The render budget, in milliseconds. Sized against the worst starvation measured on this
+    /// machine (163ms, nothing regressed) rather than against an idle run, because the scaling that
+    /// was supposed to absorb that never fired. Still far below the ~290ms click this exists to
+    /// catch, and 25x above the ~10ms a healthy render costs.
+    private static let budgetMs: Double = 250.0
 
     private func probeMs() -> Double {
         let started = CFAbsoluteTimeGetCurrent()
@@ -215,16 +239,15 @@ import Sync
         }
         let median = samples.sorted()[samples.count / 2]
         let probeMedian = probes.sorted()[probes.count / 2]
-        let slowdown = max(1.0, probeMedian / Self.nominalProbeMs)
-        let budget = 120.0 * slowdown
+        // The probe is printed for diagnosis and NOT asserted on — see the type comment for the
+        // measurement that retired it as a load signal.
         print("BENCH columns=\(rowCounts) render samples=\(samples.map { Int($0) }) median=\(Int(median))ms "
               + "probes=\(probes.map { Int($0) }) probeMedian=\(Int(probeMedian))ms "
-              + "slowdown=\(String(format: "%.2f", slowdown))x budget=\(Int(budget))ms")
-        // Measured ~10ms unloaded. The 120ms bar is set well clear of that and is the FLOOR: it
-        // exists to catch a pane render that has genuinely regressed into the range a click was
-        // once blamed for. Under measured starvation the bar stretches proportionally — a real
-        // regression stretches with it and still fails; a busy machine alone no longer does.
-        #expect(median < budget,
-                "pane render cost regressed to \(Int(median))ms (was ~10ms; budget \(Int(budget))ms at \(String(format: "%.2f", slowdown))x measured load)")
+              + "budget=\(Int(Self.budgetMs))ms")
+        // Measured ~10ms unloaded, and 163ms once under deliberate starvation with nothing
+        // regressed. The bar clears that worst case and still catches the ~290ms this was built to
+        // chase.
+        #expect(median < Self.budgetMs,
+                "pane render cost regressed to \(Int(median))ms (was ~10ms; budget \(Int(Self.budgetMs))ms)")
     }
 }

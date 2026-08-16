@@ -799,6 +799,50 @@ could not have worked anyway: the probe read **9.2ms idle and 7.4ms on the conte
 failed**, so it is anti-correlated with the starvation it was meant to detect. **A probe that never
 feeds an assertion is never checked, and this one had been wrong for as long as it had been there.**
 
+**A saving floor does not guard the second regression, so the arithmetic is now measured directly.**
+The type comment claimed the bar catches both "the search is back" and "the arithmetic itself became
+expensive". Only the first is true of a saving, and the demonstration is unambiguous: putting a full
+layout back inside the timed rung loop drives one `rung(fitting:)` from ~20µs to **19,611µs**, and
+**the saving assertion passes right through it at 16.07ms**. A thousandfold regression, invisible to
+the bar that claims to catch it. The fix is not to bring the ratio back — contention is what broke
+that — but to time `rung(fitting:)` on its own, away from any view building, against a 400µs
+ceiling. Three orders of magnitude from the regression it guards, so load cannot reach it.
+
+**Calibrate a bar from a contended run, not a quiet one.** The first ceiling tried was 40µs, chosen
+against an idle 23.73µs and looking generous. Four runs later it was plainly wrong:
+
+| run | rung | probe | searched | saving | ratio |
+|---|---|---|---|---|---|
+| quiet | 23.73µs | 8.5ms | 23.97ms | 14.02ms | 2.41x |
+| quiet | 20.48µs | 9.0ms | 26.84ms | 15.93ms | 2.46x |
+| contended | 43.26µs | 15.1ms | 57.72ms | 26.94ms | 1.88x |
+| contended | 41.00µs | 16.2ms | 56.62ms | 23.54ms | **1.71x** |
+
+40µs would have failed the third run outright. The last row is worth its own note: **the retired
+1.8x ratio would have failed there too**, a fourth flake on an unchanged tree, measured rather than
+argued — while the saving ranged 14.02-26.94ms against its 6ms floor throughout.
+
+**A saving floor can also fail on an improvement**, which is worth knowing before reading a red as a
+regression: the saving is proportional to what building one header row costs, so an edit that makes
+the row much cheaper shrinks both arms and the gap between them. The failure message names both
+possibilities, and the rung ceiling is what tells them apart — if it still passes, nothing got
+expensive and the floor wants re-deriving.
+
+**`ColumnClickCostBenchmark` was scaled by the same probe, and there it really did multiply the
+bar.** `slowdown = max(1.0, probeMedian / 10ms)` against a 120ms budget. During the CI run where the
+header benchmark failed on starvation, this test printed `slowdown=1.00x` — the probe sat at nominal
+while the render arms inflated, so the multiplier floored and the bar never stretched. That is
+protection that existed in prose and never fired, leaving the documented worst case — a starved run
+that pushed this median to **163ms with nothing regressed** — sitting above an unstretched 120ms
+bar. It is now a fixed 250ms: above that worst case, still far below the ~290ms click the test was
+built to chase, and legitimate as an absolute because `.machinePinned(.calibratedTiming)` pins it to
+the machine it was calibrated on. The probe is printed and asserted on nowhere.
+
+A tight FNV loop and a run-loop-driven render are starved by different things — the loop only wants
+a core, the render waits on the main run loop and the window server — which is why one was never
+going to measure the other. **Do not reintroduce a CPU probe as a load signal for anything that
+renders.**
+
 ### 7. The machine decides the verdict — the keyboard
 
 **Symptom.** A mounted-view test spends its whole deadline and reports the end state it started
