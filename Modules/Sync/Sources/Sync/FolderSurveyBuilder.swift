@@ -67,11 +67,14 @@ public enum FolderSurveyBuilder {
         // the crash lands somewhere else entirely — this was not the only such site, and the People
         // settings pane had the same trap on the main actor.
         //
-        // Last one wins, matching the registry's `tokensByPerson`, which is what decides who
-        // ``PersonRegistry/detect(in:)`` resolves that id to — so the axis value and the matcher
-        // agree. The registry is not uniformly last-wins: `displayForm` and `tokenBreakdown` reach
-        // for `people.first(where:)`, so with a duplicated id they answer from the *first* record.
-        // Nothing here can fix that; keying off the same map `detect` uses is this type's half.
+        // Last one wins, matching the registry's `tokensByPerson` — the map that decides who a
+        // single-word name resolves to. **That is the only part of the registry that is last-wins**,
+        // and the comment used to imply the whole of it agrees: `phraseList` accumulates BOTH
+        // records, so multi-word names still resolve to either; `givenClaims` appends the id twice,
+        // which disables the given-name shortcut for that person entirely; and `displayForm` and
+        // `tokenBreakdown` read `people.first(where:)`. A duplicated id leaves the registry
+        // internally inconsistent and no choice here reconciles it — this one just avoids the trap
+        // and keeps the display name aligned with single-word detection.
         let displayNames = Dictionary((registry?.people ?? []).map { ($0.id, $0.displayName) },
                                       uniquingKeysWith: { _, latest in latest })
 
@@ -171,6 +174,15 @@ public enum FolderSurveyBuilder {
     /// somebody adds an alias.
     static func rosterForms(_ registry: PersonRegistry?) -> Set<String> {
         var out = Set<String>()
+        // **Every record, including both halves of a duplicated id**, because the registry itself is
+        // not consistent about them and this cannot paper over that. With a repeated id
+        // ``PersonRegistry`` overwrites its single-word token index (so the dropped record's
+        // one-word names stop resolving) but *accumulates* phrases (so its multi-word names still
+        // do), and it appends the id to `givenClaims` twice, which silently disables the given-name
+        // shortcut for that person. Taking only the last record would fix the first divergence and
+        // create the mirror of it for full names. A superset is the safer of the two: a folder can
+        // be called a `person-bucket` whose `axes.person` did not resolve, which is visible and
+        // harmless, rather than a person's folder going unrecognised.
         for person in registry?.people ?? [] {
             // ``Person/nameForms`` rather than the union spelled out again: the registry answers
             // four other questions with the same union, and a fifth copy here is what would let

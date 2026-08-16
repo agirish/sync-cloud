@@ -240,6 +240,27 @@ import Testing
     /// ordered by and what the dialog reports as "how many folders would take this value", so a
     /// doubled one is a wrong number and can be a wrong order too.
     ///
+    /// **A value nested under itself does not clear the parents bar on its own.**
+    ///
+    /// `minimumDistinctParents` exists because an axis value *splits* branches. Counting every
+    /// occurrence let one branch supply all the evidence: `A/US/B/US/C/US` yields three different
+    /// parent strings and proposed a value that splits nothing. The blast radius had the same defect
+    /// and was fixed first; this is the half that was missed, and it is the one that decides whether
+    /// the value is offered at all.
+    @Test func aValueNestedUnderItselfDoesNotClearTheParentsBar() {
+        let candidates = JurisdictionCandidates.propose(
+            tree: Self.tree(["A/US/B/US/C/US/Papers"]), root: "/root")
+        #expect(!candidates.contains { $0.value == "US" },
+                "one branch cleared the distinct-parents bar by nesting under itself")
+
+        // The control: the same value across three real branches is still proposed, so the guard
+        // cannot be passing by refusing everything.
+        let genuine = JurisdictionCandidates.propose(tree: Self.tree([
+            "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",
+        ]), root: "/root")
+        #expect(genuine.contains { $0.value == "US" })
+    }
+
     /// The other three parents are what get `US` proposed at all; the repeat is the folder under
     /// test. Ten folders carry `US` somewhere in their path — three single-depth branches at two
     /// each, plus four down the repeating branch (`Taxes/US`, `…/Consulate`, `…/Consulate/US`,

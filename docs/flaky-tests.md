@@ -730,12 +730,14 @@ causal path, just not the one that fired.
 failed the v4.0 cut commit at `speedup → 1.7669 > 1.8`, on a commit that changes two version
 strings, a generated plist and a markdown file — nothing this benchmark can reach, and the
 benchmark file itself unchanged since `7afac3a4`. The arms are interleaved now, as the entry above
-prescribes, and it failed anyway. Three CI runs of the identical benchmark, one commit apart:
+prescribes, and it failed anyway. Runs of the identical benchmark — `a76f45b9` and `b012c1c7` are
+adjacent on `main`; `869be3ca` is `a76f45b9`'s `v2.x` twin, the same change measured on the other
+line, not a third commit:
 
 | commit | searched | computed | speedup |
 |---|---|---|---|
-| `869be3ca` pass | 20.11ms | 7.85ms | 2.56x |
-| `a76f45b9` pass | 22.32ms | 9.17ms | 2.44x |
+| `a76f45b9` pass (`main`) | 22.32ms | 9.17ms | 2.44x |
+| `869be3ca` pass (its `v2.x` twin) | 20.11ms | 7.85ms | 2.56x |
 | `b012c1c7` fail | 27.11ms | 15.34ms | **1.77x** |
 | `b012c1c7` rerun | 38.63ms | 13.90ms | 2.78x |
 
@@ -775,8 +777,8 @@ Eight runs, idle-and-isolated through full-CI contention:
 
 | condition | searched | computed | saving | ratio |
 |---|---|---|---|---|
-| CI pass `869be3ca` | 20.11ms | 7.85ms | 12.26ms | 2.56x |
 | CI pass `a76f45b9` | 22.32ms | 9.17ms | 13.15ms | 2.44x |
+| CI pass (its `v2.x` twin `869be3ca`) | 20.11ms | 7.85ms | 12.26ms | 2.56x |
 | CI **fail** `b012c1c7` | 27.11ms | 15.34ms | 11.77ms | 1.77x |
 | CI pass (rerun) | 38.63ms | 13.90ms | 24.73ms | 2.78x |
 | CI **fail** `2e2ec8f2` | 26.56ms | 15.41ms | 11.15ms | 1.72x |
@@ -807,7 +809,9 @@ layout back inside the timed rung loop drives one `rung(fitting:)` from ~20µs t
 **the saving assertion passes right through it at 16.07ms**. A thousandfold regression, invisible to
 the bar that claims to catch it. The fix is not to bring the ratio back — contention is what broke
 that — but to time `rung(fitting:)` on its own, away from any view building, against a 400µs
-ceiling. Three orders of magnitude from the regression it guards, so load cannot reach it.
+ceiling — one to two orders of magnitude from the regression it guards, so load cannot reach it.
+(One reappearing row build is ~4,000µs against that 400µs bar, and the mutation above measured
+19,611µs; an earlier draft of this said three orders, which overstated the margin by ~30x.)
 
 **Calibrate a bar from a contended run, not a quiet one.** The first ceiling tried was 40µs, chosen
 against an idle 23.73µs and looking generous. Four runs later it was plainly wrong:
@@ -1250,11 +1254,14 @@ Same day, the other side of it: CI failed these five on `6ac470f6` while a local
 identical tree passed — so "CI-only" and "local-only" have both now been observed and neither is a
 property of this flake.
 
-**And CI flips on near-identical trees too.** It failed these five on `6ac470f6` and passed them on
-`c21c5f4e` — app-target step green, per-step, which is the one that compiles `MacApp` — with nothing
-between the two that either tree's `MacApp` code depends on. So the pass/fail pair now exists on the
-CI side as well as the local side. Read together with the paragraph above, every combination has now
-been observed: CI pass, CI fail, local pass, local fail, on trees that differ in nothing relevant.
+**And CI flips across commits with no palette change.** It failed these five on `6ac470f6` and
+passed them on `c21c5f4e` — app-target step green, per-step, which is the one that compiles
+`MacApp`. Be exact about how close those trees are, because the argument is only as good as the
+comparison: they differ by 13 files, including `Modules/Sync` and `Modules/Settings` sources that the
+app target does link, so "near-identical" would overstate it. What is true is that nothing in that
+range touches the palette, its host window, or `MacApp` at all. So the pass/fail pair exists on the
+CI side as well as the local side, and CI pass, CI fail, local pass and local fail have all now been
+observed without any change to the code under test.
 
 **The strongest evidence yet that it is not the tree under test: two sessions hit it on disjoint
 file sets.** One was editing `MacApp/` directly — `ContentView`, `ContentView+PaneTabs`,

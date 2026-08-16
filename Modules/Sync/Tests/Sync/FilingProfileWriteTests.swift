@@ -46,8 +46,9 @@ import Testing
     /// which is the interchangeability claim: the JSON a survey writes here is the JSON the offline
     /// Python builder writes, or `profile(id:in:)` would refuse it on schema or shape.
     @Test func writesAProfileWhereThereIsNoneAndReadsBackThroughTheOrdinaryPath() throws {
-        let dir = Self.scratch().appendingPathComponent("nested/profiles")   // does not exist yet
-        defer { try? FileManager.default.removeItem(at: dir) }
+        let root = Self.scratch()
+        let dir = root.appendingPathComponent("nested/profiles")   // does not exist yet
+        defer { try? FileManager.default.removeItem(at: root) }
 
         let written = try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir,
                                                           now: Date(timeIntervalSince1970: 1_754_000_000))
@@ -143,7 +144,7 @@ import Testing
     @Test func refusesAnIdThatCannotNameADirectory() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        for bad in ["", "../escape", "a/b", "."] {
+        for bad in ["", "../escape", "a/b", ".", ".."] {
             #expect(throws: FilingProfileStore.WriteRefusal.invalidProfileId(bad)) {
                 try FilingProfileStore.writeProfile(Self.nameOnly(id: bad), in: dir)
             }
@@ -279,6 +280,10 @@ import Testing
     @Test(arguments: [
         #"{"schemaVersion": "1", "activeProfileId": "hand-built", "profiles": []}"#,
         #"{"schemaVersion": 1, "activeProfileId": 123, "profiles": []}"#,
+        // `true` bridges to NSNumber and satisfies `as? Int` as 1, so this is the case a plain
+        // "is it an Int" test waves through while `JSONDecoder` rejects it — the two-reader split
+        // again, one type over.
+        #"{"schemaVersion": true, "activeProfileId": "hand-built", "profiles": []}"#,
     ])
     func anIndexTheStrictReaderRejectsIsRefusedRatherThanRePointed(json: String) throws {
         let (dir, before) = try Self.withIndex(json)
@@ -315,6 +320,31 @@ import Testing
                 "the user's profile list was replaced by a one-element array")
     }
 
+    /// **An index symlinked somewhere unreadable is refused, not replaced.**
+    ///
+    /// `fileExists` follows symlinks and answers *false* for one whose target is missing, so an
+    /// index linked onto a volume that is not mounted read as "no index here" — and the atomic write
+    /// that followed replaced the link itself with a fresh one-profile index, orphaning everything
+    /// the real one named. `attributesOfItem` is the check that sees the link rather than its
+    /// target.
+    @Test func anIndexSymlinkedToSomethingUnreadableIsRefused() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let index = FilingProfileStore.indexURL(in: dir)
+        try FileManager.default.createSymbolicLink(
+            atPath: index.path, withDestinationPath: dir.appendingPathComponent("unmounted.json").path)
+
+        #expect(throws: FilingProfileStore.WriteRefusal.self) {
+            try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        }
+        let type = try FileManager.default.attributesOfItem(atPath: index.path)[.type] as? FileAttributeType
+        #expect(type == .typeSymbolicLink, "the symlink was replaced by a freshly composed index")
+        #expect(!FileManager.default.fileExists(
+            atPath: FilingProfileStore.profileURL(id: "abhishek", in: dir).path),
+                "the profile landed even though the index was refused")
+    }
+
     /// The control for both refusals above: an index this *can* read, with nothing active, really is
     /// amended — otherwise the two tests would pass just as well with the write path removed
     /// altogether.
@@ -342,29 +372,90 @@ import Testing
     /// The profile lands first and the index second. If the second throws, the old code left a
     /// profile on disk that nothing pointed at — and, worse, one that every retry refused with
     /// `profileExists`, whose contract tells the caller *"this tree already has a profile and I did
-    /// not touch it"*. On a fresh machine, which is the only state this write path exists for, that
-    /// is a permanent block with no hand-built profile to protect.
+    /// not touch it"*. On a fresh machine, the only state this write path exists for, that is a
+    /// permanent block.
     ///
-    /// The failure is induced by making `profiles.json` a directory: an atomic write to it cannot
-    /// succeed, and nothing else about the call changes.
+    /// **Tested through ``FilingProfileStore/land(_:at:index:at:)`` rather than through
+    /// `writeProfile`, because the obvious way in stopped working.** Leaving a directory where
+    /// `profiles.json` should be used to reach the rollback: the index read returned nothing, the
+    /// index was composed from scratch, the profile landed, and the write to a directory failed. Once
+    /// the store learned to tell "there but unreadable" from "absent", that same fixture began
+    /// failing at the *read* — so the test kept passing while exercising a refusal and the rollback
+    /// lost its only coverage, silently. The failure is now induced where it actually is: an index
+    /// URL inside a directory that does not exist.
     @Test func aFailedIndexWriteRollsTheProfileBackAndLeavesTheTreeRetryable() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let blocker = FilingProfileStore.indexURL(in: dir)
-        try FileManager.default.createDirectory(at: blocker, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let bytes = Data(#"{"profileId":"abhishek"}"#.utf8)
+        let unwritable = dir.appendingPathComponent("no-such-dir/profiles.json")
 
         #expect(throws: (any Error).self) {
-            try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+            try FilingProfileStore.land(bytes, at: url, index: Data("{}".utf8), at: unwritable)
         }
-        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
         #expect(!FileManager.default.fileExists(atPath: url.path),
-                "the profile survived a failed write — every retry now refuses to overwrite it")
+                "the profile survived a failed index write — every retry now refuses to overwrite it")
 
-        // And the state it leaves really is retryable: clear the blocker and the same call works.
-        try FileManager.default.removeItem(at: blocker)
-        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
-        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) != nil)
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+        // The other direction, so the rollback cannot be passing by deleting unconditionally: with
+        // a writable index the profile stays, and with NO index to write there is nothing to undo.
+        let good = dir.appendingPathComponent("profiles.json")
+        try FilingProfileStore.land(bytes, at: url, index: Data("{}".utf8), at: good)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        try FileManager.default.removeItem(at: url)
+        try FilingProfileStore.land(bytes, at: url, index: nil, at: unwritable)
+        #expect(FileManager.default.fileExists(atPath: url.path),
+                "a write with no index to land must not roll itself back")
+    }
+
+    /// The rollback removes only what **this call** wrote.
+    ///
+    /// The caller's never-overwrite guard proved the path was free at check time, not at removal
+    /// time. If another writer lands a profile in the gap between the two writes, an unconditional
+    /// delete would take it out — inverting the refusal contract from "I did not touch it" into "I
+    /// deleted it". The comparison is what prevents that, and it is only reachable deterministically
+    /// through the injected index write: that closure runs in exactly the gap the race occupies.
+    @Test func theRollbackLeavesAProfileItDidNotWrite() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let theirs = Data(#"{"profileId":"someone-else"}"#.utf8)
+
+        #expect(throws: (any Error).self) {
+            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: url,
+                                        index: Data("{}".utf8),
+                                        at: dir.appendingPathComponent("profiles.json")) { _, _ in
+                // Stand in for the concurrent writer, then fail the index write.
+                try theirs.write(to: url)
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        #expect(FileManager.default.fileExists(atPath: url.path),
+                "the rollback deleted a profile this call did not write")
+        #expect(try Data(contentsOf: url) == theirs, "someone else's profile was modified")
+    }
+
+    /// The other direction, so the comparison cannot be passing by never removing anything: when the
+    /// bytes on disk ARE this call's, they go.
+    @Test func theRollbackRemovesTheProfileItDidWrite() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+
+        #expect(throws: (any Error).self) {
+            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: url,
+                                        index: Data("{}".utf8),
+                                        at: dir.appendingPathComponent("profiles.json")) { _, _ in
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
     // MARK: - The file says what it is
@@ -386,6 +477,15 @@ import Testing
         let full = FolderProfileEntry(path: "Finance", role: .container, naming: "ordinal-month",
                                       anchors: ["tax"], acceptsNewFiles: false, fileCount: 3,
                                       subfolderCount: 4, axes: ["year": "2024"])
+        // The fixture has to be genuinely full, or "every stored field appears" is measured over
+        // fields that are absent for a legitimate reason. A field added later with a default would
+        // otherwise arrive nil and be reported as a missing key, blaming the encoder for the fixture.
+        let children = Mirror(reflecting: full).children
+        #expect(children.count == 8, "FolderProfileEntry gained or lost a field — update this fixture")
+        for child in children {
+            #expect(!Self.isNilValue(child.value), "fixture leaves \(child.label ?? "?") nil, so it proves nothing about that field")
+        }
+
         let profile = FolderProfile(profileId: "abhishek", root: "~/Documents",
                                     folders: ["Finance": full], personTokens: [], personAliases: [:])
         let dir = Self.scratch()
@@ -397,9 +497,20 @@ import Testing
         let entries = try #require(object["folders"] as? [[String: Any]])
         let written = Set(try #require(entries.first).keys)
 
-        let stored = Set(Mirror(reflecting: full).children.compactMap(\.label))
+        let stored = Set(children.compactMap(\.label))
         #expect(stored.subtracting(written).isEmpty,
                 "FolderProfileEntry stores \(stored.subtracting(written).sorted()) that the profile encoder never writes")
+
+        // **Presence is not enough.** An encoder writing `[]` for `anchors` or `0` for `fileCount`
+        // keeps every key and loses the data, so the entry is read back and compared whole.
+        let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
+        #expect(read.folders["Finance"] == full, "a field was written but with the wrong value")
+    }
+
+    /// Mirror hands back `Any`; an `Optional.none` inside it is not `nil` at that type.
+    private static func isNilValue(_ value: Any) -> Bool {
+        let mirror = Mirror(reflecting: value)
+        return mirror.displayStyle == .optional && mirror.children.isEmpty
     }
 
     /// The `note` the file carries about itself has to describe what the builder actually produced.

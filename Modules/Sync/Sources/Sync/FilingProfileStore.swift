@@ -250,9 +250,23 @@ extension FilingProfileStore {
     ///    profile is removed again: a profile nothing points at is also one every retry would refuse
     ///    with `profileExists`, which is the one state a caller cannot get out of. The empty
     ///    directory is left behind, harmlessly — `createDirectory` does not mind finding it.
-    /// 3. **It touches `profiles.json` only when ``activeProfileId(in:)`` is nil**, and amends the
+    /// 3. **It touches `profiles.json` only when nothing resolvable is active**, and amends the
     ///    existing document rather than rewriting it, so a hand-built index keeps every field and
-    ///    every other profile it lists.
+    ///    every other profile it lists. "Active" is stricter than ``activeProfileId(in:)``'s answer
+    ///    in one direction and looser in another, both deliberately: a field it cannot parse is a
+    ///    refusal rather than an absence, while an id naming a profile that is *not on disk* counts
+    ///    as nothing active, because a dangling pointer is not an answer and treating it as one left
+    ///    the bootstrap permanently dead. Two caveats a reader should not have to discover:
+    ///    re-serializing through `JSONSerialization` reformats numbers (`0.1` comes back
+    ///    `0.10000000000000001`, `1.0` as `1`) and collapses duplicate keys, so "keeps every field"
+    ///    is about content, not bytes; and the read-modify-write is unlocked, so a concurrent edit
+    ///    to `profiles.json` between the read and the write is lost.
+    ///
+    ///    When something *is* active the index is left completely alone, which means the profile
+    ///    written here is readable by `profile(id:)` but is not what `active(in:)` returns. That is
+    ///    the additive behaviour the id keying intends, not an oversight — but a caller that has
+    ///    promised the user a survey has to check, because "written" and "in use" are different
+    ///    outcomes and this returns the same URL for both.
     /// 4. **The JSON is the shape the offline generator writes**, so a profile made here and one
     ///    made there are interchangeable — same `schemaVersion` (checked on the way back in by
     ///    ``decode(_:at:what:)``), same `folders` array, same `axes.person` box. Round-tripping
@@ -301,24 +315,77 @@ extension FilingProfileStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let document = ProfileDocument(profile: profile, generated: stamp(now), builtBy: builtBy)
-        try encoder.encode(document).write(to: url, options: .atomic)
+        let bytes = try encoder.encode(document)
 
-        if let index {
-            do {
-                try index.write(to: indexURL(in: directory), options: .atomic)
-            } catch {
-                // The profile landed and the index did not. Left alone that is the worst of the
-                // three possible states: nothing points at the new profile, AND every retry now
-                // throws `profileExists` — whose contract tells the caller "this tree already has a
-                // profile and I did not touch it", which would be false. So undo the half that
-                // succeeded and let the next attempt simply run. Only ever the file this call
-                // created, which the guard above proved was not there. Best-effort by design: if
-                // the removal fails too, the write error is still the one worth reporting.
-                try? FileManager.default.removeItem(at: url)
-                throw error
-            }
+        // **Re-checked here, immediately before the write.** The guard at the top of this function
+        // runs before an index read, a JSON parse, a serialization and a `createDirectory` — that
+        // is milliseconds of real I/O, and anything landing a profile at this path inside that
+        // window would be overwritten by the atomic write below, which is the one thing this whole
+        // path exists to prevent. Narrowing the window to the two adjacent statements is as far as
+        // this goes without an exclusive create; `Data.WritingOptions.withoutOverwriting` cannot
+        // help, since Foundation traps outright when it is combined with `.atomic`, and `.atomic` is
+        // load-bearing (`theProfileIsWrittenAtomically`). A residual race remains and is documented
+        // on the guarantee list rather than papered over.
+        guard !FileManager.default.fileExists(atPath: url.path) else {
+            throw WriteRefusal.profileExists(id: id)
         }
+        try land(bytes, at: url, index: index, at: indexURL(in: directory))
         return url
+    }
+
+    /// Writes the profile, then the index, undoing the profile if the index write fails.
+    ///
+    /// **Split out because it is the only part of the write that a test cannot otherwise reach.**
+    /// The obvious way to fail an index write from outside — leaving a directory where
+    /// `profiles.json` should be — stopped working the moment this store learned to tell "there but
+    /// unreadable" from "absent": the directory is now caught while *reading*, and the rollback test
+    /// went on passing while exercising a refusal instead. A test that no longer reaches its subject
+    /// and does not say so is worse than no test, so the subject is now callable on its own with an
+    /// index URL that cannot be written.
+    ///
+    /// - Parameters:
+    ///   - bytes: the encoded profile.
+    ///   - url: where it goes. The caller has already refused if something is there.
+    ///   - index: composed index bytes, or nil when the index must not be touched.
+    /// - Parameter writeIndex: how the index is written. Injected so a test can fail it *and* act
+    ///   between the two writes — the rollback's byte comparison guards against exactly what another
+    ///   writer does in that gap, and there is no other way to be in it deterministically.
+    static func land(_ bytes: Data, at url: URL, index: Data?, at indexURL: URL,
+                     writeIndex: (Data, URL) throws -> Void = {
+                         try $0.write(to: $1, options: .atomic)
+                     }) throws {
+        try bytes.write(to: url, options: .atomic)
+        guard let index else { return }
+        do {
+            try writeIndex(index, indexURL)
+        } catch {
+            // The profile landed and the index did not. Left alone that is the worst of the three
+            // possible states: nothing points at the new profile, AND every retry now throws
+            // `profileExists` — whose contract tells the caller "this tree already has a profile and
+            // I did not touch it", which would be false. So undo the half that succeeded and let the
+            // next attempt simply run.
+            //
+            // **Only if the bytes on disk are still the ones just written.** The caller's guard
+            // proved the path was free at check time, not at removal time, so an unconditional
+            // delete could take out a profile that something else landed in between — inverting the
+            // refusal contract from "I did not touch it" into "I deleted it". Comparing first costs
+            // one read and makes the rollback provably about this call's own work. Best-effort
+            // throughout: if the comparison or the removal fails, the write error is still the one
+            // worth reporting.
+            if (try? Data(contentsOf: url)) == bytes {
+                try? FileManager.default.removeItem(at: url)
+            }
+            throw error
+        }
+    }
+
+    /// Whether a value parsed out of JSON is a boolean rather than a number.
+    ///
+    /// `true` and `false` bridge to `NSNumber`, so `as? Int` accepts them as 1 and 0 — which makes
+    /// every "is this field a number" test silently true for booleans. `CFGetTypeID` is the only
+    /// reliable separation once the value has been through `JSONSerialization`.
+    private static func isJSONBoolean(_ value: Any) -> Bool {
+        CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
     }
 
     /// What `profiles.json` holds right now, parsed once for both of the questions the write path
@@ -345,7 +412,12 @@ extension FilingProfileStore {
             // an I/O error — would otherwise look like a fresh machine, and an atomic write needs
             // permission on the *directory* rather than the file, so composing a new index over it
             // would succeed and orphan every profile the old one named.
-            guard !FileManager.default.fileExists(atPath: url.path) else {
+            //
+            // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
+            // that does not resolve: `fileExists` follows links and answers false for one whose
+            // target is missing — an index symlinked onto a volume that is currently unmounted
+            // reads as "no index here", and the atomic write then replaces the link itself.
+            guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
                 throw WriteRefusal.indexUnreadable("it exists but could not be read")
             }
             return IndexReading(object: nil, activeProfileId: nil)
@@ -356,7 +428,12 @@ extension FilingProfileStore {
         // A schema this build does not know is refused — including one that is not a number at all,
         // which the old check skipped entirely by asking `as? Int` and moving on when it was nil.
         if let version = object["schemaVersion"], !(version is NSNull) {
-            guard let number = version as? Int else {
+            // `as? Int` alone is not a number test: JSON `true` bridges to `NSNumber` and satisfies
+            // it as 1, so a `"schemaVersion": true` would have passed as schema 1 here while
+            // `JSONDecoder` threw for ``activeProfileId(in:)`` — the same two-readers-disagree hole
+            // this function exists to close, one type over. `false` was worse: it read as schema 0
+            // and the refusal named a version the file never contained.
+            guard !isJSONBoolean(version), let number = version as? Int else {
                 throw WriteRefusal.indexUnreadable("schemaVersion is not a number")
             }
             guard number == currentSchema else {
@@ -371,11 +448,21 @@ extension FilingProfileStore {
             guard let id = raw as? String else {
                 throw WriteRefusal.indexUnreadable("activeProfileId is not a string")
             }
-            // An empty id names no profile — `profiles//folder-profile.json` resolves to nothing —
-            // so it is treated as "nothing active" and may be re-pointed. ``activeProfileId(in:)``
-            // returns it verbatim, which is the one place the two readers still differ; harmless
-            // because every consumer of that value fails to load a profile for it anyway.
-            active = id.isEmpty ? nil : id
+            active = id
+        }
+        // **"Active" means it names a profile that is really there.** An id pointing at a profile
+        // that does not exist is a dangling pointer, not an answer, and treating it as one left the
+        // bootstrap permanently dead while reporting success: a hand-edit as small as a trailing
+        // space (`"abhishek "`) makes every read load nothing, and this refused to re-point for
+        // ever after. Re-pointing away from a name that resolves to no file cannot lose anything,
+        // and re-pointing away from one that resolves is exactly what must never happen.
+        //
+        // This is also why the empty id is not special-cased. It is not "no profile": an empty
+        // component collapses in `appendingPathComponent`, so `""` addresses
+        // `profiles/folder-profile.json`, which some layouts really do have. Asking the filesystem
+        // answers both cases with one rule instead of a guess about which ids are meaningful.
+        if let id = active, !FileManager.default.fileExists(atPath: profileURL(id: id, in: directory).path) {
+            active = nil
         }
         return IndexReading(object: object, activeProfileId: active)
     }

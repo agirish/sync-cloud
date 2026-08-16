@@ -326,6 +326,12 @@ import Foundation
     /// field only the offline survey produces, these two stop matching and the roadmap's claim stops
     /// being true in the same commit.
     ///
+    /// **What this does and does not pin, stated plainly**, because the roadmap points here: it pins
+    /// that the lens ignores `naming` — one field, the one a walk abstains from. It does not compare
+    /// a derived profile against the real hand-built one, which also differs in `axes` (up to 0.2%
+    /// on the measured tree) and in `anchors`, both of which the lens DOES read. That remains
+    /// measured rather than asserted, and the roadmap says so too.
+    ///
     /// The first expectation is the non-vacuity guard: two profiles that both produce *no* findings
     /// would compare equal and prove nothing.
     @Test func theLensSeesTheSameThingInADerivedProfileAsInAHandBuiltOne() throws {
@@ -363,9 +369,10 @@ import Foundation
             personTokens: derived.personTokens, personAliases: derived.personAliases)
 
         let fromHandBuilt = StructureDivergence.findings(in: enriched)
-        #expect(fromDerived.map(\.family) == fromHandBuilt.map(\.family))
-        #expect(fromDerived.map { $0.schemes.map(\.members) }
-                == fromHandBuilt.map { $0.schemes.map(\.members) },
+        // `StructureFinding` is Equatable, so compare it whole rather than two projections of it —
+        // family and member lists alone would miss a scheme whose `vocabulary` started depending on
+        // a field only a hand-built profile carries, which is the very thing being pinned.
+        #expect(fromDerived == fromHandBuilt,
                 "the lens read a field only a hand-built profile carries")
     }
 }

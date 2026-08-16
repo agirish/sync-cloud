@@ -95,7 +95,17 @@ public enum JurisdictionCandidates {
             let cut = path.lastIndex(of: "/")
             let name = cut.map { String(path[path.index(after: $0)...]) } ?? path
             guard isCandidateName(name) else { continue }
-            parentsByValue[name, default: []].insert(cut.map { String(path[path.startIndex..<$0]) } ?? "")
+            let parent = cut.map { String(path[path.startIndex..<$0]) } ?? ""
+            // **A value nested under itself is one branch, not several.** The parents set is the
+            // evidence that this value *splits* the tree — `Finance/US`, `Legal/US`, `School/US` —
+            // and `minimumDistinctParents` is the bar it has to clear. Counting every occurrence let
+            // a single branch clear that bar on its own: `A/US/B/US/C/US` contributes three
+            // different parent strings (`A`, `A/US/B`, `A/US/B/US/C`) and proposes a value that
+            // splits nothing, which is exactly what the rule's own doc says a parent count is for.
+            // The blast radius had the same defect one field over and was fixed; this is the half
+            // that was missed.
+            guard !parent.split(separator: "/").contains(where: { $0 == name }) else { continue }
+            parentsByValue[name, default: []].insert(parent)
         }
         let proposed = parentsByValue.filter { $0.value.count >= minimumDistinctParents }
         guard !proposed.isEmpty else { return [] }

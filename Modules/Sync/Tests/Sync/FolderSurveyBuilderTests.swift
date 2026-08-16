@@ -375,6 +375,28 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(plain.folders["Finance"]?.yearKey == nil)
     }
 
+    /// **The depth scan runs only when both values are components of the path**, and this is the
+    /// case that proves it — a shape the builder cannot produce but the offline Python builder can,
+    /// since it records axes as facts rather than as literal components.
+    ///
+    /// Without the guard the scan would find only one of the two and answer with it, silently
+    /// changing `yearKey` for such an entry. With it, the old precedence stands, which is what makes
+    /// the change a strict refinement rather than a new rule for profiles nobody re-measured.
+    @Test func anAxisThatIsNotAPathComponentKeepsTheOldPrecedence() {
+        let entry = FolderProfileEntry(path: "Finance/Chase", role: nil, naming: nil, anchors: [],
+                                       acceptsNewFiles: nil, fileCount: 1, subfolderCount: 0,
+                                       axes: ["year": "2015", "fiscalYear": "2014-2015"])
+        #expect(entry.yearKey == "2015",
+                "the depth scan ran on a path containing neither value and changed the answer")
+
+        // One value present as a component and the other not: still the old precedence, because a
+        // scan that matched only one would be answering a depth question it cannot see.
+        let half = FolderProfileEntry(path: "Finance/2014-2015", role: nil, naming: nil, anchors: [],
+                                      acceptsNewFiles: nil, fileCount: 1, subfolderCount: 0,
+                                      axes: ["year": "2015", "fiscalYear": "2014-2015"])
+        #expect(half.yearKey == "2015")
+    }
+
     // MARK: - A hand-edited roster cannot take the survey down with it
 
     /// `people.json` is hand-edited and nothing upstream rejects a repeated id.
@@ -400,6 +422,40 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(profile.folders["Mom"]?.axes["person"] == "Muktha Girish")
         #expect(profile.folders["Finance"]?.axes["person"] == nil,
                 "a folder naming nobody must not inherit a person")
+    }
+
+    /// **What a duplicated id actually does to the roster, pinned rather than assumed.**
+    ///
+    /// It is tempting to say the builder should take only the record the registry kept. It does not,
+    /// and the reason is that the registry does not keep one record: `tokensByPerson` is overwritten
+    /// (so the dropped record's single-word names stop resolving) while `phraseList` accumulates
+    /// (so its multi-word names still do). Filtering to the last record would fix the first
+    /// divergence and create its mirror for full names.
+    ///
+    /// So the roster stays a superset and this test says what that costs: a folder named for the
+    /// dropped record is still called a `person-bucket`, and its `axes.person` does not resolve. That
+    /// is visible and harmless, and it is the direction to prefer — the alternative is a person's
+    /// folder going unrecognised. Asserted so the next person to "tidy" this sees the trade.
+    @Test func aDuplicatedIdLeavesTheRosterASupersetOfWhatResolves() {
+        let duplicated = PersonRegistry(people: [
+            Person(id: "m", displayName: "Muktha", fullNames: [], aliases: []),
+            Person(id: "m", displayName: "Mukti", fullNames: [], aliases: ["Mom"]),
+        ])
+        let profile = build([dir("Muktha", [file("a.pdf")]), dir("Mukti", [file("b.pdf")]),
+                             dir("Receipts", [file("c.pdf")])], registry: duplicated)
+
+        let dropped = profile.folders["Muktha"]
+        #expect(dropped?.role == .personBucket, "the roster should still recognise the folder")
+        #expect(dropped?.axes["person"] == nil,
+                "the dropped record's single-word name is not resolvable — if this now resolves, the registry changed and the comment above needs re-checking")
+
+        // The surviving record resolves on both, which is what makes the line above a real
+        // asymmetry rather than "nothing resolves".
+        #expect(profile.folders["Mukti"]?.role == .personBucket)
+        #expect(profile.folders["Mukti"]?.axes["person"] == "Mukti")
+        // And a folder naming nobody is untouched by any of it.
+        #expect(profile.folders["Receipts"]?.role == .destination)
+        #expect(profile.folders["Receipts"]?.axes["person"] == nil)
     }
 
     // MARK: - Vocabularies that must not drift from the code that owns them

@@ -26,10 +26,12 @@ import Testing
 ///   searched one, so the same stolen milliseconds cost it three times as much proportionally.
 ///   Interleaving the samples does not help: it cancels load that *drifts between* the arms, not a
 ///   steady overhead present during both.
-/// - Measured over eight runs spanning idle-and-isolated to contended-CI, the ratio ranged 1.72 to
-///   2.78 and crossed its 1.8 bar twice, while the saving stayed within 11.15ms to 24.73ms and never
-///   came close to zero. One idle isolated run scored 2.02 — the old bar had 0.22 of margin at the
-///   best conditions this machine offers, not the comfortable headroom its comment claimed.
+/// - Measured over nine runs spanning idle-and-isolated to contended-CI, the ratio ranged 1.65 to
+///   2.78 and crossed its 1.8 bar three times, while the saving stayed within 10.40ms to 24.73ms and
+///   never came close to zero. One idle isolated run scored 2.02 — the old bar had 0.22 of margin at
+///   the best conditions this machine offers, not the comfortable headroom its comment claimed. The
+///   lowest ratio of all, 1.65, was measured on the very commit that fixed this, so the old bar
+///   would have gone red a fourth time on its own fix; that run's saving read 10.40ms and passed.
 ///
 /// The saving is the statistic that moves when **the search comes back**: the two arms converge and
 /// it collapses toward zero. Both contention modes push it the *safe* way — an additive term leaves
@@ -48,14 +50,18 @@ import Testing
 /// header row itself became cheap enough that the floor needs re-deriving. The rung ceiling tells
 /// them apart.
 ///
-/// An absolute millisecond floor is legitimate here for the reason `ColumnClickCostBenchmark` may use
-/// its own fixed budget: `.machinePinned(.calibratedTiming)` means this suite only runs on the
-/// machine these numbers were calibrated on, which is also the CI runner.
+/// An absolute millisecond floor is defensible here for the reason `ColumnClickCostBenchmark`'s
+/// fixed budget is: the CI runner IS the machine these numbers were calibrated on. `.machinePinned`
+/// does not enforce that — it skips only the reasons in `SYNCCLOUD_SKIP_MACHINE_PINNED`, which CI
+/// sets to `referenceImages,liveProfile`, so `calibratedTiming` runs there and on any other Mac. Re-
+/// measure both constants if the runner ever moves.
 ///
 /// The probe is kept, but it is **diagnostic only and deliberately not used in the assertion** — the
 /// previous comment claimed the bar "stretches by that factor" and no code ever did that. It is also
-/// not a usable load signal: it read 9.2ms on an idle machine and 7.4ms on the contended CI run that
-/// failed, so it is anti-correlated with the starvation it was meant to detect.
+/// not a dependable load signal: it read 9.2ms on an idle machine and 7.4ms on the contended CI run
+/// that failed. It is not simply anti-correlated — the calibration table below has it rising 1.7-1.9x
+/// under local contention — it is **unreliable**, and it failed to rise on the one run whose bar
+/// depended on it, which is the only case a load multiplier exists for.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable, .machinePinned(.calibratedTiming))
 struct HeaderLadderCostBenchmark {
@@ -114,9 +120,12 @@ struct HeaderLadderCostBenchmark {
     /// this change on CI, and it is the most informative of the nine: it measured a **1.65x** ratio,
     /// lower than either of the two failures this replaced, so the old bar would have taken CI red a
     /// fourth time on the very commit that fixed it. It is deliberately not tighter: the
-    /// regression it guards (the search returning, or the arithmetic becoming expensive) drives the
-    /// saving to roughly zero, so margin costs almost nothing in sensitivity and buys the headroom
-    /// three ratio flakes proved this measurement needs.
+    /// regression it guards — **the search returning, and only that** — drives the saving to roughly
+    /// zero, so margin costs almost nothing in sensitivity and buys the headroom three ratio flakes
+    /// proved this measurement needs. The other regression this suite claims to catch, the
+    /// arithmetic itself becoming expensive, is NOT covered by any floor on a difference of two
+    /// layouts; ``maximumRungMicroseconds`` measures that one directly, and the mutation that proves
+    /// the gap passed straight through this bar at 16.07ms.
     private static let minimumSavingMs = 6.0
 
     /// What one `rung(fitting:)` may cost, in **microseconds**, measured on its own.
@@ -179,6 +188,11 @@ struct HeaderLadderCostBenchmark {
     /// Builds and lays out `view` from scratch in a real window, and reports the wall time. From
     /// scratch on every sample, because that is what a `body` re-evaluation costs — a reused hosting
     /// view would measure SwiftUI's caching instead of the work.
+    /// The window and its hosting view are dropped before returning, which is not tidiness: 36 of
+    /// them accumulate over one run, each retaining a SwiftUI graph over the 1,715-row fixture, and
+    /// the later samples of this very benchmark would then be measured under the weight of the
+    /// earlier ones. `ColumnClickCostBenchmark` clears its `contentView` for the same reason and
+    /// cites mechanism 8; the release is outside the timed span so it cannot flatter the number.
     private func layoutMs<V: View>(_ make: () -> V, width: CGFloat) -> Double {
         let started = CFAbsoluteTimeGetCurrent()
         let host = NSHostingView(rootView: AnyView(
@@ -190,7 +204,9 @@ struct HeaderLadderCostBenchmark {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         _ = host.fittingSize
-        return (CFAbsoluteTimeGetCurrent() - started) * 1000
+        let elapsed = (CFAbsoluteTimeGetCurrent() - started) * 1000
+        window.contentView = nil
+        return elapsed
     }
 
     @Test func computingTheRungBeatsSearchingForIt() {
@@ -261,8 +277,11 @@ struct HeaderLadderCostBenchmark {
         let saving = searchedMedian - computedMedian
         let speedup = searchedMedian / computedMedian
         let rungMicroseconds = rungSamples.sorted()[rungSamples.count / 2] / Double(Self.rungIterations)
-        // Keeps the accumulator observable, the same way `probeMs()` does with its FNV sum.
-        #expect(rungSink != Int.min, "the rung loop was optimised away")
+        // Keeps the accumulator observable, the same way `probeMs()` does with its FNV sum — and
+        // compared against its INITIAL value, not against an arbitrary sentinel. `!= Int.min` was
+        // theatre: an elided loop leaves the sum at 0, which passes that test, so the assertion
+        // could not detect the one thing it named.
+        #expect(rungSink != 0, "the rung loop was optimised away — the ceiling measured nothing")
         // `speedup` and `probe` are printed for diagnosis and neither is asserted on — see the type
         // comment for why the ratio was retired and why the probe cannot stand in for load.
         print("BENCH header rung: searched=\(String(format: "%.2f", searchedMedian))ms "

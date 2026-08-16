@@ -36,9 +36,9 @@ public struct Person: Sendable, Equatable, Identifiable {
     ///
     /// One definition, because "what does this person go by" is asked in five places and the answer
     /// has to be the same in all of them: the token index and the phrase list are built from it,
-    /// ``PersonRegistry/displayForm(for:)`` and ``PersonRegistry/othersSharing(_:with:)`` compare
-    /// against it, and ``FolderSurveyBuilder`` matches folder names against it to recognise a
-    /// person-bucket. Spelled out separately in each, a new form source reaches some and not others,
+    /// `displayForm(of:person:)` and `tokenBreakdown(for:)` compare against it, `othersSharing`
+    /// scans it, and ``FolderSurveyBuilder`` matches folder names against it to recognise a
+    /// person-bucket. (The first two are private, so they are named in prose rather than linked.) Spelled out separately in each, a new form source reaches some and not others,
     /// and a folder starts matching for the person axis while failing to count as a person folder.
     ///
     /// Order is part of the contract: the display name leads, because the phrase list records the

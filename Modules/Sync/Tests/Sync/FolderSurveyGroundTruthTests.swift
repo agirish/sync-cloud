@@ -60,7 +60,7 @@ struct FolderSurveyGroundTruthTests {
     /// at once.
     @Test func theLiveWalkFinishedWithinItsBudget() throws {
         let r = try #require(FolderSurveyGroundTruth.report)
-        let why = "the live walk gave up after \(Int(FolderSurveyGroundTruth.walkBudget))s — it is stalling rather than running slowly, and every other failure in this suite is downstream of that"
+        let why = "the live walk gave up — it hit its \(Int(FolderSurveyGroundTruth.walkBudget))s budget or the display went to sleep under it, and every other failure in this suite is downstream of that"
         #expect(!r.walkStalled, "\(why)")
     }
 
@@ -142,6 +142,74 @@ struct FolderSurveyGroundTruthTests {
         let r = try #require(FolderSurveyGroundTruth.report)
         #expect(r.rate(.person) >= 0.99, r.misses(.person))
         #expect(r.rate(.lifecycle) >= 0.99, r.misses(.lifecycle))
+    }
+}
+
+/// The walk's give-up path, tested without a live tree.
+///
+/// **Ungated on purpose.** The suite above needs the real profile, the right machine and an awake
+/// display, so on most runs it says nothing at all — and the stall handling it relies on would then
+/// be exercised by nothing. `walk` is a plain function over a directory, so its deadline and its
+/// short-circuit can be pinned anywhere, on any machine, in milliseconds.
+@Suite struct FolderSurveyWalkBudgetTests {
+
+    @Test func aWalkPastItsDeadlineGivesUpAndSaysSo() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("walk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("a/b"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        var stalled = false
+        let cut = FolderSurveyGroundTruth.walk(dir, deadline: .distantPast, stalled: &stalled,
+                                               keepGoing: { true })
+        #expect(stalled, "a walk past its deadline did not report giving up")
+        #expect(cut.isEmpty)
+
+        // The control, and the half that would go vacuous first: with time left it walks and does
+        // NOT set the flag, so `stalled` is a measurement rather than a constant.
+        var ok = false
+        let full = FolderSurveyGroundTruth.walk(dir, deadline: .distantFuture, stalled: &ok,
+                                                keepGoing: { true })
+        #expect(!ok)
+        #expect(full.count == 1, "the fixture tree was not walked at all")
+        #expect(full.first?.children?.count == 1)
+    }
+
+    /// The display half of the give-up rule, driven directly rather than by putting the machine to
+    /// sleep: a walk whose condition goes false stops and reports it, which is what turns a display
+    /// that sleeps mid-run from an open-ended wait into a named failure.
+    @Test func aWalkStopsWhenItsConditionGoesFalse() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("walk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("a"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        var stalled = false
+        let out = FolderSurveyGroundTruth.walk(dir, deadline: .distantFuture, stalled: &stalled,
+                                               keepGoing: { false })
+        #expect(stalled, "the walk kept going with its condition false")
+        #expect(out.isEmpty)
+    }
+
+    /// Once it has given up it stays given up, so sibling subtrees are not walked one by one after
+    /// the budget is spent — the short-circuit is what keeps a stalled walk from taking as long as
+    /// an unbounded one.
+    @Test func givingUpStopsTheRemainingSiblings() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("walk-\(UUID().uuidString)")
+        for name in ["a", "b", "c"] {
+            try FileManager.default.createDirectory(at: dir.appendingPathComponent(name),
+                                                    withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        var stalled = true                      // as if a deeper call had already given up
+        let out = FolderSurveyGroundTruth.walk(dir, deadline: .distantFuture, stalled: &stalled,
+                                               keepGoing: { true })
+        #expect(out.isEmpty, "a walk that had already given up kept going")
+        #expect(stalled)
     }
 }
 
@@ -333,12 +401,24 @@ enum FolderSurveyGroundTruth {
     /// followed — a cycle would hang the suite, and `docs/flaky-tests.md` has enough entries about
     /// tests that hang instead of failing.
     ///
-    /// Gives up at `deadline`, setting `stalled` and returning what it has. The partial tree is
+    /// Gives up at `deadline` — or as soon as the display goes to sleep — setting `stalled` and
+    /// returning what it has. The partial tree is
     /// deliberately still returned rather than discarded: the agreement tests then fail on a tree
     /// too small to match, which is a named failure, and `theLiveWalkFinishedWithinItsBudget` says
     /// in one line which of those failures is really this.
-    static func walk(_ url: URL, deadline: Date, stalled: inout Bool) -> [FileNode] {
-        if stalled || Date() >= deadline { stalled = true; return [] }
+    static func walk(_ url: URL, deadline: Date, stalled: inout Bool,
+                     keepGoing: () -> Bool = { displayIsAwake }) -> [FileNode] {
+        // **`keepGoing` re-checks the display, and it is a parameter rather than a direct call for
+        // the usual reason**: a walk that consults global state is a walk no test can drive, and
+        // this one would refuse to run at all on a machine whose display happens to be asleep —
+        // which is most of them, most of the time.
+        //
+        // The check itself matters because the suite's gate is evaluated once, before any of this
+        // runs: a run that starts with the display awake and meets a display that sleeps thirty
+        // seconds later gets nothing from it. Between directory reads is the last moment this code
+        // is still in control — once inside a `contentsOfDirectory` that will not return, nothing
+        // here runs again.
+        if stalled || Date() >= deadline || !keepGoing() { stalled = true; return [] }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: url, includingPropertiesForKeys: keys) else { return [] }
@@ -350,7 +430,8 @@ enum FolderSurveyGroundTruth {
             out.append(FileNode(id: child.path, name: child.lastPathComponent,
                                 isDirectory: isDirectory,
                                 children: isDirectory
-                                    ? walk(child, deadline: deadline, stalled: &stalled) : nil,
+                                    ? walk(child, deadline: deadline, stalled: &stalled,
+                                           keepGoing: keepGoing) : nil,
                                 isSymbolicLink: isLink ? true : nil))
         }
         return out
