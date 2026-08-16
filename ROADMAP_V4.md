@@ -1,13 +1,15 @@
 # SyncCloud — v4.x roadmap
 
-**Scope:** the 4.x line after v4.0 ships. **v4.2 is a Restructure release** — §§4–6 are the
-storage-layer gaps behind **Organize ▸ Restructure** (§4), the plan surface that lens was
-deliberately shipped without (§5), and the **first folder survey**, run in the background, which is
-what gives a fresh machine anything to read at all (§6). They run first; see Order. What is left of
-the **Browse** work sits behind them: Finder-style tabs (§1) **shipped on 2026-08-14** leaving one
-behaviour designed and unbuilt, pane chrome that spans every workspace (§2) is in flight for v4.1,
-and the remaining Finder borrowings (§3) are ranked but unscheduled. `main` only, with one stated
-exception: §2's code exists on `v2.x` too, and that item says what follows from it.
+**Scope:** the 4.x line after v4.0 ships. **v4.2 is a Restructure release, and Restructure is its
+defining feature** — §§4–6 are the storage-layer gaps behind **Organize ▸ Restructure** (§4), the
+plan surface that lens was deliberately shipped without (§5), and the **first folder survey**, run
+in the background, which is what gives a fresh machine anything to read at all (§6). §§4–5 run
+first, under the four decisions recorded in **"Restructure in v4.2 — the decisions"** below; §6
+follows the release, and that block says why. What is left of the **Browse** work sits behind them:
+Finder-style tabs (§1) **shipped on 2026-08-14** leaving one behaviour designed and unbuilt, pane
+chrome that spans every workspace (§2) **shipped on 2026-08-16**, and the remaining Finder
+borrowings (§3) are ranked but unscheduled. `main` only, with one stated exception: §2's code exists
+on `v2.x` too, and that item says what follows from it.
 
 Distinct from `ROADMAP.md` (the standing feature backlog across all surfaces),
 `DEFERRED_ENHANCEMENTS.md` (accepted limits) and `REFACTOR.md` (internal shape). An item graduates
@@ -28,12 +30,55 @@ It was rewritten around Restructure on **2026-08-16**, and now covers §§4–6 
 are 25–29, unchanged — so the numbers below still point where they say they do. §4's are **real
 renders** through the shipping `LensSetupCard`, not re-creations, and are unnumbered for that
 reason. Four were added with the rewrite: **30** the six-stage spine of the whole lens, **31** the
-five unbuilt detectors of §5.2, **32** §5.3's Ask sheet, **33** §5.7's two new states. **§1's and
-§2's figures (1–20) were deleted with their sections**, leaving the gap below 21 that the numbering
-rule requires.
+five unbuilt detectors of §5.2, **32** §5.3's Ask sheet, **33** §5.7's two new states, and, with
+the audit, **34** the flagship family in full. **§1's and §2's figures (1–20) were deleted with
+their sections**, leaving the gap below 21 that the numbering rule requires.
 
 §5 has a **second companion** — its own eight-screen mockup set, in more detail than the four
 figures the main one carries: <https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>.
+
+**Reviewed for implementation-readiness on 2026-08-16 (evening)**, against the code, the live
+profile and the 6 Aug manifest, with four decisions taken in that review; they are the block below,
+and every §4–§6 item was re-cut under them. Where a figure in either companion now disagrees with
+this file — the mapping editor's refusal of merges, §5.4's ledger, the Order — the file is right.
+
+---
+
+## Restructure in v4.2 — the decisions
+
+Four questions the audit surfaced were answered on 2026-08-16, and they settle what §§4–6 may
+claim. Everything below them is written under these; nothing in them is open.
+
+| Question | Decision | What it changes |
+|---|---|---|
+| **Who is 4.2 for?** | **This machine.** Restructure ships against the hand-built profile that already exists here; the fresh-machine path is **§6, after the release**. | §6 is not on 4.2's path and nothing in §§4–5 waits on it. But §5.5's re-derivation (below) makes the *profile* half of §6 nearly free — see §6, "Two halves". |
+| **Merges?** | **Designed in.** Two source folders onto one target inside a member is a first-class operation, with a collision policy and its own ledger line. | §5.4 stops refusing the case the flagship family needs; the mapping model, the manifest and the ledger all carry it. |
+| **Who owns the profile after an Apply?** | **The app re-derives it from a fresh walk, carrying two judgement fields forward.** `buildTree` ＋ `FolderSurveyBuilder.build` after every landing; `acceptsNewFiles`/`noIntakeReason` and `naming` are copied from the previous profile for every path that survives, directly or through the manifest's rename map; the jurisdiction set is the distinct entry-level values of the previous profile (`US`, `IN`, **`Singapore`** — the header lists only two). The old file is never deleted: the new one is written under a fresh id and `profiles.json` is re-pointed, which is what `writeProfile` does today. | The finding is genuinely gone after Apply because the detector re-ran on a real profile. The create-only guard now protects *hand-built* files from *derived* ones by provenance, not existence. Costs accepted and written down in §5.5: the 80 cached cloud verdicts re-bill (the profile is in the fingerprint — and they name paths that moved, so invalidating them is correct), and the hand-authored doctrine sections go inactive (nothing decodes them; the file that carries them stays on disk). |
+| **How far does Apply go in the release?** | **All of it, landed in stages** — renames first, then moves and merges, then the opt-in removal step — behind the six invariants, ⌘Z and an on-disk inverse. | §5.5 is release-gating, not a stretch. Export-only would leave the defining feature ending in a JSON file. |
+
+**Two more that followed from those:**
+
+- **v4.2, not v5.0.** Nothing here breaks, removes or restructures a shipped behaviour: the lens gains
+  a plan surface, the store gains a write it did not have, and every existing file still decodes.
+  A major would be earned only by an incompatible `schemaVersion` on the profile, the corpus or the
+  memory — and §5.5 is written so that never happens (the new profile is the *same* schema with a
+  provenance field; the old one still loads). If the work turns out huge, it is huge on the v4.2
+  tag, not on a v5.0 one.
+- **One app-owned store for everything Restructure remembers**, not four — see §5.0. Suppressions,
+  Ask answers, drafted plans and the applied ledger all key on the same `kind × path` identity and
+  all live in `restructure.json` beside the profile. §5.3 was going to be the store's first
+  customer; the ledger is now, and it is release-gating.
+
+**What makes it fundamentally useful, and not just correct** — worth stating because the audit
+measured the shape detector at **one finding on the whole tree**: the value in 4.2 is spread across
+five things, not one. (1) The flagship family finally converges, merges included. (2) **Backlog
+becomes actionable, not just visible** — *set up 2025 like its siblings* creates the scaffold the
+series expects and hands the flat files to To File; that is the operation you would use every year,
+and it is non-destructive (§5.2). (3) The dead-weight and empty-folder counts turn into filtered
+lists with a Trash path for the sub-class that has a rule (§5.2). (4) A landing that can be undone
+after a quit, from a ledger, not only with ⌘Z (§5.5). (5) A profile that follows the tree, so the
+lens is never describing a tree that no longer exists (§5.5). If those five hold, the release is
+worth its name on a tree that has already been hand-tidied.
 
 ---
 
@@ -187,7 +232,8 @@ Both are storage-layer gaps behind a view that is already done.
 | **The corpus is written unconditionally, and is NOT hashed into the fingerprint** — which covers `folder-profile.json`, `filing-memory.json`, `people.json`. | `FilingProfileStore.fingerprint(id:in:)` | The corpus is the one artifact that moves on every survey *and* costs nothing to move. A per-survey timestamp in a hashed file changes `FilingVerdictKey` and re-bills every cached cloud classification. |
 | **`resurveyFilingMemory` cannot bootstrap.** It opens with `guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId` and returns `.none` otherwise. | `Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift` | The half the app owns cannot produce the half it does not, so a fresh machine has no way in. That is why §4.2 was a new builder rather than "just run the re-survey", and it is the guard §6 opens with. |
 | **`isAxisValued` already falls back to `isBareYear` and `isInboxPath`** — its own doc says the fallbacks exist "for a profile that records no axes at all". | `Modules/Sync/Sources/Sync/StructureDivergence.swift` | A profile that records no axes at all is still enough to make **this lens** work, through those fallbacks; what it misses is exact — non-year axis values (`Family/Mom`, `Finance/US`) read as vocabulary, so two eras can look different when they differ only by whose folder they are. The derived profile does not need the fallback: it records `axes`, which is part of why Restructure cannot tell it from the hand-built one (§4.2). |
-| **The folder profile has exactly one write path, and it refuses over an existing profile.** `writeProfile` throws `WriteRefusal.profileExists`, writes atomically, and re-points `profiles.json` only when nothing is active. `FilingSurveyStore` still never writes a profile. | `Modules/Sync/Sources/Sync/FilingProfileStore.swift` (`writeProfile`, shipped `d4280231`) | A derived profile can never land on top of a hand-built one, which is what a walk cannot re-derive: `naming`, `folderSemantics`, the `outbound-pack` refusals. There is deliberately no `overwrite:` parameter — replacing a profile means moving the old file by hand, in the open. |
+| **The folder profile has exactly one write path, and it refuses over an existing profile.** `writeProfile` throws `WriteRefusal.profileExists`, writes atomically, and re-points `profiles.json` only when nothing is active. `FilingSurveyStore` still never writes a profile. | `Modules/Sync/Sources/Sync/FilingProfileStore.swift` (`writeProfile`, shipped `d4280231`) | A derived profile can never land on top of a hand-built one, which is what a walk cannot re-derive: `naming`, `folderSemantics`, the `outbound-pack` refusals. There is deliberately no `overwrite:` parameter. **Revised by the decisions block:** from 4.2 the guard keys on *provenance* — a file the app derived is the app's to replace, a hand-built one still is not — and "replace" always means *write a new id and re-point*, never overwrite. §5.5 carries the mechanism. |
+| **The builder needs a walk, not a survey** *(review)*. `FolderSurveyBuilder.build(tree:root:profileId:registry:jurisdictionValues:)` reads folder names, file names and counts; no PDF is opened. `FileSyncManager.buildTree(url:sortOption:fileManager:maxDepth:)` produces that walk today. | `FolderSurveyBuilder.swift:58`; `FileSyncManager+Scanning.swift:914` | Re-deriving a profile is seconds, and it is the same two calls whether the reason is an Apply (§5.5) or a fresh machine (§6). The hours in §6 are the *document* survey — the corpus and memory the router wants — which Restructure does not read. |
 
 ### 4.1 A truthful "last surveyed" — small
 
@@ -278,8 +324,8 @@ not a bare year, and almost all are correct: `01. Jan 2019` monthly statement fo
 `2005 - 2006` Indian fiscal years. A detector keyed on *the name contains a year* fires 302 times,
 which is precisely the failure `StructureDivergence`'s own doc was written to prevent. Scoped to
 **a shadow year sitting beside bare-year siblings** it fires **5** times. Note also that its
-proposed fix — `IRS Docs - 2023` → `2023`, where `2023` already exists — is a **merge**, so it
-inherits §5.4's decision.
+proposed fix — `IRS Docs - 2023` → `2023`, where `2023` already exists — is a **merge**, which
+§5.4 now defines: the two-file folder moves into the year and is emptied, and the year keeps its name.
 
 **This is one of §5.2's eight detectors.** Build it once, there — it is listed here because it is
 storage-side and needs neither the plan surface nor a scoped read.
@@ -309,8 +355,10 @@ is the shape half. Saying so here is cheaper than discovering it on the first re
 
 ### Context
 
-**Audited against the code and the live 3,013-folder profile on 2026-08-16.** The rows marked
-*audit* are ones that re-measuring changed or added; two of them block items below.
+**Audited against the code and the live 3,013-folder profile on 2026-08-16, and re-read for
+implementation-readiness the same evening.** The rows marked *audit* are ones that re-measuring
+changed or added; the rows marked *review* were added by the readiness pass. Two of the audit rows
+blocked items below until the decisions block settled them.
 
 | Fact | Where | Consequence |
 |---|---|---|
@@ -318,21 +366,58 @@ is the shape half. Saying so here is cheaper than discovering it on the first re
 | **One detector of eight shipped.** Dead weight, backlog, mirrored inbox, echo names and shadow axes are designed and unbuilt. | `StructureDivergence` | A crowded branch gets the same answer as a tidy one: silence. Measured 2026-08-16, the whole lens returns **one finding, in one of sixteen top-level areas** — so the lens is thin because seven detectors are missing, not because it is unscoped, and that is the argument for §5.2 going first. §4.3 is one of the eight — build it as part of §5.2, not twice. |
 | **`memberCount` sums the *vouched* schemes only** — a scheme of one is dropped as drift before the card is drawn. **And that is only one of two drop paths** *(audit)*: a sibling whose vocabulary is empty — a leaf, or one whose children are all axis values — is dropped *before clustering starts*, so it never becomes a scheme to grey. | `StructureFinding.memberCount`; `StructureDivergence.finding`, the `guard !words.isEmpty` | The card reads **11 folders** on a family of **17**: 11 vouched ＋ 5 unvouched drift ＋ 1 with no vocabulary at all (`CA State`, 3 files, 0 folders). **A folder with no shape is the one the plan most needs to house** — it is evidence for no era, so nothing else will claim it. |
 | **`StructureFinding.id` is the family path** *(audit)*, and `RestructureLens` renders `ForEach(findings)`. | `StructureDivergence.swift`; `RestructureLens.body` | §5.2's whole point is that one family can produce a *Shape* **and** a *Series* **and** an *Ask* — three rows sharing one identity in one `ForEach`. **Put the kind in the identity before the second detector lands**, not after. The same composite key is what §5.3's answer store and *never suggest this again* both need, so it is one decision serving three items. |
-| **Nothing in the app can rebuild a folder profile** *(audit)* — `writeProfile` throws `WriteRefusal.profileExists` and has deliberately no `overwrite:`; `resurveyFilingMemory` writes the corpus and the memory and never a profile; `structureFindings` is memoised and dropped only by `filingFolderProfile`'s `didSet`. | `FilingProfileStore.writeProfile`; `FileSyncManager+FilingSurvey`; `FileSyncManager.structureFindings` | **The blocking one.** The detector reads `FolderProfile.folders`, keyed by relative path, and §5.5 renames exactly those paths. After an Apply the profile describes a tree that no longer exists and the finding is still true of the stale copy. See §5.5 and §5.7. |
+| **Nothing in the app can rebuild a folder profile** *(audit)* — `writeProfile` throws `WriteRefusal.profileExists` and has deliberately no `overwrite:`; `resurveyFilingMemory` writes the corpus and the memory and never a profile; `structureFindings` is memoised and dropped only by `filingFolderProfile`'s `didSet`. | `FilingProfileStore.writeProfile`; `FileSyncManager+FilingSurvey`; `FileSyncManager.structureFindings` | **Was the blocking one; decided.** The detector reads `FolderProfile.folders`, keyed by relative path, and §5.5 renames exactly those paths. From 4.2 an Apply ends by re-deriving the profile from a fresh walk (decisions block; mechanism in §5.5), so the finding is gone because the tree was re-read. |
+| **The corpus and the memory are keyed by relative path too** *(review)* — `FilingCorpus.documents` by document path, `FilingMemory.folders` by folder path; the memory is hashed into the fingerprint. | `FilingCorpus.swift`; `FilingMemory.swift`; `FilingProfileStore.fingerprint` | An Apply strands three artifacts, not one. Re-deriving fixes the profile; the corpus and memory get the **manifest replayed onto their keys** — a rename maps a prefix, a move maps a path — so no page is re-read for a file that only moved. The fingerprint moves either way; that is correct (§5.5). |
+| **The primitives Apply needs already exist, and the rename pass is the worked example of using them** *(review)*: `enqueueFileOperation` (serialised, counted in `activeFileOperationsCount`), `safeMoveItem` (never overwrites), `generateUniqueURL` (keep-both), `registerMoveUndo` (one grouped ⌘Z per pass, **in-memory, gone at quit**), the `isVerifyAllRunning` write-exclusion guard, and the pattern of *re-listing the folder inside the operation and applying only steps the disk still asks for*. | `FileOperations+Primitives.swift:142,266`; `FileSyncManager+Undo.swift:189`; `FileSyncManager+FilingRename.swift:201` | "Shares the rename pass's review-and-apply path" means **these**, not its view. Two things it does not have and §5.5 adds: an inverse that survives a quit, and a verifier from a different code path. |
+| **A folder rename on this tree is one filesystem operation carrying every file inside it** — the rename pass moves files; a `rename-dir` moves a directory with `safeMoveItem` and iCloud / Dropbox sync it as a rename. | `FileOperations+Primitives.swift:266` | The reason *prefer the rename* is not only tidiness: on an iCloud tree with evicted files a rename never forces a download, and a merge (per-file moves within one container) does not either. Nothing in §5.5 crosses a volume. |
 | **`folderSemantics` is decoded by nothing** *(audit)* — the two matches in the Swift tree are both comments. `FolderProfile` decodes five fields; `conventions`, `axes`, `folderSemantics`, `structuralRules` and `canonicalPaths` are read by nobody, and the three live entries are hand-authored prose doctrine. | `FolderProfile`; `folder-profile.json` | §5.3 was specified to write its answer there. It cannot, and should not — see §5.3, which now carries its own store. |
 | **The crowding counts came from a smaller tree** *(audit)*. | live profile, 2026-08-16 | Pass-through is **86**, not 52; single-file leaves **503**, not 434. Both figures print in the mockups as though they were the app's output — **derive them, never paste them**. |
 | **The rename pass already owns a review-and-apply path** — per-folder plans, "as one undoable change", and a *left alone, for a stated reason* tail. | `RenamePassLens`, `onApply` | The plan shares it rather than growing a second one. `ROADMAP.md` 20 makes that its scheduling constraint. |
 | **The one paid control names its model, names its batch size, and raises a spend pre-flight with a real estimate.** Its branch is *is a key stored*, not *is cloud switched on*. **It is typed to `[FilingSuggestion]`** *(audit)* and gated on `filingCloudRefineAvailable` ＋ `canRefineFilingSuggestions`. | `LensWorkspaceView.refineButton` | §5.6 reuses the **pattern** — same slot, same words up to the ellipsis, same billing sentence, nothing new to design — but not the function. That is the difference between "small once §5.4 exists" and a day. |
 | **Answers and applied plans both invalidate the check that asked them.** | v3.1 review; `Refine` is already a generation-bumper | §5.3 and §5.5 must bump a structure generation and recompute, or the lens re-suggests what it was just told. |
 
+### 5.0 Identity and the store — small, and first
+
+Two things every item after this one leans on, so they land before any of them.
+
+**Identity.** `StructureFinding.id` becomes `kind × family` — a `FindingKind` enum (`shape`,
+`series`/backlog, `shadowAxis`, `echoName`, `mirroredInbox`, `deadWeight`, `ask`) plus the family
+path. Today `id` is the family alone and `RestructureLens` does `ForEach(findings)`, so the second
+detector to land collides with the first in one `ForEach` (audit). The kind carries the **verb** the
+card shows (§5.1) and is the first half of every key below.
+
+**The store.** One per-profile, app-owned, atomically written file, `restructure.json`, next to
+`people.json` — precedents `PeopleStore`, `PersonTagStore`, `StorageLensStore`,
+`FilingVerdictCache`. Four sections, one key:
+
+| Section | Keyed on | Written by | Read by |
+|---|---|---|---|
+| `suppressed` | kind × path | *Never suggest this again* on any card | the lens, before rendering; the rail badge |
+| `answers` | kind × path → chosen option | §5.3's Ask sheet | the detector that asked, so it never asks twice |
+| `drafts` | kind × family → mapping ＋ manifest | §5.4, when the sheet closes with a plan | §5.7's *Planned, not applied* card |
+| `applied` | manifest id → manifest, inverse, `at`, outcome counts, the profile id it was applied under and the one it produced | §5.5, at the end of a landing | §5.7's *Applied* card; **`Undo this reorganisation`**; the log |
+
+**Answers, drafts and suppressions all survive a re-survey** — the profile can be replaced under
+them (§5.5) and their keys are paths, not profile ids. What they do *not* survive is the path
+moving: an Apply replays its manifest onto this file's keys too, the same replay §5.5 runs on the
+corpus and memory. **Not `folderSemantics`**: nothing decodes it, and the profile is not the app's
+to edit in place.
+
+**Proof:** a round-trip test per section; a test that a suppressed finding stays suppressed after
+the profile is swapped for a derived one; a test that a rename in a manifest re-keys every section
+that named the old path — and leaves one that named a sibling alone.
+
 ### 5.1 The scoped read — small
 
 Display-only, no new machinery. Fig. 21.
 
-- Each finding card gains a **kind tag carrying the verb** — *Shape* renames folders, *Series* moves
-  files, *Ask* asks — so the class of change is legible before the sheet opens.
-- The card states its blast radius: for the flagship family, *a plan here is folder renames, no file
-  would move*.
+- Each finding card gains a **kind tag carrying the verb** — *Shape* renames or merges folders,
+  *Series* scaffolds and hands off, *Ask* asks — so the class of change is legible before the sheet
+  opens.
+- The card states its blast radius, derived from the draft where one exists and from the family's
+  shape where none does: for a one-to-one family *a plan here is folder renames, no file would move*;
+  for the flagship family, whose convergence needs merges, *N folders would be renamed and M merged,
+  so files would move* — the honest sentence, and the one that makes someone open the sheet.
 - **The count stops undercounting, on both drop paths** (see Context): the subtitle counts the
   family, the unvouched scheme renders greyed as drift, and **the shape-less sibling gets a row of
   its own** — *no shape of its own* is a different sentence from *disagrees with the others*, and
@@ -343,6 +428,12 @@ Display-only, no new machinery. Fig. 21.
   badge people stop reading, which is why *Ask* is excluded. **Cheaper than it looks:** the badge is
   already scoped and already excludes ancestor findings (`RailCounts.restructure`), so filtering by
   kind is the only new part.
+
+**Proof:** the flagship family fixture (folder names only, lifted from the live profile into the
+repo — 17 members, 24 child names) renders **17** in the subtitle, one greyed drift scheme, and one
+*no shape of its own* row for `CA State`; the badge equals the count of plan-bearing kinds inside
+the scope and ignores an Ask beside them; a scoped read at a leaf still shows the ancestor's
+findings faintly, and a `Plan…` on the card, never a `Reveal` in the primary slot.
 
 ### 5.2 The remaining detectors, and the crowding strip — medium
 
@@ -359,7 +450,7 @@ knowing before building, because two of them cannot be validated on this tree:
 | Detector | Fires | Notes |
 |---|---|---|
 | **Backlog** | **10** | `Health/Dental/2025`, `Work/HPE/Compensation/Benefits/2026`, … All plausible, all computable from `fileCount` and `subfolderCount`, which the profile already carries. Best value of the five. |
-| **Echo name** | **1** | A true hit: `Form W-2` beside `Form W2` under `Finance/US/Income Tax/2023/Forms`. **And its only fix is a merge**, which §5.4 refuses — so it lands as a finding with no plan, and the card must say so rather than offering a button that dead-ends. |
+| **Echo name** | **1** | A true hit: `Form W-2` beside `Form W2` under `Finance/US/Income Tax/2023/Forms`. **Its only fix is a merge** — which §5.4 now defines, so this lands with a two-row mapping (`Form W2 → Form W-2`) and a plan of one merge, collisions kept both. Until stage two of §5.5 lands, the card offers Export and says Apply is coming, rather than a button that dead-ends. |
 | **Mirrored inbox** | **1** | Only the degenerate `Finance/US/TODO/IRS/IRS`. The 6 Aug TODO drain already cleared the class this tree had. **Build it, but do not expect to validate it here.** |
 | **Shadow axis** | **5** | Under the narrow rule — see §4.3, which the audit reframed. |
 | **Dead weight** | **86 / 503 / 20** | Pass-through, single-file leaves, and **wholly empty**. |
@@ -371,17 +462,42 @@ place this item can quietly put an O(folders) sweep behind a scroll: `structureF
 precisely because the overview asks for it on every render, so every detector here joins that cache
 and the cache key grows a scope.
 
+**Backlog is the one detector whose fix is cheap, safe and recurring — so it gets an Apply of its
+own, and it is the highest-value addition of the review.** The finding today is *the newest year
+has files and no folders*; the natural action is not a restructure but a **scaffold**: *Set up
+`Health/Dental/2025` like its siblings* creates the folders the family's vouched vocabulary expects
+(`Claims/`, `Statements/`, …) as `create-dir` operations and nothing else — no file moves, nothing
+to undo but empty folders — and then **hands the flat files to To File scoped to that folder**,
+which is the surface that already makes per-file judgements with a verdict, a shortlist and Undo.
+Where the family has no vouched scheme (all drift), there is nothing to scaffold from and the card
+says so. This is the operation a person would use *every year* rather than once a decade, it is
+the "worth saying the month it happens" case from `ROADMAP.md` 20 made actionable, and it is what
+lets 4.2 be useful on a tree that has already been hand-tidied. It shares §5.4's manifest
+(`create-dir` only) and §5.5's landing (no removal step), so it costs a card and a hand-off, not a
+second machine.
+
 **Only sub-classes with a stated rule get an Apply.** The 503 single-file leaves get a number and
 nothing else: a folder can look like debt and be a destination waiting for its next file, and
 nothing in its own shape separates the two. That is the same mistake that had
-`Supporting Documents/Resume` and `Supporting Docs/HPE/Payslips` put back on 6 Aug.
+`Supporting Documents/Resume` and `Supporting Docs/HPE/Payslips` put back on 6 Aug. **Pass-through
+folders (86) are also report-only in 4.2**: hoisting `A/B/…` to `A/…` is a move of everything
+under `B` and a rename of every path in the profile, corpus and memory beneath it, for a defect
+that costs one click in a column view. Say the number, offer the list, offer no button.
 
-**The 20 wholly empty folders have no path today, and that should be a decision rather than an
-omission.** §5.5's removal step is deliberately scoped to folders *the plan itself emptied*, so a
-folder that was already empty can never be offered — and the 6 Aug lesson applies to exactly these:
-an empty **date bucket** is debt, an empty **category** is a destination, and two of that day's
-removals had to be put back. They are the cheapest real win in this item and the easiest to get
-wrong.
+**The 20 wholly empty folders — decided.** They appear as the third filter of the crowding strip
+and, unlike the other two, they get §5.5's removal sheet — the *same* sheet, with the same split:
+an empty **date bucket** (`2019`, `2013-2014`, `01. Jan 2019`) is debt and is ticked; an empty
+**category** is a destination and is listed unticked with its path printed inline. Nothing is
+deleted; folders go to the Trash; ⌘Z and the ledger cover it like any landing. That is the 6 Aug
+rule applied to the folders that day's scope-bug taught it on, and it is the cheapest real win in
+this item.
+
+**Proof:** each detector gets a synthetic fixture that fires and a control that does not, *and* is
+run against the in-repo flagship/backlog fixtures lifted from the live profile with the numbers
+above pinned (`10`, `1`, `1`, `5`, `86 / 503 / 20`) — a detector whose count moves on the fixture
+moves for a reason someone has to write down. The scaffold card's `create-dir` list equals the
+vouched vocabulary minus what the newest member already has; the To File hand-off opens scoped to
+that folder and to nothing wider.
 
 ### 5.3 Ask findings — medium
 
@@ -408,26 +524,57 @@ dropped only by `filingFolderProfile`'s `didSet`, so the cache gains a second tr
 re-asks what it was just told. Schedule it on its own merits — which are modest today, since this
 tree holds one Ask-shaped disagreement.
 
-### 5.4 Choose → map → manifest, with Export and no Apply — large
+**Not release-gating for 4.2.** The store it needs ships with §5.0 regardless (the ledger and the
+suppressions are release-gating; the `answers` section is a second key in the same file). If the
+sheet and the one detector that asks are not done when the rest is, 4.2 ships without them and
+loses one finding on this tree. Fig. 32 stays as the design.
 
-The whole plan surface, ending in a file rather than in a disk write. Figs. 23–24.
+### 5.4 Choose → map → manifest, with Export — large
 
-**Two things the audit changed here, and the first one is a prerequisite rather than a detail.**
+The whole plan surface, ending in a file that §5.5 then lands. Figs. 23–24 — **with one correction
+to both: the mapping editor no longer refuses merges.**
 
-**Merges are the main case, not a corner.** The mapping editor refuses two sources onto one target
-inside a year — and laid out in full, **the flagship family cannot converge without one, in either
-direction**. 2013's `Federal Tax` · `State Tax (California)` · `State Tax (North Carolina)` has no
-one-to-one image in 2016–2022's `Forms` · `Reference` · `Refund` · `Transcripts`, and the reverse
-has none in 2013's. Nor is it hypothetical: the 6 Aug run **fed 3 destinations from two sources
-each**, and §5.2's one real echo-name hit (`Form W-2` / `Form W2`) is a merge too. So either design
-one — it is the point where *rename* stops being available, so it is a file move, and it needs a
-name-collision policy and a ledger line of its own — or **say plainly that this surface cannot fix
-the flagship family**, in which case the flagship case has to change. Both are honest; presenting
-the family as the case this is for, while refusing the operation it needs, is not.
+**Merges are designed in — decided.** Laid out in full, **the flagship family cannot converge
+without one, in either direction**: 2013's `Federal Tax` · `State Tax (California)` · `State Tax
+(North Carolina)` has no one-to-one image in 2016–2022's `Forms` · `Reference` · `Refund` ·
+`Transcripts`, and the reverse has none in 2013's. Nor is it hypothetical: the 6 Aug run **fed 3
+destinations from two sources each**, and §5.2's one real echo-name hit (`Form W-2` / `Form W2`) is
+a merge too. So it is an operation, and this is its definition:
 
-**Whether the manifest can also be replayed against the profile is a §5.4 question.** See §5.5: the
-app cannot rebuild a folder profile, so what the ledger and the Applied state are *allowed to say*
-depends on a decision that belongs here, in the design of the manifest, rather than inside Apply.
+- **The mapping is per family: *source child name → target child name*, one row per distinct
+  source name across every member** (24 rows on the flagship family). It is edited once and applied
+  to every member; per member the operations are *derived*, never typed:
+  - one source → a target absent in that member: **`rename-dir`** (atomic, carries its files);
+  - N sources → one target absent in that member: **rename the source with the most files, merge the
+    rest into it** — the fewest moves that reach the shape;
+  - N sources → a target already present in that member: **merge all N into it**;
+  - a target with no source in that member: **nothing**, unless the plan is a §5.2 scaffold, in
+    which case `create-dir`;
+  - a source mapped to *keep*: **`keep`**, listed (invariant 4).
+  - **Ordering inside a member is derived too**: a folder is vacated before its name is filled
+    (`Forms → Tax Records` runs before `Federal Tax → Forms`), a two-way swap goes through a
+    temporary name, and a case-only rename (`forms → Forms`) takes the two-step `safeMoveItem`
+    already has for case-insensitive volumes. The 6 Aug log never needed any of these; the flagship
+    mapping will, and a manifest that lists them in the wrong order fails at the second action.
+- **A merge is `move-file` per file plus `move-dir` per subfolder into the target, followed by the
+  source becoming eligible for the removal step** — never a `move-dir` of the source *onto* the
+  target, which would nest it. Apply sees only primitives; the sheet groups them as *merge `Federal
+  Tax` into `Forms` (12 files, 1 folder)*.
+- **Collision policy.** A file whose name exists at the target is moved under a unique name by
+  `generateUniqueURL` — **keep both, never overwrite, and count it**: the ledger has a line *N name
+  collisions, both kept*. If the two are the same document that is a Duplicates question, not this
+  surface's; it may say so, it may not decide. A *subfolder* whose name exists at the target merges
+  one level down by the same rules; deeper than that the subfolder is `keep` and reported.
+- **The ledger separates what a merge does from what a rename does**: *files moved* (merges) from
+  *files carried* (renames), *folders renamed* from *folders emptied*. The "8 renames · 0 moved ·
+  92 carried · 5 kept" that Fig. 24 draws for the flagship family **predates merges and is not the
+  number** — derive it from the mapping; do not paste it.
+
+**Whether the manifest can also be replayed against the profile — decided (re-derive; see the
+decisions block and §5.5).** What is still this item's is that the manifest be *replayable* at all:
+an ordered list of typed path operations, each with a `src` and `dst`, so that §5.5 can run it
+forwards on the disk, run it onto the corpus, memory and store keys, and derive its inverse
+mechanically.
 
 1. **Choose the target shape — nothing pre-selected.** The schemes found, labelled by what they are
    (*the largest group*, *the most recent*), with **Name it myself among them, not behind them**.
@@ -445,26 +592,94 @@ depends on a decision that belongs here, in the design of the manifest, rather t
    in one glance (each filing lands flat and is foldered later).
 3. **The mapping editor** — one row per distinct source folder name across the family, target
    dropdown, **default keep**, never a guessed mapping. This is where the leverage is: edited once,
-   applied to every member. Two sources onto one target inside one year is a **merge**, which is the
-   decision above rather than a row-level refusal to be designed around.
+   applied to every member. Two sources onto one target is a **merge** and the row says so in the
+   margin (*merges into `Forms` in 3 members*), so the cost of a choice is visible where it is made.
    **Size it honestly:** the flagship family has **24 distinct child names across 17 members**, not
    the nine the mockup draws, and several are near-duplicates a dropdown alone cannot resolve
-   (`Payment` / `Payments`, `Forms` / `Tax Returns`).
-4. **The manifest** — ordered typed operations (`create-dir`, `rename-dir`, `move-dir`, `move-file`,
-   `keep`), each with its own written justification, and a ledger that separates **files moved from
-   files carried** and **folders changed from folders kept**. On the flagship family that reads
-   8 renames · 0 files moved · 92 carried · 5 kept.
+   (`Payment` / `Payments`, `Forms` / `Tax Returns`). **The mapping is one level deep**: it names a
+   member's direct children; whatever is inside a renamed folder is carried, and whatever is inside
+   a merged one moves with it. It does not reach into `2016/Forms/W-2/`.
+4. **The manifest** — the 6 Aug log's schema, extended, and versioned so a reader can tell them
+   apart. Header: `schemaVersion: 2`, `profileId`, `manifestId`, `createdAt`, `family`, `kind`
+   (§5.0's), `mapping` (the rows as edited), `note`. Then `actions`, ordered as they run: `create-dir`
+   · `rename-dir` · `move-dir` · `move-file` · `keep` · and, only in the removal step's own manifest,
+   `remove-empty-dir`. Each carries `src`, `dst`, `evidence` (its written justification), and where
+   it applies `filesCarried` (renames) or `bytes` and `md5` (file moves — **filled in at apply time**,
+   invariant 5, never at plan time). The ledger is a pure function of `actions`.
    **Prefer the rename whenever a mapping is one folder to one folder**: it is atomic, preserves
    file identity and cannot half-finish. The 6 Aug run brought fourteen eras into agreement with
    4 renames carrying 58 files each and moving none.
-5. **`Export plan…`** writes the manifest beside the profile in the shape the 6 Aug log used —
-   reviewable in a text editor with nothing at risk. This is the natural stopping point: everything
-   above is worth landing before any Apply exists.
+   **The inverse is derived, not authored**: reverse the list, swap `src`/`dst`, turn `create-dir`
+   into `remove-empty-dir` and `remove-empty-dir` into `create-dir` — and a collision-renamed file's
+   inverse restores its *original* name, which is why the collision has to be recorded as its own
+   fact on the action, not folded into `dst`.
+5. **`Export plan…`** writes the manifest beside the profile as `restructure-<date>-<family>.json` —
+   reviewable in a text editor with nothing at risk — and **saves the draft to the store** (§5.0),
+   which is what makes §5.7's *Planned, not applied* survive the sheet closing and the app quitting.
+   This is the natural stopping point in the build order: everything above is worth landing before
+   any Apply exists.
+
+**Proof — the 6 Aug oracle.** Reduce that day's `Immigration/Authorization` fix to a fixture (folder
+names and counts only) and to a mapping (`Application → Petition` under H-1B; `Petition →
+Application` under H-4 and H-4 EAD); the derived manifest must be **exactly the log's four
+`rename-dir` operations with their `filesCarried`, and no `move-file`**. Then the flagship family
+under a mapping that converges 2013 onto the 2016 vocabulary: the manifest carries merges, the
+ledger's *files moved* is non-zero, `keep` lists `Transcripts` where the target has no slot, and a
+seeded name collision surfaces as a counted line rather than a lost file. Round-trip the manifest
+through its `Codable`, and check the inverse of the inverse is the original.
 
 ### 5.5 Apply — large, and the only destructive item here
 
-Shares `RenamePassLens`'s review-and-apply path. **Renames first as their own landing** — the
-flagship case needs no file to move — then file moves, then the removal step.
+Built on the rename pass's primitives (Context): `enqueueFileOperation`, `safeMoveItem`,
+`generateUniqueURL`, `registerMoveUndo`, and its rule of re-listing inside the operation and applying
+only what the disk still asks for. **Landed in three stages, each shippable**: renames and
+`create-dir` first — the flagship's H-4-shaped cases and every §5.2 scaffold need nothing else —
+then moves and merges, then the removal step. All three are in 4.2 (decisions block).
+
+**What one landing does, in order:**
+
+1. Refuse to start while `isVerifyAllRunning`, while any `ScanLifecycle.isRunning` (a filing scan,
+   a re-survey or the duplicate scan reads the paths this is about to move), or while
+   `activeFileOperationsCount > 0`; and, once started, hold `activeFileOperationsCount` so none of
+   those starts underneath it. The rename pass guards only the first; this guards all three because
+   it moves *folders*.
+2. Write the **inverse manifest to disk first** — into the store's `applied` section with outcome
+   *in progress* — so a crash mid-run leaves a reversible record (invariant 3).
+3. Run the actions through `enqueueFileOperation`, **re-probing every `src` and `dst` immediately
+   before each one** (invariant 5): a folder holding a file the manifest never listed is skipped and
+   reported, and the rest of the plan runs (invariant 2); a `dst` that has since been taken gets
+   `generateUniqueURL` and a collision line, never an overwrite; `bytes` and `md5` are recorded on
+   each moved file *now*, from the disk.
+4. **Verify from a different code path** (invariant 6): re-list every touched folder and reconcile
+   file counts against what the manifest predicted — a verifier that agrees with the applier because
+   it shares its arithmetic has proved nothing. A mismatch is reported on the card and in the log,
+   and does not roll anything back on its own.
+5. Register **one grouped ⌘Z** for the whole landing (`registerMoveUndo`, as the rename pass does),
+   and finalise the ledger entry with counts and outcome. ⌘Z is this launch's undo; the ledger's
+   inverse is every later one.
+6. **Re-derive the profile** — the decision. `buildTree` over the profile root, then
+   `FolderSurveyBuilder.build` with the previous profile's registry and its *entry-level*
+   jurisdiction values (`US`, `IN`, `Singapore`); then the **carry-over**: for every path that exists
+   in both, or maps across through this manifest's renames, copy `acceptsNewFiles`,
+   `noIntakeReason` and `naming` from the old entry. Write under a fresh profile id with
+   `derivedBy: "SyncCloud <version>"` and `derivedFrom: <old id>`, re-point `profiles.json`, and
+   **keep the old file** — it is what Undo re-points to, and it is the last hand-built copy. Then
+   set `filingFolderProfile`, whose `didSet` drops `cachedStructureFindings` — the finding is gone
+   because the tree was re-read.
+7. **Replay the manifest onto the keys of the corpus, the memory and the store** — a `rename-dir`
+   re-prefixes every key beneath it, a `move-file` re-keys one document, a merge re-keys each file
+   it moved — and write them. No page is re-read for a file that only moved. The fingerprint moves;
+   the **80 cached cloud verdicts** on this machine are invalidated, and that is correct — every one
+   of them names a destination as a path, and the paths just changed.
+8. Log one line per landing: manifest id, family, counts, verifier result, old and new profile ids.
+   The log is where the truth of an apply gets found later; make it findable by grepping the
+   manifest id.
+
+**`Undo this reorganisation`** — the button §5.7's *Applied* card carries — runs the stored inverse
+through the same eight steps: guards, re-probe, verify, and re-point `profiles.json` back to the
+profile recorded as `derivedFrom`, which was kept for exactly this. It survives a quit because the
+inverse is on disk, and it is honest about drift: a file that has moved on since is skipped and
+reported like any other unlisted file. It is not ⌘Z; both exist, and the card says which it is.
 
 The six invariants from `ROADMAP.md` 20 are the acceptance criteria, three of them rendered on the
 manifest where the decision happens (every moving file listed by full path first; the inverse plan
@@ -480,31 +695,46 @@ shape of the name: an empty **date bucket** is debt and is ticked; an empty **ca
 destination and is not, with its paths printed inline because there are few enough to read. No file
 is ever deleted; folders go to the Trash.
 
-#### The gap this item cannot close on its own
+#### The gap this item used to be unable to close — and how the decision closes it
 
-**Applying a plan makes the lens's own input wrong.** The detector reads `FolderProfile.folders`,
-keyed by relative path; this item renames and moves exactly those paths. Afterwards the profile
-describes a tree that no longer exists, and the finding it produced is still true of the stale copy
-— **three independent paths confirm there is no way back**: `writeProfile` refuses to write over an
-existing profile and has no `overwrite:`, the re-survey writes corpus and memory and never a
-profile, and `structureFindings` is memoised behind `filingFolderProfile`'s `didSet`, which an apply
-cannot pull. §5.7's *Applied* state cannot mean what it says until this is settled.
+**Applying a plan made the lens's own input wrong.** The detector reads `FolderProfile.folders`,
+keyed by relative path; this item renames and moves exactly those paths, and until 2026-08-16 three
+independent paths confirmed there was no way back (`writeProfile` refuses over an existing profile,
+the re-survey never writes one, `structureFindings` is memoised behind `filingFolderProfile`'s
+`didSet`). Step 6 above is the answer: **re-derive from a fresh walk, carry two judgement fields
+forward, write a new id, keep the old file.** Replaying the manifest onto the profile was the
+alternative and it was rejected for one reason — replay is a model of the disk, and this tree is
+edited while work is open; a walk *is* the disk.
 
-The cheap answer is to **replay the manifest against the in-memory profile**: it is an ordered list
-of typed path operations, so applying it to the profile's keys is a pure transformation that costs
-no walk and reuses the artifact the plan already produced. That fixes the session. Persistence needs
-one of two decisions, and **it belongs in §5.4** because it decides what the ledger may claim:
+**What that costs, accepted in the open** (measured on this machine's profile, 2026-08-16):
 
-- **A deliberate exception to the create-only rule** — write the patched profile under a fresh
-  profile id and re-point `profiles.json`, which `writeProfile` already does when nothing is active.
-  That guard exists to stop a *derived* profile landing on a hand-built one, and this is a different
-  case: the app is recording a change it made itself. Making it an exception is a judgement, not an
-  oversight, and it must be written down as one.
-- **An accepted limit, stated on the card** — the answer is stale until the tree is re-surveyed, and
-  the survey the app can run (§6) cannot produce a profile for a tree that already has one.
+- ~0.2–0.3% of hand judgements per field are replaced by the walk's — roughly 6–9 folders each on
+  `role`, `anchors`, `person`. `acceptsNewFiles` would have lost 6 (45 hand refusals against the 39
+  inboxes the walk finds) — **that is why it is carried over**, with its `noIntakeReason`.
+- `naming` on 2,534 entries would go — read by nothing outside tests today, **carried over anyway**,
+  because the day the rename pass starts reading it must not be the day it silently stopped existing.
+- The hand-authored doctrine sections (`folderSemantics` 3, `conventions` 3, `structuralRules` 4,
+  `canonicalPaths` 5, the top-level `axes` prose) are **not** in the derived file. Nothing decodes
+  them; the file that carries them stays on disk as `derivedFrom`; the active profile no longer
+  carries prose. Accepted.
+- The jurisdiction set is taken from the *entries*, not the header: the header says `US, IN`; the
+  entries carry **`Singapore` on 10 folders**. Take the header and the tree loses an axis value.
+- A new mutable write path where there was an immutable file. Provenance in the file, the old copy
+  kept, Undo re-pointing back — those are the mitigations, and they are all in step 6.
 
-**Silently keeping a stale answer is the one option that is not available**, because it is
-indistinguishable on screen from an apply that did nothing.
+**Silently keeping a stale answer was the one option that was never available**, because it is
+indistinguishable on screen from an apply that did nothing; that is still true, and it is why
+step 6 is not optional in stage one.
+
+**Proof:** an apply against a temporary tree, seeded from the flagship fixture, in which a listed
+file is deleted and an unlisted one added *between* plan and apply — the unlisted folder is skipped
+and named, the rest lands, the ledger's counts match a `find` over the result; ⌘Z restores a
+byte-identical tree (hash it, do not size it — 6 Aug); the on-disk inverse restores it after the
+manager is thrown away and rebuilt; after the landing the derived profile has **no** finding for
+the family, carries the old `noIntakeReason` for a surviving refused folder **and for one that was
+renamed**, and records `Singapore`; the corpus key for a moved file changed and its stamp did not;
+the fingerprint moved. And the guard: an apply started while a filing scan runs is refused with a
+sentence, not queued.
 
 ### 5.6 Refine with Claude — small once §5.4 exists
 
@@ -538,20 +768,33 @@ a list means it does not. Two more arrive with the work above, and they ship wit
 respectively rather than as an item:
 
 - **Planned, not applied.** The finding card carries the plan's ledger inline and its trigger reads
-  `Review 8 operations`. A drafted plan survives the sheet closing; whether it survives a re-survey
-  is an Open question, and until that is settled the card says it does not.
-- **Applied.** *8 folders renamed, 92 files carried, none moved*, plus `Undo this reorganisation`
-  backed by the inverse plan already on disk. **The finding is gone because the generation bumped
-  and the detector re-ran** — never because it was marked done. Those are different states and only
-  one of them is true.
+  `Review N operations`. A drafted plan survives the sheet closing **and a re-survey** — it lives in
+  the store's `drafts`, keyed on `kind × family`, and an Apply of *another* plan replays its manifest
+  onto that key like any other (§5.0). What it does not survive is its family ceasing to exist,
+  which the card says.
+- **Applied.** *N folders renamed, N files moved, N carried, N collisions kept*, plus `Undo this
+  reorganisation` backed by the inverse in the ledger. **The finding is gone because the tree was
+  re-read** — §5.5 step 6 re-derives the profile and `filingFolderProfile`'s `didSet` drops the
+  cache — never because it was marked done. Those are different states and only one of them is
+  true, and with the decision taken the true one is now buildable. If step 6 fails (the walk was
+  refused, the write failed) the card says *applied; the survey could not be refreshed* and keeps
+  the finding — a third sentence, not a borrowed one.
+- **Undone.** A fourth, from the ledger: the inverse ran, the profile was re-pointed to
+  `derivedFrom`, and the finding is back because it is true again. It shares the Applied card's
+  shape with the verbs reversed and never pretends the tree was untouched: a file that had moved on
+  and was skipped is named.
 
-  **And that sentence is a claim §5.5 cannot currently keep.** The detector re-runs against the
-  *profile*, which an apply does not change and the app cannot rewrite — so as things stand the
-  finding survives its own fix, unchanged. Whichever answer §5.4 takes to that, this state's words
-  follow from it: a replayed manifest makes *gone because the detector re-ran* true for the session;
-  an accepted limit means this state has to say the answer is stale until the tree is re-surveyed.
-  **Do not ship the sentence before the mechanism** — "marked done" is exactly what it would
-  silently become.
+### 5.8 Where the code goes — so the first branch does not have to decide it
+
+| Piece | Module / file | Notes |
+|---|---|---|
+| `FindingKind`, the composite `id`, the seven detectors | `Sync` — `StructureDivergence.swift` grows a sibling per detector (`StructureBacklog.swift`, `StructureDeadWeight.swift`, …) behind one `StructureDetectors.run(profile:scope:)` | `structureFindings` keeps its memo; the cache key gains the scope. Pure functions of the profile, like the one that ships. |
+| `RestructureStore` (§5.0) | `Sync` — `RestructureStore.swift`, one file, `Codable`, atomic write, `schemaVersion` | Loaded where `PeopleStore` is loaded, in `MacApp/SyncCloudApp.swift`'s profile block. |
+| `RestructureMapping`, `RestructureManifest`, `RestructureLedger` (§5.4) | `Sync` — `RestructurePlan.swift` | Mapping → manifest is a pure function; the ledger is a pure function of the manifest; the inverse is a pure function of the manifest. All three testable with no disk. |
+| Apply, Undo, verify, re-derive, replay (§5.5) | `Sync` — `FileSyncManager+Restructure.swift`, beside `+FilingRename` | Uses the primitives named in Context; adds `FilingProfileStore.writeDerivedProfile(_:replacing:)` (new id, provenance, re-point, old kept) and `FolderProfile.derivedBy` / `derivedFrom` (optional, so every existing file decodes). |
+| The cards, the plan sheet, the mapping editor, the removal sheet, the ledger card | `FileExplorer` — `RestructureLens.swift` (cards), `RestructurePlanSheet.swift`, `RestructureRemovalSheet.swift` | Same lens, same `OrganizeScope`; the sheet is modal over the lens. Extracted rules (`cleanTitle`, `revealTitle`, `surveyNoteText`) already show the pattern: pure static text rules, tested without a view. |
+| Host wiring | `MacApp/ContentView…` — `onPlan`, `onApply`, `onUndo`, `onScaffold` beside `onReveal` | `MacApp` is compiled only by CI's second step and holds no unit tests of its own; keep every rule out of it and on the types. |
+| Fixtures | `Modules/Sync/Tests/Sync/Fixtures/restructure-flagship.json`, `restructure-immigration-oracle.json` | Folder names and counts lifted from the live profile and the 6 Aug log; **no file names, no content**. In-repo, so CI runs them — the machine-pinned ground-truth suite is the wrong place for a release gate. |
 
 ---
 
@@ -571,6 +814,19 @@ guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId 
 `Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift:74`. The re-survey refreshes the half
 the app owns and cannot produce the half it does not. §4.2 shipped the derivation and the write;
 this is the **run**.
+
+**Two halves, and 4.2 builds one of them for another reason.** Read carefully, this item was
+conflating two things a fresh machine lacks. The **folder profile** is a *walk*: names, counts, the
+roster and the jurisdiction values — `buildTree` then `FolderSurveyBuilder.build`, seconds, no PDF
+opened — and it is all Restructure reads. The **document survey** — the corpus and the memory the
+*router* wants — is the hours-long, PDFKit-serial, checkpointed pass everything below describes.
+§5.5 step 6 ships the first half as an app code path (walk → build → write under a new id → re-point),
+so after 4.2 what a fresh machine lacks for **Restructure** is the setup dialog's three answers and
+a button, and what it lacks for **routing** is this whole section. When §6 is picked up its first
+sheet should offer the walk on its own — *Learn your folders* — and the document survey as the
+second, longer step, because a lens that can answer in seconds should not wait forty minutes for a
+corpus it does not read. Not scheduled for 4.2 (decisions block); shaped here so it is not designed
+twice.
 
 **What it is:** an OS-indexer-shaped pass. The user agrees once, in a dialog, and then it runs in the
 background — non-blocking, resumable across quits, throttled behind their own work. **It is
@@ -672,36 +928,42 @@ borrowings are real work and are not that, so they follow rather than interleave
 the "all three rungs in one motion" call held up, because one insertion point in `paneColumn` serves
 Browse, Compare and the rail — and **§2's pane-bar titles**, shipped 2026-08-16.
 
-1. **§5.1 + §5.2** — the scoped read, the crowding strip and the remaining detectors. Pure reporting
-   off a survey already in memory; §5.1 fixes the leaf-scope emptiness on its own, and §5.2 lands
-   one detector at a time. **§4.3 is one of those detectors** — build it here, not separately.
-   Three small audit items land with these rather than ahead of them: **the kind in
-   `StructureFinding.id`** (before the second detector, or one family's rows collide in one
-   `ForEach`), **the second drop path in §5.1's count**, and the stale *two divergent families* in
-   `StructureDivergence`'s own doc.
-2. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
+**The 4.2 build order, under the decisions block.** 1–5 are the release; 6 ships if it is done
+when 5 is; everything from 7 on is after the tag.
+
+1. **§5.0** — the kind in `StructureFinding.id` and `restructure.json` with its four sections.
+   Small, and everything below keys on it; the stale *two divergent families* in
+   `StructureDivergence`'s doc goes in the same commit.
+2. **§5.1 + §5.2** — the scoped read, the crowding strip with all three filters, the remaining
+   detectors one at a time (**§4.3 is one of them**), and the **backlog scaffold** with its To File
+   hand-off. Pure reporting off a survey already in memory, plus the one Apply that creates and
+   never moves — which makes it the right first landing to prove `enqueueFileOperation`, the ledger
+   and ⌘Z on before anything destructive exists.
+3. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
    screen v4.0 ships. Schedulable against anything above or below it.
-3. **§5.4 up to `Export plan…`** — the whole plan surface with no Apply, reviewable against the
-   6 Aug log with nothing at risk. **Two decisions come first, not during:** whether *merges* are
-   designed or the flagship case changes, and whether an applied manifest is replayed against the
-   profile. Both decide what the surface may claim, so both belong here.
-4. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
-   the app; it waits on the rename pass's review-and-apply path.
-5. **§5.3, Ask findings** — **moved down by the audit.** It sat third because it "needs the profile
-   write path, which everything after it also needs"; with its answers in their own store nothing
-   needs that path, so it competes on its own value — modest today, since this tree holds one
-   Ask-shaped disagreement.
-6. **§5.6, Claude on the mapping** — last, deliberately.
-7. **§6, the first survey** — when a second machine or a second tree makes it real. It cannot fire
-   on this one, which has a profile and where the store would refuse the write. Nothing in 1–6 is
-   blocked on it: they all run off the profile this machine already has, and §6 is what makes them
-   true on a machine that has never been surveyed.
+4. **§5.4 up to `Export plan…`** — the whole plan surface, merges included, with the 6 Aug oracle
+   test green before the sheet is wired to anything that writes. Drafts persist from here.
+5. **§5.5 in its three stages** — renames and `create-dir`, then moves and merges, then the removal
+   step (which also takes the 20 pre-existing empties from §5.2's filter). Every stage ends with
+   step 6 — re-derive — and step 7 — replay onto the corpus, memory and store; the first stage is
+   the one that proves those two on the real tree. `Undo this reorganisation` ships with stage one.
+6. **§5.6, Claude on the mapping** — last of the release, deliberately; a paid pass must not be the
+   only way to get a good answer. **§5.3, Ask findings**, sits beside it: not release-gating, its
+   store already exists, one finding on this tree.
+7. **§6, the first survey** — after 4.2, and smaller than it was: its profile half is §5.5 step 6
+   with a dialog in front (see §6, "Two halves"). It cannot fire on this machine, which has a
+   profile; nothing in 1–6 is blocked on it.
 8. **§3, in its own order** — the **status bar** first, because it is small and it makes tabs feel
    finished (each tab then reports its contents); then the **pins-and-recents sidebar**, ⌘-click
    opening a new tab; then the rest on their own merits, drop-on-tab last.
 9. **§1's switch mirroring** — deliberately unscheduled. It wants someone to run linked Compare long
    enough to say whether an unmirrored switch is actually a nuisance before the pairing rule is
    chosen.
+
+**What "ready for implementation" means for each of 1–5**: the item names its files, its store
+key, its proof, and the number it will print — and where the number was measured rather than
+designed, the measurement is dated. An item that fails that bar goes back to this file before it
+goes to a branch.
 
 ## Open questions
 
@@ -743,22 +1005,34 @@ renders correctly at one tab if you do tick it), and its tick is **one app-wide 
   is *going to be* runnable in forty minutes is neither of the two states those were written for. A
   badge that appears mid-survey and a pass card that offers a button pointing at an unfinished
   answer are both worse than counting nothing until the survey lands.
-- **§5.4: merges — promoted out of this list.** It read *"a real family will eventually want one"*.
-  Measured, **the flagship family cannot converge without one in either direction**, the 6 Aug run
-  performed three, and §5.2's one real echo-name hit is a merge. It is a decision §5.4 takes before
-  it starts, not a question it defers — see §5.4.
-- **§5.4 / §5.5: can an applied manifest be replayed against the profile?** The new one, and the
-  sharpest. The app cannot rebuild a folder profile, so an apply leaves the lens reading a tree that
-  no longer exists. Replaying the manifest against the in-memory profile is cheap and fixes the
-  session; persisting it needs either a stated exception to the create-only write or an accepted
-  limit on the card. See §5.5.
-- **§5.4: does a drafted plan survive a re-survey?** The mockups say no and say so on the card. If
-  plans are to be kept, they need identity keyed on **detector × folder path** — the same key
-  *never suggest this again* needs (`ROADMAP.md` 20) and the same key §5.3's answer store now uses.
-  Not `folderSemantics`: nothing decodes it, and the profile is not rewritable.
+- ~~**§5.4: merges.**~~ **Decided 2026-08-16: designed in** — see the decisions block and §5.4's
+  definition. Struck rather than deleted because the measurement that forced it is the useful part:
+  the flagship family cannot converge without one in either direction, the 6 Aug run performed
+  three, and §5.2's one real echo-name hit is a merge.
+- ~~**§5.4 / §5.5: can an applied manifest be replayed against the profile?**~~ **Decided
+  2026-08-16: the profile is re-derived from a walk after every landing, two judgement fields
+  carried over, old file kept, new id, `profiles.json` re-pointed** — §5.5 step 6, with the costs
+  written down under it. Replay was rejected because a model of the disk drifts from a tree that is
+  edited while work is open; the manifest *is* replayed, but onto the corpus, memory and store keys,
+  where there is nothing to walk.
+- ~~**§5.4: does a drafted plan survive a re-survey?**~~ **Decided: yes** — it lives in
+  `restructure.json`'s `drafts`, keyed on `kind × family`, and the profile can be swapped under it.
+  The mockups' *does not survive a re-survey* line is stale; §5.7 carries the new sentence.
 - **§5.2: does the crowding strip render in the clean state?** *The tree agrees with itself* and
-  *this scope has 86 pass-through folders* are both true at once; the mockups show both, which means
-  the seal is no longer the only thing on that screen.
-- **§5.2: what happens to the 20 already-empty folders?** The removal step is scoped to folders the
-  plan itself emptied, so today they have no path at all. Offering them means re-deciding the 6 Aug
-  date-bucket-versus-category split without a plan to scope it — cheap to report, easy to get wrong.
+  *this scope has 86 pass-through folders* are both true at once; the mockups show both. **Leaning
+  yes**: the seal answers *shape*, the strip answers *crowding*, and a strip that vanished on a clean
+  tree would make the empties filter — the one with a Trash path — unreachable exactly when it is
+  the only thing left to do. Decide by rendering it and reading it back, not by argument.
+- ~~**§5.2: what happens to the 20 already-empty folders?**~~ **Decided: the third crowding filter,
+  §5.5's removal sheet, the 6 Aug date-bucket / category split** — §5.2. Nothing is pre-ticked
+  that has a category name; nothing is deleted; folders go to the Trash.
+- **§5.5: what does the verifier do on a mismatch?** It reports and does not roll back on its own,
+  because a verifier that says everything is broken is usually itself broken (invariant 6, from the
+  day it happened). Whether a mismatch should *offer* the inverse on the card, one click away, is
+  open — leaning yes, since the inverse is already on disk and offering it costs nothing but a
+  button; deciding it needs the first real mismatch to look at.
+- **§5.2: should the backlog scaffold create the folders, or only offer To File a plan of them?**
+  Written above as *create then hand off*, because an empty scaffold is what the family's other
+  members already look like and it is the cheapest possible landing to undo. The alternative — To
+  File proposes the destinations without them existing yet — needs To File to create folders on
+  accept, which it does not do today. Settle it when the hand-off is wired.
