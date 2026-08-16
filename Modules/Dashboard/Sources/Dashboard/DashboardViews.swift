@@ -1514,7 +1514,21 @@ enum PaneNavMetrics {
     static let pairSpacing: CGFloat = 6
     /// Between two adjacent bar items. Placed by hand rather than by `HStack(spacing:)` — see
     /// `PaneHeader.barContent` for why a flexible space must cost nothing.
-    static let itemGap: CGFloat = 6
+    ///
+    /// 8, not the 6 it was while the bar was glyphs only. Titles changed what this gap separates: an
+    /// item's box is as wide as the wider of its pill and its word, so the *pills* still sit further
+    /// apart than this (New Folder's box is a good 20pt wider than its pill, and that air is on both
+    /// sides of it) while the *words* sit exactly this far apart and nothing else. At 6 the words of
+    /// two neighbouring controls nearly abutted, which read as one long caption rather than two
+    /// labels.
+    ///
+    /// It is not free: every gap is paid at every rung, so the widest browse bar goes 447 → 463pt
+    /// titled and the ladder therefore steps down at a pane ~16pt wider than before. That is the
+    /// whole cost — the ladder absorbs it by shedding a pill sooner, never by overflowing.
+    ///
+    /// `pairSpacing` deliberately stays at 6, so Back and Forward now sit closer to each other than
+    /// to anything else on the bar. They are one item; this is what makes them look like one.
+    static let itemGap: CGFloat = 8
 
     /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
     static func glyphFont(_ controlSize: ControlSize) -> ScaledFont {

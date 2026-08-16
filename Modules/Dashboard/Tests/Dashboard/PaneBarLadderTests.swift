@@ -627,12 +627,18 @@ import Design
     /// the narrowest rung's height and a 0.9-scaled provider name is shorter than a rung carrying the
     /// view switch. No control moves.
     ///
-    /// **Titles re-recorded exactly two of these sixteen rows**, and which two is the useful part:
-    /// only `iCloud` at 710pt, at both text sizes. Every narrower row is on a `.mini` rung where
-    /// titles have already shed, and `longName` at 710pt is *unchanged* because its wider provider
-    /// capsule leaves too little track for the titled rung — so the ladder falls through to the
-    /// untitled one and draws precisely what it drew before. That row is the evidence that the
-    /// titled rung is a ceiling rather than a pin; it is not an oversight that it did not move.
+    /// Two changes have re-recorded it since, and the *shape* of each re-recording is the useful part.
+    ///
+    /// **Titles moved exactly two of these sixteen rows** — only `iCloud` at 710pt, at both text
+    /// sizes. Every narrower row is on a `.mini` rung where titles have already shed, and `longName`
+    /// at 710pt was *unchanged* because its wider provider capsule leaves too little track for the
+    /// titled rung, so the ladder fell through to the untitled one and drew precisely what it drew
+    /// before. That row was the evidence that the titled rung is a ceiling rather than a pin.
+    ///
+    /// **Widening the gap from 6 to 8pt moved all sixteen**, which is what a constant paid at every
+    /// gap of every rung does. Fifteen of them moved and kept their shape; the two flagged in the
+    /// table shed the Preview toggle into ⋯ at a width that used to hold it. A row that changes ring
+    /// *count* is the one worth reading — it is the ladder stepping down, not the bar sliding.
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
@@ -663,25 +669,34 @@ import Design
     }
 
     private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
-        (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
-        (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
-        // Re-recorded for titles: the bar starts 22pt further left (words wider than their pills)
-        // and its controls sit 6pt higher (the row now carries a title line beneath them). The ring
-        // heights are unchanged at 20 — the switch is a pill tall in both modes.
-        (iCloud, 0.9, 710, "341,473/29x20 373,473/29x20 411,473/33x20 450,473/33x20 489,473/33x20 536,473/33x20 584,473/33x20 623,473/33x20 665,473/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 710, "331,472/29x20 363,472/29x20 401,472/33x20 440,472/33x20 479,472/33x20 529,472/33x20 579,472/33x20 619,472/33x20 663,472/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 570, "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 650, "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 0.9, 250, "71,481/27x17 106,481/27x17 139,481/27x17 174,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
+        (iCloud, 0.9, 410, "206,481/23x17 232,481/23x17 266,481/27x17 299,481/27x17 334,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 0.9, 490, "185,481/23x17 211,481/23x17 245,481/27x17 278,481/27x17 313,481/27x17 348,481/27x17 383,481/27x17 418,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        // The bar starts further left of its trailing edge than it used to: titles first (words
+        // wider than their pills), and now 2pt more per gap on top of that. Its controls sit 6pt
+        // higher, from the title line beneath them. Ring heights are unchanged at 20 — the switch
+        // is a pill tall in both modes.
+        (iCloud, 0.9, 710, "329,473/29x20 361,473/29x20 401,473/33x20 440,473/33x20 481,473/33x20 530,473/33x20 580,473/33x20 621,473/33x20 665,473/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 1.0, 250, "71,481/27x17 106,481/27x17 139,481/27x17 174,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (iCloud, 1.0, 330, "151,481/27x17 186,481/27x17 219,481/27x17 254,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (iCloud, 1.0, 410, "206,481/23x17 232,481/23x17 266,481/27x17 299,481/27x17 334,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        // ONE OF THE TWO ROWS THAT CHANGED SHAPE RATHER THAN POSITION, and the whole price of the
+        // 6→8pt gap. Nine rings became eight: the trailing 23-wide segment is the Preview toggle,
+        // and at this width the wider gaps no longer leave room for it, so the ladder sheds it into
+        // ⋯ one rung earlier than it did. Nothing is lost — Preview is still in the menu — but this
+        // is the number to look at if the gap is ever widened again. Its sibling below is
+        // (longName, 650). Every other row here moved by whole points and kept its shape.
+        (iCloud, 1.0, 490, "216,481/23x17 242,481/23x17 276,481/27x17 309,481/27x17 344,481/27x17 379,481/27x17 414,481/27x17 449,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 570, "211,479/29x20 243,479/29x20 283,479/33x20 322,479/33x20 363,479/33x20 404,479/33x20 445,479/33x20 486,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 710, "319,472/29x20 351,472/29x20 391,472/33x20 430,472/33x20 471,472/33x20 523,472/33x20 575,472/33x20 617,472/33x20 663,472/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 250, "71,481/27x17 106,481/27x17 139,481/27x17 174,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 410, "231,481/27x17 266,481/27x17 299,481/27x17 334,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 490, "311,481/27x17 346,481/27x17 379,481/27x17 414,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 570, "366,481/23x17 392,481/23x17 426,481/27x17 459,481/27x17 494,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        // The second of the two — same cause, same shed control, 160pt further out because this
+        // provider name eats that much of the row before the bar sees any of it.
+        (longName, 1.0, 650, "376,481/23x17 402,481/23x17 436,481/27x17 469,481/27x17 504,481/27x17 539,481/27x17 574,481/27x17 609,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 710, "351,479/29x20 383,479/29x20 423,479/33x20 462,479/33x20 503,479/33x20 544,479/33x20 585,479/33x20 626,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
     ]
 
 }
