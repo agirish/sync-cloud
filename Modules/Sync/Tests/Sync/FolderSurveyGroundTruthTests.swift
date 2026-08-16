@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CoreGraphics
 @testable import Sync
 
 /// ``FolderSurveyBuilder`` re-derived against the **hand-built** folder profile and the real tree
@@ -35,12 +36,33 @@ import Foundation
 /// same Mac and the same user, so the profile is right there and the suite runs in full — under
 /// Rosetta, where a walk of this tree measured 10.8s against 1.05s natively, starving the
 /// timing-sensitive suites running beside it. See ``MachinePinnedReason/liveProfile``.
+///
+/// ## Why the display has to be awake
+///
+/// The walk is of a real iCloud-backed `~/Documents`, from a lazy `static let`, so every test here
+/// blocks on it — and an iCloud walk makes no progress at all while the display is asleep. Left
+/// ungated, an unattended `swift test` sits in that static indefinitely: four matched cases on
+/// 2026-08-13, one of which ran 8,888s with the main thread idle at 0% CPU. That is a run with no
+/// verdict, which `docs/flaky-tests.md` mechanism 8 ranks below a red one. CI never saw it —
+/// `liveProfile` is in `SYNCCLOUD_SKIP_MACHINE_PINNED` there — so the exposure was local runs only,
+/// which is exactly where nobody is watching.
 @Suite(.enabled(if: LiveProfile.isAvailable,
                 "no live folder profile on this machine — ground truth skipped"),
+       .enabled(if: FolderSurveyGroundTruth.displayIsAwake,
+                "the display is asleep — an iCloud walk makes no progress until it wakes"),
        .machinePinned(.liveProfile))
 struct FolderSurveyGroundTruthTests {
 
     // MARK: - Non-vacuity: the comparison has to be looking at something
+
+    /// The walk has to have finished, or every agreement number below is measured over a tree that
+    /// was cut short. Named separately so a stall reads as itself rather than as ten rules rotting
+    /// at once.
+    @Test func theLiveWalkFinishedWithinItsBudget() throws {
+        let r = try #require(FolderSurveyGroundTruth.report)
+        let why = "the live walk gave up after \(Int(FolderSurveyGroundTruth.walkBudget))s — it is stalling rather than running slowly, and every other failure in this suite is downstream of that"
+        #expect(!r.walkStalled, "\(why)")
+    }
 
     @Test func theComparisonCoversTheWholeRealProfile() throws {
         let r = try #require(FolderSurveyGroundTruth.report)
@@ -145,6 +167,10 @@ enum FolderSurveyGroundTruth {
     }
 
     struct Report {
+        /// Set when the walk hit ``walkBudget`` instead of finishing. Carried on the report so a
+        /// stall reports as one named failure rather than as a scatter of agreement failures whose
+        /// real cause is that the tree was never fully read.
+        var walkStalled = false
         var shared = 0
         var builtOnly = 0
         var profileOnly = 0
@@ -177,13 +203,24 @@ enum FolderSurveyGroundTruth {
         }
     }
 
+    /// Whether the main display is awake.
+    ///
+    /// The one measured cause of this suite stalling, so it gates the suite rather than being left
+    /// to the budget: with the display off, an iCloud-backed walk makes no progress at all, and a
+    /// budget can only turn that into a red two minutes later on every unattended run. An explicit
+    /// skip naming the reason is the honest outcome — the suite is machine-pinned already, so it
+    /// carries no CI verdict to lose.
+    static var displayIsAwake: Bool { CGDisplayIsAsleep(CGMainDisplayID()) == 0 }
+
     static let report: Report? = {
         guard let expected = LiveProfile.profile else { return nil }
         let root = (expected.root as NSString).expandingTildeInPath
         guard let directory = FilingProfileStore.defaultDirectory() else { return nil }
         let registry = FilingProfileStore.personRegistry(id: expected.profileId, profile: expected,
                                                          in: directory)
-        let tree = walk(URL(fileURLWithPath: root))
+        var stalled = false
+        let tree = walk(URL(fileURLWithPath: root),
+                        deadline: Date().addingTimeInterval(walkBudget), stalled: &stalled)
         let built = FolderSurveyBuilder.build(tree: tree, root: expected.root,
                                               profileId: expected.profileId, registry: registry,
                                               jurisdictionValues: declaredJurisdictions)
@@ -191,6 +228,7 @@ enum FolderSurveyGroundTruth {
         flatten(tree, at: FolderSurveyBuilder.rootPath, components: [], into: &contents)
 
         var r = Report()
+        r.walkStalled = stalled
         r.builtOnly = built.folders.keys.filter { expected.folders[$0] == nil }.count
         r.profileOnly = expected.folders.keys.filter { built.folders[$0] == nil }.count
 
@@ -256,21 +294,47 @@ enum FolderSurveyGroundTruth {
         }
     }
 
+    /// The wall-clock budget for the whole live walk.
+    ///
+    /// **Not a performance bar — the thing that makes this suite fail instead of hang.** A warm
+    /// attended walk of this tree measures ~84ms and a cold one ~1.05s, and even under Rosetta it
+    /// measured 10.8s, so two minutes is far above anything a working walk does. What it is sized
+    /// against is the stall: an iCloud-backed `~/Documents` makes no progress while the display is
+    /// asleep — four matched cases on 2026-08-13, one of which ran **8,888s** — and this suite walks
+    /// the real tree from a `static let`, so every test in it blocks on that. `docs/flaky-tests.md`
+    /// mechanism 8 is the shape being avoided: a run with no verdict is worse than a red one.
+    ///
+    /// A `.timeLimit` trait could not have covered this: the block is a non-cancellable
+    /// `contentsOfDirectory` syscall inside a lazy static, not a task the runner can cancel. For the
+    /// same reason this budget cannot rescue a walk wedged *inside* one such call — it bounds the
+    /// case where progress is merely glacial, and ``displayIsAwake`` gates the case where it stops
+    /// altogether.
+    static let walkBudget: TimeInterval = 120
+
     /// A depth-first walk producing the nodes directly inside `url`. Symlinks are marked and never
     /// followed — a cycle would hang the suite, and `docs/flaky-tests.md` has enough entries about
     /// tests that hang instead of failing.
-    static func walk(_ url: URL) -> [FileNode] {
+    ///
+    /// Gives up at `deadline`, setting `stalled` and returning what it has. The partial tree is
+    /// deliberately still returned rather than discarded: the agreement tests then fail on a tree
+    /// too small to match, which is a named failure, and `theLiveWalkFinishedWithinItsBudget` says
+    /// in one line which of those failures is really this.
+    static func walk(_ url: URL, deadline: Date, stalled: inout Bool) -> [FileNode] {
+        if stalled || Date() >= deadline { stalled = true; return [] }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: url, includingPropertiesForKeys: keys) else { return [] }
-        return entries.map { child in
+        var out: [FileNode] = []
+        for child in entries {
             let values = try? child.resourceValues(forKeys: Set(keys))
             let isLink = values?.isSymbolicLink ?? false
             let isDirectory = (values?.isDirectory ?? false) && !isLink
-            return FileNode(id: child.path, name: child.lastPathComponent,
-                            isDirectory: isDirectory,
-                            children: isDirectory ? walk(child) : nil,
-                            isSymbolicLink: isLink ? true : nil)
+            out.append(FileNode(id: child.path, name: child.lastPathComponent,
+                                isDirectory: isDirectory,
+                                children: isDirectory
+                                    ? walk(child, deadline: deadline, stalled: &stalled) : nil,
+                                isSymbolicLink: isLink ? true : nil))
         }
+        return out
     }
 }
