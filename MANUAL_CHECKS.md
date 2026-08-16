@@ -169,3 +169,32 @@ signal, the write-queue ordering). One host wiring cannot be:
   LensWorkspaceView-side callback is tested; what a unit test cannot reach is `ContentView` actually
   clearing `duplicateRevealRequest` in response — two lines behind `if !isRunningTests`-free but
   view-mounted wiring.)
+
+## Tab-strip persistence (2026-08-15) — the host wiring no fixture reaches
+
+The store side is pinned by tests: the scope/stack cut and its clamp, both back-compat directions,
+the seed-state rule, and per-key isolation between the two panes. What none of them can reach is
+`ContentView`'s side of it — `MacApp` is in no SPM package, so the per-side dispatch, the launch
+order and the swap's double save have no test that could fail on them. That is exactly where this
+change's one regression lived (`3f71cb7e`), so these are worth walking once.
+
+- [ ] **A drilled column stack comes back.** In Browse, from the source root, click down four or
+  five folders so the pane shows that many columns. Quit (⌘Q), relaunch → the same number of
+  columns, not one full-width one. The breadcrumb was never the tell here: it reads the same either
+  way, so **count the columns**.
+- [ ] **…including a tab you never re-rooted.** Do the above with a single unpinned tab, drilling
+  straight down from the root and never clicking a breadcrumb crumb above it. That tab's scope is
+  empty, which is the shape that made the whole restore skip itself. The strip must come back.
+- [ ] **Compare's right pane keeps its own.** In Compare, drill the right pane a few columns deep
+  and open a second tab on it. Quit, relaunch → the right pane returns with both its tabs and its
+  columns. Previously it seeded one tab at its stored folder.
+- [ ] **The two strips do not cross.** With different tabs on each side, quit and relaunch → each
+  pane gets its own back. A left tab appearing on the right (or the panes' selected tabs following
+  each other) means the two keys have crossed.
+- [ ] **Swap, then relaunch.** Set up clearly different strips on the two panes, press ⇄, then quit
+  and relaunch **without touching anything else**. Both panes must come back the way the swap left
+  them. Restoring one side from before the swap and the other from after is the failure this
+  double-save exists to prevent, and only a relaunch shows it.
+- [ ] **A pane with nothing stored is unchanged.** Hardest to stage now that both keys exist: delete
+  `browseTabsRight` from the app's defaults while it is quit, then launch → the right pane opens at
+  its last folder exactly as it did before this shipped, rather than at the root.
