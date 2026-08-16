@@ -1,4 +1,4 @@
-# Package test suites on every push to main or v2.x and on every v* release
+# Package test suites on every push to main, v3.x or v2.x and on every v* release
 # tag, on the self-hosted Mac runner.
 #
 # Scope: the seven SPM packages only. Suites that only produce a trustworthy
@@ -36,7 +36,7 @@ name: tests
 
 on:
   push:
-    branches: [main, v2.x]
+    branches: [main, v3.x, v2.x]
     # Release tags get the full suite too: cutting v2.9 or v3.0 must not rely
     # on the branch tip having been the last thing tested.
     tags: ['v*']
