@@ -1,5 +1,6 @@
 import Design
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Finder's "Customize Toolbar…" for the pane bar: drag items onto the bar, drag them off to remove,
 /// drop the default set back.
@@ -34,7 +35,19 @@ struct PaneBarCustomizeSheet: View {
     /// The slot the pointer is currently over, so the insertion caret can show where a drop lands.
     @State private var targetedSlot: Int?
     /// True while a bar item is over the palette, which is how a drag removes it.
-    @State private var isOverPalette = false
+    @State private var isOverPalette: Bool
+
+    /// - Parameter showingRemoveTarget: seeds `isOverPalette`. **For snapshots only**, and it earns
+    ///   its keep: this state exists solely while a drag is in flight, which no test can stage, so
+    ///   the remove affordance shipped in a state nobody could look at. The first draft of it put a
+    ///   `Material.regular` card over the palette and the tiles underneath read straight through the
+    ///   words — a defect no geometry assertion could see and no test could reach. One line of seam
+    ///   makes it a picture.
+    init(availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases),
+         showingRemoveTarget: Bool = false) {
+        self.availableHere = availableHere
+        _isOverPalette = State(initialValue: showingRemoveTarget)
+    }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
 
@@ -445,11 +458,65 @@ struct PaneBarCustomizeSheet: View {
                                             : AnyShapeStyle(.quaternary),
                               lineWidth: isOverPalette ? 1.5 : 0.5)
         )
+        // The red wash says "something will happen here"; this says WHAT. macOS has no minus and no
+        // trash badge for a drag — the cursor's badge vocabulary is a green + for copy, a curved
+        // arrow for a link, and nothing at all for a move — so the only place a remove can actually
+        // be *drawn* is the target itself. The poof everyone remembers from Finder is an animation
+        // played after the drop, not a sign shown during it.
+        //
+        // `allowsHitTesting(false)` is load-bearing, not caution: this sits above the drop
+        // destination below, and an overlay that took the hit would swallow the drop it exists to
+        // explain — the zone would light up and then refuse to accept anything.
+        .overlay {
+            if isOverPalette { removeOverlay.allowsHitTesting(false) }
+        }
         // Dropping a bar item back into the palette removes it — Finder's drag-off-the-toolbar,
         // aimed at a target that actually exists rather than at "anywhere but the bar".
-        .dropDestination(for: String.self) { payloads, _ in
-            dropToRemove(payloads)
-        } isTargeted: { isOverPalette = $0 }
+        //
+        // A `DropDelegate` rather than `dropDestination(for:)` for one reason: only a delegate can
+        // say what KIND of operation this is, and `dropDestination` always proposes a copy. So the
+        // cursor showed a green + — "this will duplicate the item" — over a target whose whole job
+        // is to delete it. `.move` is both true and the only way to get rid of the badge.
+        //
+        // The cost is real and worth stating: `DropInfo` cannot read a payload synchronously, so
+        // this target can no longer refuse a drop by inspecting it. It accepts, then removes
+        // whatever turns out to be a bar item. Dragging a *palette* tile into the palette therefore
+        // animates as accepted and changes nothing, where it used to spring back. That trade only
+        // applies here — the track's targets keep `dropDestination` and keep springing back, which
+        // is where it matters, because that is where a drop lands somewhere specific.
+        .onDrop(of: [.utf8PlainText], delegate: RemoveDropDelegate(
+            isTargeted: { isOverPalette = $0 },
+            remove: { dropToRemove([$0]) }))
+    }
+
+    /// What the palette says while a bar item is over it.
+    ///
+    /// Internal so it can be laid out and rendered on its own — the real thing only appears mid-drag,
+    /// which no test can stage.
+    var removeOverlay: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "trash")
+                .scaledFont(.system(size: 22, weight: .semibold))
+            Text("Remove from bar")
+                .scaledFont(.system(.callout, weight: .semibold))
+        }
+        .foregroundStyle(Color.red)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        // OPAQUE, and rendering it is what said so. `Material.regular` let the tiles underneath
+        // show straight through the card — "New Folder", the Scan tile and a blue checkmark all
+        // read through the words "Remove from bar", which looked like a rendering fault rather than
+        // a label. A material is for something floating over a *surface*; this floats over a grid of
+        // labelled controls, and the point of it is to be read at a glance mid-drag.
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.red.opacity(0.45), lineWidth: 1)
+        )
     }
 
     /// One palette tile.
@@ -590,5 +657,44 @@ struct PaneBarCustomizeSheet: View {
                 .shortcutKeycap("⏎")
         }
         .padding(.top, 16)
+    }
+}
+
+/// The palette's remove target, as a delegate rather than a `dropDestination`.
+///
+/// The whole reason this type exists is `dropUpdated`. `dropDestination(for:)` always proposes a
+/// **copy**, and macOS draws a copy as a green + on the cursor — so dragging a control off the bar
+/// was announced with the one badge that means "and it will still be there afterwards". A delegate
+/// is the only SwiftUI drop API that can propose an operation, and `.move` is both what this
+/// actually is and the only proposal that draws no badge at all. There is no minus badge and no
+/// trash badge to ask for; the trash is drawn in the target instead.
+///
+/// `performDrop` accepts before it knows what it caught: `DropInfo` hands out `NSItemProvider`s and
+/// every read from one is asynchronous, so there is no point at which this can inspect the payload
+/// and still answer the drag session in time. It returns true and removes whatever turns out to be
+/// a bar item. See the call site for why that trade is acceptable *here* and nowhere else.
+private struct RemoveDropDelegate: DropDelegate {
+    let isTargeted: (Bool) -> Void
+    let remove: (String) -> Bool
+
+    func dropEntered(info: DropInfo) { isTargeted(true) }
+    func dropExited(info: DropInfo) { isTargeted(false) }
+
+    /// The point of the type. `.move`, so the cursor stops promising a copy.
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted(false)
+        guard let provider = info.itemProviders(for: [.utf8PlainText]).first else { return false }
+        // The completion lands off the main actor, and the closure it calls writes `@AppStorage`
+        // through a SwiftUI view. Hop first.
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let payload = object as? NSString else { return }
+            let text = payload as String
+            Task { @MainActor in _ = remove(text) }
+        }
+        return true
     }
 }
