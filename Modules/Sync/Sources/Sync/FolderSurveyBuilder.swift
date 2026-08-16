@@ -60,9 +60,14 @@ public enum FolderSurveyBuilder {
                              jurisdictionValues: Set<String> = []) -> FolderProfile {
         var entries: [String: FolderProfileEntry] = [:]
         let roster = rosterForms(registry)
-        let displayNames = Dictionary(uniqueKeysWithValues: (registry?.people ?? []).map {
-            ($0.id, $0.displayName)
-        })
+        // **Tolerant of a duplicated id, because `people.json` is hand-edited and nothing upstream
+        // rejects one.** `Dictionary(uniqueKeysWithValues:)` traps on a repeated key, so a
+        // copy-pasted person block whose id was not changed — a file every other consumer loads
+        // without complaint, since ``PersonRegistry/init(people:source:)`` just overwrites — used to
+        // kill the process here, inside the detached task the survey runs in. Last one wins, which
+        // is what the registry's own dictionaries do with the same input.
+        let displayNames = Dictionary((registry?.people ?? []).map { ($0.id, $0.displayName) },
+                                      uniquingKeysWith: { _, latest in latest })
 
         func visit(_ children: [FileNode], at relativePath: String, components: [String]) {
             let (files, folders) = partition(children)
@@ -71,7 +76,7 @@ public enum FolderSurveyBuilder {
                 fileNames: files, subfolderCount: folders.count,
                 roster: roster, registry: registry, displayNames: displayNames,
                 jurisdictionValues: jurisdictionValues)
-            for folder in folders where folder.isUnexplored != true {
+            for folder in folders where isSurveyedFolder(folder) {
                 let child = components + [folder.name]
                 visit(folder.children ?? [], at: child.joined(separator: "/"), components: child)
             }
@@ -161,9 +166,11 @@ public enum FolderSurveyBuilder {
     static func rosterForms(_ registry: PersonRegistry?) -> Set<String> {
         var out = Set<String>()
         for person in registry?.people ?? [] {
-            for form in [person.displayName] + person.fullNames + person.aliases {
-                out.insert(form.lowercased())
-            }
+            // ``Person/nameForms`` rather than the union spelled out again: the registry answers
+            // four other questions with the same union, and a fifth copy here is what would let
+            // `person-bucket` role detection stop matching a form that ``PersonRegistry/detect(in:)``
+            // — called one function away, for the person axis — still matches.
+            for form in person.nameForms { out.insert(form.lowercased()) }
         }
         return out
     }
@@ -187,6 +194,14 @@ public enum FolderSurveyBuilder {
             // is what says which axis it lands on.
             if FolderProfileEntry.looksLikeYear(component) {
                 let parts = component.split(separator: "-", omittingEmptySubsequences: false)
+                // **Both keys are kept when a path carries both**, deliberately, and the hand-built
+                // profile does the same — four folders on the reference tree record a `year` and a
+                // `fiscalYear` together (`…/H-1B/2016-2019/…/2016`), because both are true of them:
+                // the folder is about 2016, inside the 2016-2019 petition. Clearing one to make
+                // "deeper wins" hold between the keys was tried and is wrong — it throws away a fact
+                // the offline builder records, and it drops the ground truth's year agreement off
+                // 100%. Which of the two a *consumer* should answer with is a question about depth,
+                // and depth is in the path, so ``FolderProfileEntry/yearKey`` settles it there.
                 out[parts.count == 1 ? "year" : "fiscalYear"] = component
             }
             if jurisdictionValues.contains(component) { out["jurisdiction"] = component }
@@ -283,14 +298,20 @@ public enum FolderSurveyBuilder {
         "copy", "all", "and", "the", "for", "with", "from", "not", "yes", "total", "more",
     ]
 
-    /// Month names as this tree writes them. `sept` is deliberately **not** here — the profile
-    /// keeps it as an anchor (6 folders), and a list assembled by symmetry rather than by
-    /// measurement would have thrown it away.
-    static let monthWords: Set<String> = [
-        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-        "january", "february", "march", "april", "june", "july", "august", "september",
-        "october", "november", "december",
-    ]
+    /// Month names as this tree writes them.
+    ///
+    /// **Derived from ``OrdinalMonthName``'s tables rather than retyped**, because the module would
+    /// otherwise hold two month vocabularies with nothing keeping them level: a spelling added there
+    /// — that table drives filed-name canonicalisation — would never reach anchor suppression, and
+    /// the rename pass would treat a token as a date while the profile recorded it as a subject.
+    /// The union of the abbreviations and the full names is exactly the list this used to spell out;
+    /// `theMonthVocabularyTracksTheRenamer` pins that.
+    ///
+    /// `sept` is deliberately **not** in either table — the profile keeps it as an anchor (6
+    /// folders), and a list assembled by symmetry rather than by measurement would have thrown it
+    /// away. Deriving preserves that: `sept` is absent because nothing measured put it there.
+    static let monthWords: Set<String> = Set(
+        OrdinalMonthName.monthAbbreviations.map { $0.lowercased() } + OrdinalMonthName.monthFullNames)
 
     /// The anchor tokenizer: lowercased runs matching `[a-z][a-z0-9&+-]{2,}` — a letter, then at
     /// least two more letters, digits, `&`, `+` or `-`.
@@ -345,9 +366,35 @@ public enum FolderSurveyBuilder {
     static func partition(_ children: [FileNode]) -> (files: [String], folders: [FileNode]) {
         var files: [String] = []
         var folders: [FileNode] = []
-        for node in children where !node.name.hasPrefix(".") && node.isSymbolicLink != true {
+        for node in children where isSurveyed(node) {
             if node.isDirectory { folders.append(node) } else { files.append(node.name) }
         }
         return (files.sorted(), folders)
+    }
+
+    /// Whether the survey counts `node` at all.
+    ///
+    /// Dot-files are not documents — `.DS_Store` would put every folder's `fileCount` one over what
+    /// the survey recorded — and a symlink is skipped because a link and its in-tree target would
+    /// be surveyed twice, while a link out of the tree is not this tree's folder.
+    ///
+    /// **Public because it is the definition of "a folder this survey covers", and a second opinion
+    /// about that is a defect rather than a duplication.** ``JurisdictionCandidates`` proposes axis
+    /// values by counting folders and reports how many would take each one; when it filtered only on
+    /// `isDirectory` it counted dot-directories, symlinks and unexplored subtrees that the survey
+    /// then never gave an entry to, so the blast radius shown to the user was for a tree the survey
+    /// does not walk.
+    public static func isSurveyed(_ node: FileNode) -> Bool {
+        !node.name.hasPrefix(".") && node.isSymbolicLink != true
+    }
+
+    /// Whether the survey gives `node` an entry of its own and descends into it.
+    ///
+    /// An unexplored directory fails this while still passing ``isSurveyed(_:)``: it counts toward
+    /// its parent's `subfolderCount`, because it is really there, but it gets no entry, because its
+    /// own counts would be fiction — `children == []` on such a node is a construction artifact,
+    /// not an observation.
+    public static func isSurveyedFolder(_ node: FileNode) -> Bool {
+        node.isDirectory && isSurveyed(node) && node.isUnexplored != true
     }
 }

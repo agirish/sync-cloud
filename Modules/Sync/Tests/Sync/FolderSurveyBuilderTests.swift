@@ -320,4 +320,116 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(profile.personTokens.contains("mom"))
         #expect(profile.personAliases["mom"] == "muktha")
     }
+
+    // MARK: - The two year keys are one axis
+
+    /// **A path carrying both styles keeps both axes**, exactly as the hand-built profile does —
+    /// four folders on the reference tree record a `year` and a `fiscalYear` together, because both
+    /// are true of them. The builder must not drop either, or the ground truth's 100% year agreement
+    /// goes with it.
+    ///
+    /// Which of the two a *consumer* answers with is ``FolderProfileEntry/yearKey``'s business, and
+    /// is asserted in `theDeeperYearComponentIsTheOneAFolderAnswersWith`.
+    @Test func bothYearAxesSurviveWhenAPathCarriesBoth() {
+        let profile = build([dir("H-1B", [dir("2016-2019", [dir("2016", [file("a.pdf")])])])])
+        let deep = profile.folders["H-1B/2016-2019/2016"]
+        #expect(deep?.axes["year"] == "2016")
+        #expect(deep?.axes["fiscalYear"] == "2016-2019",
+                "the ancestor's fiscal span was dropped — the hand-built profile keeps it")
+
+        // The control: with only one style in the path, only that key is set — so the assertion
+        // above cannot be passing by setting both keys everywhere.
+        let plain = build([dir("Finance", [dir("2023", [file("a.pdf")]),
+                                           dir("2013-2014", [file("b.pdf")])])])
+        #expect(plain.folders["Finance/2023"]?.axes["year"] == "2023")
+        #expect(plain.folders["Finance/2023"]?.axes["fiscalYear"] == nil)
+        #expect(plain.folders["Finance/2013-2014"]?.axes["fiscalYear"] == "2013-2014")
+        #expect(plain.folders["Finance/2013-2014"]?.axes["year"] == nil)
+    }
+
+    /// **The deeper of the two year components is the one the folder answers with.**
+    ///
+    /// `yearKey` used to read `axes["year"] ?? axes["fiscalYear"]`, a fixed precedence that answers
+    /// with whichever key is named first rather than with the folder the value describes. On the
+    /// reference tree's four both-axes folders it is right by luck — the bare year is deeper there,
+    /// and the first arm returns it. Reverse the nesting, as an Indian fiscal folder under a
+    /// calendar-year parent does, and the ancestor wins: `FilingRouter.foldersByYear` files the
+    /// folder under the wrong year and `RenamePlanner` questions documents that are correctly filed.
+    ///
+    /// Both directions are asserted, and the first is the one that pins the real tree's behaviour
+    /// as unchanged.
+    @Test func theDeeperYearComponentIsTheOneAFolderAnswersWith() {
+        let bareDeeper = build([dir("H-1B", [dir("2016-2019", [dir("2016", [file("a.pdf")])])])])
+        #expect(bareDeeper.folders["H-1B/2016-2019/2016"]?.yearKey == "2016",
+                "the real tree's arrangement changed answer")
+
+        let spanDeeper = build([dir("Finance", [dir("2015", [dir("2014-2015", [file("a.pdf")])])])])
+        #expect(spanDeeper.folders["Finance/2015/2014-2015"]?.yearKey == "2014-2015",
+                "a folder about a fiscal span answered with its ancestor's calendar year")
+
+        // Neither arm of the depth scan may disturb the single-axis cases or the name fallback.
+        let plain = build([dir("Finance", [dir("2023", [file("a.pdf")]),
+                                           dir("2013-2014", [file("b.pdf")])])])
+        #expect(plain.folders["Finance/2023"]?.yearKey == "2023")
+        #expect(plain.folders["Finance/2013-2014"]?.yearKey == "2013-2014")
+        #expect(plain.folders["Finance"]?.yearKey == nil)
+    }
+
+    // MARK: - A hand-edited roster cannot take the survey down with it
+
+    /// `people.json` is hand-edited and nothing upstream rejects a repeated id.
+    ///
+    /// ``PersonRegistry`` loads such a file without complaint — its own init just overwrites — and
+    /// so does every other consumer. This builder used to be the exception: it fed
+    /// `Dictionary(uniqueKeysWithValues:)`, which traps on a duplicate key, so a copy-pasted person
+    /// block whose id was not changed killed the process inside the detached task the survey runs
+    /// in. The survey has to survive the file, and last-wins matches what the registry itself does
+    /// with the same input.
+    /// The registry keeps the *last* entry's tokens for a repeated id — its own dictionaries
+    /// overwrite — so the surviving display name is what the axis reports. Asserted here because it
+    /// is what makes "last wins" in the builder the right choice rather than an arbitrary one: the
+    /// two now agree about which of the two records answers for that id.
+    @Test func aDuplicatedPersonIdSurveysRatherThanTrapping() {
+        let duplicated = PersonRegistry(people: [
+            Person(id: "muktha", displayName: "Muktha", fullNames: [], aliases: []),
+            Person(id: "muktha", displayName: "Muktha Girish", fullNames: [], aliases: ["Mom"]),
+        ])
+        let profile = build([dir("Mom", [file("a.pdf")]), dir("Finance", [file("b.pdf")])],
+                            registry: duplicated)
+        #expect(profile.folders.count == 3)                     // root, Mom, Finance
+        #expect(profile.folders["Mom"]?.axes["person"] == "Muktha Girish")
+        #expect(profile.folders["Finance"]?.axes["person"] == nil,
+                "a folder naming nobody must not inherit a person")
+    }
+
+    // MARK: - Vocabularies that must not drift from the code that owns them
+
+    /// The month list is derived from ``OrdinalMonthName``'s tables rather than retyped, so a
+    /// spelling added to the renamer's vocabulary reaches anchor suppression too. This pins that the
+    /// derivation still covers what the hand-written list covered, and that `sept` — measured as a
+    /// keeper on the reference tree — is still absent from it.
+    @Test func theMonthVocabularyTracksTheRenamer() {
+        for abbreviation in OrdinalMonthName.monthAbbreviations {
+            #expect(FolderSurveyBuilder.monthWords.contains(abbreviation.lowercased()))
+        }
+        for full in OrdinalMonthName.monthFullNames {
+            #expect(FolderSurveyBuilder.monthWords.contains(full))
+        }
+        #expect(FolderSurveyBuilder.monthWords.count == 23,
+                "12 abbreviations + 12 full names, with `may` shared by both")
+        #expect(!FolderSurveyBuilder.monthWords.contains("sept"),
+                "`sept` is a measured keeper — deriving the list must not quietly add it")
+    }
+
+    /// Which name forms count as a person folder comes from ``Person/nameForms``, the same union the
+    /// registry matches on. Spelled out separately, a new form source reaches one and not the other,
+    /// and a folder starts matching for the person axis while failing to count as a person bucket.
+    @Test func aPersonBucketIsRecognisedByEveryFormTheRegistryMatches() {
+        let profile = build([dir("Shweta Dani", [file("a.pdf")]), dir("Mom", [file("b.pdf")]),
+                             dir("Receipts", [file("c.pdf")])])
+        #expect(profile.folders["Shweta Dani"]?.role == .personBucket, "a full name is a form")
+        #expect(profile.folders["Mom"]?.role == .personBucket, "an alias is a form")
+        #expect(profile.folders["Receipts"]?.role == .destination,
+                "a folder naming nobody must not be a person bucket")
+    }
 }

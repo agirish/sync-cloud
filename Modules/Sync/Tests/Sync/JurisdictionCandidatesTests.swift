@@ -189,4 +189,70 @@ import Testing
         #expect(candidates[0].parents == ["Finance", "Legal", "School"])
         #expect(candidates[0].folderCount == 6)
     }
+
+    // MARK: - It counts the tree the survey actually walks
+
+    /// **Every number here is a promise about what confirming a value would do**, so it has to be
+    /// counted over the folders the survey will really give an entry to.
+    ///
+    /// This filtered on `isDirectory` alone, while ``FolderSurveyBuilder`` skips dot-directories and
+    /// symlinks and gives an unexplored directory no entry at all. Each of the three below is
+    /// therefore a folder that would have counted toward the evidence and the blast radius and then
+    /// never received the axis. The symlink is the sharpest: ``FileNode/isDirectory`` describes the
+    /// link's *target*, so a link reads as a perfectly ordinary folder here.
+    ///
+    /// Written as one tree with all three kinds present, and asserted through `parents` — the list
+    /// the dialog shows — so a partial fix that drops one kind and keeps another still fails.
+    @Test func foldersTheSurveyWillNeverStampAreNotCounted() {
+        let real = Self.tree(["Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts"])
+        let ignorable = [
+            FileNode(id: "/root/.Trash", name: ".Trash", isDirectory: true, children: [
+                FileNode(id: "/root/.Trash/US", name: "US", isDirectory: true,
+                         children: [FileNode(id: "/root/.Trash/US/Old", name: "Old",
+                                             isDirectory: true, children: [])])
+            ]),
+            FileNode(id: "/root/Linked", name: "Linked", isDirectory: true, children: [
+                // A symlink whose target is a directory: `isDirectory` is the target's.
+                FileNode(id: "/root/Linked/US", name: "US", isDirectory: true,
+                         children: [FileNode(id: "/root/Linked/US/Copy", name: "Copy",
+                                             isDirectory: true, children: [])],
+                         isSymbolicLink: true)
+            ]),
+            FileNode(id: "/root/Capped", name: "Capped", isDirectory: true, children: [
+                FileNode(id: "/root/Capped/US", name: "US", isDirectory: true, children: [],
+                         isUnexplored: true)
+            ])
+        ]
+
+        let candidates = JurisdictionCandidates.propose(tree: real + ignorable, root: "/root")
+
+        let us = try? #require(candidates.first { $0.value == "US" })
+        #expect(us?.parents == ["Finance", "Legal", "School"],
+                "a dot-directory, a symlink or an unexplored folder reached the evidence the dialog shows")
+        #expect(us?.folderCount == 6,
+                "the blast radius counted folders the survey never gives an entry to")
+    }
+
+    /// A folder whose path names the value twice is **one** folder.
+    ///
+    /// The count was taken per matching path *component*, so `Taxes/US/Consulate/US` added 2 for a
+    /// single folder and every descendant repeated the inflation. `folderCount` is what the list is
+    /// ordered by and what the dialog reports as "how many folders would take this value", so a
+    /// doubled one is a wrong number and can be a wrong order too.
+    ///
+    /// The other three parents are what get `US` proposed at all; the repeat is the folder under
+    /// test. Ten folders carry `US` somewhere in their path — three single-depth branches at two
+    /// each, plus four down the repeating branch (`Taxes/US`, `…/Consulate`, `…/Consulate/US`,
+    /// `…/Visa`). The old rule counted fourteen, because the two folders below the second `US`
+    /// matched twice each.
+    @Test func aValueRepeatedInOnePathCountsThatFolderOnce() {
+        let candidates = JurisdictionCandidates.propose(tree: Self.tree([
+            "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",
+            "Taxes/US/Consulate/US/Visa",
+        ]), root: "/root")
+
+        let us = try? #require(candidates.first { $0.value == "US" })
+        #expect(us?.folderCount == 10,
+                "a folder whose path repeats the value was counted once per occurrence")
+    }
 }

@@ -106,8 +106,30 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
     /// folders `2012`–`2025` and the survey recorded no `year` axis for it, so without a fallback it
     /// lands in a different family and is never compared with the years it belongs to. A jurisdiction
     /// also changes the shape: US tax years are one calendar year, Indian ones span two.
+    /// **When a folder carries both a `year` and a `fiscalYear`, the deeper one wins**, and the
+    /// path is what settles which that is.
+    ///
+    /// The two are separate keys and a path can set both — `…/H-1B/2016-2019/…/2016` does, on the
+    /// reference tree, four times — so a fixed `year ?? fiscalYear` precedence answers with whichever
+    /// key happens to be named first rather than with the folder the value describes. On those four
+    /// it is right by luck: the bare year is the deeper component there. Reverse the nesting, which
+    /// an Indian fiscal folder under a calendar-year parent does (`2015/2014-2015`), and it hands
+    /// back the ancestor's year for a folder that is about the span. `FilingRouter.foldersByYear`
+    /// groups on this and `RenamePlanner` compares its wrong-year flag against it, so a November 2014
+    /// statement correctly filed in the fiscal folder gets questioned.
+    ///
+    /// Both axis values are components of this entry's own path, so scanning it from the deepest end
+    /// answers the question without needing the profile to record depth — which would change the
+    /// on-disk shape and break interchangeability with the offline builder.
     public var yearKey: String? {
-        if let y = axes["year"] ?? axes["fiscalYear"] { return y }
+        let year = axes["year"], fiscal = axes["fiscalYear"]
+        if let year, let fiscal {
+            for component in path.split(separator: "/").reversed() {
+                if component == year { return year }
+                if component == fiscal { return fiscal }
+            }
+        }
+        if let y = year ?? fiscal { return y }
         let base = path.split(separator: "/").last.map(String.init) ?? path
         return FolderProfileEntry.looksLikeYear(base) ? base : nil
     }

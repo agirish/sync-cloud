@@ -100,9 +100,15 @@ public enum JurisdictionCandidates {
 
         // The blast radius: every folder that has the value anywhere in its path takes it, which
         // is the same rule a confirmed axis is applied by. The folder named `US` counts itself.
+        //
+        // **Once per folder, which is what `Set` is for.** Counting per matching *component* meant a
+        // path that repeats the value at two depths — `Taxes/US/Consulate/US` — added 2 for one
+        // folder, and every descendant repeated the inflation. The count is what the dialog sorts
+        // and displays as "how many folders would take this value", so a doubled one is both a wrong
+        // number and possibly a wrong order.
         var affected: [String: Int] = [:]
         for path in folders {
-            for component in path.split(separator: "/") where proposed[String(component)] != nil {
+            for component in Set(path.split(separator: "/")) where proposed[String(component)] != nil {
                 affected[String(component), default: 0] += 1
             }
         }
@@ -123,17 +129,29 @@ public enum JurisdictionCandidates {
         return name.allSatisfy { $0.isLetter && $0.isUppercase }
     }
 
-    /// Appends every directory's path, relative to the root, in pre-order. `prefix` is the parent's
-    /// relative path, or nil for a node standing in for the root itself.
+    /// Appends every surveyed directory's path, relative to the root, in pre-order. `prefix` is the
+    /// parent's relative path, or nil for a node standing in for the root itself.
+    ///
+    /// **The filter is ``FolderSurveyBuilder/isSurveyedFolder(_:)``, not `isDirectory`, because this
+    /// counts on the survey's behalf.** Every number here is a promise about what confirming a value
+    /// would do — the parents are the evidence, and `folderCount` is the blast radius the dialog
+    /// orders by. Counting on a rule of its own made those promises about a different tree than the
+    /// one the survey walks: `isDirectory` is true of a symlink to a directory (it describes the
+    /// link's target), so a symlinked `US` could push a value over ``minimumDistinctParents`` on
+    /// parents the survey skips, and a link to an in-tree subtree counted that subtree twice;
+    /// dot-directories and unexplored subtrees counted the same way, and none of them ever receive
+    /// an axis.
     private static func collect(_ node: FileNode, prefix: String?, into folders: inout [String]) {
-        guard node.isDirectory else { return }
-        var here: String? = nil
-        if let prefix {
-            here = prefix.isEmpty ? node.name : prefix + "/" + node.name
-            folders.append(here!)
+        guard let prefix else {
+            // The node standing in for the root: it contributes its children, never its own name,
+            // and is not judged by the survey's filter — it is the tree, not a folder within it.
+            guard node.isDirectory else { return }
+            for child in node.children ?? [] { collect(child, prefix: "", into: &folders) }
+            return
         }
-        for child in node.children ?? [] {
-            collect(child, prefix: here ?? "", into: &folders)
-        }
+        guard FolderSurveyBuilder.isSurveyedFolder(node) else { return }
+        let here = prefix.isEmpty ? node.name : prefix + "/" + node.name
+        folders.append(here)
+        for child in node.children ?? [] { collect(child, prefix: here, into: &folders) }
     }
 }

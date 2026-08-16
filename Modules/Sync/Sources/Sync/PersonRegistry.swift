@@ -32,6 +32,19 @@ public struct Person: Sendable, Equatable, Identifiable {
         self.aliases = aliases
     }
 
+    /// Every name form this person answers to — display name, full names, aliases, in that order.
+    ///
+    /// One definition, because "what does this person go by" is asked in five places and the answer
+    /// has to be the same in all of them: the token index and the phrase list are built from it,
+    /// ``PersonRegistry/displayForm(for:)`` and ``PersonRegistry/othersSharing(_:with:)`` compare
+    /// against it, and ``FolderSurveyBuilder`` matches folder names against it to recognise a
+    /// person-bucket. Spelled out separately in each, a new form source reaches some and not others,
+    /// and a folder starts matching for the person axis while failing to count as a person folder.
+    ///
+    /// Order is part of the contract: the display name leads, because the phrase list records the
+    /// form it matched and that is the one shown back to the user.
+    public var nameForms: [String] { [displayName] + fullNames + aliases }
+
     /// An id derived from a display name — lowercased ASCII words joined by `-`, or a timestamp-free
     /// fallback when the name yields nothing usable (a name written only in a non-Latin script).
     ///
@@ -179,7 +192,7 @@ public struct PersonRegistry: Sendable {
         var givenClaims: [String: [String]] = [:]
         for p in people {
             var tokens = Set<String>()
-            for name in [p.displayName] + p.fullNames + p.aliases {
+            for name in p.nameForms {
                 let words = PersonRegistry.words(name)
                 // Initials ("Shweta R Dani") stay in the phrase but are never standalone keys.
                 for w in words where w.count >= 2 { tokens.insert(w) }
@@ -283,7 +296,7 @@ public struct PersonRegistry: Sendable {
     /// A single matched word, spelled the way the roster spells it — `Mom` rather than `mom`.
     private func displayForm(of token: String, person id: String) -> String {
         guard let p = people.first(where: { $0.id == id }) else { return token }
-        for name in [p.displayName] + p.fullNames + p.aliases
+        for name in p.nameForms
         where PersonRegistry.words(name) == [token] {
             return name
         }
@@ -383,7 +396,7 @@ public struct PersonRegistry: Sendable {
     public func tokenBreakdown(for id: String) -> (unique: [String], shared: [String]) {
         guard let p = people.first(where: { $0.id == id }) else { return ([], []) }
         var tokens = Set<String>()
-        for name in [p.displayName] + p.fullNames + p.aliases {
+        for name in p.nameForms {
             for w in PersonRegistry.words(name) where w.count >= 2 { tokens.insert(w) }
         }
         var unique: [String] = []
@@ -397,7 +410,7 @@ public struct PersonRegistry: Sendable {
     /// How many other people in the roster also answer to `token`.
     public func othersSharing(_ token: String, with id: String) -> Int {
         people.filter { p in
-            p.id != id && ([p.displayName] + p.fullNames + p.aliases).contains { name in
+            p.id != id && p.nameForms.contains { name in
                 PersonRegistry.words(name).contains(token)
             }
         }.count
