@@ -345,6 +345,46 @@ import Testing
                 "the profile landed even though the index was refused")
     }
 
+    /// **An index naming a profile that is not on disk is not "already answered".**
+    ///
+    /// The write path refuses to re-point an index that already names an active profile, which is
+    /// right — but it took the *name* as proof. A hand-edit as small as a trailing space makes every
+    /// read load nothing (`profiles/abhishek /folder-profile.json` does not exist) while the writer
+    /// saw a non-empty string and declined to re-point for ever after: the bootstrap was dead and
+    /// every call still reported success. A dangling pointer is not an answer, so "active" now asks
+    /// the filesystem.
+    ///
+    /// The empty id is the same question, which is why it is no longer special-cased: `""` is not
+    /// "no profile" — an empty component collapses in `appendingPathComponent`, so it addresses
+    /// `profiles/folder-profile.json`, a layout that can genuinely exist. Asking whether the file is
+    /// there answers both without guessing which ids are meaningful.
+    @Test(arguments: ["abhishek ", "", "never-surveyed"])
+    func anIndexNamingAProfileThatIsNotThereIsRePointed(id: String) throws {
+        let (dir, _) = try Self.withIndex(#"{"schemaVersion": 1, "activeProfileId": "\#(id)"}"#)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek",
+                "the index still names a profile that does not exist, so nothing can load")
+        #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "abhishek")
+    }
+
+    /// The other half of that rule, and the one that must not regress: an id naming a profile that
+    /// IS there is left alone. Without this the test above would pass just as well if the write path
+    /// re-pointed unconditionally, which is the harm the guard exists for.
+    @Test func anIndexNamingAProfileThatIsThereIsLeftAlone() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FilingProfileStoreTests.makeProfiles(dir, profile: FilingProfileStoreTests.profileJSON,
+                                                 memory: nil)
+        let before = try Data(contentsOf: FilingProfileStore.indexURL(in: dir))
+
+        try FilingProfileStore.writeProfile(Self.nameOnly(id: "second", root: "~/Work"), in: dir)
+
+        #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == before)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+    }
+
     /// The control for both refusals above: an index this *can* read, with nothing active, really is
     /// amended — otherwise the two tests would pass just as well with the write path removed
     /// altogether.
