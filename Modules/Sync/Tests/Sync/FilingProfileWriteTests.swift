@@ -369,6 +369,39 @@ import Testing
 
     // MARK: - The file says what it is
 
+    /// **Every stored field of an entry reaches the file.**
+    ///
+    /// `ProfileDocument.EntryBox` hand-mirrors ``FolderProfileEntry`` — its own `CodingKey` enum and
+    /// eight explicit `encode` calls — because the JSON is a contract with the offline Python
+    /// builder and being explicit about it is the point. The cost of an explicit mirror is that
+    /// nothing fails when the two drift: a field added to the entry and its decoder, and forgotten
+    /// here, is silently dropped from every write, and a round-trip fixture only notices if it
+    /// happens to populate that field.
+    ///
+    /// So the mirror is checked against the type by reflection rather than by eye. `Mirror` lists
+    /// the stored properties; every one of them has to appear as a key in the written JSON. The
+    /// entry is fully populated for exactly that reason — the two omit-when-nil fields would
+    /// otherwise be legitimately absent and the check would pass without seeing them.
+    @Test func theEncoderWritesEveryFieldAnEntryStores() throws {
+        let full = FolderProfileEntry(path: "Finance", role: .container, naming: "ordinal-month",
+                                      anchors: ["tax"], acceptsNewFiles: false, fileCount: 3,
+                                      subfolderCount: 4, axes: ["year": "2024"])
+        let profile = FolderProfile(profileId: "abhishek", root: "~/Documents",
+                                    folders: ["Finance": full], personTokens: [], personAliases: [:])
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FilingProfileStore.writeProfile(profile, in: dir)
+
+        let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "abhishek", in: dir))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let entries = try #require(object["folders"] as? [[String: Any]])
+        let written = Set(try #require(entries.first).keys)
+
+        let stored = Set(Mirror(reflecting: full).children.compactMap(\.label))
+        #expect(stored.subtracting(written).isEmpty,
+                "FolderProfileEntry stores \(stored.subtracting(written).sorted()) that the profile encoder never writes")
+    }
+
     /// The `note` the file carries about itself has to describe what the builder actually produced.
     ///
     /// It claimed `anchors` and `axes` were "left empty rather than guessed" and that "filing falls

@@ -28,10 +28,11 @@ cluster whose membership changes between runs is the signature of
 there, passing in isolation *is* evidence.
 
 **Only the app-target step red, with window assertions failing in under 0.1s?** If the expectations
-read `nil` or `[]` for a panel or a child window, it is the palette-panel fixture —
+read `nil` or `[]` for a panel or a child window, it is *probably* the palette-panel fixture —
 [mechanism 11](#11-five-palette-tests-that-need-a-window-nobody-ordered-in). On CI it costs one
-rerun; **locally it will not clear, and it fails on an `origin/main` baseline too**, so check that
-before suspecting your tree. Bisecting `MacApp/` will find nothing either way.
+rerun, **and a rerun of the same SHA that fails the same way is a verdict, not this**; locally it
+will not clear, so establish the `origin/main` baseline instead. Bisecting `MacApp/` will find
+nothing *once one of those two has cleared it* — not before.
 
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
@@ -1145,13 +1146,24 @@ print(((CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIs
 (A locked session does independently break `screencapture -l<windowid>` — *"could not create image
 from window"* — so if a screenshot failed at the same time, that much is the lock.)
 
-**Response.** **On CI**, re-run it; that has cleared it every time so far. **Locally it does not
-clear** — three consecutive runs on 2026-08-15 failed, and so did the `origin/main` baseline beside
-them, so a rerun is not the local remedy. Establish the baseline instead (above) and carry on; a
-local red here is not a verdict on your tree. **Do not bisect `MacApp/`** either way — the app code
-these tests cover has not changed across any of the failures, and two of the three failing commits
-were documentation-only. Treat a lone red on the app-target step, with window assertions failing in
-under 0.1s, as this.
+**Response.** **On CI**, re-run it; that has cleared it every time so far. **If the rerun of the
+same SHA fails the same way, stop calling it this** — every CI instance so far has cleared on one
+rerun, so a second identical failure is the discriminator that says otherwise, and the next step is
+the `origin/main` baseline below rather than another rerun. That matters because the signature is
+not unique to the flake: a real regression that stops `present()` attaching its child window fails
+these same five, on the same assertions, just as fast — and this is the app-target step, the only
+one that compiles `MacApp/` at all (`docs/ci.md`), so misreading it costs the one signal that
+surface has.
+
+**Locally it does not clear** — three consecutive runs on 2026-08-15 failed, and so did the
+`origin/main` baseline beside them, so a rerun is not the local remedy. Establish the baseline
+instead (above) and carry on; a local red here is not a verdict on your tree, and a baseline that
+*passes* while your tree fails is the same discriminator from the other side.
+
+**Do not bisect `MacApp/`** once either discriminator has cleared it — the app code these tests
+cover has not changed across any of the failures, and two of the three failing commits were
+documentation-only. Before that, a lone red on the app-target step with window assertions failing in
+under 0.1s is the *likely* shape of this, not proof of it.
 
 **See.** `SyncCloudTests/CommandPalettePanelTests.swift` (`makeHost`); `5c851773` for why the host
 is no longer ordered in, including the two measurements that ruled out parking it offscreen;

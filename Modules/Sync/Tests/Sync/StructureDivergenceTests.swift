@@ -309,4 +309,63 @@ import Foundation
         let b = (name: "2020", words: Set(["receipts", "invoices"]))
         #expect(StructureDivergence.cluster([a, b]).count == 2)
     }
+
+    // MARK: - The lens over a profile the app derived for itself
+
+    /// **`ROADMAP_V4.md` §4.2 claims this lens returns the identical finding from a derived profile
+    /// as from a hand-built one — asserted here rather than described.**
+    ///
+    /// That claim is what retired the planned degradation test ("there is no degradation left for
+    /// this lens to characterise, which settles that test by removing its subject"), and it was
+    /// measured once in a commit message and pinned nowhere: nothing outside
+    /// `FolderSurveyBuilder`'s own two test files ever fed a derived profile to anything. So the
+    /// claim's own subject — a walk-derived profile going through Restructure — had no test at all.
+    ///
+    /// The comparison is against the same profile enriched with `naming`, which is exactly what a
+    /// walk cannot re-derive and a hand-built profile carries. If this lens ever starts reading a
+    /// field only the offline survey produces, these two stop matching and the roadmap's claim stops
+    /// being true in the same commit.
+    ///
+    /// The first expectation is the non-vacuity guard: two profiles that both produce *no* findings
+    /// would compare equal and prove nothing.
+    @Test func theLensSeesTheSameThingInADerivedProfileAsInAHandBuiltOne() throws {
+        func dir(_ name: String, _ children: [FileNode] = []) -> FileNode {
+            FileNode(id: "/x/\(name)", name: name, isDirectory: true, children: children)
+        }
+        func leaf(_ name: String) -> FileNode {
+            dir(name, [FileNode(id: "/x/\(name)/f.pdf", name: "f.pdf", isDirectory: false)])
+        }
+        // Two eras that disagree: three years of statements/notices, two of receipts/invoices.
+        let tree = [dir("Finance", [dir("Income Tax", [
+            dir("2016", [leaf("Statements"), leaf("Notices")]),
+            dir("2017", [leaf("Statements"), leaf("Notices")]),
+            dir("2018", [leaf("Statements"), leaf("Notices")]),
+            dir("2019", [leaf("Receipts"), leaf("Invoices")]),
+            dir("2020", [leaf("Receipts"), leaf("Invoices")]),
+        ])])]
+        let derived = FolderSurveyBuilder.build(tree: tree, root: "~/Documents", profileId: "t",
+                                                registry: nil, jurisdictionValues: [])
+
+        let fromDerived = StructureDivergence.findings(in: derived)
+        #expect(fromDerived.contains { $0.family == "Finance/Income Tax" },
+                "the fixture stopped diverging — the comparison below would be vacuous")
+
+        // The same tree as a hand-built profile would carry it: every entry given the one field a
+        // walk abstains from.
+        let enriched = FolderProfile(
+            profileId: derived.profileId, root: derived.root,
+            folders: derived.folders.mapValues {
+                FolderProfileEntry(path: $0.path, role: $0.role, naming: "ordinal-month",
+                                   anchors: $0.anchors, acceptsNewFiles: $0.acceptsNewFiles,
+                                   fileCount: $0.fileCount, subfolderCount: $0.subfolderCount,
+                                   axes: $0.axes)
+            },
+            personTokens: derived.personTokens, personAliases: derived.personAliases)
+
+        let fromHandBuilt = StructureDivergence.findings(in: enriched)
+        #expect(fromDerived.map(\.family) == fromHandBuilt.map(\.family))
+        #expect(fromDerived.map { $0.schemes.map(\.members) }
+                == fromHandBuilt.map { $0.schemes.map(\.members) },
+                "the lens read a field only a hand-built profile carries")
+    }
 }
