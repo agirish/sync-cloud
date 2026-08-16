@@ -17,7 +17,9 @@ and then nothing landed on it — this file still said "two lines", so every ses
 `v2.x` and `main` only, and 52 commits went onto `v2.x` between 2026-08-05 and 2026-08-16 without
 anyone asking whether they applied to 3.x too. Its tip also sat on the plain release number `3.1`
 for that whole time — exactly what "re-bump immediately" (below) exists to prevent. If a
-maintenance line is ever cut again, **add its row here in the same commit that pushes the branch.**
+maintenance line is ever cut again, **add its row here and to `branches:` in
+`.github/workflows/tests.yml` in the same commit that pushes the branch** — CI never ran on `v3.x`
+either, for the same eleven days, because the workflow named only `main` and `v2.x`.
 
 **Decide where work goes before starting it:**
 
