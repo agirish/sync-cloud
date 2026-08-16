@@ -1,27 +1,57 @@
 # SyncCloud — working agreement
 
-## Two release lines: `main` is v3, `v2.x` is maintenance
+## Three release lines: `main` is v4, `v3.x` and `v2.x` are maintenance
 
-As of 2026-08-01 there are **two long-lived branches**, and they are the only two:
+As of 2026-08-16 there are **three long-lived branches**, and they are the only three. Every
+shipped major keeps a maintenance line, cut from that major's last tag when the next major opens
+on `main`:
 
-| Branch | Carries | Breaking changes |
-|---|---|---|
-| `main` | the **v3 line** — where the next major is built | **allowed** |
-| `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`) | **never** |
+| Branch | Carries | Marker at tip | Breaking changes |
+|---|---|---|---|
+| `main` | the **v4 line** — where the next release is built | `4.1-dev` / `401` | **allowed** |
+| `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
+| `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
+
+**`v3.x` sat undocumented for eleven days.** It was cut correctly from the `v3.1` tag on 2026-08-11
+and then nothing landed on it — this file still said "two lines", so every session backported to
+`v2.x` and `main` only, and 52 commits went onto `v2.x` between 2026-08-05 and 2026-08-16 without
+anyone asking whether they applied to 3.x too. Its tip also sat on the plain release number `3.1`
+for that whole time — exactly what "re-bump immediately" (below) exists to prevent. If a
+maintenance line is ever cut again, **add its row here in the same commit that pushes the branch.**
 
 **Decide where work goes before starting it:**
 
 - **Anything that breaks behaviour, removes a feature, or restructures** → `main` only. That is
-  what the v3 line is for; do not put it on `v2.x`.
-- **A bug fix that matters to someone running 2.8** → land it on **`v2.x` first**, then cherry-pick
-  it onto `main`. Fixing on `main` and intending to backport later is how a fix gets lost.
-- **Everything else** (new non-breaking work, docs, tooling) → `main`.
+  what the current major's line is for; do not put it on a maintenance line.
+- **Everything else** → land it on the **oldest line that carries the code**, then cherry-pick it
+  forward onto every newer line that also carries it, in the same session. Oldest-first because a
+  patch that applies to 2.x code almost always applies to 3.x and `main`; a fix written against
+  `main` and intended to be backported later is how a fix gets lost. Three lines means a fix can
+  be three landings — that is the cost of keeping the lines, not a reason to skip one.
+- **Work on code that exists only on `main`** → `main`, because there is nowhere else for it to go.
 
-**Never merge one line into the other.** Both stay linear; move individual commits with
-`git cherry-pick`. A merge commit between the lines defeats the split.
+**"Applies" means the code is there, not that a user would notice.** This is the bar, and it is
+deliberately low: bug fixes, minor features that need no redesign, test-only changes, flake fixes,
+docs and tooling all go to every line that carries the file. A narrower reading — "only fixes
+that matter to someone running 2.8" — is what this line used to say, and under it landing a shared
+test helper's fix on both lines read as a judgement call to argue rather than the default. That is
+the failure mode: nothing announces a maintenance line quietly keeping a defect its own CI runs
+into.
 
-Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v3.0` from `main`.
-Tags mark history and are never branched from; these two branches are the only ones that persist.
+Two commands settle it before you start, per line, and byte-identical files cherry-pick clean:
+
+```sh
+for l in v2.x v3.x; do git ls-tree -r --name-only origin/$l -- <path>; done   # which lines carry it?
+diff <(git show origin/main:<f>) <(git show origin/v3.x:<f>)
+```
+
+**Never merge one line into another.** All three stay linear; move individual commits with
+`git cherry-pick`. A merge commit between lines defeats the split.
+
+Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v3.1` from `main`
+(before `v3.x` was cut), a future `v3.2` from `v3.x`, `v4.0` from `main`. Tags mark history and are
+never branched from — except once, when a new maintenance line is cut from a major's last tag;
+these three branches are the only ones that persist.
 
 ## Session isolation: work in a worktree, land on your target line directly
 
@@ -36,7 +66,7 @@ checkout at `/Users/abhishek/Projects/SyncCloud` while work is in progress — t
 shared landing zone, not a scratch space.
 
 1. **Start** — create a worktree on a fresh branch off the line you are targeting (`origin/main`
-   for v3 work, `origin/v2.x` for a 2.x fix):
+   for v4 work, `origin/v3.x` for a 3.x fix, `origin/v2.x` for a 2.x fix):
    ```sh
    git -C /Users/abhishek/Projects/SyncCloud fetch origin
    git worktree add /Users/abhishek/Projects/SyncCloud-<task> -b <task> origin/<line>
@@ -44,20 +74,22 @@ shared landing zone, not a scratch space.
    This is an **xcodegen** project — run `xcodegen` in the new worktree before `xcodebuild`.
 
 2. **Work** — make and test all changes inside that worktree. Uncommitted changes stay isolated
-   there; nothing leaks into either line or into a concurrent session until you deliberately commit.
+   there; nothing leaks into any line or into a concurrent session until you deliberately commit.
 
 3. **Finish — land on the target line directly.** Only once the work is complete and ready:
    - Commit on the worktree branch (imperative subject; prose body explaining *why*; trailer
      `Co-Authored-By: <model> <noreply@anthropic.com>`).
    - Rebase the branch onto the latest `origin/<line>` if the line moved.
    - Fast-forward the primary checkout to the branch (keep history linear — **no merge commits**).
-     The primary checkout tracks `main`; to land on `v2.x`, push the branch straight to it:
+     The primary checkout tracks `main`; to land on a maintenance line, push the branch straight
+     to it:
      ```sh
-     git push origin <task>:v2.x        # v2.x
+     git push origin <task>:v2.x        # v2.x (likewise <task>:v3.x)
      git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task> && git push   # main
      ```
-   - If the change was a 2.x fix that also applies to v3, **cherry-pick it onto `main` now** —
-     not later.
+   - If the change was a maintenance-line fix that also applies to the newer lines,
+     **cherry-pick it forward now** — `v2.x` → `v3.x` → `main` — not later. Verify each landing
+     with `git branch -r --contains <sha>`.
    - Remove the worktree: `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
 
 Net effect: everything lands on its line directly (commit → rebase → push), and no session's
@@ -78,9 +110,9 @@ wrong for two years. The steps below exist so that cannot recur.
 `project.yml` is the only source of truth:
 
 ```yaml
-# main's values; v2.x carries "2.10-dev" / "210"
-CFBundleShortVersionString: "3.0-dev"   # the marketing version — what people see
-CFBundleVersion: "300"                  # the build number — what Launch Services orders by
+# main's values; v3.x carries "3.2-dev" / "302", v2.x carries "2.10-dev" / "210"
+CFBundleShortVersionString: "4.1-dev"   # the marketing version — what people see
+CFBundleVersion: "401"                  # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git**, so it changes in the
@@ -96,8 +128,8 @@ anywhere, which is what makes changing it safe:
 ### The two numbers
 
 **Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
-version it is heading toward, suffixed `-dev`: `main` (the v3 line) sits at `3.0-dev`, `v2.x`
-sits at `2.10-dev`. The suffix says "this build is no release" without implying a distributed beta
+version it is heading toward, suffixed `-dev`: `main` sits at `4.1-dev`, `v3.x` at `3.2-dev`,
+`v2.x` at `2.10-dev`. The suffix says "this build is no release" without implying a distributed beta
 programme. A release drops the suffix, and the tip is re-bumped straight afterwards, so a plain
 number like `2.9` is only ever what the tagged commit itself carries.
 
@@ -110,19 +142,22 @@ SyncCloud were ever submitted there; that would mean dropping the suffix, nothin
 
 **Build number.** `CFBundleVersion` = **MAJOR × 100 + MINOR** of the marketing version — `2.9` →
 `209`, `2.10` → `210`, `3.0` → `300`. One integer, so it orders correctly under both numeric and
-naive string comparison (`"2.10"` vs `"2.9"` does not), it increases across both release lines at
-once so a v3 build always outranks a v2.x one, and it is derived from the marketing version
-rather than being a second thing to remember. It changes in the same edit as the marker; the
-`-dev` build and the release it becomes share a number, which is fine because it identifies the
-version rather than the individual build. **Keep MINOR under 100** or it stops being monotonic.
+naive string comparison (`"2.10"` vs `"2.9"` does not), it increases across all release lines at
+once so a v4 build always outranks a v3.x one and a v3.x one a v2.x one, and it is derived from
+the marketing version rather than being a second thing to remember. It changes in the same edit
+as the marker; the `-dev` build and the release it becomes share a number, which is fine because
+it identifies the version rather than the individual build. **Keep MINOR under 100** or it stops
+being monotonic.
 
 ### Writing the notes, and auditing every claim in them
 
 **The notes are part of the release too.** v2.9 reached the point of being tagged with no notes at
 all, because nothing here said to write them; they exist in two places and both are needed:
 
-- `RELEASE_NOTES.md` — **identical on both lines.** Write it on the line that owns the release and
-  cherry-pick; verify with `cmp`, don't re-edit the second copy.
+- `RELEASE_NOTES.md` — **identical on every line.** Write it on the line that owns the release and
+  cherry-pick to the others; verify with `cmp`, don't re-edit the other copies. (As of 2026-08-16
+  this has drifted: `v2.x` lacks the `v4.0` section and `v3.x` has nothing after `v3.1`. Repair
+  it at the next cut rather than leaving it to compound.)
 - `docs/releases.html` — **`main` only.** GitHub Pages serves `docs/` from `main`, so a section
   landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one, move the
   `latest` badge onto it, and give the superseded release the theme tag every other one carries.
@@ -152,8 +187,8 @@ v2.9's headline became its test volume, which was the one superlative that survi
 
 ### Cutting it
 
-Releases are cut as tags on the line that owns them — `v2.9` from `v2.x`, `v3.0` from `main`.
-Tag names are **two components**: `v2.9`, never `v2.9.0` (all 35 existing tags are `vMAJOR.MINOR`).
+Releases are cut as tags on the line that owns them — `v2.9` from `v2.x`, `v3.2` from `v3.x`,
+`v4.1` from `main`. Tag names are **two components**: `v2.9`, never `v2.9.0` (all 35 existing tags are `vMAJOR.MINOR`).
 Work in a worktree as always.
 
 1. **Drop the suffix.** In `project.yml`, `2.9-dev` → `2.9`. Leave `CFBundleVersion` alone: it is
@@ -196,7 +231,9 @@ Work in a worktree as always.
    Do not "correct" **v2.8**, whose release says `main` and is right: it was tagged 2026-07-31,
    before the `v2.x` split at `0f016480`, so `main` genuinely was its line.
 5. **Re-bump the tip to the next marker, immediately.** After `v2.9`, `v2.x` becomes `2.10-dev` /
-   `210`; after `v3.0`, `main` becomes `3.1-dev` / `301`. Same edit shape as step 1 plus
+   `210`; after `v4.0`, `main` becomes `4.1-dev` / `401`. **A freshly cut maintenance line needs the
+   same re-bump in its first commit** — `v3.x` was cut from `v3.1` and left on `3.1` / `301` for
+   eleven days. Same edit shape as step 1 plus
    `xcodegen`, its own commit. Do this now, not next time — a tip left sitting on a plain release
    number is exactly how the version silently stopped moving before.
 6. **Install and confirm what the app reports.** Run the `install-sync-cloud` skill and check the
