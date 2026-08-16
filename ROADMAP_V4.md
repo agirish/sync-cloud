@@ -109,85 +109,46 @@ behaviour has to change to add it — `mirrorOpenInNewTab` is where a pair id wo
 
 ---
 
-## 2. Pane bar: Icon and Text
+## 2. Pane bar: Icon and Text — **shipped**
 
-**Why:** the pane bar is glyph-only; Finder's toolbar names its controls. The vocabulary already
-exists — `PaneBarItem.displayName` is what the ⋯ menu and the customize palette already show — so this
-is layout work, not naming work.
+Built on 2026-08-16 and landed on `main` for v4.1. The design that was here — the three modes, the
+width table, the Text Only analysis, the prep list — is **deleted rather than archived**, per this
+file's own rule and §1's precedent: git history is the record, and a plan kept beside the thing it
+planned drifts from it. Read `PaneBarLabelMode` and `PaneBarTitleMetrics` in
+`Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift`, and `PaneBarTitleTests` for the
+decisions each in one named test.
 
-**Shape:** Finder's three modes — **Icon and Text** (the new default) / **Icon Only** / **Text Only** —
-as an inline `Picker` in the bar's right-click menu beside the existing Icon Size picker. Menu only,
-as in Finder; nothing in Settings.
+What shipped differs from what was planned in four ways, and these are kept because the *reasons*
+do not live in the code:
 
-It was illustrated in the main companion as Figs. 17–20 — the titled bar, the shedding rung, the
-mode menu, and the same thing rendered at true point size rather than drawn. **Those figures were
-deleted when that page was rewritten around Restructure on 2026-08-16**, on the same rule this file
-follows: v4.1 is taking this item, so the plan for it stops being kept beside the code. The bar's own
-mockup sets are where the drawings live now.
+- **Two modes, not Finder's three.** Text Only is dropped. With the glyph gone the word becomes the
+  only carrier of state, which forces Hidden Files' title to swap with its eye and makes an item's
+  width change on click. It also took `maxDepth` staying mode-blind with it. Additive if wanted.
+- **§2's two headline numbers were both wrong, and could not both be right.** "20pt pill + 2pt +
+  12pt title = 34pt" holds only at a **10pt** title (line height 12.0); "453 → 537pt" holds only at
+  a **12pt** one, which makes the row 37pt and breaks the pinned 81pt header. And 453pt priced the
+  *stored* 11-item arrangement — `onCollapse` is passed only on the single-source rail outside
+  Browse, so Browse and both Compare panes draw **10** items. The bar that actually wears titles
+  goes **414 → 451pt**, inside a 640pt Compare pane's ~508pt track with room to spare.
+- **The View switch keeps its ground; its *vertical* padding is what went.** §2 said the ground
+  should go when titled, and the reason turned out to be height rather than style: 3pt top and
+  bottom made the switch 26pt against every other control's 20, so a title under it sat 6pt low and
+  took the row to 40pt. Finder's toolbar equalises rather than removes — its segmented controls are
+  not taller than its plain ones. Applied in **both** modes, because the switch out-topping its
+  neighbours predates titles.
+- **A text-size gate, which §2 did not anticipate at all.** A 10pt title sits below `FontSize.knee`,
+  so it takes the *full* multiplier while `PaneNavMetrics.pill` is a fixed constant that does not
+  scale: at Large the row wants 37pt and at Larger 38pt. Titles are therefore drawn at **Default and
+  Small only**, and those two sizes fall back to Icon Only. Clamping the title was rejected — it
+  would give the person who chose Larger the one label in the app that refuses to grow.
 
-### It fits the pinned header with nothing to spare
+The rule underneath the titles is worth keeping: **a title changes when the ACTION changes, not when
+the STATE changes.** Scan → Stop swaps because the rung performs a different act; Hidden Files does
+not, because its eye already carries the state and a word that changed with it would move every item
+to its left on each click.
 
-| | |
-|---|---|
-| **Row height** | 20pt pill + 2pt + 12pt title = **34pt**, which is exactly the provider capsule's 34pt. The header stays 81pt and the 83.5 line holds. |
-| **The one break** | `viewMode` wears a 3pt capsule ground (26pt) → 40pt titled. **Titled, the ground goes** and the shared title groups its two segments, as Finder does. Most fragile part of the change. |
-| **Width** | the default 11-item bar goes **453pt → 537pt**. A 640pt pane has ~508pt of track, so two items fold into ⋯; a 900pt Browse pane fits everything. |
-| **Short titles** | the bar needs a `barTitle` separate from `displayName` — "Collapse Pane" is 68pt of text under a 33pt pill. Palette and ⋯ menu keep the long name. |
-
-Titles shed **all together as one rung**, ahead of the step down to `.mini` glyphs — the rule
-`WorkspaceBarMetrics` already applies to the workspace bar, for the reason written down there: a bar
-where some items are words and others are glyphs reads as two controls.
-
-The other header on the same 83.5 line — Organize/Storage's `LensHeaderCard` — already draws
-icon+text and sheds its text as it narrows (`HeaderLadder`). Titles make the two agree.
-
-### Text Only: three things the glyph is currently doing
-
-| | |
-|---|---|
-| **Hidden Files** | swaps `eye` ↔ `eye.slash` to carry its own state. A fixed word carries none of it, so the title has to swap too — both sentences already exist in the tooltip. |
-| **Scan → Stop** | the word swap survives; the spinning arrow does not. The title becomes a sixth member of `ScanRungMode`, which already resolves the five differing properties in one place. |
-| **`PaneNavChrome`** | takes an `Image` and applies ink, font and pill to it. It has to wrap a label of either kind, or Delete's red lands at the wrong level — recorded there as a measured bug ("painted zero red pixels"). |
-
-View and Preview carry their state in the fill, which survives text-only untouched.
-
-### Prep
-
-1. **The ladder needs the font scale.** `PaneBarLayout.width(of:)` and `PaneBarLadder` are constant
-   arithmetic with no `scale`; titles are measured type and the app scales its own. `PaneHeader`
-   already reads `@Environment(\.appFontScale)` and never passes it down. `HeaderLadder` is the
-   working precedent — a text-carrying ladder priced from `Design.LabelMetrics`.
-2. **One more rung, and the searched ladder must grow with it.** Icon+Text → Icon Only sits ahead of
-   the `.mini` step, so `terminal` grows by one and `PaneBarLadder.searchedSlotCount` (`maxItems + 1`)
-   becomes `maxItems + 2` — and `PaneHeader.searchedLadder` must declare one more **literal** child,
-   because a `ForEach` inside `ViewThatFits` collapses to a single child.
-   `theSearchedLadderDeclaresOneChildPerSlot` catches it.
-3. **Text Only cannot take that rung** — shedding text leaves an empty pill, so it folds into ⋯
-   straight away. `maxDepth` becomes mode-aware.
-4. **Re-baseline.** `DashboardSnapshotTests` holds three `PaneHeader` reference images (560 / 400 /
-   250) × light+dark, machine-pinned; `PaneHeaderHeightTests`, `PaneBarCanvasTests` and
-   `PaneBarInkContrastTests` all build the default bar.
-5. **`ShortcutKeycapFitTests` needs its premise restated**, not just re-run: it measures the ⌥-keycap's
-   overhang against the *pill* width, and a titled item's box is wider than its pill.
-
-### The one item here whose code `v2.x` carries
-
-`LabelMetrics.swift` and `LiquidGlassStyle.swift` are byte-identical across the lines;
-`PaneBarArrangement.swift` differs by 116 lines and `DashboardViews.swift` by 583, and `v2.x`'s bar has
-no Search and no Delete (a 9-item default, so titles fit it more easily). By `CLAUDE.md` this is a
-minor feature on code the maintenance line carries, so it lands on `v2.x` first and is **ported** —
-not cherry-picked — to `main`. Settle whether `v2.x` is still open before starting, not after.
-
-### Two things §1 left for whoever builds this
-
-Tabs landed first, so these are now facts about the screen rather than a boundary to negotiate:
-
-- **At the rail's 220pt the strip's count chevron sits ~34pt above the bar's ⋯** — two overflow
-  affordances stacked, with different meanings (a number against three dots). Distinguishable, but
-  that is the width to render before deciding the bar's own overflow is fine as it is.
-- **Icon Only governs the bar, never the strip.** A tab without its name is nothing — which is the
-  same rule that stopped the strip's narrowest rung shedding tabs to mark-only, because five
-  identical cloud marks name nothing.
+Its mockups, measured at true point size against the shipped constants, are at
+<https://claude.ai/code/artifact/ff227e61-042f-49f2-92fc-ff359780fbd6>.
 
 ---
 
@@ -576,7 +537,7 @@ borrowings are real work and are not that, so they follow rather than interleave
 
 **What v4.1 took, and is therefore not below:** ~~tabs, all three rungs~~ — shipped 2026-08-14, and
 the "all three rungs in one motion" call held up, because one insertion point in `paneColumn` serves
-Browse, Compare and the rail — and **§2's pane-bar titles**, in flight as this is written.
+Browse, Compare and the rail — and **§2's pane-bar titles**, shipped 2026-08-16.
 
 1. **§5.1 + §5.2** — the scoped read, the crowding strip and the remaining detectors. Pure reporting
    off a survey already in memory; §5.1 fixes the leaf-scope emptiness on its own, and §5.2 lands
@@ -614,9 +575,15 @@ renders correctly at one tab if you do tick it), and its tick is **one app-wide 
   bar deliberately is *not* that — there is one strip and one answer. The decision here is
   unchanged; only the example it borrowed has moved.
 
-- Whether ⋯ takes a title in the titled bar. Finder's » does not; recommendation: leave it unlabelled
-  and centred on the pill row.
-- Whether `v2.x` is still open when §2 is picked up — it decides which line that work starts on.
+- ~~Whether ⋯ takes a title in the titled bar.~~ **Answered by building it: no**, and aligned with
+  the pill row rather than centred in it. Finder labels its *Action* menu, but that is a fixed
+  contextual menu; our analogue is Finder's unlabelled `»`, whose contents depend on what happened
+  to fit. Worth knowing how narrow the question was: titles shed as a whole rung *before* any item
+  folds, so ⋯ appears on a titled bar only for someone who removed a control in the customize
+  sheet.
+- ~~Whether `v2.x` is still open when §2 is picked up.~~ **Answered: `main` only.** The v3/v4 line
+  owns this; `v2.x` carries no Search, no Delete and no `ScanRungMode`, so it would have been a
+  hand-port of a divergent bar rather than a cherry-pick.
 - Whether a tab shows a scan/download spinner when work is running in a folder it is not showing.
 - **§6: stopgap or replacement?** Settled further than it was: the derivation is not a degraded
   stopgap — role, anchors and axes agree at .997–1.000 and Restructure cannot tell the two profiles

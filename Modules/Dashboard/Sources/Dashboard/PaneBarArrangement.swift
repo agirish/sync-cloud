@@ -1,3 +1,4 @@
+import Design
 import SwiftUI
 
 /// One thing that can sit on a pane's bar.
@@ -68,6 +69,45 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .search: return "Search"
         case .delete: return "Delete"
         }
+    }
+
+    /// The word drawn under this item's pill in `PaneBarLabelMode.iconAndText`.
+    ///
+    /// Separate from `displayName`, which the palette and the ⋯ menu keep, because a menu row has
+    /// the width for "Collapse Pane" (43pt of text) and a 33pt pill does not. The two describe the
+    /// same control at two lengths; neither is a translation of the other.
+    ///
+    /// **A title says what the control IS, not what state it is in.** Hidden Files keeps one word
+    /// while its eye swaps open and slashed, because the glyph is what carries the state and a word
+    /// that changed with it would say the same thing twice — and, being measured type, would move
+    /// every item to its left on each click. Scan is the exception that proves the rule: mid-scan
+    /// the control is a different *act*, not the same act in a different state, so `ScanRungMode`
+    /// supplies "Stop" in place of this. See `titleVariants`.
+    public var barTitle: String {
+        switch self {
+        case .viewMode: return "View"
+        case .collapse: return "Collapse"
+        case .backForward: return "Back/Forward"
+        case .scan: return "Scan"
+        case .newFolder: return "New Folder"
+        case .sort: return "Sort"
+        case .hiddenFiles: return "Hidden"
+        case .preview: return "Preview"
+        case .space, .flexibleSpace: return ""
+        case .search: return "Search"
+        case .delete: return "Delete"
+        }
+    }
+
+    /// Every title this item can ever draw, so the ladder can reserve the widest of them.
+    ///
+    /// A bar item is as wide as the wider of its pill and its word, so an item whose word changes
+    /// could change width under the cursor and shift everything to its left. Today it cannot —
+    /// "Scan" is 24.5pt and "Stop" 23pt, both inside the 33pt pill, so the reservation costs
+    /// nothing. It exists so that a longer pair chosen later is absorbed by the layout instead of
+    /// introducing that movement silently.
+    public var titleVariants: [String] {
+        self == .scan ? [barTitle, ScanRungMode.stopTitle] : [barTitle]
     }
 
     /// The palette tile's glyph. Paired items (View, Back/Forward) draw the first of their pair here;
@@ -372,17 +412,45 @@ public enum PaneBarLayout {
         }
     }
 
+    /// The width of one item once its title is taken into account.
+    ///
+    /// An item is as wide as **the wider of its pill and its word** — most words are narrower than
+    /// the 33pt pill and cost nothing at all ("Sort" is 21pt, "Delete" 32pt); only New Folder,
+    /// Preview, Search, Hidden and the Back/Forward pair are ever the binding half.
+    ///
+    /// The widest of `titleVariants`, not the current title: see there for why an item whose word
+    /// can change reserves room for the longest of them.
+    @MainActor
+    static func titledWidth(of item: PaneBarItem, pill: CGSize, compactsViewMode: Bool,
+                            scale: CGFloat) -> CGFloat {
+        let base = width(of: item, pill: pill, compactsViewMode: compactsViewMode)
+        guard !item.isSpacer else { return base }
+        let widest = item.titleVariants
+            .map { LabelMetrics.width(of: $0, font: PaneBarTitleMetrics.font, scale: scale) }
+            .max() ?? 0
+        return max(base, widest)
+    }
+
     /// The laid-out width of a whole rung, gaps and ⋯ included.
     ///
     /// This is the number `ViewThatFits` used to discover by building the rung and measuring it. It
     /// is arithmetic now because building ten candidate bars per layout pass, twice per window, was
     /// the pane header's dominant main-thread cost.
-    public static func width(of plan: PaneBarLayoutPlan, controlSize: ControlSize) -> CGFloat {
+    ///
+    /// `titled` prices the same rung with a word under every pill. The ⋯ is deliberately *not*
+    /// widened by it: it takes no title (Finder labels its Action menu, but our analogue is
+    /// Finder's unlabelled `»` overflow), so it stays a pill wide in both modes.
+    @MainActor
+    public static func width(of plan: PaneBarLayoutPlan, controlSize: ControlSize,
+                             titled: Bool = false, scale: CGFloat = 1) -> CGFloat {
         let pill = PaneNavMetrics.pill(controlSize)
         var total: CGFloat = 0
         for (index, item) in plan.visible.enumerated() {
             if needsGap(before: index, in: plan.visible) { total += PaneNavMetrics.itemGap }
-            total += width(of: item, pill: pill, compactsViewMode: plan.compactsViewMode)
+            total += titled
+                ? titledWidth(of: item, pill: pill, compactsViewMode: plan.compactsViewMode,
+                              scale: scale)
+                : width(of: item, pill: pill, compactsViewMode: plan.compactsViewMode)
         }
         if !plan.overflow.isEmpty {
             if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false { total += PaneNavMetrics.itemGap }
@@ -391,12 +459,27 @@ public enum PaneBarLayout {
         return total
     }
 
-    /// The tallest thing on a rung. Only the view switch is taller than a pill — it wears a padded
-    /// capsule ground behind its two segments.
-    public static func height(of plan: PaneBarLayoutPlan, controlSize: ControlSize) -> CGFloat {
+    /// The tallest thing on a rung.
+    ///
+    /// Every control is exactly a pill tall, the view switch included. It used to be 6pt taller —
+    /// its two segments sat on a ground with `segmentPadding` on *all four* edges — and nothing
+    /// showed it, because the 34pt provider capsule sets the header's row height and a resting
+    /// pill is barely tinted. Titles are what made it matter: a title hangs on a baseline below its
+    /// control, so a 26pt switch put its word 6pt below every other word and took the row to 40pt,
+    /// over the 34pt budget.
+    ///
+    /// The ground stays; its *vertical* padding is what went (see `PaneHeader.viewModeSwitch`).
+    /// Finder's toolbar is the precedent — its segmented controls are not taller than its plain
+    /// ones, every ground is one height and every title sits on one baseline. Applied in both
+    /// modes, because the switch out-topping its neighbours is an inconsistency that predates
+    /// titles rather than one they introduce.
+    @MainActor
+    public static func height(of plan: PaneBarLayoutPlan, controlSize: ControlSize,
+                              titled: Bool = false, scale: CGFloat = 1) -> CGFloat {
         let pill = PaneNavMetrics.pill(controlSize)
-        let carriesSwitch = plan.visible.contains(.viewMode) && !plan.compactsViewMode
-        return pill.height + (carriesSwitch ? 2 * PaneNavMetrics.segmentPadding : 0)
+        return titled
+            ? PaneBarTitleMetrics.rowHeight(pillHeight: pill.height, scale: scale)
+            : pill.height
     }
 }
 
@@ -422,42 +505,74 @@ public enum PaneBarLayout {
 /// fallback. That is deliberate: if this arithmetic ever disagrees with the real fit, the layout
 /// engine gets the final say and the bar steps down rather than overflowing the pane's trailing
 /// edge — which has no loud failure mode and would not be noticed.
+@MainActor
 struct PaneBarLadder {
     let arrangement: PaneBarArrangement
     let available: [PaneBarItem]
     /// The largest control size the ladder may start from — the icon-size preference is a ceiling,
     /// not a pin, because a bar that overflows the pane is worse than small glyphs.
     let ceiling: ControlSize
+    /// The app's text scale, which prices the titled rung. Constant arithmetic priced every rung
+    /// before titles existed, because a glyph pill is a published constant; a word is measured type
+    /// and the app scales its own.
+    let scale: CGFloat
+
+    /// How many rungs at the head of the ladder draw titles: 1 when the preference asks for them
+    /// *and* the row fits this text size, 0 otherwise.
+    ///
+    /// Zero restores exactly the ladder that shipped before titles — same rungs, same widths, same
+    /// arithmetic — which is what makes `iconOnly` and Large text free of regression risk rather
+    /// than merely tested for it.
+    let titledRungs: Int
 
     /// The narrowest rung: `.mini` with everything sheddable shed and the view switch compacted.
     /// Every ladder ends here, however long the arrangement.
     let terminal: Int
 
-    init(arrangement: PaneBarArrangement, available: [PaneBarItem], ceiling: ControlSize) {
+    init(arrangement: PaneBarArrangement, available: [PaneBarItem], ceiling: ControlSize,
+         labelMode: PaneBarLabelMode = .iconOnly, scale: CGFloat = 1) {
         self.arrangement = arrangement
         self.available = available
         self.ceiling = ceiling
-        // Rung 0 is the ceiling size at depth 0; rung r > 0 is `.mini` at depth r - 1. So the rung
-        // that reaches the deepest meaningful fold is one past it.
-        self.terminal = PaneBarLayout.maxDepth(arrangement: arrangement, available: available) + 1
+        self.scale = scale
+        // The gate. `iconAndText` is a ceiling, not a pin: it asks for titles, and they appear only
+        // if the row they need fits the header the bar lives in.
+        self.titledRungs = (labelMode == .iconAndText
+                            && PaneBarTitleMetrics.rowFits(pillHeight: PaneNavMetrics.pill(ceiling).height,
+                                                           scale: scale)) ? 1 : 0
+        // Rung 0 is the ceiling size at depth 0; rung r > 0 is `.mini` at depth r - 1, shifted by
+        // the titled rung when there is one. So the rung that reaches the deepest meaningful fold
+        // is one past it.
+        self.terminal = PaneBarLayout.maxDepth(arrangement: arrangement, available: available)
+            + 1 + titledRungs
     }
 
-    /// Rung 0 is the chosen icon size unfolded; every rung after it is `.mini`, shedding one more
-    /// item into ⋯ each step.
-    func controlSize(forRung rung: Int) -> ControlSize { rung == 0 ? ceiling : .mini }
+    /// Whether this rung draws a word under each pill. Only the head of the ladder does: titles
+    /// shed **all together as one rung**, ahead of the step down to `.mini`, because a bar where
+    /// some items are words and others are glyphs reads as two controls — the rule
+    /// `WorkspaceBarMetrics` already applies for the same reason.
+    func isTitled(forRung rung: Int) -> Bool { rung < titledRungs }
 
-    func depth(forRung rung: Int) -> Int { rung == 0 ? 0 : rung - 1 }
+    /// Rung 0 is the chosen icon size unfolded; every rung after the untitled one at the ceiling is
+    /// `.mini`, shedding one more item into ⋯ each step.
+    func controlSize(forRung rung: Int) -> ControlSize {
+        rung <= titledRungs ? ceiling : .mini
+    }
+
+    func depth(forRung rung: Int) -> Int { max(0, rung - titledRungs - 1) }
 
     func plan(forRung rung: Int) -> PaneBarLayoutPlan {
         PaneBarLayout.plan(arrangement: arrangement, available: available, depth: depth(forRung: rung))
     }
 
     func width(forRung rung: Int) -> CGFloat {
-        PaneBarLayout.width(of: plan(forRung: rung), controlSize: controlSize(forRung: rung))
+        PaneBarLayout.width(of: plan(forRung: rung), controlSize: controlSize(forRung: rung),
+                            titled: isTitled(forRung: rung), scale: scale)
     }
 
     func height(forRung rung: Int) -> CGFloat {
-        PaneBarLayout.height(of: plan(forRung: rung), controlSize: controlSize(forRung: rung))
+        PaneBarLayout.height(of: plan(forRung: rung), controlSize: controlSize(forRung: rung),
+                             titled: isTitled(forRung: rung), scale: scale)
     }
 
     // MARK: The searched ladder's slots
@@ -477,7 +592,7 @@ struct PaneBarLadder {
     /// normalizer forces `scan` on, which is floor (unsheddable) and displaces a space when the bar
     /// is full, and if the host cannot offer `scan` it is filtered back out of the resolved bar
     /// instead. Either way at most `maxItems - 1` items shed, so `maxDepth <= maxItems - 1` and
-    /// `terminal <= maxItems`. Slots run rung 0 through the terminal: `maxItems + 1` of them.
+    /// `terminal <= maxItems + titledRungs`. Slots run rung 0 through the terminal.
     ///
     /// The previous count was ten, justified by a comment claiming "`terminal` is at most 9 for
     /// any arrangement the palette can build" — false for exactly the spacer-heavy case above, and
@@ -485,7 +600,13 @@ struct PaneBarLadder {
     /// widths. `PaneBarLadderTests` pins both halves of the contract: the arithmetic against the
     /// worst arrangement the normalizer permits, and this count against the number of children
     /// `PaneHeader.searchedLadder` actually declares.
-    static let searchedSlotCount = PaneBarArrangement.maxItems + 1
+    ///
+    /// **`+ 2`, not `+ 1`, since titles.** `titledRungs` adds at most one rung at the head, so the
+    /// deepest ladder any arrangement and any preference can build is one longer than it was. Get
+    /// this wrong and there is no error: the searched ladder is simply short a rung, and the
+    /// provider-less header jumps from a mid rung straight to full compaction at intermediate
+    /// widths — which is exactly the silent hole the ten-child version had.
+    static let searchedSlotCount = PaneBarArrangement.maxItems + 2
 
     /// The rung the searched ladder's literal child at `slot` draws. Slots past `terminal` clamp
     /// to it — `PaneBarLayout.plan` is idempotent past `maxDepth`, so they are duplicates of the
@@ -585,6 +706,65 @@ public enum PaneBarDrop {
     }
 }
 
+/// Whether the bar draws a word under each pill — the second preference in its right-click menu.
+///
+/// **A ceiling, not a pin**, exactly as `PaneBarIconSize` is. Choosing `iconAndText` says "start
+/// here": the bar still drops to `iconOnly` when the pane is too narrow for the titled rung, or
+/// when the app's text size makes the titled row taller than the pinned header can hold (see
+/// `PaneBarTitleMetrics.rowFits`). Choosing `iconOnly` pins downward — no width ever produces a
+/// title.
+///
+/// Two cases, where Finder has three. Text Only is deliberately absent: with the glyph gone the
+/// word becomes the only carrier of state, which forces Hidden Files' title to swap with its eye
+/// and makes an item's width change on click. The two modes here keep the glyph as the state
+/// carrier in every case, and the mode is additive if a third is ever wanted.
+public enum PaneBarLabelMode: String, CaseIterable, Sendable {
+    case iconAndText
+    case iconOnly
+
+    public var displayName: String {
+        self == .iconAndText ? "Icon and Text" : "Icon Only"
+    }
+}
+
+/// The type the bar's titles are drawn in, and the row budget they have to fit.
+public enum PaneBarTitleMetrics {
+    /// The title's base point size.
+    ///
+    /// 10pt, and the reason is the row rather than legibility: a titled row is the pill (20pt), a
+    /// 2pt gap and one line of title, against the **34pt** the pinned 81pt pane header allows —
+    /// and 10pt is the largest size whose line height (12.0) fits that. 11pt measures 13.0 for a
+    /// 35pt row and 12pt measures 15.0 for 37pt, both of which break the 83.5 line the header
+    /// shares with Organize's `LensHeaderCard`.
+    public static let pointSize: CGFloat = 10
+    /// Between the pill's bottom edge and the title's line box.
+    public static let gap: CGFloat = 2
+    /// What the pinned 81pt pane header leaves the bar's row. Matches the provider capsule's own
+    /// 34pt, which is what sets the row height today.
+    public static let rowBudget: CGFloat = 34
+
+    public static let font: ScaledFont = .system(size: pointSize, weight: .regular)
+
+    /// The height a titled row occupies at this text size.
+    @MainActor
+    public static func rowHeight(pillHeight: CGFloat, scale: CGFloat) -> CGFloat {
+        pillHeight + gap + LabelMetrics.lineHeight(font: font, scale: scale)
+    }
+
+    /// Whether titles can be drawn at all at this text size.
+    ///
+    /// **This is the gate that keeps the feature off Large and Larger.** `pointSize` sits below
+    /// `FontSize.knee` (11pt), so it takes the *full* multiplier, while `PaneNavMetrics.pill` is a
+    /// fixed constant that does not scale: at ×1.25 the row is 37pt and at ×1.35 it is 38pt,
+    /// against a 34pt budget. Clamping the title instead was rejected — someone who chose Larger
+    /// did so because small text is hard to read, and a title that alone refuses to grow serves
+    /// them worst of all. Falling back to `iconOnly` gives them exactly the bar that ships today.
+    @MainActor
+    public static func rowFits(pillHeight: CGFloat, scale: CGFloat) -> Bool {
+        rowHeight(pillHeight: pillHeight, scale: scale) <= rowBudget
+    }
+}
+
 /// The icon-size preference from the bar's right-click menu.
 ///
 /// A **ceiling, not a pin**: the pane may still step below the chosen size when it genuinely cannot
@@ -604,6 +784,10 @@ public enum PaneBarIconSize: String, CaseIterable, Sendable {
 public enum PaneBar {
     public static let arrangementKey = "paneBarArrangement"
     public static let iconSizeKey = "paneBarIconSize"
+    /// Whether the bar draws words under its pills. App-wide, like the two above — Compare's two
+    /// panes and the rail are one instrument pointed at different providers, so a bar that read
+    /// differently on each side would be two instruments.
+    public static let labelModeKey = "paneBarLabelMode"
     /// How far a stored arrangement has been brought forward — see `PaneBarMigration`.
     public static let migrationKey = "paneBarArrangementMigration"
 }

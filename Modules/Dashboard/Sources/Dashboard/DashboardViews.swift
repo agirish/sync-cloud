@@ -147,6 +147,11 @@ public struct PaneHeader: View {
     @AppStorage(PaneBar.arrangementKey) private var arrangementRaw: String =
         PaneBarArrangement.default.encoded
     @AppStorage(PaneBar.iconSizeKey) private var iconSizeRaw: String = PaneBarIconSize.regular.rawValue
+    /// Defaults to `iconAndText`: the words are the feature, and a preference that ships off is one
+    /// nobody finds. It costs nothing to turn back off, and at Large or Larger text the ladder
+    /// declines it on its own — see `PaneBarTitleMetrics.rowFits`.
+    @AppStorage(PaneBar.labelModeKey) private var labelModeRaw: String =
+        PaneBarLabelMode.iconAndText.rawValue
     /// Whether this header is showing the customize sheet. Per-header on purpose: the sheet edits
     /// shared state, but only the pane you invoked it from should sprout a sheet.
     @State private var isCustomizing = false
@@ -502,12 +507,24 @@ public struct PaneHeader: View {
     /// The computed rung is still handed to `ViewThatFits` with the narrowest rung behind it, so the
     /// layout engine keeps the final say: if the arithmetic ever overestimates what fits, the bar
     /// steps down instead of overflowing the pane's trailing edge. Two children, not ten.
+    /// The ladder this header actually builds, from its own preferences and its own item list.
+    ///
+    /// Internal, and the single source: `PaneBarLadderTests` measures the drawn bar against *this*
+    /// rather than re-assembling one from `.default` and the ceiling. Re-assembly is how a test
+    /// stays green against a ladder the header stopped building — which is not hypothetical, it is
+    /// what happened the moment `labelMode` was added: the test's ladder defaulted to `iconOnly`
+    /// while the header read `iconAndText` from `@AppStorage`, and every width assertion compared
+    /// two different bars.
+    var barLadder: PaneBarLadder {
+        PaneBarLadder(arrangement: PaneBarArrangement(encoded: arrangementRaw),
+                      available: availableItems,
+                      ceiling: iconSize.ceiling,
+                      labelMode: labelMode,
+                      scale: appFontScale)
+    }
+
     private var navCluster: some View {
-        let arrangement = PaneBarArrangement(encoded: arrangementRaw)
-        let available = availableItems
-        let ladder = PaneBarLadder(arrangement: arrangement,
-                                   available: available,
-                                   ceiling: iconSize.ceiling)
+        let ladder = barLadder
         return Group {
             if provider == nil {
                 searchedLadder(ladder)
@@ -600,6 +617,11 @@ public struct PaneHeader: View {
             searchedSlot(14, ladder)
             searchedSlot(15, ladder)
             searchedSlot(16, ladder)
+            // Added with titles: `titledRungs` puts one more rung at the head of the ladder, so
+            // `searchedSlotCount` grew from `maxItems + 1` to `maxItems + 2`. A `ForEach` here
+            // would collapse all eighteen into one child — see this function's note —
+            // and a missing literal child has no error, only a rung the search can never reach.
+            searchedSlot(17, ladder)
         }
     }
 
@@ -663,7 +685,8 @@ public struct PaneHeader: View {
         barContent(ladder.controlSize(forRung: rung),
                    depth: ladder.depth(forRung: rung),
                    arrangement: ladder.arrangement,
-                   available: ladder.available)
+                   available: ladder.available,
+                   titled: ladder.isTitled(forRung: rung))
     }
 
     /// Which items this particular header can offer at all. A header with no view-mode binding has
@@ -695,31 +718,82 @@ public struct PaneHeader: View {
         PaneBarIconSize(rawValue: iconSizeRaw) ?? .regular
     }
 
+    private var labelMode: PaneBarLabelMode {
+        PaneBarLabelMode(rawValue: labelModeRaw) ?? .iconAndText
+    }
+
     private func barContent(_ controlSize: ControlSize,
                             depth: Int,
                             arrangement: PaneBarArrangement,
-                            available: [PaneBarItem]) -> some View {
+                            available: [PaneBarItem],
+                            titled: Bool = false) -> some View {
         let plan = PaneBarLayout.plan(arrangement: arrangement, available: available, depth: depth)
         // Gaps are placed by hand rather than by `HStack(spacing:)`, because a flexible space must
         // cost *nothing*. As a stack child it would otherwise earn a 6pt gap of its own, the bar's
         // minimum width would grow by that much for every bar carrying one — which is every default
         // bar — and the provider capsule would lose the 6pt at the narrowest rung. Measured: it
         // shaved a character off the name in the 250pt snapshot.
-        return HStack(spacing: 0) {
+        // `.top`, so every pill shares one edge and therefore every title shares one baseline. The
+        // default centring would hang the shorter items' words at their own heights.
+        return HStack(alignment: .top, spacing: 0) {
             ForEach(Array(plan.visible.enumerated()), id: \.offset) { index, item in
                 if PaneBarLayout.needsGap(before: index, in: plan.visible) {
                     Color.clear.frame(width: PaneNavMetrics.itemGap, height: 1)
                 }
-                barItem(item, controlSize: controlSize, compactViewMode: plan.compactsViewMode)
+                titled
+                    ? AnyView(titledItem(item, controlSize: controlSize,
+                                         compactViewMode: plan.compactsViewMode))
+                    : AnyView(barItem(item, controlSize: controlSize,
+                                      compactViewMode: plan.compactsViewMode))
             }
             if !plan.overflow.isEmpty {
                 if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false {
                     Color.clear.frame(width: PaneNavMetrics.itemGap, height: 1)
                 }
+                // Untitled in both modes, and aligned with the pill row rather than centred in it.
+                // Finder labels its Action menu, but that is a fixed contextual menu; our analogue
+                // is Finder's unlabelled `»`, whose contents depend on what happened to fit.
                 viewOptionsMenu(controlSize: controlSize, overflow: plan.overflow)
             }
         }
         .controlSize(controlSize)
+    }
+
+    /// One bar item with its word underneath.
+    ///
+    /// The box is as wide as the wider of the pill and the word — `PaneBarLayout.titledWidth` is
+    /// the same rule in arithmetic, and the ladder picks its rung by that number, so the two must
+    /// agree or the bar on screen is not the bar that was measured.
+    ///
+    /// Scan takes its word from `ScanRungMode` rather than from `PaneBarItem`, because that rung's
+    /// word swaps with its glyph; every other item's word is fixed.
+    @ViewBuilder
+    private func titledItem(_ item: PaneBarItem, controlSize: ControlSize,
+                            compactViewMode: Bool) -> some View {
+        if item.isSpacer {
+            barItem(item, controlSize: controlSize, compactViewMode: compactViewMode)
+        } else {
+            let pill = PaneNavMetrics.pill(controlSize)
+            let title = item == .scan
+                ? ScanRungMode.resolve(isRefreshing: isRefreshing,
+                                       canCancel: onCancelScan != nil).barTitle
+                : item.barTitle
+            let box = PaneBarLayout.titledWidth(of: item, pill: pill,
+                                                compactsViewMode: compactViewMode,
+                                                scale: appFontScale)
+            VStack(spacing: PaneBarTitleMetrics.gap) {
+                barItem(item, controlSize: controlSize, compactViewMode: compactViewMode)
+                Text(title)
+                    .scaledFont(PaneBarTitleMetrics.font, scale: appFontScale)
+                    .foregroundStyle(ChromeInk.label(colorScheme, light: .primary.opacity(0.75)))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .frame(width: box)
+            // The pill already carries the control's own label and hint; the word repeats it, so
+            // reading both would say everything twice.
+            .accessibilityElement(children: .contain)
+        }
     }
 
     /// One item of the arrangement, drawn.
@@ -1180,7 +1254,14 @@ public struct PaneHeader: View {
                 .help(candidate.help)
             }
         }
-        .padding(PaneNavMetrics.segmentPadding)
+        // **Horizontal only.** The ground stays — it is what makes two segments read as one
+        // control, and Preview borrows its selected-segment fill — but its vertical padding made
+        // this the one control on the bar taller than a pill (26pt against 20). Nothing showed it
+        // while the 34pt provider capsule set the row height; a title hangs on a baseline below its
+        // control, so it put "View" 6pt under every other word and took the row to 40pt against a
+        // 34pt budget. Finder's toolbar is the precedent: its segmented controls are not taller
+        // than its plain ones. Applied in both modes — see `PaneBarLayout.height(of:)`.
+        .padding(.horizontal, PaneNavMetrics.segmentPadding)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane view")
@@ -1372,6 +1453,14 @@ public struct PaneHeader: View {
             }
             Divider()
         }
+        // Two modes, where Finder has three — see `PaneBarLabelMode` for why Text Only is absent.
+        // Menu only, as in Finder: nothing in Settings.
+        Picker("Show", selection: $labelModeRaw) {
+            ForEach(PaneBarLabelMode.allCases, id: \.rawValue) { mode in
+                Text(mode.displayName).tag(mode.rawValue)
+            }
+        }
+        .pickerStyle(.inline)
         Picker("Icon Size", selection: $iconSizeRaw) {
             ForEach(PaneBarIconSize.allCases, id: \.rawValue) { size in
                 Text(size.displayName).tag(size.rawValue)

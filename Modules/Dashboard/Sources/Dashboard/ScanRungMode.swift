@@ -49,6 +49,22 @@ enum ScanRungMode: Equatable, Sendable {
     /// Spoken and shown identically, because the glyph alone carries the difference on screen.
     var label: String { self == .stop ? "Stop scanning" : "Scan for changes" }
 
+    /// The word under the pill in `PaneBarLabelMode.iconAndText`. Published so
+    /// `PaneBarItem.titleVariants` can reserve room for it without restating the string.
+    static let stopTitle = "Stop"
+
+    /// The bar title, which **swaps with the glyph** — the one title on the bar that does.
+    ///
+    /// The rule elsewhere is that a title names the control while the glyph reports its state, so
+    /// Hidden Files keeps one word across both eyes. This rung is the exception because mid-scan
+    /// it is not the same control in another state: pressing it cancels rather than starts, which
+    /// is a different act. A stop glyph over the word "Scan" would name the act it no longer
+    /// performs.
+    ///
+    /// Resolved here, beside the five properties that already answer from the same value, so the
+    /// glyph, the keycap, the tooltip, the spoken label and the word cannot drift apart.
+    var barTitle: String { self == .stop ? Self.stopTitle : PaneBarItem.scan.barTitle }
+
     /// The tooltip. Only the scan form names a chord — see `keycap`.
     var help: String {
         self == .stop ? label : ShortcutHint.tooltip(label, AppChord.rescan.display)

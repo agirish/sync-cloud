@@ -68,6 +68,26 @@ public enum LabelMetrics {
         return measured
     }
 
+    // MARK: - Height
+
+    /// The height one line of `font` occupies at `scale`.
+    ///
+    /// Here rather than derived from the point size, because the two do not track: the system font
+    /// steps its line height rather than scaling it smoothly. Measured, 10pt gives 12.0 and 11pt
+    /// gives 13.0, but 12pt jumps to 15.0 — the same cliff `FontSize.scale`'s comment describes for
+    /// the 1.35 top step. A caller pricing a fixed-height row against a text label has to ask for
+    /// the real number or it will be wrong by 2pt exactly where the row is tightest.
+    ///
+    /// `PaneBarLayout` is the caller that needs it: a titled bar row is a pill, a 2pt gap and one
+    /// line of title, and it has 34pt to fit in before the pinned 81pt pane header breaks.
+    public static func lineHeight(font: ScaledFont, scale: CGFloat) -> CGFloat {
+        let key = TextKey(text: "", font: font.nsFont(scale: scale))
+        if let cached = lineHeightCache[key] { return cached }
+        let measured = layoutManager.defaultLineHeight(for: key.font)
+        lineHeightCache[key] = measured
+        return measured
+    }
+
     // MARK: - Composites
 
     /// The laid-out width of `Label(title, systemImage:)` in `font` at `scale`.
@@ -103,6 +123,12 @@ public enum LabelMetrics {
     private static let cacheLimit = 512
     private static var textCache: [TextKey: CGFloat] = [:]
     private static var symbolCache: [SymbolKey: CGFloat] = [:]
+    /// Bounded like `symbolCache` — one entry per font × scale, and both are fixed sets — so this
+    /// only ever needs filling.
+    private static var lineHeightCache: [TextKey: CGFloat] = [:]
+    /// One `NSLayoutManager`, reused. Constructing one per call measured the same but allocates a
+    /// text-system object on every layout pass, which is the cost this whole file exists to avoid.
+    private static let layoutManager = NSLayoutManager()
 
     private struct TextKey: Hashable {
         let text: String

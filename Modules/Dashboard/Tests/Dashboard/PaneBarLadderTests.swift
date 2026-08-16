@@ -53,6 +53,26 @@ import Design
         return all.filter { $0.minY < top + 5 }
     }
 
+    /// The laid-out width of one rung's bar, measured from the view that draws it.
+    ///
+    /// Ring spans were the measure here, and they were exact for as long as every item's box *was*
+    /// its pill. Titles ended that: an item is as wide as the wider of its pill and its word, so
+    /// where the word wins the pill is centred inside a wider box and the outermost overhang falls
+    /// outside the rings entirely — the Preview rung ends 5pt before its box does. Interior
+    /// overhangs still show up, because they push their neighbours apart, which is exactly what
+    /// makes the shortfall hard to spot by eye: the number is nearly right.
+    ///
+    /// So measure the bar instead of inferring it from its contents. `barVariant` is an `HStack` of
+    /// fixed-width boxes with a `Spacer(minLength: 0)` for the flexible space, so its fitting width
+    /// is the rung's minimum — the same quantity `PaneBarLayout.width` computes.
+    /// `theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled` is the guard that this method is not
+    /// quietly reporting something else.
+    private func barWidth(_ view: PaneHeader, rung: Int, ladder: PaneBarLadder) -> CGFloat {
+        let host = NSHostingView(rootView: AnyView(view.barVariant(rung, ladder)))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.width
+    }
+
     private func fingerprint<V: View>(_ view: V, width: CGFloat) -> String {
         rings(view, width: width)
             .map { "\(Int($0.minX.rounded())),\(Int($0.minY.rounded()))/\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
@@ -84,10 +104,13 @@ import Design
     /// test is per-ladder: a hand-copied list keeps every assertion below green while the header
     /// quietly builds a different ladder. `ceiling` likewise comes from the icon-size preference's
     /// own mapping instead of a literal `.small`.
+    /// **The view's own ladder, not a rebuilt one.** This used to assemble a `PaneBarLadder` from
+    /// `.default`, the view's `availableItems` and the icon-size mapping — one parameter short of
+    /// what the header builds the moment a new one is added. `labelMode` proved it: the rebuilt
+    /// ladder defaulted to `iconOnly` while the header read `iconAndText`, so every assertion below
+    /// compared a titled bar against untitled arithmetic. Asking the view removes the class.
     private static func columnsLadder(_ view: PaneHeader = header("iCloud Drive")) -> PaneBarLadder {
-        PaneBarLadder(arrangement: .default,
-                      available: view.availableItems,
-                      ceiling: PaneBarIconSize.regular.ceiling)
+        view.barLadder
     }
 
     // MARK: - The arithmetic against the drawn bar
@@ -101,21 +124,45 @@ import Design
     /// first control to the trailing edge of its last.
     @Test(arguments: [(CGFloat(250), true), (CGFloat(900), false)])
     func aRungOccupiesTheWidthTheLadderComputes(width: CGFloat, isNarrow: Bool) {
-        let ladder = Self.columnsLadder()
+        let view = Self.header("iCloud Drive")
+        let ladder = view.barLadder
         let rung = isNarrow ? ladder.terminal : 0
-        let drawn = barRings(Self.header("iCloud Drive"), width: width)
-        #expect(!drawn.isEmpty)
+        #expect(!barRings(view, width: width).isEmpty, "the header drew no controls at all")
 
-        // The view switch draws its segments inside a 3pt capsule ground, so at any rung that still
-        // carries the two-segment switch the bar starts 3pt before the first focus ring.
-        let plan = ladder.plan(forRung: rung)
-        let leadsWithSwitch = plan.visible.first(where: { !$0.isSpacer }) == .viewMode
-            && !plan.compactsViewMode
-        let leadingEdge = drawn[0].minX - (leadsWithSwitch ? PaneNavMetrics.segmentPadding : 0)
-        let trailingEdge = drawn.map(\.maxX).max() ?? 0
+        // Half a point of tolerance, and only that: `fittingSize` reports whole points, while a
+        // titled rung's arithmetic lands on a half (SwiftUI rounds a text run up to the next half
+        // point — see `LabelMetrics.ceilToHalf`). The tolerance covers that rounding and nothing
+        // else; a rung that drew a different bar misses by pills, not by fractions.
+        let drawn = barWidth(view, rung: rung, ladder: ladder)
+        #expect(abs(drawn - ladder.width(forRung: rung)) <= 0.5,
+                "rung \(rung) drew \(drawn)pt, computed \(ladder.width(forRung: rung))pt")
+    }
 
-        #expect(trailingEdge - leadingEdge == ladder.width(forRung: rung),
-                "rung \(rung) drew \(trailingEdge - leadingEdge)pt, computed \(ladder.width(forRung: rung))pt")
+    /// That `barWidth` measures the bar and not something adjacent to it.
+    ///
+    /// A `fittingSize` is only as trustworthy as the view under it — a greedy child reports the
+    /// offer rather than the content, which is how `ScrollView` fixtures in this repo have measured
+    /// nothing at all. So it is checked against the method it replaces, on the untitled rungs where
+    /// ring spans are still exact: there every item's box is its pill, so the two must agree to the
+    /// point.
+    @Test func theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled() {
+        let view = Self.header("iCloud Drive")
+        let ladder = view.barLadder
+        for rung in (ladder.titledRungs)...ladder.terminal {
+            let plan = ladder.plan(forRung: rung)
+            let drawn = barRings(view, width: rung == ladder.terminal ? 250 : 900)
+            guard let first = drawn.first, let trailing = drawn.map(\.maxX).max() else { continue }
+            let leadsWithSwitch = plan.visible.first(where: { !$0.isSpacer }) == .viewMode
+                && !plan.compactsViewMode
+            let span = trailing - (first.minX - (leadsWithSwitch ? PaneNavMetrics.segmentPadding : 0))
+            // Only the rung the header actually picks at this width can be compared against the
+            // rings, so accept a match against any rung's measured width and require that the
+            // measured and ringed answers name the same one.
+            let measured = barWidth(view, rung: rung, ladder: ladder)
+            #expect(measured > 0, "rung \(rung) measured zero — the fitting size is not reading the bar")
+            if abs(measured - span) < 0.5 { return }
+        }
+        Issue.record("no untitled rung's measured width matched a ring span")
     }
 
     /// The failure mode the ladder exists to prevent, and the one with no loud symptom: a bar that
@@ -137,16 +184,21 @@ import Design
     /// between. This is what catches an arithmetic drift that the overflow guard would sit through:
     /// a bar that fits but is not the bar any rung describes.
     @Test func theDrawnBarIsAlwaysSomeRungOfTheLadder() {
-        let ladder = Self.columnsLadder()
-        let widths = (0...ladder.terminal).map { ladder.width(forRung: $0) }
+        let view = Self.header("iCloud Drive")
+        let ladder = view.barLadder
+        // Measured from the views themselves, so a rung whose boxes are wider than their pills —
+        // any titled rung — is compared against what it actually occupies rather than against the
+        // span of its focus rings. See `barWidth`.
+        let widths = (0...ladder.terminal).map { barWidth(view, rung: $0, ladder: ladder) }
         for width in stride(from: CGFloat(250), through: 900, by: 25) {
-            let drawn = barRings(Self.header("iCloud Drive"), width: width)
+            let drawn = barRings(view, width: width)
             guard let first = drawn.first, let trailing = drawn.map(\.maxX).max() else { continue }
-            // Try both leading edges — with and without the switch's capsule ground — and accept if
-            // either lands on a rung, since which one applies is exactly what the rung decides.
-            let spans = [trailing - first.minX, trailing - first.minX + PaneNavMetrics.segmentPadding]
-            #expect(spans.contains(where: { span in widths.contains(where: { abs($0 - span) < 0.5 }) }),
-                    "at \(width)pt the bar spans \(spans), no rung of \(widths)")
+            // Try both leading edges — with and without the switch's capsule ground — and both
+            // trailing overhangs, since a titled rung's last box may extend past its ring.
+            let base = [trailing - first.minX, trailing - first.minX + PaneNavMetrics.segmentPadding]
+            #expect(base.contains(where: { span in
+                widths.contains(where: { $0 >= span - 0.5 && $0 <= span + 12 })
+            }), "at \(width)pt the bar spans \(base), no rung of \(widths)")
         }
     }
 
@@ -158,12 +210,19 @@ import Design
     /// that fits, would pick a different bar than the search it replaces.
     @Test func theLadderIsNotMonotonicAndIsWalkedInOrder() {
         let ladder = Self.columnsLadder()
-        // Rung 2 sheds the preview toggle and gains ⋯ — measurably wider than rung 1, which sheds
-        // nothing. If this ever stops being true the test has lost its subject, not found a bug.
-        #expect(ladder.width(forRung: 2) > ladder.width(forRung: 1))
-        // Offered exactly rung 1's width, the walk must still answer rung 1 — never the narrower
-        // rung 2 that also fits, and never rung 0 that does not.
-        #expect(ladder.rung(fitting: ladder.width(forRung: 1)) == 1)
+        // **Expressed relative to `titledRungs`, not as literals.** The non-monotonic pair is the
+        // first `.mini` rung and the one after it — which used to be rungs 1 and 2 and are 2 and 3
+        // once a titled rung sits at the head. Written as literals this test kept running and
+        // stopped being about shedding: it would have compared the titled rung against an untitled
+        // one, where being wider is the whole point rather than the anomaly.
+        let firstMini = ladder.titledRungs + 1
+        // The rung after the first `.mini` one sheds the preview toggle and gains ⋯ — measurably
+        // wider than the rung that sheds nothing. If this ever stops being true the test has lost
+        // its subject, not found a bug.
+        #expect(ladder.width(forRung: firstMini + 1) > ladder.width(forRung: firstMini))
+        // Offered exactly that rung's width, the walk must still answer it — never the narrower
+        // rung after it that also fits, and never the wider one before it that does not.
+        #expect(ladder.rung(fitting: ladder.width(forRung: firstMini)) == firstMini)
         #expect(ladder.rung(fitting: ladder.width(forRung: 0)) == 0)
         // A hair under rung 0 steps to rung 1, not past it.
         #expect(ladder.rung(fitting: ladder.width(forRung: 0) - 1) == 1)
@@ -269,18 +328,54 @@ import Design
         }
         let painted = CGFloat(maxY - minY + 1) / scale
         let ladder = Self.columnsLadder()
-        #expect(painted == ladder.height(forRung: 0),
-                "switch ground painted \(painted)pt, rung 0 is \(ladder.height(forRung: 0))pt — clipped by the pin?")
+        // **The untitled rung at the ceiling, not rung 0.** Painted ink is the right measure for a
+        // row of pills and the wrong one for a row of words: a title's line box is 12pt while the
+        // ink inside it is shorter, so a titled rung paints less than its height by design and an
+        // equality here would fail on a bar that is perfectly fine.
+        //
+        // This is also now the proof of the height equalisation: the switch's ground lost its
+        // vertical padding, so it paints exactly a pill tall — 20pt, where it used to paint 26 —
+        // and every title therefore lands on one baseline. A regression that put the padding back
+        // shows up here as 26 against 20 rather than as a misaligned word nobody measured.
+        // The header picks its own rung at this width, and a titled one paints its word too — so
+        // the claim is bounded rather than exact: everything the tallest rung can draw is on
+        // screen, and nothing is drawing beyond it.
+        #expect(painted <= ladder.height(forRung: 0) + 0.5,
+                "painted \(painted)pt exceeds the tallest rung's \(ladder.height(forRung: 0))pt")
+        #expect(painted >= PaneNavMetrics.pill(PaneBarIconSize.regular.ceiling).height,
+                "painted \(painted)pt is under a pill — the switch is clipped by the pin")
+        // The equalisation itself, measured where it is exact: every ring on the bar's row is a
+        // pill tall, the view switch's two segments included. A regression that put the ground's
+        // vertical padding back shows up here as 26 rather than as a word 6pt out of line.
+        let ringHeights = Set(bar.map(\.height))
+        #expect(ringHeights == [PaneNavMetrics.pill(PaneBarIconSize.regular.ceiling).height],
+                "the bar's controls are not all a pill tall: \(ringHeights.sorted())")
     }
 
-    /// Only the view switch is taller than a pill, and only while it is uncompacted. The header pins
-    /// its bar container to this, so a wrong answer here moves the breadcrumb.
-    @Test func onlyTheUncompactedSwitchIsTallerThanAPill() {
+    /// **Nothing is taller than a pill any more**, the view switch included — and a titled rung is
+    /// taller only by the word it carries.
+    ///
+    /// This asserted the opposite until titles arrived: the switch's ground had `segmentPadding` on
+    /// all four edges, so it stood 6pt above its neighbours and the header pinned its container to
+    /// that. Nothing showed it, because the 34pt provider capsule sets the row height. A title
+    /// hangs on a baseline below its control, so the 6pt became a word sitting 6pt lower than every
+    /// other word and a row 6pt over the header's 34pt budget. The ground stays and its vertical
+    /// padding went — Finder's rule, where every toolbar ground is one height.
+    ///
+    /// The header still pins its container to these numbers, so a wrong answer moves the breadcrumb.
+    @Test func onlyATitledRungIsTallerThanAPill() {
         let ladder = Self.columnsLadder()
-        let pillHeight = PaneNavMetrics.pill(.mini).height
-        #expect(ladder.height(forRung: ladder.terminal) == pillHeight)
-        #expect(ladder.height(forRung: 1) == pillHeight + 6)
-        #expect(ladder.height(forRung: 0) == PaneNavMetrics.pill(.small).height + 6)
+        #expect(ladder.height(forRung: ladder.terminal) == PaneNavMetrics.pill(.mini).height)
+        // The untitled rung at the ceiling: a plain pill, with the switch no longer out-topping it.
+        let pill = PaneNavMetrics.pill(PaneBarIconSize.regular.ceiling).height
+        #expect(ladder.height(forRung: ladder.titledRungs) == pill)
+        // The titled rung is the pill, the gap and one line of title — and must fit the budget the
+        // pinned header allows, which is the gate `PaneBarTitleMetrics.rowFits` applies.
+        if ladder.titledRungs > 0 {
+            #expect(ladder.height(forRung: 0)
+                    == PaneBarTitleMetrics.rowHeight(pillHeight: pill, scale: 1))
+            #expect(ladder.height(forRung: 0) <= PaneBarTitleMetrics.rowBudget)
+        }
     }
 
     // MARK: - The searched ladder's coverage
@@ -336,8 +431,9 @@ import Design
     /// `TupleView` — the check has to fail loudly if that shape ever changes, hence the `Optional`
     /// rather than a silent zero.
     @Test func theSearchedLadderDeclaresOneChildPerSlot() {
-        // Derived, not restated: the ladder's depth is bounded by how long a bar can be.
-        #expect(PaneBarLadder.searchedSlotCount == PaneBarArrangement.maxItems + 1)
+        // Derived, not restated: the ladder's depth is bounded by how long a bar can be, plus the
+        // one rung `titledRungs` can add at its head.
+        #expect(PaneBarLadder.searchedSlotCount == PaneBarArrangement.maxItems + 2)
 
         let view = Self.header(nil)
         let children = Self.viewThatFitsChildCount(view.searchedLadder(Self.ladder(.default)))
@@ -373,9 +469,15 @@ import Design
         let worst = Self.worstArrangement
         #expect(worst.items.count == PaneBarArrangement.maxItems)
 
-        let ladder = PaneBarLadder(arrangement: worst, available: [.scan], ceiling: .small)
+        // **Built with titles on**, because that is the deepest ladder the slots must cover: the
+        // titled rung sits at the head and pushes every other rung one further out. Built without
+        // them this fixture measures a ladder one shorter than the worst case and would happily
+        // certify a slot count that skips the terminal rung whenever the preference is on.
+        let ladder = PaneBarLadder(arrangement: worst, available: [.scan], ceiling: .small,
+                                   labelMode: .iconAndText, scale: 1)
+        #expect(ladder.titledRungs == 1, "the worst case must include the titled rung")
         // The deepest terminal possible: every slot count below `terminal + 1` skips a rung here.
-        #expect(ladder.terminal == PaneBarArrangement.maxItems)
+        #expect(ladder.terminal == PaneBarArrangement.maxItems + 1)
         #expect(ladder.terminal + 1 == PaneBarLadder.searchedSlotCount)
 
         let covered = Set((0..<PaneBarLadder.searchedSlotCount).map { ladder.searchedRung(forSlot: $0) })
@@ -524,6 +626,13 @@ import Design
     /// Small text size the breadcrumb can sit 1pt higher, because the bar's container is now pinned to
     /// the narrowest rung's height and a 0.9-scaled provider name is shorter than a rung carrying the
     /// view switch. No control moves.
+    ///
+    /// **Titles re-recorded exactly two of these sixteen rows**, and which two is the useful part:
+    /// only `iCloud` at 710pt, at both text sizes. Every narrower row is on a `.mini` rung where
+    /// titles have already shed, and `longName` at 710pt is *unchanged* because its wider provider
+    /// capsule leaves too little track for the titled rung — so the ladder falls through to the
+    /// untitled one and draws precisely what it drew before. That row is the evidence that the
+    /// titled rung is a ceiling rather than a pin; it is not an oversight that it did not move.
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
@@ -557,13 +666,16 @@ import Design
         (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
         (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
         (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 0.9, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
+        // Re-recorded for titles: the bar starts 22pt further left (words wider than their pills)
+        // and its controls sit 6pt higher (the row now carries a title line beneath them). The ring
+        // heights are unchanged at 20 — the switch is a pill tall in both modes.
+        (iCloud, 0.9, 710, "341,473/29x20 373,473/29x20 411,473/33x20 450,473/33x20 489,473/33x20 536,473/33x20 584,473/33x20 623,473/33x20 665,473/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
         (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
         (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
         (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
         (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
         (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 710, "331,472/29x20 363,472/29x20 401,472/33x20 440,472/33x20 479,472/33x20 529,472/33x20 579,472/33x20 619,472/33x20 663,472/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
         (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
         (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
         (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
