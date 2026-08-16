@@ -207,10 +207,27 @@ public struct PaneTabStrip: View {
 
         // Never past what is on screen: dragging a chip into the overflow is not a move anyone can
         // see, and the chip would appear to disappear.
+        //
+        // **The drawn indices are not necessarily contiguous**, which is what a `[first, last]`
+        // clamp alone quietly assumed. `visible(_:slots:)` draws the pinned PREFIX plus a WINDOW of
+        // the unpinned run, and once that window has scrolled off the head there is a folded-away
+        // gap between the two — so a clamp into the range still landed inside the gap. Measured:
+        // one pin and four unpinned tabs in three slots draw `[P, T3, T4]`, and dragging T3 left
+        // put it at index 1 or 2, both folded away; recomputing the window afterwards showed T3
+        // gone from the strip, which is the disappearance this guard is named for.
+        //
+        // So the range clamp is followed by a snap onto an index that is actually drawn, always
+        // BACK toward where the drag started. Back rather than on: moving the drop closer to `from`
+        // can only ever shorten the move, while snapping outward would carry the chip past a tab
+        // the user cannot see. It also cannot re-cross the pin line, because `from` is on the right
+        // side of it by construction.
         let shown = Set(visible.map(\.id))
         let drawn = items.indices.filter { shown.contains(items[$0].id) }
         if let first = drawn.first, let last = drawn.last, shown.contains(items[from].id) {
             to = min(max(to, first), last)
+            if !drawn.contains(to) {
+                to = (to > from ? drawn.last { $0 <= to } : drawn.first { $0 >= to }) ?? from
+            }
         }
         return min(max(0, to), items.count - 1)
     }

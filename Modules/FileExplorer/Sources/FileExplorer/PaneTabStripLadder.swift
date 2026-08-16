@@ -145,11 +145,19 @@ public enum PaneTabStripLadder {
     ///
     /// Priced at a two-digit count — the widest a real strip reaches — so the threshold does not
     /// move as tabs are opened.
+    ///
+    /// **Five children, not four**, and the difference is the whole point of the number: this is the
+    /// price of the narrowest `.compact` row worth drawing, which is `[tab] [tab] [overflow]
+    /// [spacer] [＋]`. Counting four left the ceiling one gap — 4pt — under what that row costs, so
+    /// between the two prices `layout` fell through to the compact walk-down, could not fit the
+    /// second chip, and returned `.compact` with a **single** chip beside a chevron: exactly the
+    /// "one tab and a chevron" this threshold exists to refuse. Measured before the fix at scale
+    /// 1.0: 12 or more tabs at a pane width of 269–270pt, seventeen (count, width) pairs in all.
     public static func chipCeiling(scale: CGFloat) -> CGFloat {
         2 * floorWidth(scale: scale)
             + overflowWidth(hidden: 99, scale: scale)
             + plusWidth(scale: scale)
-            + gaps(children: 4)
+            + gaps(children: 5)
     }
 
     /// The rung for an offered width.

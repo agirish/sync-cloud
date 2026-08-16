@@ -35,6 +35,11 @@ extension ContentView {
             syncManager.paneTabs(isLeft: isLeft),
             liveProviderId: isLeft ? leftProviderId : rightProviderId,
             livePath: syncManager.combinedRelativePath(isLeft: isLeft),
+            // **The discovered list here, not `paneCanShowSource`'s**, and it is the one place that
+            // divergence is right: this resolves a NAME and a mark, not whether the pane may go
+            // there. A source switched off in Settings still has a folder and a display name, and
+            // a chip reading "Dropbox" for the moment before the tab is discarded beats one reading
+            // its raw id.
             source: { id in
                 guard let provider = settings.availableProviders.first(where: { $0.id == id }) else { return nil }
                 return PaneTabChips.Source(displayName: provider.displayName,
@@ -56,6 +61,33 @@ extension ContentView {
     /// Track the tab strip gives up to the seam controls, which are drawn OVER this row.
     func seamInset(isLeft: Bool, leading: Bool) -> CGFloat {
         PaneTabSeam.inset(isCompare: layoutMode == .compare, isLeft: isLeft, leading: leading)
+    }
+
+    /// **Whether a pane may be pointed at this source at all — the one list every tab question
+    /// asks, and it is `enabledProviders`.**
+    ///
+    /// This started as `availableProviders` in three places, which is the *discovered* list: it
+    /// keeps a source the user has switched off in Settings, because a disabled provider's folder
+    /// is still on disk and things like the ⌂ badge's coverage genuinely want it (see
+    /// `homeBadgeCoverage`). Nothing that points a PANE wants it. `refreshAction` and
+    /// `refreshForTabSwitch` both resolve their two providers out of `enabledProviders` and return
+    /// without loading anything when either is missing, so a pane on a disabled source is a pane
+    /// nothing will ever walk.
+    ///
+    /// The launch path was the sharp end. `restoreBrowseTabs` writes the restored tab's provider
+    /// over the pane's id, and it ran *after* `applyProviderSelection` had resolved that id against
+    /// the enabled list — so opening a tab on a source, switching that source off, and relaunching
+    /// put the disabled id back and the bootstrap's `refreshAction()` then bailed: both panes up,
+    /// empty, no scan, nothing said. Nothing re-resolved afterwards either, because
+    /// `enabledProviders` had not changed and its `onChange` never fired. Mid-session the same
+    /// mismatch made `decide` answer `.adopt` where it meant `.unavailable`, so clicking such a tab
+    /// moved the pane onto a source no refresh would serve.
+    ///
+    /// One predicate, so the question cannot be asked two ways again. Chip RENDERING deliberately
+    /// still reads `availableProviders` (`paneTabItems`): naming a disabled source is better than
+    /// showing its raw id for the moment before the tab is discarded.
+    var paneCanShowSource: (String) -> Bool {
+        { id in settings.enabledProviders.contains { $0.id == id } }
     }
 
     // MARK: - The one door
@@ -90,7 +122,7 @@ extension ContentView {
         switch PaneTabProviderSwitch.decide(
             arrived: arrived.providerId,
             current: isLeft ? leftProviderId : rightProviderId,
-            isAvailable: { id in settings.availableProviders.contains { $0.id == id } }) {
+            isAvailable: paneCanShowSource) {
         case .keep:
             break
         case .adopt(let id):
@@ -99,20 +131,32 @@ extension ContentView {
             // swap eat a tab switch's suppression and reset the navigation it just restored.
             pendingTabProviderChanges += 1
             if isLeft { leftProviderId = id } else { rightProviderId = id }
-        case .unavailable(let id):
-            // The tab names a source removed since it was opened, so it cannot be shown at all —
-            // and by now the verb has already pointed the pane at that tab's folder path under the
-            // LIVE source's root, which is a path that usually exists nowhere. The tab goes, and
-            // the pane lands on one that works. `discardTab` says what that means for the last tab.
+        case .unavailable:
+            // The tab names a source this pane can no longer be pointed at, so it cannot be shown
+            // at all — and by now the verb has already pointed the pane at that tab's folder path
+            // under the LIVE source's root, which is a path that usually exists nowhere. The tab
+            // goes, and the pane lands on one that works. `discardTab` says what that means for the
+            // last tab.
             //
             // This branch used to only warn, with a comment claiming the pane "stayed on its
             // current source" — true of the source and false of the folder, which is the half that
             // showed on screen as an empty pane.
-            Logger.shared.warning("Discarded a browse tab: its source “\(id)” is no longer available")
-            let landed = syncManager.discardTab(id: arrived.id, isLeft: isLeft,
-                                                currentProviderId: isLeft ? leftProviderId : rightProviderId)
-            paneSearchState(isLeft: isLeft).wrappedValue = PaneSearchFieldState(
-                query: landed.searchQuery, isExpanded: landed.searchIsExpanded)
+            //
+            // **Every dead tab behind it goes too**, which a single discard did not do: the
+            // fallback is a neighbour, and two tabs opened on one source die together — so the pane
+            // landed straight onto the second one and showed the same empty folder. See
+            // `discardDeadTabs`.
+            let outcome = syncManager.discardDeadTabs(
+                startingAt: arrived.id, isLeft: isLeft,
+                currentProviderId: isLeft ? leftProviderId : rightProviderId,
+                isAvailable: paneCanShowSource)
+            for gone in outcome.discarded {
+                Logger.shared.warning("Discarded a browse tab: its source “\(gone)” is gone or switched off")
+            }
+            if let landed = outcome.landed {
+                paneSearchState(isLeft: isLeft).wrappedValue = PaneSearchFieldState(
+                    query: landed.searchQuery, isExpanded: landed.searchIsExpanded)
+            }
         }
         saveBrowseTabs(isLeft: isLeft)
         // **Only when the arriving tab is somewhere else.** The same rule `applyTab` used to decide
@@ -403,7 +447,10 @@ extension ContentView {
         let restored = PaneTabsStore.restore(
             entries: stored.entries,
             selected: stored.selected,
-            isKnownProvider: { id in settings.availableProviders.contains { $0.id == id } },
+            // The pane's list, not the discovered one — see `paneCanShowSource`. A tab on a source
+            // the user has switched off is dropped here rather than restored onto a pane that
+            // nothing would then walk.
+            isKnownProvider: paneCanShowSource,
             folderExists: { providerId, relativePath in
                 guard !relativePath.isEmpty else { return true }
                 // Expanded, for the reason `openInNewTab` gives: a tilde root never exists on disk,
@@ -428,8 +475,7 @@ extension ContentView {
         // switch — including its provider, which may not be the one the pane was pointed at.
         let active = restored.active
         let currentProviderId = isLeft ? leftProviderId : rightProviderId
-        if active.providerId != currentProviderId,
-           settings.availableProviders.contains(where: { $0.id == active.providerId }) {
+        if active.providerId != currentProviderId, paneCanShowSource(active.providerId) {
             // **No suppression counter here, deliberately.** This runs inside the provider
             // bootstrap, where the id's `onChange` bails on `isBootstrappingProviders` *without*
             // decrementing — so arming the counter would strand it at one and silently swallow the
@@ -659,12 +705,17 @@ enum PaneTabChips {
 /// A rule rather than an `if` at the call site because the middle case is invisible: a tab whose
 /// source has been removed since it was opened must NOT have its folder rendered under whatever
 /// source the pane happens to be showing, and there is nothing on screen to tell you that happened.
+///
+/// "Gone" is `paneCanShowSource`'s reading — **a source switched off in Settings is gone for this
+/// purpose**, because no refresh will walk a pane pointed at one. Asking the discovered list here
+/// instead reported `.adopt` for exactly those, which is the invisible middle case landing in the
+/// branch that says nothing.
 enum PaneTabProviderSwitch: Equatable {
     /// The pane is already on this tab's source.
     case keep
     /// Write the id — and suppress the reset its `onChange` would otherwise run.
     case adopt(String)
-    /// The tab names a source that is gone. Stay put, and say so.
+    /// The tab names a source this pane cannot be pointed at. Stay put, and say so.
     case unavailable(String)
 
     static func decide(arrived: String, current: String, isAvailable: (String) -> Bool) -> PaneTabProviderSwitch {

@@ -296,14 +296,55 @@ import Sync
     @Test func aTabOnASourceThatIsGoneIsDiscardedAndNotJustLogged() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        let branch = try #require(body.range(of: "case .unavailable(let id):"),
+        let branch = try #require(body.range(of: "case .unavailable"),
                                   "the removed-source case is no longer handled")
         let rest = String(body[branch.upperBound...])
-        #expect(rest.contains("syncManager.discardTab("),
+        // `discardDeadTabs`, not `discardTab`: the fallback is a neighbour and neighbours die
+        // together, so a single discard landed the pane straight onto the next dead tab.
+        #expect(rest.contains("syncManager.discardDeadTabs("),
                 "a tab on a removed source is only warned about — the pane is left on a path under the wrong root")
         // And the pane's search field follows the tab it lands on, like every other arrival.
         #expect(rest.contains("paneSearchState(isLeft: isLeft).wrappedValue"),
                 "the discarded tab's search query is left in the field of the tab that replaced it")
+    }
+
+    /// **Every question about whether a PANE may be pointed at a source asks `enabledProviders`,
+    /// and it asks it through one predicate.**
+    ///
+    /// Three of them asked `availableProviders` instead — the *discovered* list, which keeps a
+    /// source the user has switched off in Settings. `refreshAction` and `refreshForTabSwitch`
+    /// resolve their pair out of `enabledProviders` and return without loading anything when either
+    /// is missing, so a pane on a disabled source is a pane nothing will ever walk.
+    ///
+    /// The launch path was the sharp end, and it is the one this scan is really about. Open a tab
+    /// on a source, switch that source off, quit, relaunch: `applyProviderSelection` resolves the
+    /// pane's id against the enabled list, then `restoreBrowseTabs` writes the disabled one back
+    /// over it, and the bootstrap's `refreshAction()` bails. Both panes up, empty, no scan and
+    /// nothing said — and nothing re-resolves, because `enabledProviders` never changed and its
+    /// `onChange` never fires.
+    ///
+    /// Scanned as an ABSENCE across the whole file rather than as three presences, because the
+    /// failure is a list being asked for somewhere new: a per-site check passes the moment a fourth
+    /// site is added. The one legitimate reading is asserted by name below, so this cannot pass by
+    /// the file having lost the ability to name a source at all.
+    @Test func everyPaneProviderQuestionAsksTheEnabledList() throws {
+        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        #expect(code.contains("settings.enabledProviders.contains { $0.id == id }"),
+                "paneCanShowSource no longer reads the enabled list")
+        for site in ["isAvailable: paneCanShowSource", "isKnownProvider: paneCanShowSource",
+                     "paneCanShowSource(active.providerId)"] {
+            #expect(code.contains(site), "\(site) no longer routes through the one predicate")
+        }
+        // The chip's NAME and mark are the one thing the discovered list is right for: a source
+        // switched off still has a display name, and a chip reading "Dropbox" for the moment before
+        // the tab is discarded beats one reading its raw id.
+        let uses = code.components(separatedBy: "availableProviders").count - 1
+        #expect(uses == 1,
+                "\(uses) uses of availableProviders — a pane may be pointed at a source no refresh will walk")
+        let items = try Self.memberBody("func paneTabItems(isLeft: Bool",
+                                        in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(items.contains("settings.availableProviders"),
+                "the one legitimate use has moved — this scan is now counting something else")
     }
 
     /// The call site: adopting is what arms the suppression counter, and without that the provider

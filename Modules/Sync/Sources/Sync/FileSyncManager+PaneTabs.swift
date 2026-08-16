@@ -223,10 +223,19 @@ extension FileSyncManager {
     ///
     /// The last tab is not closed — a pane always holds one — so it is rebuilt on `currentProviderId`
     /// at its root, which is the one location certain to exist.
-    @MainActor public func discardTab(id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab {
+    ///
+    /// **`nil` for an id this pane does not hold**, and the strip is left exactly as it was. That
+    /// was one guard with the rebuild before: `if list.count > 1, list.index(of: id) != nil`, whose
+    /// `else` therefore answered *two* questions with one destructive branch. The last-tab reading
+    /// is the one it was written for; the other — a strip of five handed an unknown id — replaced
+    /// all five tabs AND the reopen stack with a single fresh tab at the root. Nothing reaches it
+    /// today (every verb returns a tab that is in the list), which is precisely why it is worth
+    /// separating: an inert guard whose failure mode is "throw the user's tabs away" is not a guard.
+    @MainActor public func discardTab(id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab? {
         var list = paneTabs(isLeft: isLeft)
-        if list.count > 1, list.index(of: id) != nil {
-            list.close(id: id)
+        guard let index = list.index(of: id) else { return nil }
+        if list.count > 1 {
+            list.close(at: index)
         } else {
             list = PaneTabList(single: PaneTab(providerId: currentProviderId))
         }
@@ -234,6 +243,51 @@ extension FileSyncManager {
         let tab = list.active
         applyTab(tab, isLeft: isLeft, currentProviderId: currentProviderId)
         return tab
+    }
+
+    /// What discarding a dead tab cost, and where it left the pane.
+    public struct TabDiscardOutcome: Sendable {
+        /// The source ids of the tabs dropped, in the order they went — what the host logs.
+        public let discarded: [String]
+        /// The tab the pane is on now. `nil` only when there was nothing to discard.
+        public let landed: PaneTab?
+    }
+
+    /// Discards `id` **and every tab the pane falls back onto whose source is also gone**, landing
+    /// it on one that can actually be shown.
+    ///
+    /// A loop rather than a single discard, because the fallback is a neighbour and neighbours come
+    /// from the same session: remove a source with two tabs open on it and discarding the first
+    /// lands the pane on the second, which is just as dead. `applyTab` has by then pointed the pane
+    /// at that tab's folder path under the LIVE source's root — a path that usually exists nowhere
+    /// — so the pane shows an empty folder, which is the exact symptom a single discard was written
+    /// to remove. It self-healed on the next click, one dead tab at a time.
+    ///
+    /// **Terminates by construction, and the bound is belt-and-braces on top of that.** Every pass
+    /// removes a tab, and the pass that removes the last one rebuilds a single tab on
+    /// `currentProviderId` — the pane's live source, which the caller only ever sets to one that is
+    /// available — so the predicate is satisfied and the loop stops there.
+    ///
+    /// `isAvailable` is injected for `PaneTabsStore.restore`'s reason: which sources exist is the
+    /// host's question, and the manager has never known the answer.
+    @MainActor public func discardDeadTabs(startingAt id: UUID, isLeft: Bool,
+                                           currentProviderId: String,
+                                           isAvailable: (String) -> Bool) -> TabDiscardOutcome {
+        var discarded: [String] = []
+        var landed: PaneTab?
+        var dead = id
+        for _ in 0..<max(1, paneTabs(isLeft: isLeft).count) {
+            // Read BEFORE the discard: afterwards the tab is off the list and the only source id
+            // left to name is the one the pane landed ON, which is the wrong tab to log.
+            let going = paneTabs(isLeft: isLeft).tabs.first { $0.id == dead }?.providerId
+            guard let next = discardTab(id: dead, isLeft: isLeft,
+                                        currentProviderId: currentProviderId) else { break }
+            if let going { discarded.append(going) }
+            landed = next
+            if isAvailable(next.providerId) { break }
+            dead = next.id
+        }
+        return TabDiscardOutcome(discarded: discarded, landed: landed)
     }
 
     /// Replaces a pane's list outright — the launch seed, and the only write that is not one of the

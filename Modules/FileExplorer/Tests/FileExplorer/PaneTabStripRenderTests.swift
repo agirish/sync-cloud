@@ -359,6 +359,36 @@ import Design
         #expect(PaneTabStrip.dropIndex(from: 2, steps: 3, items: items, visible: shown) == 2)
     }
 
+    /// …and **the drawn indices are not always contiguous**, which the clamp above quietly assumed.
+    ///
+    /// `visible(_:slots:)` draws the pinned PREFIX plus a WINDOW of the unpinned run, so once that
+    /// window has scrolled off the head there is a folded-away gap between the two — and a clamp
+    /// into `[first, last]` still lands inside it. The case above cannot see this, because its
+    /// `shown` is a contiguous prefix; the fixture here is the shape that fails, and it is not
+    /// contrived: one pin, four tabs and three slots is a rail-width strip.
+    ///
+    /// The consequence was the exact one `dropIndex` is named for. Dropping T3 at index 1 or 2 and
+    /// recomputing the window leaves T3 out of it — the chip vanishes into the overflow.
+    @Test func aDropCannotLandInTheGapBetweenThePinsAndTheWindow() {
+        let items = [item("P", pinned: true), item("T1"), item("T2"), item("T3"),
+                     item("T4", active: true)]
+        let shown = PaneTabStrip.visible(items, slots: 3)
+        // The premise: the window really has scrolled, so indices 1 and 2 are drawn by nothing.
+        #expect(shown.map(\.title) == ["P", "T3", "T4"])
+
+        let drawn = Set(shown.map(\.id))
+        for from in items.indices where drawn.contains(items[from].id) {
+            for steps in -4...4 {
+                let to = PaneTabStrip.dropIndex(from: from, steps: steps, items: items, visible: shown)
+                #expect(drawn.contains(items[to].id),
+                        "\(items[from].title) dropped onto folded-away index \(to) at \(steps) steps")
+            }
+        }
+        // And the snap goes BACK toward the drag's origin rather than outward past a hidden tab:
+        // T3 dragged hard left stops where it is, not at the head of the unpinned run.
+        #expect(PaneTabStrip.dropIndex(from: 3, steps: -9, items: items, visible: shown) == 3)
+    }
+
     // MARK: Pinned tabs
 
     /// A pinned chip wears a pin where an unpinned one wears its ✕ — the two strips are otherwise

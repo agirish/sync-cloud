@@ -108,6 +108,31 @@ import Design
         }
     }
 
+    /// **`.compact` never draws a SINGLE chip beside a chevron** — the state `chipCeiling` exists
+    /// to refuse, in its own words "strictly worse than naming the active tab and menuing the rest".
+    ///
+    /// It was reachable, and the arithmetic is why: the ceiling was priced with
+    /// `gaps(children: 4)` while the narrowest compact row it stands in for —
+    /// `[tab] [tab] [overflow] [spacer] [＋]` — has FIVE children. One gap, 4pt, of daylight between
+    /// the two prices, and inside it `layout` skipped the chip rung, failed to fit the second chip,
+    /// and returned exactly the rung the ceiling had just declined to return. Twelve or more tabs at
+    /// 269–270pt, scale 1.0, seventeen (count, width) pairs.
+    ///
+    /// Swept rather than spot-checked at the two failing widths: the band is narrow and moves with
+    /// the scale, so a fixture pinned to 269 would pass the moment a font metric shifted it.
+    @Test(arguments: [CGFloat(1.0), 1.35]) func compactNeverDrawsOneChipBesideAChevron(scale: CGFloat) {
+        for count in 2...20 {
+            let titles = (0..<count).map { "Folder\($0)" }
+            var width = CGFloat(120)
+            while width <= 900 {
+                let layout = PaneTabStripLadder.layout(available: width, titles: titles, scale: scale)
+                #expect(!(layout.rung == .compact && layout.visibleCount == 1),
+                        "one chip and a chevron at \(width)pt with \(count) tabs, scale \(scale)")
+                width += 1
+            }
+        }
+    }
+
     /// **The trap.** The app scales its own type, so the same five tabs that fit at the default do
     /// not at Large — and a chip's floor is its chrome plus a legible stub of a name, both of which
     /// move with the font.

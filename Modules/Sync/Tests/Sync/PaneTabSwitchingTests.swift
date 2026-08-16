@@ -464,7 +464,8 @@ import Foundation
         // discovers the problem in, and the one this has to get out of.
         #expect(manager.leftRelativePath == "Ghost")
 
-        let landed = manager.discardTab(id: dead, isLeft: true, currentProviderId: "iCloud")
+        let landed = try #require(manager.discardTab(id: dead, isLeft: true,
+                                                     currentProviderId: "iCloud"))
 
         #expect(manager.leftPaneTabs.count == 1, "the dead tab is still in the strip")
         #expect(manager.leftPaneTabs.active.providerId == "iCloud")
@@ -481,13 +482,114 @@ import Foundation
         let dead = manager.leftPaneTabs.active.id
         manager.focusOn(relativePath: "Ghost", isLeft: true)
 
-        let landed = manager.discardTab(id: dead, isLeft: true, currentProviderId: "iCloud")
+        let landed = try #require(manager.discardTab(id: dead, isLeft: true,
+                                                     currentProviderId: "iCloud"))
 
         #expect(manager.leftPaneTabs.count == 1)
         #expect(manager.leftPaneTabs.active.providerId == "iCloud",
                 "the rebuilt tab still names the source that is gone")
         #expect(landed.combinedRelativePath == "")
         #expect(manager.leftRelativePath == "", "the pane stayed inside the removed source's folder")
+    }
+
+    /// **An id this pane does not hold discards NOTHING**, and the strip is left exactly as it was.
+    ///
+    /// The rebuild used to sit behind one guard with the last-tab case
+    /// (`if list.count > 1, list.index(of: id) != nil`), so its `else` answered two questions with
+    /// one destructive branch: a strip of four handed an unknown id lost all four tabs *and* its
+    /// reopen stack to a single fresh tab at the root. No caller reaches it — every verb returns a
+    /// tab that is in the list — which is exactly why it is worth pinning: an inert guard whose
+    /// failure mode is "throw the user's tabs away" is one refactor from being a live one.
+    @MainActor
+    @Test func discardingATabThisPaneDoesNotHoldChangesNothing() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "A"),
+                                     PaneTab(providerId: "iCloud", relativePath: "B"),
+                                     PaneTab(providerId: "iCloud", relativePath: "C")])
+        manager.focusOn(relativePath: "A", isLeft: true)
+        // A closed tab gives the reopen stack something to lose, so a wipe cannot pass by leaving
+        // an already-empty one empty.
+        manager.closeTab(id: manager.leftPaneTabs.tabs[2].id, isLeft: true, currentProviderId: "iCloud")
+        let before = manager.leftPaneTabs
+
+        let landed = manager.discardTab(id: UUID(), isLeft: true, currentProviderId: "iCloud")
+
+        #expect(landed == nil, "an unknown id reported a tab the pane had moved to")
+        #expect(manager.leftPaneTabs == before, "an unknown id took the pane's whole strip with it")
+        #expect(manager.leftPaneTabs.canReopen, "the reopen stack went with it")
+        #expect(manager.leftRelativePath == "A", "the pane moved for a tab that does not exist")
+    }
+
+    /// **Every dead tab behind the first one goes too.**
+    ///
+    /// The fallback is a neighbour, and neighbours come from the same session — remove a source
+    /// with two tabs open on it and discarding the first landed the pane straight onto the second,
+    /// which is just as dead. `applyTab` had by then pointed the pane at *that* tab's folder path
+    /// under the live source's root, so the empty pane a single discard exists to remove came
+    /// straight back; it self-healed one click at a time.
+    ///
+    /// The fixture is the shape that failed: the live tab is the FIRST dead one, so the pane must
+    /// walk past a second before it reaches ground.
+    @MainActor
+    @Test func discardingADeadTabAlsoDropsTheDeadOneItWouldLandOn() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "Ghost"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "Ghost2")])
+        manager.focusOn(relativePath: "Keep", isLeft: true)
+        let dead = manager.leftPaneTabs.tabs[1].id
+        manager.switchTab(to: dead, isLeft: true, currentProviderId: "iCloud")
+        #expect(manager.leftRelativePath == "Ghost")
+
+        let outcome = manager.discardDeadTabs(startingAt: dead, isLeft: true,
+                                              currentProviderId: "iCloud",
+                                              isAvailable: { $0 == "iCloud" })
+
+        #expect(outcome.discarded == ["GoneDrive", "GoneDrive"],
+                "the second tab on the removed source survived the discard")
+        #expect(manager.leftPaneTabs.count == 1)
+        #expect(manager.leftPaneTabs.active.providerId == "iCloud")
+        #expect(outcome.landed?.combinedRelativePath == "Keep")
+        #expect(manager.leftRelativePath == "Keep",
+                "the pane was left on the second removed-source folder path")
+    }
+
+    /// …and it stops at the first tab it CAN show, rather than clearing the strip.
+    @MainActor
+    @Test func discardingStopsAtTheFirstSourceThePaneCanShow() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "Ghost"),
+                                     PaneTab(providerId: "iCloud", relativePath: "AlsoKeep")])
+        manager.focusOn(relativePath: "Keep", isLeft: true)
+        let dead = manager.leftPaneTabs.tabs[1].id
+        manager.switchTab(to: dead, isLeft: true, currentProviderId: "iCloud")
+
+        let outcome = manager.discardDeadTabs(startingAt: dead, isLeft: true,
+                                              currentProviderId: "iCloud",
+                                              isAvailable: { $0 == "iCloud" })
+
+        #expect(outcome.discarded == ["GoneDrive"], "a live tab was discarded with the dead one")
+        #expect(manager.leftPaneTabs.count == 2)
+        #expect(outcome.landed?.combinedRelativePath == "AlsoKeep",
+                "the neighbour to the right does not inherit the pane")
+    }
+
+    /// A strip whose every tab is on a removed source ends on ONE tab at the live source's root —
+    /// the rebuild branch — rather than looping or leaving a dead one live.
+    @MainActor
+    @Test func discardingEveryDeadTabLandsOnTheLiveSourcesRoot() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "GoneDrive", relativePath: "A"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "B")])
+        let dead = manager.leftPaneTabs.active.id
+        manager.focusOn(relativePath: "A", isLeft: true)
+
+        let outcome = manager.discardDeadTabs(startingAt: dead, isLeft: true,
+                                              currentProviderId: "iCloud",
+                                              isAvailable: { $0 == "iCloud" })
+
+        #expect(outcome.discarded == ["GoneDrive", "GoneDrive"])
+        #expect(manager.leftPaneTabs.count == 1)
+        #expect(manager.leftPaneTabs.active.providerId == "iCloud")
+        #expect(outcome.landed?.combinedRelativePath == "")
+        #expect(manager.leftRelativePath == "")
     }
 
     /// **A tab switch drops the comparison.** The differences, the trees and the verification
