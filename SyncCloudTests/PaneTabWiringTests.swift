@@ -713,6 +713,44 @@ import Sync
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(rule.contains("!isBootstrappingProviders"),
                 "a save during launch can overwrite the stored strip before the restore reads it")
+        // **And it must not refuse the right pane.** `guard isLeft` sat here until the right strip
+        // was persisted, and putting it back is a one-word change that kills right-pane persistence
+        // outright while every store test stays green — they call the store directly and never
+        // reach this. Negative, so it goes through `codeOnly`.
+        #expect(!Self.codeOnly(rule).contains("guard isLeft"),
+                "the save refuses the right pane again, so its strip is never written")
+    }
+
+    /// **One body serves both panes, so every side-dependent call inside it has to thread `isLeft`.**
+    ///
+    /// A single hardcoded side here is the worst failure this feature can have and the quietest: the
+    /// app compiles, the package suite is green (it calls `PaneTabsStore` directly and never reaches
+    /// these call sites), and nothing is visibly wrong until a relaunch. A save pinned to `true`
+    /// makes every right-pane move overwrite the LEFT pane's stored strip — the user loses the tabs
+    /// they were actually using. A `setPaneTabs`/`applyTab` pinned to `true` installs the right
+    /// pane's restored tabs onto the left pane at launch.
+    ///
+    /// Pinned both ways round: the threading is asserted positively, and the literals are asserted
+    /// absent — either alone can be satisfied while the other is broken.
+    @Test func theSaveAndRestoreThreadTheirSideRatherThanHardcodingIt() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        let save = Self.codeOnly(try Self.memberBody("func saveBrowseTabs(isLeft: Bool)", in: source))
+        let restore = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+                                                        in: source))
+
+        #expect(save.contains("PaneTabsStore.save(") && save.contains("isLeft: isLeft"),
+                "the save does not pass its own side to the store")
+        #expect(restore.contains("PaneTabsStore.load(isLeft: isLeft)"),
+                "the restore reads a fixed pane's stored strip")
+        #expect(restore.contains("setPaneTabs(restored, isLeft: isLeft)"),
+                "the restored strip is installed on a fixed pane")
+        #expect(restore.contains("applyTab(active, isLeft: isLeft"),
+                "the restored tab is applied to a fixed pane")
+
+        for (name, body) in [("saveBrowseTabs", save), ("restoreBrowseTabs", restore)] {
+            #expect(!body.contains("isLeft: true") && !body.contains("isLeft: false"),
+                    "\(name) hardcodes a side, so one pane acts on the other's state")
+        }
     }
 
     /// **The source is part of where a tab is**, and it is the half that moves without either path
@@ -748,6 +786,12 @@ import Sync
                 "BrowseTabPersistence is built without the source it watches")
         #expect(callSite.contains("rightProviderId: rightProviderId"),
                 "BrowseTabPersistence is built without the right pane's source")
+        // **And its callback saves the side that moved.** The modifier reports which pane changed;
+        // a call site that ignores that and saves a fixed side puts every right-pane move into the
+        // left pane's stored strip. Six correct `onChange`s above cannot save you from one wrong
+        // closure here, which is why the wiring is checked as well as the watching.
+        #expect(Self.codeOnly(callSite).contains("saveBrowseTabs(isLeft: $0)"),
+                "the persistence callback ignores which pane moved and saves a fixed side")
     }
 
     // MARK: The scan a tab switch does not run
