@@ -1,12 +1,13 @@
 # SyncCloud — v4.x roadmap
 
-**Scope:** the 4.x line after v4.0 ships — the **Browse** workspace, whose Finder-style tabs
-(§1) **shipped on 2026-08-14** leaving one behaviour designed and unbuilt, pane chrome that spans
-every workspace (§2), the Finder borrowings worth taking (§3), the
+**Scope:** the 4.x line after v4.0 ships. **v4.2 is a Restructure release** — §§4–6 are the
 storage-layer gaps behind **Organize ▸ Restructure** (§4), the plan surface that lens was
-deliberately shipped without (§5) and the **first folder survey**, run in the background, which is
-what gives a fresh machine anything to read at all (§6). `main` only, with one stated exception:
-§2's code exists on `v2.x` too, and that item says what follows from it.
+deliberately shipped without (§5), and the **first folder survey**, run in the background, which is
+what gives a fresh machine anything to read at all (§6). They run first; see Order. What is left of
+the **Browse** work sits behind them: Finder-style tabs (§1) **shipped on 2026-08-14** leaving one
+behaviour designed and unbuilt, pane chrome that spans every workspace (§2) is in flight for v4.1,
+and the remaining Finder borrowings (§3) are ranked but unscheduled. `main` only, with one stated
+exception: §2's code exists on `v2.x` too, and that item says what follows from it.
 
 Distinct from `ROADMAP.md` (the standing feature backlog across all surfaces),
 `DEFERRED_ENHANCEMENTS.md` (accepted limits) and `REFACTOR.md` (internal shape). An item graduates
@@ -17,18 +18,19 @@ the record.
 that day. **§6 was designed on 2026-08-13**, and its constraints were read out of the code that day —
 the day part of §4.2 shipped, which is why §4.2 now carries measurements rather than a plan.
 
-An **illustrated companion** covers all six items — same decisions, same Order, same Open
-questions, with 29 figures in both appearances:
+An **illustrated companion** carries the figures this file can only describe:
 <https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. **This file is the one that
 ships** — if it disagrees with the companion, the companion is the stale one. Figures are cited by
-number below where one settles a question faster than a paragraph. Figures are **appended, never
-renumbered**: §2's are 17–20 and its section sits after §3 there, §5's are 21–24 and §6's are 25–29,
-so adding any of them could not move a number this file already cites. §4's figures are **real
-renders** through the shipping `LensSetupCard`, not re-creations, and are unnumbered for that reason.
+number below where one settles a question faster than a paragraph.
 
-The companion **keeps §1's tab figures after this file dropped its §1 prose**, deliberately: they
-are now the record of what the strip was drawn to be, which is worth more beside the shipped thing
-than a plan repeating what the code says. It carries a shipped banner on that section saying so.
+It was rewritten around Restructure on **2026-08-16**, and now covers §§4–6 in the body with §3 and
+§1's leftover in an appendix. **Figures are appended, never renumbered** — §5's are 21–24 and §6's
+are 25–29, unchanged — so the numbers below still point where they say they do. §4's are **real
+renders** through the shipping `LensSetupCard`, not re-creations, and are unnumbered for that
+reason. Four were added with the rewrite: **30** the six-stage spine of the whole lens, **31** the
+five unbuilt detectors of §5.2, **32** §5.3's Ask sheet, **33** §5.7's two new states. **§1's and
+§2's figures (1–20) were deleted with their sections**, leaving the gap below 21 that the numbering
+rule requires.
 
 §5 has a **second companion** — its own eight-screen mockup set, in more detail than the four
 figures the main one carries: <https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>.
@@ -117,8 +119,11 @@ is layout work, not naming work.
 as an inline `Picker` in the bar's right-click menu beside the existing Icon Size picker. Menu only,
 as in Finder; nothing in Settings.
 
-Illustrated in the companion, Figs. 17–20 — the titled bar (17), the shedding rung (18), the mode
-menu (19), and the same thing rendered at true point size rather than drawn (20).
+It was illustrated in the main companion as Figs. 17–20 — the titled bar, the shedding rung, the
+mode menu, and the same thing rendered at true point size rather than drawn. **Those figures were
+deleted when that page was rewritten around Restructure on 2026-08-16**, on the same rule this file
+follows: v4.1 is taking this item, so the plan for it stops being kept beside the code. The bar's own
+mockup sets are where the drawings live now.
 
 ### It fits the pinned header with nothing to spare
 
@@ -564,29 +569,37 @@ checkpoint that cannot be mistaken for a corpus.
 
 ## Order
 
-**Everything here is post-v4.0.** §4.1 is the only item that improves a screen already shipping.
+**Everything here is post-v4.0, and v4.2 is a Restructure release.** §§4–6 are not three projects:
+they are the storage under one lens, the plan surface that lens was shipped without, and the survey
+without which it has nothing to read — so they run first and in that dependency's order. §3's Finder
+borrowings are real work and are not that, so they follow rather than interleave.
 
-1. ~~**Tabs**, all three rungs~~ — **shipped 2026-08-14**, and the "all three rungs in one motion"
-   call held up: Compare and the rail needed no follow-up, because one insertion point in
-   `paneColumn` serves all three. Only §1's *switch mirroring* is left, and it is not next — it
-   wants someone to run linked Compare for a while first.
-2. **Status bar** — small, and it makes tabs feel finished because each tab then reports its contents.
-3. **Sidebar** of pins and recents, ⌘-click opening a new tab.
-4. **Pane bar titles** — independent of all of the above and schedulable whenever; it touches the bar
-   and the ladder, and nothing tabs touch.
-5. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
-   screen v4.0 ships. Schedulable against any of the above.
-6. **§5.1 + §5.2** — the scoped read and the remaining detectors. Pure reporting off a survey
-   already in memory, and §5.1 fixes the leaf-scope emptiness on its own. §4.3 lands here rather
-   than separately.
-7. **§5.3, then §5.4 up to `Export plan…`** — the whole plan surface with no Apply, reviewable
-   against the 6 Aug log with nothing at risk.
-8. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
+**What v4.1 took, and is therefore not below:** ~~tabs, all three rungs~~ — shipped 2026-08-14, and
+the "all three rungs in one motion" call held up, because one insertion point in `paneColumn` serves
+Browse, Compare and the rail — and **§2's pane-bar titles**, in flight as this is written.
+
+1. **§5.1 + §5.2** — the scoped read, the crowding strip and the remaining detectors. Pure reporting
+   off a survey already in memory; §5.1 fixes the leaf-scope emptiness on its own, and §5.2 lands
+   one detector at a time. **§4.3 is one of those detectors** — build it here, not separately.
+2. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
+   screen v4.0 ships. Schedulable against anything above or below it.
+3. **§5.3, Ask findings** — the first item that needs the profile write path and the generation
+   bump, which everything after it needs too.
+4. **§5.4 up to `Export plan…`** — the whole plan surface with no Apply, reviewable against the
+   6 Aug log with nothing at risk.
+5. **§5.5, renames only**, then file moves and the removal step. The first destructive landing in
    the app; it waits on the rename pass's review-and-apply path.
-9. **§5.6, Claude on the mapping** — last, deliberately.
-10. Everything else on its own merits. **§6 when a second machine or a second tree makes it real** —
-   it cannot fire on this one, which has a profile and where the store would refuse the write;
-   drop-on-tab last.
+6. **§5.6, Claude on the mapping** — last, deliberately.
+7. **§6, the first survey** — when a second machine or a second tree makes it real. It cannot fire
+   on this one, which has a profile and where the store would refuse the write. Nothing in 1–6 is
+   blocked on it: they all run off the profile this machine already has, and §6 is what makes them
+   true on a machine that has never been surveyed.
+8. **§3, in its own order** — the **status bar** first, because it is small and it makes tabs feel
+   finished (each tab then reports its contents); then the **pins-and-recents sidebar**, ⌘-click
+   opening a new tab; then the rest on their own merits, drop-on-tab last.
+9. **§1's switch mirroring** — deliberately unscheduled. It wants someone to run linked Compare long
+   enough to say whether an unmirrored switch is actually a nuisance before the pairing rule is
+   chosen.
 
 ## Open questions
 
