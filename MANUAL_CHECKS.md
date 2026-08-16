@@ -172,11 +172,19 @@ signal, the write-queue ordering). One host wiring cannot be:
 
 ## Tab-strip persistence (2026-08-15) — the host wiring no fixture reaches
 
-The store side is pinned by tests: the scope/stack cut and its clamp, both back-compat directions,
-the seed-state rule, and per-key isolation between the two panes. What none of them can reach is
-`ContentView`'s side of it — `MacApp` is in no SPM package, so the per-side dispatch, the launch
-order and the swap's double save have no test that could fail on them. That is exactly where this
-change's one regression lived (`3f71cb7e`), so these are worth walking once.
+The store side is pinned by `swift test`: the scope/stack cut and its clamp, both back-compat
+directions, the seed-state rule, and per-key isolation between the two panes.
+
+`ContentView`'s side is pinned by **`SyncCloudTests/PaneTabWiringTests.swift`**, which `swift test`
+does *not* run — `MacApp` is in no SPM package, so those only compile under CI's second step
+(`xcodegen` + `xcodebuild test`). They are source scans: they can prove both panes are restored,
+that the swap saves both strips, and that the persistence modifier watches both sides. **Run them
+locally before claiming this area is green** — `xcodebuild build` alone does not compile them, which
+is how a broken call-site scan reached CI once already.
+
+What no scan can judge is whether the restored thing is *right*: the column count, the two strips
+not crossing, and a swap surviving a relaunch. Those are below. This change's one regression
+(`3f71cb7e`) lived in that same host half, so they are worth walking once.
 
 - [ ] **A drilled column stack comes back.** In Browse, from the source root, click down four or
   five folders so the pane shows that many columns. Quit (⌘Q), relaunch → the same number of

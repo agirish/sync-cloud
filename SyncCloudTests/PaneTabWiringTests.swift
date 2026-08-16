@@ -378,19 +378,42 @@ import Sync
     /// real source switch, leaving that switch's navigation un-reset. `tabAction` arms it because
     /// it runs later, when the handler is live; these two must not be made to look alike.
     @Test func theLaunchRestoreDoesNotArmTheSuppressionCounter() throws {
-        let body = try Self.memberBody("func restoreBrowseTabs()",
+        let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(body.contains("leftProviderId = active.providerId"),
                 "the restore no longer applies its tab's source — this check is vacuous")
+        // Both sides, since the restore now runs for both panes: a right pane that adopted no
+        // source would silently reopen every tab under whichever provider the pane happened to
+        // be on, showing the right folder path under the wrong root.
+        #expect(body.contains("rightProviderId = active.providerId"),
+                "the right pane's restore does not apply its tab's source")
         #expect(!Self.codeOnly(body).contains("pendingTabProviderChanges"),
                 "the launch restore arms a counter the bootstrap guard will never decrement")
     }
 
+    /// **Both panes are restored, and the right one is easy to drop.** The launch sequence called
+    /// this once for years; a later edit that re-collapses it to the left leaves Compare's right
+    /// pane seeding one tab again, which is the state this whole feature exists to end.
+    @Test func bothPanesAreRestoredAtLaunch() throws {
+        let source = Self.codeOnly(try Self.source("ContentView.swift"))
+        #expect(source.contains("restoreBrowseTabs(isLeft: true)"))
+        #expect(source.contains("restoreBrowseTabs(isLeft: false)"),
+                "the right pane's strip is never restored, so it seeds one tab every launch")
+    }
+
     /// The swap moves the lists as well as the panes, so what is saved has to move with them.
-    @Test func swappingThePanesSavesTheStrip() throws {
+    ///
+    /// **Both sides, and that is the half a reader would leave out.** A swap is the one move that
+    /// changes both strips at once. Saving only the left leaves the right's stored strip naming the
+    /// pane that is no longer there, and the next launch restores two halves of a swap that never
+    /// happened — one side from before it, one from after. Nothing on screen says so until a
+    /// relaunch, which is why it is pinned here rather than left to the manual pass.
+    @Test func swappingThePanesSavesBothStrips() throws {
         let body = try Self.memberBody("func swapPanesAction()", in: Self.source("ContentView.swift"))
         #expect(body.contains("saveBrowseTabs(isLeft: true)"),
                 "a swap leaves the saved strip describing the pane that just left")
+        #expect(body.contains("saveBrowseTabs(isLeft: false)"),
+                "a swap saves only the left strip, so a relaunch restores half a swap")
     }
 
     // MARK: The seam
@@ -707,10 +730,24 @@ import Sync
         #expect(modifier.contains("onChange(of: syncManager.leftBrowsePath)"),
                 "the column stack is no longer watched")
 
+        // **The same three for the right pane**, which is persisted too. Watching only the left
+        // would leave the right pane's strip written by the tab verbs but never by navigation — so
+        // it would come back at the folder its tabs were opened at rather than where they were
+        // left, which is the exact bug this rule was written for on the left.
+        #expect(modifier.contains("onChange(of: rightProviderId)"),
+                "a right-pane source switch at the root is never saved")
+        #expect(modifier.contains("onChange(of: syncManager.rightRelativePath)"),
+                "the right pane's scope is not watched")
+        #expect(modifier.contains("onChange(of: syncManager.rightBrowsePath)"),
+                "the right pane's column stack is not watched")
+
         // …and the call site actually feeds it. A modifier watching a value nobody passes is the
         // shape this repo has shipped before.
-        #expect(try Self.source("ContentView.swift").contains("leftProviderId: leftProviderId"),
+        let callSite = try Self.source("ContentView.swift")
+        #expect(callSite.contains("leftProviderId: leftProviderId"),
                 "BrowseTabPersistence is built without the source it watches")
+        #expect(callSite.contains("rightProviderId: rightProviderId"),
+                "BrowseTabPersistence is built without the right pane's source")
     }
 
     // MARK: The scan a tab switch does not run
