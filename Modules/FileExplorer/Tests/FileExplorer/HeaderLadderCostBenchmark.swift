@@ -31,10 +31,22 @@ import Testing
 ///   came close to zero. One idle isolated run scored 2.02 — the old bar had 0.22 of margin at the
 ///   best conditions this machine offers, not the comfortable headroom its comment claimed.
 ///
-/// The saving is the statistic the regression actually moves. If a future edit puts the search back,
-/// or makes the arithmetic itself expensive, the two arms converge and the saving collapses toward
-/// zero. Both contention modes push it the *safe* way — an additive term leaves it unchanged, and a
-/// multiplicative one widens it (the 24.73ms run is a heavily inflated `searched`).
+/// The saving is the statistic that moves when **the search comes back**: the two arms converge and
+/// it collapses toward zero. Both contention modes push it the *safe* way — an additive term leaves
+/// it unchanged, and a multiplicative one widens it (the 24.73ms run is a heavily inflated
+/// `searched`).
+///
+/// **It does not cover the other regression this test claims, so that one is measured separately.**
+/// A saving is a difference of two layouts, and it stays comfortable while the computed arm nearly
+/// doubles — the retired ratio would have caught that, which is the one thing it was better at. So
+/// `rung(fitting:)` is timed on its own, away from any view building, against
+/// ``maximumRungMicroseconds``. That is the claim "the arithmetic is still arithmetic" stated
+/// directly instead of inferred from a subtraction, and it is three orders of magnitude from the
+/// regression it guards.
+///
+/// A saving failure is therefore **two-valued and the message says so**: the search is back, or the
+/// header row itself became cheap enough that the floor needs re-deriving. The rung ceiling tells
+/// them apart.
 ///
 /// An absolute millisecond floor is legitimate here for the reason `ColumnClickCostBenchmark` may use
 /// its 120ms budget: `.machinePinned(.calibratedTiming)` means this suite only runs on the machine
@@ -106,6 +118,42 @@ struct HeaderLadderCostBenchmark {
     /// saving to roughly zero, so margin costs almost nothing in sensitivity and buys the headroom
     /// three ratio flakes proved this measurement needs.
     private static let minimumSavingMs = 6.0
+
+    /// What one `rung(fitting:)` may cost, in **microseconds**, measured on its own.
+    ///
+    /// **The saving does not guard the second regression, so it is measured directly here.** The
+    /// type comment claims this test catches both "the search came back" and "the arithmetic itself
+    /// became expensive"; only the first is true of a saving. With `searched` ~22ms and `computed`
+    /// ~9ms, the computed arm can nearly double before the saving falls to a 6ms floor — the ratio
+    /// this replaced would have caught that at ~12ms. Bringing the ratio back is not the answer,
+    /// because contention is what broke it. Measuring the claim where it lives is: `rung(fitting:)`
+    /// is pure arithmetic over `Facts`, so it can be timed away from any view building at all.
+    ///
+    /// That makes the bar insensitive to load and still sharp: the regression it guards is layout
+    /// work reappearing inside the rung calculation, which costs **milliseconds** per call against
+    /// the microseconds below — building one header row is 10-30ms, or 10,000µs+. So the ceiling can
+    /// sit far above anything contention does to a tight arithmetic loop and still fail the instant
+    /// a view is built in here.
+    ///
+    /// **Calibrated from four runs rather than guessed, and the first guess was wrong.** 40µs looked
+    /// generous against an idle 23.73µs and would have failed outright on a contended run:
+    ///
+    /// | run | rung | probe | searched | saving | ratio |
+    /// |---|---|---|---|---|---|
+    /// | quiet | 23.73µs | 8.5ms | 23.97ms | 14.02ms | 2.41x |
+    /// | quiet | 20.48µs | 9.0ms | 26.84ms | 15.93ms | 2.46x |
+    /// | contended | 43.26µs | 15.1ms | 57.72ms | 26.94ms | 1.88x |
+    /// | contended | 41.00µs | 16.2ms | 56.62ms | 23.54ms | **1.71x** |
+    ///
+    /// 400µs is 9x the worst of those and still 25x below one row build. The same four runs are why
+    /// the saving is the right bar for the other claim: it ranged 14.02-26.94ms against its 6ms
+    /// floor while **the retired 1.8x ratio would have failed the last run outright** — a fourth
+    /// flake, on an unchanged tree, measured here rather than argued.
+    private static let maximumRungMicroseconds = 400.0
+
+    /// How many rungs to compute per sample. Large enough that one sample is well clear of the
+    /// clock's resolution, so the per-call figure is a measurement rather than a rounding.
+    private static let rungIterations = 200
 
     /// One fixed chunk of CPU-bound work (FNV-1a), timed on the calling thread — the load probe.
     /// The iteration count is FIXED: sizing it by wall time would absorb the slowdown it measures.
@@ -184,23 +232,49 @@ struct HeaderLadderCostBenchmark {
             computedSamples.append(layoutMs({ computed() }, width: width))
         }
 
+        // The arithmetic on its own, with no view building anywhere near it — the direct form of
+        // "the rung calculation is still cheap", which the saving cannot express.
+        var rungSamples: [Double] = []
+        for _ in 0..<15 {
+            let started = CFAbsoluteTimeGetCurrent()
+            for _ in 0..<Self.rungIterations {
+                let ladder = HeaderLadder(facts: f.facts, scale: 1)
+                _ = ladder.rung(fitting: width)
+            }
+            rungSamples.append((CFAbsoluteTimeGetCurrent() - started) * 1_000_000)
+        }
+
         let searchedMedian = searchedSamples.sorted()[searchedSamples.count / 2]
         let computedMedian = computedSamples.sorted()[computedSamples.count / 2]
         let probeMedian = probes.sorted()[probes.count / 2]
         let saving = searchedMedian - computedMedian
         let speedup = searchedMedian / computedMedian
+        let rungMicroseconds = rungSamples.sorted()[rungSamples.count / 2] / Double(Self.rungIterations)
         // `speedup` and `probe` are printed for diagnosis and neither is asserted on — see the type
         // comment for why the ratio was retired and why the probe cannot stand in for load.
         print("BENCH header rung: searched=\(String(format: "%.2f", searchedMedian))ms "
               + "computed=\(String(format: "%.2f", computedMedian))ms "
               + "saving=\(String(format: "%.2f", saving))ms "
               + "speedup=\(String(format: "%.2f", speedup))x "
-              + "probe=\(String(format: "%.1f", probeMedian))ms")
+              + "probe=\(String(format: "%.1f", probeMedian))ms "
+              + "rung=\(String(format: "%.2f", rungMicroseconds))µs")
 
+        // **Read a failure here as one of two things, not one.** The saving is the difference
+        // between two layouts, so it is proportional to what building a header row costs: an edit
+        // that makes the ROW much cheaper shrinks both arms and the gap between them, and lands here
+        // looking exactly like a regression. The rung ceiling below is what tells them apart — if it
+        // still passes, nothing got expensive and this floor wants re-deriving against the row's new
+        // cost.
         let note = "computing the rung saves only \(String(format: "%.2f", saving))ms over searching "
             + "for it (searched \(String(format: "%.2f", searchedMedian))ms, "
             + "computed \(String(format: "%.2f", computedMedian))ms, "
-            + "\(String(format: "%.2f", speedup))x) — the search may be back"
+            + "\(String(format: "%.2f", speedup))x) — either the search is back, or the header row "
+            + "itself got cheap enough that this floor needs re-deriving"
         #expect(saving > Self.minimumSavingMs, "\(note)")
+
+        let rungNote = "one rung(fitting:) costs \(String(format: "%.2f", rungMicroseconds))µs "
+            + "against a \(String(format: "%.0f", Self.maximumRungMicroseconds))µs ceiling — the "
+            + "arithmetic is doing layout work, not arithmetic"
+        #expect(rungMicroseconds < Self.maximumRungMicroseconds, "\(rungNote)")
     }
 }
