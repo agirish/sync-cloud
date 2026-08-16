@@ -352,8 +352,7 @@ extension ContentView {
 
     // MARK: - Persistence and the launch seed
 
-    /// Saves the left pane's strip. **The left one only** — see `PaneTabsStore` for why Compare's
-    /// right-hand location is not something a Browse feature should start restoring.
+    /// Saves one pane's strip. **Both panes now**, under their own keys — see `PaneTabsStore`.
     ///
     /// **Refuses while the providers are still bootstrapping**, which is not belt-and-braces: the
     /// launch sequence points the pane at its stored folder *before* `restoreBrowseTabs` reads the
@@ -364,26 +363,26 @@ extension ContentView {
     /// view update across the `await` in between, which is not a thing to leave to timing. Every
     /// other tab entry point already refuses here; this was the one that did not.
     func saveBrowseTabs(isLeft: Bool) {
-        guard isLeft, !isBootstrappingProviders else { return }
-        let list = syncManager.leftPaneTabs
+        guard !isBootstrappingProviders else { return }
+        let list = syncManager.paneTabs(isLeft: isLeft)
         // The ACTIVE entry is a stale snapshot by construction, so it is written from the live pane
         // rather than from the list — otherwise quitting saves the folder the tab was parked at
         // rather than the one on screen.
         var tabs = list.tabs
         tabs[list.selectedIndex] = PaneTab(
             id: list.active.id,
-            providerId: leftProviderId,
+            providerId: isLeft ? leftProviderId : rightProviderId,
             // **The two halves, not the joined string.** `PaneTabsStore` needs to know where the
             // cut between them is (it stores the depth), and a tab rebuilt with the combined path
             // as its scope reports a stack depth of zero — which is exactly how the ACTIVE tab, the
             // one on screen, used to lose its columns across a quit while parked tabs kept theirs.
-            relativePath: syncManager.leftRelativePath,
-            browsePath: syncManager.leftBrowsePath,
+            relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
+            browsePath: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath,
             // Carried over: this entry is rebuilt from the LIVE pane, which knows nothing about
             // pinning, so reading it from anywhere but the list would unpin the active tab on the
             // next thing that saves.
             isPinned: list.active.isPinned)
-        PaneTabsStore.save(tabs: tabs, selected: list.selectedIndex)
+        PaneTabsStore.save(tabs: tabs, selected: list.selectedIndex, isLeft: isLeft)
     }
 
     /// Restores the strip at launch, once the providers are known.
@@ -392,12 +391,15 @@ extension ContentView {
     /// does nothing at all when there is one stored tab at the root — that is the state a fresh
     /// install and an upgrading one both start in, and seeding it would replace an identical list
     /// with a new one whose ids nothing else knows about.
-    func restoreBrowseTabs() {
+    func restoreBrowseTabs(isLeft: Bool) {
         // **Behind the same setting as the folder restore beside it.** Someone who has turned
         // "reopen the last folder" off has said they want the app to start at the root; handing
         // them five tabs' worth of where they were is that answer at five times the volume.
         guard GeneralSettings.shouldRestoreLastFocus() else { return }
-        guard let stored = PaneTabsStore.load() else { return }
+        // A pane with nothing stored keeps whatever `restoreLastPaneFocusIfEnabled` just gave it,
+        // which for the right pane is the older `lastRightFocusPath` restore. That is what makes
+        // the first launch after this shipped identical to the last one before it.
+        guard let stored = PaneTabsStore.load(isLeft: isLeft) else { return }
         let restored = PaneTabsStore.restore(
             entries: stored.entries,
             selected: stored.selected,
@@ -419,12 +421,14 @@ extension ContentView {
         // the tab's COMBINED location rather than its scope, and getting that wrong here skipped
         // the restore outright for a single tab drilled down from the root — see `isSeedState`.
         guard let restored, !restored.isSeedState else { return }
-        Logger.shared.info("Restored \(restored.count) browse tab\(restored.count == 1 ? "" : "s")")
-        syncManager.setPaneTabs(restored, isLeft: true)
+        Logger.shared.info(
+            "Restored \(restored.count) \(isLeft ? "left" : "right") browse tab\(restored.count == 1 ? "" : "s")")
+        syncManager.setPaneTabs(restored, isLeft: isLeft)
         // The restored ACTIVE tab is the pane's position, so it has to be applied like any other
         // switch — including its provider, which may not be the one the pane was pointed at.
         let active = restored.active
-        if active.providerId != leftProviderId,
+        let currentProviderId = isLeft ? leftProviderId : rightProviderId
+        if active.providerId != currentProviderId,
            settings.availableProviders.contains(where: { $0.id == active.providerId }) {
             // **No suppression counter here, deliberately.** This runs inside the provider
             // bootstrap, where the id's `onChange` bails on `isBootstrappingProviders` *without*
@@ -433,13 +437,15 @@ extension ContentView {
             // bootstrap guard IS the suppression here; `applyProviderSelection` two lines earlier
             // writes both ids the same way. `tabAction` arms the counter because it runs later,
             // when the handler is live.
-            leftProviderId = active.providerId
+            if isLeft { leftProviderId = active.providerId } else { rightProviderId = active.providerId }
         }
-        // `leftProviderId` is the id the pane is now on — written just above when the tab named a
-        // different one — so the rule sees a source change only when there genuinely was none to
-        // adopt. At launch the pane is at its root and the tab usually is not, so this normally
-        // invalidates anyway; the bootstrap's own refresh two steps later is the reload.
-        syncManager.applyTab(active, isLeft: true, currentProviderId: leftProviderId)
+        // Re-read, because the line above may have just written it: the id the pane is NOW on is
+        // what `applyTab`'s reload rule has to compare against, so passing the pre-write value
+        // would report a source change that has already been adopted. At launch the pane is at its
+        // root and the tab usually is not, so this normally invalidates anyway; the bootstrap's own
+        // refresh two steps later is the reload.
+        syncManager.applyTab(active, isLeft: isLeft,
+                             currentProviderId: isLeft ? leftProviderId : rightProviderId)
     }
 }
 
@@ -465,16 +471,24 @@ extension ContentView {
 /// body is type-checked on its own.
 struct BrowseTabPersistence: ViewModifier {
     @ObservedObject var syncManager: FileSyncManager
-    /// The left pane's source. A plain `String` rather than the `@AppStorage` binding: this only
-    /// needs to notice that it changed, and taking the value keeps the modifier testable as a value.
+    /// Each pane's source. Plain `String`s rather than the `@AppStorage` bindings: this only needs
+    /// to notice that one changed, and taking the values keeps the modifier testable as a value.
     let leftProviderId: String
-    let save: () -> Void
+    let rightProviderId: String
+    /// Saves the side that moved. **Per-side, not one save of both**: the two strips live under
+    /// separate keys, and a single callback would either write the pane that did not move —
+    /// re-saving a right pane the user has not touched on every left-pane click — or need this
+    /// modifier to know which key each value belongs to, which is the host's job.
+    let save: (_ isLeft: Bool) -> Void
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: syncManager.leftRelativePath) { _, _ in save() }
-            .onChange(of: syncManager.leftBrowsePath) { _, _ in save() }
-            .onChange(of: leftProviderId) { _, _ in save() }
+            .onChange(of: syncManager.leftRelativePath) { _, _ in save(true) }
+            .onChange(of: syncManager.leftBrowsePath) { _, _ in save(true) }
+            .onChange(of: leftProviderId) { _, _ in save(true) }
+            .onChange(of: syncManager.rightRelativePath) { _, _ in save(false) }
+            .onChange(of: syncManager.rightBrowsePath) { _, _ in save(false) }
+            .onChange(of: rightProviderId) { _, _ in save(false) }
     }
 }
 

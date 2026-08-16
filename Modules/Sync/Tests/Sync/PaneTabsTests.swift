@@ -338,9 +338,9 @@ import Foundation
         let defaults = ScratchDefaults("PaneTabsStore")
         let tabs = [PaneTab(providerId: "iCloud", relativePath: "Finance"),
                     PaneTab(providerId: "Dropbox", relativePath: "Photos")]
-        PaneTabsStore.save(tabs: tabs, selected: 1, to: defaults)
+        PaneTabsStore.save(tabs: tabs, selected: 1, isLeft: true, to: defaults)
 
-        let loaded = PaneTabsStore.load(from: defaults)
+        let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         #expect(loaded?.entries == [.init(providerId: "iCloud", relativePath: "Finance"),
                                     .init(providerId: "Dropbox", relativePath: "Photos")])
         #expect(loaded?.selected == 1)
@@ -352,8 +352,8 @@ import Foundation
         let defaults = ScratchDefaults("PaneTabsStore-combined")
         let deep = PaneTab(providerId: "iCloud", relativePath: "Finance",
                            browsePath: PaneBrowsePath(relativePath: "US/2024"))
-        PaneTabsStore.save(tabs: [deep], selected: 0, to: defaults)
-        #expect(PaneTabsStore.load(from: defaults)?.entries.first?.relativePath == "Finance/US/2024")
+        PaneTabsStore.save(tabs: [deep], selected: 0, isLeft: true, to: defaults)
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.relativePath == "Finance/US/2024")
     }
 
     /// No key at all is what tells the caller to seed from the pane's own stored provider, so it
@@ -363,9 +363,9 @@ import Foundation
         var list = PaneTabList(tabs: [PaneTab(providerId: "iCloud", relativePath: "Finance"),
                                       PaneTab(providerId: "iCloud", relativePath: "Photos")])
         list.pin(id: list.tabs[1].id)
-        PaneTabsStore.save(tabs: list.tabs, selected: list.selectedIndex, to: defaults)
+        PaneTabsStore.save(tabs: list.tabs, selected: list.selectedIndex, isLeft: true, to: defaults)
 
-        let loaded = PaneTabsStore.load(from: defaults)
+        let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         #expect(loaded?.entries.map(\.pinned) == [true, false])
         let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
                                              isKnownProvider: { _ in true },
@@ -398,29 +398,29 @@ import Foundation
     @Test func aStripWrittenBeforePinningStillDecodes() {
         let defaults = ScratchDefaults("PaneTabsStore-legacy")
         defaults.set(#"[{"providerId":"iCloud","relativePath":"Finance"}]"#, forKey: PaneTabsStore.tabsKey)
-        let loaded = PaneTabsStore.load(from: defaults)
+        let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         #expect(loaded?.entries.count == 1)
         #expect(loaded?.entries.first?.pinned == false)
     }
 
     @Test func nothingStoredReadsAsNothingRatherThanAsAnEmptyStrip() {
         let defaults = ScratchDefaults("PaneTabsStore-empty")
-        #expect(PaneTabsStore.load(from: defaults) == nil)
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil)
     }
 
     @Test func aCorruptValueReadsAsNothingStored() {
         let defaults = ScratchDefaults("PaneTabsStore-corrupt")
         defaults.set("{not json", forKey: PaneTabsStore.tabsKey)
-        #expect(PaneTabsStore.load(from: defaults) == nil)
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil)
     }
 
     /// A stored index past the end of a shortened list would crash `PaneTabList`'s precondition if
     /// it were trusted; both the load and the restore clamp it.
     @Test func aSelectionPastTheEndIsClamped() {
         let defaults = ScratchDefaults("PaneTabsStore-clamp")
-        PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud")], selected: 0, to: defaults)
+        PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud")], selected: 0, isLeft: true, to: defaults)
         defaults.set(7, forKey: PaneTabsStore.selectedKey)
-        #expect(PaneTabsStore.load(from: defaults)?.selected == 0)
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.selected == 0)
     }
 
     // MARK: Restoring
@@ -499,9 +499,9 @@ import Foundation
         let tab = PaneTab(providerId: "iCloud",
                           relativePath: "School",
                           browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
-        PaneTabsStore.save(tabs: [tab], selected: 0, to: defaults)
+        PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
 
-        let loaded = PaneTabsStore.load(from: defaults)
+        let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
                                              isKnownProvider: { _ in true },
                                              folderExists: { _, _ in true })
@@ -522,8 +522,8 @@ import Foundation
     @Test func aTabOpenedAtAFolderRatherThanDrilledComesBackWithNoStack() {
         let defaults = ScratchDefaults("PaneTabsStore-noStack")
         PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Finance/US")],
-                           selected: 0, to: defaults)
-        let loaded = PaneTabsStore.load(from: defaults)
+                           selected: 0, isLeft: true, to: defaults)
+        let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         #expect(loaded?.entries.first?.stackDepth == 0)
         let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
                                              isKnownProvider: { _ in true },
@@ -540,7 +540,7 @@ import Foundation
         let defaults = ScratchDefaults("PaneTabsStore-legacyStack")
         defaults.set(#"[{"providerId":"iCloud","relativePath":"School/US/Aditi"}]"#,
                      forKey: PaneTabsStore.tabsKey)
-        let loaded = PaneTabsStore.load(from: defaults)
+        let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         #expect(loaded?.entries.count == 1, "a strip without the new key was rejected wholesale")
         #expect(loaded?.entries.first?.stackDepth == 0)
         let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
@@ -559,7 +559,7 @@ import Foundation
         let tab = PaneTab(providerId: "iCloud",
                           relativePath: "School",
                           browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
-        PaneTabsStore.save(tabs: [tab], selected: 0, to: defaults)
+        PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
         let raw = defaults.string(forKey: PaneTabsStore.tabsKey) ?? ""
         #expect(raw.contains(#""relativePath":"School\/US\/Aditi\/Homework""#)
                     || raw.contains(#""relativePath":"School/US/Aditi/Homework""#),
@@ -595,10 +595,10 @@ import Foundation
         let defaults = ScratchDefaults("PaneTabsStore-rootDrilled")
         let tab = PaneTab(providerId: "iCloud",
                           browsePath: PaneBrowsePath(relativePath: "School/US/Aditi/Homework"))
-        PaneTabsStore.save(tabs: [tab], selected: 0, to: defaults)
-        #expect(PaneTabsStore.load(from: defaults)?.entries.first?.stackDepth == 4)
+        PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.stackDepth == 4)
 
-        let restored = PaneTabsStore.restore(entries: PaneTabsStore.load(from: defaults)?.entries ?? [],
+        let restored = PaneTabsStore.restore(entries: PaneTabsStore.load(isLeft: true, from: defaults)?.entries ?? [],
                                              selected: 0,
                                              isKnownProvider: { _ in true },
                                              folderExists: { _, _ in true })
@@ -621,6 +621,67 @@ import Foundation
                     .isSeedState == false, "a pinned tab is a decision the user made")
         #expect(PaneTabList(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
                     .isSeedState == false, "two tabs is not the seed state")
+    }
+
+    // MARK: Two panes, two strips
+
+    /// **The whole risk in persisting a second strip is the two writing over each other.** One pane
+    /// saving must leave the other's stored strip untouched, in both directions — a shared key, or
+    /// a `keys(isLeft:)` that ignored its argument, would show up here and nowhere else.
+    @Test func eachPanesStripIsStoredUnderItsOwnKey() {
+        let defaults = ScratchDefaults("PaneTabsStore-sides")
+        PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Left")],
+                           selected: 0, isLeft: true, to: defaults)
+        PaneTabsStore.save(tabs: [PaneTab(providerId: "Dropbox", relativePath: "Right")],
+                           selected: 0, isLeft: false, to: defaults)
+
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.relativePath == "Left")
+        #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.entries.first?.relativePath == "Right")
+        // …and the providers too, since a crossed key would also cross the source.
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.providerId == "iCloud")
+        #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.entries.first?.providerId == "Dropbox")
+
+        // Re-saving one side must not disturb the other — the case a read-modify-write of a single
+        // shared blob would break, which is why the two keys are separate.
+        PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "LeftAgain")],
+                           selected: 0, isLeft: true, to: defaults)
+        #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.entries.first?.relativePath == "Right",
+                "saving the left strip overwrote the right one")
+    }
+
+    /// The left keeps the original, side-less key names so no strip already on disk is orphaned by
+    /// the right pane arriving. Pinned as a literal because that is exactly the kind of thing a
+    /// later tidy-up renames for consistency, silently losing every existing user's tabs.
+    @Test func theLeftPaneKeepsTheOriginalKeyNames() {
+        #expect(PaneTabsStore.tabsKey == "browseTabs")
+        #expect(PaneTabsStore.selectedKey == "browseSelectedTab")
+        #expect(PaneTabsStore.rightTabsKey != PaneTabsStore.tabsKey)
+        #expect(PaneTabsStore.rightSelectedKey != PaneTabsStore.selectedKey)
+    }
+
+    /// A right pane that has never been written reads as nothing stored, so the caller falls through
+    /// to the older `lastRightFocusPath` restore rather than seeding an empty strip over it. This is
+    /// the first-launch-after-upgrade path, where only the left key exists.
+    @Test func aRightStripThatWasNeverWrittenReadsAsNothingStored() {
+        let defaults = ScratchDefaults("PaneTabsStore-rightMissing")
+        PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Left")],
+                           selected: 0, isLeft: true, to: defaults)
+        #expect(PaneTabsStore.load(isLeft: false, from: defaults) == nil,
+                "an unwritten right strip must not read as an empty one")
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults) != nil)
+    }
+
+    /// Each side's selected index is its own. Stored under one key they would fight, and a two-tab
+    /// right pane would follow the left pane's selection around.
+    @Test func eachPaneKeepsItsOwnSelectedIndex() {
+        let defaults = ScratchDefaults("PaneTabsStore-sideSelection")
+        let three = [PaneTab(providerId: "iCloud", relativePath: "A"),
+                     PaneTab(providerId: "iCloud", relativePath: "B"),
+                     PaneTab(providerId: "iCloud", relativePath: "C")]
+        PaneTabsStore.save(tabs: three, selected: 0, isLeft: true, to: defaults)
+        PaneTabsStore.save(tabs: three, selected: 2, isLeft: false, to: defaults)
+        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.selected == 0)
+        #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.selected == 2)
     }
 
     /// A tab whose folder is gone loses the stack along with the scope. The components name folders

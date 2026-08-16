@@ -901,7 +901,10 @@ struct ContentView: View {
                         // After the focus restore, deliberately: both answer "where was this pane",
                         // and the strip's own active tab is the more specific answer — it carries
                         // the column stack as well as the scope, and the parked tabs beside it.
-                        restoreBrowseTabs()
+                        // Both panes, each from its own stored strip; a pane with nothing stored
+                        // keeps what the focus restore above just gave it.
+                        restoreBrowseTabs(isLeft: true)
+                        restoreBrowseTabs(isLeft: false)
                         if !settings.enabledProviders.isEmpty {
                             refreshAction()
                         }
@@ -970,7 +973,8 @@ struct ContentView: View {
         // body over the type-checker's budget outright ("unable to type-check this expression in
         // reasonable time"), which is a hazard this file is already close enough to feel.
         .modifier(BrowseTabPersistence(syncManager: syncManager,
-                                       leftProviderId: leftProviderId) { saveBrowseTabs(isLeft: true) })
+                                       leftProviderId: leftProviderId,
+                                       rightProviderId: rightProviderId) { saveBrowseTabs(isLeft: $0) })
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // The Get-Info override also goes stale when the comparison context changes underneath it:
@@ -1357,11 +1361,17 @@ struct ContentView: View {
             pendingSwapProviderChanges = plan.suppressCount
         }
         applyProviderPinAssignments(plan)
-        // The swap moved the LISTS as well as the panes, so the saved strip is now the other
+        // The swap moved the LISTS as well as the panes, so each saved strip is now the other
         // pane's. Saved explicitly rather than left to the path `onChange`, which does not fire
-        // when both panes happened to be showing the same folder — and then the strip on disk is
-        // the one that just left.
+        // when both panes happened to be showing the same folder — and then the strips on disk are
+        // the ones that just left.
+        //
+        // **Both sides, and that is not symmetry for its own sake.** A swap is the one move that
+        // changes both strips at once, so saving only the left would leave the right's stored strip
+        // naming the pane that is no longer there — and the next launch would restore the two
+        // halves of a swap that never happened, one side from before it and one from after.
         saveBrowseTabs(isLeft: true)
+        saveBrowseTabs(isLeft: false)
         refreshAction()
     }
 

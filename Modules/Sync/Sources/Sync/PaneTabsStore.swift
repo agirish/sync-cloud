@@ -1,12 +1,17 @@
 import Foundation
 
-/// What survives a quit, for the Browse pane's tab strip.
+/// What survives a quit, for a pane's tab strip.
 ///
-/// **One list is persisted, and it is the left pane's.** Two tab lists exist (v4.x roadmap companion §1: the
-/// two browse paths are what the whole feature is a list of), but Browse *is* the left pane, and
-/// the right pane's list is Compare's — a workspace whose right-hand location has never been
-/// restored across launches. Persisting it would be a behaviour change to Compare smuggled in with
-/// a Browse feature; the right pane still seeds as one tab on its stored provider.
+/// **Both panes' strips are persisted, under separate keys.** Only the left one was until
+/// 2026-08-15: Browse *is* the left pane, and restoring Compare's right-hand location was held back
+/// as a behaviour change that should not ride along with a Browse feature. It is now deliberate.
+/// The keys stay asymmetric in name — the left keeps the original `browseTabs` / `browseSelectedTab`
+/// so no existing strip is orphaned by the change, and the right adds its own beside them.
+///
+/// **A right strip that has never been written reads as nothing stored**, which lands the pane back
+/// on the older `lastRightFocusPath` restore that has always run before this. So the first launch
+/// after upgrading behaves exactly as the last one did, and the strip takes over once the user has
+/// a right pane worth remembering.
 ///
 /// The stored shape is `[{providerId, relativePath, stackDepth, pinned}]` and nothing else,
 /// deliberately: every field is part of *where a tab is* or *how the strip is arranged*. Selection,
@@ -33,11 +38,27 @@ import Foundation
 /// the tab at an ancestor of where the user left it.
 public enum PaneTabsStore {
 
-    /// The v4.x roadmap companion §1 key. `[{"providerId": …, "relativePath": …, "stackDepth": …,
-    /// "pinned": …}]` as JSON in a string, matching how the rest of the app parks small structured
-    /// values in defaults. Both trailing keys are optional on the way in; see `Entry`.
+    /// The v4.x roadmap companion §1 keys — **the LEFT pane's**, and named without a side because
+    /// they predate the right pane being persisted at all. Renaming them to match the right's would
+    /// orphan every strip already on disk, which is a worse trade than the asymmetry.
+    ///
+    /// `[{"providerId": …, "relativePath": …, "stackDepth": …, "pinned": …}]` as JSON in a string,
+    /// matching how the rest of the app parks small structured values in defaults. Both trailing
+    /// keys are optional on the way in; see `Entry`.
     public static let tabsKey = "browseTabs"
     public static let selectedKey = "browseSelectedTab"
+
+    /// The right pane's, added 2026-08-15. Separate keys rather than one two-element value: the two
+    /// strips are written at different moments by different panes, and a single blob would make
+    /// every left-pane save a read-modify-write of the right pane's state.
+    public static let rightTabsKey = "browseTabsRight"
+    public static let rightSelectedKey = "browseSelectedTabRight"
+
+    /// **The one place a side becomes a key.** Both `load` and `save` resolve through this, so a
+    /// strip can never be written under one pane's key and read back under the other's.
+    static func keys(isLeft: Bool) -> (tabs: String, selected: String) {
+        isLeft ? (tabsKey, selectedKey) : (rightTabsKey, rightSelectedKey)
+    }
 
     /// One persisted tab. A named type rather than the live `PaneTab` because this is a **format**:
     /// `PaneTab` gains fields as the feature grows and none of them should silently start being
@@ -99,8 +120,10 @@ public enum PaneTabsStore {
 
     /// Reads the stored strip. `nil` — not an empty array — when the key has never been written,
     /// which is what tells the caller to seed from the pane's own stored provider instead.
-    public static func load(from defaults: UserDefaults = .standard) -> (entries: [Entry], selected: Int)? {
-        guard let raw = defaults.string(forKey: tabsKey), let data = raw.data(using: .utf8) else {
+    public static func load(isLeft: Bool,
+                            from defaults: UserDefaults = .standard) -> (entries: [Entry], selected: Int)? {
+        let key = keys(isLeft: isLeft)
+        guard let raw = defaults.string(forKey: key.tabs), let data = raw.data(using: .utf8) else {
             return nil
         }
         guard let entries = try? JSONDecoder().decode([Entry].self, from: data), !entries.isEmpty else {
@@ -108,21 +131,23 @@ public enum PaneTabsStore {
             // all — and seeding is the right answer for both.
             return nil
         }
-        let selected = min(max(0, defaults.integer(forKey: selectedKey)), entries.count - 1)
+        let selected = min(max(0, defaults.integer(forKey: key.selected)), entries.count - 1)
         return (entries, selected)
     }
 
     /// Writes the strip. Called on every tab mutation, which is cheap: this is at most a handful of
     /// short strings, and `UserDefaults` coalesces its own writes to disk.
-    public static func save(tabs: [PaneTab], selected: Int, to defaults: UserDefaults = .standard) {
+    public static func save(tabs: [PaneTab], selected: Int, isLeft: Bool,
+                            to defaults: UserDefaults = .standard) {
         let entries = tabs.map {
             Entry(providerId: $0.providerId, relativePath: $0.combinedRelativePath,
                   stackDepth: $0.browsePath.depth, pinned: $0.isPinned)
         }
         guard let data = try? JSONEncoder().encode(entries),
               let raw = String(data: data, encoding: .utf8) else { return }
-        defaults.set(raw, forKey: tabsKey)
-        defaults.set(min(max(0, selected), max(0, entries.count - 1)), forKey: selectedKey)
+        let key = keys(isLeft: isLeft)
+        defaults.set(raw, forKey: key.tabs)
+        defaults.set(min(max(0, selected), max(0, entries.count - 1)), forKey: key.selected)
     }
 
     /// Turns stored entries back into tabs, dropping any whose provider is gone and any whose
