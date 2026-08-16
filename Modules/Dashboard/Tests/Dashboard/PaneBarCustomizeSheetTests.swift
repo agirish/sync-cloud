@@ -90,4 +90,69 @@ import Testing
         #expect(PaneBarCustomizeSheet.palette.contains(.scan))
         #expect(!PaneBarItem.scan.isRemovable)
     }
+
+    // MARK: Can you actually aim at it
+
+    /// Right-clicks the centre of one track pill and reports the menu that came back, if any.
+    ///
+    /// This is the one interaction in this sheet a test *can* drive. The header note above is still
+    /// right that the drags need a live event loop — but a context menu does not: SwiftUI answers
+    /// `NSView.menu(for:)` on the hosting view, and it answers it by hit-testing the point. So the
+    /// menu is a direct readout of whether the pill is aimable, which is the thing that was broken.
+    /// A pill drawn as an unfilled outline is hit-testable only along the outline itself.
+    private func menuAtCentre(of item: PaneBarItem) -> NSMenu? {
+        let defaults = ScratchDefaults("PaneBarCustomizeSheetTests-aim")
+        defaults.set(PaneBarArrangement([.space, .scan, .flexibleSpace, .sort]).encoded,
+                     forKey: PaneBar.arrangementKey)
+        let sheet = PaneBarCustomizeSheet()
+        let host = NSHostingView(rootView: AnyView(sheet.trackItem(item, at: 0)
+                                                       .defaultAppStorage(defaults)))
+        // Borderless, and never ordered in. A `.titled` window cannot be parked off screen —
+        // `constrainFrameRect` drags it back onto his desktop, over whatever he is doing.
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 80),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+
+        let centre = CGPoint(x: host.bounds.midX, y: host.bounds.midY)
+        guard let event = NSEvent.mouseEvent(with: .rightMouseDown,
+                                             location: host.convert(centre, to: nil),
+                                             modifierFlags: [],
+                                             timestamp: 0,
+                                             windowNumber: window.windowNumber,
+                                             context: nil,
+                                             eventNumber: 0,
+                                             clickCount: 1,
+                                             pressure: 1) else {
+            Issue.record("could not synthesize a right-click")
+            return nil
+        }
+        return host.menu(for: event)
+    }
+
+    @Test func theSpaceOnTheTrackCanBeAimedAt() {
+        // The bug this is here for: a fixed space could be added to the bar and never taken off.
+        // Its pill is a dashed outline around an empty fill, so the drag, the drop and the context
+        // menu were all attached to a 1pt ring, and every click in the middle of it went through to
+        // the track behind. Nothing else in the sheet reaches a space — it has no palette check to
+        // click off, and Restore is all-or-nothing.
+        //
+        // Both spacers, because only one of them was broken and the difference was an accident of
+        // fill opacity, not a decision anyone made.
+        for spacer in [PaneBarItem.space, .flexibleSpace] {
+            let titles = menuAtCentre(of: spacer)?.items.map(\.title) ?? []
+            #expect(titles.contains("Remove"),
+                    "right-clicking the centre of \(spacer.displayName) offered \(titles); with no Remove there is no way to take it off the bar")
+        }
+    }
+
+    @Test func soCanAControl() {
+        // The control pills were never broken — they are drawn on a filled capsule. Here so that a
+        // failure above is read as "the space is unaimable" rather than "the probe measures nothing",
+        // which is the failure mode that would let the test pass while proving nothing.
+        let titles = menuAtCentre(of: .sort)?.items.map(\.title) ?? []
+        #expect(titles.contains("Remove"), "a control pill offered \(titles)")
+    }
 }

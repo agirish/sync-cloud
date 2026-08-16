@@ -261,9 +261,26 @@ struct PaneBarCustomizeSheet: View {
 
     /// One item on the track. The pill is what it looks like on the bar; the menu is what makes it
     /// reachable without a drag.
-    private func trackItem(_ item: PaneBarItem, at index: Int) -> some View {
+    ///
+    /// Internal rather than private so `PaneBarCustomizeSheetTests` can host one item on its own and
+    /// right-click it. That is not a nicety: the whole of this view's interaction rested on the pills
+    /// being aimable, and nothing checked that they were.
+    func trackItem(_ item: PaneBarItem, at index: Int) -> some View {
         pill(item, style: .onBar)
             .opacity(appliesHere(item) ? 1 : 0.4)
+            // A drawn shape is only hit-testable where it is PAINTED, and a fixed space is painted as
+            // a dashed 1pt outline around nothing — `spacerPill` gives it a fill of
+            // `.quaternary.opacity(0)`, which is to say no fill at all. So every affordance below —
+            // the drag that removes it, the drop that moves things around it, and the context menu
+            // that is the only click-only way to take it off — was attached to a 1pt dashed ring,
+            // and a right-click in the middle of a space landed on nothing. The bar could gain a
+            // space it could never lose. The flexible space escaped it by accident: its fill is
+            // 0.35, so it is solid enough to hit.
+            //
+            // Measured with `NSHostingView.menu(for:)` at each pill's centre — a fixed space
+            // answered nil, everything else answered its menu. `theSpaceOnTheTrackCanBeAimedAt`
+            // is that measurement.
+            .contentShape(Rectangle())
             .draggable(PaneBarDrop.payload(forItemAt: index))
             // A pill is both a drag source and a drop target. Dropping onto it inserts *before* it,
             // which makes the pills themselves aimable instead of being dead space between the gaps;
