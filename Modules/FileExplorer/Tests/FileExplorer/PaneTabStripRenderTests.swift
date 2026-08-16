@@ -389,6 +389,37 @@ import Design
         #expect(PaneTabStrip.dropIndex(from: 3, steps: -9, items: items, visible: shown) == 3)
     }
 
+    /// **The other half, stated so nobody reads the guarantee as the wider one.**
+    ///
+    /// `dropIndex` promises the tab LANDS where a chip is drawn. It does not promise the chip is
+    /// still drawn afterwards: `visible(_:slots:)` re-derives its window from the ACTIVE tab, and
+    /// the move changes the order that window is taken from. The case below needs no pins at all —
+    /// three tabs in two slots, dragging the parked one past the active one — and it is the
+    /// window's design rather than a hole in the drop rule, since the tab is then in the overflow
+    /// menu exactly as a newly opened tab would be.
+    ///
+    /// Pinned as a fact rather than left implicit, because the first version of the fix beside this
+    /// described itself as stopping a chip from "appearing to disappear" — true of the mechanism it
+    /// closed and not of this one, and an overstated guarantee is how the next reader stops looking.
+    @Test func aLegalDropStillLandsWhereItWasAimed() {
+        let items = [item("T0"), item("T1"), item("T2", active: true)]
+        let shown = PaneTabStrip.visible(items, slots: 2)
+        #expect(shown.map(\.title) == ["T1", "T2"], "the window is not where this case needs it")
+
+        // Dragging the parked chip one step right is a legal drop onto a DRAWN index…
+        let to = PaneTabStrip.dropIndex(from: 1, steps: 1, items: items, visible: shown)
+        #expect(to == 2)
+        #expect(shown.contains { $0.id == items[to].id }, "the drop did not land on a drawn chip")
+
+        // …and the window, re-derived around the active tab afterwards, no longer covers it.
+        var moved = items
+        let dragged = moved.remove(at: 1)
+        moved.insert(dragged, at: to)
+        let after = PaneTabStrip.visible(moved, slots: 2)
+        #expect(!after.contains { $0.id == dragged.id },
+                "the window now keeps a moved chip: the residual this records is gone, so dropIndex's note about it should go too")
+    }
+
     // MARK: Pinned tabs
 
     /// A pinned chip wears a pin where an unpinned one wears its ✕ — the two strips are otherwise

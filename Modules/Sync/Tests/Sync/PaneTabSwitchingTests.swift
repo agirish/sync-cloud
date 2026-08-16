@@ -519,6 +519,57 @@ import Foundation
         #expect(manager.leftRelativePath == "A", "the pane moved for a tab that does not exist")
     }
 
+    /// **A discarded tab does NOT go on the reopen stack, so Reopen Closed Tab drains.**
+    ///
+    /// It used to: `discardTab` removed through `close(at:)`, which records. So the press popped
+    /// the dead tab, the host applied it, found the source still missing and discarded it again —
+    /// pushing it straight back. Measured at five presses with the stack unchanged every time and
+    /// `canReopen` true throughout: a menu item enabled forever, offering a tab that could never
+    /// come back, and `discardDeadTabs` fed it several at once.
+    ///
+    /// The loop is what this reproduces, not just the flag — a test on `canReopen` alone would
+    /// pass with the stack merely trimmed somewhere else.
+    @MainActor
+    @Test func aDiscardedTabIsNotOfferedBackByReopenClosedTab() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "Ghost")])
+        manager.focusOn(relativePath: "Keep", isLeft: true)
+        let dead = manager.leftPaneTabs.tabs[1].id
+        manager.switchTab(to: dead, isLeft: true, currentProviderId: "iCloud")
+
+        manager.discardDeadTabs(startingAt: dead, isLeft: true, currentProviderId: "iCloud",
+                                isAvailable: { $0 == "iCloud" })
+
+        #expect(!manager.leftPaneTabs.canReopen,
+                "a tab discarded as unusable is offered back by Reopen Closed Tab")
+        #expect(manager.reopenClosedTab(isLeft: true, currentProviderId: "iCloud") == nil,
+                "Reopen Closed Tab brought back a tab whose source is gone")
+    }
+
+    /// …and the stack the user built by closing tabs BY HAND survives the rebuild.
+    ///
+    /// The last-tab branch replaced the list with a fresh `PaneTabList`, whose `recentlyClosed` is
+    /// empty — so discarding one dead tab took every tab the user had genuinely closed with it. The
+    /// rebuild is replacing the pane's *position*; the session's closed tabs are not its business.
+    @MainActor
+    @Test func rebuildingTheLastTabKeepsWhatTheUserClosedByHand() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "GoneDrive", relativePath: "A"),
+                                     PaneTab(providerId: "iCloud", relativePath: "B")])
+        manager.focusOn(relativePath: "A", isLeft: true)
+        manager.closeTab(id: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
+        #expect(manager.leftPaneTabs.recentlyClosed.map(\.relativePath) == ["B"],
+                "the fixture never got a hand-closed tab onto the stack")
+
+        manager.discardTab(id: manager.leftPaneTabs.active.id, isLeft: true,
+                           currentProviderId: "iCloud")
+
+        #expect(manager.leftPaneTabs.recentlyClosed.map(\.relativePath) == ["B"],
+                "the rebuild threw away the tab the user closed by hand")
+        // And it really does come back — `canReopen` alone would pass with a stack of ghosts.
+        let back = try #require(manager.reopenClosedTab(isLeft: true, currentProviderId: "iCloud"))
+        #expect(back.combinedRelativePath == "B")
+    }
+
     /// **Every dead tab behind the first one goes too.**
     ///
     /// The fallback is a neighbour, and neighbours come from the same session — remove a source

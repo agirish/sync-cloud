@@ -221,11 +221,27 @@ public struct PaneTabStrip: View {
         // can only ever shorten the move, while snapping outward would carry the chip past a tab
         // the user cannot see. It also cannot re-cross the pin line, because `from` is on the right
         // side of it by construction.
+        //
+        // **What this does NOT promise, and it is worth being exact about it.** The guarantee is
+        // about the DROP INDEX: the tab lands somewhere a chip is currently drawn. It is not a
+        // promise that the chip is still drawn *afterwards*, because `visible(_:slots:)` re-derives
+        // its window from the ACTIVE tab and the move changes the order that window is taken from.
+        // Swept across pin counts, tab counts, slot counts and active positions: a legal drop can
+        // still leave the moved chip outside the new window — with no pins at all, three tabs in
+        // two slots, dragging the parked one past the active one is enough. That is the window's
+        // design rather than a hole in this rule (the tab is in the overflow menu, exactly as a
+        // newly opened tab would be), and closing it would mean anchoring the window on something
+        // other than the pane's own tab. Stated here so the next reader does not read the
+        // guarantee as the wider one; `aDropCannotLandInTheGapBetweenThePinsAndTheWindow` pins the
+        // half that is true and `aLegalDropStillLandsWhereItWasAimed` pins this half.
         let shown = Set(visible.map(\.id))
         let drawn = items.indices.filter { shown.contains(items[$0].id) }
         if let first = drawn.first, let last = drawn.last, shown.contains(items[from].id) {
             to = min(max(to, first), last)
             if !drawn.contains(to) {
+                // The `?? from` cannot fire: `from` is itself drawn and lies on the far side of
+                // `to` from the range clamp, so each search always has at least that one candidate.
+                // It is there to keep this a total expression, not because it guards a case.
                 to = (to > from ? drawn.last { $0 <= to } : drawn.first { $0 >= to }) ?? from
             }
         }

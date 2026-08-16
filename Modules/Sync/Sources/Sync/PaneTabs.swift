@@ -212,24 +212,50 @@ public struct PaneTabList: Equatable, Sendable {
         return tab.id
     }
 
-    /// Closes one tab. Returns false — changing nothing — on the last tab, which is the signal for
-    /// the caller to close the window instead.
+    /// Closes one tab **and records it for Reopen Closed Tab**. Returns false — changing nothing —
+    /// on the last tab, which is the signal for the caller to close the window instead.
+    ///
+    /// Where the selection goes is `remove(at:)`'s, shared with `discard(at:)`; the recording is
+    /// the whole of what this adds, and is exactly what separates the two.
+    @discardableResult
+    public mutating func close(at index: Int) -> Bool {
+        guard let closing = remove(at: index) else { return false }
+        recentlyClosed.append(closing)
+        if recentlyClosed.count > Self.reopenLimit { recentlyClosed.removeFirst() }
+        return true
+    }
+
+    /// Removes a tab **without putting it on the reopen stack** — a *discard*, not a close.
+    ///
+    /// The distinction is not bookkeeping. `recentlyClosed` is what File ▸ Reopen Closed Tab pops,
+    /// and a tab is discarded precisely because it cannot be shown at all (its source is gone or
+    /// switched off — `FileSyncManager.discardTab`). Recording one there made Reopen Closed Tab a
+    /// **permanent no-op**: the press popped the dead tab, the host applied it, found the source
+    /// still missing and discarded it again — which pushed it straight back. Measured at five
+    /// presses in a row with the stack unchanged each time, and `canReopen` true throughout, so the
+    /// menu item stayed enabled forever offering a tab that could never come back.
+    ///
+    /// It also drains correctly the other way: a tab the user closed BY HAND before its source went
+    /// away is still on the stack, and one press now spends it — reopened, found dead, discarded
+    /// with a line in the log saying why — instead of cycling.
+    @discardableResult
+    public mutating func discard(at index: Int) -> Bool { remove(at: index) != nil }
+
+    /// The removal both of the above share: takes the tab out and re-derives `selectedIndex`.
     ///
     /// The neighbour to the RIGHT inherits selection, falling back to the left at the trailing end.
     /// That is Finder's rule and it is the one that lets you close several tabs in a row without
-    /// the pointer chasing the strip.
-    @discardableResult
-    public mutating func close(at index: Int) -> Bool {
-        guard tabs.count > 1, tabs.indices.contains(index) else { return false }
-        let closing = tabs.remove(at: index)
-        recentlyClosed.append(closing)
-        if recentlyClosed.count > Self.reopenLimit { recentlyClosed.removeFirst() }
+    /// the pointer chasing the strip. Refuses the last tab, which is the invariant every other
+    /// member here is written against.
+    private mutating func remove(at index: Int) -> PaneTab? {
+        guard tabs.count > 1, tabs.indices.contains(index) else { return nil }
+        let going = tabs.remove(at: index)
         if index < selectedIndex {
             selectedIndex -= 1
         } else if index == selectedIndex {
             selectedIndex = min(index, tabs.count - 1)
         }
-        return true
+        return going
     }
 
     @discardableResult

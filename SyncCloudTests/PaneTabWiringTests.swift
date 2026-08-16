@@ -347,6 +347,26 @@ import Sync
                 "the one legitimate use has moved — this scan is now counting something else")
     }
 
+    /// **…and the restore says what it threw away.**
+    ///
+    /// `PaneTabsStore.restore` drops an entry whose source this pane cannot be pointed at, and now
+    /// that the list is `enabledProviders` the commonest way to reach that is not a source
+    /// vanishing but the user switching one OFF in Settings. Dropping stays the right answer —
+    /// there is no root for such a tab to fall back to — but the strip is rewritten by the first
+    /// thing that saves, so a silent drop loses those tabs for good with nothing to say where they
+    /// went. The line beside it counts what was RESTORED, which cannot answer that.
+    @Test func theLaunchRestoreSaysWhatItDropped() throws {
+        let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("stored.entries.count"),
+                "nothing compares what was stored against what came back, so no drop can be noticed")
+        let code = Self.codeOnly(body)
+        let drop = try #require(code.range(of: "if dropped > 0"),
+                                "the dropped tabs are counted but never reported")
+        #expect(String(code[drop.upperBound...]).contains("Logger.shared.warning("),
+                "a dropped tab is reported below warning, where a launch-time loss would not stand out")
+    }
+
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {

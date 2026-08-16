@@ -153,6 +153,13 @@ extension ContentView {
             for gone in outcome.discarded {
                 Logger.shared.warning("Discarded a browse tab: its source “\(gone)” is gone or switched off")
             }
+            // Silent-on-impossible is exactly what the guard `discardTab` grew was about: the id
+            // always is in the list (the verb that returned it put it there), so reaching here
+            // means an assumption this branch rests on has stopped holding, and the log is the
+            // only place that would ever say so.
+            if outcome.discarded.isEmpty {
+                Logger.shared.warning("A browse tab named an unusable source but could not be discarded")
+            }
             if let landed = outcome.landed {
                 paneSearchState(isLeft: isLeft).wrappedValue = PaneSearchFieldState(
                     query: landed.searchQuery, isExpanded: landed.searchIsExpanded)
@@ -467,6 +474,20 @@ extension ContentView {
         // one tab, at the root, unpinned. The rule lives on `PaneTabList` because it has to read
         // the tab's COMBINED location rather than its scope, and getting that wrong here skipped
         // the restore outright for a single tab drilled down from the root — see `isSeedState`.
+        // **What the restore threw away, before what it kept.** `PaneTabsStore.restore` drops an
+        // entry whose source this pane cannot be pointed at, and since that list is now
+        // `enabledProviders` the commonest way to reach it is not a source vanishing but the user
+        // switching one OFF in Settings — a reversible decision whose cost here is not. Dropping is
+        // still the right answer (there is no root to fall back to, and a tab that cannot be opened
+        // is not a place), but doing it in silence is not: the strip is rewritten by the first
+        // thing that saves, so those tabs are gone for good with nothing to say where. He audits
+        // this log.
+        let dropped = (stored.entries.count) - (restored?.count ?? 0)
+        if dropped > 0 {
+            Logger.shared.warning(
+                "Dropped \(dropped) stored \(isLeft ? "left" : "right") browse tab\(dropped == 1 ? "" : "s"): "
+                + "their source is gone or switched off")
+        }
         guard let restored, !restored.isSeedState else { return }
         Logger.shared.info(
             "Restored \(restored.count) \(isLeft ? "left" : "right") browse tab\(restored.count == 1 ? "" : "s")")

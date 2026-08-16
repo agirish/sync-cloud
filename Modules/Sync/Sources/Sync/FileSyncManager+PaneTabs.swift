@@ -231,13 +231,20 @@ extension FileSyncManager {
     /// all five tabs AND the reopen stack with a single fresh tab at the root. Nothing reaches it
     /// today (every verb returns a tab that is in the list), which is precisely why it is worth
     /// separating: an inert guard whose failure mode is "throw the user's tabs away" is not a guard.
+    /// **A discard is not a close**, in either branch: the tab does not go on the reopen stack
+    /// (`PaneTabList.discard(at:)` says what that cost), and the stack the user built by closing
+    /// tabs by hand survives the rebuild. Recording it made Reopen Closed Tab cycle forever on a
+    /// tab that could not come back; rebuilding with a fresh `PaneTabList` threw away every tab the
+    /// user had genuinely closed, which the rebuild has no business touching — it is replacing the
+    /// pane's *position*, not its session.
     @MainActor public func discardTab(id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab? {
         var list = paneTabs(isLeft: isLeft)
         guard let index = list.index(of: id) else { return nil }
         if list.count > 1 {
-            list.close(at: index)
+            list.discard(at: index)
         } else {
-            list = PaneTabList(single: PaneTab(providerId: currentProviderId))
+            list = PaneTabList(tabs: [PaneTab(providerId: currentProviderId)],
+                               recentlyClosed: list.recentlyClosed)
         }
         setPaneTabs(list, isLeft: isLeft)
         let tab = list.active
