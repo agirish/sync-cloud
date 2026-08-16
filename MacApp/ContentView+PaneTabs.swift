@@ -98,11 +98,17 @@ extension ContentView {
     /// `verb` returns the tab the pane arrived at, or `nil` when the pane did not move (closing a
     /// parked tab, selecting the tab already live). `nil` still saves — the strip changed even when
     /// the pane did not — and still costs no reload, which is the point of the distinction.
-    private func tabAction(isLeft: Bool, _ verb: () -> PaneTab?) {
+    ///
+    /// - Parameter movesFocus: whether this counts as the user working in `isLeft`. True for every
+    ///   verb they aimed at a pane; false for the MIRRORED half of a linked open, which lands on the
+    ///   sibling precisely because they did *not* aim at it. See `noteWorkingIn`.
+    private func tabAction(isLeft: Bool, movesFocus: Bool = true, _ verb: () -> PaneTab?) {
         // The bootstrap window is interactive, and a provider `onChange` bails on its own guard
         // there without decrementing the suppression counter — which would strand it and silently
         // swallow the user's next real source switch. `swapPanesAction` refuses for the same reason.
         guard !isBootstrappingProviders else { return }
+
+        if movesFocus { noteWorkingIn(isLeft: isLeft) }
 
         // Read BEFORE the verb runs, because the verb moves the pane: these two are what the
         // arriving tab is compared against to decide whether anything needs reloading at all.
@@ -126,11 +132,8 @@ extension ContentView {
         case .keep:
             break
         case .adopt(let id):
-            // One suppressed change, then this method drives the single reload — exactly the shape
-            // `swapPanesAction` uses, and on its OWN counter: two features sharing one would have a
-            // swap eat a tab switch's suppression and reset the navigation it just restored.
-            pendingTabProviderChanges += 1
-            if isLeft { leftProviderId = id } else { rightProviderId = id }
+            adoptProviderForTab(id, isLeft: isLeft,
+                                log: "A browse tab moved the \(isLeft ? "left" : "right") pane to \(id)")
         case .unavailable:
             // The tab names a source this pane can no longer be pointed at, so it cannot be shown
             // at all — and by now the verb has already pointed the pane at that tab's folder path
@@ -163,6 +166,20 @@ extension ContentView {
             if let landed = outcome.landed {
                 paneSearchState(isLeft: isLeft).wrappedValue = PaneSearchFieldState(
                     query: landed.searchQuery, isExpanded: landed.searchIsExpanded)
+                // **The pane it landed on may be on a THIRD source, and it has to be adopted like
+                // any other arrival.** `discardDeadTabs` stops at the first neighbour this pane can
+                // show, which is not necessarily the source the pane is currently pointed at: kill
+                // Dropbox with tabs [iCloud, Dropbox, GoogleDrive] and clicking the Dropbox chip
+                // lands on the GoogleDrive one. Taking only the search field from it — which is all
+                // this branch used to do — left the pane showing GoogleDrive's folder path under
+                // iCloud's root (an empty pane, the exact symptom the discard exists to remove),
+                // the chip wearing iCloud's mark, and `saveBrowseTabs` below then rewriting that
+                // tab's source to iCloud: a tab silently retargeted to another cloud.
+                if landed.providerId != (isLeft ? leftProviderId : rightProviderId),
+                   paneCanShowSource(landed.providerId) {
+                    adoptProviderForTab(landed.providerId, isLeft: isLeft,
+                                        log: "Landed the \(isLeft ? "left" : "right") pane on \(landed.providerId) after discarding a dead tab")
+                }
             }
         }
         saveBrowseTabs(isLeft: isLeft)
@@ -180,6 +197,54 @@ extension ContentView {
         if PaneTabArrival.needsReload(arrivingAt: arrived, fromProvider: fromProvider, fromFocus: fromFocus) {
             refreshForTabSwitch(movedPane: isLeft)
         }
+    }
+
+    /// **Points a pane at the source a TAB names — the one spelling of that operation.**
+    ///
+    /// A tab switch that changes a pane's source is a provider switch; it differs from the one the
+    /// source menu makes in exactly one way, which is that the tab carries the navigation, so the
+    /// `onChange` handler's `resetNavigation()` must not run. Everything else that handler does
+    /// still has to, and this is what the suppression counter was silently skipping:
+    ///
+    /// - the **ignored-items re-key**. That store is keyed on the PAIR of sources; leaving it on
+    ///   the old pair means the scan hides items ignored for a comparison that is no longer on
+    ///   screen, and a new "Ignore" is persisted under the wrong key. `DuplicateReviewCoordinator`
+    ///   calls the id handler "the ONLY other place" this re-key happens — it was not.
+    /// - the **lens clear**. "No stale Tidy result outlives its provider" is the manager's own
+    ///   rule, and the left strip IS the Organize/Storage rail's strip.
+    /// - the **review dispatch**, which ends a guided review framed on the old pair. A no-op when
+    ///   no review is set, which is why the launch restore can share this path.
+    ///
+    /// Three callers wrote the id themselves and each forgot a different one of those: `.adopt`
+    /// skipped all three, the discard branch never wrote the id at all, and the launch restore
+    /// wrote it with no suppression whatsoever. `log` is the ONLY thing that varies between them —
+    /// deliberately, so the three cannot drift again.
+    private func adoptProviderForTab(_ id: String, isLeft: Bool, log: String) {
+        // One suppressed change, then the caller drives the single reload — exactly the shape
+        // `swapPanesAction` uses, and on its OWN counter: two features sharing one would have a
+        // swap eat a tab switch's suppression and reset the navigation it just restored.
+        pendingTabProviderChanges += 1
+        if isLeft { leftProviderId = id } else { rightProviderId = id }
+        Logger.shared.info(log)
+        reviewCoordinator.dispatchReview(.providerSwitched(isLeft: isLeft))
+        syncManager.clearLensResultsForProviderSwitch()
+        // Both ids read back AFTER the write above, because the pair key is both of them and one
+        // has just changed. `pairKey` sorts, so the order here does not matter — the values do.
+        syncManager.ignoredItemsStore?.activate(
+            pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
+    }
+
+    /// Records that the user is working in this pane, so the pane-scoped chords follow them.
+    ///
+    /// `focusedPaneSide` answers "which pane am I working in", and until now only ⌃⇥ and a row
+    /// selection said so — a strip click, the ＋, the header card's New Tab and the pane background
+    /// menu all left it pointing at the other pane. In Compare that aims ⌘W, ⌘T, ⇧⌘] (and ⌘F, ⌘[,
+    /// ⌘], ⇧⌘N, ⇧⌘P) at the pane the user is not looking at, and one of those is destructive:
+    /// open a second tab on the RIGHT pane while the ring is on a one-tab LEFT pane, press ⌘W, and
+    /// `closeTab`'s last-tab branch closes the WINDOW.
+    private func noteWorkingIn(isLeft: Bool) {
+        let side: PaneTree.Side = isLeft ? .left : .right
+        if syncManager.focusedPaneSide != side { syncManager.focusedPaneSide = side }
     }
 
     /// The reload a tab switch asks for, when it asks for one.
@@ -239,7 +304,10 @@ extension ContentView {
         let cut = PaneTabOpening.location(of: here,
                                           openedFromScope: isLeft ? syncManager.leftRelativePath
                                                                   : syncManager.rightRelativePath)
-        tabAction(isLeft: isLeft) {
+        // A mirrored open lands on the pane the user did NOT aim at, so it must not take the focus
+        // with it — otherwise ⌘T in a linked Compare leaves every pane-scoped chord pointing at the
+        // sibling.
+        tabAction(isLeft: isLeft, movesFocus: !mirrored) {
             // Logged from inside, so a refused action (the bootstrap guard) leaves no line claiming
             // it happened — he audits this log.
             let where_ = here.isEmpty ? "the source root" : here
@@ -309,7 +377,8 @@ extension ContentView {
         let cut = PaneTabOpening.location(of: landing,
                                           openedFromScope: other ? syncManager.leftRelativePath
                                                                  : syncManager.rightRelativePath)
-        tabAction(isLeft: other) {
+        // The sibling's half of the open — the user aimed at `!other`, so the focus stays there.
+        tabAction(isLeft: other, movesFocus: false) {
             Logger.shared.info("Linked panes: also opened “\(landing.isEmpty ? "the source root" : landing)” in a new tab on the other pane")
             return syncManager.openTab(
                 PaneTab(providerId: providerId, relativePath: cut.scope, browsePath: cut.stack),
@@ -525,14 +594,24 @@ extension ContentView {
         let active = restored.active
         let currentProviderId = isLeft ? leftProviderId : rightProviderId
         if active.providerId != currentProviderId, paneCanShowSource(active.providerId) {
-            // **No suppression counter here, deliberately.** This runs inside the provider
-            // bootstrap, where the id's `onChange` bails on `isBootstrappingProviders` *without*
-            // decrementing — so arming the counter would strand it at one and silently swallow the
-            // user's next real source switch, leaving that switch's navigation un-reset. The
-            // bootstrap guard IS the suppression here; `applyProviderSelection` two lines earlier
-            // writes both ids the same way. `tabAction` arms the counter because it runs later,
-            // when the handler is live.
-            if isLeft { leftProviderId = active.providerId } else { rightProviderId = active.providerId }
+            // **The counter, not the bootstrap guard.** This used to write the id bare, on the
+            // reasoning that the bootstrap guard was the suppression and arming the counter would
+            // strand it. Both halves of that were wrong, and the second one measurably so: SwiftUI
+            // evaluates `onChange` on the NEXT view update, and the bootstrap's tail lowers
+            // `isBootstrappingProviders` synchronously right after these restores — so the handler
+            // ran with the guard already DOWN and took the full user-switch path, whose
+            // `resetNavigation()` wiped BOTH panes back to their roots and left
+            // `BrowseTabPersistence` to save the wreckage over the strip that had just been
+            // restored. (Measured with a minimal SwiftUI host: a `@State` write followed
+            // synchronously by lowering a guard flag reaches `onChange` with the flag false; the
+            // same write with an `await` in between is protected, which is why
+            // `applyProviderSelection` — which has one — was genuinely safe.)
+            //
+            // Arming the counter cannot strand it any more, because the handler now consumes the
+            // counters BEFORE testing the bootstrap guard: wherever the write lands, it is
+            // accounted for exactly once.
+            adoptProviderForTab(active.providerId, isLeft: isLeft,
+                                log: "Restored \(isLeft ? "left" : "right") browse tab moved the pane to \(active.providerId)")
         }
         // Re-read, because the line above may have just written it: the id the pane is NOW on is
         // what `applyTab`'s reload rule has to compare against, so passing the pre-write value
@@ -770,5 +849,35 @@ enum PaneTabProviderSwitch: Equatable {
     static func decide(arrived: String, current: String, isAvailable: (String) -> Bool) -> PaneTabProviderSwitch {
         guard arrived != current else { return .keep }
         return isAvailable(arrived) ? .adopt(arrived) : .unavailable(arrived)
+    }
+}
+
+/// What a pane-provider `onChange` should do with a change it has just been handed — extracted
+/// from the two handlers in `ContentView` because the ORDER of their three tests is the whole
+/// content of the rule, and inline in a view body nothing could hold it.
+///
+/// The order that matters: **a suppression counter is consumed before the bootstrap guard is
+/// tested.** A counter is armed only by a writer that has already done the handler's work itself
+/// (`swapPanesAction`, `adoptProviderForTab`), so it must be balanced wherever its write lands —
+/// and where a write lands is not something the writer controls. SwiftUI evaluates `onChange` on
+/// the next view update, so a write made in the bootstrap's final synchronous moments arrives
+/// after `isBootstrappingProviders` has already been lowered. Testing the guard first therefore
+/// failed in both directions at once: a bootstrap-time write left its counter stranded (swallowing
+/// the user's next real switch), and the launch tab restore's write ran the full user-switch path,
+/// whose `resetNavigation()` wiped the very strip the restore had just put back.
+enum PaneProviderChange: Equatable {
+    /// A pane swap flipped the id; it swapped the navigation atomically too.
+    case consumeSwap
+    /// A tab switch flipped the id; the tab carries the navigation.
+    case consumeTab
+    /// Providers are still being discovered and nobody armed anything — nothing to do.
+    case ignore
+    /// The user picked a source from the menu: the full reset.
+    case userSwitch
+
+    static func decide(swapPending: Int, tabPending: Int, isBootstrapping: Bool) -> PaneProviderChange {
+        if swapPending > 0 { return .consumeSwap }
+        if tabPending > 0 { return .consumeTab }
+        return isBootstrapping ? .ignore : .userSwitch
     }
 }

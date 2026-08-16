@@ -393,12 +393,129 @@ import Sync
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {
+        let body = try Self.memberBody("private func adoptProviderForTab(",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("pendingTabProviderChanges += 1"),
+                "adopting a source does not suppress the navigation reset")
+        let tab = try Self.memberBody("private func tabAction(isLeft: Bool",
+                                      in: Self.source("ContentView+PaneTabs.swift"))
+        let adopt = try #require(tab.range(of: "case .adopt(let id):"),
+                                 "the provider decision is no longer handled by case")
+        #expect(String(tab[adopt.upperBound...]).contains("adoptProviderForTab("),
+                "the adopt case writes the id some other way than through the one door")
+    }
+
+    /// **Every write of a pane provider id in the tabs file goes through `adoptProviderForTab`.**
+    ///
+    /// Scanned as a COUNT, not per-site: a per-site check passes the moment a fourth writer appears,
+    /// and three writers each forgetting a different part of the handler's work is precisely the
+    /// defect this helper was introduced to end (`.adopt` skipped the ignore-store re-key and the
+    /// lens clear, the discard branch never wrote the id at all, the launch restore wrote it with no
+    /// suppression). The two assignments below are the ones INSIDE the helper.
+    @Test func theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper() throws {
+        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let writes = code.components(separatedBy: "leftProviderId = ").count - 1
+            + code.components(separatedBy: "rightProviderId = ").count - 1
+        #expect(writes == 2,
+                "\(writes) writes of a pane provider id — the helper's own two are the only ones allowed")
+        let helper = try Self.memberBody("private func adoptProviderForTab(",
+                                         in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(helper.contains("if isLeft { leftProviderId = id } else { rightProviderId = id }"),
+                "the two writes are not the helper's — this scan is counting someone else's")
+    }
+
+    /// The helper does everything the suppressed `onChange` would have done — except the one thing
+    /// the suppression exists for.
+    ///
+    /// Each of these three was silently skipped for a source change made through a tab. The re-key
+    /// is the one with teeth: `IgnoredItemsStore` is keyed on the PAIR of sources, so leaving it on
+    /// the old pair hides items ignored for a comparison that is no longer on screen and persists
+    /// new ones under the wrong key.
+    @Test func adoptingDoesEverythingTheSuppressedHandlerWouldExceptTheReset() throws {
+        let body = try Self.memberBody("private func adoptProviderForTab(",
+                                       in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains("ignoredItemsStore?.activate("),
+                "a tab-driven source change leaves the ignored-items store on the old pair")
+        #expect(body.contains("clearLensResultsForProviderSwitch()"),
+                "stale Tidy results outlive their provider when a tab changes it")
+        #expect(body.contains("dispatchReview(.providerSwitched("),
+                "a guided review framed on the old pair survives a tab-driven source change")
+        #expect(!Self.codeOnly(body).contains("resetNavigation()"),
+                "the whole point of the suppression is that the TAB carries the navigation")
+    }
+
+    /// A discard that lands the pane on a third, live source adopts it.
+    ///
+    /// `discardDeadTabs` stops at the first neighbour the pane *can show*, which is a wider set than
+    /// "is currently on" — pinned on the manager side by
+    /// `PaneTabSwitchingTests.aDiscardCanLandOnATabFromAThirdLiveSource`. Taking only the landed
+    /// tab's search field, which is all this branch used to do, left the pane on the old source
+    /// showing the landed tab's path under the wrong root, and `saveBrowseTabs` then rewrote that
+    /// tab's source id to the old one.
+    @Test func aDiscardThatLandsOnAnotherSourceAdoptsIt() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        let adopt = try #require(body.range(of: "case .adopt(let id):"),
-                                 "the provider decision is no longer handled by case")
-        #expect(String(body[adopt.upperBound...]).contains("pendingTabProviderChanges += 1"),
-                "adopting a source does not suppress the navigation reset")
+        let branch = try #require(body.range(of: "case .unavailable:"),
+                                  "the unavailable branch is gone")
+        let after = String(body[branch.upperBound...])
+        #expect(after.contains("adoptProviderForTab("),
+                "the pane keeps the dead tab's source after landing on a live one")
+        #expect(after.contains("paneCanShowSource(landed.providerId)"),
+                "the landing is adopted without checking the pane may be pointed there")
+    }
+
+    /// The rule behind the two provider handlers, and the ORDER that is its whole content.
+    @Test func aSuppressionCounterIsConsumedWhereverItsWriteLands() {
+        // Bootstrap or not, an armed counter is consumed — this is the case that used to strand it.
+        #expect(PaneProviderChange.decide(swapPending: 0, tabPending: 1, isBootstrapping: true)
+                == .consumeTab)
+        #expect(PaneProviderChange.decide(swapPending: 1, tabPending: 0, isBootstrapping: true)
+                == .consumeSwap)
+        // …and the guard-down case, which is where the launch restore's write actually arrived.
+        #expect(PaneProviderChange.decide(swapPending: 0, tabPending: 1, isBootstrapping: false)
+                == .consumeTab)
+        // Swap wins when both are armed, matching the order the handlers tested them in.
+        #expect(PaneProviderChange.decide(swapPending: 1, tabPending: 1, isBootstrapping: false)
+                == .consumeSwap)
+        // Nothing armed: the guard still decides, and a real switch still resets.
+        #expect(PaneProviderChange.decide(swapPending: 0, tabPending: 0, isBootstrapping: true)
+                == .ignore)
+        #expect(PaneProviderChange.decide(swapPending: 0, tabPending: 0, isBootstrapping: false)
+                == .userSwitch)
+    }
+
+    /// …and both handlers ask it, rather than keeping their own copy of the order.
+    @Test func bothProviderHandlersAreResolvedThroughTheRule() throws {
+        let code = Self.codeOnly(try Self.source("ContentView.swift"))
+        #expect(code.components(separatedBy: "PaneProviderChange.decide(").count - 1 == 2,
+                "one of the two provider handlers no longer goes through the rule")
+        #expect(!code.contains("if pendingTabProviderChanges > 0 {"),
+                "a handler is back to testing the counters inline, where the order is unpinned")
+    }
+
+    /// A tab verb the user aimed at a pane moves the keyboard focus there — and the MIRRORED half
+    /// of a linked open does not.
+    ///
+    /// Without the first half, opening a tab on the right pane of a Compare while the ring sits on a
+    /// one-tab left pane leaves ⌘W aimed left, where `closeTab`'s last-tab branch closes the WINDOW.
+    /// Without the second, ⌘T in a linked Compare hands every pane-scoped chord to the sibling.
+    @Test func aTabVerbMovesTheFocusToThePaneItWasAimedAt() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        let body = try Self.memberBody("private func tabAction(isLeft: Bool", in: source)
+        #expect(body.contains("if movesFocus { noteWorkingIn(isLeft: isLeft) }"),
+                "a tab verb no longer says which pane the user is working in")
+        let focus = try Self.memberBody("private func noteWorkingIn(isLeft: Bool)", in: source)
+        #expect(focus.contains("syncManager.focusedPaneSide = side"),
+                "noteWorkingIn does not write the side the chords read")
+        // Both mirrored openers, and ONLY those, opt out. Counted rather than checked per site: a
+        // per-site check passes the moment a third verb quietly stops moving the focus.
+        let code = Self.codeOnly(source)
+        #expect(code.components(separatedBy: "movesFocus: ").count - 1 == 3,
+                "exactly two call sites may pass movesFocus (the third match is the declaration)")
+        #expect(code.contains("tabAction(isLeft: isLeft, movesFocus: !mirrored)"),
+                "the mirrored ⌘T is not the opted-out one")
+        #expect(code.contains("tabAction(isLeft: other, movesFocus: false)"),
+                "the mirrored Open in New Tab is not the opted-out one")
     }
 
     /// …and an arrival that DOES move the pane reloads exactly once, from the host.
@@ -456,23 +573,29 @@ import Sync
 
     // MARK: The launch restore
 
-    /// **The restore must NOT arm the suppression counter.** It runs inside the provider
-    /// bootstrap, where the id's `onChange` bails on `isBootstrappingProviders` without
-    /// decrementing — so an armed counter strands at one and silently swallows the user's next
-    /// real source switch, leaving that switch's navigation un-reset. `tabAction` arms it because
-    /// it runs later, when the handler is live; these two must not be made to look alike.
-    @Test func theLaunchRestoreDoesNotArmTheSuppressionCounter() throws {
+    /// **The restore arms the suppression counter like every other adopt.**
+    ///
+    /// This test used to assert the opposite, on the reasoning that the bootstrap guard was the
+    /// suppression and an armed counter would strand at one. Both halves were wrong, and the
+    /// second measurably so: SwiftUI evaluates `onChange` on the NEXT view update, and the
+    /// bootstrap's tail lowers `isBootstrappingProviders` synchronously right after these restores
+    /// — so the write arrived with the guard already DOWN and ran the full user-switch path, whose
+    /// `resetNavigation()` wiped both panes back to their roots over the strip just restored.
+    /// (Measured with a minimal SwiftUI host: a `@State` write followed synchronously by lowering
+    /// a guard flag reaches `onChange` with the flag false; the same write with an `await` between
+    /// is protected, which is why `applyProviderSelection` was genuinely safe.) Stranding is no
+    /// longer possible either, because the handler consumes counters BEFORE testing the guard —
+    /// `aSuppressionCounterIsConsumedWhereverItsWriteLands`.
+    @Test func theLaunchRestoreArmsTheSuppressionCounterLikeEveryOtherAdopt() throws {
         let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        #expect(body.contains("leftProviderId = active.providerId"),
-                "the restore no longer applies its tab's source — this check is vacuous")
-        // Both sides, since the restore now runs for both panes: a right pane that adopted no
-        // source would silently reopen every tab under whichever provider the pane happened to
-        // be on, showing the right folder path under the wrong root.
-        #expect(body.contains("rightProviderId = active.providerId"),
-                "the right pane's restore does not apply its tab's source")
-        #expect(!Self.codeOnly(body).contains("pendingTabProviderChanges"),
-                "the launch restore arms a counter the bootstrap guard will never decrement")
+        #expect(body.contains("adoptProviderForTab(active.providerId, isLeft: isLeft"),
+                "the launch restore writes the provider id its own way again")
+        // Threaded, not hardcoded — the restore runs for BOTH panes, and a right pane that adopted
+        // no source would reopen every tab under whichever provider the pane happened to be on,
+        // showing the right folder path under the wrong root.
+        #expect(!Self.codeOnly(body).contains("leftProviderId = active.providerId"),
+                "the bare write is back, and the bootstrap guard does not stop it")
     }
 
     /// **Both panes are restored, and the right one is easy to drop.** The launch sequence called
@@ -892,7 +1015,7 @@ import Sync
     /// switch invalidate without reloading, leaving a pane with no tree and no scan until the user
     /// pressed Refresh — strictly worse than the rescan this removes.
     @Test func theScanIsGatedOnTheSameRuleTheInvalidationUses() throws {
-        let host = try Self.memberBody("private func tabAction(isLeft: Bool, _ verb: () -> PaneTab?)",
+        let host = try Self.memberBody("private func tabAction(isLeft: Bool, movesFocus: Bool = true, _ verb: () -> PaneTab?)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(host.contains("PaneTabArrival.needsReload("),
                 "the host rescans on every tab switch, or decides with its own copy of the rule")

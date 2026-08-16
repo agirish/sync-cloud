@@ -916,19 +916,29 @@ struct ContentView: View {
             }
         }
         .onChange(of: leftProviderId) { _, newId in
-            guard !isBootstrappingProviders else { return }
-            // A pane swap flips this id itself; its navigation was already swapped atomically,
-            // so skip the reset (which would wipe it) and let swapPanesAction drive the rescan.
-            if pendingSwapProviderChanges > 0 {
-                pendingSwapProviderChanges -= 1
-                return
-            }
-            // A tab switch flips this id too, and the tab it switched to carries the navigation
-            // this handler's `resetNavigation()` would wipe. Same shape as the swap above, own
-            // counter — see `pendingTabProviderChanges`.
-            if pendingTabProviderChanges > 0 {
-                pendingTabProviderChanges -= 1
-                return
+            // **The counters are consumed BEFORE the bootstrap guard is tested, and that order is
+            // load-bearing.** A counter is armed only by a writer that has already done this
+            // handler's work itself, so it has to be balanced wherever the write lands. Testing the
+            // guard first got this wrong in both directions: a write made during the bootstrap
+            // returned without decrementing (stranding the counter, so the user's next real switch
+            // was silently swallowed), and — measured, not assumed — a write made in the guard's
+            // last synchronous moments arrived here with the guard already DOWN, because SwiftUI
+            // evaluates `onChange` on the next view update rather than at the point of the write.
+            // That is exactly `restoreBrowseTabs`, and it made a launch restore run the full
+            // user-switch path below and reset the navigation it had just restored.
+            //
+            // A pane swap flips this id itself; its navigation was already swapped atomically, so
+            // skip the reset (which would wipe it) and let swapPanesAction drive the rescan. A tab
+            // switch flips it too, and the tab it switched to carries the navigation — same shape,
+            // own counter, armed only by `adoptProviderForTab`, which does everything below except
+            // the reset.
+            switch PaneProviderChange.decide(swapPending: pendingSwapProviderChanges,
+                                             tabPending: pendingTabProviderChanges,
+                                             isBootstrapping: isBootstrappingProviders) {
+            case .consumeSwap: pendingSwapProviderChanges -= 1; return
+            case .consumeTab: pendingTabProviderChanges -= 1; return
+            case .ignore: return
+            case .userSwitch: break
             }
             Logger.shared.info("User switched left provider to \(newId)")
             // Ends the guided review and drops the duplicate review without restoring the
@@ -948,14 +958,14 @@ struct ContentView: View {
             syncManager.resetNavigation()
         }
         .onChange(of: rightProviderId) { _, newId in
-            guard !isBootstrappingProviders else { return }
-            if pendingSwapProviderChanges > 0 {
-                pendingSwapProviderChanges -= 1
-                return
-            }
-            if pendingTabProviderChanges > 0 {
-                pendingTabProviderChanges -= 1
-                return
+            // Through the same rule as the left handler above, which is where it is explained.
+            switch PaneProviderChange.decide(swapPending: pendingSwapProviderChanges,
+                                             tabPending: pendingTabProviderChanges,
+                                             isBootstrapping: isBootstrappingProviders) {
+            case .consumeSwap: pendingSwapProviderChanges -= 1; return
+            case .consumeTab: pendingTabProviderChanges -= 1; return
+            case .ignore: return
+            case .userSwitch: break
             }
             Logger.shared.info("User switched right provider to \(newId)")
             // Mirror of the left handler above, releasing the pin from the LEFT pane instead.

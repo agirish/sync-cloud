@@ -623,6 +623,36 @@ import Foundation
                 "the neighbour to the right does not inherit the pane")
     }
 
+    /// **The tab a discard lands on need not be on the pane's own source.**
+    ///
+    /// The premise behind `tabAction`'s adopt-after-discard: `discardDeadTabs` stops at the first
+    /// neighbour the pane *can show*, and "can show" is a wider set than "is currently on". Without
+    /// this, the host's `.unavailable` branch looked complete — it takes the landed tab's search
+    /// field — while leaving the pane pointed at the old source, showing the landed tab's folder
+    /// path under the wrong root and then saving that tab with the wrong source id.
+    @MainActor
+    @Test func aDiscardCanLandOnATabFromAThirdLiveSource() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
+                                     PaneTab(providerId: "GoneDrive", relativePath: "Ghost"),
+                                     PaneTab(providerId: "GoogleDrive", relativePath: "Docs")])
+        manager.focusOn(relativePath: "Keep", isLeft: true)
+        let dead = manager.leftPaneTabs.tabs[1].id
+        manager.switchTab(to: dead, isLeft: true, currentProviderId: "iCloud")
+
+        // Both iCloud and GoogleDrive are enabled; only GoneDrive is switched off.
+        let outcome = manager.discardDeadTabs(startingAt: dead, isLeft: true,
+                                              currentProviderId: "iCloud",
+                                              isAvailable: { $0 != "GoneDrive" })
+
+        #expect(outcome.discarded == ["GoneDrive"])
+        let landed = try #require(outcome.landed)
+        #expect(landed.providerId == "GoogleDrive",
+                "the pane landed on a source that is neither the dead tab's nor its own")
+        #expect(landed.providerId != "iCloud",
+                "so the host cannot assume the landing is on currentProviderId — it must adopt")
+        #expect(landed.combinedRelativePath == "Docs")
+    }
+
     /// A strip whose every tab is on a removed source ends on ONE tab at the live source's root —
     /// the rebuild branch — rather than looping or leaving a dead one live.
     @MainActor
