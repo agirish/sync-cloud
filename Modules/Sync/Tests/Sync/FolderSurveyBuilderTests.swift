@@ -408,17 +408,25 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// spelling added to the renamer's vocabulary reaches anchor suppression too. This pins that the
     /// derivation still covers what the hand-written list covered, and that `sept` — measured as a
     /// keeper on the reference tree — is still absent from it.
+    /// **Checked against an independent literal, not against the tables it is derived from.** The
+    /// obvious form of this test — assert every entry of `monthAbbreviations` and `monthFullNames`
+    /// is in `monthWords` — is `Set(A+B).contains(each of A+B)`, which is true of any derivation
+    /// from those two tables including a broken one, and would have been the only check left after
+    /// the hand-written list it replaced was deleted. So the list it replaced is restored here, as
+    /// the expected value: the measured vocabulary, spelled out, on the other side of the equals.
     @Test func theMonthVocabularyTracksTheRenamer() {
-        for abbreviation in OrdinalMonthName.monthAbbreviations {
-            #expect(FolderSurveyBuilder.monthWords.contains(abbreviation.lowercased()))
-        }
-        for full in OrdinalMonthName.monthFullNames {
-            #expect(FolderSurveyBuilder.monthWords.contains(full))
-        }
-        #expect(FolderSurveyBuilder.monthWords.count == 23,
-                "12 abbreviations + 12 full names, with `may` shared by both")
+        let measured: Set<String> = [
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+            "january", "february", "march", "april", "june", "july", "august", "september",
+            "october", "november", "december",
+        ]
+        #expect(FolderSurveyBuilder.monthWords == measured,
+                "the derived month list stopped matching the one measured on the reference tree")
         #expect(!FolderSurveyBuilder.monthWords.contains("sept"),
                 "`sept` is a measured keeper — deriving the list must not quietly add it")
+        // Lowercasing is applied to both tables and is load-bearing: the tokens this set is matched
+        // against are always lowercased, so an uppercase entry would suppress nothing.
+        #expect(FolderSurveyBuilder.monthWords.allSatisfy { $0 == $0.lowercased() })
     }
 
     /// Which name forms count as a person folder comes from ``Person/nameForms``, the same union the

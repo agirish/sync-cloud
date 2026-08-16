@@ -416,9 +416,13 @@ import Testing
         let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "abhishek", in: dir))
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let note = try #require(object["note"] as? String)
-        #expect(!note.contains("`naming`, `anchors` and `axes` are left empty"),
+        #expect(!note.contains("left empty rather than guessed"),
                 "the note still claims the survey derives no anchors or axes")
-        #expect(note.contains("naming"), "the one field genuinely abstained from should be named")
-        #expect(note.contains("anchors"))
+        #expect(!note.lowercased().contains("falls back to folder names"),
+                "the note still tells its reader filing ignores what the survey derived")
+        #expect(note.contains("DERIVED"),
+                "the note should say plainly that anchors and axes are derived, not merely omit the old claim")
+        #expect(note.contains("`naming` is the exception"),
+                "the one field genuinely abstained from should still be called out")
     }
 }

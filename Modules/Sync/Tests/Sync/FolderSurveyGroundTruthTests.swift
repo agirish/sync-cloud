@@ -210,6 +210,14 @@ enum FolderSurveyGroundTruth {
     /// budget can only turn that into a red two minutes later on every unattended run. An explicit
     /// skip naming the reason is the honest outcome — the suite is machine-pinned already, so it
     /// carries no CI verdict to lose.
+    ///
+    /// **Two limits worth knowing.** It is a skip, so the only test that can say whether the survey
+    /// rules still match the real tree may go a long time without running, and nothing reports that
+    /// — check it deliberately after changing a rule rather than trusting a green package run. And
+    /// the query needs a window server: from an SSH session, or with no display attached,
+    /// `CGMainDisplayID()` gives the null display and this reads AWAKE, so the gate does not protect
+    /// a headless run. Neither is a reason to drop it — it turns the one observed failure mode from
+    /// an 8,888s hang into an instant, labelled skip.
     static var displayIsAwake: Bool { CGDisplayIsAsleep(CGMainDisplayID()) == 0 }
 
     static let report: Report? = {
@@ -296,7 +304,12 @@ enum FolderSurveyGroundTruth {
 
     /// The wall-clock budget for the whole live walk.
     ///
-    /// **Not a performance bar — the thing that makes this suite fail instead of hang.** A warm
+    /// **Not a performance bar, and not the thing that handles the stall this was written for.** The
+    /// budget is checked between `contentsOfDirectory` calls, so it bounds a walk that is *slow* —
+    /// it cannot interrupt one blocked inside a single call, which is what the observed stall is (no
+    /// progress at all, main thread idle at 0% CPU). ``displayIsAwake`` is what covers that mode;
+    /// this covers the glacial one, and means a walk that degrades rather than stops ends in a named
+    /// failure instead of an open-ended wait. A warm
     /// attended walk of this tree measures ~84ms and a cold one ~1.05s, and even under Rosetta it
     /// measured 10.8s, so two minutes is far above anything a working walk does. What it is sized
     /// against is the stall: an iCloud-backed `~/Documents` makes no progress while the display is
@@ -306,9 +319,7 @@ enum FolderSurveyGroundTruth {
     ///
     /// A `.timeLimit` trait could not have covered this: the block is a non-cancellable
     /// `contentsOfDirectory` syscall inside a lazy static, not a task the runner can cancel. For the
-    /// same reason this budget cannot rescue a walk wedged *inside* one such call — it bounds the
-    /// case where progress is merely glacial, and ``displayIsAwake`` gates the case where it stops
-    /// altogether.
+    /// same reason this budget cannot rescue a walk wedged *inside* one such call.
     static let walkBudget: TimeInterval = 120
 
     /// A depth-first walk producing the nodes directly inside `url`. Symlinks are marked and never

@@ -203,7 +203,7 @@ import Testing
     ///
     /// Written as one tree with all three kinds present, and asserted through `parents` — the list
     /// the dialog shows — so a partial fix that drops one kind and keeps another still fails.
-    @Test func foldersTheSurveyWillNeverStampAreNotCounted() {
+    @Test func foldersTheSurveyWillNeverStampAreNotCounted() throws {
         let real = Self.tree(["Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts"])
         let ignorable = [
             FileNode(id: "/root/.Trash", name: ".Trash", isDirectory: true, children: [
@@ -226,10 +226,10 @@ import Testing
 
         let candidates = JurisdictionCandidates.propose(tree: real + ignorable, root: "/root")
 
-        let us = try? #require(candidates.first { $0.value == "US" })
-        #expect(us?.parents == ["Finance", "Legal", "School"],
+        let us = try #require(candidates.first { $0.value == "US" })
+        #expect(us.parents == ["Finance", "Legal", "School"],
                 "a dot-directory, a symlink or an unexplored folder reached the evidence the dialog shows")
-        #expect(us?.folderCount == 6,
+        #expect(us.folderCount == 6,
                 "the blast radius counted folders the survey never gives an entry to")
     }
 
@@ -243,16 +243,16 @@ import Testing
     /// The other three parents are what get `US` proposed at all; the repeat is the folder under
     /// test. Ten folders carry `US` somewhere in their path — three single-depth branches at two
     /// each, plus four down the repeating branch (`Taxes/US`, `…/Consulate`, `…/Consulate/US`,
-    /// `…/Visa`). The old rule counted fourteen, because the two folders below the second `US`
-    /// matched twice each.
-    @Test func aValueRepeatedInOnePathCountsThatFolderOnce() {
+    /// `…/Visa`). The old rule counted **twelve**: eight of the ten matched once and the two below
+    /// the second `US` matched twice each.
+    @Test func aValueRepeatedInOnePathCountsThatFolderOnce() throws {
         let candidates = JurisdictionCandidates.propose(tree: Self.tree([
             "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",
             "Taxes/US/Consulate/US/Visa",
         ]), root: "/root")
 
-        let us = try? #require(candidates.first { $0.value == "US" })
-        #expect(us?.folderCount == 10,
+        let us = try #require(candidates.first { $0.value == "US" })
+        #expect(us.folderCount == 10,
                 "a folder whose path repeats the value was counted once per occurrence")
     }
 }

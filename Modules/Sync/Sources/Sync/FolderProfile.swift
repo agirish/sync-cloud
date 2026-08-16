@@ -112,21 +112,29 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
     /// The two are separate keys and a path can set both — `…/H-1B/2016-2019/…/2016` does, on the
     /// reference tree, four times — so a fixed `year ?? fiscalYear` precedence answers with whichever
     /// key happens to be named first rather than with the folder the value describes. On those four
-    /// it is right by luck: the bare year is the deeper component there. Reverse the nesting, which
-    /// an Indian fiscal folder under a calendar-year parent does (`2015/2014-2015`), and it hands
-    /// back the ancestor's year for a folder that is about the span. `FilingRouter.foldersByYear`
-    /// groups on this and `RenamePlanner` compares its wrong-year flag against it, so a November 2014
-    /// statement correctly filed in the fiscal folder gets questioned.
+    /// it is right by luck: the bare year is the deeper component there, so the first arm already
+    /// returns it, and **nothing on the reference tree changes answer here**. The case it gets wrong
+    /// is the reverse nesting — a fiscal span under a calendar-year parent, `2015/2014-2015` — which
+    /// this tree does not currently contain but the domain produces wherever Indian fiscal folders
+    /// sit under a year. There the ancestor's calendar year came back for a folder about the span,
+    /// and `FilingRouter.foldersByYear` groups on this while `RenamePlanner` compares its wrong-year
+    /// flag against it, so a correctly filed November 2014 statement gets questioned.
     ///
-    /// Both axis values are components of this entry's own path, so scanning it from the deepest end
-    /// answers the question without needing the profile to record depth — which would change the
-    /// on-disk shape and break interchangeability with the offline builder.
+    /// The scan runs **only when both values are components of this entry's own path**, which is
+    /// what makes it a depth question at all. That holds for every entry either builder produces
+    /// today — verified across all 3,013 folders of the hand-built profile — but a profile that
+    /// recorded an axis as a fact rather than as a component would otherwise have its answer
+    /// silently changed by a scan that found only one of the two. Falling back to the old precedence
+    /// there keeps this a strict refinement.
     public var yearKey: String? {
         let year = axes["year"], fiscal = axes["fiscalYear"]
         if let year, let fiscal {
-            for component in path.split(separator: "/").reversed() {
-                if component == year { return year }
-                if component == fiscal { return fiscal }
+            let components = path.split(separator: "/")
+            if components.contains(where: { $0 == year }) && components.contains(where: { $0 == fiscal }) {
+                for component in components.reversed() {
+                    if component == year { return year }
+                    if component == fiscal { return fiscal }
+                }
             }
         }
         if let y = year ?? fiscal { return y }

@@ -246,7 +246,10 @@ extension FilingProfileStore {
     ///    deliberately no `overwrite:` parameter; a caller that wants to replace a profile has to
     ///    move the old file itself, in the open.
     /// 2. **It writes atomically**, so the file is only ever a whole profile — the same rule
-    ///    ``FilingSurveyStore`` takes for the memory.
+    ///    ``FilingSurveyStore`` takes for the memory. And if the index write that follows fails, the
+    ///    profile is removed again: a profile nothing points at is also one every retry would refuse
+    ///    with `profileExists`, which is the one state a caller cannot get out of. The empty
+    ///    directory is left behind, harmlessly — `createDirectory` does not mind finding it.
     /// 3. **It touches `profiles.json` only when ``activeProfileId(in:)`` is nil**, and amends the
     ///    existing document rather than rewriting it, so a hand-built index keeps every field and
     ///    every other profile it lists.
@@ -335,7 +338,16 @@ extension FilingProfileStore {
     /// overwriting are the ones it just failed to read. A malformed field is therefore a refusal
     /// here and an absence there.
     private static func indexForAmending(in directory: URL) throws -> IndexReading {
-        guard let data = try? Data(contentsOf: indexURL(in: directory)) else {
+        let url = indexURL(in: directory)
+        guard let data = try? Data(contentsOf: url) else {
+            // **"Absent" and "there but unreadable" are different answers**, and a `try?` alone
+            // conflates them. A `profiles.json` that exists and cannot be read — mode 000, an ACL,
+            // an I/O error — would otherwise look like a fresh machine, and an atomic write needs
+            // permission on the *directory* rather than the file, so composing a new index over it
+            // would succeed and orphan every profile the old one named.
+            guard !FileManager.default.fileExists(atPath: url.path) else {
+                throw WriteRefusal.indexUnreadable("it exists but could not be read")
+            }
             return IndexReading(object: nil, activeProfileId: nil)
         }
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -359,6 +371,10 @@ extension FilingProfileStore {
             guard let id = raw as? String else {
                 throw WriteRefusal.indexUnreadable("activeProfileId is not a string")
             }
+            // An empty id names no profile — `profiles//folder-profile.json` resolves to nothing —
+            // so it is treated as "nothing active" and may be re-pointed. ``activeProfileId(in:)``
+            // returns it verbatim, which is the one place the two readers still differ; harmless
+            // because every consumer of that value fails to load a profile for it anyway.
             active = id.isEmpty ? nil : id
         }
         return IndexReading(object: object, activeProfileId: active)
@@ -415,10 +431,12 @@ extension FilingProfileStore {
             What each folder IS — role, axes, naming convention, and whether it may receive files. \
             Companion to filing-memory.json, which records what a folder has RECEIVED. A profile \
             written by the app's own survey is derived from folder and file NAMES alone — it opens \
-            no documents — so role, anchors, axes and counts are present and measured, while \
-            `naming` is left empty rather than guessed: a wrong convention would have the rename \
-            pass propose renames toward one nobody has. What a walk cannot see at all, and what \
-            this file therefore never carries, is folderSemantics and the jurisdiction vocabulary.
+            no documents — so role, anchors, axes and counts are DERIVED here rather than left \
+            empty; where a folder's entry carries none, that is the survey finding none, not the \
+            survey declining to look. `naming` is the exception and is always empty: a wrong \
+            convention would have the rename pass propose renames toward one nobody has. What a \
+            walk cannot see at all, and what this file therefore never carries, is folderSemantics \
+            and the jurisdiction vocabulary.
             """
 
         enum Key: String, CodingKey {

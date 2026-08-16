@@ -62,10 +62,16 @@ public enum FolderSurveyBuilder {
         let roster = rosterForms(registry)
         // **Tolerant of a duplicated id, because `people.json` is hand-edited and nothing upstream
         // rejects one.** `Dictionary(uniqueKeysWithValues:)` traps on a repeated key, so a
-        // copy-pasted person block whose id was not changed — a file every other consumer loads
-        // without complaint, since ``PersonRegistry/init(people:source:)`` just overwrites — used to
-        // kill the process here, inside the detached task the survey runs in. Last one wins, which
-        // is what the registry's own dictionaries do with the same input.
+        // copy-pasted person block whose id was not changed killed the process here.
+        // ``PersonRegistry/init(people:source:)`` itself just overwrites, so the file loads fine and
+        // the crash lands somewhere else entirely — this was not the only such site, and the People
+        // settings pane had the same trap on the main actor.
+        //
+        // Last one wins, matching the registry's `tokensByPerson`, which is what decides who
+        // ``PersonRegistry/detect(in:)`` resolves that id to — so the axis value and the matcher
+        // agree. The registry is not uniformly last-wins: `displayForm` and `tokenBreakdown` reach
+        // for `people.first(where:)`, so with a duplicated id they answer from the *first* record.
+        // Nothing here can fix that; keying off the same map `detect` uses is this type's half.
         let displayNames = Dictionary((registry?.people ?? []).map { ($0.id, $0.displayName) },
                                       uniquingKeysWith: { _, latest in latest })
 
@@ -310,8 +316,12 @@ public enum FolderSurveyBuilder {
     /// `sept` is deliberately **not** in either table — the profile keeps it as an anchor (6
     /// folders), and a list assembled by symmetry rather than by measurement would have thrown it
     /// away. Deriving preserves that: `sept` is absent because nothing measured put it there.
+    /// Both tables are lowercased here rather than trusted to be lowercase. `monthFullNames` happens
+    /// to be stored that way and its own doc only promises it is for *recognising* a month, while the
+    /// tokens matched against this set (``anchorWords(_:)``) are always lowercased — so a
+    /// capitalisation there would silently stop month suppression for all twelve full names.
     static let monthWords: Set<String> = Set(
-        OrdinalMonthName.monthAbbreviations.map { $0.lowercased() } + OrdinalMonthName.monthFullNames)
+        (OrdinalMonthName.monthAbbreviations + OrdinalMonthName.monthFullNames).map { $0.lowercased() })
 
     /// The anchor tokenizer: lowercased runs matching `[a-z][a-z0-9&+-]{2,}` — a letter, then at
     /// least two more letters, digits, `&`, `+` or `-`.
@@ -378,13 +388,9 @@ public enum FolderSurveyBuilder {
     /// the survey recorded — and a symlink is skipped because a link and its in-tree target would
     /// be surveyed twice, while a link out of the tree is not this tree's folder.
     ///
-    /// **Public because it is the definition of "a folder this survey covers", and a second opinion
-    /// about that is a defect rather than a duplication.** ``JurisdictionCandidates`` proposes axis
-    /// values by counting folders and reports how many would take each one; when it filtered only on
-    /// `isDirectory` it counted dot-directories, symlinks and unexplored subtrees that the survey
-    /// then never gave an entry to, so the blast radius shown to the user was for a tree the survey
-    /// does not walk.
-    public static func isSurveyed(_ node: FileNode) -> Bool {
+    /// Internal: the folder half of this rule is what other types need, and that is
+    /// ``isSurveyedFolder(_:)`` below.
+    static func isSurveyed(_ node: FileNode) -> Bool {
         !node.name.hasPrefix(".") && node.isSymbolicLink != true
     }
 
@@ -394,6 +400,13 @@ public enum FolderSurveyBuilder {
     /// its parent's `subfolderCount`, because it is really there, but it gets no entry, because its
     /// own counts would be fiction — `children == []` on such a node is a construction artifact,
     /// not an observation.
+    ///
+    /// **Public because it is the definition of "a folder this survey covers", and a second opinion
+    /// about that is a defect rather than a duplication.** ``JurisdictionCandidates`` proposes axis
+    /// values by counting folders and reports how many would take each one; when it filtered only on
+    /// `isDirectory` it counted dot-directories, symlinks and unexplored subtrees that the survey
+    /// then never gave an entry to, so the blast radius shown to the user was for a tree the survey
+    /// does not walk.
     public static func isSurveyedFolder(_ node: FileNode) -> Bool {
         node.isDirectory && isSurveyed(node) && node.isUnexplored != true
     }

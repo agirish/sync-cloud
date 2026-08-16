@@ -2506,8 +2506,13 @@ struct PeopleList: View {
         }
     }
 
+    /// Keyed tolerantly, because `people.json` is hand-edited and nothing rejects a repeated id —
+    /// ``PeopleStore`` hands back exactly what was decoded, and only its own add path disambiguates.
+    /// `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key, so a copy-pasted person block
+    /// whose id was not changed crashed the app the moment this pane rendered, on the main actor.
+    /// Last wins, matching ``FolderSurveyBuilder``'s display-name map over the same file.
     private var allFacts: [String: PersonFilingFacts] {
-        Dictionary(uniqueKeysWithValues: store.people.map { ($0.id, facts(for: $0)) })
+        Dictionary(store.people.map { ($0.id, facts(for: $0)) }, uniquingKeysWith: { _, latest in latest })
     }
 
     private var overview: PeopleOverview {

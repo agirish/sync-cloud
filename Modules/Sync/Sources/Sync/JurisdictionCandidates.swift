@@ -13,8 +13,10 @@ public struct JurisdictionCandidate: Sendable, Equatable, Identifiable {
     /// reads as an employer.
     public let parents: [String]
     /// How many folders would take this value if it were confirmed — the folder named `value` and
-    /// everything beneath it, summed over every occurrence. This is the blast radius, and it is
-    /// what the list is ordered by.
+    /// everything beneath it, **counted once per folder**. A path that names the value at two depths
+    /// (`Taxes/US/Consulate/US`) is still one folder; counting per occurrence inflated the number the
+    /// dialog reports and could reorder the list. This is the blast radius, and it is what the list
+    /// is ordered by.
     public let folderCount: Int
 
     public init(value: String, parents: [String], folderCount: Int) {
