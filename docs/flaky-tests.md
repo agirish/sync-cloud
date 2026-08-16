@@ -1195,6 +1195,33 @@ arch -arm64 xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
 
 If the same five fail there, it is this, and the rerun advice below applies.
 
+**2026-08-16: a hypothesis tested and NOT confirmed — the fixture's own `orderOut`.**
+
+The theory was mechanical and fitted every recorded symptom: `present()` calls `host.orderOut(nil)`
+while the palette is up; ordering the host out could make the child panel post `didResignKey`; and
+`CommandPalettePanelController` answers that notification with `dismiss()`, which removes the panel
+from `host.childWindows` and clears `isPresented`. That would explain the "no window" shape of all
+five expectations, the sub-0.1s failures, and the start at `5c851773`.
+
+**It does not survive measurement, and the numbers are the useful part:**
+
+- A standalone AppKit probe (titled host, borderless `.nonactivatingPanel` child,
+  `makeKeyAndOrderFront`, observer on `didResignKeyNotification`, then `host.orderOut(nil)`) fired
+  the observer on its **first run and on none of the twenty runs after it** — same binary, same
+  machine, no change. So the resign *can* happen and almost never does.
+- On the same morning, `CommandPalettePanelTests` at an unmodified `a5b8e5be` failed **10 of 18
+  twice**, and then, a little over an hour later, **passed 10 runs out of 10** with no code change
+  in between.
+- Removing the `orderOut` on its own does not fix the suite — it *breaks* it, because that call is
+  what keeps the titled host off the screen, which is what `theHostAndItsPanelStayOutOfSight` is
+  there to check.
+
+So the `orderOut` is not established as the cause, a fixture rewrite built on it was reverted
+rather than shipped, and **the honest position is still the one below.** What the trials do add is
+a sharper reproduction rule: on this machine the failure comes and goes in *bursts* over the day
+rather than run to run, so a handful of consecutive passes is not evidence that anything was fixed
+— which is the trap a fix for this will keep setting.
+
 **What is NOT established: why it is intermittent.** A locked screen looked like the answer and is
 not confirmed. `9392107e` failed while locked and passed on a rerun, which fit; then `ec7a9e4f`
 failed with no live app instance running (`~/sync-cloud.log` silent for the whole window) and no

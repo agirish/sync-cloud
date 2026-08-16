@@ -249,6 +249,70 @@ import Design
         // does not disarm the gesture.
         #expect(PaneTabStrip.closableOthers(of: pinnedA, in: [pinnedA, pinnedB, plain]) == 1)
     }
+
+    /// **…and the MENU asks that rule**, which the test above cannot see.
+    ///
+    /// `closableOthers` had exactly one reader — the test. Putting `.disabled(items.count < 2)`
+    /// back on the item leaves the rule in place, every assertion above green, and the inert item
+    /// back on the menu: the "extracted for testability, one revert from unused" shape this repo
+    /// has shipped before. So this reads the REAL menu.
+    ///
+    /// Right-clicking a hosted SwiftUI view is the one interaction a unit test can drive here —
+    /// SwiftUI answers `NSView.menu(for:)` by hit-testing the point, which
+    /// `PaneBarCustomizeSheetTests` established and which also makes this a check that the chip is
+    /// aimable at all. A `TapGesture` would not be reachable; a context menu is.
+    @Test func theMenuDisablesCloseOtherTabsWhenEveryOtherTabIsPinned() throws {
+        func tab(_ title: String, active: Bool = false, pinned: Bool = false) -> PaneTabStrip.Item {
+            PaneTabStrip.Item(id: UUID(), title: title, markImageName: "folder.fill",
+                              isActive: active, fullPath: "/r/\(title)", isPinned: pinned)
+        }
+        /// Right-clicks the FIRST chip and returns its menu items by title and enablement.
+        func menuOnFirstChip(of items: [PaneTabStrip.Item]) throws -> [(String, Bool)] {
+            let strip = PaneTabStrip(items: items,
+                                     onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in },
+                                     onDuplicate: { _ in }, onCopyPath: { _ in }, onNew: {})
+                .frame(width: 600, height: PaneTabStripLadder.stripHeight)
+            let host = NSHostingView(rootView: AnyView(strip))
+            host.frame = CGRect(x: 0, y: 0, width: 600, height: PaneTabStripLadder.stripHeight)
+            // Borderless and never ordered in: a `.titled` window cannot be parked off screen —
+            // `constrainFrameRect` drags it back over whatever he is doing.
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+
+            // Inside the first chip: past the leading edge, at the row's middle.
+            let point = CGPoint(x: 30, y: host.bounds.midY)
+            let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown,
+                                                        location: host.convert(point, to: nil),
+                                                        modifierFlags: [], timestamp: 0,
+                                                        windowNumber: window.windowNumber,
+                                                        context: nil, eventNumber: 0,
+                                                        clickCount: 1, pressure: 1),
+                                     "could not synthesize a right-click")
+            let menu = try #require(host.menu(for: event),
+                                    "right-clicking a tab chip offered no menu at all — it is not aimable")
+            return menu.items.map { ($0.title, $0.isEnabled) }
+        }
+
+        // Three tabs, and the two that are not the target are pinned: nothing to close.
+        let allPinned = try menuOnFirstChip(of: [tab("Target", active: true),
+                                                 tab("Pinned A", pinned: true),
+                                                 tab("Pinned B", pinned: true)])
+        let closeOthers = try #require(allPinned.first { $0.0 == "Close Other Tabs" },
+                                       "the menu no longer offers Close Other Tabs — found \(allPinned.map(\.0))")
+        #expect(!closeOthers.1,
+                "Close Other Tabs is enabled on a strip where every other tab is pinned")
+
+        // The control: one unpinned other, and the same item is live. Without this the check above
+        // would pass just as well on a menu whose every item was disabled.
+        let oneClosable = try menuOnFirstChip(of: [tab("Target", active: true),
+                                                  tab("Pinned A", pinned: true),
+                                                  tab("Plain")])
+        let live = try #require(oneClosable.first { $0.0 == "Close Other Tabs" })
+        #expect(live.1, "Close Other Tabs is disabled even though an unpinned other exists")
+    }
 }
 
 

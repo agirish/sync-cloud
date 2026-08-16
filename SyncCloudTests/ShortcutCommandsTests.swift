@@ -39,13 +39,7 @@ import Foundation
     /// it is added rather than when someone remembers to extend a list.
     @Test func everyEffectiveValueIsHandedToAFocusedSceneValue() throws {
         let source = try Self.publisherSource()
-        let names = source.split(separator: "\n")
-            .compactMap { line -> String? in
-                guard let range = line.range(of: "var effective") else { return nil }
-                let rest = line[range.upperBound...]
-                let name = rest.prefix { $0.isLetter || $0.isNumber }
-                return name.isEmpty ? nil : "effective\(name)"
-            }
+        let names = Self.effectiveValueNames(in: source)
         #expect(names.count >= 12,
                 "found only \(names.count) effective values — this scan would be near-vacuous")
         let body = Self.codeOnly(source)
@@ -141,6 +135,17 @@ import Foundation
         // ⌘K was the one chord published outside this type, and so the one this suspension did not
         // reach: the palette opened over an in-flight destination pick and could route out of it.
         #expect(publisher.effectiveCommandPalette == nil)
+        // ⌘F, and the five tabs added — every one of them published, wired to a chord, and asserted
+        // NOWHERE until now. Dropping `suspended ?` from `effectiveNewTab` let ⌘T open a tab under
+        // the destination picker; from `effectiveCloseTab`, ⌘W fell through to `performClose` and
+        // closed the window out from under the pick. `everySuspendableValueIsCoveredHere` is what
+        // stops the next value being added without landing in these two lists.
+        #expect(publisher.effectiveBeginPaneSearch == nil)
+        #expect(publisher.effectiveNewTab == nil)
+        #expect(publisher.effectiveCloseTab == nil)
+        #expect(publisher.effectiveCycleTab == nil)
+        #expect(publisher.effectiveReopenClosedTab == nil)
+        #expect(publisher.effectiveTabBar == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -160,6 +165,56 @@ import Foundation
         #expect(publisher.effectiveDelete != nil)
         #expect(publisher.effectiveSwitchPaneFocus != nil)
         #expect(publisher.effectiveCommandPalette != nil)
+        #expect(publisher.effectiveBeginPaneSearch != nil)
+        #expect(publisher.effectiveNewTab != nil)
+        #expect(publisher.effectiveCloseTab != nil)
+        #expect(publisher.effectiveCycleTab != nil)
+        #expect(publisher.effectiveReopenClosedTab != nil)
+        #expect(publisher.effectiveTabBar != nil)
+    }
+
+    /// **Every `effective…` the publisher exposes is named in BOTH lists above.**
+    ///
+    /// The two suspension tests are hand-listed, and the list went stale the moment a feature added
+    /// values: ⌘F and the five tab values were published, wired to chords, and silenced by nothing
+    /// any test could see. `everyEffectiveValueIsHandedToAFocusedSceneValue` could not catch it —
+    /// it proves each value is *published*, which the unsuspended ones are.
+    ///
+    /// Derived from both sources rather than from a third hand-kept list, so the fifteenth value is
+    /// covered when it is written rather than when someone remembers this file.
+    @Test func everySuspendableValueIsCoveredHere() throws {
+        let names = Self.effectiveValueNames(in: try Self.publisherSource())
+        #expect(names.count >= 14,
+                "found only \(names.count) effective values — this scan would be near-vacuous")
+        // A known member must be IN the derived set, or a parser that silently matched nothing
+        // would make the loop below vacuous no matter how many values went uncovered.
+        #expect(names.contains("effectiveNewTab"),
+                "the name scan no longer finds a value that is definitely declared")
+
+        let own = Self.codeOnly(try Self.ownSource())
+        for name in names {
+            #expect(own.contains("publisher.\(name) == nil"),
+                    "\(name) is never asserted to fall silent while the chords are suspended")
+            #expect(own.contains("publisher.\(name) != nil"),
+                    "\(name) has no unsuspended control — its `== nil` could be vacuously true")
+        }
+    }
+
+    /// This file's own text, for the coverage scan above.
+    static func ownSource() throws -> String {
+        let text = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
+                                "cannot read this test file — the coverage scan would be vacuous")
+        try #require(text.count > 500, "this file is implausibly short — the scan would be near-vacuous")
+        return text
+    }
+
+    /// The `effective…` property names declared in `ShortcutValuePublisher`.
+    static func effectiveValueNames(in source: String) -> [String] {
+        source.split(separator: "\n").compactMap { line -> String? in
+            guard let range = line.range(of: "var effective") else { return nil }
+            let name = line[range.upperBound...].prefix { $0.isLetter || $0.isNumber }
+            return name.isEmpty ? nil : "effective\(name)"
+        }
     }
 
     /// The Go menu item names the pane it moves focus TO — and it is the only surface that says

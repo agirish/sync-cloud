@@ -483,13 +483,66 @@ import Design
 
     /// The strip is one 34pt row, at every rung — it shares the pane's vertical budget with a
     /// header pinned at 81pt, and a strip that grew a second row would push the list down.
+    ///
+    /// **Measured on a canvas TALLER than a row, because the strip pins its own height.** This
+    /// asserted `rep.size.height == stripHeight` against a bitmap `render()` had just sized to
+    /// `stripHeight` — true by construction at every width, and it could not have failed. The
+    /// clamp is also not a clip: SwiftUI's `.frame(height:)` lets content overflow, so a rung that
+    /// wanted two rows paints *outside* the row rather than growing it, and the pane below wears
+    /// the difference. So the question is asked in pixels, below the row where nothing may be.
     @Test func theStripIsOneRowAtEveryRung() {
+        let canvasHeight = PaneTabStripLadder.stripHeight * 3
         for width in [CGFloat(900), 620, 340, 220] {
-            let rep = render(items: [item("Finance", active: true), item("Photos"), item("Legal"),
-                                     item("Medical"), item("Immigration")], width: width)
-            // `size` is in points; `pixelsHigh` is the backing store, which is 2× on this display.
-            #expect(abs(rep.size.height - PaneTabStripLadder.stripHeight) < 0.5,
-                    "the strip is \(rep.size.height)pt tall at \(width)pt wide")
+            let items = [item("Finance", active: true), item("Photos"), item("Legal"),
+                         item("Medical"), item("Immigration")]
+            let rep = renderInTallCanvas(items: items, width: width, height: canvasHeight)
+            let scale = CGFloat(rep.pixelsHigh) / canvasHeight
+
+            // The control: the row itself really did draw. Without it, a strip that rendered
+            // nothing at all would satisfy the emptiness check below at every width.
+            let row = NSRect(x: 0, y: 0, width: CGFloat(rep.pixelsWide),
+                             height: PaneTabStripLadder.stripHeight * scale)
+            #expect(inked(rep, in: row) > 200,
+                    "the strip drew almost nothing at \(width)pt — the check below would be vacuous")
+
+            // …and below it, nothing. One row's worth of slack under the row is where a second
+            // rank of chips, or a chip taller than its budget, would land.
+            let below = NSRect(x: 0, y: PaneTabStripLadder.stripHeight * scale + 2,
+                               width: CGFloat(rep.pixelsWide),
+                               height: CGFloat(rep.pixelsHigh) - PaneTabStripLadder.stripHeight * scale - 2)
+            #expect(inked(rep, in: below) < 30,
+                    "the strip paints \(inked(rep, in: below)) pixels below its 34pt row at \(width)pt wide — it is not one row")
         }
+    }
+
+    /// Mounts the strip at `width` with **no imposed height**, top-aligned in a canvas of `height`,
+    /// so anything the strip draws outside one row is visible rather than cropped by the bitmap.
+    func renderInTallCanvas(items: [PaneTabStrip.Item], width: CGFloat,
+                            height: CGFloat) -> NSBitmapImageRep {
+        let subject = VStack(spacing: 0) {
+            PaneTabStrip(items: items,
+                         onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in },
+                         onDuplicate: { _ in }, onCopyPath: { _ in }, onNew: {})
+                .frame(width: width)
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, height: height)
+        .background(Color(red: 0.95, green: 0.95, blue: 0.96))
+        .environment(\.colorScheme, .light)
+        .environment(\.controlActiveState, .active)
+        let host = NSHostingView(rootView: AnyView(subject))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            fatalError("no bitmap rep")
+        }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
     }
 }

@@ -189,17 +189,34 @@ import Design
         // Measured from the views themselves, so a rung whose boxes are wider than their pills —
         // any titled rung — is compared against what it actually occupies rather than against the
         // span of its focus rings. See `barWidth`.
-        let widths = (0...ladder.terminal).map { barWidth(view, rung: $0, ladder: ladder) }
+        // **Rings compared against RINGS.** This measured each rung with `barWidth` — the width of
+        // its BOXES — and then compared it to a span read off the drawn bar's focus RINGS, which is
+        // shorter by the outermost title's overhang. The gap was absorbed with a blanket `+ 12` on
+        // every rung, titled or not, and adjacent rungs differ by as little as ~4pt (the documented
+        // non-monotonic pair): a whole missing 8pt `itemGap` fits inside that window. Measuring the
+        // rung's own rings removes the mismatch instead of budgeting for it, so the tolerance goes
+        // back to the ±0.5 the untitled ladder always had.
+        let spans = (0...ladder.terminal).compactMap { ringSpan(view, rung: $0, ladder: ladder) }
+        #expect(spans.count == ladder.terminal + 1,
+                "a rung drew no rings at all — \(spans.count) of \(ladder.terminal + 1) measured")
         for width in stride(from: CGFloat(250), through: 900, by: 25) {
             let drawn = barRings(view, width: width)
             guard let first = drawn.first, let trailing = drawn.map(\.maxX).max() else { continue }
-            // Try both leading edges — with and without the switch's capsule ground — and both
-            // trailing overhangs, since a titled rung's last box may extend past its ring.
+            // Both leading edges — with and without the switch's capsule ground.
             let base = [trailing - first.minX, trailing - first.minX + PaneNavMetrics.segmentPadding]
             #expect(base.contains(where: { span in
-                widths.contains(where: { $0 >= span - 0.5 && $0 <= span + 12 })
-            }), "at \(width)pt the bar spans \(base), no rung of \(widths)")
+                spans.contains(where: { abs($0 - span) < 0.5 })
+            }), "at \(width)pt the bar spans \(base), no rung of \(spans)")
         }
+    }
+
+    /// The span of one rung's focus rings, measured from the same view `barWidth` measures the
+    /// boxes of — so the drawn bar can be compared like with like.
+    private func ringSpan(_ view: PaneHeader, rung: Int, ladder: PaneBarLadder) -> CGFloat? {
+        let variant = view.barVariant(rung, ladder)
+        let drawn = barRings(variant, width: barWidth(view, rung: rung, ladder: ladder))
+        guard let first = drawn.first, let trailing = drawn.map(\.maxX).max() else { return nil }
+        return trailing - first.minX
     }
 
     // MARK: - The ladder's own arithmetic
