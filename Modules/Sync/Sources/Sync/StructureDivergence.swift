@@ -66,8 +66,13 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
 ///   drift, not an era. Without this gate a score-based version rates `Travel/Trips/United States`
 ///   at 1.00, because Arizona holds Phoenix and Nevada holds Las Vegas.
 ///
-/// Run against 2,798 folders those two rules return **two** divergent families — `Finance/US/Income
-/// Tax` (13 years, 4 eras) and `Immigration/Authorization/H-4` — with the controls above quiet.
+/// Run against 2,798 folders those two rules returned **two** divergent families — `Finance/US/Income
+/// Tax` and `Immigration/Authorization/H-4` — with the controls above quiet. Re-run against the
+/// live 3,013-folder profile on **2026-08-16** they return **one**: the H-4 family was reorganised
+/// by hand on 6 Aug and now agrees with itself, which is the outcome this detector exists to
+/// produce. `Finance/US/Income Tax` reports three vouched schemes out of seventeen siblings.
+/// **Keep this number current** — it is the sentence a reader calibrates the silence bar against,
+/// and a stale one reads as a detector that has quietly stopped firing.
 ///
 /// One detector is deliberately **absent**: *duplicated taxonomy* (two siblings with the same child
 /// names) is dominated by correct parallels — Vanguard's Roth and Traditional IRAs, four Chase
