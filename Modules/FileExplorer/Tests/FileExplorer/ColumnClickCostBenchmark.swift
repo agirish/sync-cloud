@@ -24,12 +24,19 @@ import Sync
 ///
 /// The scaling read `slowdown = max(1.0, probeMedian / 10ms)` and multiplied a 120ms bar by it. The
 /// premise — "a genuine render regression is CPU work that slows down with the machine exactly as
-/// the probe does" — is contradicted by measurements taken one file over and recorded in
-/// `docs/flaky-tests.md` §6. During the CI run where `HeaderLadderCostBenchmark` failed on
-/// starvation, **this test reported `slowdown=1.00x`**: the probe sat at nominal while the render
-/// arms were inflated, so `max(1.0, …)` floored the multiplier and the bar never stretched. The
-/// probe read 9.2ms idle against 7.4ms on that contended run — anti-correlated with the thing it
-/// was hired to detect.
+/// the probe does" — does not survive the measurements recorded in `docs/flaky-tests.md` §6. Be
+/// precise about which numbers are this test's, since the whole point here is a figure that was
+/// believed without being checked:
+///
+/// - **This test's own recorded reading is `slowdown=1.00x`**, printed during the CI run where
+///   `HeaderLadderCostBenchmark` failed on starvation. Its probe was at or below nominal, so
+///   `max(1.0, …)` floored the multiplier and the bar did not stretch. This test passed that run,
+///   so there is no inflated ColumnClick median recorded beside it.
+/// - The 9.2ms-idle against 7.4ms-contended pair belongs to the **sibling's** probe, not this one.
+///   It is the direct evidence that a CPU probe is anti-correlated with this machine's starvation;
+///   it is quoted here as the sibling's, because that is what it is.
+/// - The 163ms figure is from a separate, earlier deliberate-starvation run, whose `slowdown` print
+///   was not recorded.
 ///
 /// It reads that way because a tight FNV loop and a run-loop-driven render are starved by different
 /// things: the loop only wants a core, while the render waits on the main run loop, the window
@@ -169,20 +176,24 @@ import Sync
     }
 
     /// One fixed chunk of CPU-bound work (FNV-1a over a counter), timed on the calling thread.
-    /// Its wall time is the load probe: on an idle machine it costs `nominalProbeMs`; when the
-    /// scheduler is starving this process it stretches by the same factor the render work does.
-    /// The iteration count is FIXED — sizing it by wall time would absorb the very slowdown it
-    /// exists to measure.
+    /// Its wall time was the load probe, and is now printed for diagnosis only: it cost ~10ms
+    /// unloaded when measured on 2026-07-28, and it does **not** reliably stretch when this process
+    /// is starved — see the type comment. Do not restore it as a load signal for a render. The
+    /// iteration count is FIXED, so the number remains comparable between runs.
     private static let probeIterations = 100_000
-    /// What one probe costs unloaded, in this test process, debug build, on the CI machine.
-    /// Measured 2026-07-28 (samples printed by the test itself). Kept for reading the printed
-    /// probe against — it no longer scales anything.
-    private static let nominalProbeMs: Double = 10.0
-
     /// The render budget, in milliseconds. Sized against the worst starvation measured on this
     /// machine (163ms, nothing regressed) rather than against an idle run, because the scaling that
-    /// was supposed to absorb that never fired. Still far below the ~290ms click this exists to
-    /// catch, and 25x above the ~10ms a healthy render costs.
+    /// was supposed to absorb that never fired.
+    ///
+    /// **The squeeze is real and worth stating rather than glossing.** A healthy render is ~10ms and
+    /// the regression this exists to chase was reported at ~290ms, so between the 163ms noise floor
+    /// and that signal there is not much room: at 250ms a pane that regressed to 250-289ms would
+    /// pass. The alternative is a tighter bar that fires on a starved run, which is the failure mode
+    /// this whole change is about — and the old 120ms bar was *already* below the noise floor,
+    /// protected only by a multiplier that never applied. So this is strictly better than what it
+    /// replaces, and still not comfortable. If a render regression is ever suspected in that band,
+    /// the number to move is this one, and the thing to measure first is whether 163ms is still the
+    /// worst this machine does.
     private static let budgetMs: Double = 250.0
 
     private func probeMs() -> Double {

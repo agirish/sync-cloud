@@ -39,18 +39,18 @@ import Testing
 /// **It does not cover the other regression this test claims, so that one is measured separately.**
 /// A saving is a difference of two layouts, and it stays comfortable while the computed arm nearly
 /// doubles — the retired ratio would have caught that, which is the one thing it was better at. So
-/// `rung(fitting:)` is timed on its own, away from any view building, against
-/// ``maximumRungMicroseconds``. That is the claim "the arithmetic is still arithmetic" stated
-/// directly instead of inferred from a subtraction, and it is three orders of magnitude from the
-/// regression it guards.
+/// building the ladder and choosing a rung is timed on its own, away from any view building, against
+/// ``maximumRungMicroseconds``. That states the claim directly instead of inferring it from a
+/// subtraction, with one to two orders of magnitude between the measurement and the regression it
+/// guards — see that constant for what is and is not in the timed pair.
 ///
 /// A saving failure is therefore **two-valued and the message says so**: the search is back, or the
 /// header row itself became cheap enough that the floor needs re-deriving. The rung ceiling tells
 /// them apart.
 ///
 /// An absolute millisecond floor is legitimate here for the reason `ColumnClickCostBenchmark` may use
-/// its 120ms budget: `.machinePinned(.calibratedTiming)` means this suite only runs on the machine
-/// these numbers were calibrated on, which is also the CI runner.
+/// its own fixed budget: `.machinePinned(.calibratedTiming)` means this suite only runs on the
+/// machine these numbers were calibrated on, which is also the CI runner.
 ///
 /// The probe is kept, but it is **diagnostic only and deliberately not used in the assertion** — the
 /// previous comment claimed the bar "stretches by that factor" and no code ever did that. It is also
@@ -126,14 +126,21 @@ struct HeaderLadderCostBenchmark {
     /// became expensive"; only the first is true of a saving. With `searched` ~22ms and `computed`
     /// ~9ms, the computed arm can nearly double before the saving falls to a 6ms floor — the ratio
     /// this replaced would have caught that at ~12ms. Bringing the ratio back is not the answer,
-    /// because contention is what broke it. Measuring the claim where it lives is: `rung(fitting:)`
-    /// is pure arithmetic over `Facts`, so it can be timed away from any view building at all.
+    /// because contention is what broke it. Measuring the claim where it lives is.
     ///
-    /// That makes the bar insensitive to load and still sharp: the regression it guards is layout
-    /// work reappearing inside the rung calculation, which costs **milliseconds** per call against
-    /// the microseconds below — building one header row is 10-30ms, or 10,000µs+. So the ceiling can
-    /// sit far above anything contention does to a tight arithmetic loop and still fail the instant
-    /// a view is built in here.
+    /// **What is timed is `HeaderLadder(facts:scale:)` plus `rung(fitting:)`, and that is not "pure
+    /// arithmetic".** The initializer calls `measure(_:scale:)`, which goes through
+    /// `Design.LabelMetrics` for text and SF-symbol widths — cached, but real measurement. Timing
+    /// the pair is the right unit anyway: it is what the computed arm actually does per layout, and
+    /// it means a regression that moves work from `rung` into the initializer is still caught. The
+    /// figure printed as `rung=` is therefore the pair, not the method alone.
+    ///
+    /// What it excludes is view building, which is the whole point: no `NSHostingView`, no row. The
+    /// margin is one to two orders of magnitude rather than the three an earlier draft of this
+    /// comment claimed — one header row costs ~4-5ms (the searched arm builds six for ~24ms, the
+    /// computed arm two for ~10ms), so a single row reappearing in here is ~4,000µs against the
+    /// ceiling below, and the mutation that proved it measured 19,611µs. Enough that load cannot
+    /// reach the bar; not so much that the number deserves rounding up in prose.
     ///
     /// **Calibrated from four runs rather than guessed, and the first guess was wrong.** 40µs looked
     /// generous against an idle 23.73µs and would have failed outright on a contended run:
@@ -145,7 +152,7 @@ struct HeaderLadderCostBenchmark {
     /// | contended | 43.26µs | 15.1ms | 57.72ms | 26.94ms | 1.88x |
     /// | contended | 41.00µs | 16.2ms | 56.62ms | 23.54ms | **1.71x** |
     ///
-    /// 400µs is 9x the worst of those and still 25x below one row build. The same four runs are why
+    /// 400µs is 9x the worst of those and still ~10x below one row build (~4,000µs). The same runs are why
     /// the saving is the right bar for the other claim: it ranged 14.02-26.94ms against its 6ms
     /// floor while **the retired 1.8x ratio would have failed the last run outright** — a fourth
     /// flake, on an unchanged tree, measured here rather than argued.
@@ -232,14 +239,18 @@ struct HeaderLadderCostBenchmark {
             computedSamples.append(layoutMs({ computed() }, width: width))
         }
 
-        // The arithmetic on its own, with no view building anywhere near it — the direct form of
-        // "the rung calculation is still cheap", which the saving cannot express.
+        // Building the ladder and choosing a rung, with no view building anywhere near it — the
+        // direct form of "choosing a rung is still cheap", which the saving cannot express.
         var rungSamples: [Double] = []
+        var rungSink = 0
         for _ in 0..<15 {
             let started = CFAbsoluteTimeGetCurrent()
             for _ in 0..<Self.rungIterations {
                 let ladder = HeaderLadder(facts: f.facts, scale: 1)
-                _ = ladder.rung(fitting: width)
+                // Summed, not discarded: `probeMs()` keeps its accumulator observable for exactly
+                // this reason, and a loop whose result nothing reads is one an optimising build may
+                // delete, leaving the ceiling to pass over a measurement that never happened.
+                rungSink &+= ladder.rung(fitting: width).hashValue
             }
             rungSamples.append((CFAbsoluteTimeGetCurrent() - started) * 1_000_000)
         }
@@ -250,6 +261,8 @@ struct HeaderLadderCostBenchmark {
         let saving = searchedMedian - computedMedian
         let speedup = searchedMedian / computedMedian
         let rungMicroseconds = rungSamples.sorted()[rungSamples.count / 2] / Double(Self.rungIterations)
+        // Keeps the accumulator observable, the same way `probeMs()` does with its FNV sum.
+        #expect(rungSink != Int.min, "the rung loop was optimised away")
         // `speedup` and `probe` are printed for diagnosis and neither is asserted on — see the type
         // comment for why the ratio was retired and why the probe cannot stand in for load.
         print("BENCH header rung: searched=\(String(format: "%.2f", searchedMedian))ms "
@@ -272,9 +285,10 @@ struct HeaderLadderCostBenchmark {
             + "itself got cheap enough that this floor needs re-deriving"
         #expect(saving > Self.minimumSavingMs, "\(note)")
 
-        let rungNote = "one rung(fitting:) costs \(String(format: "%.2f", rungMicroseconds))µs "
-            + "against a \(String(format: "%.0f", Self.maximumRungMicroseconds))µs ceiling — the "
-            + "arithmetic is doing layout work, not arithmetic"
+        let rungNote = "one HeaderLadder + rung(fitting:) costs "
+            + "\(String(format: "%.2f", rungMicroseconds))µs against a "
+            + "\(String(format: "%.0f", Self.maximumRungMicroseconds))µs ceiling — the ladder is "
+            + "doing layout work, not choosing a rung"
         #expect(rungMicroseconds < Self.maximumRungMicroseconds, "\(rungNote)")
     }
 }

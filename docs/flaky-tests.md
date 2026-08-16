@@ -712,12 +712,15 @@ possibilities, and the rung ceiling is what tells them apart — if it still pas
 expensive and the floor wants re-deriving.
 
 **`ColumnClickCostBenchmark` was scaled by the same probe, and there it really did multiply the
-bar.** `slowdown = max(1.0, probeMedian / 10ms)` against a 120ms budget. During the CI run where the
-header benchmark failed on starvation, this test printed `slowdown=1.00x` — the probe sat at nominal
-while the render arms inflated, so the multiplier floored and the bar never stretched. That is
-protection that existed in prose and never fired, leaving the documented worst case — a starved run
-that pushed this median to **163ms with nothing regressed** — sitting above an unstretched 120ms
-bar. It is now a fixed 250ms: above that worst case, still far below the ~290ms click the test was
+bar.** `slowdown = max(1.0, probeMedian / 10ms)` against a 120ms budget. Keep the runs straight,
+since the point of the entry is a number nobody checked: during the CI run where the *header*
+benchmark failed on starvation, this test printed **`slowdown=1.00x`** and passed, so its multiplier
+was floored and its bar unstretched — no inflated ColumnClick median is recorded beside it. The
+9.2ms-idle against 7.4ms-contended pair is the *header* benchmark's probe, and it is the direct
+evidence that a CPU probe is anti-correlated with this machine's starvation. The **163ms with
+nothing regressed** is from a separate, earlier deliberate-starvation run whose `slowdown` print was
+not recorded. Put together: a multiplier that demonstrably does not rise, guarding a bar the
+documented worst case already sits above. It is now a fixed 250ms: above that worst case, still far below the ~290ms click the test was
 built to chase, and legitimate as an absolute because `.machinePinned(.calibratedTiming)` pins it to
 the machine it was calibrated on. The probe is printed and asserted on nowhere.
 
