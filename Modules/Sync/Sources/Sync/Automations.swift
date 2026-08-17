@@ -98,10 +98,18 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
 
     /// True for conditions that may need the file's text extracted. Used to defer the expensive
     /// read. `mentionsAll` counts: a token can be satisfied by content when the name alone misses.
+    ///
+    /// **Written out case by case, with no `default:`, deliberately.** This value is what gates
+    /// building the snippet extractor at all, so a content-reading condition that answers `false`
+    /// here is never given any text to read: the rule shows a green "runnable" pill and then
+    /// matches no file, ever — no error, no log line. A `default:` makes that the automatic fate of
+    /// the next case anyone adds. Its sibling ``AutomationEvaluator/matches(_:_:now:)`` is
+    /// exhaustive for the same reason, and that is exactly why a new case gets *answered* there and
+    /// silently mis-answered here. Adding a case must break the build; leave this switch total.
     public var requiresContent: Bool {
         switch self {
         case .contentContains, .mentionsAll: return true
-        default: return false
+        case .folderNamed, .nameMatches, .kindIs, .largerThanMB, .untouchedForDays: return false
         }
     }
 
