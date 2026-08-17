@@ -191,6 +191,37 @@ private let appFontScales: [CGFloat] = FontSize.allCases.map(\.scale)
                 != ScaledFont.system(size: 12, weight: .semibold).monospacedDigit().nsFont(scale: 1))
         #expect(ScaledFont.system(size: 13).nsFont(scale: 1)
                 != ScaledFont.system(size: 13).nsFont(scale: 1.3))
+        // `.rounded` fell through to `systemFont` until 2026-08-17, so a rounded font resolved to
+        // the default face and measured as it — silently, in the one file whose whole claim is that
+        // its numbers agree with the drawn text. `PaneRowFonts.name` is rounded, so the first
+        // ladder to measure a column row name would have been wrong; nothing measures one today,
+        // which is why this never showed up as a layout bug. It showed up as a wrong number in a
+        // release-notes draft instead.
+        #expect(ScaledFont.system(.body, design: .rounded).nsFont(scale: 1)
+                != ScaledFont.system(.body).nsFont(scale: 1),
+                "a rounded font resolved to the default face — measurements would be off it")
+    }
+
+    /// The width half of the same defect, stated as a number so it cannot pass by the two fonts
+    /// merely being unequal objects. "Birth Certificate" is the string the column-row work
+    /// measured: 95.729pt in SF Pro against 92.917pt in SF Rounded, and the SF Pro figure is the
+    /// one that reached a notes draft as the width of a row that draws the rounded face.
+    @Test func aRoundedFontMeasuresNarrowerThanTheDefaultFace() {
+        let rounded = ScaledFont.system(.body, design: .rounded).nsFont(scale: 1)
+        let plain = ScaledFont.system(.body).nsFont(scale: 1)
+        #expect(rounded.pointSize == plain.pointSize, "premise: same size, so only the face differs")
+
+        func width(_ font: NSFont) -> CGFloat {
+            NSAttributedString(string: "Birth Certificate", attributes: [.font: font]).size().width
+        }
+        let roundedWidth = width(rounded), plainWidth = width(plain)
+        #expect(roundedWidth < plainWidth,
+                "SF Rounded is the narrower face here: \(roundedWidth) vs \(plainWidth)")
+        // A floor on the gap, so a fallback that quietly returns the default face fails rather than
+        // passing on measurement noise. Measured 2.81pt; 1pt is comfortably below it and well above
+        // any rounding the text system does.
+        #expect(plainWidth - roundedWidth > 1,
+                "the two faces measured within 1pt — the rounded design is probably not applied")
     }
 
     // MARK: - The layout facts the ladder's arithmetic assumes
