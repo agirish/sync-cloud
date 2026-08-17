@@ -54,7 +54,7 @@ below them is written under these; nothing in them is open.
 | **What ⌘K does once the pill is a field** | **It focuses the field**, identically to clicking it. | One palette, one surface. The 620pt full-window card stops existing rather than living on beside the inline field. The alternative — chord opens the card, click opens the field — is two palettes. |
 | **What the field shows before you type** | **Recents and places, as ⌘K behaves today.** | The list is down on open, which is most of the value. It also makes persisting recents release-gating rather than a nicety — see §3's correction: `recentsByRoot` does not survive a quit today, so the list would be empty on the first open after every launch. |
 | **Whether it collapses on every dismissal** | **Yes.** Escape and click-away both collapse to the 135pt pill and clear the query. | The rule `ExpandingSearchField` already uses everywhere else, so a live query can never hide behind a collapsed control. |
-| **The status bar's chord** | **⌘/ , matching Finder.** `shortcutsReference` moves to **⌥⌘/**. | ⌘/ is `shortcutsReference` today (`AppChord.swift:51`). **⇧⌘/ was the first answer and it is wrong** — see the note below. ⌥⌘/ is verified free: no chord in the app uses ⌥ at all. |
+| **The status bar's chord** | **⌘/ , matching Finder.** `shortcutsReference` gives it up and keeps **no chord at all** — Help ▸ Keyboard Shortcuts stays exactly where it is. | ⌘/ is `shortcutsReference` today (`AppChord.swift:51`). Two replacements were proposed and both are wrong: **⇧⌘/ is ⌘?**, which Help already holds, and **⌥⌘/ is forbidden outright** — see the two notes below. |
 
 **Why ⇧⌘/ was wrong, and what it costs to have believed it.** ⇧⌘/ **is ⌘?** — shift-slash is the
 question mark — and `SyncCloudApp.swift:596` already binds ⌘? to **Help ▸ SyncCloud Help**, with a
@@ -69,6 +69,29 @@ slash chord" and that answer is true and useless. The check that finds it is
 line is the exception. **Before moving any chord, scan raw `keyboardShortcut` literals as well as
 the registry.** Worth considering separately whether Help should be pulled into `AppChord` so the
 registry is once again the whole answer.
+
+**Why ⌥⌘/ was wrong too, and why it is the worse mistake of the two.** The second answer was ⌥⌘/,
+on the grounds that "no chord in the app uses ⌥ at all". That is true, and it is true *because ⌥ is
+banned* — the reveal is a look-release-press ⌥-hold, so an ⌥-chord fires from inside it and aliases
+whatever badge the user is reading. The first cut shipped exactly that: a user reading the
+magnifier's "⌘F" badge who pressed ⌘F while still holding ⌥ sent ⌥⌘F and folded every folder
+instead of finding anything. `AppChord.foldAllDifferences` records it, `AppChord.tabBar` gives
+Reopen Closed Tab **no chord at all** rather than an ⌥ one, and
+`AppChordTests.noChordContainsOptionSoNothingFiresThroughTheReveal` guards the invariant over the
+whole registry — so implementing ⌥⌘/ would have turned a shipped green test red.
+
+It is the worse mistake because ⌥⌘/ would have reproduced the ⌥⌘F bug on the *worst possible*
+chord: under this very decision ⌘/ becomes the status bar, so the keystroke a user is most likely
+to press while reading the reveal is the one that would have opened the shortcuts reference instead.
+**An empty search result is not evidence that a modifier is free — check whether something forbids
+it.** Absence proves nothing on its own; ⌥ read as spare for precisely the reason it is spare.
+
+The decision follows `tabBar`'s precedent: rather than take a forbidden chord, the command keeps
+none. `ShortcutsWindowCommand` (`MacApp/ShortcutsReference.swift:114`) is already a Help-menu item
+titled "Keyboard Shortcuts"; dropping `.keyboardShortcut` costs the key equivalent and nothing else
+— the item stays where a person looking for it would look. If a chord is wanted back later it needs
+a modifier scanned against the ⌥ ban and the raw `keyboardShortcut` literals both, not just against
+`AppChord.registry`.
 
 **One more that followed from those:** with the card gone, anything that only the card could reach
 goes with it. The card lists workspaces, sources, folders and actions at 620pt; a 440pt dropdown
@@ -408,7 +431,8 @@ runs long — see the note under the list.
    symptom when it is wrong until the toolbar is behind a chevron. The route-table walk from the
    decisions block happens here, before the card is deleted.
 4. **Go to Folder** (§3). Nearly free once 3 lands, pointless before it.
-5. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and the ⌘/ → ⌥⌘/ reassignment.
+5. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
+   shortcuts reference gives the chord up rather than take a replacement.
    Independent of everything above; schedulable against anything.
 6. **The polish batch** (§9). Four small items, no dependencies.
 7. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
