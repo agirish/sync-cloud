@@ -9,8 +9,22 @@ import Testing
 ///
 /// The store tests are the important half — a roster is persisted state, and "it worked in the
 /// window" says nothing about what a relaunch reads back.
+///
+/// **`.machinePinned(.pixelSampling)`** — `ink` below reads painted pixels back out of a live
+/// renderer (`bitmapImageRepForCachingDisplay` + `cacheDisplay` + `colorAt`), which is the declared
+/// meaning of that reason, so this suite has to stand down wherever its siblings do. It shipped as
+/// a bare `@Suite`, the same gap `855d76e5` closed on `PeopleDuplicateIdTests` next door. There is
+/// no consequence while CI is this Mac and excludes only `referenceImages,liveProfile` — the day
+/// the runner moves, the undeclared suite is the one still sampling an uncalibrated renderer while
+/// every suite that declared itself correctly steps aside.
+///
+/// The trait goes on the whole suite, as every pinned suite in this repo applies it, which does
+/// take the fourteen members that sample nothing — the store and registry tests, and the source
+/// scan — down with it. Only `theUnreadableRosterNotePaintsItsMessage` reaches `ink`. That is the
+/// accepted cost of the one-token declaration: a per-test gate is the shape a renamer forgets,
+/// which is the gap `MachinePinnedReason` was minted to close.
 @MainActor
-@Suite struct PeopleSectionTests {
+@Suite(.machinePinned(.pixelSampling)) struct PeopleSectionTests {
 
     /// The real household, which is the fixture worth testing against: three of these people share
     /// a surname with a fourth's given name.
