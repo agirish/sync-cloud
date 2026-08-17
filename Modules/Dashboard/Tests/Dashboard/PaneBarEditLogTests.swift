@@ -11,10 +11,15 @@ import Events
 /// whatever left the bar was still in ⋯ — and `9db37173` ended that. A control taken off the bar is
 /// gone now, and "my Delete button disappeared" had no trace anywhere to read.
 ///
-/// **`.serialized`, and it is load-bearing.** Two tests here assert a line is *absent* from
-/// `Logger.shared.entries`, which is a process-wide buffer shared with every other suite in the
-/// run. This suite is the only thing in the module that writes a `[panebar] User …` line, so
-/// serializing it is what keeps one test's line out of another's absence window.
+/// **What makes the log assertions here safe**, since the note that stood in this spot credited
+/// `.serialized` and that is not the mechanism: `.serialized` orders the tests *within this suite*,
+/// while `Logger.shared.entries` is a process-wide buffer every other suite in the run is writing
+/// into at the same time. Two things do the work. Every read below — presence and absence alike —
+/// writes a UUID marker first and looks only at what follows it, because the buffer is capped at
+/// 1000 entries and a read without a window passes for free once a sibling suite has rolled past
+/// what this test wrote (`docs/flaky-tests.md`, mechanism 12). And the predicate is
+/// `[panebar] User …`, which nothing outside this file writes, so no other suite can land a line
+/// inside one of these windows. `.serialized` sits on top of both and keeps the windows short.
 @MainActor
 @Suite(.serialized) struct PaneBarEditLogTests {
 
@@ -132,7 +137,10 @@ import Events
         let entries = Logger.shared.entries
         #expect(entries.contains { $0.message == marker },
                 "the log window rolled past the marker — read the entries sooner")
-        let written = entries.last { $0.message.hasPrefix("[panebar] User removed Delete") }
+        // Inside the marker window, not across the whole buffer: an identical line left by an
+        // earlier run of this same test would otherwise stand in for the one this run wrote.
+        let written = entries.drop(while: { $0.message != marker })
+            .last { $0.message.hasPrefix("[panebar] User removed Delete") }
         #expect(written?.message == "[panebar] User removed Delete from the pane bar — it is now "
                 + "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
         #expect(written?.level == .info, "a user rearranging their own bar is not a warning")

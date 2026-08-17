@@ -437,4 +437,53 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
                     "SyncCloudApp names a pane-bar control in a log line (“\(name)”) instead of naming what the migration reported")
         }
     }
+
+    /// **The report of what the stored bar cannot show belongs to the delegate, not to `App.init`.**
+    ///
+    /// It used to be a `defer` inside `PaneBarMigration.apply`, whose one production caller is
+    /// `App.init` — and this file says three lines from that call why nothing that WRITES may sit
+    /// there: SwiftUI can re-run `init`, which is exactly why the launch breadcrumb lives in
+    /// `applicationDidFinishLaunching`. Its four neighbours are annotated "the repeat App.init calls
+    /// noted above are harmless" because a repeat writes nothing. This one wrote its whole report
+    /// again, so a user who took a control off two releases ago collected the same paragraph on
+    /// every rebuild of the scene, forever.
+    ///
+    /// A source scan for the same reason its sibling above is one: `applicationDidFinishLaunching`
+    /// is AppKit's to call, and the test host's own launch is not the app's. What is checkable is
+    /// where the call sits, and that is the whole of the fix. `PaneBarMigrationTests.testTheMigration
+    /// ItselfWritesNoReachReport` owns the other end — that `apply` no longer reports — so between
+    /// them a report that ran twice per launch and one that ran not at all both fail.
+    @Test func testTheStoredPaneBarIsReportedOnceFromTheLaunchDelegate() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/SyncCloudApp.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read MacApp/SyncCloudApp.swift")
+        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
+        let call = "PaneBarMigration.reportStoredArrangementReach(defaults: .standard)"
+        let sites = source.components(separatedBy: call).count - 1
+        let wrongCount = "the stored pane bar is reported \(sites) times in SyncCloudApp.swift; it "
+            + "is a per-launch fact and belongs in exactly one place"
+        #expect(sites == 1, "\(wrongCount)")
+        // …and that place is the delegate method that fires exactly once, not `init`. The anchor is
+        // required first: without it the containment check below would read an empty range and pass
+        // by finding nothing. The method's statements are indented eight spaces and every nested
+        // block closes at that depth, so the first `\n    }` is its own closing brace.
+        let delegate = try #require(source.range(of: "func applicationDidFinishLaunching("),
+                                    "applicationDidFinishLaunching is gone or renamed — this scan is vacuous")
+        let tail = source[delegate.upperBound...]
+        let body = tail[..<(tail.range(of: "\n    }")?.upperBound ?? tail.endIndex)]
+        // The positive control: the breadcrumb whose placement rule this follows is in that method,
+        // so a scan that had drifted onto the wrong region fails here rather than passing quietly.
+        let wrongRegion = "the launch breadcrumb is not in this range — the scan is reading a "
+            + "different method from the one the rule is about, and the check below means nothing"
+        #expect(body.contains("launched\")"), "\(wrongRegion)")
+        let notInDelegate = "the reach report is not inside applicationDidFinishLaunching. Back in "
+            + "App.init it repeats for one launch every time SwiftUI rebuilds the scene, which is "
+            + "the whole reason the breadcrumb above it is not in init either"
+        #expect(body.contains(call), "\(notInDelegate)")
+    }
 }
