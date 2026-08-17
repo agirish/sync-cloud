@@ -132,6 +132,25 @@ import Testing
         }
     }
 
+    /// **The trap.** `compare` is equality-based, so two `.absent` sides vote `.unchanged` — a
+    /// pair in which NEITHER side was ever verified answers "go ahead". For a path that genuinely
+    /// was absent and still is, that is correct; for a caller that recorded `.absent` because it
+    /// read the WRONG path, it is a guard that has silently switched itself off.
+    ///
+    /// That is the exact mechanism behind the nested-rename regression
+    /// (`UndoDriftIdentityTests.undoOfANestedNormalizePassReversesTheChildRenameToo`): the
+    /// move-undo snapshotted a path an ancestor rename had already invalidated, recording
+    /// `.absent`. There the destination did exist at undo time, so the pair compared `.changed`
+    /// and the undo was refused; had it been missing on both sides, the same bad snapshot would
+    /// have waved an entirely unverified move-back through instead. Both halves are stated here so
+    /// the property is a decision on the record rather than an accident of `==`.
+    @Test func twoUnverifiedAbsencesCompareUnchangedWhichIsTheTrap() {
+        #expect(ItemIdentity.compare(recorded: .absent, current: .absent) == .unchanged)
+        // An absence on ONE side only is drift, in both directions.
+        #expect(ItemIdentity.compare(recorded: .absent, current: .file(size: 4, modified: nil)) == .changed)
+        #expect(ItemIdentity.compare(recorded: .file(size: 4, modified: nil), current: .absent) == .changed)
+    }
+
     @Test func indeterminateOnEitherSideIsIndeterminate() {
         let file = ItemIdentity.file(size: 10, modified: nil)
         #expect(ItemIdentity.compare(recorded: .indeterminate, current: file) == .indeterminate)
