@@ -211,6 +211,12 @@ public struct FileTreeView: View, Equatable {
     /// outline stopped being an `OutlineGroup`; see `PaneOutlineRows`.
     @State private var expanded: Set<String> = []
 
+    /// The column stack this pane has already carried into its Tree presentation — see
+    /// `carryColumnsIntoTree`, which scrolls only when the parked stack differs from it. Pane
+    /// state for the same reason `expanded` is: it has to survive the branch switch between the two
+    /// presentations, which is the very transition it exists to notice.
+    @State private var carriedStack = PaneBrowsePath()
+
     /// The channel `.cloudDownloadRequested` travels on for THIS pane — `.default` in the app, and
     /// a private `NotificationCenter` in a test that mounts a pane.
     ///
@@ -422,6 +428,59 @@ public struct FileTreeView: View, Equatable {
         // in it.
         DispatchQueue.main.async { attempt() }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.searchRevealRetryDelay) { attempt() }
+    }
+
+    /// Carries a parked column stack over when the pane flips to Tree: opens the folders the
+    /// columns were standing in and brings the deepest one into view.
+    ///
+    /// The two presentations hold "where you are" in different state — Columns in `browsePath`,
+    /// Tree in its own expansion set — so without this the flip dropped the user at the top of a
+    /// tree rooted at the pane's scope, with no sign of the four columns they had just walked. The
+    /// stack itself is never consumed: flipping back to Columns restores those columns exactly.
+    ///
+    /// **Expanding is idempotent; scrolling is not**, so only the scroll is gated on the stack
+    /// having changed since the last carry. This fires on every appearance of the Tree branch — a
+    /// tab switch and a pane collapse as much as a mode flip — and a scroll on each of those would
+    /// yank a tree the user had since scrolled somewhere else.
+    ///
+    /// A live search hit outranks it: that is a place the user asked for by name, this one is a
+    /// place they left behind. See `revealInTree`, which the caller prefers when there is a hit.
+    private func carryColumnsIntoTree(_ proxy: ScrollViewProxy) {
+        let carry = Self.carryOver(expanded, stack: browsePath, treeRoot: currentPath)
+        guard let deepest = carry.deepest else { return }
+        expanded = carry.expanded
+        guard carriedStack != browsePath else { return }
+        carriedStack = browsePath
+        let animation = revealAnimation
+        func attempt() {
+            withAnimation(animation) { proxy.scrollTo(deepest, anchor: .center) }
+        }
+        // Deferred twice, exactly as `revealInTree` is and for the same reason: this runs while
+        // SwiftUI is still applying the update that opened the ancestors, so the list the first
+        // scroll resolves against does not have the deepest row in it yet.
+        DispatchQueue.main.async { attempt() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.searchRevealRetryDelay) { attempt() }
+    }
+
+    /// The carry-over's decision, without a view: which folders the Tree has to open to show where
+    /// the columns were parked, and which row to bring into view.
+    ///
+    /// `deepest` is nil for a resting stack — there is nothing to carry, and the caller must then
+    /// leave the tree's scroll exactly where it is rather than scrolling to its root.
+    ///
+    /// The tree's own root is dropped: it has no disclosure row to open, so unioning it would leave
+    /// a path in the set that no row can ever match (`expansionPruned` keeps it, being under the
+    /// root by definition). Existing expansions are kept for the same reason a search reveal keeps
+    /// them — folders the user opened by hand are theirs, not this function's to close.
+    ///
+    /// Static and non-private so `PaneColumnCarryOverTests` can pin it, exactly as
+    /// `expansionPruned` is: the alternative is a `@State` set no test can read.
+    static func carryOver(_ expanded: Set<String>, stack: PaneBrowsePath,
+                          treeRoot: String) -> (expanded: Set<String>, deepest: String?) {
+        guard !stack.isEmpty else { return (expanded, nil) }
+        let trail = stack.columnDirectories(treeRoot: treeRoot).dropFirst()
+        guard let deepest = trail.last else { return (expanded, nil) }
+        return (expanded.union(trail), deepest)
     }
 
     /// Reveals the current hit in the Columns presentation: open the column stack down to the hit's
@@ -700,7 +759,16 @@ public struct FileTreeView: View, Equatable {
                 // search and move a selection the user had made since — walk to a hit, click a
                 // different file, switch tabs, and the click was silently undone. Revealing is
                 // harmless (the row is already where the walk left it); selecting is not.
-                .onAppear { revealInTree(proxy, selecting: false) }
+                //
+                // The carry-over below is that same arrival seen from the other side: with no hit to
+                // stand on, the place worth landing at is the one the columns were parked in.
+                // Ordered so a hit always wins — `revealInTree` no-ops without one, and
+                // `carryColumnsIntoTree` stands down when there is one rather than fighting it for
+                // the scroll.
+                .onAppear {
+                    revealInTree(proxy, selecting: false)
+                    if search.hit(at: searchHitIndex) == nil { carryColumnsIntoTree(proxy) }
+                }
         }
     }
 
