@@ -42,6 +42,47 @@ import Testing
                 == [.endGuidedReview, .clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: true)])
     }
 
+    /// **A tab-driven source change never asks for `.undoProviderPin`, in ANY state.**
+    ///
+    /// That effect repoints the SIBLING pane's provider and deliberately restores no folder,
+    /// because its own note says the caller's `resetNavigation()` re-homes both panes a moment
+    /// later. `adoptProviderForTab` is the one caller that must never reset — the tab it is
+    /// applying carries the navigation — so pairing the two left the untouched pane claiming one
+    /// source while showing another's tree at a path under the wrong root, and `saveBrowseTabs`
+    /// then wrote that pane's active tab under the wrong source for good. The same "a tab silently
+    /// retargeted to another cloud" defect the tab fixes removed on the near pane, reintroduced on
+    /// the far one by the review dispatch that was supposed to be the safe part.
+    ///
+    /// Every state, because the pin undo is reached only from ONE of them (review set, gone
+    /// inactive) and a test that missed that state would pass on a reducer that still asked for it.
+    @Test func aTabDrivenSourceChangeNeverRepointsTheSiblingPane() {
+        for guided in [false, true] {
+            for review in [false, true] {
+                for active in [false, true] {
+                    let produced = effects(.tabChangedSource,
+                                           state(review: review, active: active, guided: guided))
+                    #expect(!produced.contains(where: {
+                        if case .undoProviderPin = $0 { return true } else { return false }
+                    }), "a tab source change asked to repoint the sibling pane (review: \(review), active: \(active), guided: \(guided))")
+                    #expect(!produced.contains(.restoreCompareState),
+                            "a tab source change fought the user's choice by restoring the comparison")
+                }
+            }
+        }
+        // …and the control: it is not inert. The stale review still goes and a guided review
+        // framed on the old pair still ends, which is why the dispatch is there at all.
+        #expect(effects(.tabChangedSource, state(review: true, active: false))
+                == [.clearDuplicateReview])
+        #expect(effects(.tabChangedSource, state(review: true, active: true, guided: true))
+                == [.endGuidedReview, .clearDuplicateReview])
+        #expect(effects(.tabChangedSource, state(review: false, guided: true)) == [.endGuidedReview])
+        #expect(effects(.tabChangedSource, state()) == [])
+        // The difference from `.providerSwitched` in the one state that separates them, stated as a
+        // comparison so the two cannot be quietly merged back together.
+        #expect(effects(.tabChangedSource, state(review: true, active: false))
+                != effects(.providerSwitched(isLeft: true), state(review: true, active: false)))
+    }
+
     @Test func swapBehavesLikeAProviderSwitch() {
         #expect(effects(.panesSwapped, state(review: true, guided: true)) == [.endGuidedReview, .clearDuplicateReview])
         #expect(effects(.panesSwapped, state(review: true)) == [.clearDuplicateReview])

@@ -195,13 +195,34 @@ import Foundation
         #expect(names.contains("effectiveNewTab"),
                 "the name scan no longer finds a value that is definitely declared")
 
-        let own = Self.codeOnly(try Self.ownSource())
+        // **Bound to the two lists, and to `#expect(` — not to the file.** A whole-file substring
+        // search accepted a value whose two forms both sat in the UNSUSPENDED test
+        // (`#expect(publisher.effectiveFoo != nil)` beside `#expect(!(publisher.effectiveFoo == nil))`),
+        // which says nothing about suspension; and `sourceCodeOnly` strips only whole comment lines,
+        // so a TRAILING comment naming a value satisfied it too — the decoy this suite's own
+        // `bothReasonsToSuspendTheChordsSurviveInTheExpression` was written to defeat.
+        let own = try Self.ownSource()
+        let silenced = Self.codeOnly(try Self.memberBody("func suspensionSilencesEveryPublishedValue", in: own))
+        let live = Self.codeOnly(try Self.memberBody("func anUnsuspendedPublisherPassesEveryValueThrough", in: own))
         for name in names {
-            #expect(own.contains("publisher.\(name) == nil"),
+            #expect(silenced.contains("#expect(publisher.\(name) == nil)"),
                     "\(name) is never asserted to fall silent while the chords are suspended")
-            #expect(own.contains("publisher.\(name) != nil"),
+            #expect(live.contains("#expect(publisher.\(name) != nil)"),
                     "\(name) has no unsuspended control — its `== nil` could be vacuously true")
         }
+    }
+
+
+    /// One member's body: its declaration to the first closing brace at member indentation. The
+    /// same slicer `PaneTabWiringTests` uses, and for the same reason — a fixed window goes stale
+    /// as the file grows and starts answering with a neighbour's text.
+    static func memberBody(_ declaration: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: declaration),
+                                 "\(declaration) is gone — this scan would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"),
+                               "\(declaration) never closes at member indentation")
+        return String(rest[..<end.lowerBound])
     }
 
     /// This file's own text, for the coverage scan above.

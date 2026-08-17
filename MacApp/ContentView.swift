@@ -1349,10 +1349,13 @@ struct ContentView: View {
     /// while file operations are in flight — the provider ids must then stay put too, or the
     /// pane labels would flip over unswapped state.
     func swapPanesAction() {
-        // While discoverProviders() is still awaiting, both id onChanges bail on the bootstrap
-        // guard without decrementing pendingSwapProviderChanges — a swap now would strand the
-        // counter at 2 and silently swallow the user's next two real provider switches. The
-        // window is interactive during bootstrap, so refuse the swap outright.
+        // The window is interactive while discoverProviders() is still awaiting, and a swap there
+        // would repoint panes the bootstrap is still deciding the sources of. Refused outright.
+        //
+        // **This used to say the counter would strand**, because both id `onChange`s bailed on the
+        // bootstrap guard without decrementing. They no longer do: `PaneProviderChange` consumes a
+        // counter BEFORE testing that guard, so a suppressed write is balanced wherever it lands.
+        // The refusal above is still right for the reason given, but stranding is not the reason.
         guard !isBootstrappingProviders else { return }
         guard syncManager.swapPanes() else { return }
         reviewCoordinator.dispatchReview(.panesSwapped)   // the swap redefines the comparison; end the guided review + drop any duplicate review (no restore)

@@ -103,9 +103,13 @@ extension ContentView {
     ///   verb they aimed at a pane; false for the MIRRORED half of a linked open, which lands on the
     ///   sibling precisely because they did *not* aim at it. See `noteWorkingIn`.
     private func tabAction(isLeft: Bool, movesFocus: Bool = true, _ verb: () -> PaneTab?) {
-        // The bootstrap window is interactive, and a provider `onChange` bails on its own guard
-        // there without decrementing the suppression counter — which would strand it and silently
-        // swallow the user's next real source switch. `swapPanesAction` refuses for the same reason.
+        // The bootstrap window is interactive, and a tab verb there would move a pane whose source
+        // the bootstrap has not finished choosing — and `saveBrowseTabs` would then write that over
+        // the strip the restore is about to read. Refused outright, as `swapPanesAction` refuses.
+        //
+        // **This used to say an armed counter would strand here**, because the id `onChange` bailed
+        // on its own bootstrap guard without decrementing. It no longer does — `PaneProviderChange`
+        // consumes the counter first — so that is no longer why this guard exists.
         guard !isBootstrappingProviders else { return }
 
         if movesFocus { noteWorkingIn(isLeft: isLeft) }
@@ -213,7 +217,13 @@ extension ContentView {
     /// - the **lens clear**. "No stale Tidy result outlives its provider" is the manager's own
     ///   rule, and the left strip IS the Organize/Storage rail's strip.
     /// - the **review dispatch**, which ends a guided review framed on the old pair. A no-op when
-    ///   no review is set, which is why the launch restore can share this path.
+    ///   no review is set, which is why the launch restore can share this path. It dispatches
+    ///   `.tabChangedSource` rather than `.providerSwitched`, and the difference is load-bearing:
+    ///   `.providerSwitched` can answer with `.undoProviderPin`, which repoints the SIBLING pane
+    ///   and restores no folder because it expects the caller's `resetNavigation()` to re-home both
+    ///   a moment later. This method exists precisely to NOT reset, so it would have left the other
+    ///   pane claiming one source while showing another's tree — and `saveBrowseTabs` would then
+    ///   persist that tab under the wrong source. The pin is left alone instead.
     ///
     /// Three callers wrote the id themselves and each forgot a different one of those: `.adopt`
     /// skipped all three, the discard branch never wrote the id at all, and the launch restore
@@ -226,7 +236,7 @@ extension ContentView {
         pendingTabProviderChanges += 1
         if isLeft { leftProviderId = id } else { rightProviderId = id }
         Logger.shared.info(log)
-        reviewCoordinator.dispatchReview(.providerSwitched(isLeft: isLeft))
+        reviewCoordinator.dispatchReview(.tabChangedSource)
         syncManager.clearLensResultsForProviderSwitch()
         // Both ids read back AFTER the write above, because the pair key is both of them and one
         // has just changed. `pairKey` sorts, so the order here does not matter — the values do.
@@ -521,6 +531,9 @@ extension ContentView {
     /// strip's order and that chip's own state — so this does not go through `tabAction`.
     func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool) {
         guard !isBootstrappingProviders else { return }
+        // Aimed at this pane's strip like any other verb, so the chords follow — these two do not
+        // go through `tabAction` (the pane does not move), which is exactly how they were missed.
+        noteWorkingIn(isLeft: isLeft)
         Logger.shared.info("User \(pinned ? "pinned" : "unpinned") a browse tab")
         syncManager.setTabPinned(pinned, id: id, isLeft: isLeft)
         saveBrowseTabs(isLeft: isLeft)
@@ -529,6 +542,9 @@ extension ContentView {
     /// Debug, like selecting: a drag emits one line and changes nothing but where a chip sits.
     func moveTab(id: UUID, to index: Int, isLeft: Bool) {
         guard !isBootstrappingProviders else { return }
+        // Aimed at this pane's strip like any other verb, so the chords follow — these two do not
+        // go through `tabAction` (the pane does not move), which is exactly how they were missed.
+        noteWorkingIn(isLeft: isLeft)
         Logger.shared.debug("User reordered a browse tab")
         syncManager.moveTab(id: id, to: index, isLeft: isLeft)
         saveBrowseTabs(isLeft: isLeft)
@@ -936,6 +952,19 @@ enum PaneTabProviderSwitch: Equatable {
 /// failed in both directions at once: a bootstrap-time write left its counter stranded (swallowing
 /// the user's next real switch), and the launch tab restore's write ran the full user-switch path,
 /// whose `resetNavigation()` wiped the very strip the restore had just put back.
+///
+/// **What this does NOT give you, stated because the first version of this note overstated it.**
+/// Both counters are single integers read by BOTH handlers, and this rule takes no side, so what
+/// is guaranteed is a total — every armed unit is consumed by some handler exactly once — and not
+/// a pairing. If a left write and a right write land in one update with only one of them armed,
+/// whichever handler runs first takes the unit. Today that is invisible: both consuming cases
+/// simply `return`, so mis-attribution between `.consumeSwap` and `.consumeTab` changes nothing.
+/// It stops being invisible the moment those two cases do different work, so they must not.
+///
+/// **And one unarmed bootstrap writer remains**: `applyProviderSelection` writes both ids bare and
+/// relies on the `await` after it to give SwiftUI an update while the guard is still up. That is an
+/// empirical ordering rather than a structural one — this rule protects writes that ARM a counter,
+/// and cannot protect one that does not.
 enum PaneProviderChange: Equatable {
     /// A pane swap flipped the id; it swapped the navigation atomically too.
     case consumeSwap

@@ -441,8 +441,14 @@ public enum PaneBarLayout {
     /// widened by it: it takes no title (Finder labels its Action menu, but our analogue is
     /// Finder's unlabelled `»` overflow), so it stays a pill wide in both modes.
     @MainActor
+    /// `titled` has **no default**, deliberately. It used to, and while the gap was one constant
+    /// that was harmless — every rung was priced identically. Now that the gap depends on it, a
+    /// caller that forgets the argument prices a titled bar's 8pt gaps at 6 with no type error and
+    /// no loud symptom (the bar over-compacts, or overruns its trailing edge). One production
+    /// caller exists, `PaneBarLadder.width(forRung:)`; requiring the argument turns the whole class
+    /// of mistake into a compile error rather than a layout that is quietly a few points wrong.
     public static func width(of plan: PaneBarLayoutPlan, controlSize: ControlSize,
-                             titled: Bool = false, scale: CGFloat = 1) -> CGFloat {
+                             titled: Bool, scale: CGFloat = 1) -> CGFloat {
         let pill = PaneNavMetrics.pill(controlSize)
         var total: CGFloat = 0
         for (index, item) in plan.visible.enumerated() {

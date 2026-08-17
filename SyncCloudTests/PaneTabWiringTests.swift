@@ -432,9 +432,20 @@ import Sync
     /// lens clear, the discard branch never wrote the id at all, the launch restore wrote it with no
     /// suppression). The two assignments below are the ones INSIDE the helper.
     @Test func theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper() throws {
-        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        // Whitespace-normalised first: Swift accepts `leftProviderId=id` and any run of spaces
+        // around the `=`, and a plain substring count sees neither. What this still cannot see is a
+        // write through the projected binding (`$leftProviderId.wrappedValue = id`) — named here
+        // because it is exactly the refactor someone reaches for to delete the ternary below, and
+        // the assertion after this one is what would then catch it.
+        let raw = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let code = raw.replacingOccurrences(of: " +=", with: " +=")
+            .replacingOccurrences(of: #"\s*=\s*"#, with: " = ", options: .regularExpression)
         let writes = code.components(separatedBy: "leftProviderId = ").count - 1
             + code.components(separatedBy: "rightProviderId = ").count - 1
+            + raw.components(separatedBy: "$leftProviderId").count - 1
+            + raw.components(separatedBy: "$rightProviderId").count - 1
+            + raw.components(separatedBy: "_leftProviderId").count - 1
+            + raw.components(separatedBy: "_rightProviderId").count - 1
         #expect(writes == 2,
                 "\(writes) writes of a pane provider id — the helper's own two are the only ones allowed")
         let helper = try Self.memberBody("private func adoptProviderForTab(",
@@ -453,12 +464,23 @@ import Sync
     @Test func adoptingDoesEverythingTheSuppressedHandlerWouldExceptTheReset() throws {
         let body = try Self.memberBody("private func adoptProviderForTab(",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        #expect(body.contains("ignoredItemsStore?.activate("),
+        // Positives through `codeOnly` as well as the negative below: this file has tripped over its
+        // own prose twice, and a doc comment naming any of these would satisfy the check with the
+        // call deleted.
+        let code = Self.codeOnly(body)
+        #expect(code.contains("ignoredItemsStore?.activate("),
                 "a tab-driven source change leaves the ignored-items store on the old pair")
-        #expect(body.contains("clearLensResultsForProviderSwitch()"),
+        #expect(code.contains("clearLensResultsForProviderSwitch()"),
                 "stale Tidy results outlive their provider when a tab changes it")
-        #expect(body.contains("dispatchReview(.providerSwitched("),
+        #expect(code.contains("dispatchReview(.tabChangedSource)"),
                 "a guided review framed on the old pair survives a tab-driven source change")
+        // **Not `.providerSwitched`.** That event can answer with `.undoProviderPin`, which
+        // repoints the SIBLING pane and restores no folder because it expects the caller's
+        // `resetNavigation()` to re-home it — and this method exists precisely to not reset. The
+        // reducer half is `CompareReviewReducerTests.aTabDrivenSourceChangeNeverRepointsTheSiblingPane`;
+        // this is the call site, which is what actually chooses the event.
+        #expect(!Self.codeOnly(body).contains("providerSwitched"),
+                "the tab path is back on the event that can repoint the other pane")
         #expect(!Self.codeOnly(body).contains("resetNavigation()"),
                 "the whole point of the suppression is that the TAB carries the navigation")
     }
@@ -535,6 +557,17 @@ import Sync
                 "the mirrored ⌘T is not the opted-out one")
         #expect(code.contains("tabAction(isLeft: other, movesFocus: false)"),
                 "the mirrored Open in New Tab is not the opted-out one")
+
+        // **The two verbs that do NOT go through `tabAction` say it themselves.** A reorder drag
+        // and Pin/Unpin move only the strip, so they skip the one door — and skipped the focus with
+        // it. Both are aimed at one pane's chips (`onReorder` and the chip's context menu are
+        // separate callbacks from `onSelect`, so neither incidentally selects), so dragging a chip
+        // in the right strip left ⌘W pointed at a one-tab left pane, where it closes the WINDOW.
+        for verb in ["func moveTab(id: UUID, to index: Int, isLeft: Bool)",
+                     "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)"] {
+            #expect(try Self.memberBody(verb, in: source).contains("noteWorkingIn(isLeft: isLeft)"),
+                    "\(verb) changes this pane's strip without saying the user is working in it")
+        }
     }
 
     /// …and an arrival that DOES move the pane reloads exactly once, from the host.
@@ -642,8 +675,10 @@ import Sync
         // Threaded, not hardcoded — the restore runs for BOTH panes, and a right pane that adopted
         // no source would reopen every tab under whichever provider the pane happened to be on,
         // showing the right folder path under the wrong root.
-        #expect(!Self.codeOnly(body).contains("leftProviderId = active.providerId"),
-                "the bare write is back, and the bootstrap guard does not stop it")
+        for side in ["leftProviderId", "rightProviderId"] {
+            #expect(!Self.codeOnly(body).contains("\(side) = active.providerId"),
+                    "the bare \(side) write is back, and the bootstrap guard does not stop it")
+        }
     }
 
     /// **The restore is behind "reopen the last folder", and nothing else says so.**

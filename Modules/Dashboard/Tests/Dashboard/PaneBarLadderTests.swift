@@ -180,9 +180,38 @@ import Design
         }
     }
 
+    /// **Every rung's arithmetic against the bar that rung actually draws.**
+    ///
+    /// `aRungOccupiesTheWidthTheLadderComputes` makes exactly this comparison — drawn `barWidth`
+    /// against computed `ladder.width(forRung:)` — but only at rungs 0 and terminal, so a rung in
+    /// the middle could be mispriced and no test would say so. Measured: adding a constant 40 to
+    /// `PaneBarLayout.width(of plan:)` is caught by that test, and NOT by
+    /// `theDrawnBarIsAlwaysSomeRungOfTheLadder` below, whose two sides are both drawn measurements
+    /// of `barVariant` and therefore agree however the arithmetic drifts. Sweeping the rungs is what
+    /// makes the arithmetic half hold everywhere rather than at the two ends.
+    @Test func everyRungIsPricedAsTheBarItDraws() {
+        let view = Self.header("iCloud Drive")
+        let ladder = view.barLadder
+        for rung in 0...ladder.terminal {
+            // Half a point, for the reason `aRungOccupiesTheWidthTheLadderComputes` gives: a titled
+            // rung's arithmetic lands on a half point where `fittingSize` reports whole ones.
+            #expect(abs(barWidth(view, rung: rung, ladder: ladder) - ladder.width(forRung: rung)) <= 0.5,
+                    "rung \(rung) draws \(barWidth(view, rung: rung, ladder: ladder))pt where the ladder priced \(ladder.width(forRung: rung))pt")
+        }
+    }
+
     /// Whatever rung is chosen, the bar drawn is *one of the ladder's rungs* — not some width in
-    /// between. This is what catches an arithmetic drift that the overflow guard would sit through:
-    /// a bar that fits but is not the bar any rung describes.
+    /// between.
+    ///
+    /// **What this does NOT catch, stated because its comment used to claim otherwise:** it is a
+    /// drawn-against-drawn identity. Both `spans` and the measured bar come from `barVariant`, and
+    /// `ViewThatFits` can only ever draw one of the variants `spans` was measured from — so "the
+    /// drawn bar is *some* rung" is nearly true by construction, and a constant added to
+    /// `PaneBarLayout.width` sails through it (measured). That was equally true of the `+12` version
+    /// this replaced; the rewrite made the tolerance honest, not the test sensitive. The arithmetic
+    /// drift it used to claim is held by `everyRungIsPricedAsTheBarItDraws` above. What remains here
+    /// is still worth having: it is the only check that the rung *selection* lands on a real rung at
+    /// every width, rather than on a bar assembled from some other rung's parts.
     @Test func theDrawnBarIsAlwaysSomeRungOfTheLadder() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
@@ -237,21 +266,34 @@ import Design
         #expect(PaneNavMetrics.itemGap(titled: true) == 8,
                 "the titled bar lost the word spacing it was widened for")
 
-        // …and the arithmetic that spends them: a rung's width must differ between the two modes by
-        // exactly one extra point per gap, and by nothing else the gap can reach.
+        // …and the arithmetic that spends them, **recomputed independently with the literal**.
+        //
+        // This compared the two modes against each other — `titled - untitled >= gaps * 2` — which
+        // is a theorem, not an assertion: `titledWidth` is `max(pill, word)` and so is never
+        // narrower than `width`, and the word overhangs alone clear the floor several times over
+        // (measured: 32.5pt of overhang against a 12pt floor at rung 0). It passed with the gap
+        // difference deleted entirely, in BOTH directions. Only the two constant pins above were
+        // ever doing any work.
+        //
+        // So the untitled rung is priced here from its parts, with `6` written out — the one term
+        // that is not shared with the code under test. Every other term deliberately reuses the
+        // production helper: the subject is the GAP, and re-deriving item widths would only pin
+        // them to a second copy of the same arithmetic.
         let bar = Self.columnsLadder()
-        for rung in 0...bar.terminal {
+        for rung in 0...bar.terminal where !bar.isTitled(forRung: rung) {
             let plan = bar.plan(forRung: rung)
             let size = bar.controlSize(forRung: rung)
+            let pill = PaneNavMetrics.pill(size)
             let gaps = (0..<plan.visible.count)
                 .filter { PaneBarLayout.needsGap(before: $0, in: plan.visible) }.count
                 + ((!plan.overflow.isEmpty && (plan.visible.last.map { $0 != .flexibleSpace } ?? false)) ? 1 : 0)
-            let untitled = PaneBarLayout.width(of: plan, controlSize: size, titled: false)
-            let titled = PaneBarLayout.width(of: plan, controlSize: size, titled: true)
-            // Every item is at least as wide titled (a word may beat a pill), so the difference is
-            // the gaps plus the words — never less than the gaps alone.
-            #expect(titled - untitled >= CGFloat(gaps) * 2 - 0.01,
-                    "rung \(rung): the titled bar is not charging its wider gaps")
+            let items = plan.visible.reduce(CGFloat(0)) {
+                $0 + PaneBarLayout.width(of: $1, pill: pill, compactsViewMode: plan.compactsViewMode)
+            }
+            let expected = items + CGFloat(gaps) * 6 + (plan.overflow.isEmpty ? 0 : pill.width)
+            let priced = PaneBarLayout.width(of: plan, controlSize: size, titled: false)
+            #expect(abs(priced - expected) < 0.01,
+                    "rung \(rung) prices \(priced) where its parts plus \(gaps) six-point gaps come to \(expected)")
         }
     }
 

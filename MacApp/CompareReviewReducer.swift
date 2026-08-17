@@ -21,6 +21,17 @@ enum CompareReviewEvent: Equatable {
     /// no longer active, the OTHER pane may still be carrying the review's programmatic pin, and
     /// that pin is not something the user chose.
     case providerSwitched(isLeft: Bool)
+    /// **A TAB changed a pane's source** — the user chose it, exactly as with `.providerSwitched`,
+    /// but the tab carries the navigation, so its caller (`adoptProviderForTab`) deliberately does
+    /// not `resetNavigation()`. That one difference rules out `.undoProviderPin`, which repoints the
+    /// SIBLING pane and leaves re-homing it to a reset that will never come — the sibling would be
+    /// left claiming one source while showing another's tree, and the next save would write that
+    /// tab's source over for good.
+    ///
+    /// So the review's pin on the other pane is deliberately left in place here. That is what
+    /// happened before tabs dispatched anything at all, it is the conservative half of the choice,
+    /// and stranding a pin is a far smaller harm than repointing a pane the user is looking at.
+    case tabChangedSource
     /// The user edited a pane provider's root path in Settings (the pane ids are unchanged but
     /// the folders underneath them are not). Like a provider switch: a change the user chose,
     /// so drop the review without restoring — but every review framed on the old roots must end.
@@ -61,6 +72,12 @@ enum CompareReviewEffect: Equatable {
     /// choice — and the panes' folders — alone. Narrower than `.restoreCompareState` on purpose:
     /// the user is mid-gesture on the other pane, so putting the saved folders back would yank
     /// them out of it.
+    ///
+    /// **Only for a caller that resets the navigation immediately afterwards.** This writes the
+    /// sibling pane's provider id and deliberately restores no folder, because `undoProviderPin`'s
+    /// own note says the caller's `resetNavigation()` re-homes both panes a moment later. A caller
+    /// that does not reset leaves that pane claiming one source while showing another's tree at a
+    /// path under the wrong root — which the next save then persists. See `.tabChangedSource`.
     case undoProviderPin(keepingUserChoiceOnLeft: Bool)
 }
 
@@ -86,6 +103,12 @@ enum CompareReviewReducer {
                 return endGuided + [.clearDuplicateReview]
             }
             return endGuided + [.clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: isLeft)]
+
+        case .tabChangedSource:
+            // Same shape as a swap, and for a related reason: no pin undo, because the caller does
+            // not reset the navigation this event's `.undoProviderPin` would depend on. The stale
+            // review still goes, and a guided review framed on the old pair still ends.
+            return endGuided + (state.hasDuplicateReview ? [.clearDuplicateReview] : [])
 
         case .comparisonRootEdited, .panesSwapped:
             // The user chose to change the comparison — drop the review WITHOUT restoring (that

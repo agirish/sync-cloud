@@ -300,6 +300,11 @@ import Design
         let allPinned = try menuOnFirstChip(of: [tab("Target", active: true),
                                                  tab("Pinned A", pinned: true),
                                                  tab("Pinned B", pinned: true)])
+        // WHICH chip was hit, before anything is read off its menu: the target is the only unpinned
+        // tab in this fixture, so its menu offers "Pin Tab" where a pinned neighbour's would offer
+        // "Unpin Tab". Without this the assertions below could be answered by the wrong chip.
+        #expect(allPinned.contains { $0.0 == "Pin Tab" },
+                "the right-click did not land on the unpinned target chip — found \(allPinned.map(\.0))")
         let closeOthers = try #require(allPinned.first { $0.0 == "Close Other Tabs" },
                                        "the menu no longer offers Close Other Tabs — found \(allPinned.map(\.0))")
         #expect(!closeOthers.1,

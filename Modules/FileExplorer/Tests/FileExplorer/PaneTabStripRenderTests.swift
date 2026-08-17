@@ -683,21 +683,25 @@ import Design
                          item("Medical"), item("Immigration")]
             let rep = renderInTallCanvas(items: items, width: width, height: canvasHeight)
             let scale = CGFloat(rep.pixelsHigh) / canvasHeight
+            let rowHeight = PaneTabStripLadder.stripHeight * scale
+            let top = (CGFloat(rep.pixelsHigh) - rowHeight) / 2
 
             // The control: the row itself really did draw. Without it, a strip that rendered
-            // nothing at all would satisfy the emptiness check below at every width.
-            let row = NSRect(x: 0, y: 0, width: CGFloat(rep.pixelsWide),
-                             height: PaneTabStripLadder.stripHeight * scale)
+            // nothing at all would satisfy the emptiness checks below at every width.
+            let row = NSRect(x: 0, y: top, width: CGFloat(rep.pixelsWide), height: rowHeight)
             #expect(inked(rep, in: row) > 200,
-                    "the strip drew almost nothing at \(width)pt — the check below would be vacuous")
+                    "the strip drew almost nothing at \(width)pt — the checks below would be vacuous")
 
-            // …and below it, nothing. One row's worth of slack under the row is where a second
-            // rank of chips, or a chip taller than its budget, would land.
-            let below = NSRect(x: 0, y: PaneTabStripLadder.stripHeight * scale + 2,
-                               width: CGFloat(rep.pixelsWide),
-                               height: CGFloat(rep.pixelsHigh) - PaneTabStripLadder.stripHeight * scale - 2)
-            #expect(inked(rep, in: below) < 30,
-                    "the strip paints \(inked(rep, in: below)) pixels below its 34pt row at \(width)pt wide — it is not one row")
+            // …and a clear band on each side of it. A second rank of chips, or a chip taller than
+            // its budget, lands in one or both — `.frame(height:)` centres rather than clips, so it
+            // can overflow upward just as easily as down.
+            for (name, band) in [("above", NSRect(x: 0, y: 0, width: CGFloat(rep.pixelsWide), height: top - 2)),
+                                 ("below", NSRect(x: 0, y: top + rowHeight + 2,
+                                                  width: CGFloat(rep.pixelsWide),
+                                                  height: CGFloat(rep.pixelsHigh) - top - rowHeight - 2))] {
+                #expect(inked(rep, in: band) < 30,
+                        "the strip paints \(inked(rep, in: band)) pixels \(name) its 34pt row at \(width)pt wide — it is not one row")
+            }
         }
     }
 
@@ -705,7 +709,11 @@ import Design
     /// so anything the strip draws outside one row is visible rather than cropped by the bitmap.
     func renderInTallCanvas(items: [PaneTabStrip.Item], width: CGFloat,
                             height: CGFloat) -> NSBitmapImageRep {
+        // **Centred, with a clear band on BOTH sides.** Top-aligned, the region above the row was
+        // off-bitmap — and `.frame(height:)` centres its content, so a chip taller than its budget
+        // overflows equally in both directions and only half the evidence was measurable.
         let subject = VStack(spacing: 0) {
+            Spacer(minLength: 0)
             PaneTabStrip(items: items,
                          onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in },
                          onDuplicate: { _ in }, onCopyPath: { _ in }, onNew: {})

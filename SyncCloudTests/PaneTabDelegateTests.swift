@@ -43,9 +43,13 @@ import Sync
         #expect(d.canCloseTab, "Close Tab is withheld even though the pane has two tabs")
     }
 
-    /// **Read live, not captured.** The delegate is built once per render and the menu opens later;
-    /// a value snapshotted at construction is stale exactly when a tab was opened or closed in
-    /// between, which is the common case for this menu.
+    /// The DOWNWARD direction — two tabs back to one, on the delegate built when there were two.
+    ///
+    /// **Its subject is not isolated, and the doc used to claim it was.** `canCloseTab` is a
+    /// computed property over a class reference, so it is live by construction, and the test above
+    /// already re-reads the same instance after the strip grows — a value snapshotted at
+    /// construction fails that one too. What is only here is closing back down to one tab, which is
+    /// the state where the wrong answer closes the window.
     @Test func theAnswerFollowsTheStripRatherThanTheRenderItWasBuiltIn() {
         let manager = FileSyncManager()
         let d = delegate(syncManager: manager)

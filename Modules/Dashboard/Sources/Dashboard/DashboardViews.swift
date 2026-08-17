@@ -1533,11 +1533,18 @@ enum PaneNavMetrics {
     /// readable "M" at `v4.0` to a glyph sliced down the middle, while claiming "nothing clipped".
     /// `PaneNavMetrics`' own note already said not to buy width out of that pill.
     ///
-    /// So Icon Only and the Large-text fallback price gaps exactly as they did at `v4.0`, which is
-    /// what `theUntitledLadderIsPricedAsItWasBeforeTitles` holds, and only the titled rung pays 8.
+    /// So Icon Only and the Large-text fallback price gaps exactly as they did at `v4.0`, and only
+    /// the titled rung pays 8. `theUntitledLadderIsPricedAsItWasBeforeTitles` holds the untitled
+    /// rungs of the default ladder; it does not separately build an Icon Only or a Large-text one,
+    /// and does not need to — those differ only in having NO titled rung, so every rung of them
+    /// takes the same `titled: false` branch the test already prices.
     ///
-    /// `pairSpacing` deliberately stays at 6 in both, so Back and Forward sit closer to each other
-    /// than to anything else on the bar. They are one item; this is what makes them look like one.
+    /// **`pairSpacing` stays at 6**, which means that on an untitled bar it equals this gap: Back
+    /// and Forward sit exactly as far apart as from everything else, and the pair reads as a pair
+    /// only while the bar is titled. That is the same coincidence `v4.0` shipped, left alone here
+    /// because narrowing it is a design change and this commit is a regression fix — but the note
+    /// that used to sit here claimed the pairing held "in both", which was never true of the
+    /// untitled bar and is worth not re-deriving.
     static func itemGap(titled: Bool) -> CGFloat { titled ? 8 : 6 }
 
     /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
