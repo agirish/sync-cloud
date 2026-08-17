@@ -38,11 +38,15 @@ into a place you can keep several jobs open in at once.
   out — every tab, then tabs at a floor width with the surplus behind a count.
 - **Finder's chords.** ⌘T opens a new tab *here* and the menu item says so, ⌘W
   closes the tab rather than the window once there is more than one.
-- **New Tab is on the pane's own right-click menu**, which is the only route that
-  works at one tab: the row menu needs a folder under the pointer and the strip's
-  menu needs a strip, and a fresh install has neither. **Open in New Tab** also
-  moves above Quick Look in the row menu — with no ＋ on screen until a second tab
-  exists, that item is the whole discovery story.
+- **New Tab is on the pane's own right-click menu, and on the header card's**, which
+  between them are the routes that work at one tab: the row menu needs a folder
+  under the pointer, the strip's menu needs a strip, and the pane's background menu
+  needs empty space below the rows, which a full column does not have. The card is
+  where a Mac user reaches to act on a pane, and it was the one surface with no tab
+  route at all. **Open in New Tab** also moves above Quick Look in the row menu —
+  with no ＋ on screen until a second tab exists, that item is the whole discovery
+  story. Close Tab withholds itself at one tab rather than offering to close the
+  window.
 - **Tabs pin.** A pinned tab keeps its place, and *Close Other Tabs* stops being
   offered when every other tab is pinned and the verb would do nothing.
 - **In Compare, both panes wear the strip together.** Compare reads as one row —
@@ -94,6 +98,17 @@ into a place you can keep several jobs open in at once.
 - **Dragging a control off the pane bar stops showing the copy badge.** macOS put a
   green ＋ on the cursor — the sign for "the item will still be there" — over a
   target whose only job is to delete it.
+
+### People
+
+- **A duplicated person in `people.json` no longer crashes the app.** The roster is
+  a file you can edit by hand, and nothing rejects a repeated id — the registry
+  itself loads such a file without complaint, its dictionaries simply overwriting.
+  Settings ▸ People was the exception: it built its facts with
+  `Dictionary(uniqueKeysWithValues:)`, which *traps* on a duplicate key, on the main
+  actor, in a computed property of the pane. So a copy-pasted person block whose id
+  was not changed took the whole app down on opening that tab. It is tolerant now,
+  last wins, which is what the registry already does with the same input.
 
 ---
 
