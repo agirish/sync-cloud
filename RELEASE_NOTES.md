@@ -36,8 +36,18 @@ into a place you can keep several jobs open in at once.
   workspace, lens or scan had to learn what a tab is.
 - **The strip draws nothing at one tab**, and sheds down three rungs as space runs
   out — every tab, then tabs at a floor width with the surplus behind a count.
-- **Finder's chords.** ⌘T opens a new tab *here* and the menu item says so, ⌘W
-  closes the tab rather than the window once there is more than one.
+- **Finder's chords.** ⌘T opens a new tab *here* and the menu item says so; ⌘W
+  closes the tab rather than the window once there is more than one; ⇧⌘[ and ⇧⌘]
+  walk the strip in both directions; ⇧⌘T shows and hides the bar from the View menu.
+- **⌃⇥ cycles tabs in Browse**, where it had always been dead — there is one pane
+  there, so a chord that moves between panes had nothing to move between, and a
+  strip is exactly the second thing it was missing. Compare keeps it as the pane
+  switch, where two panes do exist, and the menu item's title says which you are
+  getting.
+- **⌘-double-click a folder to open it in a new tab**, and double-click the empty
+  stretch of the strip for a new one. The double is deliberate: a plain ⌘-click is
+  multi-select and has to stay that way, so the second click is what separates "add
+  this to the selection" from "take me there in a new tab".
 - **New Tab is on the pane's own right-click menu, and on the header card's**, which
   between them are the routes that work at one tab: the row menu needs a folder
   under the pointer, the strip's menu needs a strip, and the pane's background menu
@@ -101,14 +111,53 @@ into a place you can keep several jobs open in at once.
 
 ### People
 
-- **A duplicated person in `people.json` no longer crashes the app.** The roster is
-  a file you can edit by hand, and nothing rejects a repeated id — the registry
-  itself loads such a file without complaint, its dictionaries simply overwriting.
-  Settings ▸ People was the exception: it built its facts with
-  `Dictionary(uniqueKeysWithValues:)`, which *traps* on a duplicate key, on the main
-  actor, in a computed property of the pane. So a copy-pasted person block whose id
-  was not changed took the whole app down on opening that tab. It is tolerant now,
-  last wins, which is what the registry already does with the same input.
+- **A repeated id in `people.json` now names one person.** The roster is a file you
+  can edit by hand, nothing rejects a repeated id, and every reader answered it
+  differently: the phrase list took *both* records, the token map took the *last*,
+  `person(id:)` took the *first*, and the Settings list drew the first record twice
+  — so one row showed the first record's name above the last record's facts, and the
+  second person never reached the screen at all. One roster, four readings, in one
+  window. The collapse now happens once, at the single door every reader comes
+  through: last wins, and the first occurrence keeps its position, because the
+  roster is written in display order and a repair should not also reorder it. A pick
+  rather than a merge — a union of two records' name forms is a person neither entry
+  describes.
+- **A person listed twice was switched off by the duplicate.** This is the quiet
+  half and the one worth knowing about: a given name is published only when exactly
+  one id claims it, so somebody listed twice claimed their own given name twice and
+  the claim was dropped — their given-name matching silently disabled by the second
+  entry that looks like it reinforces them. Measured rather than reasoned: with the
+  fix reverted, detecting over a roster that lists Girish twice returns nothing at
+  all for "Girish statement.pdf".
+- **And opening Settings ▸ People no longer crashes on such a file.** That pane
+  built its facts with `Dictionary(uniqueKeysWithValues:)`, which *traps* on a
+  duplicate key — on the main actor, in a computed property of the pane — so a
+  copy-pasted person block whose id was not changed took the whole app down on
+  opening that tab.
+
+### Known limitations
+
+Three things tabs do not do in v4.1. All three are deliberate, and none of them
+puts anything out of reach.
+
+- **⌃⇧⇥ does not cycle tabs backwards.** ⌃⇥ goes forward in Browse, but its shifted
+  partner is registered nowhere. The pair has to split the way ⌃⇥ does — backwards
+  tab in Browse, backwards *pane focus* in Compare — and there is no reverse pane
+  switch to mirror, so doing only the Browse half would leave the two chords scoped
+  differently from each other. **⇧⌘[ and ⇧⌘] cycle both directions everywhere**, so
+  this is a missing second route, not a missing capability.
+- **⌘-double-click opens a new tab in Columns only.** The tree view drives
+  navigation from single taps and disclosure, and a second recognizer on the same
+  row is the shape that broke column navigation once already — it needs a proof that
+  a single click still selects and still discloses before it goes in. **Right-click
+  ▸ Open in New Tab works in both views.**
+- **⌘W closes the window when the focused pane holds one tab**, whatever the other
+  pane holds — so in Compare, a focused pane with one tab and a sibling with five
+  takes the window and all six. That is Finder's rule, and every alternative makes
+  ⌘W conditional on state you cannot see without looking away from the pane you are
+  in. The header card's own **Close Tab** item withholds itself at one tab rather
+  than offering to close the window, so the menu route cannot surprise anyone; this
+  is the chord only.
 
 ---
 
