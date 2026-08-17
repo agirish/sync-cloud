@@ -432,16 +432,19 @@ struct ReviewCardView: View {
             if fileManager.fileExists(atPath: destinationPath, isDirectory: &isDirectory), isDirectory.boolValue {
                 facts.destinationIsDirectory = true
                 let destinationURL = URL(fileURLWithPath: destinationPath)
-                if let enumerator = fileManager.enumerator(at: destinationURL, includingPropertiesForKeys: nil, options: [], errorHandler: nil) {
-                    var count = 0
-                    while enumerator.nextObject() != nil {
-                        count += 1
-                        if count >= childCountCap {
-                            facts.destinationChildCountCapped = true
-                            break
-                        }
-                    }
-                    facts.destinationChildCount = count
+                // `childCount` rather than the bare enumerator this used to drain. The enumerator
+                // comes back NON-NIL yielding zero entries for a folder that cannot be listed, so
+                // the count was 0 and the warning read "0 items on iCloud will be removed" about a
+                // folder whose contents were about to go. Leaving the count nil in that case is
+                // what routes the sentence to its already-written "everything" wording.
+                let counted = fileManager.childCount(of: destinationURL, options: [], cap: childCountCap)
+                switch counted.outcome {
+                case .unreadable:
+                    facts.destinationChildCount = nil
+                case .listed, .listedWithUnreadableDescendants:
+                    facts.destinationChildCount = counted.count
+                    facts.destinationChildCountCapped = counted.isCapped
+                    facts.destinationChildCountIsPartial = counted.outcome == .listedWithUnreadableDescendants
                 }
             }
             return facts
