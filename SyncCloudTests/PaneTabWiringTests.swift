@@ -1680,6 +1680,15 @@ import Sync
     /// is a verb the user aimed at ONE strip, and in Compare the log could not say which.
     /// (`closeOtherTabs` is deliberately not here: its line is about a COUNT, which is the one
     /// thing about that gesture that cannot be recovered afterwards.)
+    ///
+    /// **`copyTabPath` is the eighth, and it was excluded for a reason that had already expired.**
+    /// It wrote "User copied a tab's path: <absolute path>" — no side, and a path is not the chip:
+    /// ⌘T opens the folder you are already in by design, so two strips holding same-titled chips at
+    /// the same path is the ordinary state, not a corner. It sat outside this set because it is the
+    /// one strip verb that moves no pane and so never went through `tabAction`; `becf9cbd` gave it
+    /// `noteWorkingIn`, which put `isLeft` in its hands, and with that the exclusion was only
+    /// habit. Its line keeps the absolute path on the end as well — that is what actually went onto
+    /// the pasteboard, and `tabLogDescription` carries the relative one the chip is named for.
     @Test func theTabLinesNameTheSideTheTabAndItsPath() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         for verb in ["func selectTab(id: UUID, isLeft: Bool)",
@@ -1688,7 +1697,8 @@ import Sync
                      "func duplicateTab(id: UUID, isLeft: Bool)",
                      "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
                      "func moveTab(id: UUID, to index: Int, isLeft: Bool)",
-                     "func reopenClosedTab(isLeft: Bool)"] {
+                     "func reopenClosedTab(isLeft: Bool)",
+                     "func copyTabPath(id: UUID, isLeft: Bool)"] {
             let body = Self.codeOnly(try Self.memberBody(verb, in: source))
             #expect(body.contains("tabLogDescription("),
                     "“\(verb)” writes a line that names no particular tab")
@@ -1707,6 +1717,18 @@ import Sync
         // that tab was parked at — the exact class of bug this log exists to catch.
         #expect(describe.contains("index == list.selectedIndex"),
                 "the active tab is described from its parked snapshot rather than from the live pane")
+
+        // Copy Path carries one thing more than the family does, and the loop above cannot see it:
+        // the ABSOLUTE path, which is what went onto the pasteboard. `tabLogDescription` carries
+        // the RELATIVE path — the thing the chip is named for — so a line built only from it would
+        // no longer say what the user now has in their clipboard. Read from the log call onward
+        // rather than over the member, where `item.fullPath` appears anyway on the `setString`.
+        let copy = Self.codeOnly(try Self.memberBody("func copyTabPath(id: UUID, isLeft: Bool)",
+                                                     in: source))
+        let logCall = try #require(copy.range(of: "Logger.shared.info("),
+                                   "Copy Path no longer writes its line at info")
+        #expect(copy[logCall.upperBound...].contains("item.fullPath"),
+                "Copy Path's line dropped the absolute path it put on the pasteboard — the relative path in `tabLogDescription` is not what was copied")
     }
 
     /// **Each line is taken from the side of its verb that can still answer**, and only one of the

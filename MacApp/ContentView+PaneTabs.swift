@@ -630,7 +630,16 @@ extension ContentView {
         noteWorkingIn(isLeft: isLeft, "Copy Path from a browse tab's menu")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.fullPath, forType: .string)
-        Logger.shared.info("User copied a tab's path: \(item.fullPath)")
+        // **Named like every other strip-aimed verb, which this one was not.** The line was
+        // "User copied a tab's path: <path>" — a sentence with no side in it, and ⌘T deliberately
+        // opens the folder you are already in, so same-titled chips in both strips are the expected
+        // sight and an absolute path does not say which chip the user right-clicked. The side is
+        // free here now that `noteWorkingIn` above needs it. The absolute path stays on the end:
+        // it is what was actually put on the pasteboard, and `tabLogDescription` carries the
+        // RELATIVE one, which is what the chip is named for.
+        Logger.shared.info(
+            "User copied the \(isLeft ? "left" : "right") pane's browse tab "
+            + "\(tabLogDescription(id: id, isLeft: isLeft)) path: \(item.fullPath)")
     }
 
     // MARK: - Persistence and the launch seed
