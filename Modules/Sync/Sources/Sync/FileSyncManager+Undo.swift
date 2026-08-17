@@ -183,6 +183,33 @@ extension FileSyncManager {
         }
     }
 
+    /// Surfaces a move-undo refused because the identity recorded for the item is itself `.absent`
+    /// — there was nothing at the destination when the undo was REGISTERED, so there is nothing
+    /// this undo can be moving back.
+    ///
+    /// Separate from `reportUndoRefusedChangedItem` because neither of that reporter's two
+    /// sentences is true here: nothing changed (both sides are absent, which is why `compare`
+    /// answers `.unchanged`), and nothing failed to be read. Separate from the `vanished`
+    /// breadcrumb too — "no longer on disk" claims the item was on disk and the user removed it,
+    /// and a recorded `.absent` says the opposite.
+    ///
+    /// What it prevents is not a wrong sentence but a wrong ACT: `.unchanged` selected the move
+    /// branch, whose first statement recreates the source's parent directory, so a doomed undo
+    /// built a folder before failing — the very manufacture the branch's own comment says a
+    /// refusal must never perform.
+    nonisolated static func reportUndoRefusedUnrecordedItem(
+        of destination: URL,
+        actionName: String,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage = "Undo (\(actionName)): REFUSED to move \"\(name)\" back to its original location — nothing was recorded at \(destination.path) when this undo was registered, so there is no item to move back; leaving the disk exactly as it is"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo left \"\(name)\" in place — there was nothing to move back")
+        }
+    }
+
     /// Surfaces a REDO that was refused because the item it was about to move back to the
     /// destination is no longer the item its undo put at the source. The undo path has refused this
     /// for both of its own guards since `ItemIdentity` landed; the redo path had nothing, and
@@ -197,6 +224,11 @@ extension FileSyncManager {
     /// A source that is simply GONE is NOT this case: nothing is there to move, and
     /// `reportRedoFailure` already says exactly that. This is only for a source that is present and
     /// demonstrably not ours (`.changed`) or that cannot be read at all (`.indeterminate`).
+    ///
+    /// **"Gone" has to be re-established at the move, not remembered from the pass.** A source
+    /// found absent up front and PRESENT again by the time its own move runs is not the gone case
+    /// at all — it is this one, and reporting it as a missing source would credit the redo with
+    /// having nothing to move while it moved a stranger.
     nonisolated static func reportRedoRefusedChangedItem(
         of source: URL,
         actionName: String,
@@ -866,6 +898,11 @@ extension FileSyncManager {
                         // apart from `leftInPlace` because they are not a refusal: this undo did
                         // not decline to act, there was nothing left to act on.
                         var vanished = 0
+                        // Items whose RECORDED identity is `.absent` — nothing was at the
+                        // destination when this undo was registered. A third category again: not a
+                        // drift refusal (nothing was ever there to drift), and not `vanished`
+                        // (which says the user removed it, and would be a false accusation here).
+                        var nothingRecorded = 0
                         for item in items {
                             var movedBackOK = false
                             // The moved item is GONE. Not drift — nothing is there to be a
@@ -919,6 +956,32 @@ extension FileSyncManager {
                             // case-sensitive volume they're distinct, so a genuine occupant at
                             // item.from must still trip the guard (matches renameItem's isCaseOnly,
                             // which is likewise volume-gated).
+                            // **A recorded `.absent` must not authorise a move.** It is not an
+                            // identity, it is the absence of one, and the drift guard below cannot
+                            // say so: `compare(.absent, .absent)` answers `.unchanged` — correct,
+                            // and useless, because "nothing changed" here means "there was nothing,
+                            // and there still is nothing". That verdict reached the `else` branch,
+                            // whose FIRST statement is `createDirectory(item.from's parent)`, so an
+                            // undo that could only ever throw still manufactured a folder — for a
+                            // normalize batch, the zero-width-space name the pass had just removed.
+                            // Measured on an empty root with a batch recorded against a
+                            // never-created destination: `[]` before ⌘Z, `["P␣"]` after.
+                            //
+                            // The `vanished` branch above does not cover it: that one requires the
+                            // destination's PARENT to exist, and it is precisely the missing-parent
+                            // case that falls through to here. Nor is this that branch's meaning —
+                            // "no longer on disk" says the user removed the item, and a recorded
+                            // `.absent` says it was never recorded as being there at all.
+                            //
+                            // Checked before the drift stat rather than after: with the recorded
+                            // side absent there is nothing a stat could add, and the refusal is the
+                            // same whatever is at `item.to` now.
+                            if item.movedIdentity == .absent {
+                                nothingRecorded += 1
+                                await FileSyncManager.reportUndoRefusedUnrecordedItem(
+                                    of: item.to, actionName: actionName, on: target)
+                                continue
+                            }
                             let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.from)
                                 && item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
                             // "Still the same item?" — the guard the doc comment claimed and the
@@ -988,7 +1051,10 @@ extension FileSyncManager {
                         }
                         await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
-                                    + (vanished > 0 ? ", \(vanished) no longer on disk" : ""))
+                                    + (vanished > 0 ? ", \(vanished) no longer on disk" : "")
+                                    // Appended rather than folded into `leftInPlace`, whose
+                                    // parenthetical would stop being true of every item it counts.
+                                    + (nothingRecorded > 0 ? ", \(nothingRecorded) with nothing recorded to move back" : ""))
                 }
             }
         }
@@ -1019,21 +1085,50 @@ extension FileSyncManager {
                         // one at the destination, and said nothing: no log line, no banner. The
                         // undo path refuses exactly this via `reportUndoRefusedChangedItem`.
                         //
-                        // EVERY source is checked BEFORE ANY of them moves, and that ordering is
-                        // the design rather than tidiness. The replay below runs deepest-first, so
-                        // moving a child rewrites its PARENT's modification date — a directory
-                        // source checked in its turn would be measured against a date this very
-                        // loop had just changed and would refuse a nested redo that is entirely
-                        // correct. Up front, each source is compared against the disk the undo left
-                        // behind, which is the state its identity was recorded from.
-                        var replayable: [MoveRedoParam] = []
+                        // **WHERE the check happens is decided per item, by the SOURCE's own type,
+                        // and both answers are load-bearing.**
+                        //
+                        // Checking every source up front and then moving every source leaves the
+                        // whole pass-to-move interval unguarded: for item *k* of *N* that is
+                        // (N−k stats) plus (k−1 real filesystem moves), which on the 3,000-item
+                        // batches `renameMap(for:)` is written for is seconds. Anything that lands
+                        // at a source inside that window is moved unchecked — the same
+                        // "`fileExists` answering an identity question" defect this pass was added
+                        // to fix, one step later in the same function. Measured on a two-item batch
+                        // with a stranger written at the first item's source while the second was
+                        // moving: it was relocated, and nothing was logged or bannered.
+                        //
+                        // But checking a DIRECTORY source in its turn is wrong, and not marginally:
+                        // the replay runs deepest-first, so moving a child rewrites its PARENT's
+                        // modification date, and the parent would then be measured against a date
+                        // this very loop had just changed. Verified — it refuses
+                        // `redoOfANestedNormalizePassReAppliesBothRenames` with `Redo left
+                        // "Photos␣" in place — it changed since`, which is a correct redo declined.
+                        //
+                        // That perturbation is only possible for a directory: a sibling move cannot
+                        // touch a `.file` or a `.symlink`'s identity, so nothing this loop does can
+                        // make a non-directory source disagree with itself. So a directory keeps the
+                        // up-front comparison, everything else is compared immediately before its
+                        // own move, and each keeps the property the other cannot.
+                        //
+                        // The residual is stated rather than hidden: a directory source SWAPPED for
+                        // another between the pass and its move is still moved. Closing that means
+                        // telling this replay's own perturbation apart from a foreign one, which an
+                        // identity alone cannot do — and it is the state every source was in before
+                        // this split, not a new exposure.
+                        var replayable: [(param: MoveRedoParam, recheckAtItsMove: Bool)] = []
                         for param in params.reversed() {
+                            // Only a recorded DIRECTORY has the up-front pass to gain, and only a
+                            // present one: an absent directory has nothing to compare yet.
+                            guard case .directory = param.sourceIdentity else {
+                                replayable.append((param: param, recheckAtItsMove: true))
+                                continue
+                            }
                             let currentSource = ItemIdentity.snapshot(at: param.from, fileManager: fm)
-                            // A source that is simply GONE is not drift — nothing is there to be a
-                            // stranger — and the re-apply below reports it precisely as "its source
-                            // may no longer exist". Only something PRESENT and demonstrably not
-                            // ours, or unreadable, is refused here.
-                            guard currentSource != .absent else { replayable.append(param); continue }
+                            guard currentSource != .absent else {
+                                replayable.append((param: param, recheckAtItsMove: true))
+                                continue
+                            }
                             let verdict = ItemIdentity.compare(recorded: param.sourceIdentity,
                                                                current: currentSource)
                             guard verdict == .unchanged else {
@@ -1042,7 +1137,7 @@ extension FileSyncManager {
                                     of: param.from, actionName: actionName, verdict: verdict, on: target)
                                 continue
                             }
-                            replayable.append(param)
+                            replayable.append((param: param, recheckAtItsMove: false))
                         }
 
                         // `replayable` is already REVERSED, because re-applying is not the same
@@ -1067,7 +1162,33 @@ extension FileSyncManager {
                         // rename its ancestors, so `param.to` is where the item actually is. This
                         // is why the redo does NOT need `liveLocation` — and must not use it, as
                         // that would resolve to a path only the LATER moves make real.
-                        for param in replayable {
+                        for (param, recheckAtItsMove) in replayable {
+                            if recheckAtItsMove {
+                                let liveSource = ItemIdentity.snapshot(at: param.from, fileManager: fm)
+                                // Still nothing there: that IS the gone case, and the re-apply
+                                // below reports it precisely as "its source may no longer exist".
+                                // Re-established here rather than remembered from the pass, which
+                                // is the second half of this fix — an `.absent` verdict taken up
+                                // front meant the recorded identity was never consulted at ANY
+                                // point, and the `fileExists` re-test below then moved whatever had
+                                // appeared. Measured: the user deleted a source after the undo and
+                                // wrote an unrelated file at the same path while a sibling was
+                                // moving; the redo relocated the new file and reported nothing.
+                                //
+                                // A recorded `.absent` cannot authorise anything through here
+                                // either: absent-vs-absent skips the compare and falls to the
+                                // failure report, and absent-vs-present compares `.changed`.
+                                if liveSource != .absent {
+                                    let verdict = ItemIdentity.compare(recorded: param.sourceIdentity,
+                                                                       current: liveSource)
+                                    guard verdict == .unchanged else {
+                                        leftInPlace += 1
+                                        await FileSyncManager.reportRedoRefusedChangedItem(
+                                            of: param.from, actionName: actionName, verdict: verdict, on: target)
+                                        continue
+                                    }
+                                }
+                            }
                             // Only manufacture the destination's parent for a move that can
                             // actually happen. Unconditionally, this created the ancestor a
                             // sibling move had just renamed away — the empty `Photos␣` above —

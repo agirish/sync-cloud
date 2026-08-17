@@ -847,6 +847,253 @@ import Events
                 "an unedited source raises no banner; got \(String(describing: manager.banner?.message))")
     }
 
+    // MARK: 7 — WHEN the redo checks, not just whether
+
+    /// The gate the round above added verified every source in an up-front pass and then moved
+    /// every source, so anything that changed **in between** was moved unchecked — which is
+    /// verbatim the bug that pass was added to fix, moved one step later in the same function.
+    ///
+    /// **Both existing redo tests are single-item, and that is exactly why this shipped**: with one
+    /// param the pre-pass and an in-loop check are indistinguishable, so neither of them can tell
+    /// the two shapes apart. The window for item *k* of *N* is (N−k stats) plus (k−1 real
+    /// filesystem moves — the previous items of the batch), and this file's own registration
+    /// benchmark uses 3,000-item batches, so on the sizes it designs for the window is seconds
+    /// wide. The app's subject matter is cloud-synced folders, where a provider daemon
+    /// materialises files asynchronously.
+    ///
+    /// Measured on this fixture before the fix — a stranger written at `/tsrc/a.txt` while
+    /// `bb.txt` was moving, i.e. after `a.txt`'s up-front check had already passed:
+    ///
+    /// ```
+    /// afterUndo:  /tsrc/a.txt=10    /tsrc/bb.txt=20
+    /// afterRedo:  /tdst/a.txt=8888  /tdst/bb.txt=20   banner=nil
+    /// ```
+    ///
+    /// 8888 is the stranger, relocated with no guard and no report.
+    @MainActor
+    @Test func redoRefusesASourceReplacedWhileAnEarlierItemOfTheSameBatchMoved() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: url("/tsrc"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: url("/tdst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/tsrc/a.txt"] = file(10)
+        mockFM.virtualDisk["/tsrc/bb.txt"] = file(20)
+
+        // The two names are DIFFERENT LENGTHS on purpose. `pruneNestedNodes` orders the selection
+        // by path length with `sorted(by:)`, which Swift does not promise is stable, so two
+        // equal-length names would hand the batch over in an order that can differ between runs —
+        // and which item moves first is the whole fixture. `a.txt` shorter than `bb.txt` pins the
+        // batch as [a, bb], hence redo params [a, bb], hence a replay of [bb, a].
+        let nodes = [FileNode(id: "/tsrc/a.txt", name: "a.txt", isDirectory: false),
+                     FileNode(id: "/tsrc/bb.txt", name: "bb.txt", isDirectory: false)]
+        await manager.moveItems(nodes: nodes, toPath: "/tdst", fileManager: mockFM)
+        try #require(mockFM.virtualDisk["/tdst/a.txt"] != nil)
+        try #require(mockFM.virtualDisk["/tdst/bb.txt"] != nil)
+
+        manager.undoManager?.undo()
+        await waitUntil("both moves are reversed") {
+            mockFM.virtualDisk["/tsrc/a.txt"] != nil && mockFM.virtualDisk["/tsrc/bb.txt"] != nil
+        }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let afterUndo = probe(mockFM, ["/tsrc/a.txt", "/tsrc/bb.txt", "/tdst/a.txt", "/tdst/bb.txt"])
+        #expect(afterUndo == "/tsrc/a.txt=10  /tsrc/bb.txt=20",
+                "the undo leg must put both files back before the redo is measured; got \(afterUndo)")
+
+        // A stranger takes `a.txt`'s place WHILE `bb.txt` is moving — after `a.txt`'s up-front
+        // check has passed and before its own move runs. One-shot, by nilling the hook, so the
+        // redo's own bookkeeping moves cannot re-arm it.
+        mockFM.beforeCopyItem = { src in
+            guard src == "/tsrc/bb.txt" else { return }
+            mockFM.beforeCopyItem = nil
+            mockFM.virtualDisk["/tsrc/a.txt"] = MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [FileAttributeKey.size: 8888,
+                             FileAttributeKey.modificationDate: Date(timeIntervalSince1970: 8_888)],
+                contents: nil)
+        }
+        manager.banner = nil
+        let marker = await plantLogMarker("redo-source-replaced-mid-batch")
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo re-applies the item that did not drift") {
+            mockFM.virtualDisk["/tdst/bb.txt"] != nil
+        }
+        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+
+        let afterRedo = probe(mockFM, ["/tsrc/a.txt", "/tsrc/bb.txt", "/tdst/a.txt", "/tdst/bb.txt"])
+        #expect(afterRedo == "/tsrc/a.txt=8888  /tdst/bb.txt=20",
+                "the stranger must stay where the user put it and only bb.txt may be re-applied; got \(afterRedo)")
+        #expect(manager.banner?.message == "Redo left \"a.txt\" in place — it changed since",
+                "got \(String(describing: manager.banner?.message))")
+
+        let lines = await logLines(since: marker)
+        #expect(lines.contains {
+            $0.contains("REFUSED to re-apply \"a.txt\" from /tsrc/a.txt")
+                && $0.contains("it changed since the undo put it back")
+        }, "the mid-batch replacement was not refused; lines since the marker: \(lines)")
+        #expect(lines.contains {
+            $0.contains("Redo (Move 2 Items): moved 1 of 2 item(s), 0 redo failure(s), 1 left in place")
+        }, "the tally does not report one refusal and one re-apply; lines since the marker: \(lines)")
+    }
+
+    /// The other half of the same hole: an `.absent` source skipped the identity check ENTIRELY.
+    ///
+    /// The pre-pass short-circuited on `.absent` — "nothing is there to be a stranger" — and for
+    /// those params the recorded identity was then never consulted at any point. The replay's own
+    /// `fileExists` re-test let whatever had appeared in the meantime be moved. The reasoning is
+    /// true at the stat and false at the move: absence is a licence to skip the check only if it
+    /// is re-confirmed where the destruction happens.
+    ///
+    /// Measured on this fixture before the fix — the user deletes `y.txt` after the undo, then
+    /// writes an unrelated `y.txt` while `xx.txt` is moving:
+    ///
+    /// ```
+    /// afterUndo:  /dsrc/xx.txt=10
+    /// afterRedo:  /ddst/xx.txt=10  /ddst/y.txt=7777   banner=nil
+    /// ```
+    ///
+    /// 7777 is the user's brand-new file, relocated with no guard and no report.
+    @MainActor
+    @Test func redoRefusesASourceFilledAfterItWasFoundAbsent() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: url("/dsrc"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: url("/ddst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/dsrc/y.txt"] = file(20)
+        mockFM.virtualDisk["/dsrc/xx.txt"] = file(10)
+
+        // Lengths pin the order again, and this time the SHORTER name has to be the absent one:
+        // the batch is registered [y, xx], so the redo params are [y, xx] and the replay is
+        // [xx, y] — `xx.txt` moves first and `y.txt`, the absent source, moves last.
+        let nodes = [FileNode(id: "/dsrc/y.txt", name: "y.txt", isDirectory: false),
+                     FileNode(id: "/dsrc/xx.txt", name: "xx.txt", isDirectory: false)]
+        await manager.moveItems(nodes: nodes, toPath: "/ddst", fileManager: mockFM)
+        try #require(mockFM.virtualDisk["/ddst/y.txt"] != nil)
+        try #require(mockFM.virtualDisk["/ddst/xx.txt"] != nil)
+
+        manager.undoManager?.undo()
+        await waitUntil("both moves are reversed") {
+            mockFM.virtualDisk["/dsrc/y.txt"] != nil && mockFM.virtualDisk["/dsrc/xx.txt"] != nil
+        }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        // The user deletes the restored y.txt themselves, so its source is genuinely ABSENT when
+        // the redo's up-front pass looks at it...
+        mockFM.virtualDisk["/dsrc/y.txt"] = nil
+        let afterUndo = probe(mockFM, ["/dsrc/xx.txt", "/dsrc/y.txt", "/ddst/xx.txt", "/ddst/y.txt"])
+        #expect(afterUndo == "/dsrc/xx.txt=10",
+                "only the surviving source may be on disk when the redo starts; got \(afterUndo)")
+
+        // ...and then writes a NEW, unrelated y.txt while xx.txt is moving.
+        mockFM.beforeCopyItem = { src in
+            guard src == "/dsrc/xx.txt" else { return }
+            mockFM.beforeCopyItem = nil
+            mockFM.virtualDisk["/dsrc/y.txt"] = MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [FileAttributeKey.size: 7777,
+                             FileAttributeKey.modificationDate: Date(timeIntervalSince1970: 7_777)],
+                contents: nil)
+        }
+        manager.banner = nil
+        let marker = await plantLogMarker("redo-absent-source-refilled")
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo re-applies the item whose source survived") {
+            mockFM.virtualDisk["/ddst/xx.txt"] != nil
+        }
+        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+
+        let afterRedo = probe(mockFM, ["/dsrc/xx.txt", "/dsrc/y.txt", "/ddst/xx.txt", "/ddst/y.txt"])
+        #expect(afterRedo == "/dsrc/y.txt=7777  /ddst/xx.txt=10",
+                "the file the user had just created must not be relocated by a redo; got \(afterRedo)")
+        #expect(manager.banner?.message == "Redo left \"y.txt\" in place — it changed since",
+                "got \(String(describing: manager.banner?.message))")
+
+        let lines = await logLines(since: marker)
+        #expect(lines.contains {
+            $0.contains("REFUSED to re-apply \"y.txt\" from /dsrc/y.txt")
+                && $0.contains("it changed since the undo put it back")
+        }, "the refilled source was not refused; lines since the marker: \(lines)")
+        #expect(lines.contains {
+            $0.contains("Redo (Move 2 Items): moved 1 of 2 item(s), 0 redo failure(s), 1 left in place")
+        }, "the tally does not report one refusal and one re-apply; lines since the marker: \(lines)")
+    }
+
+    // MARK: 8 — a recorded `.absent` is not an identity
+
+    /// `compare(.absent, .absent)` answers `.unchanged`, which is true and useless: it says nothing
+    /// changed, and the move-undo read it as "this is still my item, go ahead".
+    ///
+    /// The `vanished` branch above needs the destination's PARENT to exist, so an item whose
+    /// recorded destination AND its parent are both missing falls through to the drift guard —
+    /// where a recorded `.absent` meets a live `.absent`, votes `.unchanged`, and selects the MOVE
+    /// branch. Its first act is `createDirectory(item.from's parent)`, and only then does
+    /// `safeMoveItem` throw. So an undo that could never do anything still manufactured a folder,
+    /// carrying the very zero-width-space name the normalize pass exists to remove — contradicting
+    /// the invariant stated four lines above the `createDirectory` call, that "a refused item must
+    /// leave the disk exactly as it found it".
+    ///
+    /// Measured on this fixture before the fix:
+    ///
+    /// ```
+    /// disk before ⌘Z:  ["/root"]
+    /// disk after  ⌘Z:  ["/root", "/root/P<ZWSP>"]
+    /// ```
+    ///
+    /// Driven by registering the batch directly, because that is what produces a recorded
+    /// `.absent`: `registerMoveUndo(items:)` snapshots at registration time, so a destination that
+    /// is not on disk when registration runs records the absence itself.
+    @MainActor
+    @Test func undoOfAnItemNeverRecordedOnDiskManufacturesNoDirectory() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "AbsentRecordedIdentity")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let riskyChild = root.appendingPathComponent("P\u{200B}").appendingPathComponent("a\u{200B}.txt")
+        let safeChild = root.appendingPathComponent("P").appendingPathComponent("a.txt")
+
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, false) }
+
+        // Nothing under `root` at all — neither the recorded destination nor its parent, which is
+        // what keeps the `vanished` branch from firing and sends this down the drift guard.
+        try #require(treeUnder(root) == [])
+
+        manager.registerMoveUndo(items: [(from: riskyChild, to: safeChild, overwritten: nil)],
+                                 actionName: "Normalize 1 Name", fileManager: FileManager.default)
+
+        manager.banner = nil
+        let marker = await plantLogMarker("absent-recorded-identity")
+        manager.undoManager?.undo()
+        await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(treeUnder(root) == [],
+                "an undo with nothing to move back may build nothing; tree is \(treeUnder(root))")
+        #expect(manager.banner?.message == "Undo left \"a.txt\" in place — there was nothing to move back",
+                "got \(String(describing: manager.banner?.message))")
+
+        let lines = await logLines(since: marker)
+        #expect(lines.contains {
+            $0.contains("REFUSED to move \"a.txt\" back to its original location")
+                && $0.contains("nothing was recorded at \(safeChild.path)")
+        }, "the refusal line is missing or reworded; lines since the marker: \(lines)")
+        #expect(lines.contains {
+            $0.contains("Undo (Normalize 1 Name): moved 0 of 1 item(s) back to source, 0 restore failure(s), 0 left in place")
+                && $0.contains("1 with nothing recorded to move back")
+        }, "the tally does not separate 'nothing recorded' from a genuine failure; lines since the marker: \(lines)")
+    }
+
+    /// `path=size` for each of `paths` that is on the virtual disk, in the order given — the shape
+    /// the probes in the three doc comments above are written in, so a failure prints the same
+    /// table the defect was measured with rather than four separate expectations.
+    private func probe(_ fm: MockFileManager, _ paths: [String]) -> String {
+        paths.compactMap { path in
+            (fm.virtualDisk[path]?.attributes?[FileAttributeKey.size] as? Int).map { "\(path)=\($0)" }
+        }.joined(separator: "  ")
+    }
+
     /// Runs the risky-name pass the two redo tests share and hands back the manager and the four
     /// paths, having checked the pass itself landed.
     @MainActor
