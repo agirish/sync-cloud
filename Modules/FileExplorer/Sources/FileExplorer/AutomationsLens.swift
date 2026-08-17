@@ -181,6 +181,34 @@ public struct AutomationsLens: View {
 
     private func newRule() { editingRule = AutomationRule(name: "") }
 
+    // MARK: Why a rule can't run
+
+    /// The warning pill beside a rule's name, or nil when the rule is fine.
+    ///
+    /// Two ways of not running, and they need different words. "Incomplete" is advice — finish the
+    /// rule and it will work. A rule written by a **newer build** is not incomplete: it has its
+    /// condition and its destination, this build just cannot read part of it, and telling that user
+    /// to add a condition sends them looking for something that is not missing.
+    nonisolated static func inertPillLabel(for rule: AutomationRule) -> String? {
+        if rule.hasUnreadableValues { return "newer version" }
+        return rule.isRunnable ? nil : "incomplete"
+    }
+
+    /// The disabled Preview button's tooltip. It must name the REAL blocker: a complete rule with no
+    /// focused provider folder doesn't need "a condition and destination" — it needs a folder to
+    /// preview over; and a rule from a newer build needs neither.
+    nonisolated static func previewHelp(for rule: AutomationRule, hasDestinationRoot: Bool) -> String {
+        if rule.hasUnreadableValues {
+            return "This rule was saved by a newer version of SyncCloud. It's kept as-is and left "
+                 + "alone here; editing it will rewrite the part this version can't read."
+        }
+        if !rule.isRunnable { return "Give the rule a condition and destination to preview it" }
+        if !hasDestinationRoot {
+            return "Focus a provider folder first — the preview runs over the focused folder"
+        }
+        return "Preview just this rule over the focused folder"
+    }
+
     private func runPreview(only: UUID? = nil) {
         state.viewingResults = true
         onPreview(only)
@@ -212,14 +240,8 @@ public struct AutomationsLens: View {
                                 rule: rule,
                                 accent: accent,
                                 canPreview: rule.isRunnable && destinationRoot != nil,
-                                // The disabled Preview button's tooltip must name the REAL blocker: a
-                                // complete rule with no focused provider folder doesn't need "a
-                                // condition and destination" — it needs a folder to preview over.
-                                previewHelp: !rule.isRunnable
-                                    ? "Give the rule a condition and destination to preview it"
-                                    : destinationRoot == nil
-                                    ? "Focus a provider folder first — the preview runs over the focused folder"
-                                    : "Preview just this rule over the focused folder",
+                                previewHelp: Self.previewHelp(
+                                    for: rule, hasDestinationRoot: destinationRoot != nil),
                                 densityMetrics: densityMetrics,
                                 onToggle: { syncManager.setAutomationRule(id: rule.id, enabled: $0) },
                                 onPreview: { runPreview(only: rule.id) },
@@ -596,8 +618,8 @@ private struct AutomationRuleCard: View {
             Text(rule.name.isEmpty ? "Untitled rule" : rule.name)
                 .scaledFont(.system(size: 14, weight: .semibold))
                 .foregroundStyle(rule.enabled ? .primary : .secondary)
-            if !rule.isRunnable {
-                Pill(.mini, tint: SemanticColor.warning, text: "incomplete")
+            if let label = AutomationsLens.inertPillLabel(for: rule) {
+                Pill(.mini, tint: SemanticColor.warning, text: label)
             }
             Spacer(minLength: 0)
         }
