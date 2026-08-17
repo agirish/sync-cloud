@@ -118,14 +118,87 @@ import Sync
 
     // MARK: The predicate is actually called
 
-    @Test func lensWorkspaceViewFiltersEveryLensThroughTheScopePredicate() throws {
+    /// The body of the `.filter { … }` closure assigned to `family`, or nil if there isn't one.
+    ///
+    /// **Brace-counted, not a fixed-length window, and that is not fussiness.** The first version
+    /// read 260 characters forward from the family's name — and the arms of this switch are short,
+    /// so deleting `rows.duplicates`' scope test left the window running past the end of its case
+    /// and into `rows.renames`', where it found a perfectly good `OrganizeScopeFilter.matches` and
+    /// passed. The mutation the whole test exists for survived it, on the single most dangerous
+    /// family (Trash-all acts on those rows). A slice that can reach a neighbour is a slice that
+    /// can be satisfied by one.
+    static func filterClosure(assignedTo family: String, in body: String) -> String? {
+        guard let assign = body.range(of: family + " = ") else { return nil }
+        let tail = body[assign.upperBound...]
+        guard let open = tail.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var index = open
+        while index < tail.endIndex {
+            if tail[index] == "{" { depth += 1 }
+            if tail[index] == "}" {
+                depth -= 1
+                if depth == 0 { return String(tail[tail.index(after: open)..<index]) }
+            }
+            index = tail.index(after: index)
+        }
+        return nil
+    }
+
+    /// Every row family the lenses act on is narrowed, asserted **per family inside the one builder
+    /// that produces them** rather than by counting calls anywhere in the file.
+    ///
+    /// This replaces `#expect(calls >= 10)` over a file-wide substring count. The real count is 20,
+    /// so the floor was met twice over by calls that have nothing to do with the rows: ten call
+    /// sites could be deleted and it stayed green — executed, and the whole FileExplorer package
+    /// (1,320 tests) passed with the guard gone. Its own comment said "losing any one of these is a
+    /// lens that silently stops narrowing", which was the thing it could not see. Two of the
+    /// families it left unprotected feed batch destructive buttons: `rows.duplicates` is Trash-all
+    /// and `rows.filing` is move-files, and either acting outside the scoped folder is the failure
+    /// this feature exists to prevent.
+    ///
+    /// A count is also the wrong instrument even at the right number — twenty calls somewhere is
+    /// not twenty calls *here*. Naming the families is what makes the assertion about the rows.
+    @Test func everyScopedRowFamilyIsNarrowedInsideTheRowsBuilder() throws {
         let view = try Self.source("LensWorkspaceView.swift")
-        // One call per filterable set. Losing any one of these is a lens that silently stops
-        // narrowing while the other five keep doing so — the exact inconsistency this feature
-        // exists to remove.
-        let calls = view.components(separatedBy: "OrganizeScopeFilter.").count - 1
-        #expect(calls >= 10,
-                "only \(calls) OrganizeScopeFilter call(s) in LensWorkspaceView — a lens has stopped scoping")
+        let body = try Self.body(of: "private var filteredRows: FilteredRows {", in: view)
+
+        /// The row families and the filter each one's assignment must carry. `structure` uses
+        /// `relation` because it sorts findings three ways (inside / about-an-ancestor / outside)
+        /// rather than keeping or dropping them.
+        let scoped: [(family: String, filter: String)] = [
+            ("rows.duplicates", "OrganizeScopeFilter.matches"),   // the Trash-all button acts on these
+            ("rows.filing", "OrganizeScopeFilter.matches"),       // the move-files button acts on these
+            ("rows.renames", "OrganizeScopeFilter.matches"),
+            ("rows.risky", "OrganizeScopeFilter.matches"),
+        ]
+        for entry in scoped {
+            let predicate = try #require(Self.filterClosure(assignedTo: entry.family, in: body),
+                                         "\(entry.family) is gone from filteredRows, or no longer assigned a filter — this scan no longer checks it")
+            #expect(predicate.contains(entry.filter),
+                    "\(entry.family) is no longer narrowed by the scope — its predicate is:\n\(predicate)")
+        }
+
+        // Restructure is the one family with a different SHAPE, so it gets its own check rather
+        // than being forced through the window rule above: it does not keep-or-drop, it sorts each
+        // finding three ways — inside the scope, about an ancestor of it, or outside — and the
+        // filter therefore sits above the appends instead of inside a `filter {}`. Sliced from the
+        // case label so both destinations are inside one window with the call that chose them.
+        let restructureStart = try #require(body.range(of: "case .filing where organizeLens == .restructure:"),
+                                            "the restructure arm is gone from filteredRows")
+        let restructure = String(body[restructureStart.upperBound...].prefix(600))
+        #expect(restructure.contains("OrganizeScopeFilter.relation"),
+                "restructure findings are no longer sorted by their relation to the scope")
+        #expect(restructure.contains("rows.structure.append"))
+        #expect(restructure.contains("rows.structureAboutAncestor.append"),
+                "the about-an-ancestor destination is gone, so those findings are silently dropped or mis-filed")
+
+        // **The absence is part of the rule.** Rules are configuration rather than findings, so
+        // `appliedScope(for: .rules)` is always nil and a scope test written there would read like
+        // a live narrowing while never being able to fire. Pinning it keeps that a decision.
+        let rulesStart = try #require(body.range(of: "rows.rules ="))
+        let rulesWindow = String(body[rulesStart.upperBound...].prefix(160))
+        #expect(!rulesWindow.contains("OrganizeScopeFilter"),
+                "rows.rules has grown a scope filter that can never fire")
     }
 
     @Test func restructureRoutesThroughFilteredRowsRatherThanTheManager() throws {
