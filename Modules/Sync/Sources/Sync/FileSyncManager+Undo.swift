@@ -106,6 +106,18 @@ extension FileSyncManager {
         }
     }
 
+    /// What a refused undo was about to do to the item, for `reportUndoRefusedChangedItem`. The
+    /// two callers do genuinely different things to genuinely different items, and one sentence
+    /// cannot be true of both.
+    enum RefusedUndoIntent: Sendable {
+        /// The copy-undo: it would have REMOVED the item, and that item is the one the copy — the
+        /// operation this undo reverses — put there.
+        case removeTheCopyItProduced
+        /// The move-undo: it would have MOVED the item back to where it came from. Nothing is
+        /// removed, and the undo did not produce the item; the original move did.
+        case moveItBackToItsSource
+    }
+
     /// Surfaces an undo that was REFUSED because the item it was about to remove or move is no
     /// longer the item the undo was registered for. Trashing or displacing it would destroy work
     /// the undo was never asked to reverse; the item is left in place, its `overwritten` backup
@@ -116,21 +128,38 @@ extension FileSyncManager {
     /// the log: `.changed` means the item demonstrably differs, `.indeterminate` means it could
     /// not be read and so nothing can be concluded. Both refuse — an unverifiable item is exactly
     /// the one not to destroy — but only the first is evidence that something was edited.
+    ///
+    /// `intent` exists because this doc comment said "remove **or move**" while the sentence it
+    /// produced could only say *remove*: a refused MOVE-undo logged `REFUSED to remove "doc.txt" …
+    /// it is no longer the item this undo produced`, and both halves were false — nothing was
+    /// going to be removed (a move-undo moves it back), and the undo did not produce the item, the
+    /// original operation did. Shipped because all four refusal tests asserted only the banner.
     nonisolated static func reportUndoRefusedChangedItem(
         of destination: URL,
         actionName: String,
         verdict: DriftVerdict,
+        intent: RefusedUndoIntent,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
+        let refusedAction: String
+        let identity: String
+        switch intent {
+        case .removeTheCopyItProduced:
+            refusedAction = "remove \"\(name)\" at \(destination.path)"
+            identity = "the item this undo produced"
+        case .moveItBackToItsSource:
+            refusedAction = "move \"\(name)\" at \(destination.path) back to its original location"
+            identity = "the item that was moved here"
+        }
         let logMessage: String
         let bannerMessage: String
         switch verdict {
         case .changed:
-            logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — it changed since the operation, so it is no longer the item this undo produced; leaving it in place"
+            logMessage = "Undo (\(actionName)): REFUSED to \(refusedAction) — it changed since the operation, so it is no longer \(identity); leaving it in place"
             bannerMessage = "Undo left \"\(name)\" in place — it changed since"
         case .indeterminate:
-            logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — its current state could not be read, so it cannot be confirmed as the item this undo produced; leaving it in place"
+            logMessage = "Undo (\(actionName)): REFUSED to \(refusedAction) — its current state could not be read, so it cannot be confirmed as \(identity); leaving it in place"
             bannerMessage = "Undo left \"\(name)\" in place — it couldn't be checked"
         case .unchanged:
             // Not a refusal. Spelled out rather than defaulted so a future verdict has to be
@@ -163,13 +192,68 @@ extension FileSyncManager {
     }
 
     /// The byte size of the regular FILE at `url`, or nil for directories, missing, or
-    /// unstatable items. Directories deliberately return nil so the copy-undo drift guard
-    /// applies size comparison to files only — a folder's stat size isn't its content size
-    /// (the same reasoning as the duplicate keeper gate's folder carve-out).
+    /// unstatable items.
+    ///
+    /// **No longer drives any guard.** It used to be the copy-undo's drift snapshot, and its nil
+    /// — meaning "directory" *or* "missing" *or* "unstatable" alike, read through an `if let` —
+    /// is why a copied FOLDER had no drift check at all and why a same-length rewrite compared
+    /// equal. `ItemIdentity` replaced it at both undo sites; nothing in the app, the CLI or the
+    /// undo path calls this any more.
+    ///
+    /// It stays because `ItemIdentityTests` measures it: two of that suite's expectations run this
+    /// function against the very fixtures `ItemIdentity` now handles, so "nil for a directory" and
+    /// "4 for an edited 4-byte file" are recorded facts about the thing that was replaced rather
+    /// than a claim in a comment. (Same reasoning that keeps `scanNames` alive for
+    /// `NameNormalizerTests`.) Delete it only together with those expectations.
     nonisolated static func fileSizeSnapshot(at url: URL, fileManager fm: FileManaging) -> Int? {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else { return nil }
         if (attrs[.type] as? FileAttributeType) == .typeDirectory { return nil }
         return (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
+    }
+
+    /// Where `destination` — a path some item in `batch` was moved TO — actually sits once every
+    /// OTHER move in that same batch has been applied.
+    ///
+    /// Only ANCESTOR components are rewritten, and only when another move's `from` is a strict
+    /// ancestor of `destination`. That condition is self-validating: `destination` can still spell
+    /// an ancestor's OLD name only if the item landed there BEFORE that ancestor was renamed, which
+    /// is exactly the deepest-first apply order this exists for. A batch that renames ancestors
+    /// first leaves no old name to match, so nothing is rewritten and the path is returned as-is —
+    /// which is every single-item batch and every same-directory batch, i.e. all but one of the
+    /// eleven call sites.
+    ///
+    /// Resolution is recursive so a three-deep nest resolves fully (`/A-BAD/B-BAD/c.txt` →
+    /// `/AOK/BOK/c.txt`), and guarded by a `seen` set so a rename CYCLE stops rather than looping.
+    /// The leaf itself is never rewritten: an item is renamed once per batch, so its own name is
+    /// final, and rewriting it could follow an unrelated item that happens to have taken the path.
+    nonisolated static func liveLocation(of destination: URL, afterBatch batch: [MoveItemState]) -> URL {
+        var renames: [String: String] = [:]
+        for move in batch where move.from.path != move.to.path {
+            renames[move.from.path] = move.to.path
+        }
+        guard !renames.isEmpty else { return destination }
+        let parent = destination.deletingLastPathComponent()
+        var seen = Set<String>()
+        let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen)
+        guard livingParent != parent.path else { return destination }
+        return URL(fileURLWithPath: livingParent).appendingPathComponent(destination.lastPathComponent)
+    }
+
+    /// `liveLocation`'s worker: the path `path` reads as after `renames` are applied to it and to
+    /// every one of its ancestors. `seen` bounds a cycle (A→B, B→A) to one lap.
+    private nonisolated static func resolveRenamedDirectory(
+        _ path: String, renames: [String: String], seen: inout Set<String>
+    ) -> String {
+        if let renamed = renames[path] {
+            guard seen.insert(path).inserted else { return path }
+            return resolveRenamedDirectory(renamed, renames: renames, seen: &seen)
+        }
+        let url = URL(fileURLWithPath: path)
+        let parent = url.deletingLastPathComponent()
+        guard parent.path != path else { return path }   // reached the volume root
+        let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen)
+        guard livingParent != parent.path else { return path }
+        return URL(fileURLWithPath: livingParent).appendingPathComponent(url.lastPathComponent).path
     }
 
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
@@ -226,11 +310,23 @@ extension FileSyncManager {
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
     func registerMoveUndo(items: [MoveItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
         // Snapshots each moved item's identity HERE, at registration time — the move has already
-        // happened, so `to` holds the item this undo is responsible for — so the handler can
+        // happened, so the item this undo is responsible for is on disk — so the handler can
         // refuse to move back something that is no longer it.
+        //
+        // Read at `liveLocation(of:afterBatch:)` rather than at `to` itself, because for a NESTED
+        // batch `to` is not where the item is by the time registration runs. `normalizeNames`
+        // applies renames deepest-first (a child renames inside its still-named parent, then the
+        // parent is renamed around it) and registers shallowest-first, so the child's recorded
+        // `to` — /root/Photos-BAD/aOK.txt — names a path that no longer exists once the parent
+        // became /root/PhotosOK. Snapshotting there recorded `.absent`, and at undo time, with the
+        // parent already restored, `.absent` vs the real file compared `.changed`: the child's
+        // rename was refused and never reversed, a half-undone pass reported as drift that never
+        // happened. `to` itself stays the recorded value — at undo time the parent IS restored
+        // first, so `to` is again the right path to move back from.
         let enriched: [MoveUndoItemState] = items.map { item in
             (from: item.from, to: item.to, overwritten: item.overwritten,
-             movedIdentity: ItemIdentity.snapshot(at: item.to, fileManager: fm))
+             movedIdentity: ItemIdentity.snapshot(
+                at: FileSyncManager.liveLocation(of: item.to, afterBatch: items), fileManager: fm))
         }
         let resolver = AsyncValueResolver<[MoveUndoItemState]>()
         Task { await resolver.resolve(enriched) }
@@ -380,7 +476,7 @@ extension FileSyncManager {
                                 break
                             case .changed, .indeterminate:
                                 leftInPlace += 1
-                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, on: target)
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, intent: .removeTheCopyItProduced, on: target)
                                 continue
                             }
                             do {
@@ -524,6 +620,13 @@ extension FileSyncManager {
                         // anyway and drop that unrelated occupant over the real file at the destination.
                         var movedBack = 0
                         var restoreFailures = 0
+                        // A drift refusal is not a failure — the undo CHOSE not to move the item,
+                        // and nothing it attempted went wrong. Counting it as a restore failure
+                        // reported "moved 0 of 1 item(s) back to source, 1 restore failure(s)" for
+                        // a run in which nothing failed, which reads as breakage in the log and
+                        // hides the genuine `safeMoveItem` throws among it. The copy path already
+                        // separates the two with its own `leftInPlace`; this is its twin.
+                        var leftInPlace = 0
                         var reversedParams: [(from: URL, to: URL)] = []
                         for item in items {
                             try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -554,8 +657,8 @@ extension FileSyncManager {
                             // branch the source's state happens to select.
                             let moveVerdict = item.movedIdentity.drift(at: item.to, fileManager: fm)
                             if moveVerdict != .unchanged {
-                                restoreFailures += 1
-                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, on: target)
+                                leftInPlace += 1
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, intent: .moveItBackToItsSource, on: target)
                             } else if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
@@ -586,7 +689,7 @@ extension FileSyncManager {
                             }
                         }
                         await redoParamResolver.resolve(reversedParams)
-                        logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s)")
+                        logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)")
                 }
             }
         }
