@@ -2966,7 +2966,11 @@ struct ContentView: View {
                 // keyboard points next.
                 let side = PaneLogic.focusedSideAfterSelectionWrite(
                     newSelection, isLeft: isLeft, current: syncManager.focusedPaneSide)
-                if syncManager.focusedPaneSide != side { syncManager.focusedPaneSide = side }
+                // Through the manager's one door, which holds the "changed or nothing" test and
+                // writes the line that says the chords moved. The empty-write case answers with
+                // `current`, so it is a no-op there and stays silent.
+                syncManager.noteFocusedPane(
+                    side, because: "a row was picked in the \(isLeft ? "left" : "right") pane")
             }
         )
     }

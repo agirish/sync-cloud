@@ -234,7 +234,9 @@ extension ContentView {
         // thing hiding it, and discarding a search to animate a focus move trades real state for
         // decoration. What this does not yet have is a resting indicator of which pane is focused
         // — see the note in `ROADMAP.md`.
-        return PaneFocusSwitch(targetName: name) { syncManager.focusedPaneSide = target }
+        return PaneFocusSwitch(targetName: name) {
+            syncManager.noteFocusedPane(target, because: "⌃⇥ (View ▸ Focus Other Pane)")
+        }
     }
 
     /// Opens the focused pane's search field, or — if it is already open — puts the caret back in it

@@ -508,8 +508,9 @@ extension FileSyncManager {
         // Travels with the selection: the pane the user was working in is now the other one, and
         // a focused side left behind aims ⌘F, ⌘[ and ⇧⌘N at the pane their content just left.
         // `nil` stays nil — with focus still implicit the fallback reads the selection, which the
-        // line above has already moved.
-        focusedPaneSide = focusedPaneSide?.opposite
+        // line above has already moved, and `noteFocusedPane` writes nothing for a value that did
+        // not change, so an implicit focus also leaves no line claiming the chords moved.
+        noteFocusedPane(focusedPaneSide?.opposite, because: "the panes were swapped")
 
         swap(&leftHistory, &rightHistory)
         // Travels with the tree it indexes, like the history beside it: after a swap the left pane
@@ -550,6 +551,53 @@ extension FileSyncManager {
         // raws supersedes it within one in-memory recompute.
         Task { await self.applyFilters() }
         return true
+    }
+
+    // MARK: - Which pane the user is working in
+
+    /// **The one writer of `focusedPaneSide`, and the only place a move of it is said out loud.**
+    ///
+    /// That value answers "which pane am I working in", and every pane-scoped chord reads it: ⌘F,
+    /// ⌘[, ⌘], ⇧⌘N, ⇧⌘P, ⌘T — and ⌘W, which is the one with teeth. `closeTab`'s last-tab branch
+    /// closes the WINDOW, so a focused side pointing at the pane the user is not looking at turns
+    /// ⌘W from "close this tab" into "close everything", and the log that a report is answered from
+    /// said nothing at all about which pane the chords were aimed at.
+    ///
+    /// Five callers wrote the property bare — a strip verb, a row selection, ⌃⇥, a pin, a reorder
+    /// — and none of them logged. One door, so the line cannot be forgotten by the sixth.
+    ///
+    /// - Parameter reason: what moved it, in the log's voice ("⌃⇥", "a row was picked in the left
+    ///   pane"). The side alone does not answer "why did ⌘W close my window" — the cause does.
+    @MainActor public func noteFocusedPane(_ side: PaneTree.Side?, because reason: String) {
+        // **Nothing is said about a no-op**, which is not tidiness: the commonest way to reach this
+        // is clicking a row in the pane you are already working in, and a line per click would bury
+        // the moves that actually explain a chord landing somewhere surprising. `selectTab` carries
+        // the same rule for the same reason (clicking the chip you are already on).
+        guard focusedPaneSide != side else { return }
+        let was = focusedPaneSide
+        focusedPaneSide = side
+        // Debug, matching the strip's own selecting/cycling lines: a pane click moves this, so at
+        // info a few minutes' ordinary use would bury everything worth reading. `minimumLevel`
+        // defaults to debug, so it still reaches `~/sync-cloud.log`.
+        Logger.shared.debug(
+            "The pane-scoped chords (⌘W, ⌘T, ⌘F) now aim at \(Self.paneName(side)) rather than "
+            + "\(Self.paneName(was)): \(reason)")
+    }
+
+    /// The `isLeft` spelling every host call site uses. **The polarity lives here**, on a type a
+    /// test can instantiate, rather than in a `ContentView` extension where nothing could reach it:
+    /// flipping the ternary in the host aimed every tab verb at the opposite pane and left the whole
+    /// app suite green.
+    @MainActor public func noteFocusedPane(isLeft: Bool, because reason: String) {
+        noteFocusedPane(isLeft ? .left : .right, because: reason)
+    }
+
+    private static func paneName(_ side: PaneTree.Side?) -> String {
+        switch side {
+        case .left: return "the left pane"
+        case .right: return "the right pane"
+        case nil: return "whichever pane holds the selection"
+        }
     }
 
     /// Publishes each pane's current history entry into its relative path and triggers a refresh.

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 import Foundation
+import Events
 import Sync
 @testable import SyncCloud
 
@@ -57,6 +58,69 @@ import Sync
         source.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
+    }
+
+    /// One member's body, found by NAME rather than by its whole declaration — for the scans that
+    /// DERIVE which members to read instead of listing them, where the full declaration is not
+    /// something the deriving side knows. Same slice as ``memberBody`` otherwise.
+    private static func memberBodyNamed(_ name: String, in source: String) throws -> String {
+        try memberBody("func \(name)(", in: source)
+    }
+
+    /// Every capture of `group` for `pattern` in `source`. The seam that lets a scan derive its
+    /// subject from the code rather than keeping a list beside it.
+    private static func matches(_ pattern: String, in source: String, group: Int) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let text = source as NSString
+        return regex.matches(in: source, range: NSRange(location: 0, length: text.length))
+            .compactMap { match in
+                let range = match.range(at: group)
+                return range.location == NSNotFound ? nil : text.substring(with: range)
+            }
+    }
+
+    /// Source with a plain **assignment** `=` normalised to one space each side — and nothing else
+    /// touched, which is the entire point.
+    ///
+    /// What this replaces opened with `.replacingOccurrences(of: " +=", with: " +=")`, which
+    /// replaces a string with itself: measured, that step returned its input unchanged. So the `+=`
+    /// protection it was written for never happened at all, and `pendingTabProviderChanges += 1`
+    /// came out of the next step as `… + = 1`.
+    ///
+    /// The other direction is the one with teeth: `\s*=\s*` rewrites a COMPARISON too, so
+    /// `if leftProviderId == id` became `leftProviderId =  = id` — which contains
+    /// `"leftProviderId = "` and was therefore counted as a WRITE. Measured against the mixed
+    /// fixture below, the old normaliser answered **3** where 2 were real, one extra per `==` on a
+    /// pane provider id. No such comparison is in the file today, so it is latent; the first one
+    /// anybody adds fails the count on a *read*, and the tempting repair is to loosen the number
+    /// that is the whole value of the assertion.
+    ///
+    /// The lookbehind refuses an `=` that is the tail of a compound operator (`+=`, `-=`, `!=`,
+    /// `<=`, `>=`, `==`); the lookahead refuses one that is the head of `==`. Horizontal whitespace
+    /// only — `\s` would swallow newlines and join two statements into one. Pinned by
+    /// ``theWriteScanTellsAnAssignmentFromAComparison``, which is the fixture this had none of.
+    static func normalizingAssignments(_ source: String) -> String {
+        source.replacingOccurrences(of: #"(?<![-+*/%<>!=])[ \t]*=[ \t]*(?!=)"#,
+                                    with: " = ", options: .regularExpression)
+    }
+
+    /// How many times `source` WRITES a pane provider id, by any spelling the compiler accepts.
+    ///
+    /// Extracted from the assertion so a fixture can be handed known text: counted inline, the
+    /// miscount above could only be found by reading the regex, and it was not.
+    static func paneProviderIdWrites(in source: String) -> Int {
+        let code = normalizingAssignments(source)
+        var writes = 0
+        for direct in ["leftProviderId = ", "rightProviderId = "] {
+            writes += code.components(separatedBy: direct).count - 1
+        }
+        // The projected and underscored forms are counted on the RAW text: they are not assignments
+        // to normalise, they are the refactor someone reaches for to delete the ternary — a write
+        // through `$leftProviderId.wrappedValue` names the property nowhere the pattern above looks.
+        for indirect in ["$leftProviderId", "$rightProviderId", "_leftProviderId", "_rightProviderId"] {
+            writes += source.components(separatedBy: indirect).count - 1
+        }
+        return writes
     }
 
     private static func fileExplorer(_ name: String) throws -> String {
@@ -432,26 +496,61 @@ import Sync
     /// lens clear, the discard branch never wrote the id at all, the launch restore wrote it with no
     /// suppression). The two assignments below are the ones INSIDE the helper.
     @Test func theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper() throws {
-        // Whitespace-normalised first: Swift accepts `leftProviderId=id` and any run of spaces
-        // around the `=`, and a plain substring count sees neither. What this still cannot see is a
-        // write through the projected binding (`$leftProviderId.wrappedValue = id`) — named here
-        // because it is exactly the refactor someone reaches for to delete the ternary below, and
-        // the assertion after this one is what would then catch it.
+        // Counted through `paneProviderIdWrites`, which normalises assignment — Swift accepts
+        // `leftProviderId=id` and any run of spaces around the `=`, and a plain substring count
+        // sees neither. It deliberately does NOT normalise `==`, `!=` or `+=`; the fixture below is
+        // what holds that, because the version this replaced got it wrong in both directions and
+        // nothing could tell.
         let raw = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
-        let code = raw.replacingOccurrences(of: " +=", with: " +=")
-            .replacingOccurrences(of: #"\s*=\s*"#, with: " = ", options: .regularExpression)
-        let writes = code.components(separatedBy: "leftProviderId = ").count - 1
-            + code.components(separatedBy: "rightProviderId = ").count - 1
-            + raw.components(separatedBy: "$leftProviderId").count - 1
-            + raw.components(separatedBy: "$rightProviderId").count - 1
-            + raw.components(separatedBy: "_leftProviderId").count - 1
-            + raw.components(separatedBy: "_rightProviderId").count - 1
+        let writes = Self.paneProviderIdWrites(in: raw)
         #expect(writes == 2,
                 "\(writes) writes of a pane provider id — the helper's own two are the only ones allowed")
         let helper = try Self.memberBody("private func adoptProviderForTab(",
                                          in: Self.source("ContentView+PaneTabs.swift"))
         #expect(helper.contains("if isLeft { leftProviderId = id } else { rightProviderId = id }"),
                 "the two writes are not the helper's — this scan is counting someone else's")
+    }
+
+    /// **The counter above tells a write from a read, and that was provably not true.**
+    ///
+    /// Its normaliser opened with a step that replaced a string with itself, so the `+=` it was
+    /// written to protect was split into `+ =` — and its `\s*=\s*` rewrote comparisons too, so
+    /// `if leftProviderId == id` normalised into text containing `"leftProviderId = "` and counted
+    /// as a write. Measured against the fixture below: three writes for two, one extra per `==` on
+    /// a pane provider id. Nothing in the file happens to contain such a
+    /// comparison today, which is exactly why it needed a fixture rather than a reading of the
+    /// production file — the miscount is latent until someone adds the first `==`, at which point
+    /// the count fails on a READ and the obvious repair is to raise the number the assertion is
+    /// entirely made of.
+    @Test func theWriteScanTellsAnAssignmentFromAComparison() {
+        // A comparison is not a write. This is the latent case, and the reason this fixture exists.
+        #expect(Self.paneProviderIdWrites(in: "if leftProviderId == id { return }") == 0,
+                "a `==` comparison counts as a write — the count breaks on the first read anyone adds")
+        #expect(Self.paneProviderIdWrites(in: "guard rightProviderId != id else { return }") == 0,
+                "a `!=` comparison counts as a write")
+        // Nor is a compound assignment to something else — the case the inert first step was for.
+        #expect(!Self.normalizingAssignments("pendingTabProviderChanges += 1").contains("+ ="),
+                "a compound assignment is still split into `+ =`, so the inert guard is still inert")
+        #expect(Self.paneProviderIdWrites(in: "pendingTabProviderChanges += 1") == 0)
+
+        // …and a real write still counts, at every spacing Swift accepts. Without these the fix
+        // could be "normalise nothing", which passes every assertion above and sees no writes.
+        #expect(Self.paneProviderIdWrites(in: "leftProviderId=id") == 1, "a tight `=` is not seen")
+        #expect(Self.paneProviderIdWrites(in: "rightProviderId   =   id") == 1, "a padded `=` is not seen")
+        #expect(Self.paneProviderIdWrites(in: "$leftProviderId.wrappedValue = id") == 1,
+                "a write through the projected binding is not seen")
+
+        // The measured miscount, whole: two real writes beside one read and one compound
+        // assignment. Measured with the old normaliser restored, this answered 3 — the `==` line
+        // counts as a write, and the `+=` line comes out as `+ =` rather than being protected.
+        let mixed = """
+            if leftProviderId == id { return }
+            pendingTabProviderChanges += 1
+            if isLeft { leftProviderId = id } else { rightProviderId = id }
+            guard rightProviderId != id else { return }
+            """
+        let counted = Self.paneProviderIdWrites(in: mixed)
+        #expect(counted == 2, "\(counted) writes counted where 2 are real")
     }
 
     /// The helper does everything the suppressed `onChange` would have done — except the one thing
@@ -543,11 +642,17 @@ import Sync
     @Test func aTabVerbMovesTheFocusToThePaneItWasAimedAt() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let body = try Self.memberBody("private func tabAction(isLeft: Bool", in: source)
-        #expect(body.contains("if movesFocus { noteWorkingIn(isLeft: isLeft) }"),
+        #expect(body.contains("if movesFocus { noteWorkingIn(isLeft: isLeft"),
                 "a tab verb no longer says which pane the user is working in")
-        let focus = try Self.memberBody("private func noteWorkingIn(isLeft: Bool)", in: source)
-        #expect(focus.contains("syncManager.focusedPaneSide = side"),
-                "noteWorkingIn does not write the side the chords read")
+        // **The call site of the tested rule.** The polarity itself is no longer here to scan: it
+        // moved to `FileSyncManager.noteFocusedPane(isLeft:because:)`, where
+        // `theFocusedSideFollowsThePaneAVerbWasAimedAt` really calls it, because
+        // `isLeft ? .left : .right` sitting in a `ContentView` extension could be flipped with all
+        // 563 tests green — it aimed every tab verb at the opposite pane and nothing could see it.
+        // What is left to pin here is that the host still goes through that door.
+        let focus = try Self.memberBody("private func noteWorkingIn(isLeft: Bool", in: source)
+        #expect(focus.contains("syncManager.noteFocusedPane(isLeft: isLeft, because: reason)"),
+                "noteWorkingIn no longer routes through the manager's one door, so the polarity is back somewhere untested")
         // Both mirrored openers, and ONLY those, opt out. Counted rather than checked per site: a
         // per-site check passes the moment a third verb quietly stops moving the focus.
         let code = Self.codeOnly(source)
@@ -557,17 +662,220 @@ import Sync
                 "the mirrored ⌘T is not the opted-out one")
         #expect(code.contains("tabAction(isLeft: other, movesFocus: false)"),
                 "the mirrored Open in New Tab is not the opted-out one")
+    }
 
-        // **The two verbs that do NOT go through `tabAction` say it themselves.** A reorder drag
-        // and Pin/Unpin move only the strip, so they skip the one door — and skipped the focus with
-        // it. Both are aimed at one pane's chips (`onReorder` and the chip's context menu are
-        // separate callbacks from `onSelect`, so neither incidentally selects), so dragging a chip
-        // in the right strip left ⌘W pointed at a one-tab left pane, where it closes the WINDOW.
-        for verb in ["func moveTab(id: UUID, to index: Int, isLeft: Bool)",
-                     "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)"] {
-            #expect(try Self.memberBody(verb, in: source).contains("noteWorkingIn(isLeft: isLeft)"),
-                    "\(verb) changes this pane's strip without saying the user is working in it")
+    /// **The polarity, on a type a test can actually call.**
+    ///
+    /// This is the assertion the feature never had. `noteWorkingIn` resolved the side itself with
+    /// `isLeft ? .left : .right`, in a `ContentView` extension nothing can instantiate — so
+    /// flipping that ternary to `isLeft ? .right : .left` aimed every tab verb at the opposite
+    /// pane and left the whole 563-test app suite green. That mutation IS the shipped bug
+    /// `noteWorkingIn` exists to fix: open a second tab on the RIGHT pane while the ring sits on a
+    /// one-tab LEFT pane, press ⌘W, and `closeTab`'s last-tab branch closes the WINDOW.
+    ///
+    /// The rule lives on `FileSyncManager` now, which a test can build — so the flip is a failure
+    /// rather than a survivor. The call site is pinned above; the two together are what the source
+    /// scan alone could not do.
+    @Test func theFocusedSideFollowsThePaneAVerbWasAimedAt() {
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        manager.noteFocusedPane(isLeft: true, because: "a test aimed at the left pane")
+        #expect(manager.focusedPaneSide == .left,
+                "a verb aimed at the LEFT pane pointed the pane-scoped chords at the right one")
+        manager.noteFocusedPane(isLeft: false, because: "a test aimed at the right pane")
+        #expect(manager.focusedPaneSide == .right,
+                "a verb aimed at the RIGHT pane pointed the pane-scoped chords at the left one")
+        // Both directions, from both starting points: `isLeft ? .right : .left` is caught by the
+        // pair above, but so is a door that simply toggles, and only going back catches that.
+        manager.noteFocusedPane(isLeft: true, because: "back to the left pane")
+        #expect(manager.focusedPaneSide == .left, "the door toggles rather than reading its argument")
+        // The explicit-`nil` spelling is the one the swap uses, and it must be reachable.
+        manager.noteFocusedPane(nil, because: "focus is implicit again")
+        #expect(manager.focusedPaneSide == nil, "the door cannot put the focus back to implicit")
+    }
+
+    /// **Every side-taking call in the one door is aimed at the pane the door was GIVEN.**
+    ///
+    /// `adoptProviderForTab(id, isLeft: isLeft, …)` appears twice in `tabAction` — the `.adopt`
+    /// case and the discard branch — and mutating either to `isLeft: !isLeft` left the whole suite
+    /// green. That mutation is `d655b528`'s headline defect verbatim: every cross-source tab click
+    /// writes the SIBLING pane's provider id, leaving it claiming one source while showing
+    /// another's tree, and `saveBrowseTabs` then persists it. Only the launch-restore site was
+    /// protected, by an exact-string scan.
+    ///
+    /// Asked as an invariant over the whole member rather than as a spelling at each site: a
+    /// per-site pin is brittle and still cannot see a `!` added at the next site along. `tabAction`
+    /// is the one door for a verb the user aimed at ONE pane, so reaching for the sibling anywhere
+    /// inside it is the bug — not a shape to enumerate exceptions to.
+    @Test func theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven() throws {
+        let body = Self.codeOnly(try Self.memberBody("private func tabAction(isLeft: Bool",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        // The positive control: the calls this is about are in here at all. Without it, a member
+        // that had lost every one of them would satisfy both invariants below.
+        #expect(body.components(separatedBy: "adoptProviderForTab(").count - 1 == 2,
+                "the two adopt sites this is about are no longer both in the one door")
+        #expect(body.contains("noteWorkingIn(isLeft: "),
+                "the one door no longer says which pane the user is working in")
+
+        // Every `isLeft:` argument in here is `isLeft` itself. The floor is TODAY'S measured count
+        // (8, the declaration excluded — `memberBody` slices past it), not a number chosen low
+        // enough to be safe: a floor well under the actual passes with half the calls gone.
+        let labelled = body.components(separatedBy: "isLeft: ").count - 1
+        let threaded = body.components(separatedBy: "isLeft: isLeft").count - 1
+        #expect(labelled >= 8,
+                "\(labelled) `isLeft:` arguments in the one door — it has lost calls this is meant to cover")
+        #expect(labelled == threaded,
+                "\(labelled - threaded) of \(labelled) `isLeft:` arguments in the one door name something other than the pane it was given — a verb aimed at one pane is acting on the other")
+        // …and nothing in here reaches for the sibling under any other label either
+        // (`refreshForTabSwitch(movedPane:)` spells it differently, and would be missed above).
+        #expect(!body.contains("!isLeft"),
+                "the one door reaches for the SIBLING pane — every verb through it is aimed at exactly one pane, and the mirrored openers opt out before they get here")
+    }
+
+    /// **Every verb the strip's callbacks are wired to says which pane it was aimed at — derived
+    /// from the wiring, not listed beside it.**
+    ///
+    /// This check used to iterate a hand-written pair of verb signatures, which is a registry and
+    /// not the whole set: `copyTabPath` is reached from the same chip context menu as Pin/Unpin,
+    /// moves no pane and so never went through `tabAction` either, and it was simply missing. The
+    /// symptom is the one this whole rule exists for — right-click a chip in the RIGHT strip ▸ Copy
+    /// Path with a one-tab left pane focused, press ⌘W, and the WINDOW closes.
+    ///
+    /// So the set is read off the one place the strip is wired instead. `PaneTabStrip` names every
+    /// callback `on…` — they are its stored properties, so the compiler holds that shape — and a
+    /// new verb cannot reach the strip without being wired there. The next one added is covered by
+    /// construction.
+    ///
+    /// **Both ends of the derivation are guarded**, because a derivation that returns nothing is a
+    /// test that cannot fail: the members it may resolve to are asserted non-empty, the four that
+    /// matter are asserted present by name, and `tabLogDescription` — a member of the same file
+    /// that touches no focus door — is asserted to answer NO, which is what proves the reachability
+    /// walk is capable of saying no at all.
+    @Test func everyStripAimedVerbSaysWhichPaneItWasAimedAt() throws {
+        let content = Self.codeOnly(try Self.source("ContentView.swift"))
+        let tabs = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+
+        // What the tabs file declares…
+        let declared = Set(Self.matches(#"\n    (?:private )?func ([a-zA-Z]\w*)\("#, in: tabs, group: 1))
+        #expect(declared.count >= 15,
+                "\(declared.count) members found in the tabs file — the member scan is reading the wrong thing")
+        #expect(declared.isSuperset(of: ["copyTabPath", "tabAction", "noteWorkingIn", "tabLogDescription"]),
+                "the member scan lost members that are plainly there — every check below would be vacuous")
+
+        // …and which of those the strip's callbacks reach.
+        var derived: Set<String> = []
+        for closure in Self.matches(#"on[A-Z]\w*:\s*\{[^}]*\}"#, in: content, group: 0) {
+            for called in Self.matches(#"\b([a-z][A-Za-z0-9]*)\("#, in: closure, group: 1)
+            where declared.contains(called) {
+                derived.insert(called)
+            }
         }
+        #expect(derived.count >= 9,
+                "the strip's wiring resolved to \(derived.count) verbs (\(derived.sorted())) — the derivation has stopped finding them, and every check below is vacuous")
+        for named in ["copyTabPath", "selectTab", "moveTab", "setTabPinned", "openNewTabHere"] {
+            #expect(derived.contains(named),
+                    "“\(named)” is wired to the strip and the derivation did not find it")
+        }
+
+        /// Whether `name` reaches the focus door, directly or through one more member of this file.
+        /// Two hops is what ⌘T needs: `openNewTabHere` mirrors through `openTabHere` to `tabAction`.
+        func reachesTheFocusDoor(_ name: String, hops: Int) throws -> Bool {
+            let body = try Self.memberBodyNamed(name, in: tabs)
+            if body.contains("noteWorkingIn(") || body.contains("tabAction(") { return true }
+            guard hops > 0 else { return false }
+            for called in Self.matches(#"\b([a-z][A-Za-z0-9]*)\("#, in: body, group: 1)
+            where declared.contains(called) && called != name {
+                if try reachesTheFocusDoor(called, hops: hops - 1) { return true }
+            }
+            return false
+        }
+
+        // The negative control, first: a member of this same file that describes a tab for the log
+        // and moves no focus. If this answers YES the walk cannot fail, and every verb below passes
+        // for free.
+        #expect(try !reachesTheFocusDoor("tabLogDescription", hops: 2),
+                "the reachability walk says a member that touches no focus door reaches one — it cannot fail, so nothing below it means anything")
+
+        for verb in derived.sorted() {
+            #expect(try reachesTheFocusDoor(verb, hops: 2),
+                    "“\(verb)” is wired to a pane's tab strip and never says which pane the user is working in — in Compare that leaves ⌘W aimed at the other pane, where its last-tab branch closes the WINDOW")
+        }
+    }
+
+    /// **`focusedPaneSide` has one writer in the host, and it is the manager's door.**
+    ///
+    /// Five places wrote the property bare and none of them logged — a strip verb, a row selection,
+    /// ⌃⇥, a pin and a reorder. The value decides whether ⌘W closes a tab or the WINDOW, so a user
+    /// auditing a log that shows a window closing had nothing at all saying which pane the chords
+    /// were aimed at. The door writes the line; a sixth bare writer would be silent again.
+    ///
+    /// Scanned as an ABSENCE across every file in `MacApp/`, not per known site: a per-site check
+    /// passes the moment a new one appears, which is exactly how this got to five.
+    @Test func theHostWritesTheFocusedPaneSideOnlyThroughTheManagersDoor() throws {
+        let macApp = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp")
+        let files = try FileManager.default
+            .contentsOfDirectory(at: macApp, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        #expect(files.count > 20,
+                "the host scan found \(files.count) Swift files — it is reading the wrong folder")
+
+        var doors = 0
+        for file in files {
+            let code = Self.normalizingAssignments(
+                Self.codeOnly(try String(contentsOf: file, encoding: .utf8)))
+            #expect(!code.contains("focusedPaneSide = "),
+                    "\(file.lastPathComponent) writes focusedPaneSide itself rather than through noteFocusedPane — the move is silent, and the log cannot say which pane ⌘W was aimed at")
+            doors += code.components(separatedBy: "noteFocusedPane(").count - 1
+        }
+        #expect(doors >= 3,
+                "\(doors) calls to the door across MacApp — the strip verb, the row selection and ⌃⇥ each need one, so this scan has stopped finding them and the absence above is vacuous")
+    }
+
+    /// **A focus move is logged with its cause, and a move that moves nothing says nothing.**
+    ///
+    /// `focusedPaneSide` decides whether ⌘W closes a tab or the window — this feature's one
+    /// destructive outcome — and after the strip verbs started moving it, it moves on a chip click,
+    /// the ＋, the header card's New Tab, the pane background menu, a reorder drag and a pin. None
+    /// of those wrote anything, so a report of "⌘W closed my window" had no trace to read.
+    ///
+    /// The silent half is not tidiness: the commonest way to reach this door is clicking a row in
+    /// the pane you are already working in, and a defect in this exact area logged the most
+    /// ordinary gesture in the strip (clicking the chip you are already on) into the log he audits.
+    ///
+    /// **Read between this test's own markers, with the cause carrying a token.** `Logger.shared`
+    /// is process-wide and `entries` is a rolled 1000-line window, so the opener is `#require`d as
+    /// the eviction guard and the reason strings are unique to this run — nothing else in the
+    /// process can write a line this reading then counts, in either direction.
+    @Test func aFocusMoveIsLoggedWithItsCauseAndANoOpIsNot() async throws {
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        let token = String(UUID().uuidString.prefix(8))
+
+        await Logger.shared.debug("focus window open \(token)").value
+        manager.noteFocusedPane(isLeft: false, because: "moved \(token)")
+        // The same side again: nothing changes, so nothing may be said.
+        manager.noteFocusedPane(isLeft: false, because: "again \(token)")
+        await Logger.shared.debug("focus window close \(token)").value
+
+        let messages = Logger.shared.entries.map(\.message)
+        let opened = try #require(messages.firstIndex(where: { $0.contains("open \(token)") }),
+                                  "the log window rolled past this test's own marker, so this reading is vacuous")
+        // Sliced from the opener FIRST and searched inside that slice, so the two indices cannot be
+        // found out of order — `messages[a...b]` traps rather than failing when they are.
+        let tail = messages[opened...]
+        let closed = try #require(tail.lastIndex(where: { $0.contains("close \(token)") }),
+                                  "the closing marker never landed — this reading is vacuous")
+        let window = tail[...closed]
+
+        let moved = window.filter { $0.contains("moved \(token)") }
+        #expect(moved.count == 1,
+                "\(moved.count) lines for one focus move — a move of the pane-scoped chords is unlogged, so a window that closed has no trace of which pane ⌘W was aimed at")
+        #expect(moved.first?.contains("the right pane") == true,
+                "the line does not name the pane the chords now aim at, which is the whole question it exists to answer")
+        #expect(moved.first?.contains("⌘W") == true,
+                "the line does not name the chord whose destructive outcome this value decides")
+        #expect(!window.contains(where: { $0.contains("again \(token)") }),
+                "re-aiming at the pane already focused wrote a line — the log fills with the most ordinary gesture in the strip and buries the moves that explain a window closing")
     }
 
     /// …and an arrival that DOES move the pane reloads exactly once, from the host.

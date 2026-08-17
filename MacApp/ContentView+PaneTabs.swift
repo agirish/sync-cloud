@@ -112,7 +112,7 @@ extension ContentView {
         // consumes the counter first — so that is no longer why this guard exists.
         guard !isBootstrappingProviders else { return }
 
-        if movesFocus { noteWorkingIn(isLeft: isLeft) }
+        if movesFocus { noteWorkingIn(isLeft: isLeft, "a browse tab verb was aimed at this pane") }
 
         // Read BEFORE the verb runs, because the verb moves the pane: these two are what the
         // arriving tab is compared against to decide whether anything needs reloading at all.
@@ -252,9 +252,15 @@ extension ContentView {
     /// ⌘], ⇧⌘N, ⇧⌘P) at the pane the user is not looking at, and one of those is destructive:
     /// open a second tab on the RIGHT pane while the ring is on a one-tab LEFT pane, press ⌘W, and
     /// `closeTab`'s last-tab branch closes the WINDOW.
-    private func noteWorkingIn(isLeft: Bool) {
-        let side: PaneTree.Side = isLeft ? .left : .right
-        if syncManager.focusedPaneSide != side { syncManager.focusedPaneSide = side }
+    ///
+    /// **The side is resolved by the manager, not here.** `isLeft ? .left : .right` sat on the next
+    /// line for the whole of this feature's life and nothing could see it: `ContentView` is a
+    /// `View` with `@State`, so no test can call this, and flipping that ternary aimed every tab
+    /// verb at the opposite pane — verbatim the bug above — with all 563 tests still green.
+    /// `FileSyncManager.noteFocusedPane(isLeft:because:)` owns the polarity now, on a type a test
+    /// can build, and it is also what writes the log line this move had none of.
+    private func noteWorkingIn(isLeft: Bool, _ reason: String) {
+        syncManager.noteFocusedPane(isLeft: isLeft, because: reason)
     }
 
     /// The reload a tab switch asks for, when it asks for one.
@@ -558,9 +564,9 @@ extension ContentView {
     /// strip's order and that chip's own state — so this does not go through `tabAction`.
     func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool) {
         guard !isBootstrappingProviders else { return }
-        // Aimed at this pane's strip like any other verb, so the chords follow — these two do not
-        // go through `tabAction` (the pane does not move), which is exactly how they were missed.
-        noteWorkingIn(isLeft: isLeft)
+        // Aimed at this pane's strip like any other verb, so the chords follow — these do not go
+        // through `tabAction` (the pane does not move), which is exactly how they were missed.
+        noteWorkingIn(isLeft: isLeft, "Pin/Unpin from a browse tab's menu")
         // Named BEFORE the verb, and it has to be: pinning re-sorts the strip, so afterwards this
         // tab sits at a different index and `tabLogDescription`'s live-versus-parked test would be
         // asked about the wrong one.
@@ -574,9 +580,9 @@ extension ContentView {
     /// Debug, like selecting: a drag emits one line and changes nothing but where a chip sits.
     func moveTab(id: UUID, to index: Int, isLeft: Bool) {
         guard !isBootstrappingProviders else { return }
-        // Aimed at this pane's strip like any other verb, so the chords follow — these two do not
-        // go through `tabAction` (the pane does not move), which is exactly how they were missed.
-        noteWorkingIn(isLeft: isLeft)
+        // Aimed at this pane's strip like any other verb, so the chords follow — these do not go
+        // through `tabAction` (the pane does not move), which is exactly how they were missed.
+        noteWorkingIn(isLeft: isLeft, "a browse tab was dragged to a new position")
         // Named BEFORE the verb, for `setTabPinned`'s reason: after the move this tab is at another
         // index, and the description is read off the list by index.
         Logger.shared.debug(
@@ -615,6 +621,13 @@ extension ContentView {
     /// Terminal or a Finder ⇧⌘G, rather than the relative one the chip is named for.
     func copyTabPath(id: UUID, isLeft: Bool) {
         guard let item = paneTabItems(isLeft: isLeft).first(where: { $0.id == id }) else { return }
+        // **The fourth strip-aimed verb, and the one that was missed.** Copy Path is reached from
+        // the same chip context menu as Pin/Unpin, and like it the pane does not move — so it never
+        // went through `tabAction` and never said which pane the user was working in. Right-click a
+        // chip in the RIGHT strip ▸ Copy Path with a one-tab left pane focused, then press ⌘W, and
+        // `closeTab`'s last-tab branch closes the WINDOW. Below the guard, so a menu aimed at a chip
+        // this strip does not hold moves nothing.
+        noteWorkingIn(isLeft: isLeft, "Copy Path from a browse tab's menu")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.fullPath, forType: .string)
         Logger.shared.info("User copied a tab's path: \(item.fullPath)")
