@@ -76,11 +76,21 @@ import Sync
     /// after host.orderOut(nil)                   isPresented=false   children=0   dismissalsSeen=1
     /// ```
     ///
-    /// One call, the whole failing signature, and the witness naming a real `dismiss()` as its
-    /// cause. The chain: ordering out a parent takes its key child with it, the child posts
+    /// One call, the whole failing signature. And the witness captures the stack, so the caller is
+    /// **named rather than deduced** — reading the recorded frames bottom-up:
+    ///
+    /// ```
+    /// present…Foundation12NotificationVYbcfU2_   <- the didResignKey observer closure
+    /// MainActor.assumeIsolated                   <- its `assumeIsolated { self?.dismiss() }`
+    /// CommandPalettePanelController.dismiss()
+    /// ```
+    ///
+    /// So the chain is: ordering out a parent takes its key child with it, the child posts
     /// `didResignKey`, the controller answers that with `dismiss()` — correct behaviour, losing key
     /// is exactly when the palette should close — and `dismiss()` unparents the panel and clears
-    /// `isPresented`.
+    /// `isPresented`. Every link is observed; none of it is "the only remaining possibility", which
+    /// matters in a file whose own lesson is that a cause you have not measured is a cause you have
+    /// guessed.
     ///
     /// Two supporting measurements explain why it could land *inside* `present`, before the first
     /// `#expect`. A `NotificationCenter` block observer registered with `queue: .main` runs

@@ -1184,8 +1184,16 @@ before                      panelKey=true   isPresented=true    children=1
 after host.orderOut(nil)                    isPresented=false   children=0   dismissalsSeen=1
 ```
 
-One call, the entire failing signature, and the fixture's own witness naming a real `dismiss()` as
-the cause. The chain:
+One call, the entire failing signature. The witness records the stack too, so the caller is **named
+rather than deduced** — bottom-up, the recorded frames are:
+
+```
+present…Foundation12NotificationVYbcfU2_   <- the didResignKey observer closure
+MainActor.assumeIsolated                   <- its `assumeIsolated { self?.dismiss() }`
+CommandPalettePanelController.dismiss()
+```
+
+The chain, every link of it observed:
 
 1. Ordering out a parent takes its child out with it.
 2. A child ordered out while it holds key posts `didResignKey`.
