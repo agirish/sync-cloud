@@ -17,8 +17,12 @@ import Sync
 /// ~53k — a 16× gap, so the 12k ceiling below is nowhere near either number. The floor is there
 /// for the opposite failure: a render that draws nothing would otherwise pass this test with a
 /// perfect zero.
+/// `.machinePinned(.pixelSampling)` — the corridor above is a measured ink COUNT, not a presence
+/// check. `> 800` and `< 12_000` bracket the ~3.2k this Mac paints, against the ~53k a card would;
+/// both ends move with font rasterization and backing scale, so the verdict is only meaningful on
+/// the machine the numbers were read on.
 @MainActor
-@Suite struct PaneScanningPlaceholderRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct PaneScanningPlaceholderRenderTests {
 
     private struct StubDelegate: FileActionDelegate {
         func handleRefresh() {}

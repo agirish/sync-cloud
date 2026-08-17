@@ -15,8 +15,14 @@ import Design
 /// that was protecting contrast.
 ///
 /// Measured against the pill's own fill, which is what the glyph actually sits on.
+/// `.machinePinned(.pixelSampling)` — and this is the suite in the package that most needs it.
+/// It does not merely read pixels back out of a live renderer: it computes a WCAG contrast ratio
+/// from the darkest sampled glyph pixel against the modal sampled fill and holds it to absolute
+/// numbers (3.0, and 4.0 for the control). Anti-aliasing decides how dark that darkest pixel gets,
+/// so a different renderer moves the measurement itself — the doc above records 4.84:1 and 2.87:1
+/// from this Mac, and the margin over the floor is what those numbers are.
 @MainActor
-@Suite(.serialized) struct PaneBarInkContrastTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarInkContrastTests {
 
     /// The floor for a non-text glyph carrying meaning. 3:1 is WCAG's non-text contrast minimum and
     /// the number the rest of this codebase's chrome is held to.

@@ -19,8 +19,12 @@ import Sync
 /// 77,998. Each screen was mutated on its own and failed only its own test, in both appearances,
 /// so neither of these is measuring the other's view. The floor guards the opposite failure: a
 /// canvas that renders nothing would sail past a ceiling alone.
+/// `.machinePinned(.pixelSampling)` — for the reason its sibling
+/// `PaneScanningPlaceholderRenderTests` carries it: the assertions are a measured ink COUNT
+/// corridor (`> 2_000`, `< 40_000`) bracketing the 11,702 / 14,746 this Mac paints against the
+/// 75,051 / 77,998 a card would. Both ends move with font rasterization and backing scale.
 @MainActor
-@Suite struct OrganizeScanningPlaceholderRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct OrganizeScanningPlaceholderRenderTests {
 
     private static let canvas = CGSize(width: 700, height: 520)
     /// Everything below the lens chips — the region the placeholder is centered in. Kept clear of
