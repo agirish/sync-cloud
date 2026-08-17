@@ -211,36 +211,87 @@ extension FileSyncManager {
         return (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
     }
 
-    /// Where `destination` — a path some item in `batch` was moved TO — actually sits once every
-    /// OTHER move in that same batch has been applied.
+    /// Every path a move in `batch` renamed away, keyed by its OLD path — `liveLocation`'s lookup
+    /// table, built ONCE per batch by the caller rather than once per item.
     ///
-    /// Only ANCESTOR components are rewritten, and only when another move's `from` is a strict
-    /// ancestor of `destination`. That condition is self-validating: `destination` can still spell
-    /// an ancestor's OLD name only if the item landed there BEFORE that ancestor was renamed, which
-    /// is exactly the deepest-first apply order this exists for. A batch that renames ancestors
-    /// first leaves no old name to match, so nothing is rewritten and the path is returned as-is —
-    /// which is every single-item batch and every same-directory batch, i.e. all but one of the
-    /// ten call sites.
-    ///
-    /// Resolution is recursive so a three-deep nest resolves fully (`/A-BAD/B-BAD/c.txt` →
-    /// `/AOK/BOK/c.txt`), and guarded by a `seen` set so a rename CYCLE stops rather than looping.
-    /// The leaf itself is never rewritten: an item is renamed once per batch, so its own name is
-    /// final, and rewriting it could follow an unrelated item that happens to have taken the path.
-    nonisolated static func liveLocation(of destination: URL, afterBatch batch: [MoveItemState]) -> URL {
+    /// Separated out because folding it into `liveLocation` made `registerMoveUndo(items:)`
+    /// quadratic on the MAIN ACTOR: it calls `liveLocation` per item and each call rebuilt the
+    /// whole table from the whole batch. Measured (debug build, before the split): n=100 → 0.015 s,
+    /// n=1000 → 1.70 s, n=3000 → **14.6 s**, n=6000 → 52.1 s of added main-thread time right after
+    /// a bulk move — reachable from a multi-select move and from `normalizeNames`, both of which
+    /// can hand over thousands of items. `theUndoRegistrationOfALargeBatchStaysLinear` is what
+    /// keeps it from creeping back.
+    nonisolated static func renameMap(for batch: [MoveItemState]) -> [String: String] {
         var renames: [String: String] = [:]
         for move in batch where move.from.path != move.to.path {
             renames[move.from.path] = move.to.path
         }
+        return renames
+    }
+
+    /// Where `destination` — a path some item in a move batch was moved TO — actually sits once
+    /// every OTHER move in that same batch has been applied. `renames` is that batch's
+    /// `renameMap(for:)`.
+    ///
+    /// Only ANCESTOR components are rewritten, and only when another move's `from` is a strict
+    /// ancestor of `destination`. A batch that renames ancestors first leaves no old name to
+    /// match, so nothing is rewritten and the path is returned as-is — which is every single-item
+    /// batch and every same-directory batch, i.e. all but one of the ten call sites.
+    ///
+    /// **A rewrite also has to be confirmed against the disk, because the ancestor condition alone
+    /// is not proof.** The claim it used to rest on — "`destination` can still spell an ancestor's
+    /// OLD name only if the item landed there before that ancestor was renamed" — is false for a
+    /// batch that mixes NESTED provider roots, which `SettingsManager.existingSource` allows: with
+    /// roots `/P` and `/P/Backup`, a multi-select move can move `/P/Backup/D` first and then let
+    /// `ensureParentDirectoryExists` recreate `/P/Backup/D` under the item that lands second, so
+    /// that item IS at its recorded `to` and rewriting the path walks it off into
+    /// `/P/Backup/Backup/D/…`. The consequence was only ever a bad READ — `item.to` still drives
+    /// the actual move, so the blast radius is an `.absent` snapshot and a falsely refused undo,
+    /// never a wrong destination — but a false refusal is exactly what this function exists to
+    /// stop. So: if the item is still AT `destination`, it did not go anywhere, and the recorded
+    /// path is the answer. The stat costs one call, and only on the nested path where a rewrite
+    /// was about to happen; every flat batch returns before reaching it.
+    ///
+    /// Resolution is recursive so a three-deep nest resolves fully (`/A-BAD/B-BAD/c.txt` →
+    /// `/AOK/BOK/c.txt`), and guarded by a `seen` set so a rename CYCLE stops rather than looping.
+    /// The leaf itself is never rewritten: an item is renamed once per batch, so its own name is
+    /// final, and rewriting it would follow an unrelated item that happens to have taken the path —
+    /// a renumbering cascade (`01 - x.pdf`→`02 - x.pdf` beside `02 - x.pdf`→`03 - x.pdf`) has one
+    /// move's `to` equal to another's `from`, and would snapshot the wrong file.
+    nonisolated static func liveLocation(
+        of destination: URL, throughRenames renames: [String: String], fileManager fm: FileManaging
+    ) -> URL {
         guard !renames.isEmpty else { return destination }
         let parent = destination.deletingLastPathComponent()
         var seen = Set<String>()
         let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen)
         guard livingParent != parent.path else { return destination }
+        guard !fm.fileExists(atPath: destination.path) else { return destination }
         return URL(fileURLWithPath: livingParent).appendingPathComponent(destination.lastPathComponent)
+    }
+
+    /// One-shot convenience over `renameMap(for:)` + `liveLocation(of:throughRenames:fileManager:)`.
+    /// Never call this in a loop over the batch — that is the quadratic shape `renameMap(for:)`
+    /// exists to keep out of `registerMoveUndo(items:)`.
+    nonisolated static func liveLocation(
+        of destination: URL, afterBatch batch: [MoveItemState], fileManager fm: FileManaging
+    ) -> URL {
+        liveLocation(of: destination, throughRenames: renameMap(for: batch), fileManager: fm)
     }
 
     /// `liveLocation`'s worker: the path `path` reads as after `renames` are applied to it and to
     /// every one of its ancestors. `seen` bounds a cycle (A→B, B→A) to one lap.
+    ///
+    /// **`seen` is unreachable from production, and stays anyway.** The only caller of
+    /// `liveLocation` is `registerMoveUndo(items:)`, and every batch reaching it was applied
+    /// sequentially against a real filesystem through `safeMoveItem`: for A→B and B→A both to be
+    /// recorded, whichever ran second would have had to move onto a path the first one had just
+    /// filled, which `safeMoveItem`'s collision handling turns into a replace (one item, not a
+    /// cycle) rather than a second rename. So no input can reach the guard today. What it costs is
+    /// three lines; what its absence costs is not a wrong answer but an unbounded recursion — a
+    /// stack-overflow crash of the whole app, from a batch nobody could inspect afterwards. That
+    /// is the wrong side to be cheap on, so it stays, and `liveLocationStopsAtOneLapOfACycle`
+    /// pins the exact path it produces rather than accepting "either lap".
     private nonisolated static func resolveRenamedDirectory(
         _ path: String, renames: [String: String], seen: inout Set<String>
     ) -> String {
@@ -313,7 +364,7 @@ extension FileSyncManager {
         // happened, so the item this undo is responsible for is on disk — so the handler can
         // refuse to move back something that is no longer it.
         //
-        // Read at `liveLocation(of:afterBatch:)` rather than at `to` itself, because for a NESTED
+        // Read at `liveLocation` rather than at `to` itself, because for a NESTED
         // batch `to` is not where the item is by the time registration runs. `normalizeNames`
         // applies renames deepest-first (a child renames inside its still-named parent, then the
         // parent is renamed around it) and registers shallowest-first, so the child's recorded
@@ -323,10 +374,15 @@ extension FileSyncManager {
         // rename was refused and never reversed, a half-undone pass reported as drift that never
         // happened. `to` itself stays the recorded value — at undo time the parent IS restored
         // first, so `to` is again the right path to move back from.
+        // Built ONCE for the whole batch: this loop is the reason `renameMap(for:)` is separate
+        // from `liveLocation` — rebuilding it per item made a 3,000-item move cost 14.6 s of
+        // main-actor time (see `renameMap(for:)`).
+        let renames = FileSyncManager.renameMap(for: items)
         let enriched: [MoveUndoItemState] = items.map { item in
             (from: item.from, to: item.to, overwritten: item.overwritten,
              movedIdentity: ItemIdentity.snapshot(
-                at: FileSyncManager.liveLocation(of: item.to, afterBatch: items), fileManager: fm))
+                at: FileSyncManager.liveLocation(of: item.to, throughRenames: renames, fileManager: fm),
+                fileManager: fm))
         }
         let resolver = AsyncValueResolver<[MoveUndoItemState]>()
         Task { await resolver.resolve(enriched) }
@@ -600,6 +656,13 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
+    /// **`items` is in UNDO order**, and the whole undo/redo chain keeps it that way: the handler
+    /// reverses them front to back, `registerMoveRedo` re-applies them back to front, and the
+    /// state it hands the next undo is reversed again. `normalizeNames` is where that matters —
+    /// it applies deepest-first and passes the batch shallowest-first, so a ⌘Z restores a renamed
+    /// parent folder before the children renamed inside it, and a ⌘⇧Z renames the children before
+    /// the folder around them. Every other call site passes one item, or items in no relation to
+    /// each other, and is indifferent.
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
@@ -629,7 +692,6 @@ extension FileSyncManager {
                         var leftInPlace = 0
                         var reversedParams: [(from: URL, to: URL)] = []
                         for item in items {
-                            try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
                             var movedBackOK = false
                             // A case-only rename ("foo"→"Foo") is NOT a clobber: on a case-insensitive
                             // volume item.from resolves to the very item.to being moved back, so
@@ -664,6 +726,15 @@ extension FileSyncManager {
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
                             } else {
                                 do {
+                                    // Recreating the source's parent belongs HERE, in the branch
+                                    // that is actually about to move something, not at the top of
+                                    // the loop. A refused item must leave the disk exactly as it
+                                    // found it, and running this first did not: for a NESTED batch
+                                    // whose shallow item was refused, the deeper item's `from`
+                                    // spells the old ancestor name, so the refusal that followed
+                                    // still left behind a brand-new empty folder carrying the very
+                                    // name the pass had just removed.
+                                    try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
                                     _ = try FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
                                     movedBack += 1
                                     movedBackOK = true
@@ -711,8 +782,36 @@ extension FileSyncManager {
                         var nextState: [MoveUndoItemState] = []
                         var redoFailures = 0
 
-                        for param in params {
-                            try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        // REVERSED, because re-applying is not the same order as reversing.
+                        //
+                        // The undo appends `reversedParams` in the order it processed `items`, and
+                        // `normalizeNames` hands that in deliberately: apply deepest-first, undo
+                        // shallowest-first, so the parent is restored around the children before
+                        // they move back inside it. Re-applying in the undo's own order runs the
+                        // parent rename FIRST, and every deeper item's recorded `from` then spells
+                        // an ancestor that has just stopped existing. Measured on a normalize pass
+                        // over `<root>/Photos␣/a␣.txt`: ⌘⇧Z produced `Photos`, `Photos/a␣.txt` and
+                        // a brand-new EMPTY `Photos␣` — the risky name the pass exists to remove —
+                        // and the stray directory then occupied the child's source, so the next
+                        // ⌘Z hit `restoreTargetOccupiedError` and reversed nothing at all. No data
+                        // was lost, but the tree was one nobody asked for and the undo stack was
+                        // dead. Reversing restores the original apply order, which is the order
+                        // that made the moves possible in the first place.
+                        //
+                        // It also makes the inline snapshot below read a LIVE path for free: each
+                        // item is snapshotted the instant it lands, before the shallower moves
+                        // rename its ancestors, so `param.to` is where the item actually is. This
+                        // is why the redo does NOT need `liveLocation` — and must not use it, as
+                        // that would resolve to a path only the LATER moves make real.
+                        for param in params.reversed() {
+                            // Only manufacture the destination's parent for a move that can
+                            // actually happen. Unconditionally, this created the ancestor a
+                            // sibling move had just renamed away — the empty `Photos␣` above —
+                            // and then reported the failure anyway. If the source is not there,
+                            // nothing is going to land, so nothing should be built for it.
+                            if fm.fileExists(atPath: param.from.path) {
+                                try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            }
                             do {
                                 let trashed = try FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
                                 // Snapshot HERE, where the state is produced — the resolver is
@@ -729,7 +828,13 @@ extension FileSyncManager {
                             }
                         }
 
-                        await nextUndoStateResolver.resolve(nextState)
+                        // Handed back in UNDO order — the reverse of the order just re-applied —
+                        // which is the invariant every array in this chain keeps: a move state is
+                        // always stored in the order its undo must process it. Resolved in the
+                        // replay's own order, the next ⌘Z would restore a parent before the
+                        // children inside it had left, which is the same defect one step further
+                        // along.
+                        await nextUndoStateResolver.resolve(Array(nextState.reversed()))
                         logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s)")
                 }
             }
