@@ -388,11 +388,12 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             return review
         }
 
-        // 1. The tab-driven change itself: both halves land.
+        // 1. The tab-driven change itself: both halves land. The tab moved the LEFT pane, so the
+        //    pin that can be stranded is the RIGHT one — `was-right-…` below is the sibling's.
         let tabToken = String(UUID().uuidString.prefix(8))
         let harness = Harness()
         _ = pinnedReview(tabToken, on: harness)
-        let changed = try await window { harness.coordinator.dispatchReview(.tabChangedSource) }
+        let changed = try await window { harness.coordinator.noteTabChangedSource(isLeft: true) }
 
         #expect(harness.duplicateReview == nil, "the review survived a tab-driven source change")
         let discarded = changed.filter { $0.contains("Docs-\(tabToken)") }
@@ -429,6 +430,87 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(quiet.duplicateReview == kept, "the review was cleared by an event that clears nothing")
         #expect(!afterQuiet.contains(where: { $0.contains("Docs-\(quietToken)") }),
                 "a review that was not discarded is logged as discarded")
+
+        // 4. **The case this warning was firing on with nothing stranded.** `compareCopies` pins
+        //    both panes and `ProviderPinPlan` writes nothing for a side already on the target — so
+        //    a user whose pre-review pair was ALREADY that provider on both sides has no pin left
+        //    anywhere. A tab then moves one pane, the PAIR differs from the saved pair, and the old
+        //    gate warned that the review's pin was stranded and "Nothing will restore that". The
+        //    sibling here is where the user left it, so the review must say what it discarded and
+        //    nothing more. This is the half the commit body claimed and no window covered: window 2
+        //    tests a different EVENT (`.panesSwapped`), not this event with nothing to strand.
+        let calmToken = String(UUID().uuidString.prefix(8))
+        let calm = Harness()
+        let unchanged = "userchoice-\(calmToken)"
+        calm.leftId = unchanged
+        calm.rightId = unchanged
+        calm.duplicateReview = DuplicateCompareContext(
+            groupName: "Calm-\(calmToken)",
+            keepPath: "\(calm.lensProviderRoot)/Docs",
+            deletePath: "\(calm.lensProviderRoot)/Backup/Docs",
+            keepIsDirectory: true, keepScannedSize: 1234,
+            keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
+            // Both panes were already on this source before the review, so the review pinned
+            // nothing: there is no leftover on either side.
+            restore: SavedCompareState(leftProviderId: unchanged, rightProviderId: unchanged,
+                                       leftRelativePath: "Was/Left", rightRelativePath: "Was/Right"))
+        // The tab moves the RIGHT pane onto a new source — the user's own choice, on the pane they
+        // clicked in. The sibling (left) is untouched, so nothing is stranded.
+        calm.rightId = "tabchoice-\(calmToken)"
+        let afterCalm = try await window { calm.coordinator.noteTabChangedSource(isLeft: false) }
+
+        #expect(calm.duplicateReview == nil, "the review survived a tab-driven source change")
+        #expect(afterCalm.contains(where: { $0.contains("Calm-\(calmToken)") }),
+                "the discard line went missing — this window would then be asserting the absence of a warning in a run where nothing happened at all")
+        #expect(!afterCalm.contains(where: { $0.contains("deliberately left in place") }),
+                "a WARNING claims the review stranded a provider pin on a pane that is exactly where the user left it — a warning about a loss that did not happen, in the log he audits")
+        #expect(!afterCalm.contains(where: { $0.contains(unchanged) }),
+                "the stranded-pin line named a pane whose source never moved")
+    }
+
+    /// **Which pane can be holding the review's leftover pin, on the rule itself.**
+    ///
+    /// The gate asked "has the PAIR moved from the pre-review pair", and strandedness is not that:
+    /// the user chose the source on the pane they clicked in, so the only pin that can be left
+    /// behind is on the SIBLING. Driven here rather than scanned, because the polarity is the whole
+    /// content — a `stranded(movedPane:)` that reads its own side instead of the sibling's warns
+    /// about the pane the user is looking at and stays silent about the one they are not.
+    @Test func theStrandedPinIsTheSiblingsAndOnlyTheSiblings() {
+        // The tab moved the LEFT pane onto something new; the RIGHT one still carries the pin.
+        let afterLeftMoved = StrandedProviderPin.stranded(
+            movedPane: true,
+            savedLeft: "was-left", savedRight: "was-right",
+            currentLeft: "tab-choice", currentRight: "pinned")
+        #expect(afterLeftMoved == StrandedProviderPin.Sibling(isLeft: false, saved: "was-right",
+                                                             current: "pinned"),
+                "a tab moving the left pane reports the wrong pane's pin — the ids named in the warning are the ones the user did not touch")
+        #expect(afterLeftMoved?.name == "right", "the warning names the wrong pane")
+
+        // …and the mirror, from the other side, because a rule that simply always answers “right”
+        // passes the pair above.
+        let afterRightMoved = StrandedProviderPin.stranded(
+            movedPane: false,
+            savedLeft: "was-left", savedRight: "was-right",
+            currentLeft: "pinned", currentRight: "tab-choice")
+        #expect(afterRightMoved == StrandedProviderPin.Sibling(isLeft: true, saved: "was-left",
+                                                              current: "pinned"),
+                "a tab moving the right pane reports the wrong pane's pin")
+        #expect(afterRightMoved?.name == "left", "the warning names the wrong pane")
+
+        // **Nothing stranded: the sibling is where the user left it.** This is the shape the old
+        // gate warned about — the pane the tab moved differs from the saved pair, so "has the pair
+        // moved" said yes while there was no pin to strand anywhere.
+        #expect(StrandedProviderPin.stranded(movedPane: false,
+                                             savedLeft: "mine", savedRight: "mine",
+                                             currentLeft: "mine", currentRight: "tab-choice") == nil,
+                "a pane the review never repointed is reported as stranded — a WARNING naming a loss that did not happen")
+        // …and the converse, which is what stops the fix over-correcting into silence: the sibling
+        // holds a pin even though the pane the tab moved is back where it started.
+        #expect(StrandedProviderPin.stranded(movedPane: true,
+                                             savedLeft: "mine", savedRight: "was-right",
+                                             currentLeft: "mine", currentRight: "pinned")
+                != nil,
+                "a genuinely stranded sibling pin goes unreported when the pane the tab moved happens to match its saved value")
     }
 
     @Test func providerSwitchAfterTheReviewWentInactiveReleasesTheOtherPanesPin() throws {

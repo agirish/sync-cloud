@@ -209,9 +209,18 @@ struct DuplicateReviewCoordinator {
                 // while WHY it went is not. `.reviewDone` is the one routine cause; the rest are all
                 // "something else changed the comparison out from under it", and `.tabChangedSource`
                 // is the newest and quietest of them. He audits this log.
-                Logger.shared.info(
-                    "Discarded the duplicate review of “\(duplicateReview?.groupName ?? "a group")” "
-                    + "because \(Self.reviewEventCause(event))")
+                //
+                // **Bound rather than defaulted.** This used to read `?? "a group"` — a fallback
+                // no test could ever distinguish from the real name, because every branch that
+                // emits this effect is guarded on `hasDuplicateReview`. Binding it says the same
+                // thing without a literal standing in for a case that cannot happen: a future
+                // branch that emitted this without a review would write nothing at all, which is
+                // an absence a log reader can notice, rather than a line about "a group".
+                if let discarding = duplicateReview {
+                    Logger.shared.info(
+                        "Discarded the duplicate review of “\(discarding.groupName)” "
+                        + "because \(Self.reviewEventCause(event))")
+                }
                 duplicateReview = nil
             case .restoreCompareState:
                 if let restoreSnapshot { restoreCompareState(restoreSnapshot) }
@@ -227,28 +236,46 @@ struct DuplicateReviewCoordinator {
                 }
             }
         }
+    }
 
-        // **The half no effect represents, and the only place it is ever said.**
-        //
-        // `.tabChangedSource` drops the review and deliberately leaves its programmatic provider
-        // pin where it is — see `CompareReviewEvent.tabChangedSource` for why undoing it would be
-        // worse (`.undoProviderPin` restores no folder, because it expects a `resetNavigation()`
-        // that a tab-driven switch never makes). That is the right call and it is still a loss the
-        // user can see and cannot explain: the banner is gone, and the pane they did not touch is
-        // sitting on a source the *review* chose for them, which nothing will now put back.
-        //
-        // Silent on a no-op, like every other line in this flow: if the pair is already back at the
-        // values the review saved, there is no pin left to strand.
-        if event == .tabChangedSource, state.hasDuplicateReview, let saved = restoreSnapshot,
-           saved.leftProviderId != leftProviderId || saved.rightProviderId != rightProviderId {
-            Logger.shared.warning(
-                "A browse tab changed a pane's source during a duplicate review. The review is "
-                + "discarded, and its provider pin is deliberately left in place: the panes compare "
-                + "\(leftProviderId) against \(rightProviderId), where before the review they "
-                + "compared \(saved.leftProviderId) against \(saved.rightProviderId). Nothing will "
-                + "restore that — undoing the pin here would leave a pane claiming one source while "
-                + "showing another's tree.")
-        }
+    /// **A browse tab changed a pane's source — the one entry point for that event.**
+    ///
+    /// It exists because the epilogue below needs to know WHICH pane the tab moved and
+    /// `CompareReviewEvent.tabChangedSource` carries no side: strandedness is a question about the
+    /// pane the user did NOT touch, and the event alone cannot pick it out. Everything else is
+    /// `dispatchReview`'s, unchanged.
+    ///
+    /// **The half no effect represents, and the only place it is ever said.** `.tabChangedSource`
+    /// drops the review and deliberately leaves its programmatic provider pin where it is — see
+    /// `CompareReviewEvent.tabChangedSource` for why undoing it would be worse
+    /// (`.undoProviderPin` restores no folder, because it expects a `resetNavigation()` that a
+    /// tab-driven switch never makes). That is the right call and it is still a loss the user can
+    /// see and cannot explain: the banner is gone, and the pane they did not touch is sitting on a
+    /// source the *review* chose for them, which nothing will now put back.
+    ///
+    /// Silent when there is nothing to say — and the test for that is the SIBLING pane alone, not
+    /// the pair. See `StrandedProviderPin`, which is where that (previously wrong) gate now lives
+    /// and can be driven.
+    func noteTabChangedSource(isLeft: Bool) {
+        // Read before the dispatch, which clears `duplicateReview` and takes the snapshot with it.
+        let saved = duplicateReview?.restore
+        dispatchReview(.tabChangedSource)
+        // The ids are read AFTER, exactly as before: the effects above write neither, and this has
+        // to describe the panes as the user is now looking at them.
+        guard let saved,
+              let stranded = StrandedProviderPin.stranded(
+                movedPane: isLeft,
+                savedLeft: saved.leftProviderId, savedRight: saved.rightProviderId,
+                currentLeft: leftProviderId, currentRight: rightProviderId)
+        else { return }
+        Logger.shared.warning(
+            "A browse tab changed the \(PaneSideChoice.name(isLeft)) pane's source during a "
+            + "duplicate review. The review is discarded, and its provider pin on the "
+            + "\(stranded.name) pane is deliberately left in place: that pane is on "
+            + "\(stranded.current), where before the review it was \(stranded.saved). The panes now "
+            + "compare \(leftProviderId) against \(rightProviderId). Nothing will restore that — "
+            + "undoing the pin here would leave a pane claiming one source while showing another's "
+            + "tree.")
     }
 
     /// How a review teardown reads in the log. The event names the cause; a line saying only that a

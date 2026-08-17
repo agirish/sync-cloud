@@ -28,12 +28,29 @@ extension ContentView {
 
     // MARK: - What the strip renders
 
+    /// **This pane's own provider id — the one place the view's PAIR is narrowed to a SIDE.**
+    ///
+    /// Sixteen sites wrote `isLeft ? leftProviderId : rightProviderId` out by hand, and a ternary is
+    /// a spelling nothing could check: swapping the one inside `tabAction`'s
+    /// `PaneTabProviderSwitch.decide(current:)` call left the whole app suite green while
+    /// re-creating `d655b528`'s headline defect — a cross-source chip click asks `decide` about the
+    /// SIBLING pane's source, answers `.keep`, renders the arriving tab's path under the wrong
+    /// root, and `saveBrowseTabs` then writes that tab's `providerId` to the source it never named.
+    ///
+    /// One wrapper over `PaneSideChoice.own`, so the polarity is a real assertion
+    /// (`theSideChoiceReadsItsArgument` calls it) and the pair-to-side arguments are written down
+    /// exactly once instead of sixteen times. Every call site is now `paneProviderId(isLeft: …)`,
+    /// which the argument-token invariants can read.
+    func paneProviderId(isLeft: Bool) -> String {
+        PaneSideChoice.own(isLeft, left: leftProviderId, right: rightProviderId)
+    }
+
     /// This pane's chips, through `PaneTabChips` — the rule is over there so it can be tested;
     /// this half is only the lookup of who each tab's provider is.
     func paneTabItems(isLeft: Bool) -> [PaneTabStrip.Item] {
         PaneTabChips.items(
             syncManager.paneTabs(isLeft: isLeft),
-            liveProviderId: isLeft ? leftProviderId : rightProviderId,
+            liveProviderId: paneProviderId(isLeft: isLeft),
             // The chip names the folder the pane is *showing*, which is the same answer the header's
             // crumb gives — the two sit one above the other, so a chip reading a parked column
             // stack the tree cannot draw would contradict the line directly under it. The tab's
@@ -120,8 +137,9 @@ extension ContentView {
 
         // Read BEFORE the verb runs, because the verb moves the pane: these two are what the
         // arriving tab is compared against to decide whether anything needs reloading at all.
-        let fromProvider = isLeft ? leftProviderId : rightProviderId
-        let fromFocus = isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath
+        let fromProvider = paneProviderId(isLeft: isLeft)
+        let fromFocus = PaneSideChoice.own(isLeft, left: syncManager.leftRelativePath,
+                                           right: syncManager.rightRelativePath)
 
         guard let arrived = verb() else {
             saveBrowseTabs(isLeft: isLeft)
@@ -135,13 +153,13 @@ extension ContentView {
 
         switch PaneTabProviderSwitch.decide(
             arrived: arrived.providerId,
-            current: isLeft ? leftProviderId : rightProviderId,
+            current: paneProviderId(isLeft: isLeft),
             isAvailable: paneCanShowSource) {
         case .keep:
             break
         case .adopt(let id):
             adoptProviderForTab(id, isLeft: isLeft,
-                                log: "A browse tab moved the \(isLeft ? "left" : "right") pane to \(id)")
+                                log: "A browse tab moved the \(PaneSideChoice.name(isLeft)) pane to \(id)")
         case .unavailable:
             // The tab names a source this pane can no longer be pointed at, so it cannot be shown
             // at all — and by now the verb has already pointed the pane at that tab's folder path
@@ -159,7 +177,7 @@ extension ContentView {
             // `discardDeadTabs`.
             let outcome = syncManager.discardDeadTabs(
                 startingAt: arrived.id, isLeft: isLeft,
-                currentProviderId: isLeft ? leftProviderId : rightProviderId,
+                currentProviderId: paneProviderId(isLeft: isLeft),
                 isAvailable: paneCanShowSource)
             for gone in outcome.discarded {
                 Logger.shared.warning("Discarded a browse tab: its source “\(gone)” is gone or switched off")
@@ -183,10 +201,10 @@ extension ContentView {
                 // iCloud's root (an empty pane, the exact symptom the discard exists to remove),
                 // the chip wearing iCloud's mark, and `saveBrowseTabs` below then rewriting that
                 // tab's source to iCloud: a tab silently retargeted to another cloud.
-                if landed.providerId != (isLeft ? leftProviderId : rightProviderId),
+                if landed.providerId != paneProviderId(isLeft: isLeft),
                    paneCanShowSource(landed.providerId) {
                     adoptProviderForTab(landed.providerId, isLeft: isLeft,
-                                        log: "Landed the \(isLeft ? "left" : "right") pane on \(landed.providerId) after discarding a dead tab")
+                                        log: "Landed the \(PaneSideChoice.name(isLeft)) pane on \(landed.providerId) after discarding a dead tab")
                 }
             }
         }
@@ -240,7 +258,11 @@ extension ContentView {
         pendingTabProviderChanges += 1
         if isLeft { leftProviderId = id } else { rightProviderId = id }
         Logger.shared.info(log)
-        reviewCoordinator.dispatchReview(.tabChangedSource)
+        // **Through the coordinator's tab-shaped door, not the bare event**, because the epilogue
+        // needs to know WHICH pane the tab moved and `CompareReviewEvent.tabChangedSource` carries
+        // no side. Gated on the pair having moved instead, the stranded-pin warning fired when
+        // nothing was stranded — see `DuplicateReviewCoordinator.noteTabChangedSource`.
+        reviewCoordinator.noteTabChangedSource(isLeft: isLeft)
         syncManager.clearLensResultsForProviderSwitch()
         // Both ids read back AFTER the write above, because the pair key is both of them and one
         // has just changed. `pairKey` sorts, so the order here does not matter — the values do.
@@ -309,7 +331,7 @@ extension ContentView {
     /// in the same second and the log reads as one keystroke firing twice. He audits this log, and a
     /// phantom double-fire is exactly the kind of thing it should not have to be reasoned away.
     private func openTabHere(isLeft: Bool, mirrored: Bool = false) {
-        let providerId = isLeft ? leftProviderId : rightProviderId
+        let providerId = paneProviderId(isLeft: isLeft)
         let here = syncManager.combinedRelativePath(isLeft: isLeft)
         // **Both halves of where the pane is, not the joined string.** Handing `here` over as the
         // new tab's SCOPE — which is what this did — collapses the column stack at the moment the
@@ -343,7 +365,7 @@ extension ContentView {
     /// Right-click a folder ▸ Open in New Tab, and ⌘-double-click on a folder row — the discovery
     /// route, and the only entry point that opens the new tab somewhere *different*.
     func openInNewTab(absolutePath: String, isLeft: Bool) {
-        let providerId = isLeft ? leftProviderId : rightProviderId
+        let providerId = paneProviderId(isLeft: isLeft)
         // **Expanded.** A source's stored path may be written with a tilde, while a row's id is
         // always absolute — `relativize` compares them as strings, so an unexpanded root matches
         // nothing and this whole entry point becomes a silent no-op. `PaneLogic.fullPath` and
@@ -381,7 +403,7 @@ extension ContentView {
     private func mirrorOpenInNewTab(_ relative: String, from isLeft: Bool) {
         guard tabsOpenOnBothPanes else { return }
         let other = !isLeft
-        let providerId = other ? leftProviderId : rightProviderId
+        let providerId = paneProviderId(isLeft: other)
         // Expanded, for the reason `openInNewTab` gives above: a tilde root exists on no disk, so
         // every mirror would prune away to the sibling's root.
         let root = (settings.path(for: providerId) as NSString).expandingTildeInPath
@@ -469,10 +491,10 @@ extension ContentView {
         let moves = target != nil && target != list.selectedIndex
         tabAction(isLeft: isLeft) {
             if moves {
-                Logger.shared.debug("User selected the \(isLeft ? "left" : "right") pane's browse tab \(arriving)")
+                Logger.shared.debug("User selected the \(PaneSideChoice.name(isLeft)) pane's browse tab \(arriving)")
             }
             return syncManager.switchTab(to: id, isLeft: isLeft,
-                                         currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                                         currentProviderId: paneProviderId(isLeft: isLeft))
         }
     }
 
@@ -483,13 +505,13 @@ extension ContentView {
             // disagree with. The tab it returns is by then the live pane, which is how
             // `tabLogDescription` describes it.
             let arrived = syncManager.cycleTab(forward: forward, isLeft: isLeft,
-                                               currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                                               currentProviderId: paneProviderId(isLeft: isLeft))
             // Nothing moved, nothing said: a one-tab pane has nowhere to cycle to, and the chord is
             // live enough for that press to be a real thing a user does.
             if let arrived {
                 Logger.shared.debug(
                     "User cycled to the \(forward ? "next" : "previous") browse tab in the "
-                    + "\(isLeft ? "left" : "right") pane: \(tabLogDescription(id: arrived.id, isLeft: isLeft))")
+                    + "\(PaneSideChoice.name(isLeft)) pane: \(tabLogDescription(id: arrived.id, isLeft: isLeft))")
             }
             return arrived
         }
@@ -515,15 +537,15 @@ extension ContentView {
         let closing = tabLogDescription(id: id, isLeft: isLeft)
         guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {
             Logger.shared.info(
-                "User pressed Close Tab on the \(isLeft ? "left" : "right") pane's last browse tab "
+                "User pressed Close Tab on the \(PaneSideChoice.name(isLeft)) pane's last browse tab "
                 + "\(closing) — closing the window")
             NSApp.keyWindow?.performClose(nil)
             return
         }
         tabAction(isLeft: isLeft) {
-            Logger.shared.info("User closed the \(isLeft ? "left" : "right") pane's browse tab \(closing)")
+            Logger.shared.info("User closed the \(PaneSideChoice.name(isLeft)) pane's browse tab \(closing)")
             return syncManager.closeTab(id: id, isLeft: isLeft,
-                                        currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                                        currentProviderId: paneProviderId(isLeft: isLeft))
         }
     }
 
@@ -536,14 +558,14 @@ extension ContentView {
         let closing = list.closableOthers(keeping: id)
         tabAction(isLeft: isLeft) {
             let arrived = syncManager.closeOtherTabs(keeping: id, isLeft: isLeft,
-                                                     currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                                                     currentProviderId: paneProviderId(isLeft: isLeft))
             // **Written after the verb, and only when it closed something.** Emitted ahead of the
             // close, an ⌥-click on the ✕ of a strip whose every other tab is pinned wrote "User
             // closed 0 other browse tabs, keeping 1 pinned" — a sentence about something that did
             // not happen, in the log he audits. The verb still runs: "leave me with this one" also
             // makes the kept tab live, which is worth doing with nothing to close.
             if closing > 0 {
-                Logger.shared.info("User closed \(closing) other \(isLeft ? "left" : "right") pane browse tab\(closing == 1 ? "" : "s")\(list.pinnedCount > 0 ? ", keeping \(list.pinnedCount) pinned" : "")")
+                Logger.shared.info("User closed \(closing) other \(PaneSideChoice.name(isLeft)) pane browse tab\(closing == 1 ? "" : "s")\(list.pinnedCount > 0 ? ", keeping \(list.pinnedCount) pinned" : "")")
             }
             return arrived
         }
@@ -555,45 +577,52 @@ extension ContentView {
         // could not even be matched to a chip on screen.
         let duplicating = tabLogDescription(id: id, isLeft: isLeft)
         tabAction(isLeft: isLeft) {
-            Logger.shared.info("User duplicated the \(isLeft ? "left" : "right") pane's browse tab \(duplicating)")
+            Logger.shared.info("User duplicated the \(PaneSideChoice.name(isLeft)) pane's browse tab \(duplicating)")
             return syncManager.duplicateTab(id: id, isLeft: isLeft,
-                                            currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                                            currentProviderId: paneProviderId(isLeft: isLeft))
         }
     }
 
-    /// Drag-to-reorder. **Not through `tabAction`**: the pane does not move, so there is no
-    /// provider to write, no search field to swap and no reload to drive — only the strip and what
-    /// is saved of it change.
-    /// Pin / unpin, from a tab's context menu. Like `moveTab`, the pane does not move — only the
-    /// strip's order and that chip's own state — so this does not go through `tabAction`.
+    /// Pin / unpin, from a tab's context menu — **through `tabAction`, returning `nil`.**
+    ///
+    /// The pane does not move, so there is no provider to write, no search field to swap and no
+    /// reload to drive. That is exactly what the one door's `nil` answer means, and it does the
+    /// remaining four steps in the order this verb needs them: refuse during bootstrap, record
+    /// which pane the user is working in, run the verb, save the strip.
+    ///
+    /// **Written out by hand here instead, it was the same four steps with none of the one door's
+    /// cover.** `noteWorkingIn(isLeft: !isLeft, …)` survived the whole suite in this member and in
+    /// `moveTab` — the invariant that bans it is scoped to `tabAction`'s body, which neither ever
+    /// entered, which is precisely why these two were the verbs missed the first time round. So was
+    /// wrapping the focus move in a condition (`if pinned { noteWorkingIn(…) }`): unpin then moved
+    /// no focus, and ⌘W stayed aimed at the pane the user was not looking at.
     func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool) {
-        guard !isBootstrappingProviders else { return }
-        // Aimed at this pane's strip like any other verb, so the chords follow — these do not go
-        // through `tabAction` (the pane does not move), which is exactly how they were missed.
-        noteWorkingIn(isLeft: isLeft, "Pin/Unpin from a browse tab's menu")
-        // Named BEFORE the verb, and it has to be: pinning re-sorts the strip, so afterwards this
-        // tab sits at a different index and `tabLogDescription`'s live-versus-parked test would be
-        // asked about the wrong one.
-        Logger.shared.info(
-            "User \(pinned ? "pinned" : "unpinned") the \(isLeft ? "left" : "right") pane's browse "
-            + "tab \(tabLogDescription(id: id, isLeft: isLeft))")
-        syncManager.setTabPinned(pinned, id: id, isLeft: isLeft)
-        saveBrowseTabs(isLeft: isLeft)
+        tabAction(isLeft: isLeft) {
+            // Named BEFORE the verb, and it has to be: pinning re-sorts the strip, so afterwards
+            // this tab sits at a different index and `tabLogDescription`'s live-versus-parked test
+            // would be asked about the wrong one.
+            Logger.shared.info(
+                "User \(pinned ? "pinned" : "unpinned") the \(PaneSideChoice.name(isLeft)) pane's browse "
+                + "tab \(tabLogDescription(id: id, isLeft: isLeft))")
+            syncManager.setTabPinned(pinned, id: id, isLeft: isLeft)
+            // The pane did not move — see `tabAction`, where `nil` still saves the strip and still
+            // costs no reload.
+            return nil
+        }
     }
 
-    /// Debug, like selecting: a drag emits one line and changes nothing but where a chip sits.
+    /// Drag-to-reorder. Debug, like selecting: a drag emits one line and changes nothing but where a
+    /// chip sits. Through `tabAction` with a `nil` answer, for `setTabPinned`'s reasons.
     func moveTab(id: UUID, to index: Int, isLeft: Bool) {
-        guard !isBootstrappingProviders else { return }
-        // Aimed at this pane's strip like any other verb, so the chords follow — these do not go
-        // through `tabAction` (the pane does not move), which is exactly how they were missed.
-        noteWorkingIn(isLeft: isLeft, "a browse tab was dragged to a new position")
-        // Named BEFORE the verb, for `setTabPinned`'s reason: after the move this tab is at another
-        // index, and the description is read off the list by index.
-        Logger.shared.debug(
-            "User reordered the \(isLeft ? "left" : "right") pane's browse tab "
-            + "\(tabLogDescription(id: id, isLeft: isLeft))")
-        syncManager.moveTab(id: id, to: index, isLeft: isLeft)
-        saveBrowseTabs(isLeft: isLeft)
+        tabAction(isLeft: isLeft) {
+            // Named BEFORE the verb, for `setTabPinned`'s reason: after the move this tab is at
+            // another index, and the description is read off the list by index.
+            Logger.shared.debug(
+                "User reordered the \(PaneSideChoice.name(isLeft)) pane's browse tab "
+                + "\(tabLogDescription(id: id, isLeft: isLeft))")
+            syncManager.moveTab(id: id, to: index, isLeft: isLeft)
+            return nil
+        }
     }
 
     func reopenClosedTab(isLeft: Bool) {
@@ -608,14 +637,14 @@ extension ContentView {
             // the only thing standing between an empty stack and a line asserting a reopen — but it
             // is the defensive reading, not the routine one.
             guard let tab = syncManager.reopenClosedTab(
-                isLeft: isLeft, currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                isLeft: isLeft, currentProviderId: paneProviderId(isLeft: isLeft))
             else { return nil }
             // Named AFTER the verb, as `cycleTab` is and for the same reason: WHICH tab comes back
             // is the verb's answer, and by now it is the live pane — which is how
             // `tabLogDescription` describes it. The side is the half this line was missing: in
             // Compare, "the closed tab" named no pane.
             Logger.shared.info(
-                "User reopened the \(isLeft ? "left" : "right") pane's closed browse tab "
+                "User reopened the \(PaneSideChoice.name(isLeft)) pane's closed browse tab "
                 + "\(tabLogDescription(id: tab.id, isLeft: isLeft))")
             return tab
         }
@@ -624,6 +653,12 @@ extension ContentView {
     /// Copy Path, from a tab's context menu — the absolute path, which is what is useful in a
     /// Terminal or a Finder ⇧⌘G, rather than the relative one the chip is named for.
     func copyTabPath(id: UUID, isLeft: Bool) {
+        // **Refused while the providers are still bootstrapping, like every other strip verb.**
+        // This is the one that did not have it: `tabAction` refuses there, and so do the two verbs
+        // reached from the same chip context menu — but Copy Path went straight to `noteWorkingIn`
+        // and moved the pane-scoped chords (and wrote a line) against a pane whose source the
+        // bootstrap has not finished choosing.
+        guard !isBootstrappingProviders else { return }
         guard let item = paneTabItems(isLeft: isLeft).first(where: { $0.id == id }) else { return }
         // **The fourth strip-aimed verb, and the one that was missed.** Copy Path is reached from
         // the same chip context menu as Pin/Unpin, and like it the pane does not move — so it never
@@ -642,7 +677,7 @@ extension ContentView {
         // it is what was actually put on the pasteboard, and `tabLogDescription` carries the
         // RELATIVE one, which is what the chip is named for.
         Logger.shared.info(
-            "User copied the \(isLeft ? "left" : "right") pane's browse tab "
+            "User copied the \(PaneSideChoice.name(isLeft)) pane's browse tab "
             + "\(tabLogDescription(id: id, isLeft: isLeft)) path: \(item.fullPath)")
     }
 
@@ -670,7 +705,7 @@ extension ContentView {
         // scans alone — deleting it whole passed every test in the repo, including the ones about
         // the very columns it exists to keep.
         let saving = syncManager.paneTabs(isLeft: isLeft).replacingActive(
-            providerId: isLeft ? leftProviderId : rightProviderId,
+            providerId: paneProviderId(isLeft: isLeft),
             relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
             browsePath: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
         PaneTabsStore.save(tabs: saving.tabs, selected: saving.selectedIndex, isLeft: isLeft)
@@ -725,7 +760,7 @@ extension ContentView {
         let dropped = (stored.entries.count) - (outcome?.list.count ?? 0)
         if dropped > 0 {
             Logger.shared.warning(
-                "Dropped \(dropped) stored \(isLeft ? "left" : "right") browse tab\(dropped == 1 ? "" : "s"): "
+                "Dropped \(dropped) stored \(PaneSideChoice.name(isLeft)) browse tab\(dropped == 1 ? "" : "s"): "
                 + "their source is gone or switched off")
         }
         guard let restored = outcome?.list, !restored.isSeedState else {
@@ -736,7 +771,7 @@ extension ContentView {
             // folder can reach this branch, because the seed state is a one-tab strip.
             if let lost = (outcome?.lostFolders ?? []).first {
                 Logger.shared.warning(
-                    "Did not restore the \(isLeft ? "left" : "right") browse tab “\(lost)”: its "
+                    "Did not restore the \(PaneSideChoice.name(isLeft)) browse tab “\(lost)”: its "
                     + "folder no longer exists, and one tab at a source root is the state a fresh "
                     + "launch already seeds")
             }
@@ -755,16 +790,16 @@ extension ContentView {
         // and then installed nothing at all — the abandoned branch above says what really happened.
         for lost in outcome?.lostFolders ?? [] {
             Logger.shared.warning(
-                "Restored the \(isLeft ? "left" : "right") browse tab “\(lost)” at its source root: "
+                "Restored the \(PaneSideChoice.name(isLeft)) browse tab “\(lost)” at its source root: "
                 + "the folder no longer exists")
         }
         Logger.shared.info(
-            "Restored \(restored.count) \(isLeft ? "left" : "right") browse tab\(restored.count == 1 ? "" : "s")")
+            "Restored \(restored.count) \(PaneSideChoice.name(isLeft)) browse tab\(restored.count == 1 ? "" : "s")")
         syncManager.setPaneTabs(restored, isLeft: isLeft)
         // The restored ACTIVE tab is the pane's position, so it has to be applied like any other
         // switch — including its provider, which may not be the one the pane was pointed at.
         let active = restored.active
-        let currentProviderId = isLeft ? leftProviderId : rightProviderId
+        let currentProviderId = paneProviderId(isLeft: isLeft)
         if active.providerId != currentProviderId, paneCanShowSource(active.providerId) {
             // **The counter, not the bootstrap guard.** This used to write the id bare, on the
             // reasoning that the bootstrap guard was the suppression and arming the counter would
@@ -783,7 +818,7 @@ extension ContentView {
             // counters BEFORE testing the bootstrap guard: wherever the write lands, it is
             // accounted for exactly once.
             adoptProviderForTab(active.providerId, isLeft: isLeft,
-                                log: "Restored \(isLeft ? "left" : "right") browse tab moved the pane to \(active.providerId)")
+                                log: "Restored \(PaneSideChoice.name(isLeft)) browse tab moved the pane to \(active.providerId)")
         }
         // Re-read, because the line above may have just written it: the id the pane is NOW on is
         // what `applyTab`'s reload rule has to compare against, so passing the pre-write value
@@ -791,7 +826,7 @@ extension ContentView {
         // root and the tab usually is not, so this normally invalidates anyway; the bootstrap's own
         // refresh two steps later is the reload.
         syncManager.applyTab(active, isLeft: isLeft,
-                             currentProviderId: isLeft ? leftProviderId : rightProviderId)
+                             currentProviderId: paneProviderId(isLeft: isLeft))
     }
 }
 
@@ -1065,4 +1100,40 @@ enum PaneProviderChange: Equatable {
         if tabPending > 0 { return .consumeTab }
         return isBootstrapping ? .ignore : .userSwitch
     }
+}
+
+/// **The two things `isLeft` decides, on a type a test can actually call.**
+///
+/// Both were written out as a ternary at every site, and a ternary in a `ContentView` extension is
+/// a spelling nothing can check: `ContentView` is a `View` with `@State`, so no test can
+/// instantiate it, and the polarity is invisible to a source scan that looks for `!isLeft`. Two
+/// measured survivors of the whole app suite:
+///
+/// - `current: isLeft ? rightProviderId : leftProviderId` inside `tabAction` — `d655b528`'s
+///   headline defect verbatim. A cross-source chip click asks `PaneTabProviderSwitch.decide` about
+///   the SIBLING pane's source, answers `.keep`, leaves the pane rendering the arriving tab's path
+///   under the wrong root, and `saveBrowseTabs` then persists that tab under a source it never
+///   named. Clicking a chip already on the pane's own source answers a spurious `.adopt`, which
+///   tears down an in-progress duplicate review, re-keys `IgnoredItemsStore` and clears the lens.
+/// - `isLeft ? "right" : "left"` in a log line — every tab line in `~/sync-cloud.log` naming the
+///   wrong pane, in the file whose whole job is to say which pane a verb was aimed at.
+///
+/// Free functions on a type that needs nothing to exist, so `theSideChoiceReadsItsArgument` drives
+/// the polarity for real instead of matching text against it. `PaneSideChoice.name` also has one
+/// caller outside this file — `DuplicateReviewCoordinator`'s stranded-pin warning, which names a
+/// pane for the same reason.
+///
+/// **What this cannot see is the ARGUMENTS.** `own(isLeft, left: rightProviderId, right: leftProviderId)`
+/// is a swap the callee has no way to know about, and `paneProviderId(isLeft:)` exists so there is
+/// exactly ONE such call for the pane provider ids rather than sixteen.
+/// `theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven` scans for it — every `left:` must name a
+/// left-ish expression and every `right:` a right-ish one — and that half is a scan, which is
+/// exactly why the number of sites it has to cover is one.
+enum PaneSideChoice {
+    /// This pane's own value out of the view's pair.
+    static func own<T>(_ isLeft: Bool, left: T, right: T) -> T { isLeft ? left : right }
+
+    /// How this pane is named in `~/sync-cloud.log`. Every tab line carries it: in Compare a line
+    /// that does not say which pane it happened in is true of any tab in either strip.
+    static func name(_ isLeft: Bool) -> String { isLeft ? "left" : "right" }
 }

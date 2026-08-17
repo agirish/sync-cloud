@@ -81,6 +81,45 @@ enum CompareReviewEffect: Equatable {
     case undoProviderPin(keepingUserChoiceOnLeft: Bool)
 }
 
+/// **Whether a duplicate review's programmatic provider pin has actually been left stranded — and
+/// on which pane.**
+///
+/// `.tabChangedSource` deliberately undoes nothing (see the case's own note), so the review's pin
+/// can outlive the review. That is a loss the user can see and cannot explain, and it is worth a
+/// WARNING — but only when there is a pin left behind, and the pane that can hold one is the
+/// SIBLING of the pane the tab moved. The user chose the source on the pane they clicked in;
+/// nothing there is a leftover.
+///
+/// **Asked as "has the PAIR moved from the pre-review pair" instead, it warned when nothing was
+/// stranded at all.** `compareCopies` pins both panes and `ProviderPinPlan` writes nothing for a
+/// side already on the target — so a user whose pre-review pair was already that provider on BOTH
+/// sides has no pin to strand anywhere, and a tab moving one pane still made the pair differ. The
+/// line then asserted, at warning level, that a pin was stranded and "Nothing will restore that",
+/// naming a loss that had not happened. A WARN about a loss that did not occur is worse than
+/// silence: it is the same defect class this flow's other lines were fixed for.
+enum StrandedProviderPin {
+    /// The pane the tab did NOT move, when it is still sitting on a source the review chose;
+    /// `nil` when that pane is where the user left it — whatever the pane they just moved is doing.
+    static func stranded(movedPane isLeft: Bool,
+                         savedLeft: String, savedRight: String,
+                         currentLeft: String, currentRight: String) -> Sibling? {
+        let sibling = isLeft
+            ? Sibling(isLeft: false, saved: savedRight, current: currentRight)
+            : Sibling(isLeft: true, saved: savedLeft, current: currentLeft)
+        return sibling.saved == sibling.current ? nil : sibling
+    }
+
+    /// The pane that kept the pin, with the two ids the warning has to name: what the review left
+    /// it on, and what the user had before the review.
+    struct Sibling: Equatable {
+        var isLeft: Bool
+        var saved: String
+        var current: String
+        /// Through the same door every other pane-naming line in the host goes through.
+        var name: String { PaneSideChoice.name(isLeft) }
+    }
+}
+
 enum CompareReviewReducer {
     /// The effects `ContentView` should apply for `event`, given `state`. Order is the apply order.
     static func effects(for event: CompareReviewEvent, state: CompareReviewState) -> [CompareReviewEffect] {
