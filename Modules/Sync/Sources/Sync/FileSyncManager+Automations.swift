@@ -370,7 +370,8 @@ extension FileSyncManager {
             rows.append(AutomationDryRunRow(
                 id: file.id, fileName: file.name,
                 ruleID: rule.id, ruleName: rule.name, verdict: resolution.verdict,
-                destinationDir: resolution.destinationDir, destinationLabel: resolution.label
+                destinationDir: resolution.destinationDir, destinationLabel: resolution.label,
+                destinationAnchor: destinationAnchor
             ))
         }
 
@@ -460,42 +461,66 @@ extension FileSyncManager {
         var records: [SyncHistoryRecord] = []
         var filedPaths: Set<String> = []
         var failures = 0
+        var rootUnavailable = 0
         let runId = UUID()
 
         for row in actionable {
             guard let destFolder = row.destinationDir else { continue }
             let src = URL(fileURLWithPath: row.id)
             let name = row.fileName
-            let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool) = await enqueueFileOperation {
+            let anchor = row.destinationAnchor
+            let outcome: AutomationMoveOutcome = await enqueueFileOperation {
                 do {
-                    guard fm.fileExists(atPath: src.path) else { return (nil, nil, true) }
+                    guard fm.fileExists(atPath: src.path) else { return .failed(rootUnavailable: false) }
+                    // One stat, before any I/O — the guard `performFiling` has and this path never
+                    // did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
+                    // path, so a provider that has unmounted or been removed since the preview is
+                    // silently RECREATED as an ordinary local folder. This is a MOVE: the file
+                    // would leave a live tree to sit in a dead one nothing syncs, under a success
+                    // banner. Stat'ing the ANCHOR (the provider root) rather than the leaf is what
+                    // keeps the check precise — everything below the root is the rule's template
+                    // to create, and creating it is the whole feature.
+                    guard fm.fileExists(atPath: anchor.path) else {
+                        throw FileOperationError.destinationRootUnavailable
+                    }
                     try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
                     var dst = destFolder.appendingPathComponent(name)
                     if fm.fileExists(atPath: dst.path) {
                         dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)   // keep both
                     }
                     let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
-                    return (dst, overwritten, false)
+                    return .moved(to: dst, overwritten: overwritten)
                 } catch {
                     logger.warning("Automation filing: moving “\(name)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
-                    return (nil, nil, true)
+                    return .failed(rootUnavailable: (error as? FileOperationError) == .destinationRootUnavailable)
                 }
             }
-            if let moved = outcome.movedTo, !outcome.failed {
-                moves.append((from: src, to: moved, overwritten: outcome.overwritten))
+            switch outcome {
+            case .moved(let moved, let overwritten):
+                moves.append((from: src, to: moved, overwritten: overwritten))
                 let size = ((try? fm.attributesOfItem(atPath: moved.path))?[.size] as? NSNumber)?.intValue
                 records.append(SyncHistoryRecord(
                     runId: runId, action: .move, sourcePath: src.path, destPath: moved.path,
-                    sizeBytes: size, checksum: nil, backupPath: outcome.overwritten?.path, direction: nil
+                    sizeBytes: size, checksum: nil, backupPath: overwritten?.path, direction: nil
                 ))
                 filedPaths.insert(row.id)
-            } else {
+            case .failed(let wasRootUnavailable):
                 failures += 1
+                if wasRootUnavailable { rootUnavailable += 1 }
             }
         }
 
         guard !moves.isEmpty else {
-            if failures > 0 { banner = .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s").") }
+            if failures > 0 {
+                // A vanished provider is a condition the user can act on ("plug it back in, then
+                // preview again"), so it gets to say so rather than being flattened into the
+                // generic count — which is what would otherwise report a whole run that refused to
+                // write anywhere as an ordinary I/O hiccup.
+                banner = rootUnavailable > 0
+                    ? .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s"). "
+                               + FileOperationError.destinationRootUnavailable.localizedDescription)
+                    : .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s").")
+            }
             return (0, failures)
         }
         // One undo action reverts the whole run, so ⌘Z is honest.
@@ -518,10 +543,23 @@ extension FileSyncManager {
         let n = moves.count
         logger.info("Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")")
         banner = failures > 0
-            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo", undoable: true)
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed."
+                       + (rootUnavailable > 0 ? " " + FileOperationError.destinationRootUnavailable.localizedDescription : "")
+                       + " Press ⌘Z to undo", undoable: true)
             : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
         return (n, failures)
     }
+}
+
+/// What one enqueued automation move actually did. An enum rather than the
+/// `(movedTo:overwritten:failed:)` tuple it replaced, for the reason ``FilingMoveOutcome`` gives:
+/// the tuple carried the same fact twice (`movedTo == nil` and `failed == true` always agreed) and
+/// nothing stopped a future edit from returning a destination alongside `failed: true`.
+private enum AutomationMoveOutcome: Sendable {
+    case moved(to: URL, overwritten: URL?)
+    /// `rootUnavailable` separates the one failure the user can act on — the provider is gone —
+    /// from a generic I/O error, so the banner can name it.
+    case failed(rootUnavailable: Bool)
 }
 
 /// A set of keys that each admit exactly one claim, for "warn once per session" gates.
