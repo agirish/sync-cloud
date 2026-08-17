@@ -203,6 +203,15 @@ struct DuplicateReviewCoordinator {
             case .endGuidedReview:
                 endReviewForComparisonChange()
             case .clearDuplicateReview:
+                // **A review the user can see disappearing, said out loud, with the cause.** Every
+                // branch that emits this effect is already guarded on `hasDuplicateReview`, so this
+                // never claims a teardown that did not happen — and the banner going is visible,
+                // while WHY it went is not. `.reviewDone` is the one routine cause; the rest are all
+                // "something else changed the comparison out from under it", and `.tabChangedSource`
+                // is the newest and quietest of them. He audits this log.
+                Logger.shared.info(
+                    "Discarded the duplicate review of “\(duplicateReview?.groupName ?? "a group")” "
+                    + "because \(Self.reviewEventCause(event))")
                 duplicateReview = nil
             case .restoreCompareState:
                 if let restoreSnapshot { restoreCompareState(restoreSnapshot) }
@@ -217,6 +226,44 @@ struct DuplicateReviewCoordinator {
                     undoProviderPin(restoreSnapshot, keepingUserChoiceOnLeft: keepingUserChoiceOnLeft)
                 }
             }
+        }
+
+        // **The half no effect represents, and the only place it is ever said.**
+        //
+        // `.tabChangedSource` drops the review and deliberately leaves its programmatic provider
+        // pin where it is — see `CompareReviewEvent.tabChangedSource` for why undoing it would be
+        // worse (`.undoProviderPin` restores no folder, because it expects a `resetNavigation()`
+        // that a tab-driven switch never makes). That is the right call and it is still a loss the
+        // user can see and cannot explain: the banner is gone, and the pane they did not touch is
+        // sitting on a source the *review* chose for them, which nothing will now put back.
+        //
+        // Silent on a no-op, like every other line in this flow: if the pair is already back at the
+        // values the review saved, there is no pin left to strand.
+        if event == .tabChangedSource, state.hasDuplicateReview, let saved = restoreSnapshot,
+           saved.leftProviderId != leftProviderId || saved.rightProviderId != rightProviderId {
+            Logger.shared.warning(
+                "A browse tab changed a pane's source during a duplicate review. The review is "
+                + "discarded, and its provider pin is deliberately left in place: the panes compare "
+                + "\(leftProviderId) against \(rightProviderId), where before the review they "
+                + "compared \(saved.leftProviderId) against \(saved.rightProviderId). Nothing will "
+                + "restore that — undoing the pin here would leave a pane claiming one source while "
+                + "showing another's tree.")
+        }
+    }
+
+    /// How a review teardown reads in the log. The event names the cause; a line saying only that a
+    /// review ended sends a reader looking for a gesture they did not make.
+    private nonisolated static func reviewEventCause(_ event: CompareReviewEvent) -> String {
+        switch event {
+        case .reviewDone: return "the user pressed Done"
+        case .rightCopyTrashed: return "the right copy was trashed"
+        case .providerSwitched(let isLeft):
+            return "the user switched the \(isLeft ? "left" : "right") pane's source"
+        case .tabChangedSource: return "a browse tab changed a pane's source"
+        case .comparisonRootEdited: return "a source's root folder was edited in Settings"
+        case .panesSwapped: return "the panes were swapped"
+        case .compareCopiesStarted: return "another pair of copies was opened for review"
+        case .tabSwitched: return "the user left Compare with the review already abandoned"
         }
     }
 

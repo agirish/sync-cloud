@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+import Events
 import Sync
 import FileExplorer
 @testable import SyncCloud
@@ -334,6 +335,100 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.pendingSwapProviderChanges == 0)
         #expect(harness.syncManager.leftRelativePath == "")
         #expect(harness.refreshCount == 0)
+    }
+
+    /// **A browse tab changing a pane's source destroys an in-progress duplicate review, and both
+    /// halves of that loss are now said out loud.**
+    ///
+    /// `.tabChangedSource` clears the review and *deliberately* strands the review's programmatic
+    /// provider pin on the sibling pane — undoing it would repoint a pane and restore no folder,
+    /// because `.undoProviderPin` expects a `resetNavigation()` that a tab-driven switch never
+    /// makes (see `CompareReviewEvent.tabChangedSource`). That is the right call, and it is still a
+    /// loss the user can see and cannot explain: the banner is gone and the pane they did not touch
+    /// sits on a source the *review* chose. Neither half wrote anything to `~/sync-cloud.log` — the
+    /// clear case is a bare `duplicateReview = nil`, and the strand is represented by no effect at
+    /// all — so this delta added a NEW route into a silent state loss.
+    ///
+    /// **Read between this test's own markers, with the review's group name and both provider ids
+    /// carrying a token.** `Logger.shared` is process-wide and `entries` is a rolled 1000-line
+    /// window: the opener is `#require`d as the eviction guard, and the tokens are what make both
+    /// the presence and the absence readings exclusive to this run in a parallel suite.
+    @Test func aTabDrivenSourceChangeSaysWhatItDiscardedAndWhatItStranded() async throws {
+        /// Everything logged between two fresh markers, with the call under test run between them.
+        func window(_ act: () -> Void) async throws -> ArraySlice<String> {
+            let marker = UUID().uuidString.prefix(8)
+            await Logger.shared.debug("review window open \(marker)").value
+            act()
+            await Logger.shared.debug("review window close \(marker)").value
+            let messages = Logger.shared.entries.map(\.message)
+            let opened = try #require(messages.firstIndex(where: { $0.contains("open \(marker)") }),
+                                      "the log window rolled past this test's own marker, so this reading is vacuous")
+            let tail = messages[opened...]
+            let closed = try #require(tail.lastIndex(where: { $0.contains("close \(marker)") }),
+                                      "the closing marker never landed — this reading is vacuous")
+            return tail[...closed]
+        }
+
+        /// A review whose group name and pre-review sources are unique to this run, with both panes
+        /// pinned to one provider exactly as `compareCopies` leaves them.
+        func pinnedReview(_ token: String, on harness: Harness) -> DuplicateCompareContext {
+            harness.leftId = "pinned-\(token)"
+            harness.rightId = "pinned-\(token)"
+            let review = DuplicateCompareContext(
+                groupName: "Docs-\(token)",
+                keepPath: "\(harness.lensProviderRoot)/Docs",
+                deletePath: "\(harness.lensProviderRoot)/Backup/Docs",
+                keepIsDirectory: true, keepScannedSize: 1234,
+                keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
+                restore: SavedCompareState(leftProviderId: "was-left-\(token)",
+                                           rightProviderId: "was-right-\(token)",
+                                           leftRelativePath: "Was/Left",
+                                           rightRelativePath: "Was/Right"))
+            harness.duplicateReview = review
+            return review
+        }
+
+        // 1. The tab-driven change itself: both halves land.
+        let tabToken = String(UUID().uuidString.prefix(8))
+        let harness = Harness()
+        _ = pinnedReview(tabToken, on: harness)
+        let changed = try await window { harness.coordinator.dispatchReview(.tabChangedSource) }
+
+        #expect(harness.duplicateReview == nil, "the review survived a tab-driven source change")
+        let discarded = changed.filter { $0.contains("Docs-\(tabToken)") }
+        #expect(discarded.count == 1,
+                "\(discarded.count) lines name the review a tab-driven source change threw away — the banner vanishes with nothing in the log to say what took it")
+        #expect(discarded.first?.contains("a browse tab changed a pane's source") == true,
+                "the line does not name the CAUSE, so it sends a reader looking for a gesture they did not make")
+
+        let stranded = changed.filter { $0.contains("was-right-\(tabToken)") }
+        #expect(stranded.count == 1,
+                "\(stranded.count) lines about the provider pin this event deliberately leaves behind — the user's other pane keeps a source the review chose and nothing says so")
+        #expect(stranded.first?.contains("pinned-\(tabToken)") == true,
+                "the line names the pre-review sources but not the ones the panes are actually left on, which is the half a reader is looking at")
+
+        // 2. …and the strand line is specific to this event. A swap clears the review the same way
+        //    but exchanges the two ids, so the pin travels with the pane rather than being left —
+        //    a warning there would be a sentence about something that did not happen.
+        let swapToken = String(UUID().uuidString.prefix(8))
+        let swapped = Harness()
+        _ = pinnedReview(swapToken, on: swapped)
+        let afterSwap = try await window { swapped.coordinator.dispatchReview(.panesSwapped) }
+        #expect(afterSwap.contains(where: { $0.contains("Docs-\(swapToken)") }),
+                "a swap drops the review and says nothing about it either")
+        #expect(!afterSwap.contains(where: { $0.contains("was-right-\(swapToken)") }),
+                "a pane swap claims it stranded the review's provider pin — it exchanges the ids, so the pin travels with the pane")
+
+        // 3. …and an event that clears NOTHING says nothing. `.compareCopiesStarted` with no guided
+        //    review running produces no effects at all, so a discard line there would be a claim
+        //    about a review that is still sitting right where it was.
+        let quietToken = String(UUID().uuidString.prefix(8))
+        let quiet = Harness()
+        let kept = pinnedReview(quietToken, on: quiet)
+        let afterQuiet = try await window { quiet.coordinator.dispatchReview(.compareCopiesStarted) }
+        #expect(quiet.duplicateReview == kept, "the review was cleared by an event that clears nothing")
+        #expect(!afterQuiet.contains(where: { $0.contains("Docs-\(quietToken)") }),
+                "a review that was not discarded is logged as discarded")
     }
 
     @Test func providerSwitchAfterTheReviewWentInactiveReleasesTheOtherPanesPin() throws {
