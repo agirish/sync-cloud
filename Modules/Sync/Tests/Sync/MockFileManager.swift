@@ -341,7 +341,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                     // unlistable directories (/a and /a/b) the one reported would change between
                     // runs of an unchanged test. Shortest = outermost, which is the one the real
                     // enumerator meets first on its way down.
-                    let ancestors = unlistableDirectories
+                    //
+                    // Skipped wholesale when nothing is armed, which is every existing test: the
+                    // filter-and-sort allocates two collections PER ENTRY, and this loop runs over
+                    // every key of the virtual disk on every enumeration.
+                    let ancestors = unlistableDirectories.isEmpty ? [] : unlistableDirectories
                         .filter { key.hasPrefix($0 + "/") }
                         .sorted { ($0.count, $0) < ($1.count, $1) }
                     if let blocked = ancestors.first {
