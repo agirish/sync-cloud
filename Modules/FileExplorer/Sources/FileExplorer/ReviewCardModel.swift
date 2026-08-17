@@ -26,8 +26,16 @@ struct ReviewCardModel: Equatable {
         var destinationIsDirectory: Bool = false
         /// Items anywhere under a destination folder a replace would remove; counting stops
         /// at `childCountCap` (`destinationChildCountCapped` then reads "N+ items").
+        ///
+        /// **nil means the folder could not be listed**, not that it holds nothing — a folder that
+        /// really is empty carries `0`. The warning turns nil into "everything", which is the only
+        /// honest thing to say about contents nobody could see.
         var destinationChildCount: Int? = nil
         var destinationChildCountCapped: Bool = false
+        /// True when part of the folder could be read and part could not, so the count is a floor.
+        /// Distinct from `destinationChildCountCapped`, which is a floor we chose; this one is a
+        /// floor the disk imposed.
+        var destinationChildCountIsPartial: Bool = false
     }
 
     /// Two modification dates within this tolerance count as "same date" — cross-volume copies
@@ -187,10 +195,21 @@ struct ReviewCardModel: Equatable {
         if facts.destinationIsDirectory {
             let removed: String
             if let count = facts.destinationChildCount {
-                removed = facts.destinationChildCountCapped
-                    ? "\(count)+ items"
-                    : "\(count) item\(count == 1 ? "" : "s")"
+                if facts.destinationChildCountCapped {
+                    // "1000+" already reads as a floor, so a partial count that also hit the cap
+                    // needs no second hedge.
+                    removed = "\(count)+ items"
+                } else if facts.destinationChildCountIsPartial {
+                    // Part of the folder was withheld, so the count is what we could see and the
+                    // real number is larger. Saying the bare number would understate a destructive
+                    // action, which is the one direction this sentence must never err in.
+                    removed = "at least \(count) item\(count == 1 ? "" : "s")"
+                } else {
+                    removed = "\(count) item\(count == 1 ? "" : "s")"
+                }
             } else {
+                // The folder could not be listed at all. Not "0 items" — nobody knows what is in
+                // there, and this sentence is the last thing shown before it is replaced.
                 removed = "everything"
             }
             return "Replacing this folder replaces its entire contents — \(removed) on \(destinationName) will be removed."
