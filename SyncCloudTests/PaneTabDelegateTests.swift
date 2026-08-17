@@ -20,7 +20,7 @@ import Sync
                           onOpenInNewTab: @escaping (FileNode) -> Void = { _ in }) -> PaneActionDelegate {
         PaneActionDelegate(
             handler: nil, syncManager: syncManager, settings: SettingsManager(), isLeft: isLeft,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
+            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [],
             homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in },

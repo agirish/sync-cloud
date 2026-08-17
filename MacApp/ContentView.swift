@@ -3051,6 +3051,8 @@ struct ContentView: View {
             handler: actionHandler, syncManager: syncManager, settings: settings,
             isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId,
             isSingleSource: layoutMode == .singleSource,
+            // Not `layoutMode == .singleSource`: Browse and Storage answer that too.
+            ownsOrganizeScope: selectedWorkspace == .filing,
             forceRefreshAction: forceRefreshAction,
             onGetInfo: { showInfo(for: $0) },
             onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) },

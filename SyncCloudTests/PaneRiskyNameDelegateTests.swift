@@ -14,7 +14,7 @@ import Sync
                           keptNames: Set<String> = []) -> PaneActionDelegate {
         PaneActionDelegate(
             handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false,
+            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: keptNames,
             // Required rather than defaulted, deliberately: a pane that forgot to pass its

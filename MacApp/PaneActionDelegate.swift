@@ -17,6 +17,12 @@ struct PaneActionDelegate: FileActionDelegate {
     /// True when this delegate serves the single-source rail: there is no visible sibling
     /// pane, so linked navigation (the 🔗 toggle) must not drag the hidden right pane along.
     let isSingleSource: Bool
+    /// Whether this surface's **Open** also re-aims Organize's lenses.
+    ///
+    /// Organize's own rail, and nothing else. Kept apart from `isSingleSource` because that asks a
+    /// LAYOUT question — how many trees are on screen — which Browse and Storage answer the same
+    /// way the rail does, while only one of the three is the surface Organize is about.
+    let ownsOrganizeScope: Bool
     let forceRefreshAction: () -> Void
     /// Shows the in-app Info inspector for a path (replaces Finder's Get Info from the pane menu).
     let onGetInfo: (String) -> Void
@@ -124,6 +130,7 @@ struct PaneActionDelegate: FileActionDelegate {
             && leftProviderId == other.leftProviderId
             && rightProviderId == other.rightProviderId
             && isSingleSource == other.isSingleSource
+            && ownsOrganizeScope == other.ownsOrganizeScope
             && ignoreStateToken == other.ignoreStateToken
             && keptNamesToken == other.keptNamesToken
             && homeBadgeCoverage == other.homeBadgeCoverage
@@ -143,17 +150,24 @@ struct PaneActionDelegate: FileActionDelegate {
     /// different door. Having the two disagree would leave the pane rooted at one subject while
     /// every lens answered about another.
     ///
-    /// Gated on `isSingleSource`, which is exactly when the menu item reads **Open**. On the
-    /// comparison panes the same call is "Compare only this folder" — a claim about the comparison,
-    /// not about what Organize is answering about — so it must not re-aim the lenses. That is also
-    /// why this is not hooked in `FileActionHandler.focusFolder`: that lives in Dashboard, is
-    /// shared by both surfaces, and could not tell the two verbs apart.
+    /// Gated on `ownsOrganizeScope`, **not on `isSingleSource`**, and the two are different
+    /// questions that happened to share an answer when this was written. `isSingleSource` asks how
+    /// many trees the layout shows; `TopPaneVisibility.mode(for:)` answers `.compare` for exactly
+    /// one workspace, so Browse and Storage are `.singleSource` too. Gating on it meant right-click
+    /// ▸ Open anywhere in Browse — or in Storage — re-aimed every Organize lens at a folder the
+    /// user had never told Organize about, and it survived relaunch. Paths resolved correctly, so
+    /// nothing looked wrong; the lenses were simply answering about somewhere else.
+    ///
+    /// On the comparison panes the same call is "Compare only this folder" — a claim about the
+    /// comparison, not about what Organize is answering about — so it must not re-aim the lenses
+    /// either. That is also why this is not hooked in `FileActionHandler.focusFolder`: that lives
+    /// in Dashboard, is shared by every surface, and could not tell the verbs apart.
     ///
     /// Routed through `onOrganizeScope` → `ContentView.setOrganizeScope`, so opening the provider
     /// root clears the scope rather than encoding the global view a second way.
     func handleFocus(_ node: FileNode) {
         handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, suppressLinkedNavigation: isSingleSource)
-        if isSingleSource, node.isDirectory { onOrganizeScope(node) }
+        if ownsOrganizeScope, node.isDirectory { onOrganizeScope(node) }
     }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
     func handleMove(_ nodes: [FileNode]) { 
