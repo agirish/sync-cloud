@@ -902,6 +902,22 @@ enum PaneTabStripVisibility {
     static func shows(own: Bool, sibling: Bool, isCompare: Bool, switchIsOn: Bool) -> Bool {
         own || switchIsOn || (isCompare && sibling)
     }
+
+    /// Whether View ▸ Tab Bar must read ticked-and-disabled — i.e. whether a strip is on screen for
+    /// a reason the switch does not control.
+    ///
+    /// **This is `shows` with the switch's own term removed, and that is the whole definition.** The
+    /// switch has to be frozen exactly when turning it off would not put the strip away, because
+    /// that is when hiding it would strand tabs the user cannot otherwise reach — which is
+    /// `shows(…, switchIsOn: false)`. Deriving it any other way is how the two came apart: the call
+    /// site used to ask its own pane only, so in Compare a second tab in the *unfocused* pane put a
+    /// strip on screen while the item read unticked and live.
+    ///
+    /// `theForcingIsExactlyTheStripShowingWithoutTheSwitch` holds the identity across every
+    /// combination, so this cannot drift from `shows` again without a test saying so.
+    static func forcesTabBarSwitch(own: Bool, sibling: Bool, isCompare: Bool) -> Bool {
+        shows(own: own, sibling: sibling, isCompare: isCompare, switchIsOn: false)
+    }
 }
 
 

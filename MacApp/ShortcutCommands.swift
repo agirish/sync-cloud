@@ -521,15 +521,16 @@ extension ContentView {
     /// strip it did not describe and the tabs in it became unreachable — which is the exact case the
     /// disabling exists to prevent, arrived at from the other side.
     ///
-    /// `paneShowsTabStrip` is not reusable here: it answers per pane and folds in the switch's own
-    /// state, and this is the switch. The question is the narrower one the rule's `own`/`sibling`
-    /// pair is built from — does *any* strip that could be on screen hold a second tab.
+    /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
+    /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
+    /// the disjunction here is what let them drift the first time.
     var shortcutTabBar: TabBarSwitch {
-        let anyPaneHasSecondTab = layoutMode == .compare
-            ? syncManager.paneTabs(isLeft: true).showsStrip
-                || syncManager.paneTabs(isLeft: false).showsStrip
-            : syncManager.paneTabs(isLeft: shortcutTabTargetIsLeft).showsStrip
-        return TabBarSwitch.resolve(hasSecondTab: anyPaneHasSecondTab,
+        let isLeft = shortcutTabTargetIsLeft
+        let forced = PaneTabStripVisibility.forcesTabBarSwitch(
+            own: syncManager.paneTabs(isLeft: isLeft).showsStrip,
+            sibling: syncManager.paneTabs(isLeft: !isLeft).showsStrip,
+            isCompare: layoutMode == .compare)
+        return TabBarSwitch.resolve(hasSecondTab: forced,
                                     preference: tabBarVisible) { tabBarVisible = $0 }
     }
 

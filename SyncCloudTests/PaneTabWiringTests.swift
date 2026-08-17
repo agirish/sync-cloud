@@ -445,20 +445,47 @@ import Sync
     /// side — the extracted rule was right and the argument was wrong, which is the shape a
     /// value-only test cannot see.
     ///
-    /// A scan, because `shortcutTabBar` is a computed property on a SwiftUI view and there is no
-    /// instantiating it here. It pins the two panes being consulted and the Compare gate that decides
-    /// when the sibling counts; the values themselves stay with `resolve` above.
-    @Test func theTabBarSwitchAsksBothPanesInCompare() throws {
-        let source = try Self.source("ShortcutCommands.swift")
-        let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {", in: source)
+    /// **The forcing is exactly "the strip shows even with the switch off", and this proves it for
+    /// every combination rather than asserting a spelling.**
+    ///
+    /// The first version of this test was a source scan for `paneTabs(isLeft: true)` and
+    /// `layoutMode == .compare` in the call site's body. It caught the defect, and it pinned the
+    /// *wording* of the fix: any refactor — a loop, a helper, `!isLeft` instead of a literal — would
+    /// have failed it while behaving identically. That is the trap this repo keeps re-finding, so
+    /// the rule moved into `PaneTabStripVisibility.forcesTabBarSwitch` and the identity is asserted
+    /// against `shows` directly. If either rule changes without the other, this fails and names the
+    /// combination.
+    @Test func theForcingIsExactlyTheStripShowingWithoutTheSwitch() {
+        for own in [true, false] {
+            for sibling in [true, false] {
+                for isCompare in [true, false] {
+                    let forced = PaneTabStripVisibility.forcesTabBarSwitch(
+                        own: own, sibling: sibling, isCompare: isCompare)
+                    let showsWithSwitchOff = PaneTabStripVisibility.shows(
+                        own: own, sibling: sibling, isCompare: isCompare, switchIsOn: false)
+                    #expect(forced == showsWithSwitchOff,
+                            "own=\(own) sibling=\(sibling) isCompare=\(isCompare): the switch is \(forced ? "frozen" : "live") while a strip \(showsWithSwitchOff ? "is" : "is not") on screen without it — either it can hide a strip and strand its tabs, or it freezes for a strip nobody can see")
+                }
+            }
+        }
+        // The case the defect was: Compare, second tab in the SIBLING only. Spelled out because the
+        // sweep above would still pass if both rules lost the sibling term together.
+        #expect(PaneTabStripVisibility.forcesTabBarSwitch(own: false, sibling: true, isCompare: true),
+                "a second tab in the unfocused pane draws a strip on both panes, and the switch must not be able to hide it")
+        #expect(!PaneTabStripVisibility.forcesTabBarSwitch(own: false, sibling: true, isCompare: false),
+                "outside Compare there is no sibling strip on screen, so the switch must stay live")
+    }
 
-        #expect(body.contains("paneTabs(isLeft: true).showsStrip")
-                    && body.contains("paneTabs(isLeft: false).showsStrip"),
-                "the Tab Bar switch consults one pane, so a strip the other pane puts on screen leaves the item unticked and live — and hiding it strands that pane's tabs")
-        #expect(body.contains("layoutMode == .compare"),
-                "the switch counts the sibling unconditionally; outside Compare there is no sibling strip on screen and the item would freeze for a pane nobody can see")
+    /// The rule above is pure, so every assertion in it passes with the call site still asking one
+    /// pane — the "extracted for testability, one revert from unused" pairing this file already makes
+    /// for the monitors. One line, and it is the line that was wrong.
+    @Test func theTabBarSwitchGoesThroughThatRule() throws {
+        let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {",
+                                       in: try Self.source("ShortcutCommands.swift"))
+        #expect(body.contains("PaneTabStripVisibility.forcesTabBarSwitch("),
+                "the Tab Bar switch computes its own forcing condition again — the rule is extracted and unused, and the two came apart exactly this way before")
         #expect(body.contains("TabBarSwitch.resolve("),
-                "the switch no longer goes through the extracted rule, so the two value tests above are pinning nothing that ships")
+                "the switch no longer goes through the extracted resolve, so the two value tests above pin nothing that ships")
     }
 
     @Test func theSwitchWritesThroughToThePreference() {

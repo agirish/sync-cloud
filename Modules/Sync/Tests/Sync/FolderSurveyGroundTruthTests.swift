@@ -88,6 +88,52 @@ import CoreGraphics
         #expect(line.hasPrefix("RAN") == (liveProfile && awake),
                 "the gate report says \(line) while the gates read liveProfile=\(liveProfile) displayAwake=\(awake)")
     }
+
+    /// **An unreadable directory is `isUnexplored`, not an explored empty one.**
+    ///
+    /// The reference walker used to answer `[]` for both, while the production walk reports
+    /// `isUnexplored: true` — so a directory the test process cannot open counted as a folder that
+    /// genuinely has nothing in it. Under floors expressed as *agreement ≥ 0.99* a handful of those
+    /// is absorbed rather than surfaced, which is what makes it a masked miss instead of a failure.
+    ///
+    /// **This test lives in the ungated suite deliberately.** Put it beside the ground-truth tests
+    /// and it would be skipped by the same three gates as the thing it verifies — a fix for an
+    /// invisible defect, made invisible the same way. It needs no live profile and no display: a
+    /// temporary tree answers it.
+    ///
+    /// Both directions, because a walker that marked *every* directory unexplored would satisfy the
+    /// first assertion on its own.
+    @Test func theReferenceWalkerTellsUnreadableFromEmpty() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("gtwalk-\(UUID().uuidString)")
+        let readable = root.appendingPathComponent("readable")
+        let locked = root.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: readable, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        // Restored before removal, or the directory cannot be deleted and the temp tree leaks.
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+
+        var stalled = false
+        // `keepGoing` is supplied so this does not consult the display: the walker's default asks
+        // `displayIsAwake`, and this test has to answer the same on a machine whose screen is off.
+        let nodes = FolderSurveyGroundTruth.walk(root, deadline: Date().addingTimeInterval(30),
+                                                 stalled: &stalled, keepGoing: { true })
+        #expect(!stalled, "the walk stalled, so neither branch below was reached")
+
+        let byName = Dictionary(uniqueKeysWithValues: nodes.map { ($0.name, $0) })
+        let lockedNode = try #require(byName["locked"], "the unreadable directory is missing entirely")
+        let readableNode = try #require(byName["readable"], "the readable directory is missing entirely")
+
+        #expect(lockedNode.isUnexplored == true,
+                "an unreadable directory reads as explored, so it counts as genuinely empty against the agreement floors")
+        #expect(lockedNode.children?.isEmpty == true, "an unexplored directory should carry no children")
+        #expect(readableNode.isUnexplored != true,
+                "an ordinary empty directory is being reported as unexplored — the walker cannot tell the two apart in this direction either")
+    }
 }
 
 @Suite(.enabled(if: LiveProfile.isAvailable,
