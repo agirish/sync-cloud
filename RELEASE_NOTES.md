@@ -9,19 +9,30 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.1 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v4.0..d655b528` — 76 commits. Claims below were checked
+> be withdrawn. Covers `v4.0..e66747fc` — 81 commits. Claims below were checked
 > against the `v4.0` tag: fixes to work that landed *inside* this range earn no
 > entry, because no user of v4.0 was ever exposed to them. That rule takes out most
 > of this range — tabs arrived here, so the several review passes that followed
 > them are repairs to unreleased work, including the ⌘W that briefly took Close
 > away from three other windows.
 >
-> **Landed but deliberately unclaimed:** the app can now derive a *folder profile*
-> from your tree, which is the thing v4.0 said had to come from an out-of-repo
-> script. It is not in this list because `writeProfile` and
-> `FolderSurveyBuilder.build` have **no production callers** — the execution model
-> and the setup dialog are still to come, so nothing a user can press reaches it.
-> It becomes a headline entry the moment it does.
+> **Landed but deliberately unclaimed — two of them now, and check both before the
+> cut.** Each is real work with no way for a user to reach it yet, which is the one
+> case where "it is in the range" and "it earns an entry" come apart:
+>
+> - The app can now derive a *folder profile* from your tree, which is the thing
+>   v4.0 said had to come from an out-of-repo script. `writeProfile` and
+>   `FolderSurveyBuilder.build` have **no production callers** — the execution model
+>   and the setup dialog are still to come.
+> - `DirectoryListing` and `ItemIdentity` give "could not read it" a value distinct
+>   from "there is nothing there", which is the fix for a genuine defect: an
+>   unlistable directory enumerated as *empty*, so a folder-replace could report
+>   nothing to remove. Both types have **no call sites outside their own files**, so
+>   no behaviour has changed for anyone yet.
+>
+> Both become entries — the second a notable one — the moment something calls them.
+> Re-run `grep -rn "<symbol>" Modules MacApp` before the cut rather than trusting
+> this note, which was true at `e66747fc`.
 
 Tabs. One pane, many parked locations — the thing that turns a two-pane comparison
 into a place you can keep several jobs open in at once.
