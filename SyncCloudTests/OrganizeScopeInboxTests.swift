@@ -123,15 +123,17 @@ import Foundation
     @Test func pointingAtAFolderSetsTheScopeAndTheRootClearsIt() throws {
         let source = try Self.contentView()
         // "Organize This Folder…" must SET the scope, not just scan — the scope is the lasting half.
-        let body = try Self.body(of: "func organizeFolderAction(_ node: FileNode) {", in: source)
-        #expect(body.contains("setOrganizeScope(folder)"),
+        let body = try Self.body(of: "func organizeFolderAction(_ node: FileNode, providerRoot: String) {", in: source)
+        #expect(body.contains("setOrganizeScope(folder, providerRoot: providerRoot)"),
                 "Organize This Folder no longer sets the scope, so five lenses would ignore it")
         // And the one write is where the root is normalized away, so no caller can mint a second
         // encoding of the global view.
-        #expect(source.contains("func setOrganizeScope(_ path: String?)"))
+        // The root is a REQUIRED argument, so no caller can silently inherit the focused pane's —
+        // see `OrganizeScopeRootOwnershipTests`, which is where that rule is stated.
+        #expect(source.contains("func setOrganizeScope(_ path: String?, providerRoot: String)"))
         // The normalization lives in ONE resolver behind both the read and the write, so the two
         // cannot drift about what a stored provider root means.
-        #expect(source.contains("organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: lensProviderRootExpanded)"),
+        #expect(source.contains("organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)"),
                 "the scope write no longer routes through OrganizeScope.normalizedPath — a second copy of the normalization is back")
         #expect(source.contains("private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope?"))
         #expect(source.contains("OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)"))

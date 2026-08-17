@@ -85,8 +85,8 @@ import Foundation
         // chip and the filter would disagree about the same stored string.
         let source = try Self.contentView()
         #expect(source.contains("var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }"))
-        let setter = try Self.body(of: "func setOrganizeScope(_ path: String?) {", in: source)
-        #expect(setter.contains("OrganizeScope.normalizedPath(path, providerRoot: lensProviderRootExpanded)"),
+        let setter = try Self.body(of: "func setOrganizeScope(_ path: String?, providerRoot: String) {", in: source)
+        #expect(setter.contains("OrganizeScope.normalizedPath(path, providerRoot: providerRoot)"),
                 "the setter has its own copy of the normalization again")
     }
 }

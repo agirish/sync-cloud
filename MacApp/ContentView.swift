@@ -2183,12 +2183,11 @@ struct ContentView: View {
     ///
     /// Pointing at the provider root **clears** the scope rather than setting it — see
     /// ``setOrganizeScope(_:)``.
-    func organizeFolderAction(_ node: FileNode) {
+    func organizeFolderAction(_ node: FileNode, providerRoot: String) {
         let folder = (node.id as NSString).expandingTildeInPath
-        let providerRoot = lensProviderRootExpanded
         guard !folder.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Organize for \(folder)")
-        setOrganizeScope(folder)
+        setOrganizeScope(folder, providerRoot: providerRoot)
         show(.toFile)
         syncManager.startFindFilingSuggestions(
             folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerRoot),
@@ -2204,8 +2203,19 @@ struct ContentView: View {
     /// a doc claiming to be the only one. ``OrganizeScope/normalizedPath(_:providerRoot:)`` is the
     /// owner of the rule now; both writers ask it, so `scope = provider root` and `scope = cleared`
     /// cannot become two encodings of one state.
-    func setOrganizeScope(_ path: String?) {
-        organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: lensProviderRootExpanded)
+    /// **`providerRoot` is required, and that is the fix rather than a signature tidy.** It used to
+    /// read `lensProviderRootExpanded` itself — the FOCUSED pane's root — while two of its three
+    /// callers are row menus, and a SwiftUI context menu does not move focus. Right-clicking a
+    /// folder in the pane that did not have focus therefore normalised it against the other pane's
+    /// root, which for any folder outside that root answers `""`: the scope the user had set AND
+    /// the folder they had just named were both gone, it survived relaunch, and the scan that
+    /// followed got the right pane's folder with the left pane's root.
+    ///
+    /// Naming it at each call site is what makes that unwriteable rather than merely fixed: the
+    /// palette genuinely means the focused pane, the row menus genuinely mean their own pane, and
+    /// the compiler now asks which.
+    func setOrganizeScope(_ path: String?, providerRoot: String) {
+        organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)
     }
 
     /// The subtree Organize is answering about, or nil for the global view.
@@ -2283,8 +2293,17 @@ struct ContentView: View {
     /// The provider root of the pane a lens action targets (the left rail in single-source;
     /// the focused pane in compare).
     var lensProviderRootExpanded: String {
-        let id = lensTargetIsRight ? rightProviderId : leftProviderId
-        return (settings.path(for: id) as NSString).expandingTildeInPath
+        providerRootExpanded(forProviderId: lensTargetIsRight ? rightProviderId : leftProviderId)
+    }
+
+    /// One provider's root, expanded — the same shape ``lensProviderRootExpanded`` answers, asked
+    /// about a named provider rather than about whichever pane holds focus.
+    ///
+    /// Split out because "the focused pane's root" is the wrong question for anything a ROW menu
+    /// starts: a SwiftUI context menu does not move focus, so a right-click in the pane that is not
+    /// focused was answered with the other pane's root.
+    func providerRootExpanded(forProviderId id: String) -> String {
+        (settings.path(for: id) as NSString).expandingTildeInPath
     }
 
     /// The provider ruleset the name check runs against — the targeted pane's source (the left
@@ -3039,8 +3058,11 @@ struct ContentView: View {
             keptNamesToken: syncManager.keptNamesStore?.names ?? [],
             homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId),
             onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) },
-            onOrganizeFolder: { node in organizeFolderAction(node) },
-            onOrganizeScope: { node in setOrganizeScope(node.id) },
+            // The ROW's pane, not the focused one — see `setOrganizeScope(_:providerRoot:)`.
+            onOrganizeFolder: { node in
+                organizeFolderAction(node, providerRoot: providerRootExpanded(forProviderId: pane.providerId)) },
+            onOrganizeScope: { node in
+                setOrganizeScope(node.id, providerRoot: providerRootExpanded(forProviderId: pane.providerId)) },
             onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) },
             onNewTabHere: { path in openInNewTab(absolutePath: path, isLeft: pane.isLeft) },
             // Resolved at fire time, not captured: a menu held open is not re-armed by a republish,

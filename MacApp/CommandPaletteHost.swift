@@ -258,14 +258,18 @@ extension ContentView {
                 return
             }
         }
-        // Through `setOrganizeScope(_:)` — **the one write of Organize's scope**, where pointing at
-        // the provider root CLEARS the scope rather than storing it as one — and BEFORE the
-        // workspace moves, for the reason above: the owner resolves against the live
-        // `lensProviderRootExpanded`, which still names the aimed pane's root on this line. This
-        // used to be a second inline spelling of that normalization, sitting under a comment
-        // asserting there is exactly one. A scope-less route touches nothing — nil here means
-        // "don't re-aim", not "clear".
-        if let scope { setOrganizeScope(scope) }
+        // Through `setOrganizeScope(_:providerRoot:)` — **the one write of Organize's scope**, where
+        // pointing at the provider root CLEARS the scope rather than storing it as one — and BEFORE
+        // the workspace moves, for the reason above: `lensProviderRootExpanded` still names the
+        // aimed pane's root on this line. This used to be a second inline spelling of that
+        // normalization, sitting under a comment asserting there is exactly one. A scope-less route
+        // touches nothing — nil here means "don't re-aim", not "clear".
+        //
+        // **The focused pane IS the right root here**, unlike the row menus that share this method:
+        // the palette is aimed at that pane throughout, which is the same rule the folder index and
+        // the recents list on this screen were built from. The parameter is named rather than
+        // defaulted so that stays a statement instead of an assumption.
+        if let scope { setOrganizeScope(scope, providerRoot: lensProviderRootExpanded) }
         // **The swap goes here: after the scope is written, before the workspace moves.**
         //
         // After the write, because `setOrganizeScope` resolves against the live

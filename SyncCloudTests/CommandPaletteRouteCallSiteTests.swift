@@ -53,7 +53,7 @@ import Sync
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("paletteRailLens = lens"),
                 "the rail selection is no longer written through @AppStorage")
-        #expect(host.contains("if let scope { setOrganizeScope(scope) }"),
+        #expect(host.contains("if let scope { setOrganizeScope(scope, providerRoot: lensProviderRootExpanded) }"),
                 "the scope no longer goes through setOrganizeScope — the one @AppStorage-backed writer")
         let code = Self.codeOnly(host)
         #expect(code.contains("paletteRailLens = lens"),
@@ -71,7 +71,7 @@ import Sync
     /// comment asserting there is exactly one.
     @Test func theRouteCannotMintASecondEncodingOfTheGlobalView() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        #expect(host.contains("setOrganizeScope(scope)"),
+        #expect(host.contains("setOrganizeScope(scope, providerRoot: lensProviderRootExpanded)"),
                 "the scope write no longer goes through the one owner")
         let code = Self.codeOnly(host)
         #expect(!code.contains("OrganizeScope(path:"),
@@ -145,7 +145,7 @@ import Sync
         // The scope write shares the hazard: `setOrganizeScope` resolves against the LIVE
         // `lensProviderRootExpanded`, so calling it after the move measures the scope against the
         // left pane's root unconditionally — the same silent clear, one line later.
-        let write = try #require(body.range(of: "if let scope { setOrganizeScope(scope) }"),
+        let write = try #require(body.range(of: "if let scope { setOrganizeScope(scope, providerRoot: lensProviderRootExpanded) }"),
                                  "aimOrganize no longer routes the scope through the one owner")
         #expect(write.lowerBound < move.lowerBound,
                 "the scope is set after the workspace changes, so the owner resolves it against the wrong pane")
@@ -200,7 +200,7 @@ import Sync
                                   "the swap decision is no longer the one pure rule — a second copy cannot be held to the resolver")
         let confirm = try #require(body.range(of: "confirmOrganizePaneSwap("),
                                    "the route no longer asks before moving the user's panes")
-        let scopeWrite = try #require(body.range(of: "setOrganizeScope(scope)"),
+        let scopeWrite = try #require(body.range(of: "setOrganizeScope(scope, providerRoot:"),
                                       "aimOrganize no longer routes the scope through the one owner")
         let swap = try #require(body.range(of: "swapPanesAction()"),
                                 "aimOrganize no longer swaps the panes for a right-pane scope")
