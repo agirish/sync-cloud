@@ -62,6 +62,34 @@ public final class PeopleStore: ObservableObject {
                                   + "seeded from folder names, and REFUSING to write over the file. "
                                   + "Fix \(fileURL.path) and relaunch to edit the household again.")
         }
+        Self.warnAboutRepeatedIds(in: people, source: source, fileURL: fileURL)
+    }
+
+    /// Says once, at load, that the roster on disk repeats a person id.
+    ///
+    /// **The id is the roster's primary key everywhere except in the file itself**, and a hand-edit
+    /// that repeats one is tolerated by every consumer in a different way rather than being
+    /// rejected by any of them: ``PersonRegistry`` keys its token index by id, so the *last* record
+    /// decides which single words name that person, while ``person(id:)`` here scans the array and
+    /// returns the *first* — two readings of one household, neither announced. Copying a record to
+    /// add a spelling and forgetting to change its `id` is exactly how that happens, and the
+    /// symptom is a full name that silently stops matching.
+    ///
+    /// One line, at load, rather than one per consumer: the fact is about the file, and the
+    /// consumers are only where it shows up. Said only for a roster that really came from
+    /// `people.json` — a seeded registry is the app's own reading of folder names, so pointing the
+    /// user at a file they never wrote would be wrong.
+    private static func warnAboutRepeatedIds(in people: [Person], source: PersonRegistry.Source,
+                                             fileURL: URL) {
+        guard source == .file else { return }
+        var seen = Set<String>()
+        let repeated = people.map(\.id).filter { !seen.insert($0).inserted }
+        guard !repeated.isEmpty else { return }
+        Logger.shared.warning("people.json repeats the person id(s) "
+                              + "\(Set(repeated).sorted().joined(separator: ", ")) — the LAST entry "
+                              + "for a repeated id is the one that decides which names resolve to "
+                              + "that person, and the earlier ones are ignored. Give each person a "
+                              + "unique id in \(fileURL.path).")
     }
 
     /// True when `people.json` holds **structured data this build could not decode** — a hand-edit

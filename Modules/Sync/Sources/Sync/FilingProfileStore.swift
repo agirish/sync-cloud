@@ -211,6 +211,16 @@ extension FilingProfileStore {
     /// error rather than a `Bool` or a swallowed log: the caller has promised the user a survey and
     /// has to be able to say *this tree already has a profile and I did not touch it* — which is a
     /// different sentence from *the write failed*.
+    ///
+    /// **The store throws; the caller logs.** Every refusal below carries its whole sentence in
+    /// ``description``, so a `Logger` call beside the `throw` writes the same fact twice — once
+    /// where nobody chose the wording and once where the caller does. `profileExists` used to be
+    /// the odd one out, logging *and* throwing while its two siblings threw in silence, which is a
+    /// worse state than either rule applied consistently: a reader of `~/sync-cloud.log` learned
+    /// about one refusal and could reasonably infer the others do not happen. The write path
+    /// therefore logs exactly one thing — the rollback in ``land(_:at:index:at:writeIndex:)``,
+    /// which is the only fact no thrown error carries (see there). **A caller wiring this up owes
+    /// the log line**, and `description` is written to be that line.
     public enum WriteRefusal: Error, Equatable, CustomStringConvertible {
         /// `folder-profile.json` already exists for this id. Never overwritten, never merged.
         case profileExists(id: String)
@@ -288,8 +298,6 @@ extension FilingProfileStore {
         }
         let url = profileURL(id: id, in: directory)
         guard !FileManager.default.fileExists(atPath: url.path) else {
-            Logger.shared.warning("A folder profile already exists for \(id) — the survey was not "
-                                  + "written. A generated profile never replaces one on disk.")
             throw WriteRefusal.profileExists(id: id)
         }
 
@@ -372,9 +380,24 @@ extension FilingProfileStore {
             // one read and makes the rollback provably about this call's own work. Best-effort
             // throughout: if the comparison or the removal fails, the write error is still the one
             // worth reporting.
-            if (try? Data(contentsOf: url)) == bytes {
-                try? FileManager.default.removeItem(at: url)
-            }
+            //
+            // **And this is the one thing in the write path that gets logged**, because it is the
+            // one fact the thrown error does not carry. What propagates is the index write's own
+            // error — a permissions or I/O failure about `profiles.json` — which says nothing about
+            // a folder profile having been written and then taken away again. Without the line, a
+            // reader who goes looking finds no profile, no index entry, and no account of either.
+            // The id is the directory the profile sits in, which is how ``profileURL(id:in:)``
+            // composed this path.
+            let isOurs = (try? Data(contentsOf: url)) == bytes
+            let rolledBack = isOurs && (try? FileManager.default.removeItem(at: url)) != nil
+            Logger.shared.warning(
+                "Couldn't write profiles.json for the folder profile "
+                + "\(url.deletingLastPathComponent().lastPathComponent): \(error.localizedDescription)"
+                + (rolledBack
+                    ? " — the profile just written was removed again, so nothing points at a "
+                      + "half-landed survey and a retry can simply run"
+                    : " — the profile at \(url.path) was left in place, so a retry will refuse it "
+                      + "as an existing profile"))
             throw error
         }
     }

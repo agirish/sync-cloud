@@ -159,6 +159,13 @@ import Testing
     /// A `profiles.json` this build cannot read is refused, **and the profile is not written
     /// either** — the whole write fails, so a retry after the index is fixed is not blocked by a
     /// half-landed profile it would then refuse to replace.
+    ///
+    /// The expectation names the exact refusal rather than `(any Error).self`, which is what it used
+    /// to say: a scratch directory that could not be created, a `Data` write that failed, any stray
+    /// I/O error at all would have satisfied the loose form while the refusal under test had stopped
+    /// firing. The string is part of it — "schema 99, not 1" is the sentence a caller prints, and a
+    /// refusal that named the wrong version was a real bug in this file's history (a `false`
+    /// `schemaVersion` read as schema 0).
     @Test func anUnreadableIndexRefusesTheWholeWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -171,7 +178,7 @@ import Testing
         // write, so the refusal has to be its own guard.
         #expect(FilingProfileStore.activeProfileId(in: dir) == nil)
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: FilingProfileStore.WriteRefusal.indexUnreadable("schema 99, not 1")) {
             try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
         }
         #expect(try Data(contentsOf: index) == before)
@@ -406,6 +413,204 @@ import Testing
         let listed = try #require(object["profiles"] as? [[String: Any]])
         #expect(listed.compactMap { $0["profileId"] as? String }.sorted() == ["abhishek", "older"],
                 "the profile the index already named was not preserved")
+    }
+
+    /// **An index that already lists this profile must not be given a second entry for it.**
+    ///
+    /// The list is amended, and the id it is being amended for can already be in it: the offline
+    /// builder writes an entry per profile, and an index can name a profile whose
+    /// `folder-profile.json` is not on disk — which is exactly the state that makes this write
+    /// *allowed* (nothing resolvable is active, so the index may be re-pointed). Without the
+    /// `contains` guard the same id is listed twice, and every reader of `profiles` then has two
+    /// records for one profile with no rule for which wins.
+    ///
+    /// The entry already there also has to survive intact, not be replaced by the one this would
+    /// have appended: it carries a `displayName` the offline builder knew and a folder walk does
+    /// not.
+    @Test func anIndexThatAlreadyListsTheProfileDoesNotGainASecondEntry() throws {
+        let (dir, _) = try Self.withIndex(#"""
+        {"schemaVersion": 1,
+         "profiles": [{"profileId": "abhishek", "root": "~/Old", "displayName": "Hand built"}]}
+        """#)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Listed but not on disk, and nothing named active — so the write is allowed and reaches
+        // the amendment, which is the only way to this branch.
+        #expect(FilingProfileStore.activeProfileId(in: dir) == nil)
+
+        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+
+        let object = try #require(try JSONSerialization
+            .jsonObject(with: Data(contentsOf: FilingProfileStore.indexURL(in: dir)))
+            as? [String: Any])
+        #expect(object["activeProfileId"] as? String == "abhishek",
+                "the index was not pointed at the profile just written")
+        let profiles = try #require(object["profiles"] as? [[String: Any]])
+        #expect(profiles.count == 1, "the index gained a duplicate entry for abhishek")
+        #expect(profiles.first?["displayName"] as? String == "Hand built",
+                "the entry already listed was replaced rather than left alone")
+        #expect(profiles.first?["root"] as? String == "~/Old")
+    }
+
+    /// **A field written as `null` is absent, not unreadable.**
+    ///
+    /// `JSONSerialization` hands back `NSNull` for a JSON null, so `object["schemaVersion"]` is
+    /// non-nil for `"schemaVersion": null` and every "is this field a shape I understand" check
+    /// sees a value to object to. Refusing there would be wrong in the one direction that matters:
+    /// a null field says nothing, and an index saying nothing about its schema, its active profile
+    /// or its profile list is precisely the index this write path exists to amend. A hand-edit that
+    /// clears a field by nulling it rather than deleting it is ordinary, and so is a generator that
+    /// spells "unset" that way.
+    ///
+    /// Each shape must land the profile *and* amend the index — asserted rather than just "did not
+    /// throw", because a refusal is not the only way to fail this.
+    @Test(arguments: [
+        #"{"schemaVersion": null, "profiles": []}"#,
+        #"{"schemaVersion": 1, "activeProfileId": null, "profiles": []}"#,
+        #"{"schemaVersion": 1, "profiles": null}"#,
+    ])
+    func aNullFieldInTheIndexIsAmendedRatherThanRefused(json: String) throws {
+        let (dir, _) = try Self.withIndex(json)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+
+        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) != nil,
+                "the profile was not written")
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+        let object = try #require(try JSONSerialization
+            .jsonObject(with: Data(contentsOf: FilingProfileStore.indexURL(in: dir)))
+            as? [String: Any])
+        let profiles = try #require(object["profiles"] as? [[String: Any]])
+        #expect(profiles.compactMap { $0["profileId"] as? String } == ["abhishek"],
+                "the amended index does not list the profile it now names")
+    }
+
+    // MARK: - The bytes are a function of the profile, not of this launch
+
+    /// The same entries in two dictionaries that **iterate differently**, by construction.
+    ///
+    /// Swift's `Dictionary` walks its buckets, and the bucket a key lands in depends on the
+    /// capacity as well as on the per-launch hash seed — so building at two capacities is an
+    /// explicit difference, where building in two *insertion* orders is not one at all (the same
+    /// keys at the same capacity iterate the same way whatever order they went in). The capacity is
+    /// raised until the two really do differ, because a fixture whose two inputs iterate identically
+    /// is comparing a value against itself.
+    private static func laidOutDifferently(_ entries: [FolderProfileEntry])
+        -> (a: [String: FolderProfileEntry], b: [String: FolderProfileEntry]) {
+        func made(_ capacity: Int) -> [String: FolderProfileEntry] {
+            var d = [String: FolderProfileEntry](minimumCapacity: capacity)
+            for e in entries { d[e.path] = e }
+            return d
+        }
+        let a = made(entries.count)
+        for capacity in [16, 64, 256, 1_024, 4_096, 16_384] {
+            let b = made(capacity)
+            if Array(b.keys) != Array(a.keys) { return (a, b) }
+        }
+        return (a, made(16_384))
+    }
+
+    /// The same trick for the person axis, which is a `Set` and walks its buckets the same way.
+    private static func laidOutDifferently(_ tokens: [String]) -> (a: Set<String>, b: Set<String>) {
+        func made(_ capacity: Int) -> Set<String> {
+            var s = Set<String>(minimumCapacity: capacity)
+            for t in tokens { s.insert(t) }
+            return s
+        }
+        let a = made(tokens.count)
+        for capacity in [16, 64, 256, 1_024, 4_096, 16_384] {
+            let b = made(capacity)
+            if Array(b) != Array(a) { return (a, b) }
+        }
+        return (a, made(16_384))
+    }
+
+    private static let deterministicFolders = [
+        "Work", "Photos", "Finance", "Finance/TODO", "Health/Aditi", "Travel", "Health",
+        "Finance/Receipts"
+    ].map {
+        FolderProfileEntry(path: $0, role: nil, naming: nil, anchors: [], acceptsNewFiles: nil,
+                           fileCount: 1, subfolderCount: 0, axes: [:])
+    }
+
+    private static let deterministicPeople = ["shweta", "abhishek", "aditi", "muktha", "girish"]
+
+    private static func writeDeterministic(folders: [String: FolderProfileEntry],
+                                           people: Set<String>) throws -> Data {
+        let dir = scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profile = FolderProfile(profileId: "abhishek", root: "~/Documents", folders: folders,
+                                    personTokens: people,
+                                    personAliases: ["mom": "muktha", "dad": "girish"])
+        return try Data(contentsOf: FilingProfileStore.writeProfile(
+            profile, in: dir, now: Date(timeIntervalSince1970: 1_754_000_000)))
+    }
+
+    /// **The file is byte-identical for the same logical profile, however its containers are laid
+    /// out.** `writeProfile`'s own doc says why — the sort exists so "its hash feeds
+    /// `fingerprint(id:in:)`", which keys `FilingVerdictCache`. A profile that re-serialises
+    /// differently for the same content invalidates every cached verdict and re-bills a paid
+    /// classification pass for a tree nobody changed. Nothing asserted it.
+    ///
+    /// Note what this limb can and cannot see. Determinism *across launches* is the property that
+    /// matters, and no in-process comparison observes it: one `Dictionary` value iterates the same
+    /// way all run long, so writing it twice is guaranteed to agree whether or not anything sorts.
+    /// The two containers are therefore built to iterate differently on purpose — which is
+    /// as close as a single process gets to a second launch. The companion test below covers what
+    /// this one cannot.
+    @Test func theSameProfileFromDifferentlyLaidOutContainersWritesTheSameBytes() throws {
+        let folders = Self.laidOutDifferently(Self.deterministicFolders)
+        let people = Self.laidOutDifferently(Self.deterministicPeople)
+        #expect(Array(folders.a.keys) != Array(folders.b.keys),
+                "the two folder dictionaries iterate identically, so this compares a value with itself")
+        #expect(Array(people.a) != Array(people.b),
+                "the two person sets iterate identically, so this compares a value with itself")
+
+        let first = try Self.writeDeterministic(folders: folders.a, people: people.a)
+        let second = try Self.writeDeterministic(folders: folders.b, people: people.b)
+
+        #expect(first == second, "the same profile wrote different bytes from a different layout")
+        #expect(!first.isEmpty)
+    }
+
+    /// The limb with teeth: the output is in **canonical** order, which is what makes it a function
+    /// of the content rather than of the layout — and it is the only form of this claim a single
+    /// process can check, since a container's iteration order does not change within a run.
+    ///
+    /// Three separate orderings, three separate regressions: the `folders` array is sorted by path,
+    /// the person axis's `values` are sorted, and every object's keys are sorted (`.sortedKeys`).
+    /// Key order survives no parse, so it is read off the raw bytes.
+    @Test func theProfileIsWrittenInCanonicalOrder() throws {
+        let folders = Self.laidOutDifferently(Self.deterministicFolders)
+        let bytes = try Self.writeDeterministic(folders: folders.a,
+                                                people: Set(Self.deterministicPeople))
+        let text = try #require(String(data: bytes, encoding: .utf8))
+        let object = try #require(try JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+
+        let entries = try #require(object["folders"] as? [[String: Any]])
+        #expect(entries.compactMap { $0["path"] as? String }
+                == ["Finance", "Finance/Receipts", "Finance/TODO", "Health", "Health/Aditi",
+                    "Photos", "Travel", "Work"],
+                "the folders array is in the dictionary's bucket order, not sorted by path")
+
+        let axes = try #require(object["axes"] as? [String: Any])
+        let person = try #require(axes["person"] as? [String: Any])
+        #expect(person["values"] as? [String]
+                == ["abhishek", "aditi", "girish", "muktha", "shweta"],
+                "the person axis is in the set's bucket order, not sorted")
+
+        // `.sortedKeys`, read as first-occurrence offsets: each of these spellings appears exactly
+        // once at the top level, and the top level is written before any nested object that could
+        // repeat one (`axes` sorts first of all).
+        let top = ["axes", "builtBy", "folderCount", "folders", "generated", "note", "portable",
+                   "profileId", "root", "schemaVersion"]
+        let offsets = top.map { key in
+            text.range(of: "\"\(key)\":")
+                .map { text.distance(from: text.startIndex, to: $0.lowerBound) }
+        }
+        #expect(offsets.allSatisfy { $0 != nil }, "a top-level key is missing: \(top) vs \(offsets)")
+        #expect(offsets == offsets.sorted { ($0 ?? 0) < ($1 ?? 0) },
+                "the object's keys are not in sorted order — .sortedKeys was dropped: \(offsets)")
     }
 
     // MARK: - A half-landed write leaves nothing behind

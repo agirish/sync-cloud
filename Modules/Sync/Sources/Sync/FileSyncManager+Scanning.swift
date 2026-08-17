@@ -380,6 +380,15 @@ extension FileSyncManager {
         // duplicate-refresh dedupe below working for a repeated one-pane switch.
         let reloading: PaneReloadScope = {
             guard let active = activeRefreshKey, active.reloading != requested else { return requested }
+            // **Said, because the log otherwise contradicts itself.** A left-pane tab switch asks
+            // for `.leftOnly`, and a reader who then finds `[load] right #N start` under it has
+            // nothing to attribute that walk to. Only a one-pane request is actually widened here:
+            // a `.both` request disagreeing with a narrower refresh in flight is already as wide as
+            // this goes, and announcing a widening that did not happen is worse than silence.
+            if requested != .both {
+                Logger.shared.debug("Widening a \(requested) refresh to both panes: a "
+                                    + "\(active.reloading) refresh was already in flight")
+            }
             return .both
         }()
         let key = makeRefreshKey(left: left, right: right, reloading: reloading)
