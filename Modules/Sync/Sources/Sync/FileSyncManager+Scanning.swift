@@ -412,9 +412,14 @@ extension FileSyncManager {
         // immediately by "Skipping duplicate in-flight refresh" — a widening credited to a call that
         // did no work at all. Below the dedupe the line means what it says: this refresh is running,
         // and it is running wider than it was asked to.
+        // **`.info`, not `.debug`, for the same reason ⌘K's and ⌘W's refusals are.** `.debug` is
+        // dropped entirely at Settings ▸ Advanced ▸ Info, and this is the only account of a
+        // user-VISIBLE event: the other pane reloading under a request that named one. A reader
+        // who has turned the noise down is exactly the reader filing "why did my right pane
+        // reload?", so the one line that answers it must survive the level they are on.
         if let widenedBy {
-            Logger.shared.debug("Widening a \(requested) refresh to both panes: a "
-                                + "\(widenedBy) refresh was already in flight")
+            Logger.shared.info("Widening a \(requested) refresh to both panes: a "
+                               + "\(widenedBy) refresh was already in flight")
         }
         activeRefreshTask?.cancel()
         activeRefreshKey = key
