@@ -321,7 +321,15 @@ extension FilingProfileStore {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent(id),
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        // **`.withoutEscapingSlashes` is not cosmetic here — it is what makes the file the docs
+        // sell.** Every key in a profile is a folder path, so the default escaping writes
+        // `Finance\/US` for every one of them: unreadable at a glance, and it does not diff against
+        // the Python builder's output, which is the comparison this format exists to support.
+        //
+        // Changed now because the cost only grows. It alters the bytes of any profile written by
+        // this path, and that set is **empty** — `writeProfile` has no production caller in this
+        // release — so today it is a free change and every release from here makes it a migration.
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let document = ProfileDocument(profile: profile, generated: stamp(now), builtBy: builtBy)
         let bytes = try encoder.encode(document)
 

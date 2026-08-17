@@ -434,6 +434,33 @@ import Sync
         #expect(!on.isForced)
     }
 
+    /// **The switch has to ask the same question the visibility rule answers, which is both panes.**
+    ///
+    /// `TabBarSwitch.resolve` is pure and the two tests above pin it completely, so they pass just as
+    /// well when the caller feeds it the wrong pane — which it did. `shortcutTabBar` asked only
+    /// `shortcutTabTargetIsLeft` while `PaneTabStripVisibility.shows` decides from `own` *and*
+    /// `sibling`: in Compare with the second tab in the *unfocused* pane, a strip was on screen and
+    /// the menu item read unticked and live, offering to hide a strip it did not describe and taking
+    /// its tabs out of reach. That is the case the forcing exists to prevent, reached from the other
+    /// side — the extracted rule was right and the argument was wrong, which is the shape a
+    /// value-only test cannot see.
+    ///
+    /// A scan, because `shortcutTabBar` is a computed property on a SwiftUI view and there is no
+    /// instantiating it here. It pins the two panes being consulted and the Compare gate that decides
+    /// when the sibling counts; the values themselves stay with `resolve` above.
+    @Test func theTabBarSwitchAsksBothPanesInCompare() throws {
+        let source = try Self.source("ShortcutCommands.swift")
+        let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {", in: source)
+
+        #expect(body.contains("paneTabs(isLeft: true).showsStrip")
+                    && body.contains("paneTabs(isLeft: false).showsStrip"),
+                "the Tab Bar switch consults one pane, so a strip the other pane puts on screen leaves the item unticked and live — and hiding it strands that pane's tabs")
+        #expect(body.contains("layoutMode == .compare"),
+                "the switch counts the sibling unconditionally; outside Compare there is no sibling strip on screen and the item would freeze for a pane nobody can see")
+        #expect(body.contains("TabBarSwitch.resolve("),
+                "the switch no longer goes through the extracted rule, so the two value tests above are pinning nothing that ships")
+    }
+
     @Test func theSwitchWritesThroughToThePreference() {
         var written: Bool?
         TabBarSwitch.resolve(hasSecondTab: false, preference: false) { written = $0 }.set(true)

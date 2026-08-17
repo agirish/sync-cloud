@@ -79,6 +79,18 @@ extension FileSyncManager {
             clearSessionIgnoredPaths()
         }
 
+        // **One pane holds a selection at a time, and restoring a tab's has to keep that true.**
+        // A tab carries its own selection, so applying one wrote this pane's while the sibling kept
+        // whatever it had — two panes selected, which the transfer verbs' documented invariant says
+        // cannot happen and which decides what ⌘⌫ and the copy arrows act on.
+        //
+        // Only a **non-empty** arriving selection clears the sibling. An empty one leaves the
+        // invariant already satisfied — one pane selected, and it is the other one — so clearing
+        // there would throw away a selection the user made and the tab switch never touched.
+        if !tab.selection.isEmpty {
+            if isLeft { selectedRightPaths = [] } else { selectedLeftPaths = [] }
+        }
+
         if isLeft {
             leftHistory = tab.history
             leftBrowsePath = tab.browsePath

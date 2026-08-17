@@ -12,6 +12,39 @@ import Foundation
 /// missing.
 @Suite struct PaneTabSwitchingTests {
 
+    /// **One pane holds a selection at a time, and a tab carrying its own has to keep that true.**
+    ///
+    /// `applyTab` restored this pane's selection and left the sibling's alone, so switching to a tab
+    /// that remembered a selection put both panes in a selected state — which the transfer verbs'
+    /// documented invariant says cannot happen, and which decides what ⌘⌫ and the copy arrows act on.
+    ///
+    /// Both directions are checked, because only asserting the clear would pass a version that
+    /// cleared the sibling unconditionally: an *empty* arriving selection leaves the invariant
+    /// already satisfied — one pane selected, the other one — so clearing there would throw away a
+    /// selection the user made and the tab switch never touched.
+    @MainActor
+    @Test func arrivingWithASelectionClearsTheSiblingsAndArrivingWithoutOneLeavesIt() async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+        let first = manager.leftPaneTabs.tabs[0].id
+        let second = manager.leftPaneTabs.tabs[1].id
+
+        // Left tab 1 remembers a selection; the right pane is holding one of its own.
+        manager.selectedLeftPaths = ["/r/Finance/US/2024.pdf"]
+        manager.selectedRightPaths = ["/r/Finance/US/2023.pdf"]
+
+        // Tab 2 has been nowhere, so it arrives with nothing selected — the right pane keeps its own.
+        _ = manager.switchTab(to: second, isLeft: true, currentProviderId: "iCloud")
+        #expect(manager.selectedLeftPaths.isEmpty)
+        #expect(manager.selectedRightPaths == ["/r/Finance/US/2023.pdf"],
+                "an empty arriving selection cleared the sibling, discarding a selection the switch never touched")
+
+        // Coming back restores tab 1's selection, and that is the write that has to clear the right.
+        _ = manager.switchTab(to: first, isLeft: true, currentProviderId: "iCloud")
+        #expect(manager.selectedLeftPaths == ["/r/Finance/US/2024.pdf"])
+        #expect(manager.selectedRightPaths.isEmpty,
+                "both panes hold a selection after a tab switch — ⌘⌫ and the copy arrows no longer have one answer for what they act on")
+    }
+
     @MainActor
     private func manager(tabs: [PaneTab], isLeft: Bool = true) -> FileSyncManager {
         let manager = FileSyncManager(fileManager: MockFileManager())

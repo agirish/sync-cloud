@@ -46,6 +46,50 @@ import CoreGraphics
 /// verdict, which `docs/flaky-tests.md` mechanism 8 ranks below a red one. CI never saw it —
 /// `liveProfile` is in `SYNCCLOUD_SKIP_MACHINE_PINNED` there — so the exposure was local runs only,
 /// which is exactly where nobody is watching.
+/// **Always runs, and exists so that a skipped ground truth is visible in the run rather than
+/// inferable from an absence.**
+///
+/// The suite below is gated three ways, and a `.enabled(if:)` that answers false produces no test
+/// results at all — so the one suite that checks the survey rules against a real tree can be absent
+/// from a green run and nothing in that run says so. On this machine the display gate closes on an
+/// ordinary working morning (`pmset -g log`: off 09:06, on 09:20, off 09:30, on 09:46), so the
+/// absence is routine rather than exotic. `docs/flaky-tests.md` mechanism 8 ranks a run with no
+/// verdict below a red one, and this is that one level up: a *suite* with no verdict.
+///
+/// Two tests, and the split is the point. The first pins the report's own logic across all four gate
+/// combinations, so the line cannot come to say "ran" for a closed gate. The second emits the real
+/// line and asserts it against the gates it read — which is what stops this from being a probe that
+/// prints something nobody ever checks.
+@Suite struct FolderSurveyGroundTruthGateTests {
+
+    @Test func theGateLineNamesWhicheverGateIsClosed() {
+        typealias G = FolderSurveyGroundTruth
+        #expect(G.gateLine(liveProfile: true, displayAwake: true).hasPrefix("RAN"))
+        // The profile is reported first because it is the suite's first gate: with no profile the
+        // display's state is not why the suite said nothing, and naming it would send the next
+        // reader to wake a display that was never the problem.
+        #expect(G.gateLine(liveProfile: false, displayAwake: true).contains("no live folder profile"))
+        #expect(G.gateLine(liveProfile: false, displayAwake: false).contains("no live folder profile"))
+        #expect(G.gateLine(liveProfile: true, displayAwake: false).contains("display is asleep"))
+        for line in [G.gateLine(liveProfile: false, displayAwake: true),
+                     G.gateLine(liveProfile: true, displayAwake: false)] {
+            #expect(line.hasPrefix("SKIPPED"), "a closed gate reported \(line)")
+        }
+    }
+
+    @Test func theRunSaysWhetherGroundTruthRan() {
+        let liveProfile = LiveProfile.isAvailable
+        let awake = FolderSurveyGroundTruth.displayIsAwake
+        let line = FolderSurveyGroundTruth.gateLine(liveProfile: liveProfile, displayAwake: awake)
+        // stdout, because that is what a CI step log keeps. `Logger.shared.entries` is capped at
+        // 1000 and shared across every suite in the package, so a line parked there is the one thing
+        // this must not rely on — see mechanism 12.
+        print("[ground-truth] \(line)")
+        #expect(line.hasPrefix("RAN") == (liveProfile && awake),
+                "the gate report says \(line) while the gates read liveProfile=\(liveProfile) displayAwake=\(awake)")
+    }
+}
+
 @Suite(.enabled(if: LiveProfile.isAvailable,
                 "no live folder profile on this machine — ground truth skipped"),
        .enabled(if: FolderSurveyGroundTruth.displayIsAwake,
@@ -295,6 +339,22 @@ enum FolderSurveyGroundTruth {
     /// is paid on ordinary days.
     static var displayIsAwake: Bool { CGDisplayIsAsleep(CGMainDisplayID()) == 0 }
 
+    /// One line saying whether the gated suite above ran, and if not, which gate closed it.
+    ///
+    /// Pure and taking both gates as arguments so `FolderSurveyGroundTruthGateTests` can pin it for
+    /// the combinations this machine does not happen to be in — a report that only ever reports the
+    /// current state is a report nothing can check. Gates are named in the suite's own order, so the
+    /// line always blames the one that actually stopped it.
+    static func gateLine(liveProfile: Bool, displayAwake: Bool) -> String {
+        guard liveProfile else {
+            return "SKIPPED — no live folder profile on this machine; the survey rules were not checked against a real tree"
+        }
+        guard displayAwake else {
+            return "SKIPPED — the display is asleep; an iCloud walk makes no progress, so the survey rules were not checked against a real tree"
+        }
+        return "RAN — the survey rules were checked against the live tree"
+    }
+
     static let report: Report? = {
         guard let expected = LiveProfile.profile else { return nil }
         let root = (expected.root as NSString).expandingTildeInPath
@@ -418,20 +478,42 @@ enum FolderSurveyGroundTruth {
         // seconds later gets nothing from it. Between directory reads is the last moment this code
         // is still in control — once inside a `contentsOfDirectory` that will not return, nothing
         // here runs again.
+        walkChildren(url, deadline: deadline, stalled: &stalled, keepGoing: keepGoing) ?? []
+    }
+
+    /// The walk, with **"could not read this directory" kept distinct from "this directory is
+    /// empty"** — `nil` for the first, `[]` for the second.
+    ///
+    /// This walker is the *reference* side of every agreement number in this suite, so a place where
+    /// it disagrees with the production walker is a place the comparison is measuring the fixture
+    /// rather than the rules. It used to answer `[]` for both cases, while the production walk
+    /// reports an unreadable directory as `isUnexplored: true` — so a folder the test process cannot
+    /// open counted as an explored, empty folder that production says nothing about. Under floors
+    /// expressed as *agreement ≥ 0.99*, a handful of those is absorbed rather than surfaced, which is
+    /// the shape of a masked miss: the number stays green and the thing it certifies is not what you
+    /// think.
+    ///
+    /// A stall still answers `[]` rather than `nil`, deliberately. Stalling is already reported
+    /// through `stalled` and has a non-vacuity test of its own, so it is not a silent condition; an
+    /// unreadable directory had nothing.
+    static func walkChildren(_ url: URL, deadline: Date, stalled: inout Bool,
+                             keepGoing: () -> Bool = { displayIsAwake }) -> [FileNode]? {
         if stalled || Date() >= deadline || !keepGoing() { stalled = true; return [] }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: keys) else { return [] }
+            at: url, includingPropertiesForKeys: keys) else { return nil }
         var out: [FileNode] = []
         for child in entries {
             let values = try? child.resourceValues(forKeys: Set(keys))
             let isLink = values?.isSymbolicLink ?? false
             let isDirectory = (values?.isDirectory ?? false) && !isLink
+            let below = isDirectory
+                ? walkChildren(child, deadline: deadline, stalled: &stalled, keepGoing: keepGoing)
+                : nil
             out.append(FileNode(id: child.path, name: child.lastPathComponent,
                                 isDirectory: isDirectory,
-                                children: isDirectory
-                                    ? walk(child, deadline: deadline, stalled: &stalled,
-                                           keepGoing: keepGoing) : nil,
+                                children: isDirectory ? (below ?? []) : nil,
+                                isUnexplored: isDirectory && below == nil ? true : nil,
                                 isSymbolicLink: isLink ? true : nil))
         }
         return out

@@ -788,10 +788,17 @@ public struct PaneHeader: View {
                     .foregroundStyle(ChromeInk.label(colorScheme, light: .primary.opacity(0.75)))
                     .lineLimit(1)
                     .fixedSize()
+                    // **Hidden, which is what the note below always claimed and never did.** The
+                    // pill carries the control's own label and hint, and this word repeats it, so
+                    // leaving both visible to VoiceOver reads every item on the bar twice — "Scan,
+                    // button. Scan." `children: .contain` does not prevent that: it makes this a
+                    // container and *keeps* its children as separate elements, which is the opposite
+                    // of merging or suppressing them. Only hiding the duplicate does the job.
+                    .accessibilityHidden(true)
             }
             .frame(width: box)
-            // The pill already carries the control's own label and hint; the word repeats it, so
-            // reading both would say everything twice.
+            // Kept so the pill inside stays its own focusable element with its button traits; the
+            // word above is hidden rather than combined, so nothing here is read twice.
             .accessibilityElement(children: .contain)
         }
     }

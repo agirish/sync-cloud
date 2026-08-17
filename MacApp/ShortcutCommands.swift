@@ -511,12 +511,26 @@ extension ContentView {
         return { reopenClosedTab(isLeft: isLeft) }
     }
 
-    /// View ▸ Tab Bar — **ticked and disabled while the pane holds a second tab**, so the switch
-    /// can never hide a strip whose tabs would then be unreachable.
+    /// View ▸ Tab Bar — **ticked and disabled while a strip on screen holds a second tab**, so the
+    /// switch can never hide a strip whose tabs would then be unreachable.
+    ///
+    /// **It has to ask both panes, because the strip's visibility rule does.** This used to ask only
+    /// `shortcutTabTargetIsLeft` — the focused pane — while `PaneTabStripVisibility.shows` decides
+    /// from `own` *and* `sibling`. In Compare with two tabs in the unfocused pane only, the rule put
+    /// a strip on screen and the menu item read unticked and live, so the switch offered to hide a
+    /// strip it did not describe and the tabs in it became unreachable — which is the exact case the
+    /// disabling exists to prevent, arrived at from the other side.
+    ///
+    /// `paneShowsTabStrip` is not reusable here: it answers per pane and folds in the switch's own
+    /// state, and this is the switch. The question is the narrower one the rule's `own`/`sibling`
+    /// pair is built from — does *any* strip that could be on screen hold a second tab.
     var shortcutTabBar: TabBarSwitch {
-        TabBarSwitch.resolve(
-            hasSecondTab: syncManager.paneTabs(isLeft: shortcutTabTargetIsLeft).showsStrip,
-            preference: tabBarVisible) { tabBarVisible = $0 }
+        let anyPaneHasSecondTab = layoutMode == .compare
+            ? syncManager.paneTabs(isLeft: true).showsStrip
+                || syncManager.paneTabs(isLeft: false).showsStrip
+            : syncManager.paneTabs(isLeft: shortcutTabTargetIsLeft).showsStrip
+        return TabBarSwitch.resolve(hasSecondTab: anyPaneHasSecondTab,
+                                    preference: tabBarVisible) { tabBarVisible = $0 }
     }
 
     /// Resolved once and used for both the gate and the act, so the menu item can never be enabled

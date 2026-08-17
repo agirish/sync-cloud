@@ -43,6 +43,31 @@ import Testing
 
     // MARK: - Direction one: it writes where there is nothing
 
+    /// **Paths are written unescaped, because every key in this file is one.**
+    ///
+    /// `JSONEncoder`'s default escapes `/`, so `Finance/Receipts` lands as `Finance\/Receipts` — and
+    /// this file's whole reason for being plain JSON is that it diffs against the offline Python
+    /// builder's output, which writes the slash bare. The escaping does not change what decodes; it
+    /// changes whether the artifact is comparable, which is the property the docs sell.
+    ///
+    /// Asserted on the **bytes**, not through the decoder: a round-trip through `profile(id:in:)`
+    /// passes either way, which is exactly why this went unnoticed. The `\/` check is the one that
+    /// fails if the option is dropped; the positive is there so a writer that stopped emitting the
+    /// nested paths at all could not satisfy it by writing nothing.
+    @Test func pathKeysAreWrittenWithBareSlashesSoTheFileDiffs() throws {
+        let root = Self.scratch()
+        let dir = root.appendingPathComponent("profiles")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let written = try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
+        let text = try #require(String(data: try Data(contentsOf: written), encoding: .utf8))
+
+        #expect(text.contains("Finance/Receipts"),
+                "the nested path is not in the file at all, so this scan would be vacuous")
+        #expect(!text.contains("\\/"),
+                "a path is escaped as Finance\\/Receipts, so this profile does not diff against the Python builder's output")
+    }
+
     /// The write lands, creates its directory, and **comes back through the ordinary reader** —
     /// which is the interchangeability claim: the JSON a survey writes here is the JSON the offline
     /// Python builder writes, or `profile(id:in:)` would refuse it on schema or shape.

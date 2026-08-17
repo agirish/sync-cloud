@@ -64,7 +64,11 @@ enum ShortcutsReference {
             // Undocumented until the ⌥-reveal work went looking for every real shortcut in the
             // app and found this one had a control, a tooltip and no entry here.
             // First in this group, because it decides which pane every other row here acts on.
-            Item(keys: "⌃ ⇥", action: "Focus the other pane — aims ⌘F, ⌘[ / ⌘], ⇧⌘N and ⇧⌘P"),
+            // "In Compare" is load-bearing, not padding: this chord is the pane switch only where
+            // there are two panes, and in Browse it steps tabs instead. The Tabs group below states
+            // the split from the other side; leaving this row unqualified made one of the two wrong
+            // wherever the reader happened to be.
+            Item(keys: "⌃ ⇥", action: "In Compare, focus the other pane — aims ⌘F, ⌘[ / ⌘], ⇧⌘N and ⇧⌘P"),
             Item(keys: "⌘ F", action: "Find a file or folder in this pane"),
             Item(keys: "⌘ [ / ⌘ ]", action: "Back / forward in the focused pane"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),

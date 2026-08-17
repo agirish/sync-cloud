@@ -217,7 +217,19 @@ Work in a worktree as always.
 2. **Regenerate and update the test marker.** Run `xcodegen`, and set `versionMarker` in
    `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` to the same string — that literal
    is what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
-3. **Commit, land on the line, and let CI go green for that SHA.**
+3. **Commit, land on the line, and let CI go green for that SHA.** Then **check that the folder
+   survey's ground truth actually ran**, which a green run does not tell you: `FolderSurveyGround
+   TruthTests` is the only suite comparing the survey rules to a real tree, and it is gated on a live
+   profile and an awake display, so it is routinely absent from a green package run — this machine's
+   display cycles off several times in a working morning. `FolderSurveyGroundTruthGateTests` always
+   runs and prints the verdict, so grep the Sync step for it:
+
+   ```sh
+   gh run view <run-id> --log | grep '\[ground-truth\]'   # want: RAN — …
+   ```
+
+   A `SKIPPED` line names which gate closed it. That is not a reason to hold the cut on its own, but
+   it is a reason not to believe the rules were checked against reality in it.
 4. **Tag that exact commit and push the tag** — `git tag v2.9 <sha> && git push origin v2.9`.
    Tags mark history and are never branched from. Push the tag **before** creating the GitHub
    release, so the release binds to a tag that already exists rather than to a commitish GitHub
