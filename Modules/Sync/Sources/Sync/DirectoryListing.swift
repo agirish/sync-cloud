@@ -80,12 +80,26 @@ public extension FileManaging {
     /// `urls` is every descendant rather than the children, and which is the only way to reach
     /// `.listedWithUnreadableDescendants`.
     ///
+    /// - Parameter isWanted: decides which entries `urls` holds on to. Every entry is still
+    ///   *visited* — the outcome is unchanged by it — but only the ones this keeps are retained,
+    ///   so a caller that wants the subdirectories of a folder holding thirty thousand loose files
+    ///   pays for the folders rather than for the files. Defaults to keeping everything.
+    ///
     /// - Important: `url` must be a directory. Handing this a regular file answers `.unreadable`,
     ///   measured — the enumerator yields nothing and reports the file through the error handler,
     ///   which is indistinguishable here from a locked directory. That is the safe direction for
     ///   every current caller, but it is a conflation: a caller that needs to tell "not a folder"
     ///   from "locked folder" must ask `fileExists(atPath:isDirectory:)` first rather than reading
     ///   it out of this answer.
+    ///
+    /// - Important: a SYMLINKED directory is the other shape the enumerator cannot tell apart from
+    ///   a locked one, and unlike the regular-file case it is not the safe direction — so it is
+    ///   handled rather than documented. See ``DirectoryListingSupport/traversableTarget(of:using:)``.
+    ///   When the retry succeeds, `urls` is re-spelled under the path the CALLER asked about
+    ///   rather than under the link's target, because a picker's breadcrumbs and recents are keyed
+    ///   on the path it browsed through. `unreadableDescendants` is the one thing that is not:
+    ///   those URLs come from the error handler, which reports absolute paths with no relative
+    ///   base to re-spell from, so on that path alone they carry the target's spelling.
     ///
     /// - Note: a nil enumerator is treated as `.unreadable` for completeness, but neither the real
     ///   filesystem nor `MockFileManager` produces one — the real one because that is the whole
@@ -94,7 +108,39 @@ public extension FileManaging {
     func listing(
         of url: URL,
         includingPropertiesForKeys keys: [URLResourceKey]? = nil,
-        options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants]
+        options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants],
+        keeping isWanted: (URL) -> Bool = { _ in true }
+    ) -> DirectoryListing {
+        let direct = drainListing(of: url, keys: keys, options: options,
+                                  respellingUnder: nil, keeping: isWanted)
+        guard direct.outcome == .unreadable,
+              let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
+        else { return direct }
+
+        // `.producesRelativePathURLs` rather than prefix arithmetic on the paths: measured, the
+        // enumerator yields children under `/private/var/…` while `resolvingSymlinksInPath` hands
+        // back `/var/…`, so `hasPrefix(target.path)` matches nothing. The relative path is exact
+        // at any depth and needs no canonicalisation on either side.
+        let retried = drainListing(of: target, keys: keys,
+                                   options: options.union(.producesRelativePathURLs),
+                                   respellingUnder: url, keeping: isWanted)
+        // A link to a locked directory, a broken link and a link to a regular file all land here
+        // and all stay unreadable — the fallback may only ever turn a false failure into a real
+        // listing, never the reverse.
+        return retried.outcome == .unreadable ? direct : retried
+    }
+
+    /// One pass of the enumerator, with no fallback of its own.
+    ///
+    /// - Parameter base: when non-nil, every entry is re-spelled as `base` + the entry's relative
+    ///   path before the caller's filter sees it, so a predicate about the path is asked the same
+    ///   question on the direct and the retried walk.
+    fileprivate func drainListing(
+        of url: URL,
+        keys: [URLResourceKey]?,
+        options: FileManager.DirectoryEnumerationOptions,
+        respellingUnder base: URL?,
+        keeping isWanted: (URL) -> Bool
     ) -> DirectoryListing {
         var failures: [URL] = []
 
@@ -110,13 +156,20 @@ public extension FileManaging {
             return DirectoryListing(urls: [], outcome: .unreadable)
         }
 
-        var urls: [URL] = []
+        var kept: [URL] = []
+        var entryCount = 0
         for case let child as URL in enumerator {
-            urls.append(child)
+            // Counted before it is filtered, and the two must never be the same number. A zero
+            // ENTRY count is precisely what tells `classify` the root itself failed; a filter that
+            // happens to reject everything is a folder with nothing the caller wanted in it, which
+            // is a completely different statement.
+            entryCount += 1
+            let spelled = base.map { $0.appendingPathComponent(child.relativePath) } ?? child
+            if isWanted(spelled) { kept.append(spelled) }
         }
 
-        let verdict = DirectoryListingSupport.classify(entryCount: urls.count, failures: failures, root: url)
-        return DirectoryListing(urls: verdict.outcome == .unreadable ? [] : urls,
+        let verdict = DirectoryListingSupport.classify(entryCount: entryCount, failures: failures, root: url)
+        return DirectoryListing(urls: verdict.outcome == .unreadable ? [] : kept,
                                 outcome: verdict.outcome,
                                 unreadableDescendants: verdict.unreadableDescendants)
     }
@@ -124,11 +177,16 @@ public extension FileManaging {
     /// How many entries sit under `url`, counted rather than collected, and whether the count can
     /// be trusted.
     ///
-    /// Separate from ``listing(of:includingPropertiesForKeys:options:)`` because the one caller
-    /// that needs this needs it on a folder about to be destroyed, which can hold a hundred
-    /// thousand entries: `listing` drains every one of them into an array to hand back the URLs,
-    /// and this caller wants only the number. It stops at `cap` and says so, so the cost is bounded
-    /// by the cap rather than by the folder.
+    /// Separate from ``listing(of:includingPropertiesForKeys:options:keeping:)`` because the one
+    /// caller that needs this needs it on a folder about to be destroyed, which can hold a hundred
+    /// thousand entries: `listing` retains what it is asked to keep, and this caller wants only the
+    /// number. It stops at `cap` and says so, so the cost is bounded by the cap rather than by the
+    /// folder.
+    ///
+    /// - Parameter options: required rather than defaulted, and deliberately unlike its sibling's
+    ///   shallow default. `[]` here means a RECURSIVE walk, which is the opposite of what an
+    ///   omitted argument means one declaration away on `listing(of:…)`; a default that quiet is
+    ///   worth more read wrong than saved.
     ///
     /// - Parameter cap: the highest number this will count to. On reaching it the walk stops and
     ///   `isCapped` is true, which reads as "at least this many". A non-positive cap has no
@@ -141,7 +199,22 @@ public extension FileManaging {
     ///   unaffected: it requires a count of zero, which no capped walk can have.
     func childCount(
         of url: URL,
-        options: FileManager.DirectoryEnumerationOptions = [],
+        options: FileManager.DirectoryEnumerationOptions,
+        cap: Int
+    ) -> DirectoryChildCount {
+        let direct = drainCount(of: url, options: options, cap: cap)
+        guard direct.outcome == .unreadable,
+              let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
+        else { return direct }
+        // No re-spelling to do: this hands back a number, and the number is the target's either
+        // way. Same one-way rule as `listing` — a retry that also fails changes nothing.
+        let retried = drainCount(of: target, options: options, cap: cap)
+        return retried.outcome == .unreadable ? direct : retried
+    }
+
+    fileprivate func drainCount(
+        of url: URL,
+        options: FileManager.DirectoryEnumerationOptions,
         cap: Int
     ) -> DirectoryChildCount {
         var failures: [URL] = []
@@ -180,13 +253,13 @@ public struct DirectoryChildCount: Equatable, Sendable {
     public let outcome: DirectoryListingOutcome
 
     /// True when counting stopped at the cap rather than at the end of the directory.
+    ///
+    /// A floor under the real number, as is `.listedWithUnreadableDescendants` — but the two are
+    /// deliberately NOT rolled into one "is this a floor?" property. The only consumer, the
+    /// folder-replace warning, has to word them differently ("1000+ items" for a floor we chose,
+    /// "at least 3 items" for one the disk imposed), so a combined flag would be answered and then
+    /// immediately re-split at its single call site.
     public let isCapped: Bool
-
-    /// True when `count` is a floor rather than a total — either the walk stopped early, or part
-    /// of the tree was withheld. False for `.unreadable`, where `count` is not a floor of anything.
-    public var isAtLeast: Bool {
-        outcome == .listedWithUnreadableDescendants || (isCapped && outcome != .unreadable)
-    }
 
     public init(count: Int, outcome: DirectoryListingOutcome, isCapped: Bool) {
         self.count = count
@@ -222,6 +295,39 @@ public enum DirectoryListingSupport {
         // the caller's list holds only genuine descendants whichever way the OS spelled them.
         let rootPath = identity(of: root)
         return (.listedWithUnreadableDescendants, failures.filter { identity(of: $0) != rootPath })
+    }
+
+    /// The URL a refused listing should be retried against, or nil when there is nothing to retry.
+    ///
+    /// `FileManager.enumerator(at:)` **does not traverse a symlinked directory.** Measured on this
+    /// machine, against a symlink pointing at a perfectly readable folder:
+    ///
+    ///     enumerator(at: link)          NON-NIL, 0 entries, error handler fires with `link`
+    ///     contentsOfDirectory(atPath:)  ["note.txt", "Medical", "Dental"]
+    ///
+    /// The first line is byte for byte the signature ``classify(entryCount:failures:root:)`` reads
+    /// as `.unreadable` — so without this, the destination picker says "Can't be read" about a
+    /// folder Finder lists fine, and a search that walked the whole tree reports itself truncated.
+    /// That is the same unearned claim the rest of this file exists to stop, pointing the other
+    /// way. The repo already knew the quirk: `FileSyncManager+Scanning`'s cold walk falls back to
+    /// the path-based listing for exactly this reason, and this is that fallback made reusable.
+    ///
+    /// Three things it deliberately does not do:
+    ///
+    /// - **It does not run for an injected `FileManaging`.** A mock's paths are not on this disk,
+    ///   and `resourceValues` would consult the real one regardless — `/var` is itself a symlink,
+    ///   so a mock directory named `/var` would otherwise be retried against the machine's own.
+    ///   Mock disks contain no symlinks, so there is nothing there to rescue anyway.
+    /// - **It does not resolve a link that resolves to itself.** Measured, a broken link and a
+    ///   self-referential one both come back equal to the original, and retrying them would only
+    ///   repeat the same refusal; both are genuinely unreadable and must stay that way.
+    /// - **It does not decide anything.** It offers a second URL to ask; the caller re-runs the
+    ///   same walk and keeps the failure if the second ask fails too.
+    public static func traversableTarget(of url: URL, using fileManager: FileManaging) -> URL? {
+        guard fileManager is FileManager else { return nil }
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true else { return nil }
+        let resolved = url.resolvingSymlinksInPath()
+        return resolved.path == url.path ? nil : resolved
     }
 
     /// A comparable form of a directory URL, used only to keep the root out of the descendant
