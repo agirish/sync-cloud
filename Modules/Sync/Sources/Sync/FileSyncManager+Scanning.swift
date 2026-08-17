@@ -1092,8 +1092,15 @@ extension FileSyncManager {
                         // `contentsOfDirectory` throws and the failure is reported honestly. This
                         // makes the two branches agree.
                         let listing = fileManager.listing(of: dirURL, options: [.skipsSubdirectoryDescendants])
-                        guard listing.outcome != .unreadable else { return ([], true) }
-                        return (listing.urls.map { dirURL.appendingPathComponent($0.lastPathComponent) }, false)
+                        // Switched rather than compared with `!=`: `DirectoryListingOutcome`
+                        // promises its callers handle every case, which is what makes a fourth
+                        // case a compile error here instead of one silently absorbed into "fine".
+                        switch listing.outcome {
+                        case .unreadable:
+                            return ([], true)
+                        case .listed, .listedWithUnreadableDescendants:
+                            return (listing.urls.map { dirURL.appendingPathComponent($0.lastPathComponent) }, false)
+                        }
                     }
                 }
 

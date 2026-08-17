@@ -107,14 +107,15 @@ public struct DestinationPicker: View {
     /// The folder the footer names and Move commits to. Starts at `openAt`, then follows clicks.
     @State private var highlighted: String = ""
     @State private var query = ""
-    @State private var matches: [DestinationFolder] = []
+    /// The last completed walk. Kept whole rather than unpacked into a `[DestinationFolder]` plus
+    /// a flag, because the two reasons a result list can be short of the truth word the pane's
+    /// message differently and both live on this value.
+    @State private var searchOutcome: DestinationSearchOutcome = .empty
+    private var matches: [DestinationFolder] { searchOutcome.matches }
     /// Whether a walk is in flight. Distinguishes "still looking" from "looked, found nothing" —
     /// the same distinction the columns draw with their spinner. Without it the results pane
     /// asserted "No folders match" from the first keystroke, before anything had been read.
     @State private var isSearchRunning = false
-    /// Whether the last walk stopped early (match limit, listing budget, or depth ceiling). The
-    /// results list says so rather than presenting a partial answer as the whole one.
-    @State private var isSearchTruncated = false
     /// Per-directory listings. Absent means "not asked yet"; the column shows a spinner until it
     /// lands, which is what distinguishes loading from a genuinely empty folder. The listing
     /// carries its own outcome, which is what distinguishes an empty folder from an unreadable one
@@ -434,12 +435,10 @@ public struct DestinationPicker: View {
                     if isSearchRunning {
                         ProgressView().controlSize(.small).padding(20)
                     } else {
-                        // A truncated walk that found nothing has NOT established that nothing
-                        // matches — it stopped looking. Saying "no folders match" there is a claim
-                        // the search never earned.
-                        Text(isSearchTruncated
-                             ? "No matches in the folders searched — “\(query)” may be deeper in, or further afield."
-                             : "No folders match “\(query)”")
+                        // A walk that stopped short, or was refused a directory, has NOT
+                        // established that nothing matches. Which of the two it was decides what
+                        // the sentence can honestly suggest, so the outcome words it.
+                        Text(searchOutcome.emptyMessage(query: query))
                             .scaledFont(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .padding(20)
@@ -457,12 +456,12 @@ public struct DestinationPicker: View {
                             onTap: { highlighted = folder.path }
                         )
                     }
-                    // The search is bounded three ways and every one of them stops it early. Say
-                    // so, rather than letting a partial list read as the complete one — the folder
-                    // the user wants may simply not be in it.
-                    if isSearchTruncated {
-                        Label("Showing the first \(ranked.count) — narrow the search, or browse to it.",
-                              systemImage: "ellipsis.circle")
+                    // The list may be short of the truth two different ways, and the advice differs:
+                    // a cap stopped the walk early, so narrowing reaches further; a directory it
+                    // could not read let the walk FINISH while withholding a subtree, where these
+                    // are not "the first N" and no query gets in. The outcome words both.
+                    if let footnote = searchOutcome.footnote(showing: ranked.count) {
+                        Label(footnote, systemImage: "ellipsis.circle")
                             .scaledFont(.system(size: 11))
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 22)
@@ -657,7 +656,7 @@ public struct DestinationPicker: View {
     private func runSearch() async {
         let needle = query
         guard !needle.trimmingCharacters(in: .whitespaces).isEmpty else {
-            matches = []
+            searchOutcome = .empty
             isSearchRunning = false
             return
         }
@@ -681,8 +680,7 @@ public struct DestinationPicker: View {
         }
         let found = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         guard !Task.isCancelled else { return }
-        matches = found.matches
-        isSearchTruncated = found.isTruncated
+        searchOutcome = found
     }
 
     // MARK: - New folder
