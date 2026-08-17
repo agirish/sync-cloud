@@ -2384,6 +2384,12 @@ struct PeopleList: View {
         // the refusal in `PeopleStore.save()` is a change that appears to work and does nothing.
         if store.rosterIsUnreadable {
             Self.unreadableRosterNote
+        } else if !store.repeatedRosterIds.isEmpty {
+            // Its own note rather than a shared "read-only" one: the two refusals mean different
+            // things to the person reading them. Above, the list is a guess. Here it is their real
+            // household with a record missing, and the sentence has to name which id so they can go
+            // and find it — the file is the only place the dropped record still exists.
+            Self.repeatedIdRosterNote(store.repeatedRosterIds)
         }
         if store.people.isEmpty {
             Self.emptyRosterNote
@@ -2506,11 +2512,18 @@ struct PeopleList: View {
         }
     }
 
-    /// Keyed tolerantly, because `people.json` is hand-edited and nothing rejects a repeated id —
-    /// ``PeopleStore`` hands back exactly what was decoded, and only its own add path disambiguates.
-    /// `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key, so a copy-pasted person block
-    /// whose id was not changed crashed the app the moment this pane rendered, on the main actor.
-    /// Last wins, matching ``FolderSurveyBuilder``'s display-name map over the same file.
+    /// Keyed tolerantly. `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key, so a
+    /// copy-pasted person block whose id was not changed crashed the app the moment this pane
+    /// rendered, on the main actor — `people.json` is hand-edited and nothing rejected a repeat.
+    ///
+    /// **Nothing can deliver one here any more, and the keying stays regardless.**
+    /// ``PersonRegistry`` collapses a repeated id to a single record on load, so `store.people` is
+    /// unique by construction and this can no longer fire. It is kept because it is what the trap
+    /// would come back through if that collapse ever regressed — and a guard removed for being
+    /// unreachable is one that goes missing at exactly the moment it becomes reachable again.
+    /// `theFactsMapStaysTolerantOfARepeatedKey` pins it, since no behavioural test can reach it.
+    ///
+    /// Last wins, which is the collapse's own rule and ``FolderSurveyBuilder``'s over the same file.
     private var allFacts: [String: PersonFilingFacts] {
         Dictionary(store.people.map { ($0.id, facts(for: $0)) }, uniquingKeysWith: { _, latest in latest })
     }
@@ -2531,6 +2544,24 @@ struct PeopleList: View {
     static var unreadableRosterNote: some View {
         Label {
             Text("The people file couldn’t be read, so this list is guessed from folder names. Edits won’t be saved. Fix people.json and restart SyncCloud — ~/sync-cloud.log says what went wrong.")
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+        }
+        .scaledFont(.callout)
+        .foregroundStyle(.secondary)
+    }
+
+    /// Shown when `people.json` lists an id more than once: the list below is one person short of
+    /// the file, and edits are held back so the write cannot make that permanent.
+    ///
+    /// Names the ids, because the dropped record exists nowhere else — the app has already stopped
+    /// showing it, and a message that said only "a duplicate" would leave the user searching a file
+    /// for something they cannot see.
+    static func repeatedIdRosterNote(_ ids: [String]) -> some View {
+        Label {
+            Text(ids.count == 1
+                 ? "people.json lists “\(ids[0])” more than once, so only its last entry is in use here. Edits won’t be saved, because saving would delete the others. Give each person a unique id in people.json and restart SyncCloud."
+                 : "people.json lists these ids more than once — \(ids.joined(separator: ", ")) — so only the last entry of each is in use here. Edits won’t be saved, because saving would delete the others. Give each person a unique id in people.json and restart SyncCloud.")
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
         }

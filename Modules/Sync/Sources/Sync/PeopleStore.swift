@@ -62,6 +62,7 @@ public final class PeopleStore: ObservableObject {
                                   + "seeded from folder names, and REFUSING to write over the file. "
                                   + "Fix \(fileURL.path) and relaunch to edit the household again.")
         }
+        repeatedRosterIds = source == .file ? loaded.repeatedIds : []
         Self.warnAboutRepeatedIds(loaded.repeatedIds, source: source, fileURL: fileURL)
     }
 
@@ -114,6 +115,27 @@ public final class PeopleStore: ObservableObject {
     /// to lose: valid JSON that did not decode is a household this build merely failed to
     /// understand, and rewriting it is the loss this flag exists to prevent.
     @Published public private(set) var rosterIsUnreadable = false
+
+    /// Ids `people.json` listed more than once, sorted and unique — empty for every ordinary roster.
+    ///
+    /// **This is a second reason not to rewrite the file, and it needed one of its own.**
+    /// ``rosterIsUnreadable`` asks "did this decode", which is the right question for a typo and the
+    /// wrong one here: a person block copy-pasted without changing its `id` decodes perfectly. The
+    /// registry then collapses it to one record — it has to, or an id names four different people
+    /// depending on which reader you ask — and `people` above becomes a roster with one of the
+    /// user's records missing. Writing that back is a deletion they never asked for, triggered by
+    /// an edit to anybody, and invisible: unmodelled keys are carried faithfully, so the rewritten
+    /// file looks intact.
+    ///
+    /// Only for a roster that came from the file. A seeded registry is the app's own reading of
+    /// folder names and there is nothing of the user's to protect.
+    @Published public private(set) var repeatedRosterIds: [String] = []
+
+    /// Whether this session may write `people.json` at all, and why not when it may not.
+    ///
+    /// Two independent reasons, deliberately kept apart in the UI: one says the roster on screen is
+    /// a guess, the other says it is real but incomplete. Both mean the same thing for `save()`.
+    public var rosterIsReadOnly: Bool { rosterIsUnreadable || !repeatedRosterIds.isEmpty }
 
     /// Bumped **after** each successful write of `people.json`, and never otherwise.
     ///
@@ -303,6 +325,25 @@ public final class PeopleStore: ObservableObject {
             Logger.shared.warning("Refusing to write people.json — it exists but could not be read, "
                                   + "so this session's roster is a seed and would overwrite the real "
                                   + "one. The change is in memory only.")
+            return
+        }
+        // **A file this build REINTERPRETED is also a file it must not rewrite**, and this one gets
+        // past the guard above because it decodes perfectly. A person block copy-pasted without
+        // changing its `id` is collapsed to one record on load — it has to be, or the id names a
+        // different person depending on which reader is asked — so `people` here is the household
+        // minus a record the user typed. The write below is whole-file: it would delete that record
+        // from disk, triggered by an edit to ANYBODY, and leave no trace, since the unmodelled keys
+        // are carried faithfully and the result looks intact.
+        //
+        // Worse, the load-time warning tells them to go and give each person a unique id. If the
+        // first edit has already run, the record they need in order to decide is gone, and nothing
+        // warns again, because the file is now clean.
+        guard repeatedRosterIds.isEmpty else {
+            Logger.shared.warning("Refusing to write people.json — it lists "
+                                  + "\(repeatedRosterIds.joined(separator: ", ")) more than once and "
+                                  + "this session collapsed each to a single record, so writing "
+                                  + "would delete the entries it dropped. The change is in memory "
+                                  + "only; give each person a unique id in \(fileURL.path).")
             return
         }
         do {

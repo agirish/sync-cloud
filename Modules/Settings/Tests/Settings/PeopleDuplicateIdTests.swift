@@ -99,6 +99,43 @@ import Testing
         PersonVetoLog(userDefaults: ScratchDefaults("PeopleDuplicateIdTests"))
     }
 
+    /// **The guard this suite says stays, enforced rather than asserted in prose.**
+    ///
+    /// The header above records a decision: `allFacts` keeps `uniquingKeysWith:` even though the
+    /// collapse upstream means no user input can now reach it with a repeated key. A guard kept for
+    /// a regression that has not happened yet is exactly the kind that gets "tidied" — and with no
+    /// test naming it, reverting that one call to `Dictionary(uniqueKeysWithValues:)` leaves the
+    /// entire repository green, because the trap is unreachable until the day the dedup breaks, at
+    /// which point both halves are gone at once.
+    ///
+    /// A source scan rather than a behavioural test, deliberately: there is no longer a way to
+    /// *drive* a duplicate into `allFacts`, so there is nothing to assert about. What is left worth
+    /// pinning is the text of the decision.
+    @Test func theFactsMapStaysTolerantOfARepeatedKey() throws {
+        let source = try Self.settingsSource()
+        let facts = try #require(source.range(of: "private var allFacts:"),
+                                 "`allFacts` is gone or renamed — this scan now proves nothing")
+        let body = String(source[facts.lowerBound...].prefix(400))
+        #expect(body.contains("uniquingKeysWith:"), """
+                `allFacts` no longer keys tolerantly. It cannot trap today, because the roster is \
+                collapsed before it — but that makes this the half that fails silently when the \
+                other half regresses.
+                """)
+        #expect(!body.contains("uniqueKeysWithValues:"),
+                "`allFacts` traps on a repeated key again")
+    }
+
+    /// Reads `SettingsView.swift` off disk. `#filePath` walks up from the test file rather than
+    /// hardcoding a checkout location, so it works in any worktree.
+    private static func settingsSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)          // …/Tests/Settings/PeopleDuplicateIdTests.swift
+            .deletingLastPathComponent()                     // …/Tests/Settings
+            .deletingLastPathComponent()                     // …/Tests
+            .deletingLastPathComponent()                     // …/Settings (module)
+            .appendingPathComponent("Sources/Settings/SettingsView.swift")
+        return try String(contentsOf: root, encoding: .utf8)
+    }
+
     /// The premise, asserted before anything is rendered: the duplicate reaches the STORE, is
     /// collapsed there, and the survivor is the last entry the file listed.
     ///
@@ -142,27 +179,32 @@ import Testing
         #expect(drawn.ink > 2_000, "the pane rendered \(drawn.ink) inked pixels — it is blank")
     }
 
-    /// **A repeated id draws ONE row, and that row is shorter than two distinct people's.**
+    /// **A repeated id draws the surviving record, and says why edits will not save.**
     ///
-    /// This assertion is the inverse of the one it replaces. Before the dedup, `ForEach` keyed on
-    /// `Person.id` drew the first record *twice*, so a duplicated roster and a two-person roster
-    /// laid out to the same height — which the earlier version of this test asserted, as a control
-    /// for "a duplicate costs the pane nothing visible". It cost the pane a person: the second
-    /// block's name, relationship and full names never reached the screen, and the row that did
-    /// appear twice showed the FIRST record's name above the LAST record's facts, because
-    /// `allFacts` resolved the id the other way round.
+    /// Two earlier versions of this test are worth knowing about, because both measured the wrong
+    /// thing. The first asserted that a duplicated roster and a two-person roster lay out to the
+    /// SAME height — a control for "a duplicate costs the pane nothing visible", true only because
+    /// `ForEach` keyed on `Person.id` drew the first record twice. The second inverted it after the
+    /// collapse landed: one row must be shorter than two. That one died the moment `PeopleList`
+    /// grew the note below, which makes the duplicated pane the TALLER of the two — so height
+    /// stopped separating "one row plus a note" from "two rows" altogether.
     ///
-    /// Now the two rosters describe a different number of people and must not lay out alike. The
-    /// height is measured rather than the ink, because it is the row COUNT that changed; the ink
-    /// band below only guards against the one row having come out blank.
-    @Test func aRepeatedIdDrawsOneRowFewerThanTwoDistinctPeople() throws {
+    /// Its ink limb was worse than wrong, it was inert: `repeated.ink > clean.ink / 3` expands to
+    /// `2C + R > 0` once the shared chrome `C` is written out, which holds for every value
+    /// including a row that drew nothing at all.
+    ///
+    /// So this compares the duplicated roster against **the one-person roster it is equivalent to**
+    /// — the surviving record, alone — and asserts the only two things that are now true and worth
+    /// having: the rows match pixel for pixel, and the duplicated pane is taller, by the note that
+    /// tells the user their file still holds a record this list is not showing.
+    @Test func aRepeatedIdDrawsTheSurvivingRecordAndSaysEditsAreHeld() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let distinct = try storeOverFile("""
+        // The roster the duplicated one collapses TO: the file's last `girish` block, alone. Same
+        // bytes the survivor carries, so the rows below must draw identically.
+        let equivalent = try storeOverFile("""
         {"schemaVersion": 1, "people": [
-          {"id": "girish", "displayName": "Girish", "relationship": "father",
-           "fullNames": ["Girish Krishnamurthy"], "aliases": ["Dad"]},
-          {"id": "girish-2", "displayName": "Girish K", "relationship": "father-in-law",
+          {"id": "girish", "displayName": "Girish K", "relationship": "father-in-law",
            "fullNames": ["Girish Kumar"]}]}
         """, in: dir)
         let dupDir = scratchDirectory()
@@ -177,18 +219,28 @@ import Testing
             }
             .padding(16)
         }
-        let clean = renderedInk(pane(distinct), width: width)
+        // The premise: one store is holding back its edits and the other is not, so the difference
+        // measured below is the note and nothing else.
+        #expect(duplicated.repeatedRosterIds == ["girish"])
+        #expect(equivalent.repeatedRosterIds.isEmpty)
+
+        let one = renderedInk(pane(equivalent), width: width)
         let repeated = renderedInk(pane(duplicated), width: width)
 
-        #expect(repeated.height < clean.height, """
-                the repeated-id pane is \(repeated.height)pt against \(clean.height)pt for two \
-                distinct people — it is still drawing two rows for one person
+        // The harness can report a difference at all — without this every equality below could be
+        // two identical failures to render.
+        #expect(one.ink > 2_000, "the one-person pane inked \(one.ink) pixels — it is blank")
+
+        #expect(repeated.height > one.height, """
+                the repeated-id pane (\(repeated.height)pt) is no taller than the same roster \
+                without the duplicate (\(one.height)pt) — the note saying edits are held is missing
                 """)
-        // The row that survived is really drawn, rather than the pane having collapsed to its
-        // header: without this, deleting the row entirely would satisfy the height assertion above.
-        #expect(repeated.ink > clean.ink / 3, """
-                the repeated-id pane inked only \(repeated.ink) pixels against \(clean.ink) — the \
-                surviving row is missing, not merely deduplicated
+        // A note is a line of text, not a second row: bounding it keeps this from passing if the
+        // pane started drawing the dropped record again underneath the note.
+        #expect(repeated.height - one.height < 80, """
+                the repeated-id pane is \(repeated.height - one.height)pt taller than the same \
+                roster without the duplicate — that is more than a note; a row came back
                 """)
+        #expect(repeated.ink > one.ink, "the note draws no pixels")
     }
 }

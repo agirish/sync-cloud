@@ -175,17 +175,21 @@ public enum PaneTabsStore {
     /// list, from a tab the user genuinely left at the root. The count of restored tabs matches the
     /// count of stored ones, nothing is missing, and the next save writes the root over the stored
     /// path permanently. Only the caller can say where that folder was, and only if it is told.
-    public struct Restored: Equatable, Sendable {
+    ///
+    /// **A report, not a value to hold.** `restore` is the only thing that builds one and the host
+    /// reads it and drops it, so both halves are `let` and the memberwise initializer stays
+    /// internal. It is deliberately not `Equatable`: every `PaneTab` takes a fresh `UUID` on the way
+    /// in, so two reports of the same restore could never compare equal and nothing would learn
+    /// anything from asking.
+    public struct Restored: Sendable {
         /// The strip, ready to install.
-        public var list: PaneTabList
+        public let list: PaneTabList
         /// The stored COMBINED path of every entry that came back at its source root because that
-        /// folder no longer exists, in strip order. Empty is the ordinary case.
-        public var lostFolders: [String]
-
-        public init(list: PaneTabList, lostFolders: [String] = []) {
-            self.list = list
-            self.lostFolders = lostFolders
-        }
+        /// folder no longer exists, **in stored order — the order of the file, not of the strip.**
+        /// The two differ: the strip below floats the pinned run to the front, and this report is
+        /// about what was on disk rather than about what the user will see. It said "in strip
+        /// order" and did not mean it. Empty is the ordinary case.
+        public let lostFolders: [String]
     }
 
     /// Turns stored entries back into tabs, dropping any whose provider is gone and re-rooting any

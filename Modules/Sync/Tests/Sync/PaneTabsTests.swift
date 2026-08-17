@@ -129,10 +129,16 @@ import Events
     /// The fixture makes the bug and the fix answer differently on every line: the parked entry is
     /// on another source at another folder, and it is PINNED while the live pane (which knows
     /// nothing about pinning) is not.
+    ///
+    /// **`recentlyClosed` is seeded, because an empty one cannot fail.** It stood as `[] == []` —
+    /// the fixture never closed anything — so no mutation to the overlay could have moved it. It is
+    /// the reopen stack: an overlay that reset it would make Reopen Closed Tab a no-op after every
+    /// save, which is to say after every pane move.
     @Test func theSaveOverlayWritesTheLivePaneOverTheActiveEntryAndNothingElse() {
         let live = PaneTab(providerId: "iCloud", relativePath: "Finance", isPinned: true)
         let parked = PaneTab(providerId: "iCloud", relativePath: "Photos")
-        let strip = PaneTabList(tabs: [live, parked], selectedIndex: 0)
+        let closed = PaneTab(providerId: "Dropbox", relativePath: "Taxes/2019")
+        let strip = PaneTabList(tabs: [live, parked], selectedIndex: 0, recentlyClosed: [closed])
 
         let saving = strip.replacingActive(providerId: "Dropbox",
                                            relativePath: "School",
@@ -153,7 +159,8 @@ import Events
         #expect(saving.tabs[1] == parked, "a parked tab was rewritten by the active tab's save")
         #expect(saving.selectedIndex == strip.selectedIndex, "the save moved which tab is live")
         #expect(saving.count == 2)
-        #expect(saving.recentlyClosed == strip.recentlyClosed)
+        #expect(saving.recentlyClosed == [closed],
+                "the save emptied the reopen stack — Reopen Closed Tab dies on the next pane move")
         // The strip it was asked of is untouched: this is a projection for the store, not a
         // mutation of the pane's list.
         #expect(strip.active.providerId == "iCloud", "the overlay mutated the live strip")
@@ -172,6 +179,48 @@ import Events
                                            browsePath: PaneBrowsePath())
         #expect(saving.tabs.map(\.relativePath) == ["A", "B", "Live"],
                 "the overlay wrote over the wrong tab")
+        // **And WHICH tab is live has to survive the overlay**, asserted off a non-head selection
+        // because that is the only place it can fail: the sibling test above selects index 0, which
+        // is `PaneTabList.init`'s own default, so `selectedIndex == strip.selectedIndex` there is
+        // `0 == 0` and a `copy.selectedIndex = 0` in the overlay passes it. It is the same class of
+        // bug the overlay exists to fix — the pane reopens on the wrong tab after a quit — and it
+        // is the one thing the store is handed besides the tabs.
+        #expect(saving.selectedIndex == 2,
+                "the save moved the selection to another tab, so the pane reopens on the wrong one")
+    }
+
+    /// **The overlay throws the active tab's history away, and that is on purpose.**
+    ///
+    /// `replacingActive` omits `history:`, so `PaneTab.init` re-seeds it from the path being
+    /// written — the returned entry can walk back to the root and nowhere else. Right for the only
+    /// caller (`saveBrowseTabs`, whose store reads providerId, path, depth and pin and holds no
+    /// history at all) and right for the invariant `applyTab` relies on, but a discard under a
+    /// general-sounding public name is the kind of thing that gets reached for by a second caller
+    /// and quietly kills Back. Pinned so that reaching for it has to come past this test.
+    ///
+    /// The fixture answers differently either way: the live tab has walked two folders deep, and
+    /// the overlay writes a third that is in neither of them.
+    @Test func theSaveOverlayReSeedsTheActiveTabsHistoryRatherThanCarryingIt() {
+        var walked = PaneNavigationHistory()
+        walked.push("Finance")
+        walked.push("Finance/2024")
+        let strip = PaneTabList(single: PaneTab(providerId: "iCloud", relativePath: "Finance/2024",
+                                                history: walked))
+
+        let saving = strip.replacingActive(providerId: "iCloud", relativePath: "School",
+                                           browsePath: PaneBrowsePath(relativePath: "US"))
+
+        // Seeded from the SCOPE, which is what a pane's history tracks (`PaneTabArrival` compares
+        // `history.current` against `leftRelativePath`) — not from the combined location.
+        #expect(saving.active.history.entries == ["", "School"],
+                "the overlay carried a history across — it now disagrees with the path beside it")
+        #expect(saving.active.history.current == "School",
+                "the saved entry's history does not agree with its own scope")
+        #expect(saving.active.history.canGoBack,
+                "the seeded history cannot walk out of the folder it names")
+        // The strip it was asked of keeps the real walk: this is a projection for the store, and
+        // the pane the user is looking at must still be able to go Back twice.
+        #expect(strip.active.history == walked, "the overlay mutated the live tab's history")
     }
 
     // MARK: Duplicate and reopen
@@ -551,6 +600,32 @@ import Events
         #expect(restored?.lostFolders == ["Taxes/2019"],
                 "the restore cannot say which folder the re-rooted tab lost")
         #expect(restored?.list.tabs.map(\.combinedRelativePath) == ["", "Photos"])
+    }
+
+    /// **The report is in STORED order, which is not the strip's**, and the doc said the opposite.
+    ///
+    /// Entries are appended as the file is walked, and the strip is then re-sorted so the pinned run
+    /// is a prefix — so a pinned entry stored second comes back first in `list.tabs` and second in
+    /// `lostFolders`. Left uncorrected, a reader matching the warnings against the chips left to
+    /// right would pair each loss with the wrong tab. The existing lost-folder test has one entry
+    /// and no pins, so it cannot see the difference at all.
+    ///
+    /// Stored order is the right answer for this half, not merely the observed one: the report
+    /// names STORED paths, which the strip no longer holds anywhere — the tabs it re-rooted are all
+    /// at `""` — so the file's order is the only order these strings are in.
+    @Test func theLostFolderReportIsInStoredOrderRatherThanStripOrder() {
+        let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Taxes/2019"),
+                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Photos/2020",
+                                           pinned: true)]
+        let restored = PaneTabsStore.restore(entries: entries, selected: 0,
+                                             isKnownProvider: { _ in true },
+                                             folderExists: { _, _ in false })
+        // The strip floats the pin to the front…
+        #expect(restored?.list.tabs.map(\.isPinned) == [true, false],
+                "the pinned run is no longer a prefix, so this fixture proves nothing about order")
+        // …and the report does not follow it.
+        #expect(restored?.lostFolders == ["Taxes/2019", "Photos/2020"],
+                "the lost-folder report is not in the stored order its doc promises")
     }
 
     /// The ordinary launch: every folder in place, nothing to say. A report that fired here would

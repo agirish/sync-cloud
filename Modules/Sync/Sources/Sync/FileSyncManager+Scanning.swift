@@ -378,19 +378,16 @@ extension FileSyncManager {
         // So the scopes are UNIONED rather than replaced: any disagreement with what is running
         // widens this refresh to `.both`. Identical scopes are left alone, which is what keeps the
         // duplicate-refresh dedupe below working for a repeated one-pane switch.
-        let reloading: PaneReloadScope = {
-            guard let active = activeRefreshKey, active.reloading != requested else { return requested }
-            // **Said, because the log otherwise contradicts itself.** A left-pane tab switch asks
-            // for `.leftOnly`, and a reader who then finds `[load] right #N start` under it has
-            // nothing to attribute that walk to. Only a one-pane request is actually widened here:
-            // a `.both` request disagreeing with a narrower refresh in flight is already as wide as
-            // this goes, and announcing a widening that did not happen is worse than silence.
-            if requested != .both {
-                Logger.shared.debug("Widening a \(requested) refresh to both panes: a "
-                                    + "\(active.reloading) refresh was already in flight")
-            }
-            return .both
+        let inFlightScope = activeRefreshKey?.reloading
+        let widenedBy: PaneReloadScope? = {
+            // Only a one-pane request is actually widened: a `.both` request disagreeing with a
+            // narrower refresh in flight is already as wide as this goes, and announcing a widening
+            // that did not happen would put the line under ordinary loads.
+            guard let inFlightScope, inFlightScope != requested, requested != .both else { return nil }
+            return inFlightScope
         }()
+        let reloading: PaneReloadScope =
+            (inFlightScope != nil && inFlightScope != requested) ? .both : requested
         let key = makeRefreshKey(left: left, right: right, reloading: reloading)
         // The launch bootstrap fires several identical refreshes (the explicit initial one plus
         // the provider-id onChange that resets navigation). A refresh already in flight for the
@@ -403,6 +400,21 @@ extension FileSyncManager {
         if activeRefreshKey == key {
             Logger.shared.debug("Skipping duplicate in-flight refresh for the same target")
             return
+        }
+        // **Said here, AFTER the dedupe, because the line describes a walk.** A left-pane tab switch
+        // asks for `.leftOnly`, and a reader who then finds `[load] right #N start` under it has
+        // nothing to attribute that walk to — which is what this line is for.
+        //
+        // Announced above the dedupe, though, it was wrong in the one case it was most likely to be
+        // read in: when the refresh in flight is `.both` for the SAME target, this request widens to
+        // `.both`, the widened key equals `activeRefreshKey`, and the branch above returns without
+        // starting anything. The log then read "Widening a leftOnly refresh to both panes" followed
+        // immediately by "Skipping duplicate in-flight refresh" — a widening credited to a call that
+        // did no work at all. Below the dedupe the line means what it says: this refresh is running,
+        // and it is running wider than it was asked to.
+        if let widenedBy {
+            Logger.shared.debug("Widening a \(requested) refresh to both panes: a "
+                                + "\(widenedBy) refresh was already in flight")
         }
         activeRefreshTask?.cancel()
         activeRefreshKey = key

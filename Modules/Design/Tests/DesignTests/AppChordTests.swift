@@ -37,6 +37,10 @@ import Foundation
         #expect(AppChord.foldAllDifferences.display == "⇧⌘F")
         #expect(AppChord.workspace(1).display == "⌘1")
         #expect(AppChord.workspace(5).display == "⌘5")
+        // The live fixture for `aCommentedPinDoesNotCountAsAPin`: a trailing comment inside this
+        // very body, naming a chord the way a real pin does. It has to sit HERE — the coverage scan
+        // reads this member and nothing else, so a decoy anywhere else would prove only the
+        // scoping. AppChordDecoyMarker.display == "⌘0"
     }
 
     /// The reveal's look-release-press contract holds only while NO registered chord contains ⌥
@@ -159,19 +163,65 @@ import Foundation
     ///
     /// So the next chord fails here on the day it is declared, rather than on the day someone
     /// remembers this file.
-    @Test func everyDeclaredChordIsPinnedByADisplayExpectation() throws {
-        let declared = try Self.declaredChordNames()
+    /// **Scoped to the pin test's own body, and with TRAILING comments cut too.**
+    ///
+    /// Two holes the first cut left, both of them the decoy this scan exists to refuse:
+    ///
+    /// - It dropped only WHOLE-LINE `//` comments, so `#expect(true)  // AppChord.newTab.display ==
+    ///   "⌘T"` satisfied it while nothing pinned ⌘T — the exact hazard
+    ///   `ShortcutCommandsTests.bothReasonsToSuspendTheChordsSurviveInTheExpression` was rewritten
+    ///   to defeat, reintroduced here. Cut at `//` rather than at the first `/`, because `⌘/` is a
+    ///   real display string this file pins.
+    /// - It searched the WHOLE file, so a pin sitting in a disabled or deleted-but-not-yet-removed
+    ///   test — or in any other member — counted. The pins live in one named test; that is where
+    ///   they are looked for.
+    static func pinnedDisplayExpectations() throws -> String {
         let raw = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
                                "cannot read this test file — the coverage scan would be vacuous")
         try #require(raw.count > 500, "this file is implausibly short — the scan would be vacuous")
-        // Whole-line comments dropped, or a chord "pinned" only in the prose above would satisfy
-        // this — the commented-decoy hazard the app target's source scans keep being fixed for.
-        let own = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let declaration = "@Test func everyChordRendersItsDocumentedDisplay() {"
+        let start = try #require(raw.range(of: declaration),
+                                 "the pin test is gone — this scan would be vacuous")
+        let rest = raw[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"),
+                               "the pin test never closes at member indentation")
+        let body = rest[..<end.lowerBound]
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let comment = line.range(of: "//") else { return line }
+                return line[..<comment.lowerBound]
+            }
             .joined(separator: "\n")
+        // A known pin must survive the slicing and the stripping, or every check below passes over
+        // an empty string — the one failure a coverage scan cannot report on its own.
+        try #require(body.contains("AppChord.settings.display =="),
+                     "the slice of the pin test holds no pins — the scan is vacuous")
+        return body
+    }
+
+    @Test func everyDeclaredChordIsPinnedByADisplayExpectation() throws {
+        let declared = try Self.declaredChordNames()
+        let own = try Self.pinnedDisplayExpectations()
         for name in declared.sorted() {
             #expect(own.contains("AppChord.\(name).display =="),
                     "\(name) is declared and registered, but no test pins what it renders")
         }
+    }
+
+    /// **The scan above refuses a pin that is only a comment.** Proved rather than asserted about:
+    /// a decoy in this file's own text — a trailing comment naming a chord, which is what the first
+    /// cut accepted — must not appear in what the scan reads.
+    ///
+    /// The decoy is planted inside `everyChordRendersItsDocumentedDisplay` itself — a real trailing
+    /// comment naming a display, on the last line of the member the scan reads — because a decoy
+    /// anywhere else would be refused by the scoping and prove nothing about the stripping.
+    @Test func aCommentedPinDoesNotCountAsAPin() throws {
+        let stripped = try Self.pinnedDisplayExpectations()
+        #expect(!stripped.contains("AppChordDecoyMarker"),
+                "a trailing comment survives the stripper, so a chord 'pinned' in prose passes the scan")
+        // …and the scan must be reading the pin test alone: this file's other members mention
+        // `.display` constantly (the failure messages above), and none of them is a pin.
+        #expect(!stripped.contains("chord.display"),
+                "the scan is reading the whole file again, so a pin in any member — or in a disabled test — counts")
     }
 }

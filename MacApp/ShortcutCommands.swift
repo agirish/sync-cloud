@@ -1,5 +1,6 @@
 import SwiftUI
 import Design
+import Events
 import FileExplorer
 import Sync
 
@@ -143,6 +144,18 @@ enum CloseTabAction {
     static func resolve(suspended: Bool, _ close: (() -> Void)?) -> CloseTabAction? {
         if suspended { return .suspended }
         return close.map(CloseTabAction.closeTab)
+    }
+
+    /// Whether ⌘W is refusing right now — **the one thing the menu item needs to read, and the
+    /// reason this enum cannot be `Equatable`.**
+    ///
+    /// `.closeTab` holds a closure, so there is no `==` to compare `self` against `.suspended`
+    /// with; a `case` test is the only form available and a computed property is where it belongs
+    /// rather than at the call site. Deliberately NOT true for `nil`: nothing published means an
+    /// auxiliary window, where this item stands in for File ▸ Close and must stay live.
+    var isSuspended: Bool {
+        if case .suspended = self { return true }
+        return false
     }
 }
 
@@ -729,6 +742,27 @@ struct NewTabCommand: View {
 /// to arrive here as the same `nil` an auxiliary window publishes — so the one chord that was not
 /// silenced closed the main window out from under the pick the user was in the middle of making.
 /// Suspended, ⌘W now does nothing.
+///
+/// **And it SAYS so, twice, because a refusal that neither greys out nor logs is this app's own
+/// named bug.** Doing nothing was the whole fix and it was also the whole of it: the item stayed
+/// black in a File menu whose other eleven items had greyed, and the keystroke left no trace. Both
+/// halves are covered here, on the pattern `ContentView` already states for the ambient panels
+/// ("with the latch refusing, an enabled button would be a control that silently does nothing …
+/// Disabled says so") — the latch refuses *and* the toolbar button disables, and neither one is
+/// redundant:
+///
+/// - **The item disables** while `close` is `.suspended`. That is the surface a person actually
+///   reads: the menu is the only place ⌘W's state is legible at rest, and every sibling chord is
+///   already grey there for the same reason. Disabling only on `.suspended` and not on `nil` is
+///   what keeps `theCloseItemIsNeverDisabled`'s real subject intact — an auxiliary window's ⌘W
+///   stays live, because this item is also its Close.
+/// - **``run`` logs** the refusal, at `.info`, for the same reason `toggleCommandPalette` logs
+///   ⌘K's ("⌘K did nothing and the log is silent"). With the item disabled AppKit never performs
+///   the action, so this is the residual path rather than the common one — and that is precisely
+///   its worth: the disable is one deleted modifier away from being gone, menu validation follows
+///   SwiftUI's update cycle rather than the flag it is derived from, and `run` is the rule every
+///   other reader of this behaviour goes through. If ⌘W is ever silently dead again, the log is
+///   where that is answered.
 struct CloseTabCommand: View {
     @FocusedValue(\.closeTab) private var close
 
@@ -742,20 +776,26 @@ struct CloseTabCommand: View {
         case .closeTab(let closeTab): closeTab()
         // An overlay owns the keyboard. Doing nothing is the whole fix: the alternative — falling
         // through to `closeWindow` — takes the window an in-flight file operation is asking about.
-        case .suspended: break
+        // Said out loud, though, on ⌘K's rule: `.info` rather than `.debug`, because `.debug` is
+        // dropped at Settings ▸ Advanced ▸ Info and this is a refusal a user can trigger by hand.
+        case .suspended:
+            Logger.shared.info("⌘W ignored: an overlay owns the keyboard")
         // Nothing published: an auxiliary window, where this item stands in for File ▸ Close.
         case nil: closeWindow()
         }
     }
 
     var body: some View {
-        // Never disabled — see above. The title stays "Close Tab" because the main window is where
-        // this is ever read; on an auxiliary window the menu item is a chord, not a label anyone
-        // goes looking for.
+        // The title stays "Close Tab" because the main window is where this is ever read; on an
+        // auxiliary window the menu item is a chord, not a label anyone goes looking for.
         Button("Close Tab") {
             Self.run(close) { NSApp.keyWindow?.performClose(nil) }
         }
         .keyboardShortcut(AppChord.closeTab.key, modifiers: AppChord.closeTab.modifiers)
+        // **`isSuspended`, never `close == nil`** — see the note above. A `nil` value is an
+        // auxiliary window and this item is its Close; disabling there is the regression the
+        // three-state value was introduced to undo.
+        .disabled(close?.isSuspended == true)
     }
 }
 

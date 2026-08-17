@@ -1,4 +1,5 @@
 import AppKit
+import Events
 import SwiftUI
 import Testing
 import Foundation
@@ -6,8 +7,16 @@ import Foundation
 
 /// The menu-bar chords' window-side plumbing: the destination-pick suspension, and the ⌘/
 /// window still showing the whole reference it exists to show.
+///
+/// **`.serialized`, and the reason is ⌘W's refusal line.** Four tests here call
+/// `CloseTabCommand.run`, one of them with `.suspended`, which writes to the process-wide
+/// `Logger.shared` — so `aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot` measured its
+/// "an ordinary ⌘W says nothing" window with a sibling free to write that very line into it.
+/// Measured, not theorised: it failed exactly that way under a mutation run. No other suite in this
+/// target calls `run`, so keeping these four off each other is enough, and the suite is under a
+/// second.
 @MainActor
-@Suite struct ShortcutCommandsTests {
+@Suite(.serialized) struct ShortcutCommandsTests {
 
     /// A publisher with every value present, so the suspended case cannot pass vacuously.
     ///
@@ -357,6 +366,107 @@ import Foundation
                 "⌘W is not published through `closeTabAction`, so the suspended state cannot reach the item")
         #expect(code.contains("CloseTabAction.resolve(suspended: suspended, effectiveCloseTab)"),
                 "`closeTabAction` no longer resolves the suspension — ⌘W would fall through to the window again")
+    }
+
+    /// **The suspended refusal is the one state that greys the item out — and only that state.**
+    ///
+    /// `isSuspended` is what the menu item reads, and it cannot be spelled `close == .suspended`:
+    /// ``CloseTabAction`` holds a closure and so has no `==`. Asserted on all three values, because
+    /// the property that matters is as much what it answers `false` to: a `nil` value is one of the
+    /// three auxiliary windows, where this item stands in for File ▸ Close, and disabling there is
+    /// the dead-⌘W regression the three-state value exists to undo.
+    @Test func onlyTheSuspendedCloseActionReadsAsSuspended() {
+        #expect(CloseTabAction.suspended.isSuspended)
+        #expect(!CloseTabAction.closeTab({}).isSuspended)
+        // The optional form the item actually holds — `nil` must not read as a refusal.
+        let none: CloseTabAction? = nil
+        #expect(none?.isSuspended != true, "a window that publishes no tab reads as suspended")
+    }
+
+    /// **…and the item really is disabled by it, on the state rather than on `nil`.**
+    ///
+    /// The rule above is a value the menu item is free never to read — the exact "a rule extracted
+    /// for testability is one revert from being unused" shape — so the modifier is pinned too. Both
+    /// directions: the item must disable on `.suspended`, and it must NOT disable on `nil`, which
+    /// would take ⌘W out of the three auxiliary windows whose Close it replaced.
+    ///
+    /// Source-level because a `Commands` body cannot be mounted in a unit test: `CloseTabCommand`
+    /// reads a `@FocusedValue`, which needs a scene, a key window and a focus update.
+    @Test func theCloseItemIsDisabledWhileSuspendedAndOnlyThen() throws {
+        let body = Self.codeOnly(try Self.typeBody("struct CloseTabCommand: View {",
+                                                   in: try Self.publisherSource()))
+        #expect(body.contains(".disabled(close?.isSuspended == true)"),
+                "⌘W stays black in a File menu whose every other item has greyed — a control that silently does nothing")
+        for deadening in [".disabled(close == nil)", ".disabled(close != nil)"] {
+            #expect(!body.contains(deadening),
+                    "\(deadening) makes ⌘W dead on the auxiliary windows whose File ▸ Close this item replaced")
+        }
+        #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
+    }
+
+    /// **A refused ⌘W leaves a line, because a disabled item is one deleted modifier away.**
+    ///
+    /// The disable above is the surface a person reads; this is the one a report is answered from.
+    /// ⌘K's refusal logs for exactly this reason ("⌘K did nothing and the log is silent"), and at
+    /// `.info` rather than `.debug` for the same one — `.debug` is dropped entirely at Settings ▸
+    /// Advanced ▸ Info, which is where such reports come from.
+    ///
+    /// The two states that are NOT refusals are asserted silent in the same test, or the line would
+    /// arrive under every ordinary ⌘W and mean nothing.
+    ///
+    /// **Both halves are read between two of this test's own markers**, never over the whole buffer.
+    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window: a bare
+    /// `contains` would let the sibling suspended test's line satisfy the presence half, and let a
+    /// rolled window pass the absence half for free. The opening marker is `#require`d, which is the
+    /// eviction guard; the suite's `.serialized` trait is what makes the window exclusive.
+    @Test func aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot() async throws {
+        let refusal = "⌘W ignored"
+        /// Everything logged between two fresh markers, with the call under test run between them.
+        func window(_ act: () -> Void) async throws -> ArraySlice<String> {
+            let token = UUID().uuidString.prefix(8)
+            await Logger.shared.debug("close-tab window open \(token)").value
+            act()
+            await Logger.shared.debug("close-tab window close \(token)").value
+            let messages = Logger.shared.entries.map(\.message)
+            let opened = try #require(messages.firstIndex(where: { $0.contains("open \(token)") }),
+                                      "the log window rolled past this test's own marker, so this reading is vacuous")
+            // Sliced from the opening marker FIRST and searched inside that slice, so the two
+            // indices cannot be found out of order — `messages[a...b]` traps rather than failing
+            // when they are, which turns a rolled buffer into a crashed test run.
+            let tail = messages[opened...]
+            let closed = try #require(tail.lastIndex(where: { $0.contains("close \(token)") }),
+                                      "the closing marker never landed — this reading is vacuous")
+            return tail[...closed]
+        }
+
+        // The two live states. Nothing they do is a refusal, so nothing may say one happened.
+        let quiet = try await window {
+            CloseTabCommand.run(.closeTab({})) {}
+            CloseTabCommand.run(nil) {}
+        }
+        #expect(!quiet.contains(where: { $0.contains(refusal) }),
+                "an ordinary ⌘W logs a refusal it did not make")
+
+        let refused = try await window { CloseTabCommand.run(.suspended) {} }
+        #expect(refused.contains(where: { $0.contains(refusal) }),
+                "⌘W refused under an overlay with nothing in the log — the report has no other trace")
+        #expect(refused.last(where: { $0.contains(refusal) })?.contains("overlay owns the keyboard") == true,
+                "the line has to say WHY ⌘W did nothing, or it is a refusal with no cause")
+    }
+
+    /// One type's body: its declaration to the first closing brace at file scope. ``memberBody``
+    /// stops at the first `\n    }` and so would hand back the first METHOD of a type — which is
+    /// how a scan meant for `CloseTabCommand.body` would silently be reading `run`.
+    static func typeBody(_ declaration: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: declaration),
+                                 "\(declaration) is gone — this scan would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n}\n"),
+                               "\(declaration) never closes at file scope")
+        let body = String(rest[..<end.lowerBound])
+        try #require(body.contains("keyboardShortcut"),
+                     "the slice of \(declaration) holds no menu item — it stopped short")
+        return body
     }
 
     /// **The ambient panels cannot latch behind a destination pick.**

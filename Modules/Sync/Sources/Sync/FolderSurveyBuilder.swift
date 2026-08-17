@@ -60,21 +60,21 @@ public enum FolderSurveyBuilder {
                              jurisdictionValues: Set<String> = []) -> FolderProfile {
         var entries: [String: FolderProfileEntry] = [:]
         let roster = rosterForms(registry)
-        // **Tolerant of a duplicated id, because `people.json` is hand-edited and nothing upstream
-        // rejects one.** `Dictionary(uniqueKeysWithValues:)` traps on a repeated key, so a
-        // copy-pasted person block whose id was not changed killed the process here.
-        // ``PersonRegistry/init(people:source:)`` itself just overwrites, so the file loads fine and
-        // the crash lands somewhere else entirely — this was not the only such site, and the People
-        // settings pane had the same trap on the main actor.
+        // **Tolerant of a duplicated id, and now unreachably so.**
+        // `Dictionary(uniqueKeysWithValues:)` traps on a repeated key, so a copy-pasted person block
+        // whose id was not changed used to kill the process here — one of two such sites, the other
+        // being the People settings pane, on the main actor.
         //
-        // Last one wins, matching the registry's `tokensByPerson` — the map that decides who a
-        // single-word name resolves to. **That is the only part of the registry that is last-wins**,
-        // and the comment used to imply the whole of it agrees: `phraseList` accumulates BOTH
-        // records, so multi-word names still resolve to either; `givenClaims` appends the id twice,
-        // which disables the given-name shortcut for that person entirely; and `displayForm` and
-        // `tokenBreakdown` read `people.first(where:)`. A duplicated id leaves the registry
-        // internally inconsistent and no choice here reconciles it — this one just avoids the trap
-        // and keeps the display name aligned with single-word detection.
+        // ``PersonRegistry/init(people:source:)`` now collapses a repeated id before anything reads
+        // the roster, so `registry.people` cannot deliver one twice and this keying can no longer
+        // fire. It stays anyway, for the reason the sibling guard in `SettingsView.allFacts` stays:
+        // it is what stops the trap coming back the day the collapse regresses, and both halves
+        // failing together is exactly how a defence disappears unnoticed.
+        //
+        // Last one wins, which is the collapse's own rule, so this agrees with the roster rather
+        // than merely avoiding a crash. (It used to disagree with half the registry — `phraseList`
+        // accumulated both records while `tokensByPerson` took the last — and that inconsistency
+        // is what the collapse removed.)
         let displayNames = Dictionary((registry?.people ?? []).map { ($0.id, $0.displayName) },
                                       uniquingKeysWith: { _, latest in latest })
 
@@ -174,15 +174,15 @@ public enum FolderSurveyBuilder {
     /// somebody adds an alias.
     static func rosterForms(_ registry: PersonRegistry?) -> Set<String> {
         var out = Set<String>()
-        // **Every record, including both halves of a duplicated id**, because the registry itself is
-        // not consistent about them and this cannot paper over that. With a repeated id
-        // ``PersonRegistry`` overwrites its single-word token index (so the dropped record's
-        // one-word names stop resolving) but *accumulates* phrases (so its multi-word names still
-        // do), and it appends the id to `givenClaims` twice, which silently disables the given-name
-        // shortcut for that person. Taking only the last record would fix the first divergence and
-        // create the mirror of it for full names. A superset is the safer of the two: a folder can
-        // be called a `person-bucket` whose `axes.person` did not resolve, which is visible and
-        // harmless, rather than a person's folder going unrecognised.
+        // **Every record the registry holds — which is now one per id, and this comment used to say
+        // the opposite.** It argued for taking both halves of a duplicated id, on the grounds that
+        // the registry was internally inconsistent about them (overwriting its token index while
+        // accumulating phrases, and disabling the given-name shortcut by claiming it twice), so a
+        // superset here was the safer of two bad readings. ``PersonRegistry/init(people:source:)``
+        // now collapses a repeated id to a single record before any of that is built, so there is
+        // no inconsistency left to hedge against and no second half to include: the loop below sees
+        // the roster the rest of the app sees. Left as a loop over `people` rather than anything
+        // cleverer for the original reason, which still holds — this is the registry's own data.
         for person in registry?.people ?? [] {
             // ``Person/nameForms`` rather than the union spelled out again: the registry answers
             // four other questions with the same union, and a fifth copy here is what would let

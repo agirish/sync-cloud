@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import Testing
 @testable import Sync
@@ -686,6 +687,111 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: url.path),
                 "the rollback deleted a profile this call did not write")
         #expect(try Data(contentsOf: url) == theirs, "someone else's profile was modified")
+    }
+
+    // MARK: - …and the line that reports it says which of the three happened
+
+    /// The shared logger's most recent line containing `fragment`. Awaiting a fresh log task first
+    /// guarantees everything enqueued before it is visible in `entries`.
+    @MainActor
+    private static func loggedLine(containing fragment: String) async -> String? {
+        await Logger.shared.debug("filing-profile-write flush marker").value
+        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    }
+
+    /// A profile id unique to one run — `Logger.shared` is process-wide and this package's suites
+    /// run alongside each other, so a line matched on anything less would be another test's.
+    private static func rollbackId() -> String { "rb-\(UUID().uuidString.prefix(8))" }
+
+    /// **The rollback's log line has THREE things it can say, and it used to have two.**
+    ///
+    /// `isOurs == false` is not one world. The bytes on disk can be someone else's — the race the
+    /// comparison exists for — or there can be no bytes at all, which is what happens when the index
+    /// write fails *because the directory went away*: an unmounted volume, or a rename between the
+    /// two writes. That is a correlated failure, not an exotic one, and the single `else` told a
+    /// reader "the profile at <path> was left in place, so a retry will refuse it" about a path
+    /// holding nothing, predicting a refusal that can never happen.
+    ///
+    /// All three branches are pinned in one test, on purpose: each assertion names the two sentences
+    /// it must NOT be, so a fix that made every case say the same thing fails three times rather
+    /// than passing one.
+    @MainActor
+    @Test func theRollbackLineSaysWhichOfTheThreeOutcomesHappened() async throws {
+        let removed = " — the profile just written was removed again"
+        let left = "was left in place"
+        let gone = "nothing is at"
+
+        // 1. Removed by us: the ordinary rollback.
+        let mine = Self.rollbackId()
+        let mineDir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: mineDir) }
+        let mineURL = FilingProfileStore.profileURL(id: mine, in: mineDir)
+        try FileManager.default.createDirectory(at: mineURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) {
+            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: mineURL,
+                                        index: Data("{}".utf8),
+                                        at: mineDir.appendingPathComponent("profiles.json")) { _, _ in
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        var line = try #require(await Self.loggedLine(containing: mine),
+                                "the rollback wrote no line at all")
+        #expect(line.contains(removed), "the line does not say the profile went away: \(line)")
+        #expect(!line.contains(left), "a removed profile is reported as left in place: \(line)")
+        #expect(!line.contains(gone), "a profile this call removed is reported as merely absent: \(line)")
+
+        // 2. Left in place because it is not ours: another writer landed in the gap.
+        let theirs = Self.rollbackId()
+        let theirsDir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: theirsDir) }
+        let theirsURL = FilingProfileStore.profileURL(id: theirs, in: theirsDir)
+        try FileManager.default.createDirectory(at: theirsURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) {
+            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: theirsURL,
+                                        index: Data("{}".utf8),
+                                        at: theirsDir.appendingPathComponent("profiles.json")) { _, _ in
+                try Data(#"{"profileId":"someone-else"}"#.utf8).write(to: theirsURL)
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        line = try #require(await Self.loggedLine(containing: theirs),
+                            "the rollback wrote no line for a profile it refused to remove")
+        #expect(line.contains(left), "the line does not say the profile is still there: \(line)")
+        #expect(!line.contains(removed), "a profile this call left alone is reported as removed: \(line)")
+        #expect(!line.contains(gone), "a profile still on disk is reported as absent: \(line)")
+        #expect(FileManager.default.fileExists(atPath: theirsURL.path),
+                "the fixture's own premise failed — the profile was removed after all")
+
+        // 3. Already gone: **the case that used to be reported as (2)**. The index write fails
+        // because its directory went away, and the same removal took the profile with it — so the
+        // old wording named a path holding nothing and promised a refusal nothing will make.
+        let vanished = Self.rollbackId()
+        let vanishedDir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: vanishedDir) }
+        let vanishedURL = FilingProfileStore.profileURL(id: vanished, in: vanishedDir)
+        try FileManager.default.createDirectory(at: vanishedURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) {
+            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: vanishedURL,
+                                        index: Data("{}".utf8),
+                                        at: vanishedDir.appendingPathComponent("profiles.json")) { _, _ in
+                // The profile's own directory goes — exactly what an unmount or a rename does, and
+                // the reason the index write fails in the first place.
+                try FileManager.default.removeItem(at: vanishedURL.deletingLastPathComponent())
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        #expect(!FileManager.default.fileExists(atPath: vanishedURL.path),
+                "the fixture's own premise failed — the profile is still on disk")
+        line = try #require(await Self.loggedLine(containing: vanished),
+                            "a profile that vanished under the write was reported by nothing")
+        #expect(line.contains(gone), "the line does not say the profile is already gone: \(line)")
+        #expect(!line.contains(left),
+                "the line still claims a profile sits at a path holding nothing, and predicts a refusal that cannot happen: \(line)")
+        #expect(!line.contains(removed),
+                "the line credits this rollback with a removal it did not make: \(line)")
     }
 
     /// The other direction, so the comparison cannot be passing by never removing anything: when the

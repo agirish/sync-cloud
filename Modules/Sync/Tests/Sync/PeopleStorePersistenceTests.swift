@@ -197,6 +197,60 @@ import Foundation
     }
 
     /// **Non-vacuity, and the direction that would hide a permanent lockout.** If the guard read
+    // MARK: - A roster this build REINTERPRETED is never overwritten either
+
+    /// **A repeated id decodes perfectly, and that is exactly why it slipped past the guard above.**
+    ///
+    /// `rosterIsUnreadable` asks "did this decode", and a person block copy-pasted without changing
+    /// its `id` decodes fine — so the protection that covers a typo did not cover this. The registry
+    /// collapses the repeat to one record (last wins, deliberately: see
+    /// ``PersonRegistry/uniqueById(_:)``), and the store's `people` is that collapsed roster. Every
+    /// edit path then writes the whole file from it — `add`, `update`, `remove` and even dismissing
+    /// a single name suggestion — so **an edit to a completely unrelated person deletes the
+    /// duplicated block from disk**, with no prompt, no backup, and nothing in the log: `save()`'s
+    /// only loss warning covers unmodelled top-level keys, and those are carried faithfully, so the
+    /// rewrite looks clean.
+    ///
+    /// The advice in the load-time warning — "give each person a unique id in this file" — is what
+    /// makes it worst: by the time the user opens the file to do that, the record they needed to
+    /// reconcile can already be gone, and it will never warn again, because the file is now clean.
+    ///
+    /// So a reinterpreted roster is treated like an unreadable one for WRITES. The collapse still
+    /// happens in memory — one id has to mean one person for the app to work at all — but the file
+    /// is left alone until the person who wrote it decides which record they meant.
+    @Test func aRosterWithARepeatedIdIsNotOverwrittenByAnEdit() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Two blocks, one id, differing in every other field — the copy-paste this protects.
+        try write("""
+            {
+              "schemaVersion": 1,
+              "_note": "why Anuraag is on this roster",
+              "people": [
+                { "id": "girish", "displayName": "Girish", "relationship": "father",
+                  "fullNames": ["Girish Krishnamurthy"], "aliases": ["Dad"] },
+                { "id": "girish", "displayName": "Girish K", "fullNames": ["Girish Kumar"] },
+                { "id": "muktha", "displayName": "Muktha" }
+              ]
+            }
+            """, to: dir)
+        let before = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        // The premise, both halves. The file decoded (so the unreadable guard is NOT what saves it
+        // here), and the roster really was collapsed (so there is something to lose).
+        #expect(store.rosterIsUnreadable == false,
+                "a repeated id is valid JSON — if this reads as unreadable the test proves nothing")
+        #expect(store.people.count == 2, "the repeat was not collapsed, so no record is at risk")
+        #expect(store.repeatedRosterIds == ["girish"], "the store does not know the roster repeats an id")
+
+        // An edit to somebody else entirely — the trigger does not have to touch the duplicate.
+        store.add(displayName: "Shweta")
+
+        let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
+        #expect(after == before, "the duplicated person's first record was deleted from people.json")
+    }
+
     /// "any file at all", every ordinary edit would stop saving and the two tests above would still
     /// pass. A readable roster must save exactly as before.
     @Test func aReadableRosterStillSavesEveryEdit() throws {

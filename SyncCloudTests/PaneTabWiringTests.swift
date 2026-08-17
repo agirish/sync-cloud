@@ -635,20 +635,55 @@ import Sync
                                  "the last tab no longer closes its window")
         let verb = try #require(rest.range(of: "tabAction(isLeft: isLeft)"),
                                 "closeTab no longer runs a tab verb at all")
+        // **Nesting, not order.** This stood as `close.upperBound < verb.lowerBound` alone, whose
+        // message named a mutation ("unconditional, after the guard") that position cannot tell
+        // from "inside the else block" — an unconditional `performClose` moved below the branch is
+        // still before the verb, and every ⌘W would close the window. The branch's own closing
+        // brace sits at member-body indentation, so its absence ahead of the close is what proves
+        // the close is still inside it.
         #expect(close.upperBound < verb.lowerBound,
-                "the window close is not in the guard's branch — every ⌘W would close the window")
+                "the window close comes after the tab verb, so ⌘W closes the tab and the window")
+        let branch = String(rest[..<close.lowerBound])
+        #expect(!branch.contains("\n        }"),
+                "the guard's branch has already closed — the window close is unconditional, so every ⌘W closes the window whether the pane has one tab or five")
+        // **And the line names the pane.** This is the feature's one destructive outcome, and
+        // `noteWorkingIn` records a ⌘W aimed at the pane the user was not looking at as a shipped
+        // bug — so which pane the press landed in is the whole question this line has to answer. It
+        // said "the pane's last tab", which is every pane and every tab.
+        #expect(branch.contains("isLeft ? \"left\" : \"right\""),
+                "the line that closes the window does not say which pane's ⌘W did it")
+        #expect(branch.contains("\\(closing)"),
+                "the line that closes the window does not say which tab was aimed at")
         // …and the branch RETURNS. Falling through would ask the list to close a tab it refuses to
         // close, on a window that is already going: harmless today, and only by that refusal.
         #expect(String(rest[close.upperBound..<verb.lowerBound]).contains("return"),
                 "the last-tab branch closes the window and then goes on to close a tab as well")
     }
 
-    /// The item itself must not be disabled, or the fallback above can never run.
-    @Test func theCloseItemIsNeverDisabled() throws {
-        let body = try Self.typeBody("struct CloseTabCommand: View {",
-                                     in: Self.source("ShortcutCommands.swift"))
-        #expect(!Self.codeOnly(body).contains(".disabled("),
+    /// **The item must stay live when nothing is published, and grey out when a pick owns the
+    /// keyboard — two different reasons that used to be one blanket ban.**
+    ///
+    /// This test forbade `.disabled(` outright, and the ban was wider than its own reason. What it
+    /// protects is the fallback above: on the Keyboard Shortcuts, Activity Log and Sync History
+    /// windows nothing publishes a focused value, and this item is standing in for the File ▸ Close
+    /// it replaced — disable it there and those three windows lose ⌘W, which is a shipped bug this
+    /// suite exists to keep fixed. That reason is entirely about the **nil** case.
+    ///
+    /// It says nothing about the suspended one, which is the opposite situation: the main window is
+    /// there, an overlay owns the keyboard, and ⌘W does nothing. Left enabled that is a live menu
+    /// item that silently no-ops — which this app's own ⌘K pill calls its own bug — so the item now
+    /// greys out, keyed on `isSuspended` and never on `nil`. The blanket ban could not express the
+    /// difference, so it is replaced by the two halves it was standing for.
+    @Test func theCloseItemIsDisabledOnlyForASuspendedPick() throws {
+        let body = Self.codeOnly(try Self.typeBody("struct CloseTabCommand: View {",
+                                                   in: Self.source("ShortcutCommands.swift")))
+        #expect(!body.contains(".disabled(close == nil"),
                 "⌘W is disabled when no tab is published — it is also this app's only Close")
+        #expect(body.contains(".disabled(close?.isSuspended == true)"),
+                "a suspended ⌘W is an enabled menu item that silently does nothing")
+        // The disable is not a substitute for the rule: menu validation follows SwiftUI's update
+        // cycle rather than the flag, so the item can still be performed in the window between the
+        // two — and `run`'s `.suspended` case is what makes that harmless.
         #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
     }
 
@@ -715,11 +750,47 @@ import Sync
                 "the host never asks the restore what fell back to a source root")
         let loop = try #require(body.range(of: "for lost in"),
                                 "the fallbacks are collected and never reported")
-        let after = String(body[loop.upperBound...])
-        #expect(after.contains("Logger.shared.warning("),
+        // **Sliced to the loop's own closing brace.** Run to the end of the member, this read the
+        // rest of `restoreBrowseTabs` — which names its side twice more below — so dropping the
+        // side from THIS warning left both assertions passing and a Compare launch unable to say
+        // which pane lost the folder. The loop's brace sits at member-body indentation.
+        let rest = String(body[loop.upperBound...])
+        let end = try #require(rest.range(of: "\n        }"), "the lost-folder loop never closes")
+        let inLoop = String(rest[..<end.lowerBound])
+        #expect(inLoop.contains("Logger.shared.warning("),
                 "a lost folder is reported below warning, where a launch-time loss would not stand out")
-        #expect(after.contains("isLeft ? \"left\" : \"right\""),
+        #expect(inLoop.contains("isLeft ? \"left\" : \"right\""),
                 "the line does not say which pane's tab lost its folder")
+    }
+
+    /// **…and it does not claim a restore that was abandoned.**
+    ///
+    /// The warning ran ahead of `guard let restored = outcome?.list, !restored.isSeedState`, which
+    /// returns without installing anything. A one-entry strip whose only folder is gone re-roots to
+    /// `""` — which *is* the seed state — so that launch wrote "Restored the left browse tab X at
+    /// its source root" and then restored nothing at all: the one case where the sentence is both
+    /// the most alarming and the most wrong.
+    ///
+    /// Moving it below the guard alone would have lost the report entirely for exactly that launch,
+    /// so the abandoned branch says the truthful version instead. Both halves are pinned, because
+    /// either one alone can be satisfied while the other is broken.
+    @Test func theLostFolderLineDoesNotClaimARestoreThatWasAbandoned() throws {
+        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let gate = try #require(body.range(of: "guard let restored = outcome?.list, !restored.isSeedState"),
+                                "the restore no longer abandons a strip that is the seed state")
+        let claim = try #require(body.range(of: "at its source root"),
+                                 "the re-rooted tab's folder is no longer named at all")
+        #expect(gate.upperBound < claim.lowerBound,
+                "the line claiming a tab came back at its source root runs before the guard that returns without restoring anything")
+        // …and the abandoned launch still says the folder went, from inside that branch — named,
+        // because the stored path is the last place it exists.
+        let abandoned = try #require(body.range(of: "Did not restore the"),
+                                     "a launch whose only tab lost its folder now says nothing at all")
+        #expect(abandoned.lowerBound < claim.lowerBound && gate.upperBound < abandoned.lowerBound,
+                "the abandoned-restore line is not in the guard's own branch")
+        #expect(String(body[abandoned.lowerBound..<claim.lowerBound]).contains("\\(lost)"),
+                "the abandoned-restore line does not name the folder that was lost")
     }
 
     /// **Both panes are restored, and the right one is easy to drop.** The launch sequence called
@@ -1075,13 +1146,16 @@ import Sync
                       "browsePath: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath"] {
             #expect(save.contains(value), "the save does not hand the rule the pane's own \(value)")
         }
-        // …and what goes to disk is the overlaid strip, not the one it was built from. Asserted
-        // both ways: passing `list.tabs` here would satisfy every presence above and store nothing
-        // the overlay produced.
+        // …and what goes to disk is the overlaid strip, not the one it was built from: passing the
+        // un-overlaid list here would satisfy every presence above and store nothing the overlay
+        // produced.
+        //
+        // **One assertion, not two.** A negative twin naming `list.tabs` sat here and could not
+        // fail: there has been no local called `list` in this member since the overlay moved into
+        // `Sync`, and the positive above already pins the whole argument — any other value in it,
+        // named anything, fails this line.
         #expect(save.contains("PaneTabsStore.save(tabs: saving.tabs"),
                 "the overlaid strip is built and then not the one that is saved")
-        #expect(!save.contains("PaneTabsStore.save(tabs: list.tabs"),
-                "the store is handed the list's own tabs, so the overlay is dead code")
     }
 
     /// **One body serves both panes, so every side-dependent call inside it has to thread `isLeft`.**
@@ -1290,11 +1364,23 @@ import Sync
     ///
     /// Named verb by verb rather than scanned as a family, like the level check below it: a blanket
     /// rule passes the moment a verb is renamed out of the pattern.
+    ///
+    /// **All seven, not the three this started with.** The commit that added the side and the tab
+    /// claimed "every verb now names the side and the tab" and left four verbs writing sentences
+    /// true of any tab in any pane — "User duplicated a browse tab", "User pinned a browse tab",
+    /// "User reordered a browse tab", and a reopen that named a path but no pane. Every one of them
+    /// is a verb the user aimed at ONE strip, and in Compare the log could not say which.
+    /// (`closeOtherTabs` is deliberately not here: its line is about a COUNT, which is the one
+    /// thing about that gesture that cannot be recovered afterwards.)
     @Test func theTabLinesNameTheSideTheTabAndItsPath() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         for verb in ["func selectTab(id: UUID, isLeft: Bool)",
                      "func cycleTab(forward: Bool, isLeft: Bool)",
-                     "func closeTab(id: UUID, isLeft: Bool)"] {
+                     "func closeTab(id: UUID, isLeft: Bool)",
+                     "func duplicateTab(id: UUID, isLeft: Bool)",
+                     "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
+                     "func moveTab(id: UUID, to index: Int, isLeft: Bool)",
+                     "func reopenClosedTab(isLeft: Bool)"] {
             let body = Self.codeOnly(try Self.memberBody(verb, in: source))
             #expect(body.contains("tabLogDescription("),
                     "“\(verb)” writes a line that names no particular tab")
@@ -1313,6 +1399,71 @@ import Sync
         // that tab was parked at — the exact class of bug this log exists to catch.
         #expect(describe.contains("index == list.selectedIndex"),
                 "the active tab is described from its parked snapshot rather than from the live pane")
+    }
+
+    /// **Each line is taken from the side of its verb that can still answer**, and only one of the
+    /// three faces the same way.
+    ///
+    /// Selecting and closing name the tab BEFORE the verb runs: a parked tab is described by its
+    /// own snapshot, and after the switch that snapshot is the live pane's — after a close it is
+    /// gone entirely. Cycling names it AFTER, and has to: *which* tab ⌃⇥ lands on is the verb's
+    /// answer, and working it out here would be a second copy of `selectNext`'s wrap for the log to
+    /// disagree with.
+    ///
+    /// Unscanned until now, on all three: the family test above asserts only that
+    /// `tabLogDescription(` appears somewhere in the member. Moving `let closing = …` down into the
+    /// closure below `syncManager.closeTab(…)` was a real surviving mutation — the id is gone by
+    /// then, the line degrades to the bare `“a tab”` fallback, and every test in this repo passed.
+    @Test func eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        // (member, the verb's own call, whether the name is taken before it)
+        let verbs = [("func selectTab(id: UUID, isLeft: Bool)", "syncManager.switchTab(to: id", true),
+                     ("func closeTab(id: UUID, isLeft: Bool)", "syncManager.closeTab(id: id", true),
+                     ("func cycleTab(forward: Bool, isLeft: Bool)", "syncManager.cycleTab(forward: forward", false)]
+        for (member, call, namedFirst) in verbs {
+            let body = Self.codeOnly(try Self.memberBody(member, in: source))
+            let describe = try #require(body.range(of: "tabLogDescription("),
+                                        "“\(member)” names no particular tab")
+            let verb = try #require(body.range(of: call), "“\(member)” no longer runs its verb")
+            if namedFirst {
+                #expect(describe.upperBound < verb.lowerBound,
+                        "“\(member)” names the tab after the verb has already moved or removed it — the line describes the live pane, or falls back to “a tab”")
+            } else {
+                #expect(verb.lowerBound < describe.lowerBound,
+                        "“\(member)” names the tab before the verb has decided which one it is")
+            }
+        }
+    }
+
+    /// **Clicking the chip you are already on is a no-op, and must say so by saying nothing.**
+    ///
+    /// `PaneTabStrip` fires `onSelect(item.id)` from EVERY chip including the active one, and
+    /// `FileSyncManager.switchTab` answers `nil` for exactly that case — so the line was written
+    /// unconditionally for the most ordinary gesture in a tab strip, into the log he audits.
+    /// `cycleTab` beside it already declines to claim a move it did not make, for a strictly rarer
+    /// case (a one-tab pane), and `closeOtherTabs` skips its line at zero.
+    ///
+    /// The guard has to be on the INDEX rather than on moving the log below the verb: the name is
+    /// taken while the tab is still parked (`eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer`),
+    /// so the two constraints pull opposite ways and only the index settles it.
+    @Test func selectingTheChipYouAreAlreadyOnWritesNoLine() throws {
+        let body = Self.codeOnly(try Self.memberBody("func selectTab(id: UUID, isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        // Asked the way `switchTab` asks it — both halves. An id that is not in this strip does not
+        // move the pane either, which is the other `nil` that verb returns.
+        #expect(body.contains("list.index(of: id)"),
+                "the no-op test does not ask where in the strip the clicked chip is")
+        #expect(body.contains("target != nil && target != list.selectedIndex"),
+                "the test the line is guarded on is no longer the one `switchTab` refuses on, so either a re-click logs again or a real switch goes unlogged")
+        let gate = try #require(body.range(of: "if moves {"),
+                                "the selection line is unconditional again — clicking the active chip logs a switch that did not happen")
+        let log = try #require(body.range(of: "Logger.shared.debug("))
+        let verb = try #require(body.range(of: "syncManager.switchTab(to: id"))
+        #expect(String(body[gate.upperBound..<log.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                "the line is not inside the guard — an empty branch with the log after it reads the same way round and logs every re-click")
+        #expect(log.upperBound < verb.lowerBound,
+                "the line is written after the switch it announces")
     }
 
     /// **Close Other Tabs says nothing when it closed nothing.**
@@ -1336,7 +1487,13 @@ import Sync
                 "the count is taken after the verb, where the tabs it counts are already gone")
         #expect(verb.lowerBound < gate.lowerBound,
                 "the line is written before the close it describes")
-        #expect(gate.upperBound < log.lowerBound, "the guard does not cover the line")
+        // **Nesting, not order.** `gate.upperBound < log.lowerBound` proves only that the `if`
+        // opens before the line — `if closing > 0 { }` with the log unconditionally after it holds
+        // every comparison here and writes "User closed 0 other browse tabs, keeping 1 pinned"
+        // again, verbatim. The line has to be the FIRST thing inside the branch.
+        #expect(String(body[gate.upperBound..<log.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                "the line is not inside the `if closing > 0` branch — an ⌥-click with nothing to close still logs a close that did not happen")
     }
 
     /// **A mirrored ⌘T must not log the same sentence as the one that caused it.** Both panes open

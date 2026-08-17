@@ -34,6 +34,16 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 /// `destination`, a `person` axis beside a folder that has none.
 @Suite struct FolderSurveyBuilderTests {
 
+    /// Whole-line comments removed, so a source scan counts what the file DOES rather than what its
+    /// prose says about it. The same shape `PaneTabWiringTests` uses, and for the same reason: a
+    /// scan that reads its own subject's documentation fails the moment somebody explains the rule
+    /// it is enforcing.
+    private static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     // MARK: - The walk itself
 
     @Test func everyFolderGetsAnEntryAndTheRootIsCalledDot() {
@@ -204,12 +214,17 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         let code = try String(contentsOf: url, encoding: .utf8)
         #expect(code.contains("public enum FolderSurveyBuilder"),
                 "this is not the builder — the scan below is vacuous")
-        let writers = code.components(separatedBy: "naming:").count - 1
+        // Comments stripped first. This scan counts an occurrence of `naming:`, and the file it
+        // reads is heavily commented — so prose that merely mentions the field ("`naming:` is the
+        // abstention") would fail it for saying so, which this repo has tripped over before. The
+        // rule is about what the builder WRITES.
+        let writers = Self.codeOnly(code).components(separatedBy: "naming:").count - 1
         #expect(writers == 1, """
                 the builder writes `naming:` \(writers) times — it used to be the one abstention, \
                 so something now guesses a convention
                 """)
-        #expect(code.contains("naming: nil"), "the builder's one `naming:` is no longer the abstention")
+        #expect(Self.codeOnly(code).contains("naming: nil"),
+                "the builder's one `naming:` is no longer the abstention")
     }
 
     // MARK: - Anchors

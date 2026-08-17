@@ -254,8 +254,19 @@ public struct PaneTabList: Equatable, Sendable {
     ///
     /// **The id and the pin are kept, not taken from the caller.** This is the same tab with a newer
     /// location, and the live pane knows nothing about pinning — reading the pin off it would unpin
-    /// the active tab on the next thing that saves. Nothing else moves either: `selectedIndex`,
-    /// `recentlyClosed` and every other tab are the ones this list already had.
+    /// the active tab on the next thing that saves.
+    ///
+    /// **The active tab's `history` is DISCARDED, and that is a discard rather than a copy.**
+    /// `PaneTab.init` re-seeds it from the location being written, so the returned entry's history
+    /// is `[root, here]` and not the walk the tab actually took. It is right for the one thing this
+    /// is for — `PaneTabsStore` stores no history at all, and every constructed tab agreeing with
+    /// its own path is the invariant `applyTab` picks a history by — but the name reads general, so
+    /// it is stated here rather than left to be discovered. Pinned by
+    /// `theSaveOverlayReSeedsTheActiveTabsHistoryRatherThanCarryingIt`; **do not reach for this to
+    /// move a live tab around inside the app**, where losing Back would be a bug.
+    ///
+    /// Nothing else moves: `selectedIndex`, `recentlyClosed` and every other tab are the ones this
+    /// list already had.
     ///
     /// A rule here rather than four lines at the call site because the call site is a `View`
     /// extension nothing can instantiate: the block was covered by source scans alone, and deleting

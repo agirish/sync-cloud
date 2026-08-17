@@ -36,18 +36,33 @@ import Testing
     /// the log then carries a `[load] right … start` line under a request that named only the left,
     /// and nothing connected the two.
     ///
-    /// The control is the second half: an *undisputed* refresh must not claim to have widened
-    /// anything, or the line would appear under every ordinary load and mean nothing.
+    /// There are **two** controls, and the second is the one this test used to be built on top of:
     ///
-    /// **Neither half lets a refresh finish between the line and the assertion**, and that is not an
+    /// - An *undisputed* refresh must not claim to have widened anything, or the line would appear
+    ///   under every ordinary load and mean nothing.
+    /// - A refresh that widens and is then **deduped** must not claim it either. When the refresh in
+    ///   flight is `.both` for the SAME target, a one-pane request widens to `.both`, the widened key
+    ///   equals `activeRefreshKey`, and the call returns having started nothing — so a line written
+    ///   above that return credited a widening to a call that did no work. That was the only
+    ///   scenario the presence half exercised: it planted a `.both` key for the same target
+    ///   precisely to make the call dedupe and return at once, which is to say the one case the
+    ///   line was pinned in was the one case it was wrong in.
+    ///
+    /// **No half lets a refresh finish between the line and the assertion**, and that is not an
     /// economy — it is measured. `Logger.entries` keeps the last 1000 lines, and the rest of this
     /// package running in parallel logs past that window while even an empty two-pane refresh is
     /// being scheduled on a loaded machine: the first version of this test awaited the refresh and
     /// reported a missing line for a line that had been written. The decision under test is taken
-    /// synchronously at the top of `refreshTreesAndScan`, before any walk, so both halves read the
-    /// log as soon as it has been taken — the first by arranging for the call to dedupe and return
-    /// at once, the second by starting it as a task and waiting only for the decision's own
+    /// synchronously at the top of `refreshTreesAndScan`, before any walk, so each half reads the log
+    /// as soon as the decision has been taken — the deduping half by returning at once, the two that
+    /// really run by starting the refresh as a task and waiting only for the decision's own
     /// observable.
+    ///
+    /// **The scope PAIR in each fixture is chosen to be unique in this package.** `Logger.shared` is
+    /// process-wide and the line names only the two scopes, so a fragment another suite can write is
+    /// not this test's to assert on: `PaneReloadScopeTranscript` widens a `.leftOnly` under a
+    /// `.both`, which is why the presence half plants `.rightOnly` and matches the whole sentence,
+    /// and why the dedupe half requests `.rightOnly` — nothing else in the package does.
     @MainActor
     @Test func wideningAOnePaneRefreshSaysSo() async throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -63,18 +78,36 @@ import Testing
         let r = CloudProvider(id: "R", displayName: "R", imageName: "folder",
                               path: right.path, type: .localFolder)
 
-        // A refresh with a scope this one disagrees with, standing in for one still in flight —
-        // the key is the only part of it this decision reads.
+        // A refresh with a scope this one disagrees with, standing in for one still in flight — the
+        // key is the only part of it this decision reads. `.rightOnly` rather than `.both`, and that
+        // is the whole point of this half: the widened key carries `.both` and so differs from the
+        // planted one, which means the refresh is not deduped and really runs. Under a planted
+        // `.both` for the same target — what this half used to plant — the widened key MATCHES, the
+        // call returns at the dedupe two statements later, and the line would be describing a walk
+        // that never happened. That case is now the third half, below.
+        //
+        // Started as a task and read at the decision's own observable, for the window reason in the
+        // note above: `activeRefreshKey` moves off the planted key immediately after the line is
+        // written, so a key that has moved means the line is already in the buffer.
         let m = FileSyncManager()
-        m.activeRefreshKey = m.makeRefreshKey(left: l, right: r, reloading: .both)
-        await m.refreshTreesAndScan(left: l, right: r, reloading: .leftOnly)
+        let planted = m.makeRefreshKey(left: l, right: r, reloading: .rightOnly)
+        m.activeRefreshKey = planted
+        let widening = Task { await m.refreshTreesAndScan(left: l, right: r, reloading: .leftOnly) }
+        await waitUntil("the widened refresh reaches its scope decision") {
+            m.activeRefreshKey != planted
+        }
+        widening.cancel()
 
-        let line = await loggedLine(containing: "Widening a leftOnly refresh")
-        #expect(line != nil, "a one-pane refresh was widened to both panes with nothing in the log")
-        #expect(line?.contains("both refresh was already in flight") == true,
-                "the line has to name what it was widened by: \(line ?? "nil")")
+        // The WHOLE sentence, not "Widening a leftOnly refresh": `PaneReloadScopeTranscript` widens
+        // a `.leftOnly` under a `.both` in the same process, so the shorter fragment would find that
+        // suite's line and this one would pass with nothing of its own written.
+        let line = await loggedLine(
+            containing: "Widening a leftOnly refresh to both panes: a rightOnly refresh was already in flight")
+        #expect(line != nil,
+                "a one-pane refresh was widened to both panes, and really ran, with nothing in the log")
+        _ = await widening.value
 
-        // The control, and it is the one that keeps the line honest: a `.both` request also
+        // The first control, and it is the one that keeps the line honest: a `.both` request also
         // disagrees with a narrower refresh in flight and also takes this branch — but nothing was
         // widened, so announcing one would put the line under ordinary loads too.
         //
@@ -103,6 +136,29 @@ import Testing
         #expect(await loggedLine(containing: "Widening a both refresh") == nil,
                 "a `.both` request is already as wide as this goes and must not claim a widening")
         _ = await control.value
+
+        // The second control: **widened, and then deduped away.** A one-pane request arriving under
+        // a `.both` refresh for the SAME target widens to `.both`, which is exactly the key already
+        // in flight — so the call skips and returns having walked nothing. Announced before the
+        // dedupe, the line read "Widening a rightOnly refresh to both panes" immediately followed by
+        // "Skipping duplicate in-flight refresh", crediting a widening to a call that did no work.
+        //
+        // `.rightOnly` requested, because the fragment has to be one nothing else in this package
+        // writes: `PaneReloadScopeTranscript` and the presence half above both widen a `.leftOnly`.
+        // Marker first, as everywhere here, so a rolled window is reported rather than passing.
+        let m3 = FileSyncManager()
+        let sameTarget = m3.makeRefreshKey(left: l, right: r, reloading: .both)
+        m3.activeRefreshKey = sameTarget
+        let dedupeMarker = "logging-gap dedupe marker \(Self.token())"
+        await Logger.shared.debug(dedupeMarker).value
+        await m3.refreshTreesAndScan(left: l, right: r, reloading: .rightOnly)
+        #expect(m3.activeRefreshKey == sameTarget,
+                "the fixture did not dedupe, so this half is measuring the wrong branch entirely")
+
+        #expect(await loggedLine(containing: dedupeMarker) != nil,
+                "the log window rolled past this test's own marker, so the silence below is vacuous")
+        #expect(await loggedLine(containing: "Widening a rightOnly refresh") == nil,
+                "a refresh that deduped and walked nothing still claims to have widened one")
     }
 
     // MARK: - A household with a repeated id
@@ -148,12 +204,26 @@ import Testing
         #expect(store.people.first?.fullNames == ["Shweta R Dani"],
                 "the collapse kept the wrong record, so the line below would name the wrong loss")
 
-        let line = await loggedLine(containing: dup)
+        // **The LOAD warning specifically.** `PeopleStore.save()` now refuses a roster that repeats
+        // an id and names the same ids doing it, so "a line mentioning `dup`" is no longer one
+        // thing: matched on the load warning's own opening so a refusal can never stand in for it.
+        let line = await loggedLine(containing: "people.json repeats the person id(s) \(dup)")
         #expect(line != nil, "a roster repeating a person id loaded with nothing in the log")
+        #expect(line?.contains("Refusing to write") != true,
+                "the save-time refusal was matched instead of the load warning: \(line ?? "nil")")
         #expect(line?.contains("LAST entry") == true,
                 "the line has to say which of the two records wins: \(line ?? "nil")")
         #expect(line?.contains("dropped") == true,
                 "the line has to say the earlier records are DISCARDED, not merely out-voted: \(line ?? "nil")")
+        // **The path is load-bearing for the control below, and nothing else pinned it.**
+        // `anOrdinaryRosterLoadsWithoutAWarning` asserts the absence of any line naming the PROFILE
+        // ID, and the only reason a warning would carry that id is that this line prints
+        // `fileURL.path` — which is `<dir>/<profile id>/people.json`. Narrow that to
+        // `lastPathComponent` and the control goes vacuous in silence, including for the very
+        // mutation its comment claims to catch. So it is pinned here, in the positive half, where
+        // the line actually exists to be read.
+        #expect(line?.contains("/\(id)/people.json") == true,
+                "the warning no longer prints the roster's PATH, so `anOrdinaryRosterLoadsWithoutAWarning` — which matches on the profile id — can never fail: \(line ?? "nil")")
     }
 
     /// The control: a roster whose ids are unique says nothing at all.
@@ -166,13 +236,23 @@ import Testing
             """)
         defer { try? FileManager.default.removeItem(at: dir) }
 
+        // **The marker goes in before the load**, on this suite's rule for every absence assertion:
+        // `Logger.entries` is a rolled 1000-line window shared with every suite running alongside,
+        // and a silence measured over a window that rolled past is a test that cannot fail. Older
+        // than anything the load could write, so if it is still there, so is anything after it.
+        let marker = "logging-gap roster control marker \(Self.token())"
+        await Logger.shared.debug(marker).value
+
         let store = PeopleStore(directory: dir, profileId: id, profile: nil)
         #expect(store.people.count == 2, "the fixture roster did not load, so the silence below is free")
         #expect(store.source == .file, "the roster has to have come from the file")
 
+        #expect(await loggedLine(containing: marker) != nil,
+                "the log window rolled past this test's own marker, so the silence below is vacuous")
         // Matched on the profile id rather than on `mark`: the id is in the file path the warning
         // prints, so this catches a warning that fires with an EMPTY list of repeats too — which is
-        // exactly what a guard that stopped guarding would produce.
+        // exactly what a guard that stopped guarding would produce. That the warning really does
+        // print the path is pinned in the positive sibling above, because nothing here can see it.
         #expect(await loggedLine(containing: id) == nil, "an ordinary roster was warned about")
         #expect(mark != id)
     }
@@ -217,6 +297,17 @@ import Testing
         // And now the silent half. A refusal carries its whole sentence in the error, so the store
         // does not also write it — but the fact still has to be *available*, which is the
         // presence assertion the absence below needs.
+        //
+        // **This absence needs its own marker most of all**, and it was the one that did not have
+        // one. Its window is the widest of the three — two full `writeProfile` calls with atomic
+        // disk writes between the marker and the read — so on a loaded machine running this package
+        // in parallel it is the likeliest of them to be measured over a window that has already
+        // rolled, and the regression it exists to catch (a `Logger.shared.warning` reinstated beside
+        // `throw WriteRefusal.profileExists`) would then go unreported. Logged before the FIRST
+        // write, since that is the earliest point anything could name `refused`.
+        let refusalMarker = "logging-gap refusal marker \(Self.token())"
+        await Logger.shared.debug(refusalMarker).value
+
         let refused = "refused-\(Self.token())"
         let profile = FolderProfile(profileId: refused, root: "~/Documents",
                                     folders: [:], personTokens: [])
@@ -227,6 +318,8 @@ import Testing
         #expect(thrown == .profileExists(id: refused))
         #expect(thrown?.description.contains(refused) == true,
                 "the refusal has to carry the id, since it is the caller that will print it")
+        #expect(await loggedLine(containing: refusalMarker) != nil,
+                "the log window rolled past this test's own marker, so the silence below is vacuous")
         #expect(await loggedLine(containing: refused) == nil,
                 "the store logged a refusal it also threw — the same fact twice, once where nobody chose the wording")
     }

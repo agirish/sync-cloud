@@ -388,16 +388,42 @@ extension FilingProfileStore {
             // reader who goes looking finds no profile, no index entry, and no account of either.
             // The id is the directory the profile sits in, which is how ``profileURL(id:in:)``
             // composed this path.
-            let isOurs = (try? Data(contentsOf: url)) == bytes
-            let rolledBack = isOurs && (try? FileManager.default.removeItem(at: url)) != nil
+            //
+            // **Three outcomes, not two, because `isOurs == false` covers two different worlds.**
+            // The `else` used to say "left in place, so a retry will refuse it" for both of them,
+            // and one of the two is a correlated failure rather than an exotic race: when the index
+            // write fails *because the containing directory went away* — an unmounted volume, a
+            // directory removed or renamed between the two writes — the profile went with it. The
+            // read then fails, `isOurs` is false, nothing is removed, and the line told a reader
+            // that a profile sits at a path holding nothing and predicted a refusal that will never
+            // happen. A log line that is wrong in the case a reader is most likely to be reading it
+            // in is worse than no line.
+            let onDisk = try? Data(contentsOf: url)
+            let rolledBack = onDisk == bytes && (try? FileManager.default.removeItem(at: url)) != nil
+            // `attributesOfItem` rather than `fileExists`, and after the removal attempt: the read
+            // above cannot tell "absent" from "there but unreadable" (mode 000, an ACL, an I/O
+            // error), and those two want opposite sentences — a profile that is there and cannot be
+            // read WILL still be refused by the retry.
+            let stillThere = !rolledBack
+                && (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+            let outcome: String
+            if rolledBack {
+                outcome = " — the profile just written was removed again, so nothing points at a "
+                    + "half-landed survey and a retry can simply run"
+            } else if stillThere {
+                outcome = " — the profile at \(url.path) was left in place, so a retry will refuse "
+                    + "it as an existing profile"
+            } else {
+                // Not removed by this rollback and not there either: whatever failed the index
+                // write took the profile too. Said as its own sentence, because "was left in place"
+                // and "is already gone" send a reader looking in opposite directions.
+                outcome = " — nothing is at \(url.path) either, so the profile went with whatever "
+                    + "failed the index write and a retry can simply run"
+            }
             Logger.shared.warning(
                 "Couldn't write profiles.json for the folder profile "
                 + "\(url.deletingLastPathComponent().lastPathComponent): \(error.localizedDescription)"
-                + (rolledBack
-                    ? " — the profile just written was removed again, so nothing points at a "
-                      + "half-landed survey and a retry can simply run"
-                    : " — the profile at \(url.path) was left in place, so a retry will refuse it "
-                      + "as an existing profile"))
+                + outcome)
             throw error
         }
     }

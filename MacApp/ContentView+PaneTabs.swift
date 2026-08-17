@@ -441,11 +441,26 @@ extension ContentView {
     /// which pane moved. The level is what keeps a held ⌃⇥ from burying the log; the words are what
     /// make the line worth having when it is the one being read.
     func selectTab(id: UUID, isLeft: Bool) {
+        let list = syncManager.paneTabs(isLeft: isLeft)
         // Named BEFORE the switch, as `closeTab` names its tab: this tab is parked right now, so
         // its own snapshot is where it is — after the switch it would be the live pane's.
         let arriving = tabLogDescription(id: id, isLeft: isLeft)
+        // **Clicking the chip you are already on says nothing, because nothing happened.**
+        // `PaneTabStrip` fires `onSelect` from EVERY chip including the active one, and `switchTab`
+        // answers `nil` for exactly that (`target != list.selectedIndex`) — so the most ordinary
+        // no-op in a tab strip wrote `User selected … browse tab “X”` into the log he audits.
+        // `cycleTab` already declines to claim a move it did not make, for a strictly rarer case.
+        //
+        // A guard on the INDEX rather than the log moved below the verb: the description has to be
+        // taken while this tab is still parked, or it names the live pane instead. Asked the way
+        // `switchTab` asks it, both halves — an id that is not in this strip does not move the pane
+        // either, and that is the shape `guard let target = list.index(of: id)` refuses.
+        let target = list.index(of: id)
+        let moves = target != nil && target != list.selectedIndex
         tabAction(isLeft: isLeft) {
-            Logger.shared.debug("User selected the \(isLeft ? "left" : "right") pane's browse tab \(arriving)")
+            if moves {
+                Logger.shared.debug("User selected the \(isLeft ? "left" : "right") pane's browse tab \(arriving)")
+            }
             return syncManager.switchTab(to: id, isLeft: isLeft,
                                          currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
@@ -473,11 +488,6 @@ extension ContentView {
     /// Closing the last tab closes the WINDOW, as Finder does — which is also what keeps ⌘W
     /// meaning "get rid of this" instead of acquiring an exception nobody would remember.
     func closeTab(id: UUID, isLeft: Bool) {
-        guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {
-            Logger.shared.info("User pressed Close Tab on the pane's last tab — closing the window")
-            NSApp.keyWindow?.performClose(nil)
-            return
-        }
         // Named before it goes, because after the close there is nothing left to name it by — and a
         // closed tab is the one tab verb that throws away state (its history, its selection) with
         // only a ten-deep undo behind it.
@@ -486,7 +496,20 @@ extension ContentView {
         // and ⌘T deliberately opens the folder you are already in — so two closes of two different
         // tabs wrote the same sentence, which is what his log showed today. In Compare the line did
         // not say which pane lost a tab either.
+        //
+        // **Taken ahead of the last-tab guard, because that branch needs it most.** Closing the
+        // window is this feature's one destructive outcome, and `noteWorkingIn` records a ⌘W aimed
+        // at the pane the user was not looking at as a shipped bug — so *which pane the press
+        // landed in* is the whole question that line has to answer, and it named neither pane nor
+        // tab.
         let closing = tabLogDescription(id: id, isLeft: isLeft)
+        guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {
+            Logger.shared.info(
+                "User pressed Close Tab on the \(isLeft ? "left" : "right") pane's last browse tab "
+                + "\(closing) — closing the window")
+            NSApp.keyWindow?.performClose(nil)
+            return
+        }
         tabAction(isLeft: isLeft) {
             Logger.shared.info("User closed the \(isLeft ? "left" : "right") pane's browse tab \(closing)")
             return syncManager.closeTab(id: id, isLeft: isLeft,
@@ -517,8 +540,12 @@ extension ContentView {
     }
 
     func duplicateTab(id: UUID, isLeft: Bool) {
+        // Named before the verb, and named at all: a duplicate is a second chip with the same title
+        // at the same folder, so "User duplicated a browse tab" is the one line in this file that
+        // could not even be matched to a chip on screen.
+        let duplicating = tabLogDescription(id: id, isLeft: isLeft)
         tabAction(isLeft: isLeft) {
-            Logger.shared.info("User duplicated a browse tab")
+            Logger.shared.info("User duplicated the \(isLeft ? "left" : "right") pane's browse tab \(duplicating)")
             return syncManager.duplicateTab(id: id, isLeft: isLeft,
                                             currentProviderId: isLeft ? leftProviderId : rightProviderId)
         }
@@ -534,7 +561,12 @@ extension ContentView {
         // Aimed at this pane's strip like any other verb, so the chords follow — these two do not
         // go through `tabAction` (the pane does not move), which is exactly how they were missed.
         noteWorkingIn(isLeft: isLeft)
-        Logger.shared.info("User \(pinned ? "pinned" : "unpinned") a browse tab")
+        // Named BEFORE the verb, and it has to be: pinning re-sorts the strip, so afterwards this
+        // tab sits at a different index and `tabLogDescription`'s live-versus-parked test would be
+        // asked about the wrong one.
+        Logger.shared.info(
+            "User \(pinned ? "pinned" : "unpinned") the \(isLeft ? "left" : "right") pane's browse "
+            + "tab \(tabLogDescription(id: id, isLeft: isLeft))")
         syncManager.setTabPinned(pinned, id: id, isLeft: isLeft)
         saveBrowseTabs(isLeft: isLeft)
     }
@@ -545,7 +577,11 @@ extension ContentView {
         // Aimed at this pane's strip like any other verb, so the chords follow — these two do not
         // go through `tabAction` (the pane does not move), which is exactly how they were missed.
         noteWorkingIn(isLeft: isLeft)
-        Logger.shared.debug("User reordered a browse tab")
+        // Named BEFORE the verb, for `setTabPinned`'s reason: after the move this tab is at another
+        // index, and the description is read off the list by index.
+        Logger.shared.debug(
+            "User reordered the \(isLeft ? "left" : "right") pane's browse tab "
+            + "\(tabLogDescription(id: id, isLeft: isLeft))")
         syncManager.moveTab(id: id, to: index, isLeft: isLeft)
         saveBrowseTabs(isLeft: isLeft)
     }
@@ -564,7 +600,13 @@ extension ContentView {
             guard let tab = syncManager.reopenClosedTab(
                 isLeft: isLeft, currentProviderId: isLeft ? leftProviderId : rightProviderId)
             else { return nil }
-            Logger.shared.info("User reopened the closed tab “\(tab.combinedRelativePath.isEmpty ? "the source root" : tab.combinedRelativePath)”")
+            // Named AFTER the verb, as `cycleTab` is and for the same reason: WHICH tab comes back
+            // is the verb's answer, and by now it is the live pane — which is how
+            // `tabLogDescription` describes it. The side is the half this line was missing: in
+            // Compare, "the closed tab" named no pane.
+            Logger.shared.info(
+                "User reopened the \(isLeft ? "left" : "right") pane's closed browse tab "
+                + "\(tabLogDescription(id: tab.id, isLeft: isLeft))")
             return tab
         }
     }
@@ -660,6 +702,20 @@ extension ContentView {
                 "Dropped \(dropped) stored \(isLeft ? "left" : "right") browse tab\(dropped == 1 ? "" : "s"): "
                 + "their source is gone or switched off")
         }
+        guard let restored = outcome?.list, !restored.isSeedState else {
+            // **The abandoned restore lost a folder too, and this is the only place it can be
+            // said.** A one-entry strip whose only folder is gone re-roots to `""` — which is
+            // exactly `isSeedState` — so the restore stops here and the line below, which claims a
+            // tab came BACK, would be a sentence about something that did not happen. At most one
+            // folder can reach this branch, because the seed state is a one-tab strip.
+            if let lost = (outcome?.lostFolders ?? []).first {
+                Logger.shared.warning(
+                    "Did not restore the \(isLeft ? "left" : "right") browse tab “\(lost)”: its "
+                    + "folder no longer exists, and one tab at a source root is the state a fresh "
+                    + "launch already seeds")
+            }
+            return
+        }
         // **And what came back at the wrong place, which the count above cannot see.** A tab whose
         // FOLDER is gone is not dropped — `restore` re-roots it, deliberately, because a tab left
         // pointing at nothing is an empty pane with a path in its header and no way to tell a
@@ -667,12 +723,15 @@ extension ContentView {
         // user left at the root, `Restored N tabs` says nothing was lost, and the first save writes
         // the root over the stored path for good. The stored path is the last place that folder is
         // named at all, so it is named here. He audits this log.
+        //
+        // **Below the guard, because the sentence claims a restore.** Emitted above it, a one-entry
+        // strip whose only folder is gone wrote "Restored the left browse tab X at its source root"
+        // and then installed nothing at all — the abandoned branch above says what really happened.
         for lost in outcome?.lostFolders ?? [] {
             Logger.shared.warning(
                 "Restored the \(isLeft ? "left" : "right") browse tab “\(lost)” at its source root: "
                 + "the folder no longer exists")
         }
-        guard let restored = outcome?.list, !restored.isSeedState else { return }
         Logger.shared.info(
             "Restored \(restored.count) \(isLeft ? "left" : "right") browse tab\(restored.count == 1 ? "" : "s")")
         syncManager.setPaneTabs(restored, isLeft: isLeft)
