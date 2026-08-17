@@ -9,7 +9,24 @@ import Foundation
 /// `LiquidGlassHue` does for the same reason.
 public enum FilingConfidence: String, Codable, Sendable, Equatable, Comparable {
     case low, medium, high
-    var rank: Int { self == .high ? 2 : (self == .medium ? 1 : 0) }
+
+    /// The ordering `Comparable` is built on — **exhaustive, with no `default:` and no final
+    /// `else`**, so appending a case is a build error here rather than a silent `0`.
+    ///
+    /// This was `self == .high ? 2 : (self == .medium ? 1 : 0)`. A ternary chain has no arm for a
+    /// case it does not name: a fourth confidence would have ranked 0, identical to `.low`, and
+    /// every comparison built on it — the batch gate that decides which cards "File all confident"
+    /// acts on, the sort that puts surer answers first — would have read the new case as the least
+    /// sure one. The header two lines up already says to APPEND new cases, which is precisely the
+    /// change this shape could not survive.
+    var rank: Int {
+        switch self {
+        case .low: return 0
+        case .medium: return 1
+        case .high: return 2
+        }
+    }
+
     public static func < (a: FilingConfidence, b: FilingConfidence) -> Bool { a.rank < b.rank }
 }
 
