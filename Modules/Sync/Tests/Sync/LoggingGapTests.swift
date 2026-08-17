@@ -16,12 +16,22 @@ import Testing
 /// back" would be reading another test's line.
 @Suite struct LoggingGapTests {
 
-    /// The shared logger's most recent entry containing `fragment`, or nil. Awaiting a fresh log
+    /// The shared logger's most recent ENTRY containing `fragment`, or nil. Awaiting a fresh log
     /// task first guarantees everything enqueued before it is visible in `entries`.
+    ///
+    /// The whole entry rather than its message, because a line's **level** is part of what this
+    /// suite pins — see `wideningAOnePaneRefreshSaysSo`. `loggedLine` below keeps the text-only
+    /// reading for the assertions that only care what was said.
+    @MainActor
+    private func loggedEntry(containing fragment: String) async -> LogEntry? {
+        await Logger.shared.debug("logging-gap flush marker").value
+        return Logger.shared.entries.last { $0.message.contains(fragment) }
+    }
+
+    /// The message of the above, for the assertions that read only the wording.
     @MainActor
     private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("logging-gap flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+        await loggedEntry(containing: fragment)?.message
     }
 
     private static func token() -> String { String(UUID().uuidString.prefix(8)) }
@@ -101,10 +111,19 @@ import Testing
         // The WHOLE sentence, not "Widening a leftOnly refresh": `PaneReloadScopeTranscript` widens
         // a `.leftOnly` under a `.both` in the same process, so the shorter fragment would find that
         // suite's line and this one would pass with nothing of its own written.
-        let line = await loggedLine(
+        let entry = await loggedEntry(
             containing: "Widening a leftOnly refresh to both panes: a rightOnly refresh was already in flight")
-        #expect(line != nil,
+        #expect(entry != nil,
                 "a one-pane refresh was widened to both panes, and really ran, with nothing in the log")
+        // **The LEVEL, and it is not decoration.** `.debug` is dropped entirely at Settings ▸
+        // Advanced ▸ Info, and this is the only account of a user-VISIBLE event — the other pane
+        // reloading under a request that named one. The reader who has turned the noise down is
+        // exactly the reader filing "why did my right pane reload?", so a line that answers it at
+        // `.debug` answers nobody. `e1ae7b9e` raised it from `.debug` and nothing pinned it: every
+        // assertion in this suite read `\.message`, so the raise was one revert from being undone
+        // in silence.
+        #expect(entry?.level == .info,
+                "the widening line is back at \(entry?.level.rawValue ?? "no") level — at .debug it is dropped for exactly the reader who turned the noise down to ask why their other pane reloaded")
         _ = await widening.value
 
         // The first control, and it is the one that keeps the line honest: a `.both` request also
