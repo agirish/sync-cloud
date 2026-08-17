@@ -23,6 +23,60 @@ private let headerTexts = [
 /// The four app font scales. The ladder has to be right at every one of them.
 private let appFontScales: [CGFloat] = FontSize.allCases.map(\.scale)
 
+/// One shipping call site that draws a non-default face, and a string it really renders.
+///
+/// A struct rather than a tuple because `@Test(arguments:)` only destructures pairs, and because
+/// `digits` has to travel with the font: `ScaledFont` does not expose whether `monospacedDigit()`
+/// was applied, and that is what decides which face a regression would fall back to.
+struct FaceCallSite: Sendable, CustomStringConvertible {
+    let site: String
+    /// The font the call site builds, verbatim.
+    let font: ScaledFont
+    /// Whether that font asks for monospaced digits.
+    let digits: Bool
+    /// A string the site really renders — the strings below all come off `FilingSpendFormat` or
+    /// out of a pane row.
+    let text: String
+
+    var description: String { "\(site) — \"\(text)\"" }
+
+    /// The face `nsFont` returned before the design and the digit flag were composed: the digits
+    /// font if one was asked for, the plain system font otherwise, with the design dropped either
+    /// way. Rebuilt from the two things `ScaledFont` does publish, so this is the real fallback
+    /// rather than a restatement of it.
+    func faceWithTheDesignDropped(scale: CGFloat) -> NSFont {
+        let size = font.pointSize(scale: scale)
+        return digits
+            ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: font.symbolWeight)
+            : NSFont.systemFont(ofSize: size, weight: font.symbolWeight)
+    }
+}
+
+/// Every `.rounded` call site SyncCloud ships, and nothing else — grep `design: .rounded` under
+/// `Modules/*/Sources` and these are the three hits.
+///
+/// The two spend panes are byte-identical `stat(_:_:)` helpers in different modules, and both
+/// render all three strings; they take different ones here so a fixture that stopped
+/// discriminating shows up in one case rather than in neither. "18.4k tok" is deliberately NOT
+/// among them — measured, it is 72.745pt in the plain digits face against 72.210pt in the rounded
+/// one, and at scale 1.15 the two round to the same 82.5pt. It would have passed in the wrong face.
+let roundedCallSites = [
+    FaceCallSite(site: "PaneRowFonts.name", font: .system(.body, design: .rounded),
+                 digits: false, text: "Birth Certificate"),
+    FaceCallSite(site: "SettingsView.stat (filing spend)",
+                 font: .system(size: 16, weight: .semibold, design: .rounded).monospacedDigit(),
+                 digits: true, text: "~$1.24"),
+    FaceCallSite(site: "FilingSpendHistoryView.stat",
+                 font: .system(size: 16, weight: .semibold, design: .rounded).monospacedDigit(),
+                 digits: true, text: "1234"),
+]
+
+/// The raw, unrounded width of `text` in `font` — what the gap floors below are stated against,
+/// because SwiftUI's ceiling to the next half point can swallow a real difference of up to 0.5pt.
+func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
+    NSAttributedString(string: text, attributes: [.font: font]).size().width
+}
+
 /// Checks every number `LabelMetrics` computes against the view SwiftUI actually draws.
 ///
 /// This suite is the whole warrant for the differences header's computed ladder. The header no
@@ -222,6 +276,132 @@ private let appFontScales: [CGFloat] = FontSize.allCases.map(\.scale)
         // any rounding the text system does.
         #expect(plainWidth - roundedWidth > 1,
                 "the two faces measured within 1pt — the rounded design is probably not applied")
+    }
+
+    /// Every shipping rounded call site, measured against the view SwiftUI lays out for it.
+    ///
+    /// The case above covers `PaneRowFonts.name`, which is the one rounded site that does *not*
+    /// ask for monospaced digits — and that is exactly why the fix it pins was incomplete.
+    /// `Font.monospacedDigit()` preserves the design, so the two filing-spend totals, which are
+    /// rounded *and* monospaced-digit, went out through `nsFont`'s digits path above the design
+    /// switch and came back in the default face: "1234" at 16pt semibold measured 40.745pt where
+    /// the drawn text is 42.042pt. Parameterised over the sites rather than over one font, so
+    /// adding a fourth rounded call site is what makes this suite notice it.
+    @Test(arguments: roundedCallSites)
+    func everyRoundedCallSiteMeasuresTheFaceItDraws(site: FaceCallSite) {
+        for scale in appFontScales {
+            // The premise, asserted rather than assumed: a fixture whose string measures the same
+            // in both faces would pass with the design dropped. One of the three candidate strings
+            // does exactly that at one scale (see `roundedCallSites`), so this is not theoretical.
+            let gap = abs(rawWidth(site.text, site.font.nsFont(scale: scale))
+                          - rawWidth(site.text, site.faceWithTheDesignDropped(scale: scale)))
+            #expect(gap > 1,
+                    "\(site) at scale \(scale): the face drawn and the face with the design dropped measure within \(gap)pt — this fixture cannot fail")
+
+            let computed = LabelMetrics.width(of: site.text, font: site.font, scale: scale)
+            let drawn = hostedWidth(Text(site.text).font(site.font.resolved(scale: scale)))
+            #expect(computed == drawn,
+                    "\(site) at scale \(scale): computed \(computed)pt, drawn \(drawn)pt")
+        }
+    }
+
+    /// The headline numbers, and the guarantee they could have cost.
+    ///
+    /// A rounded font that also wants monospaced digits needs *both*, and the obvious repairs each
+    /// drop one: returning the digits font drops the face (40.745pt), and returning the rounded
+    /// font drops the equal-width digits (38.487pt, and "1" is 7.873pt against "0" at 10.609pt —
+    /// the 2pt-per-digit error `monospacedDigitSystemFont` exists to prevent). Composing them
+    /// carries the descriptor's number-spacing feature across, which is the fact this pins.
+    @Test func aRoundedDigitsFontKeepsBothTheFaceAndTheEqualWidthDigits() {
+        let font = ScaledFont.system(size: 16, weight: .semibold, design: .rounded).monospacedDigit()
+        let measured = font.nsFont(scale: 1)
+        #expect(measured.pointSize == 16, "premise: unscaled, so only the face is in question")
+
+        // The face. 42.042 against the 40.745 the digits font alone reports.
+        let digitsOnly = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        #expect(abs(rawWidth("1234", measured) - 42.042) < 0.05,
+                "\"1234\" measured \(rawWidth("1234", measured))pt, expected the rounded face's 42.042")
+        #expect(abs(rawWidth("1234", digitsOnly) - 40.745) < 0.05,
+                "the pre-fix answer moved: \(rawWidth("1234", digitsOnly))pt, expected 40.745")
+        #expect(rawWidth("1234", measured) - rawWidth("1234", digitsOnly) > 1,
+                "the two measured within 1pt — the rounded design is probably not applied")
+
+        // The digits. Stated as widths of real strings rather than as a trait lookup, because a
+        // trait can be present on a descriptor the text system then ignores.
+        #expect(rawWidth("1", measured) == rawWidth("0", measured),
+                "\"1\" is \(rawWidth("1", measured))pt and \"0\" is \(rawWidth("0", measured))pt — the monospaced-digit feature was lost applying the design")
+        #expect(rawWidth("1111", measured) == rawWidth("1234", measured))
+        let roundedOnly = ScaledFont.system(size: 16, weight: .semibold, design: .rounded)
+            .nsFont(scale: 1)
+        #expect(rawWidth("1", measured) - rawWidth("1", roundedOnly) > 2,
+                "the digits are no wider than the proportional face's — nothing was gained")
+
+        // And both halves agree with the drawn text.
+        for scale in appFontScales {
+            #expect(LabelMetrics.width(of: "1234", font: font, scale: scale)
+                    == hostedWidth(Text("1234").font(font.resolved(scale: scale))))
+        }
+    }
+
+    /// `.monospaced` is the other half of the same interaction, and it goes the other way: the
+    /// monospaced face is fixed-pitch throughout, so it answers a `monospacedDigit()` request on
+    /// its own and must win outright. Returning the digits font instead gives the *proportional*
+    /// face with equal-width digits — the wrong glyph for every letter, 72.745pt for "18.4k tok"
+    /// at 16pt semibold where the monospaced face lays out 89.016pt.
+    ///
+    /// No shipping call site combines the two today; this pins the answer before one does, which
+    /// is the whole lesson of the miss above it.
+    @Test func theMonospacedFaceAnswersADigitRequestOnItsOwn() {
+        let font = ScaledFont.system(size: 16, weight: .semibold).monospaced().monospacedDigit()
+        let measured = font.nsFont(scale: 1)
+        let digitsOnly = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        #expect(rawWidth("18.4k tok", measured) - rawWidth("18.4k tok", digitsOnly) > 1,
+                "the proportional digits face measured within 1pt of the monospaced one (\(rawWidth("18.4k tok", measured)) vs \(rawWidth("18.4k tok", digitsOnly)))")
+        // The digit guarantee still holds — it is the point of the face, not a thing it gave up.
+        #expect(rawWidth("1", measured) == rawWidth("0", measured))
+        #expect(rawWidth("W", measured) == rawWidth("1", measured),
+                "the monospaced face is fixed-pitch across letters too")
+
+        // And asking for them must not mint a *second* font for the same face. `LabelMetrics`
+        // keys both caches on `NSFont`, so two objects that measure identically but compare
+        // unequal are two entries, and one of them misses on every lookup. Measured: routing
+        // `.monospaced` through the descriptor transform instead of `NSFont.monospacedSystemFont`
+        // gives exactly that — a font that lays out the same and is `!=` both the canonical one
+        // (at every weight but `.regular`) and its own no-digits sibling.
+        #expect(measured == ScaledFont.system(size: 16, weight: .semibold).monospaced().nsFont(scale: 1),
+                "the digit request built a different font object for the same face")
+        #expect(measured == NSFont.monospacedSystemFont(ofSize: 16, weight: .semibold),
+                "not the canonical monospaced font — a caller that built one would miss the cache")
+
+        for scale in appFontScales {
+            #expect(LabelMetrics.width(of: "18.4k tok", font: font, scale: scale)
+                    == hostedWidth(Text("18.4k tok").font(font.resolved(scale: scale))))
+        }
+    }
+
+    /// `.serif` was the third design falling through to the default face, and unlike `.rounded` it
+    /// was never drawn — nothing in SyncCloud asks for it. It is handled anyway, because "latent"
+    /// is what `.rounded` was until a number off it reached a release-notes draft, and because an
+    /// explicit `default:` that silently swallows a design is the shape of both misses.
+    ///
+    /// Pinned as a width so it is a claim about the face rather than about the branch existing:
+    /// "Birth Certificate" is 98.872pt in New York against 95.729pt in SF Pro at 13pt.
+    @Test func aSerifFontMeasuresTheSerifFace() {
+        for (font, plain, text) in [
+            (ScaledFont.system(.body, design: .serif), ScaledFont.system(.body), "Birth Certificate"),
+            (.system(size: 16, weight: .semibold, design: .serif).monospacedDigit(),
+             .system(size: 16, weight: .semibold).monospacedDigit(), "1234"),
+        ] {
+            for scale in appFontScales {
+                let serifWidth = rawWidth(text, font.nsFont(scale: scale))
+                let plainWidth = rawWidth(text, plain.nsFont(scale: scale))
+                #expect(abs(serifWidth - plainWidth) > 1,
+                        "\"\(text)\" at scale \(scale): serif \(serifWidth)pt vs default \(plainWidth)pt — the serif design is probably not applied")
+                #expect(LabelMetrics.width(of: text, font: font, scale: scale)
+                        == hostedWidth(Text(text).font(font.resolved(scale: scale))),
+                        "\"\(text)\" at scale \(scale) does not match the drawn run")
+            }
+        }
     }
 
     // MARK: - The layout facts the ladder's arithmetic assumes
