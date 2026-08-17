@@ -54,6 +54,58 @@ import Foundation
         #expect(DestinationBrowser.subfolders(of: "", fileManager: fm).isEmpty)
     }
 
+    // MARK: - Listing a folder that cannot be read
+
+    /// The column under a folder nobody could open used to read "Empty" — a statement about
+    /// contents nobody saw, and the same defect as the folder-replace warning's "0 items". The
+    /// three cases are asserted together because what makes this a fix is that they differ.
+    @Test func testAnUnreadableFolderIsNotOfferedAsAnEmptyOne() throws {
+        let fm = try fixture()
+        fm.unlistableDirectories = ["/p/Health/Prescriptions"]
+
+        let unreadable = DestinationBrowser.listSubfolders(of: "/p/Health/Prescriptions", fileManager: fm)
+        #expect(unreadable.outcome == .unreadable)
+        #expect(unreadable.emptyMessage == "Can’t be read")
+
+        // A folder that genuinely holds no subfolders, from the same fixture and the same call.
+        let leaf = DestinationBrowser.listSubfolders(of: "/p/School/Divit", fileManager: fm)
+        #expect(leaf.outcome == .listed)
+        #expect(leaf.emptyMessage == "Empty")
+
+        // And a folder with rows has nothing to say in its place.
+        let populated = DestinationBrowser.listSubfolders(of: "/p", fileManager: fm)
+        #expect(populated.folders.map(\.name) == ["Health", "School"])
+        #expect(populated.emptyMessage == nil)
+    }
+
+    /// `subfolders` keeps returning the folders alone — it is what `search` walks with — so the
+    /// unreadable case still reaches it as an empty array. That is fine there and stated here so
+    /// the wrapper is not mistaken for having lost the distinction.
+    @Test func testSubfoldersStillReturnsBareFoldersForBothEmptyShapes() throws {
+        let fm = try fixture()
+        fm.unlistableDirectories = ["/p/Health/Prescriptions"]
+        #expect(DestinationBrowser.subfolders(of: "/p/Health/Prescriptions", fileManager: fm).isEmpty)
+        #expect(DestinationBrowser.subfolders(of: "/p/School/Divit", fileManager: fm).isEmpty)
+    }
+
+    /// A directory the walk could not read means the walk did not establish "no folders match" —
+    /// the same reasoning the three caps already carry, applied to the fourth way of missing a
+    /// match. The pair is the test: the identical query over the identical tree answers
+    /// "complete" when everything was readable.
+    @Test func testSearchThatCouldNotReadADirectorySaysItStoppedShort() throws {
+        let readable = try fixture()
+        let complete = DestinationBrowser.search("Kaiser", under: "/p", fileManager: readable)
+        #expect(complete.matches.map(\.name) == ["Kaiser"])
+        #expect(!complete.isTruncated)
+
+        let blocked = try fixture()
+        blocked.unlistableDirectories = ["/p/Health/Medical"]
+        let partial = DestinationBrowser.search("Kaiser", under: "/p", fileManager: blocked)
+        #expect(partial.matches.isEmpty, "Kaiser sits behind the folder that could not be read")
+        #expect(partial.isTruncated,
+                "a walk that could not read a directory has not earned “No folders match”")
+    }
+
     // MARK: - Search
 
     /// Both `Divit` folders are found, from different depths.

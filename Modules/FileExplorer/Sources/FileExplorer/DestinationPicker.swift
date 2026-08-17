@@ -116,8 +116,10 @@ public struct DestinationPicker: View {
     /// results list says so rather than presenting a partial answer as the whole one.
     @State private var isSearchTruncated = false
     /// Per-directory listings. Absent means "not asked yet"; the column shows a spinner until it
-    /// lands, which is what distinguishes loading from a genuinely empty folder.
-    @State private var listings: [String: [DestinationFolder]] = [:]
+    /// lands, which is what distinguishes loading from a genuinely empty folder. The listing
+    /// carries its own outcome, which is what distinguishes an empty folder from an unreadable one
+    /// — two states the column drew identically, as "Empty".
+    @State private var listings: [String: DestinationFolderListing] = [:]
     @State private var isCreatingFolder = false
     @State private var newFolderName = ""
     /// Names among the selection that already exist in the highlighted folder. Recomputed whenever
@@ -387,7 +389,7 @@ public struct DestinationPicker: View {
                         HStack(spacing: 0) {
                             DestinationColumn(
                                 directory: directory,
-                                folders: listings[directory],
+                                listing: listings[directory],
                                 highlighted: highlighted,
                                 onPathAt: depth < browsePath.depth ? browsePath.components[depth] : nil,
                                 accent: accent,
@@ -625,11 +627,11 @@ public struct DestinationPicker: View {
     private func loadVisibleColumns() async {
         for directory in columnDirectories where listings[directory] == nil {
             let showHidden = showHidden
-            let folders = await Task.detached {
-                DestinationBrowser.subfolders(of: directory, showHidden: showHidden, fileManager: FileManager.default)
+            let listing = await Task.detached {
+                DestinationBrowser.listSubfolders(of: directory, showHidden: showHidden, fileManager: FileManager.default)
             }.value
             guard !Task.isCancelled else { return }
-            listings[directory] = folders
+            listings[directory] = listing
         }
     }
 
@@ -723,35 +725,58 @@ public struct DestinationPicker: View {
 
 /// One column of folders. A separate view so the picker's body stays inside the type checker's
 /// budget — the same reason the panes' own cells are split out.
-private struct DestinationColumn: View {
+///
+/// Not `private`, so `DestinationColumnStateTests` can assert what it decides to draw. The three
+/// states are a value (`state`) rather than nested conditions in the body for the same reason: a
+/// SwiftUI view is not drivable from a unit test, so the decision has to be readable without one.
+struct DestinationColumn: View {
+    /// What the column has to show, once the loading and unreadable cases are separated from the
+    /// ordinary one.
+    enum State: Equatable {
+        /// Nothing read yet — a spinner, never a claim about the folder.
+        case loading
+        /// Nothing to list, and the reason, in the words the column shows.
+        case message(String)
+        /// Rows to draw.
+        case rows
+    }
+
     let directory: String
     /// `nil` until the listing lands, which is what the spinner distinguishes from an empty folder.
-    let folders: [DestinationFolder]?
+    let listing: DestinationFolderListing?
     let highlighted: String
     /// Name of the folder drilled through at this depth, marked as the trail.
     let onPathAt: String?
     let accent: Color
     let onOpen: (DestinationFolder) -> Void
 
+    /// The wording comes from `DestinationFolderListing.emptyMessage`, which is where the
+    /// distinction lives — a column deciding for itself that no rows means "Empty" is exactly how
+    /// an unreadable folder came to be announced as an empty one.
+    var state: State {
+        guard let listing else { return .loading }
+        if let message = listing.emptyMessage { return .message(message) }
+        return .rows
+    }
+
     var body: some View {
         Group {
-            if let folders {
-                if folders.isEmpty {
-                    Text("Empty")
-                        .scaledFont(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(folders) { folder in row(folder) }
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
-            } else {
+            switch state {
+            case .loading:
                 ProgressView().controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .message(let text):
+                Text(text)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .rows:
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(listing?.folders ?? []) { folder in row(folder) }
+                    }
+                    .padding(.vertical, 8)
+                }
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)

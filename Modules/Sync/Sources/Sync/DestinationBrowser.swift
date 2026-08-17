@@ -15,6 +15,31 @@ public struct DestinationFolder: Identifiable, Hashable, Sendable {
     }
 }
 
+/// One column's worth of subfolders, and whether the folder could be read at all.
+public struct DestinationFolderListing: Equatable, Sendable {
+    /// The subfolders found, name-sorted. Empty and meaningless when `outcome == .unreadable`.
+    public let folders: [DestinationFolder]
+
+    /// How much of the folder the listing covers.
+    public let outcome: DirectoryListingOutcome
+
+    /// What a column with no rows to show should say — nil when there are rows.
+    ///
+    /// Lives here rather than in the view because it is the whole point of this type: a column
+    /// rendering `folders.isEmpty` as "Empty" is making a claim about a folder that, in the
+    /// unreadable case, nobody read. Having one place decide it means the two states cannot drift
+    /// back together.
+    public var emptyMessage: String? {
+        guard folders.isEmpty else { return nil }
+        return outcome == .unreadable ? "Can’t be read" : "Empty"
+    }
+
+    public init(folders: [DestinationFolder], outcome: DirectoryListingOutcome) {
+        self.folders = folders
+        self.outcome = outcome
+    }
+}
+
 /// What a bounded search found, and whether it saw everything.
 ///
 /// The flag exists because all three of `search`'s caps stop it *early* — a match limit, a listing
@@ -62,18 +87,35 @@ public enum DestinationBrowser {
         showHidden: Bool = false,
         fileManager: FileManaging
     ) -> [DestinationFolder] {
+        listSubfolders(of: path, showHidden: showHidden, fileManager: fileManager).folders
+    }
+
+    /// The same listing, keeping "there are no subfolders here" apart from "this folder could not
+    /// be read".
+    ///
+    /// Those were one value until now, and the column that renders it says **"Empty"** — a
+    /// statement about a folder nobody managed to look inside. Same root cause as the
+    /// folder-replace warning's "0 items": the enumerator behind `subfolders` returns non-nil and
+    /// yields nothing for a directory it cannot list, so the `guard let … else { return [] }`
+    /// wrapped around it never fired and would have returned `[]` in any case.
+    public static func listSubfolders(
+        of path: String,
+        showHidden: Bool = false,
+        fileManager: FileManaging
+    ) -> DestinationFolderListing {
         let root = PaneBrowsePath.normalized(path)
-        guard !root.isEmpty else { return [] }
+        // Not a disk failure: there is no folder to read. `.listed` keeps the empty-state wording
+        // as it was rather than accusing the filesystem of something it did not do.
+        guard !root.isEmpty else { return DestinationFolderListing(folders: [], outcome: .listed) }
         var options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants]
         if !showHidden { options.insert(.skipsHiddenFiles) }
-        guard let enumerator = fileManager.enumerator(
-            at: URL(fileURLWithPath: root),
-            includingPropertiesForKeys: nil,
-            options: options
-        ) else { return [] }
+        let listing = fileManager.listing(of: URL(fileURLWithPath: root), options: options)
+        guard listing.outcome != .unreadable else {
+            return DestinationFolderListing(folders: [], outcome: .unreadable)
+        }
 
         var folders: [DestinationFolder] = []
-        for case let url as URL in enumerator {
+        for url in listing.urls {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
                   isDirectory.boolValue else { continue }
@@ -81,7 +123,9 @@ public enum DestinationBrowser {
             if !showHidden, name.hasPrefix(".") { continue }
             folders.append(DestinationFolder(path: url.path))
         }
-        return folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return DestinationFolderListing(
+            folders: folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+            outcome: listing.outcome)
     }
 
     /// Folders under `root` whose name contains `query`, breadth-first.
@@ -122,6 +166,10 @@ public enum DestinationBrowser {
         var frontier = [PaneBrowsePath.normalized(root)]
         var depth = 0
         var listings = 0
+        // A directory the walk could not read is a FOURTH way to leave matches unseen, alongside
+        // the three caps. It is not a cap we chose, but it has the same consequence: the walk
+        // stopped short of the tree, so it has not earned "No folders match".
+        var missedADirectory = false
 
         while !frontier.isEmpty, depth < maxDepth, matches.count < limit {
             var next: [String] = []
@@ -129,7 +177,9 @@ public enum DestinationBrowser {
                 if isCancelled() { return .init(matches: matches, isTruncated: true) }
                 if listings >= maxListings { return .init(matches: matches, isTruncated: true) }
                 listings += 1
-                for folder in subfolders(of: directory, showHidden: showHidden, fileManager: fileManager) {
+                let listing = listSubfolders(of: directory, showHidden: showHidden, fileManager: fileManager)
+                if listing.outcome != .listed { missedADirectory = true }
+                for folder in listing.folders {
                     if folder.name.localizedCaseInsensitiveContains(needle) {
                         matches.append(folder)
                         if matches.count >= limit { return .init(matches: matches, isTruncated: true) }
@@ -142,7 +192,7 @@ public enum DestinationBrowser {
         }
         // Falling out with directories still queued means the DEPTH cap stopped it, which is the
         // third way to leave matches unseen. Only an exhausted frontier is a complete answer.
-        return .init(matches: matches, isTruncated: !frontier.isEmpty)
+        return .init(matches: matches, isTruncated: !frontier.isEmpty || missedADirectory)
     }
 
     /// Orders search results so the folder the user meant is first.
