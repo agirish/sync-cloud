@@ -139,8 +139,17 @@ struct SyncCloudApp: App {
             // `~/sync-cloud.log` is what makes its absence noticeable instead of silent: the symptom
             // otherwise is the magnifier quietly back in the ⋯ menu, which is exactly how this was
             // reported the first time.
-            if PaneBarMigration.apply(defaults: .standard) {
-                Logger.shared.info("[panebar] added Search to a stored pane-bar arrangement")
+            //
+            // **The line names what was added, and is not written here.** It used to be the
+            // literal "added Search to a stored pane-bar arrangement", which was true only while
+            // Search was the only step there could be: the second step to ship would have left the
+            // log claiming Search for a launch that added something else. `apply` returns the
+            // controls it actually put onto the bar and `additionMessage` turns them into the
+            // sentence, so the line follows a new step by construction rather than by somebody
+            // remembering this call site.
+            if let line = PaneBarMigration.additionMessage(
+                added: PaneBarMigration.apply(defaults: .standard)) {
+                Logger.shared.info(line)
             }
 
             // Carry the two-level `Compare | Tidy` + lens selection onto the flat workspace bar,

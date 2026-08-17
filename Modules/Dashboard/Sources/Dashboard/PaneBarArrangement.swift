@@ -914,21 +914,30 @@ public enum PaneBarMigration {
     /// The `defer` is registered FIRST so it runs LAST (defers unwind in reverse), after the
     /// version stamp and after any rewrite, and therefore reads the bar the user will actually get.
     ///
-    /// - Returns: whether a stored arrangement was actually REWRITTEN — not merely whether the
-    ///   migration ran. That is what a caller should log: "moved someone's bar" is worth a line,
-    ///   "had nothing to do" is not.
+    /// - Returns: the controls this run actually PUT ONTO a stored arrangement, in the order the
+    ///   migrated bar carries them — empty when nothing was rewritten. That is what a caller should
+    ///   log: "moved someone's bar, and here is what onto it" is worth a line, "had nothing to do"
+    ///   is not.
+    ///
+    ///   **The list, not a `Bool`.** The one caller used to be handed `true` and write the literal
+    ///   `"added Search to a stored pane-bar arrangement"`, which was a true sentence only for as
+    ///   long as `migratedControls` had exactly one member — the second step to ship would have made
+    ///   the log state a fact that had not happened, in the file a launch is verified through, and
+    ///   nothing would have said so. A caller cannot name what it was not told; so it is told.
+    ///   Derived from the items rather than from the steps, for the same reason the rewrite itself
+    ///   is compared rather than flagged: `insert` is allowed to refuse.
     @discardableResult
-    public static func apply(defaults: UserDefaults) -> Bool {
+    public static func apply(defaults: UserDefaults) -> [PaneBarItem] {
         defer { reportStoredArrangementReach(defaults: defaults) }
         let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
-        guard from < currentVersion else { return false }
+        guard from < currentVersion else { return [] }
         defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
 
-        // `false`, not `true`: there is no stored arrangement, so nothing was rewritten. Returning
-        // `true` here made the app log "added Search to a stored pane-bar arrangement" on the first
-        // launch of EVERY install that had never customized its bar — the common case — about an
-        // arrangement that does not exist, in the log file a launch is verified through.
-        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return false }
+        // Empty, not populated: there is no stored arrangement, so nothing was rewritten. Reporting
+        // a migration here made the app log "added Search to a stored pane-bar arrangement" on the
+        // first launch of EVERY install that had never customized its bar — the common case — about
+        // an arrangement that does not exist, in the log file a launch is verified through.
+        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return [] }
         var arrangement = PaneBarArrangement(encoded: stored)
         let before = arrangement.items
         // v1 — Search. Appended at the trailing end, where the default carries it and where the
@@ -941,9 +950,23 @@ public enum PaneBarMigration {
         // because spacers are repeatable — gets nothing, silently. The flag then reported a
         // migration that had not happened and wrote the arrangement back unchanged. Reading the
         // items is the only thing that knows.
-        guard arrangement.items != before else { return false }
+        guard arrangement.items != before else { return [] }
         defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
-        return true
+        return arrangement.items.filter { !before.contains($0) }
+    }
+
+    /// The line a launch writes when the migration put controls onto someone's stored bar — or
+    /// **nil when it put none there**, which is every launch after the first and every install that
+    /// never customized its bar.
+    ///
+    /// Pure, and it takes the controls rather than reading `migratedControls`, for two separate
+    /// reasons. A run adds only what that particular bar was missing, so a bar that already carried
+    /// Search and gained only the next control must not be told it gained both. And a version that
+    /// consulted the claim list would be a line agreeing with a list instead of with the migration —
+    /// the shape the literal it replaces already had.
+    public static func additionMessage(added: [PaneBarItem]) -> String? {
+        guard !added.isEmpty else { return nil }
+        return "[panebar] added \(names(added)) to a stored pane-bar arrangement"
     }
 
     // MARK: What the resulting bar cannot show

@@ -397,4 +397,44 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         //    the old settings would otherwise stay hidden from every comparison this session.
         #expect(manager.ignoredPaths.isEmpty)
     }
+
+    // MARK: The pane-bar migration's launch line
+
+    /// **The line this launch writes must be the migration's own answer, not a literal.**
+    ///
+    /// `App.init` used to hold `Logger.shared.info("[panebar] added Search to a stored pane-bar
+    /// arrangement")` behind a `Bool`. True only while Search was the sole step there could be: the
+    /// next control to take a migration step would have left every migrating launch crediting
+    /// Search for something it did not add, in `~/sync-cloud.log`, with nothing to catch it.
+    ///
+    /// **A source scan, and it has to be**, which is stated rather than worked around: the call is
+    /// inside `if !isRunningTests` precisely so the test host does not run it, so no fixture can
+    /// reach it. `PaneBarMigrationTests.theLaunchLineNamesEveryControlTheMigrationActuallyAdded`
+    /// owns the wording; this owns the fact that the app asks for it. Without this half, the
+    /// helper is one revert away from being a well-tested function nothing calls.
+    ///
+    /// The absence is read off comment-stripped source — the prose above the call names the old
+    /// literal, and would answer the scan for it.
+    @Test func testTheLaunchNamesWhatThePaneBarMigrationActuallyAdded() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/SyncCloudApp.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read MacApp/SyncCloudApp.swift")
+        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        // The positive control: this is the right file and the migration still runs at launch. A
+        // scan of the wrong text would otherwise report the absence below for free.
+        #expect(source.contains("PaneBarMigration.apply(defaults: .standard)"),
+                "the pane-bar migration no longer runs at launch — every check here is vacuous")
+        #expect(source.contains("PaneBarMigration.additionMessage("),
+                "the launch line is no longer built from what the migration reported adding")
+        // And the literal is gone. Any control's name hard-coded into this file's log call is the
+        // defect: the first one is true today and false on the day a second step ships.
+        for name in ["added Search to", "added Delete to", "added Preview to"] {
+            #expect(!source.contains(name),
+                    "SyncCloudApp names a pane-bar control in a log line (“\(name)”) instead of naming what the migration reported")
+        }
+    }
 }
