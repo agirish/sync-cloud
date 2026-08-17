@@ -1409,6 +1409,19 @@ that had been written**.
    mechanism 3's known residual, and is closed here only by picking a fragment no other suite writes
    — grep the package before trusting one.)
 
+**Measured, 2026-08-17, and it is why rule 4 is not optional where it applies.**
+`Modules/Sync/Tests/Sync/UndoDriftIdentityTests.swift` had rule 1 and only half of rule 2: its
+`logLines(since:)` wrote a closing marker and then sliced `entries[start...]` to the end of the
+buffer anyway. Two of its tests assert the **byte-identical** line `Undo (Normalize 2 Names): moved
+2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place`, both are `@MainActor` but
+both suspend at `waitUntil`, so they interleave — and CI runs this target **without**
+`--no-parallel`, so parallel is the configuration that ships. Remove one test's own undo so it
+writes no line at all, delay its sibling so the identical line lands inside its window, and the
+presence assertion PASSED on a line its own code never wrote. **It passed just the same once the
+window was bounded strictly between its own markers**, because the sibling's line is INSIDE the
+window, not after it; `@Suite(.serialized)` is what made the same mutation fail (3 issues → 4). Both
+landed. Read rule 2 as closing the *before and after*, never as covering rule 4's job.
+
 **Slice from the opening marker first, then search inside that slice.** `messages[a...b]` on
 reversed bounds *traps* rather than failing, and inside an `#expect` that takes the whole test host
 down with it — a rolled buffer would then report as infrastructure and lose the rest of the run. See
