@@ -5,13 +5,17 @@ time, the failure looked exactly like a real defect. `ColumnPreviewRevealTests` 
 deepest column is hidden behind the preview: column 420…630, visible 0…270", which is the precise
 geometry of the bug it exists to catch. Nothing about that message says *the machine decided this*.
 
-This file records the mechanisms that have actually produced false failures in this repo — plus
-two that produce no failure at all: mechanism 8 hangs the run instead, and mechanism 11 makes a test
-**pass** without having examined anything. Read that second one before writing any assertion about
-`Logger.shared.entries`; it is the only mechanism here whose damage is silent and permanent, so
-unlike the rest it costs you nothing to notice and everything to miss. Below: how to tell each from
-a regression before you start bisecting, and the fix pattern for each. See [ci.md](ci.md) for what CI
-runs and the runner's own quirks.
+This file records the mechanisms that have actually produced false failures in this repo — and the
+ones that produce no failure at all, which are the more expensive half. Mechanism 8 can hang the run
+instead of failing it, and **four separate mechanisms here can leave an assertion passing having
+examined nothing**: mechanism 2 (a fixed sleep before an absence assertion), mechanism 8 (a bound
+whose expiry is discarded), mechanism 9 (an absence with no paired control that the signal ever
+arrived) and mechanism 11 (a log window that rolled past the interval being read). Read 11 before
+writing any assertion about `Logger.shared.entries`, and read all four before writing any assertion
+that something did *not* happen — a vacuous pass is silent and permanent, so unlike a false failure
+it costs you nothing to notice and everything to miss. Below: how to tell each from a regression
+before you start bisecting, and the fix pattern for each. See [ci.md](ci.md) for what CI runs and the
+runner's own quirks.
 
 ---
 
@@ -1059,9 +1063,16 @@ verdicts, decided by what else was scheduled: step 4 of the triage above ("do no
 **The two directions cost differently, and that asymmetry is the point.** A rolled window turns a
 presence assertion into a false **failure** — noisy, visible, someone bisects for a day. It turns an
 absence assertion into a false **pass** — silent, and permanent, because nothing will ever draw
-attention to it again. **No other mechanism in this file can make a test pass without it having
-examined anything.** Everything else here at worst wastes your time; this one quietly deletes
-coverage.
+attention to it again.
+
+**It is not the only mechanism here that can do that, and an earlier draft of this section claimed
+it was.** Mechanism 2 makes an absence vacuous with a fixed sleep before it; mechanism 8 does it with
+a bound whose expiry is discarded; mechanism 9 does it with an absence that has no paired control
+proving the signal could have arrived. All four delete coverage in silence, and a reader taught that
+only this one can will not go looking for the other three. What *is* particular to this one is where
+the trigger lives: the other three are visible in the test's own source, while this one fires on the
+volume of unrelated suites, so the same test is honest or vacuous depending on what else was
+scheduled beside it.
 
 **Where this line stands, counted 2026-08-16.** Eleven files on `v2.x` name
 `Logger.shared.entries`, and every one of them is a test:
@@ -1107,17 +1118,36 @@ Two more are worth telling apart from the rest before you read them as exposed:
 
 **Fix.** Four rules. The first two are the whole of it; the second two are what make them hold.
 
-1. **For an absence assertion, write your own marker FIRST and require that it survived.** The
-   marker goes in *before* the call under test, and the assertion reads only from it onward. If the
-   window rolled past your own opening marker, the guard fires and says the reading was vacuous —
-   which converts the silent false pass into an ordinary, legible failure. This is the single rule
-   that matters most, because it is the only one guarding the direction nothing else can detect.
+1. **An absence assertion needs BOTH guards: your own marker FIRST, required to have survived, AND
+   an awaited flush LAST.** The marker goes in *before* the call under test and the assertion reads
+   only from it onward, so a window that rolled past your own opening marker fires the guard and
+   says the reading was vacuous instead of passing. That closes **eviction** — and it says nothing
+   about **visibility**, which is the other way this assertion reads an empty interval.
+   `Logger.log(level:message:)` is `nonisolated`: it hands the entry to a FIFO queue drained by a
+   `@MainActor` flush task (`Modules/Events/Sources/Events/Logger.swift`, `log(level:message:)` and
+   `flushPendingEntries()`). On a `@MainActor` test that does not suspend between the call under
+   test and the read, that flush has not run, and the line is simply not in `entries` yet. Close it
+   by awaiting one more entry's task before reading — `await Logger.shared.debug("… flush
+   marker").value` — which, the queue being FIFO, drains everything enqueued before it.
+
+   **Measured 2026-08-17, as a pair, because this rule used to say only the first half.** A
+   `@MainActor` probe applying the marker and the guard but no trailing flush **passed** an absence
+   for a line its own call under test had just written. The identical probe with one awaited flush
+   added **failed**, correctly seeing the line. A third — flush present, and 1100 filler lines
+   rolling the window between the marker and the read — failed on the survival guard instead. The
+   two guards are independent and both are load-bearing: the flush cannot see eviction, and the
+   marker cannot see the queue. Every implementation on this line already had the flush; it was the
+   advice that had dropped it.
 2. **For a presence assertion, read strictly BETWEEN two of your own markers** — open, act, close —
-   rather than over the buffer. This does two jobs at once: the opening marker is the eviction guard
-   as above, and the bounded slice stops a *foreign* line with the same text satisfying your
-   assertion, which a whole-buffer `contains` cannot distinguish from your own. Where a closing
-   marker is impractical, the substitute is a fixture string no other suite can write — a per-test
-   temp-root name or a UUID — and it should be stated in the suite's doc comment, not assumed.
+   rather than over the buffer. This does three jobs at once: the opening marker is the eviction
+   guard as above, the *awaited* closing marker is rule 1's flush (which is why this shape has never
+   shown the visibility bug — it supplies the drain as a side effect of bounding the top, and that
+   is worth knowing deliberately rather than relying on by accident), and the bounded slice stops a
+   *foreign* line with the same text satisfying your assertion, which a whole-buffer `contains`
+   cannot distinguish from your own. Where a closing marker is impractical, the substitute is a
+   fixture string no other suite can write — a per-test temp-root name or a UUID — and it should be
+   stated in the suite's doc comment, not assumed; note that dropping the closing marker also drops
+   the flush, so an absence half then needs one of its own.
 3. **Read as soon as the decision is taken, not after the work completes.** Most of these lines are
    written synchronously at the top of an operation, long before it finishes; awaiting the whole
    operation just hands the rest of the package more time to roll your line away. Wait on the
@@ -1127,11 +1157,17 @@ Two more are worth telling apart from the rest before you read them as exposed:
    cross-*suite* half is mechanism 3's known residual, and is closed here only by rule 2's unique
    fragment — grep the package before trusting one.)
 
-**The model to copy is already on this line.**
-`Modules/Sync/Tests/Sync/UndoDriftIdentityTests.swift:55-83` is rule 1 implemented, and its doc
-comment states this mechanism in as many words. `plantLogMarker(_:)` writes
-`undo-drift-marker <label> <UUID>` **before** the operation; `logLines(since:)` flushes, resolves
-`entries.lastIndex(where: { $0.message == marker })`, and when that marker is gone records *"the log
+**The model to copy is already on this line.** `plantLogMarker(_:)` and `logLines(since:)` in
+`Modules/Sync/Tests/Sync/UndoDriftIdentityTests.swift` are rule 1 implemented, and their doc
+comments state this mechanism in as many words. (Cited by **symbol**, deliberately: the line range
+this used to name was correct when written and silently wrong two commits later, which is a bad
+trade for a file whose whole value is being checkable. Prefer a symbol plus a file when you add a
+citation here — `grep -n` costs the reader nothing and does not rot.)
+
+`plantLogMarker(_:)` writes `undo-drift-marker <label> <UUID>` **before** the operation.
+`logLines(since:)` then writes its own awaited CLOSING marker — which is rule 1's flush — resolves
+that marker's index *first*, searches for the opening marker only within `entries[..<end]`, and
+returns the slice strictly between the two. When the opening marker is gone it records *"the log
 window rolled past this test's own marker — the 1000-entry cap evicted it, so nothing can be
 concluded about the refusal line"* instead of returning a window. Ten tests in that suite use it.
 
@@ -1161,9 +1197,18 @@ grep of the whole package proves it to be. Run one; if a sibling can write your 
 
 Two more things to know if you copy it. Searching for `start` inside `entries[..<end]` is what makes
 the bounds unreversible by construction — see the trap warning below. And it records an `Issue`
-rather than requiring, so the test continues; that is safe here only because it then returns `[]` and
-the real assertions fail too. Prefer a `#require` when you write a fresh one, so the vacuous reading
-stops the test rather than merely annotating it.
+rather than requiring, so the test continues against the `[]` it returns.
+
+**What makes that safe is the `Issue.record`, and nothing else.** An earlier draft here said it was
+safe "because it then returns `[]` and the real assertions fail too" — which is exactly backwards
+for the half that matters. Five of this suite's absence assertions have the shape
+`lines.allSatisfy { !$0.contains(…) }`, and `allSatisfy` over an empty array is vacuously **true**
+(measured: `([] as [String]).allSatisfy { _ in false }` is `true`). On a fired guard every one of
+them passes. The recorded `Issue` is the whole reason a rolled window is not a silent pass here. So
+if you copy this helper, copy the `Issue.record` with it — a variant that merely `return []`s on a
+missing marker turns those five absence assertions into five vacuous passes at a stroke. Better
+still, prefer a `#require` in a fresh one, so the vacuous reading stops the test rather than merely
+annotating it.
 
 **Resolve the index before you slice, and never slice inside `#expect`.** `entries[a...b]` on
 reversed bounds *traps* rather than failing, and a trap inside an expectation takes the whole test
@@ -1171,8 +1216,11 @@ host down with it — a rolled buffer would then report as infrastructure and lo
 run's verdicts. `logLines` above gets this right: it resolves `start` and `guard let`s it before
 indexing anything.
 
-**A flush marker is NOT an eviction guard, and seven of the eleven files here only flush.** The
-common idiom —
+**A flush marker is NOT an eviction guard — so add the marker, do not drop the flush.** Seven of
+the eleven files here only flush, and the fix for them is to gain a survival guard, not to trade one
+guard for another: the flush is what makes the line *visible* at all (rule 1's second half), and a
+"modernised" test that replaced its flush with an opening marker would go back to reading an
+interval its own line has not reached yet. The common idiom —
 
 ```swift
 await Logger.shared.debug("some-test flush marker").value
@@ -1180,19 +1228,25 @@ return Logger.shared.entries.contains { … }
 ```
 
 — is doing something real and necessary: the queue is FIFO, so awaiting a fresh entry's task
-guarantees everything enqueued before it is *visible* in `entries` (see `Logger.log(level:message:)`,
-`Modules/Events/Sources/Events/Logger.swift:333-344`). But visibility is not survival. The marker is
-written **after** the call under test and its presence is never asserted, so it proves your line has
-arrived while saying nothing about whether it has already been pushed out. Recount rather than
-trusting the ratio above — it is meant to move.
+guarantees everything enqueued before it is *visible* in `entries` (see `log(level:message:)` and
+`flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift`). But visibility is not
+survival. The marker is written **after** the call under test and its presence is never asserted, so
+it proves your line has arrived while saying nothing about whether it has already been pushed out.
+Recount rather than trusting the ratio above — it is meant to move.
 
 None of the seven has been observed to roll on this line, and they are not wrong today. The five
 that assert only presence will tell you when it happens, loudly. The two that also assert absence
 will not — not for that half.
 
-**See.** `Modules/Events/Sources/Events/Logger.swift:354` for the cap and `:159` for the shared
-array; mechanism 3 for the parallel-suites premise this rests on, and for the foreign-line half that
-rule 2 also closes. First measured on `main`, in `f87d9e11` — *Account for a rollback and a widening
+**This mechanism has a different number on each line, so cite it by name.** It is **11** here, 10 on
+`v3.x`, and 12 on `main`, because the three registers accumulated different entries before it. A
+commit on this line (`cc834ab8`) already refers to it as "mechanism 12", which is a `main`-ism and
+points at nothing here. Write "the rolled log window" and a bare number will not go stale under a
+cherry-pick.
+
+**See.** `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap and
+`entries` for the shared array; mechanism 3 for the parallel-suites premise this rests on, and for
+the foreign-line half that rule 2 also closes. First measured on `main`, in `f87d9e11` — *Account for a rollback and a widening
 the log could not explain* — where a presence assertion reported a missing line, twice in parallel
 runs, for a line that had been written. That commit is not on this line and neither is the test it
 cost, but the cap and the parallel suites are, and `UndoDriftIdentityTests` reached the same
