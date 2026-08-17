@@ -302,7 +302,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
         // An unlistable ROOT: report it and yield nothing, exactly as the real enumerator does.
         // The enumerator stays non-nil — that is the whole point of modelling this.
-        if unlistableDirectories.contains(url.path) {
+        // Read under the lock like every other virtual-disk access: this mock is driven from the
+        // parallel worker pools, so an unsynchronised Set read races any test that arms a failure
+        // while a walk is in flight.
+        if sync({ unlistableDirectories.contains(url.path) }) {
             _ = handler?(url, NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError))
             return MockEnumerator(urls: [])
         }
@@ -312,6 +315,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             var children: [URL] = []
             let root = url.path
             var blockedDescendants: [URL] = []
+            var blockedEntries = Set<String>()
 
             for (key, _) in virtualDisk {
                 if key.hasPrefix(root) && key != root {
@@ -331,8 +335,23 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                     // cannot be descended into — while everything below it is withheld. Matches
                     // the measured shape: a listable root holding one locked subdirectory yields
                     // the subdirectory and reports it through the handler.
-                    if let blocked = unlistableDirectories.first(where: { key.hasPrefix($0 + "/") }) {
+                    //
+                    // Sorted by (length, path) rather than taken with `first(where:)`: a Set
+                    // iterates in an order Swift's per-launch hash seed decides, so with nested
+                    // unlistable directories (/a and /a/b) the one reported would change between
+                    // runs of an unchanged test. Shortest = outermost, which is the one the real
+                    // enumerator meets first on its way down.
+                    let ancestors = unlistableDirectories
+                        .filter { key.hasPrefix($0 + "/") }
+                        .sorted { ($0.count, $0) < ($1.count, $1) }
+                    if let blocked = ancestors.first {
                         blockedDescendants.append(URL(fileURLWithPath: blocked))
+                        // The blocked directory is itself a real entry, and the real enumerator
+                        // yields it whether or not this virtual disk happens to hold a stub for it.
+                        // Without this, a fixture that created only `/root/a/b` would withhold
+                        // `/root/a` as well, the listing would come back with nothing at all, and a
+                        // genuinely PARTIAL answer would read as a wholly unreadable root.
+                        blockedEntries.insert(blocked)
                         continue
                     }
                     if unlistableDirectories.contains(key), !mask.contains(.skipsSubdirectoryDescendants) {
@@ -340,6 +359,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                     }
                     children.append(itemURL)
                 }
+            }
+            for path in blockedEntries where !children.contains(where: { $0.path == path }) {
+                children.append(URL(fileURLWithPath: path))
             }
             children.sort { $0.path < $1.path }
 

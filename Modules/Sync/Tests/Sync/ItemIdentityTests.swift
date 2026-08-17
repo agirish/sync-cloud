@@ -106,6 +106,32 @@ import Testing
         #expect(recorded.drift(at: file, fileManager: FileManager.default) == .changed)
     }
 
+    /// `attributesOfItem` does not follow links, so a symlink pointing at a directory arrives with
+    /// type symbolicLink and the link's own size — measured at 98 bytes. Folded into `.file` it
+    /// would look like an ordinary small file, quietly skipping the child-count guard.
+    @Test func aSymlinkToADirectoryIsNotMistakenForAFile() throws {
+        let base = try makeCanonicalTempRoot(prefix: "IdentitySymlink")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let target = base.appendingPathComponent("target")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: target.appendingPathComponent("one.txt"))
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let identity = ItemIdentity.snapshot(at: link, fileManager: FileManager.default)
+
+        guard case .symlink = identity else {
+            Issue.record("a symlink to a directory came back as \(identity)")
+            return
+        }
+        // And it is not equal to a plain file of the same size and date, so a link swapped for a
+        // file is drift rather than a match.
+        if case .symlink(let size, let modified) = identity {
+            #expect(ItemIdentity.compare(recorded: identity,
+                                         current: .file(size: size, modified: modified)) == .changed)
+        }
+    }
+
     @Test func indeterminateOnEitherSideIsIndeterminate() {
         let file = ItemIdentity.file(size: 10, modified: nil)
         #expect(ItemIdentity.compare(recorded: .indeterminate, current: file) == .indeterminate)
