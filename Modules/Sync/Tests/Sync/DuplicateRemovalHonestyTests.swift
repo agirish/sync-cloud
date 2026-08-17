@@ -85,6 +85,44 @@ import Events
         #expect(manager.banner?.isUndoable == true)
     }
 
+    /// **A partial batch's offer has to EXPIRE like a whole one's.** The two sibling banners pass
+    /// `undoable:`; this one conditioned only its sentence on `outcome.isUndoable` and left the
+    /// flag at its default. `invalidateUndoableBanner` reads the flag, not the sentence, so the
+    /// offer survived the undo stack moving on — and once another operation registers, "Press ⌘Z
+    /// to undo" is an instruction to reverse the WRONG step. That is the same misdirected shortcut
+    /// `DeleteOutcome` exists to prevent, reached by a different route.
+    ///
+    /// Warnings are normally left standing, deliberately, so an error cannot be cleared by an
+    /// unrelated op — which is precisely why severity and undoability are separate parameters.
+    @MainActor
+    @Test func aPartialBatchThatOffersUndoIsMarkedUndoableSoTheOfferCanExpire() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        // Two eligible groups, one of whose keepers is gone: it is filtered out of `batch` while
+        // staying in `eligible`, which is what takes the partial branch. The surviving group
+        // trashes normally, so the outcome genuinely IS undoable — without that this would be
+        // asserting about the no-offer case.
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/y"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        // …and NOT "/a/y": the second group's keeper never existed.
+        let present = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
+        let keeperGone = group(keeper: "/a/y", redundant: "/b/y", reclaim: 1000)
+        manager.duplicateGroups = [present, keeperGone]
+
+        await manager.applyRecommendedDuplicates([present, keeperGone])
+
+        // The premise: this is the partial branch, and it did make an offer.
+        let message = try #require(manager.banner?.message)
+        #expect(message.contains("of 2 groups"),
+                "not the partial branch — the banner reads “\(message)”, so the flag below is not the one under test")
+        #expect(message.contains("⌘Z"),
+                "the partial banner made no undo offer at all, so there is nothing here that needs to expire")
+        // THE INVARIANT: an offer that is made must also be retractable.
+        #expect(manager.banner?.isUndoable == true,
+                "the banner offers ⌘Z but is not marked undoable, so invalidateUndoableBanner leaves it up after the stack moves on and the offer starts pointing at another operation")
+    }
+
     // MARK: The outcome type itself
 
     @Test func theOutcomeSeparatesRecoverableFromPermanent() {
