@@ -182,6 +182,21 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// Provider-relative destination folder, may contain tokens (see ``AutomationEvaluator``).
     public var destinationTemplate: String
 
+    /// A `matchMode` written by a **newer build**, kept exactly as it arrived.
+    ///
+    /// Not a mode — a survival mechanism, the same one ``AutomationCondition`` needs for a
+    /// condition name it does not know. `MatchMode` is a raw-value enum, so an unknown value throws
+    /// out of the synthesized decoder, and the whole rule ARRAY is one JSON blob: one rule from a
+    /// newer build used to empty the user's entire list. Keeping the raw value means it round-trips
+    /// untouched, and ``isRunnable`` being false means this build never acts on a combining rule it
+    /// cannot evaluate — guessing `all` or `any` would file the user's files by a rule they did not
+    /// write. `matchMode` itself falls back to `.all` so every reader still has a value to show.
+    private var unrecognizedMatchMode: JSONFragment?
+    /// Top-level keys this build does not know, kept verbatim so a round-trip through it is not a
+    /// silent downgrade of the user's data. See the note on ``AutomationRule`` about why there is no
+    /// `schemaVersion` here.
+    private var unknownFields: [String: JSONFragment]
+
     public enum MatchMode: String, Codable, Sendable, CaseIterable, Identifiable {
         case all, any
         public var id: String { rawValue }
@@ -203,6 +218,8 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         self.matchMode = matchMode
         self.conditions = conditions
         self.destinationTemplate = destinationTemplate
+        self.unrecognizedMatchMode = nil
+        self.unknownFields = [:]
     }
 
     /// A rule is runnable only when it has a name, a destination, and conditions the
@@ -210,7 +227,11 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// needs EVERY condition complete — matches() proves "all" over nothing less, so an
     /// all-of rule with a half-built row is inert and must read as incomplete everywhere
     /// (card pill, preview gating, runnable count) rather than promising its complete half.
+    ///
+    /// A rule whose combining mode came from a newer build is never runnable — see
+    /// ``unrecognizedMatchMode``.
     public var isRunnable: Bool {
+        guard unrecognizedMatchMode == nil else { return false }
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty,
               !destinationTemplate.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         switch matchMode {
@@ -237,5 +258,136 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         }
         let dest = destinationTemplate.isEmpty ? "…" : destinationTemplate
         return "\(lhs) → \(dest)"
+    }
+}
+
+// MARK: - Persistence that survives a version it does not know
+
+/// The rules are persisted as **one JSON blob under one key**, which is what makes every question
+/// here all-or-nothing: a single value this build cannot read throws out of the array decode, every
+/// rule disappears from the UI, and the next rule the user creates writes the empty set back over
+/// them. `FileSyncManager.readPersistedStore` keeps the undecodable bytes under a sibling key, but
+/// that is a floor — nothing in the app offers them back.
+///
+/// So this decoder is written to lose at most the one value it cannot read:
+///
+/// - **A key this build does not know is kept verbatim** and written back on the next save. Editing
+///   a rule in an older build is then not a silent downgrade of data a newer one wrote.
+/// - **A key this build expects but does not find falls back** to the initializer's own default,
+///   rather than taking the array with it — the shape ``FilingRule`` and ``PaneTabsStore/Entry``
+///   already use, and for the same reason.
+/// - **A `matchMode` this build cannot evaluate is preserved and the rule made inert.** Guessing
+///   `all` or `any` would file the user's files by a rule they never wrote.
+///
+/// **There is deliberately no `schemaVersion`,** which is the one thing this store is missing that
+/// its seven siblings have. A version number is only worth what the code does with it, and the two
+/// useful jobs are already covered: telling a shape apart is what the tolerance above does per
+/// field, and refusing to act on a shape this build does not understand is what
+/// ``AutomationRule/isRunnable`` does per rule. Stamping a number that nothing reads is the pattern
+/// `PersonTag` was faulted for. Should a future build want one, it can add the key and this build
+/// will carry it through untouched — which is precisely the point of the unknown-field bag.
+extension AutomationRule {
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, name, enabled, matchMode, conditions, destinationTemplate
+    }
+
+    /// A key made from a string at runtime — needed to reach the keys this build has no case for.
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(_ stringValue: String) { self.stringValue = stringValue }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+        init(_ key: CodingKeys) { self.stringValue = key.stringValue }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        // `decodeIfPresent` for the ordinary absent case; `try?` on top of it because a value of
+        // the wrong TYPE (a hand-edited plist, a field a future build repurposed) must also cost
+        // only itself. Nothing below can throw, which is the property that matters: the array
+        // decode cannot fail on one rule's one bad field.
+        func value<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            (try? c.decodeIfPresent(type, forKey: AnyKey(key))) ?? nil
+        }
+        id = value(UUID.self, .id) ?? UUID()
+        name = value(String.self, .name) ?? ""
+        enabled = value(Bool.self, .enabled) ?? true
+        conditions = value([AutomationCondition].self, .conditions) ?? []
+        destinationTemplate = value(String.self, .destinationTemplate) ?? ""
+
+        // Absent is not the same as unrecognized: a rule with no mode at all is an ordinary `all`
+        // rule and stays runnable, while a rule carrying a mode this build cannot evaluate does not.
+        if let raw = value(JSONFragment.self, .matchMode) {
+            if case .string(let name) = raw, let known = MatchMode(rawValue: name) {
+                matchMode = known
+                unrecognizedMatchMode = nil
+            } else {
+                matchMode = .all
+                unrecognizedMatchMode = raw
+            }
+        } else {
+            matchMode = .all
+            unrecognizedMatchMode = nil
+        }
+
+        let known = Set(CodingKeys.allCases.map(\.stringValue))
+        var carried: [String: JSONFragment] = [:]
+        for key in c.allKeys where !known.contains(key.stringValue) {
+            if let fragment = try? c.decode(JSONFragment.self, forKey: key) {
+                carried[key.stringValue] = fragment
+            }
+        }
+        unknownFields = carried
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: AnyKey.self)
+        // Carried keys first. They cannot collide with a known one by construction, and writing
+        // them first means that if that ever stopped being true the real value would still win.
+        for (name, fragment) in unknownFields.sorted(by: { $0.key < $1.key }) {
+            try c.encode(fragment, forKey: AnyKey(name))
+        }
+        try c.encode(id, forKey: AnyKey(.id))
+        try c.encode(name, forKey: AnyKey(.name))
+        try c.encode(enabled, forKey: AnyKey(.enabled))
+        if let unrecognizedMatchMode {
+            try c.encode(unrecognizedMatchMode, forKey: AnyKey(.matchMode))
+        } else {
+            try c.encode(matchMode, forKey: AnyKey(.matchMode))
+        }
+        try c.encode(conditions, forKey: AnyKey(.conditions))
+        try c.encode(destinationTemplate, forKey: AnyKey(.destinationTemplate))
+    }
+}
+
+/// The smallest JSON value model that can hold anything a field this build does not know might be.
+/// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
+/// struct and be written back through whatever encoder the caller is using.
+indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
+    case null, bool(Bool), number(Double), string(String)
+    case array([JSONFragment]), object([String: JSONFragment])
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Double.self) { self = .number(v) }
+        else if let v = try? c.decode(String.self) { self = .string(v) }
+        else if let v = try? c.decode([JSONFragment].self) { self = .array(v) }
+        else { self = .object(try c.decode([String: JSONFragment].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null: try c.encodeNil()
+        case .bool(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        case .string(let v): try c.encode(v)
+        case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        }
     }
 }
