@@ -31,6 +31,16 @@ extension FileSyncManager {
     /// Enriched inside `registerMoveUndo` rather than added to `MoveItemState`, so the eight call
     /// sites that build a move state keep passing what they already build.
     typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity)
+    /// What a move-REDO needs to re-apply one item: where its undo put the item back, where the
+    /// original move had sent it, and the identity read at `from` the instant the undo landed it
+    /// there.
+    ///
+    /// The identity is the whole reason this is not a bare `(from:to:)` pair. A redo moves, so it
+    /// destroys, and it was gating on nothing but `fileExists(from)` — an existence test standing
+    /// in for an identity question, exactly as `liveLocation` was. Its undo re-snapshots the item
+    /// at `to` for the NEXT undo already, so recording the source costs one more stat on a path
+    /// that was taking one anyway.
+    typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity)
     /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
     /// holds its backup. Only items that actually reached the Trash are represented — a delete
     /// that fell through to a permanent remove has nothing to restore.
@@ -173,6 +183,48 @@ extension FileSyncManager {
         }
     }
 
+    /// Surfaces a REDO that was refused because the item it was about to move back to the
+    /// destination is no longer the item its undo put at the source. The undo path has refused this
+    /// for both of its own guards since `ItemIdentity` landed; the redo path had nothing, and
+    /// gated only on the source PATH existing.
+    ///
+    /// Measured before this existed: move `/src/report.txt` → `/dst/report.txt`, ⌘Z, then create a
+    /// DIFFERENT `/src/report.txt` and an unrelated `/dst/report.txt`, then ⌘⇧Z. The redo moved the
+    /// file the user had just created, replaced the unrelated file at the destination, left nothing
+    /// at the source, and reported nothing at all — no log line, no banner. A redo is as
+    /// destructive as an undo and gets the same refusal.
+    ///
+    /// A source that is simply GONE is NOT this case: nothing is there to move, and
+    /// `reportRedoFailure` already says exactly that. This is only for a source that is present and
+    /// demonstrably not ours (`.changed`) or that cannot be read at all (`.indeterminate`).
+    nonisolated static func reportRedoRefusedChangedItem(
+        of source: URL,
+        actionName: String,
+        verdict: DriftVerdict,
+        on target: FileSyncManager
+    ) async {
+        let name = source.lastPathComponent
+        let logMessage: String
+        let bannerMessage: String
+        switch verdict {
+        case .changed:
+            logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" from \(source.path) — it changed since the undo put it back, so it is no longer the item this redo moves; leaving it in place"
+            bannerMessage = "Redo left \"\(name)\" in place — it changed since"
+        case .indeterminate:
+            logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" from \(source.path) — its current state could not be read, so it cannot be confirmed as the item this redo moves; leaving it in place"
+            bannerMessage = "Redo left \"\(name)\" in place — it couldn't be checked"
+        case .unchanged:
+            // Not a refusal. Spelled out rather than defaulted so a future verdict has to be
+            // decided here rather than quietly reported as a change.
+            logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
+            bannerMessage = "Redo left \"\(name)\" in place"
+        }
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning(bannerMessage)
+        }
+    }
+
     /// Surfaces a TRANSIENT trash failure during an undo (the item is busy/locked or momentarily
     /// permission-blocked — see `isTransientTrashFailure`). Such failures must stay retryable:
     /// escalating them to the permanent-delete prompt could destroy a file that a retry would
@@ -219,8 +271,11 @@ extension FileSyncManager {
     /// whole table from the whole batch. Measured (debug build, before the split): n=100 → 0.015 s,
     /// n=1000 → 1.70 s, n=3000 → **14.6 s**, n=6000 → 52.1 s of added main-thread time right after
     /// a bulk move — reachable from a multi-select move and from `normalizeNames`, both of which
-    /// can hand over thousands of items. `theUndoRegistrationOfALargeBatchStaysLinear` is what
-    /// keeps it from creeping back.
+    /// can hand over thousands of items.
+    /// `theUndoRegistrationOfThreeThousandItemsStaysUnderThreeSeconds` is what keeps it from
+    /// creeping back — and its name says what it can actually see: one point against a ceiling,
+    /// which separates a three-orders-of-magnitude blow-up from the current cost and would not
+    /// notice a merely 10× regression.
     nonisolated static func renameMap(for batch: [MoveItemState]) -> [String: String] {
         var renames: [String: String] = [:]
         for move in batch where move.from.path != move.to.path {
@@ -236,7 +291,7 @@ extension FileSyncManager {
     /// Only ANCESTOR components are rewritten, and only when another move's `from` is a strict
     /// ancestor of `destination`. A batch that renames ancestors first leaves no old name to
     /// match, so nothing is rewritten and the path is returned as-is — which is every single-item
-    /// batch and every same-directory batch, i.e. all but one of the ten call sites.
+    /// batch and every same-directory batch, i.e. all but one of the eight call sites.
     ///
     /// **A rewrite also has to be confirmed against the disk, because the ancestor condition alone
     /// is not proof.** The claim it used to rest on — "`destination` can still spell an ancestor's
@@ -245,15 +300,31 @@ extension FileSyncManager {
     /// roots `/P` and `/P/Backup`, a multi-select move can move `/P/Backup/D` first and then let
     /// `ensureParentDirectoryExists` recreate `/P/Backup/D` under the item that lands second, so
     /// that item IS at its recorded `to` and rewriting the path walks it off into
-    /// `/P/Backup/Backup/D/…`. The consequence was only ever a bad READ — `item.to` still drives
-    /// the actual move, so the blast radius is an `.absent` snapshot and a falsely refused undo,
-    /// never a wrong destination — but a false refusal is exactly what this function exists to
-    /// stop. So: if the item is still AT `destination`, it did not go anywhere, and the recorded
-    /// path is the answer. The stat costs one call, and only on the nested path where a rewrite
-    /// was about to happen; every flat batch returns before reaching it.
+    /// `/P/Backup/Backup/D/…`, snapshotting `.absent` and falsely refusing the undo.
+    ///
+    /// **The confirmation asks the DISK about the rewrite, not about the recorded path — because
+    /// `fileExists` cannot tell OUR item from any item.** Written the other way round ("if
+    /// something is still at `destination`, it did not go anywhere") this trusted a STRANGER: let a
+    /// normalize pass turn `/root/P␣/a␣.txt` into `/root/P/a.txt`, then let the user recreate
+    /// `/root/P␣` with an unrelated `a.txt` in it, and the recorded path is occupied again — by a
+    /// file that has nothing to do with the batch. The snapshot was then taken OF the stranger, the
+    /// undo's drift guard compared the stranger against itself, answered `.unchanged`, and moved
+    /// it: measured on that fixture, ⌘Z renamed the user's unrelated file to `a␣.txt` — planting
+    /// the very zero-width space the pass exists to remove — left the real item un-undone, and
+    /// raised a banner naming a different item and blaming the Trash, which nothing went near.
+    ///
+    /// So the recorded path is trusted only when the REWRITTEN one is absent: nothing else can be
+    /// there, so `destination` is the only candidate left. Ambiguity — both occupied — resolves to
+    /// the rewrite, which makes the snapshot disagree with whatever sits at the recorded path and
+    /// so makes the undo REFUSE. **That is the invariant this function is written to keep: a wrong
+    /// answer here must cost a refusal, never a move of the wrong item.** The stats cost two calls,
+    /// and only on the nested path where a rewrite was about to happen; every flat batch returns
+    /// before reaching them.
     ///
     /// Resolution is recursive so a three-deep nest resolves fully (`/A-BAD/B-BAD/c.txt` →
-    /// `/AOK/BOK/c.txt`), and guarded by a `seen` set so a rename CYCLE stops rather than looping.
+    /// `/AOK/BOK/c.txt`), guarded by a `seen` set so a rename CYCLE stops rather than looping, and
+    /// bounded by a depth cap so the `seen` guard's absence fails legibly instead of overflowing
+    /// the stack. Giving up returns `destination`, which is the safe direction above.
     /// The leaf itself is never rewritten: an item is renamed once per batch, so its own name is
     /// final, and rewriting it would follow an unrelated item that happens to have taken the path —
     /// a renumbering cascade (`01 - x.pdf`→`02 - x.pdf` beside `02 - x.pdf`→`03 - x.pdf`) has one
@@ -264,10 +335,17 @@ extension FileSyncManager {
         guard !renames.isEmpty else { return destination }
         let parent = destination.deletingLastPathComponent()
         var seen = Set<String>()
-        let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen)
+        guard let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen)
+        else { return destination }
         guard livingParent != parent.path else { return destination }
-        guard !fm.fileExists(atPath: destination.path) else { return destination }
-        return URL(fileURLWithPath: livingParent).appendingPathComponent(destination.lastPathComponent)
+        let rewritten = URL(fileURLWithPath: livingParent)
+            .appendingPathComponent(destination.lastPathComponent)
+        // Recorded path occupied AND rewritten path free: nothing else can hold the item, so the
+        // occupant is it. Every other combination — including both occupied, where the occupant of
+        // the recorded path may be a stranger — takes the rewrite, i.e. takes a refusal.
+        guard fm.fileExists(atPath: destination.path),
+              !fm.fileExists(atPath: rewritten.path) else { return rewritten }
+        return destination
     }
 
     /// One-shot convenience over `renameMap(for:)` + `liveLocation(of:throughRenames:fileManager:)`.
@@ -279,8 +357,21 @@ extension FileSyncManager {
         liveLocation(of: destination, throughRenames: renameMap(for: batch), fileManager: fm)
     }
 
+    /// How many frames `resolveRenamedDirectory` may take before it abandons the resolution.
+    ///
+    /// One frame per path component plus one per rename hop. `PATH_MAX` is 1024 BYTES, so a real
+    /// path cannot carry more than ~512 components even at two bytes each, and every path this app
+    /// has ever seen is under fifty; a rename CHAIN long enough to add hundreds more would have to
+    /// be a renumbering cascade of that many DIRECTORIES in one batch. 512 is therefore far outside
+    /// anything producible, and deliberately small enough that hitting it cannot itself overflow a
+    /// stack: these frames are a few hundred bytes each, so the whole cap fits inside the 512 KB a
+    /// non-main thread gets — which matters because the tests that exercise it do not run on the
+    /// main actor, and a cap that crashed on the way to reporting itself would be no cap at all.
+    private nonisolated static let maxRenameResolutionDepth = 512
+
     /// `liveLocation`'s worker: the path `path` reads as after `renames` are applied to it and to
-    /// every one of its ancestors. `seen` bounds a cycle (A→B, B→A) to one lap.
+    /// every one of its ancestors, or nil if the resolution ran past `maxRenameResolutionDepth`.
+    /// `seen` bounds a cycle (A→B, B→A) to one lap.
     ///
     /// **`seen` is unreachable from production, and stays anyway.** The only caller of
     /// `liveLocation` is `registerMoveUndo(items:)`, and every batch reaching it was applied
@@ -292,17 +383,28 @@ extension FileSyncManager {
     /// stack-overflow crash of the whole app, from a batch nobody could inspect afterwards. That
     /// is the wrong side to be cheap on, so it stays, and `liveLocationStopsAtOneLapOfACycle`
     /// pins the exact path it produces rather than accepting "either lap".
+    ///
+    /// **The depth cap is what makes that guard's absence legible.** Deleting `seen` used to be
+    /// invisible to the suite in the worst possible way: the recursion never returned, the test
+    /// host died with `exited with unexpected signal code 10`, and the run ended with no
+    /// `Test run with N tests` line at all — so the regression reported as broken infrastructure
+    /// and took every other verdict in the run with it. With the cap, the same deletion runs out of
+    /// frames, answers nil, and `liveLocation` returns the recorded path, which its own tests then
+    /// disprove as an ordinary red assertion. The cap is a BACKSTOP, not a replacement: `seen` is
+    /// what gives a cycle its correct one-lap answer, and nil is only ever a refusal.
     private nonisolated static func resolveRenamedDirectory(
-        _ path: String, renames: [String: String], seen: inout Set<String>
-    ) -> String {
+        _ path: String, renames: [String: String], seen: inout Set<String>, depth: Int = 0
+    ) -> String? {
+        guard depth < maxRenameResolutionDepth else { return nil }
         if let renamed = renames[path] {
             guard seen.insert(path).inserted else { return path }
-            return resolveRenamedDirectory(renamed, renames: renames, seen: &seen)
+            return resolveRenamedDirectory(renamed, renames: renames, seen: &seen, depth: depth + 1)
         }
         let url = URL(fileURLWithPath: path)
         let parent = url.deletingLastPathComponent()
         guard parent.path != path else { return path }   // reached the volume root
-        let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen)
+        guard let livingParent = resolveRenamedDirectory(parent.path, renames: renames, seen: &seen,
+                                                         depth: depth + 1) else { return nil }
         guard livingParent != parent.path else { return path }
         return URL(fileURLWithPath: livingParent).appendingPathComponent(url.lastPathComponent).path
     }
@@ -631,6 +733,18 @@ extension FileSyncManager {
                         var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
 
+                        // **No source-identity guard here, deliberately, and it is not the same gap
+                        // the MOVE redo had.** A move-redo that reads a changed source relocates
+                        // it: the stranger leaves the source path and lands on the destination, and
+                        // that is destruction, so it refuses. A copy-redo reads the source and
+                        // leaves it exactly where it is. What it can overwrite is the DESTINATION,
+                        // and `safeCopyItem` puts that through the same collision resolver the
+                        // original copy went through — the user is asked, the displaced item comes
+                        // back as `trashed`, and the next undo restores it. There is also no
+                        // recorded identity to compare against: a copy never touches its source, so
+                        // nothing in this chain has ever snapshotted one. Re-copying a source the
+                        // user has since edited re-applies the copy to the file that is there now,
+                        // which is what "redo the copy" means.
                         for param in params {
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                             do {
@@ -656,19 +770,41 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    /// **`items` is in UNDO order**, and the whole undo/redo chain keeps it that way: the handler
-    /// reverses them front to back, `registerMoveRedo` re-applies them back to front, and the
-    /// state it hands the next undo is reversed again. `normalizeNames` is where that matters —
-    /// it applies deepest-first and passes the batch shallowest-first, so a ⌘Z restores a renamed
-    /// parent folder before the children renamed inside it, and a ⌘⇧Z renames the children before
-    /// the folder around them. Every other call site passes one item, or items in no relation to
-    /// each other, and is indifferent.
+    /// **`items` arrives in whatever order its call site built it, and the whole chain preserves
+    /// that order**: the handler reverses them front to back, `registerMoveRedo` re-applies them
+    /// back to front, and the state it hands the next undo is reversed again.
+    ///
+    /// **Exactly ONE of the eight call sites depends on that, and it is the only one that sorts.**
+    /// `normalizeNames` applies deepest-first and then deliberately re-sorts the batch
+    /// shallowest-first before registering, so a ⌘Z restores a renamed parent folder before the
+    /// children renamed inside it and a ⌘⇧Z renames the children before the folder around them.
+    /// The reversal in `registerMoveRedo` is written for that call site, and the comment there
+    /// saying it "restores the original apply order" is true of that call site only.
+    ///
+    /// The other seven hand over APPLY order — four pass a single item, where order is not a
+    /// question at all, and three (`FileOperations.swift`'s multi-select move,
+    /// `FileSyncManager+Filing.swift`'s batch filing, `FileSyncManager+Automations.swift`'s
+    /// automation run) append in the order they moved things. For those the replay runs the batch
+    /// backwards, which is harmless because filing and automation move FILES into destination
+    /// folders: no move's `from` can be an ancestor of another's `to`, so any order reverses.
+    ///
+    /// **The multi-select move is the one that has to be checked rather than assumed, and it does
+    /// NOT satisfy that.** `liveLocation`'s own doc, four hundred lines above, constructs the
+    /// counter-example: with nested provider roots `/P` and `/P/Backup`, a single multi-select move
+    /// batch has `/P/Backup/D` → `/P/Backup/moved-D` beside `/P/D/file.txt` →
+    /// `/P/Backup/D/file.txt`, where the first move's `from` IS a strict ancestor of the second's
+    /// `to`. Claiming here that every other batch holds "items whose paths cannot reach each other"
+    /// contradicted that, so it is stated as it is instead. Nothing reaches the bad replay today:
+    /// undoing such a batch refuses the ancestor (its source is occupied by the recreated
+    /// directory), so the ancestor never enters the redo params and the reversal has nothing to get
+    /// wrong. If a second call site ever needs an order, SORT it as `normalizeNames` does rather
+    /// than leaning on the reversal.
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            let redoParamResolver = AsyncValueResolver<[(from: URL, to: URL)]>()
+            let redoParamResolver = AsyncValueResolver<[MoveRedoParam]>()
             target.registerMoveRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
             target.preCountFileOperation()
@@ -690,7 +826,7 @@ extension FileSyncManager {
                         // hides the genuine `safeMoveItem` throws among it. The copy path already
                         // separates the two with its own `leftInPlace`; this is its twin.
                         var leftInPlace = 0
-                        var reversedParams: [(from: URL, to: URL)] = []
+                        var movedBackPairs: [(from: URL, to: URL)] = []
                         for item in items {
                             var movedBackOK = false
                             // A case-only rename ("foo"→"Foo") is NOT a clobber: on a case-insensitive
@@ -739,7 +875,7 @@ extension FileSyncManager {
                                     movedBack += 1
                                     movedBackOK = true
                                     // Only a move-back that actually happened is redoable.
-                                    reversedParams.append((from: item.from, to: item.to))
+                                    movedBackPairs.append((from: item.from, to: item.to))
                                 } catch {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
@@ -759,6 +895,19 @@ extension FileSyncManager {
                                 }
                             }
                         }
+                        // The identity each restored item has NOW, read in one pass once the whole
+                        // reversal has settled — this is what lets the redo refuse to move a
+                        // stranger, and the pass has to come after the loop rather than inside it.
+                        // A batch can nest (`normalizeNames` restores a parent and then the
+                        // children inside it), and moving a child rewrites its PARENT's
+                        // modification date; a directory identity taken the moment that directory
+                        // landed would already disagree with itself two items later. The state the
+                        // loop leaves behind is the state the redo will find, so that is the one to
+                        // record.
+                        let reversedParams: [MoveRedoParam] = movedBackPairs.map { pair in
+                            (from: pair.from, to: pair.to,
+                             sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm))
+                        }
                         await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)")
                 }
@@ -767,7 +916,7 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
 
-    func registerMoveRedo(paramResolver: AsyncValueResolver<[(from: URL, to: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    func registerMoveRedo(paramResolver: AsyncValueResolver<[MoveRedoParam]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
@@ -781,10 +930,46 @@ extension FileSyncManager {
                         let params = await paramResolver.get()
                         var nextState: [MoveUndoItemState] = []
                         var redoFailures = 0
+                        var leftInPlace = 0
 
-                        // REVERSED, because re-applying is not the same order as reversing.
+                        // "Still the same item?" for the REDO, which had no such guard at all: it
+                        // gated on `fileExists(param.from)` and then moved whatever was there.
+                        // Measured — move `/src/report.txt` → `/dst/report.txt`, ⌘Z, create a
+                        // DIFFERENT `/src/report.txt` and an unrelated `/dst/report.txt`, ⌘⇧Z — the
+                        // redo relocated the file the user had just made, replaced the unrelated
+                        // one at the destination, and said nothing: no log line, no banner. The
+                        // undo path refuses exactly this via `reportUndoRefusedChangedItem`.
                         //
-                        // The undo appends `reversedParams` in the order it processed `items`, and
+                        // EVERY source is checked BEFORE ANY of them moves, and that ordering is
+                        // the design rather than tidiness. The replay below runs deepest-first, so
+                        // moving a child rewrites its PARENT's modification date — a directory
+                        // source checked in its turn would be measured against a date this very
+                        // loop had just changed and would refuse a nested redo that is entirely
+                        // correct. Up front, each source is compared against the disk the undo left
+                        // behind, which is the state its identity was recorded from.
+                        var replayable: [MoveRedoParam] = []
+                        for param in params.reversed() {
+                            let currentSource = ItemIdentity.snapshot(at: param.from, fileManager: fm)
+                            // A source that is simply GONE is not drift — nothing is there to be a
+                            // stranger — and the re-apply below reports it precisely as "its source
+                            // may no longer exist". Only something PRESENT and demonstrably not
+                            // ours, or unreadable, is refused here.
+                            guard currentSource != .absent else { replayable.append(param); continue }
+                            let verdict = ItemIdentity.compare(recorded: param.sourceIdentity,
+                                                               current: currentSource)
+                            guard verdict == .unchanged else {
+                                leftInPlace += 1
+                                await FileSyncManager.reportRedoRefusedChangedItem(
+                                    of: param.from, actionName: actionName, verdict: verdict, on: target)
+                                continue
+                            }
+                            replayable.append(param)
+                        }
+
+                        // `replayable` is already REVERSED, because re-applying is not the same
+                        // order as reversing.
+                        //
+                        // The undo appends its params in the order it processed `items`, and
                         // `normalizeNames` hands that in deliberately: apply deepest-first, undo
                         // shallowest-first, so the parent is restored around the children before
                         // they move back inside it. Re-applying in the undo's own order runs the
@@ -795,15 +980,15 @@ extension FileSyncManager {
                         // and the stray directory then occupied the child's source, so the next
                         // ⌘Z hit `restoreTargetOccupiedError` and reversed nothing at all. No data
                         // was lost, but the tree was one nobody asked for and the undo stack was
-                        // dead. Reversing restores the original apply order, which is the order
-                        // that made the moves possible in the first place.
+                        // dead. Reversing restores the order in which `normalizeNames` applied the
+                        // moves, which is the order that made them possible in the first place.
                         //
                         // It also makes the inline snapshot below read a LIVE path for free: each
                         // item is snapshotted the instant it lands, before the shallower moves
                         // rename its ancestors, so `param.to` is where the item actually is. This
                         // is why the redo does NOT need `liveLocation` — and must not use it, as
                         // that would resolve to a path only the LATER moves make real.
-                        for param in params.reversed() {
+                        for param in replayable {
                             // Only manufacture the destination's parent for a move that can
                             // actually happen. Unconditionally, this created the ancestor a
                             // sibling move had just renamed away — the empty `Photos␣` above —
@@ -835,7 +1020,7 @@ extension FileSyncManager {
                         // children inside it had left, which is the same defect one step further
                         // along.
                         await nextUndoStateResolver.resolve(Array(nextState.reversed()))
-                        logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s)")
+                        logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (changed or unverifiable)")
                 }
             }
         }
