@@ -359,16 +359,33 @@ public extension ScaledFont {
     /// `monospacedDigitSystemFont` on the digits path is not a nicety: measured, "1" is 5.93pt in
     /// the proportional face and 7.87pt in the monospaced-digit one, so a count pill measured with
     /// the wrong face is out by 2pt per digit.
+    ///
+    /// `.rounded` is handled for the same reason and it had been missing: the design fell through
+    /// to `systemFont`, so a rounded font measured here silently reported the *default* face's
+    /// width. That is not hypothetical — "Birth Certificate" is 95.729pt in SF Pro and 92.917pt in
+    /// SF Rounded, and the 95.7 figure reached a release-notes draft as the width of a row that
+    /// draws `PaneRowFonts.name`, which is rounded. No ladder measures a rounded font today, so
+    /// nothing shipped wrong; the trap was that the miss was silent, in the one file whose whole
+    /// claim is that its numbers agree with the drawn text.
     func nsFont(scale: CGFloat) -> NSFont {
         let size = pointSize(scale: scale)
         let appKitWeight = Self.appKitWeight(weight)
         if usesMonospacedDigits {
             return NSFont.monospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
         }
-        if design == .monospaced {
+        let base = NSFont.systemFont(ofSize: size, weight: appKitWeight)
+        switch design {
+        case .monospaced:
             return NSFont.monospacedSystemFont(ofSize: size, weight: appKitWeight)
+        case .rounded:
+            // `withDesign` returns nil if the face is unavailable; the default face is the honest
+            // fallback, and it is what this line has been returning for every rounded font so far.
+            guard let descriptor = base.fontDescriptor.withDesign(.rounded),
+                  let rounded = NSFont(descriptor: descriptor, size: size) else { return base }
+            return rounded
+        default:
+            return base
         }
-        return NSFont.systemFont(ofSize: size, weight: appKitWeight)
     }
 
     /// The symbol weight an `Image(systemName:)` drawn in this font renders at. No `scale`
