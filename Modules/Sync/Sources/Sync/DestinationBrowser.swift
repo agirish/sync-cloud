@@ -74,10 +74,14 @@ public struct DestinationSearchOutcome: Equatable, Sendable {
 
     /// True when at least one directory in range could not be listed. The walk was not cut short;
     /// part of the tree was simply withheld from it, and no amount of narrowing will open it.
+    ///
+    /// Deliberately NOT joined to `stoppedEarly` by a convenience `isComplete`. There was one, and
+    /// nothing in the app ever read it — the picker asks `emptyMessage` and `footnote`, both of
+    /// which switch on the PAIR, because the sentence a person needs is different for each cause.
+    /// A single boolean over a type whose own reason for existing is that "one boolean was not
+    /// enough" is the shape that gets read as the answer and then re-split at every call site, so
+    /// it went the way of the `subfolders` wrapper before it. Tests state the two facts.
     public let skippedUnreadableDirectory: Bool
-
-    /// True only when these matches are the whole answer.
-    public var isComplete: Bool { !stoppedEarly && !skippedUnreadableDirectory }
 
     public static let empty = DestinationSearchOutcome(
         matches: [], stoppedEarly: false, skippedUnreadableDirectory: false)
@@ -217,6 +221,29 @@ public enum DestinationBrowser {
     /// `isCancelled` is polled per directory. The caller runs this on a detached task, which does
     /// **not** inherit cancellation, so without an explicit hook every superseded keystroke's walk
     /// would run to completion behind the one the user is waiting on.
+    ///
+    /// **No directory is listed twice, however many names lead to it.** `listSubfolders`' filter
+    /// keeps symlinked directories — `fileExists(atPath:isDirectory:)` follows links — so once a
+    /// `listSubfolders` of one started succeeding, this walk began descending through them, and a
+    /// link pointing back up its own tree is a cycle. Measured on a real disk, with
+    /// `root/Shortcuts/Home -> root`, `search("Medical")` returned **three matches carrying one
+    /// `path`**: `DestinationFolder`'s `id` IS its path, so `ForEach` in the picker got three rows
+    /// with the same id, which SwiftUI's own documentation calls undefined. With eight sibling
+    /// links back to the root, `search("d3")` returned the whole 60-match limit for one real folder
+    /// and `search("zzz")` reported itself truncated having spent its entire listing budget going
+    /// nowhere. Before the symlink fallback landed a symlinked directory was a dead end for this
+    /// walk, so all of that is newly reachable.
+    ///
+    /// The guard is a set of canonical identities, and skipping is **silent** — deliberately not
+    /// `skippedUnreadableDirectory`. Nothing is withheld: the folder is perfectly readable and its
+    /// contents are in the results already, under the first name the walk reached them by. Being
+    /// breadth-first, that is also the *shallowest* name, which is the one the picker wants to
+    /// show. Two spellings at the same level resolve by listing order, which is name-sorted and so
+    /// deterministic; either is a real, browsable destination.
+    ///
+    /// This does not stop a link being a *result*. A link whose own name matches is offered like
+    /// any other folder, and browsing into one column by column is unaffected — only arriving at
+    /// the same directory a second time is refused.
     public static func search(
         _ query: String,
         under root: String,
@@ -234,6 +261,9 @@ public enum DestinationBrowser {
         var frontier = [PaneBrowsePath.normalized(root)]
         var depth = 0
         var listings = 0
+        // Directories already listed, by canonical identity rather than by the spelling they were
+        // reached through — the whole point is that two spellings name one directory.
+        var visited: Set<String> = []
         // A directory the walk could not read is a FOURTH way to leave matches unseen, alongside
         // the three caps — and it is not one of them. The caps stop the walk EARLY, so a tighter
         // query reaches further; this one lets the walk finish and withholds a subtree from it,
@@ -249,6 +279,10 @@ public enum DestinationBrowser {
             var next: [String] = []
             for directory in frontier {
                 if isCancelled() { return outcome(stoppedEarly: true) }
+                // Checked BEFORE the budget is charged, because nothing was read: a second name for
+                // a directory already walked is not a listing, and counting it would let a fan of
+                // links spend the budget that exists to bound real work.
+                guard visited.insert(identity(of: directory, using: fileManager)).inserted else { continue }
                 if listings >= maxListings { return outcome(stoppedEarly: true) }
                 listings += 1
                 let listing = listSubfolders(of: directory, showHidden: showHidden, fileManager: fileManager)
@@ -272,6 +306,26 @@ public enum DestinationBrowser {
         // Falling out with directories still queued means the DEPTH cap stopped it, which is the
         // third way to leave matches unseen. Only an exhausted frontier is a complete answer.
         return outcome(stoppedEarly: !frontier.isEmpty)
+    }
+
+    /// One name per directory, so `search` can tell "somewhere new" from "somewhere it has already
+    /// been, spelled differently".
+    ///
+    /// ``DirectoryListingSupport/identity(of:)`` rather than a second notion of the same thing:
+    /// that function is already this codebase's written-down answer to "are these two URLs the same
+    /// directory", and `classify` decides with it one file away. A `realpath(3)` version was
+    /// written first and measured against it — on the shapes this walk meets they agree, because
+    /// `resolvingSymlinksInPath` closes the `/var` vs `/private/var` gap by STRIPPING `/private`
+    /// rather than adding it, so both spellings land on one form either way. Two identity functions
+    /// that agree is one more than the codebase needs.
+    ///
+    /// Not run for an injected `FileManaging`, the same refusal ``DirectoryListingSupport/traversableTarget(of:using:)``
+    /// makes and for the same reason: a mock's paths are not on this disk, `/var` is itself a
+    /// symlink here, and resolving would answer about the machine's own tree. A mock disk holds no
+    /// symlinks, so there is nothing to collapse and the path IS the identity.
+    private static func identity(of path: String, using fileManager: FileManaging) -> String {
+        guard fileManager is FileManager else { return path }
+        return DirectoryListingSupport.identity(of: URL(fileURLWithPath: path))
     }
 
     /// Orders search results so the folder the user meant is first.

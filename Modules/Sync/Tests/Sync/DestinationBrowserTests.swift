@@ -110,14 +110,15 @@ import Foundation
         let readable = try fixture()
         let complete = DestinationBrowser.search("Kaiser", under: "/p", fileManager: readable)
         #expect(complete.matches.map(\.name) == ["Kaiser"])
-        #expect(complete.isComplete)
+        #expect(!complete.stoppedEarly && !complete.skippedUnreadableDirectory)
 
         let blocked = try fixture()
         blocked.unlistableDirectories = ["/p/Health/Medical"]
         let partial = DestinationBrowser.search("Kaiser", under: "/p", fileManager: blocked)
         #expect(partial.matches.isEmpty, "Kaiser sits behind the folder that could not be read")
-        #expect(!partial.isComplete,
+        #expect(partial.skippedUnreadableDirectory,
                 "a walk that could not read a directory has not earned “No folders match”")
+        #expect(!partial.stoppedEarly, "…and it is not the CAPS that stopped it — nothing was cut short")
     }
 
     /// The two reasons a result list can be short of the truth are DIFFERENT reasons, and the
@@ -239,13 +240,14 @@ import Foundation
 
         let found = DestinationBrowser.search("Medical", under: link.path, fileManager: FileManager.default)
         #expect(found.matches.map(\.name) == ["Medical"])
-        #expect(found.isComplete, "the walk read every directory it queued — it was not truncated")
+        #expect(!found.stoppedEarly && !found.skippedUnreadableDirectory,
+                "the walk read every directory it queued — it was not truncated")
         #expect(found.footnote(showing: 1) == nil)
 
         // Control: the same tree asked about directly, with no symlink in the way.
         let direct = DestinationBrowser.search("Medical", under: target.path, fileManager: FileManager.default)
         #expect(direct.matches.map(\.name) == found.matches.map(\.name))
-        #expect(direct.isComplete)
+        #expect(!direct.stoppedEarly && !direct.skippedUnreadableDirectory)
     }
 
     /// **Drilling one level INTO a symlinked folder must keep the caller's spelling too.**
@@ -306,6 +308,129 @@ import Foundation
         let realHealth = DestinationBrowser.listSubfolders(
             of: real.appendingPathComponent("Health").path, fileManager: FileManager.default)
         #expect(realHealth.folders.map(\.path) == [real.appendingPathComponent("Health/Medical").path])
+    }
+
+    /// **A link pointing back at the root must not multiply the results.**
+    ///
+    /// `listSubfolders`' filter keeps symlinked directories — `fileExists(atPath:isDirectory:)`
+    /// follows links — and once a `listSubfolders` of one succeeds, the breadth-first walk descends
+    /// through them. Before these commits a symlinked directory was a dead end for the walk, so
+    /// this is newly reachable. Measured on a real disk before the fix, with
+    /// `root/Shortcuts/Home -> root`:
+    ///
+    ///     search("Medical") → 3 matches, ALL WITH THE SAME `path`
+    ///
+    /// `DestinationFolder: Identifiable` has `id { path }`, so `ForEach(ranked)` in the picker got
+    /// three rows carrying one id — undefined behaviour by SwiftUI's own documentation. The
+    /// footnote rendered "Showing the first 3 — narrow the search, or browse to it", which is false
+    /// twice over: the walk found ONE folder three times, and it was not cut short.
+    @Test func testASymlinkBackToTheRootDoesNotMultiplyOrTruncateTheResults() throws {
+        let root = try makeCanonicalTempRoot(prefix: "DestSymlinkLoop")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("Health/Medical"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("Shortcuts"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("Shortcuts/Home"), withDestinationURL: root)
+
+        let found = DestinationBrowser.search("Medical", under: root.path, fileManager: FileManager.default)
+
+        #expect(found.matches.map(\.path) == [root.appendingPathComponent("Health/Medical").path],
+                "one real folder, found once: \(found.matches.map(\.path))")
+        // The non-negotiable one, stated separately from the count so it cannot be satisfied by a
+        // walk that simply found nothing: no two rows may carry the same `ForEach` id.
+        #expect(Set(found.matches.map(\.id)).count == found.matches.count,
+                "two rows share an id: \(found.matches.map(\.id))")
+        #expect(!found.stoppedEarly, "the walk exhausted its frontier — nothing was cut short")
+        #expect(found.footnote(showing: found.matches.count) == nil,
+                "footnote claimed a truncation that did not happen: \(found.footnote(showing: found.matches.count) ?? "nil")")
+        // Not "couldn't be read" either: the link IS readable, the walk simply declines to arrive
+        // at the same directory twice. Nothing was withheld from it.
+        #expect(!found.skippedUnreadableDirectory)
+
+        // The link is still a destination in its own right — declining to walk THROUGH it must not
+        // hide it from a query that names it, nor from the column that browses to it.
+        let byName = DestinationBrowser.search("Home", under: root.path, fileManager: FileManager.default)
+        #expect(byName.matches.map(\.path) == [root.appendingPathComponent("Shortcuts/Home").path])
+        #expect(DestinationBrowser.listSubfolders(of: root.appendingPathComponent("Shortcuts").path,
+                                                  fileManager: FileManager.default).folders.map(\.name) == ["Home"])
+    }
+
+    /// The same loop, made expensive. Eight sibling links back to the root turned a one-folder
+    /// answer into the whole limit, and turned a query that matches NOTHING into a walk that spent
+    /// its entire listing budget and then reported itself truncated. Measured before the fix:
+    ///
+    ///     search("d3")  → 60 matches (the limit) for 1 real folder
+    ///     search("zzz") → stoppedEarly = true, having found nothing anywhere
+    ///
+    /// The second is the one that reaches the user as a lie: "narrow the search" about a tree the
+    /// walk never actually ran out of.
+    @Test func testManyLinksBackToTheRootDoNotConsumeTheSearchBudget() throws {
+        let root = try makeCanonicalTempRoot(prefix: "DestSymlinkFan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("d3"), withIntermediateDirectories: true)
+        for i in 0..<8 {
+            try FileManager.default.createSymbolicLink(
+                at: root.appendingPathComponent("back\(i)"), withDestinationURL: root)
+        }
+
+        let hit = DestinationBrowser.search("d3", under: root.path, fileManager: FileManager.default)
+        #expect(hit.matches.map(\.path) == [root.appendingPathComponent("d3").path],
+                "\(hit.matches.count) matches for one real folder")
+        #expect(Set(hit.matches.map(\.id)).count == hit.matches.count)
+        #expect(!hit.stoppedEarly)
+
+        let miss = DestinationBrowser.search("zzz", under: root.path, fileManager: FileManager.default)
+        #expect(miss.matches.isEmpty)
+        #expect(!miss.stoppedEarly,
+                "a walk that exhausted a nine-entry tree may not report itself truncated")
+        #expect(miss.emptyMessage(query: "zzz") == "No folders match “zzz”",
+                "got: \(miss.emptyMessage(query: "zzz"))")
+    }
+
+    /// The cycle guard must survive a root spelled the way the OS hands it out.
+    ///
+    /// Every other fixture here is rooted at a CANONICAL path, via `makeCanonicalTempRoot`, which
+    /// hides the one gap that has broken path comparison in this repo before: a link's stored target
+    /// is absolute and canonical, while the root being browsed is not, so an identity function that
+    /// merely resolved *components* would leave the two comparing unequal and walk the cycle anyway.
+    /// This is the same tree as the loop test above, browsed through the `/var` spelling a caller
+    /// gets straight from `FileManager.temporaryDirectory`.
+    ///
+    /// The premise is asserted, not assumed: measured, `resolvingSymlinksInPath` closes the gap by
+    /// STRIPPING `/private` rather than adding it, which is why both spellings land on one form.
+    /// The day that stops being true this fixture is what notices.
+    @Test func testTheCycleGuardHoldsWhenTheRootIsSpelledUncanonically() throws {
+        let canonical = try makeCanonicalTempRoot(prefix: "DestSymlinkVar")
+        defer { try? FileManager.default.removeItem(at: canonical) }
+        try FileManager.default.createDirectory(
+            at: canonical.appendingPathComponent("Health/Medical"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: canonical.appendingPathComponent("Shortcuts"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: canonical.appendingPathComponent("Shortcuts/Home"), withDestinationURL: canonical)
+
+        // The same directory, spelled the way `temporaryDirectory` hands it out.
+        let uncanonical = URL(fileURLWithPath: FileManager.default.temporaryDirectory.path, isDirectory: true)
+            .appendingPathComponent(canonical.lastPathComponent)
+        // The premise, measured rather than assumed: two genuinely different strings for one
+        // directory, which the identity function is expected to bring together. If the temp dir
+        // ever stops being behind /var these are the same string and the fixture proves nothing —
+        // so that is required, not merely expected.
+        try #require(uncanonical.path != canonical.path,
+                     "this machine's temp dir is already canonical — nothing here is being tested")
+        #expect(DirectoryListingSupport.identity(of: uncanonical)
+                == DirectoryListingSupport.identity(of: canonical),
+                "the two spellings must reach one identity, or the guard cannot see the cycle")
+
+        let found = DestinationBrowser.search("Medical", under: uncanonical.path, fileManager: FileManager.default)
+
+        #expect(found.matches.map(\.path) == [uncanonical.appendingPathComponent("Health/Medical").path],
+                "one real folder, found once, in the spelling asked for: \(found.matches.map(\.path))")
+        #expect(Set(found.matches.map(\.id)).count == found.matches.count)
+        #expect(!found.stoppedEarly)
     }
 
     // MARK: - Search
@@ -689,7 +814,7 @@ import Foundation
         let fm = try fixture()
         let outcome = DestinationBrowser.search("divit", under: "/p", fileManager: fm)
         #expect(outcome.matches.count == 2)
-        #expect(outcome.isComplete)
+        #expect(!outcome.stoppedEarly && !outcome.skippedUnreadableDirectory)
     }
 
     /// Each of the three caps stops the walk early, and each must say so — a partial list that
@@ -708,7 +833,8 @@ import Foundation
     /// its "showing the first N" caveat over the browse columns, which ran no walk at all.
     @Test func testABlankQueryIsNotTruncated() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).isComplete)
+        let blank = DestinationBrowser.search("", under: "/p", fileManager: fm)
+        #expect(!blank.stoppedEarly && !blank.skippedUnreadableDirectory)
     }
 
     /// …and an uncancelled walk is unaffected, so the hook cannot silently disable search.
