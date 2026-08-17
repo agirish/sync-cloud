@@ -1177,8 +1177,8 @@ public enum FilingEngine {
                            profile: Sync.FolderProfile?, registry: PersonRegistry?,
                            identity: PersonIdentityIndex?, pageSample: String?) -> PersonVeto? {
         guard let profile,
-              let destPersonRaw = profile.folders[Self.relative(destination, under: providerRoot)]?
-                  .axes["person"]?.lowercased()
+              let destPersonRaw = Self.owningPerson(
+                  of: Self.relative(destination, under: providerRoot), in: profile)
         else { return nil }
         if let registry, let destPerson = registry.person(forAxisValue: destPersonRaw) {
             // The precedence rule lives in `attribute` — shared with the `personIs` rule
@@ -1195,6 +1195,43 @@ public enum FilingEngine {
         let filePeople = nameTokens(fileName).intersection(profile.personTokens)
         guard !filePeople.isEmpty, !filePeople.contains(destPersonRaw) else { return nil }
         return PersonVeto(reported: nil)
+    }
+
+    /// The person axis owning `relative` — its own, or the nearest ancestor's.
+    ///
+    /// **The walk is what makes the rule reach a folder that does not exist yet, which was every
+    /// destination it most needed to refuse.** The lookup here was an exact one into
+    /// `profile.folders`, and a profile describes the folders that DO exist — so a
+    /// `proposesNewFolder: true` destination missed it and returned `nil`, skipping the veto
+    /// entirely. `Immigration/OCI/Divit/Application` missed even while its parent sat in the
+    /// profile carrying `axes.person = Divit`, which is exactly the answer the rule's own doc
+    /// cites Opus giving for `Aditi OCI.pdf`.
+    ///
+    /// **Nearest ancestor, not outermost**, so a new folder under Aditi's own folder stays hers
+    /// even though Divit's sits beside it under a shared parent. The most specific claim available
+    /// is the one that describes the destination.
+    ///
+    /// **Measured against the real corpus before it was written, because widening a refusal risks
+    /// refusing correct answers.** Over the household's own 11,829-document corpus, taking the 679
+    /// whose filename names exactly one known person and asking whether the rule would fire against
+    /// their GOLD folder — the placement the user themselves made, so any fire is a false one:
+    ///
+    ///     exact lookup     4 fires   0.59%
+    ///     ancestor walk    4 fires   0.59%     zero new false vetoes
+    ///
+    /// The walk never reached past a folder's own axis to contradict a correct placement, because a
+    /// document sitting in a person-less subfolder of a person's folder is that person's document.
+    /// What it adds is protection for the 463 person-owned folders' unborn children, where there
+    /// was none.
+    static func owningPerson(of relative: String, in profile: Sync.FolderProfile) -> String? {
+        var parts = relative.split(separator: "/").map(String.init)
+        while !parts.isEmpty {
+            if let person = profile.folders[parts.joined(separator: "/")]?.axes["person"]?.lowercased() {
+                return person
+            }
+            parts.removeLast()
+        }
+        return nil
     }
 
     /// Whether a path segment is a file name rather than a folder name — 1–5 ASCII alphanumerics

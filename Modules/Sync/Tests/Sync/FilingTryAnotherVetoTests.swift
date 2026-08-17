@@ -51,6 +51,65 @@ import Testing
         #expect(reported.destination == "Immigration/OCI/Divit")
     }
 
+    /// **The reported failure, reproduced.** `Aditi OCI.pdf` into a folder Divit owns — reached
+    /// through a segment that does not exist yet.
+    ///
+    /// The rule opened with an EXACT dictionary lookup of the destination in `profile.folders`, and
+    /// a profile describes the folders that exist. So every `proposesNewFolder: true` destination
+    /// missed the lookup and skipped the veto entirely: no refusal, no log line, no user-visible
+    /// trace. The content-blind guard does not apply (the PDF has text) and the shortlist guard is
+    /// explicitly skipped when new segments exist, so nothing else stood between the answer and the
+    /// card.
+    ///
+    /// All four rule tests above and below use destinations that are literally keys in the fixture
+    /// profile, which is why the structural bypass in the rule's own opening guard had no test.
+    @Test func aNewFolderInsideAnothersPersonFolderIsStillRefused() throws {
+        // Not a key in the profile — the whole point. Its PARENT is.
+        let destination = "\(Self.root)/Immigration/OCI/Divit/Application"
+        #expect(Self.profile().folders["Immigration/OCI/Divit/Application"] == nil,
+                "the fixture stopped exercising a new folder — this test would pass on the old lookup")
+
+        let veto = try #require(FilingEngine.personVeto(
+            fileName: "Aditi OCI.pdf", destination: destination,
+            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
+            identity: nil, pageSample: nil))
+        let reported = try #require(veto.reported)
+        #expect(reported.namedPerson == "aditi")
+        #expect(reported.proposedPerson == "divit")
+        // Reported as the destination the user was actually offered, not as the ancestor the rule
+        // resolved the person from — the sentence is about where the file was going.
+        #expect(reported.destination == "Immigration/OCI/Divit/Application")
+    }
+
+    /// Depth is not a loophole: several new segments deep still resolves to the owning ancestor.
+    @Test func aDeeplyNewPathStillResolvesToTheOwningAncestor() throws {
+        let veto = try #require(FilingEngine.personVeto(
+            fileName: "Aditi OCI.pdf",
+            destination: "\(Self.root)/Immigration/OCI/Divit/Application/2026/Scans",
+            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
+            identity: nil, pageSample: nil))
+        #expect(veto.reported?.proposedPerson == "divit")
+    }
+
+    /// And the walk stops at the NEAREST owner rather than the outermost: a new folder under
+    /// Aditi's own folder is hers, even though Divit's sits alongside it under a shared parent.
+    @Test func theNearestOwningAncestorWinsSoTheRightPersonIsStillAllowed() {
+        #expect(FilingEngine.personVeto(
+            fileName: "Aditi OCI.pdf",
+            destination: "\(Self.root)/Immigration/OCI/Aditi/Application",
+            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
+            identity: nil, pageSample: nil) == nil)
+    }
+
+    /// A new folder with no owning ancestor at all is not vetoed — the rule refuses a
+    /// CONTRADICTION, and there is nothing here to contradict.
+    @Test func aNewFolderWithNoOwningAncestorIsAllowed() {
+        #expect(FilingEngine.personVeto(
+            fileName: "Aditi OCI.pdf", destination: "\(Self.root)/Immigration/Passports/New",
+            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
+            identity: nil, pageSample: nil) == nil)
+    }
+
     /// The other direction, so the rule is not simply refusing everything: the person's OWN folder
     /// is allowed, and so is a folder with no person axis at all.
     @Test func theRightPersonsFolderAndAnUnownedFolderAreAllowed() {
