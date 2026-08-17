@@ -1084,14 +1084,16 @@ extension FileSyncManager {
                             return ([], true)
                         }
                     } else {
-                        var urls: [URL] = []
-                        guard let enumerator = fileManager.enumerator(at: dirURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) else {
-                            return ([], true)
-                        }
-                        for case let u as URL in enumerator {
-                            urls.append(dirURL.appendingPathComponent(u.lastPathComponent))
-                        }
-                        return (urls, false)
+                        // Injected `FileManaging`. This branch used to raise `listingFailed` only
+                        // on a nil enumerator, which never happens — so an unlistable directory
+                        // came back `([], false)`, meaning "listed, and empty", and the walk cached
+                        // it as an authoritatively empty folder. That is the opposite of what the
+                        // real-filesystem branch above decides for the same directory, where
+                        // `contentsOfDirectory` throws and the failure is reported honestly. This
+                        // makes the two branches agree.
+                        let listing = fileManager.listing(of: dirURL, options: [.skipsSubdirectoryDescendants])
+                        guard listing.outcome != .unreadable else { return ([], true) }
+                        return (listing.urls.map { dirURL.appendingPathComponent($0.lastPathComponent) }, false)
                     }
                 }
 

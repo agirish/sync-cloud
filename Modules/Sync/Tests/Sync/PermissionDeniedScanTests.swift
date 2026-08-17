@@ -50,6 +50,53 @@ import Testing
         #expect(tree.contains { $0.name == "open.txt" })
     }
 
+    /// The same rule through an INJECTED file manager, which is a different branch of
+    /// `childURLs` — the real filesystem goes through `contentsOfDirectory`, which throws and is
+    /// handled; anything else went through a bare enumerator whose `guard let … else` never fired,
+    /// so an unlistable directory came back as `([], listingFailed: false)` — "listed, and empty".
+    /// The two branches disagreed about the same directory, and only the mock-driven one was wrong.
+    @Test func buildTreeThroughAnInjectedManagerMarksAnUnlistableDirectoryUnexplored() async throws {
+        let fm = MockFileManager()
+        for dir in ["/base", "/base/locked"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        let stub = MockFileManager.FileStub(
+            isDirectory: false,
+            attributes: [.size: NSNumber(value: 9), .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+            contents: nil)
+        fm.virtualDisk["/base/open.txt"] = stub
+        fm.virtualDisk["/base/locked/secret.txt"] = stub
+        fm.unlistableDirectories = ["/base/locked"]
+
+        let tree = await FileSyncManager.buildTree(
+            url: URL(fileURLWithPath: "/base"), sortOption: .name, fileManager: fm, maxDepth: nil)
+
+        let lockedNode = try #require(tree.first { $0.name == "locked" })
+        #expect(lockedNode.isDirectory)
+        #expect(lockedNode.isUnexplored == true,
+                "an unlistable directory must not masquerade as a genuinely empty one")
+        #expect(lockedNode.children?.contains { $0.name == "secret.txt" } != true)
+        // The readable sibling is untouched — the failure is scoped to the directory that had one.
+        #expect(tree.contains { $0.name == "open.txt" })
+    }
+
+    /// The other direction, on the same branch: a directory that really is empty must still walk
+    /// as an ordinary explored folder. Without this, "mark everything unexplored" would satisfy
+    /// the test above, and every empty folder in the tree would start suppressing real diff rows.
+    @Test func buildTreeThroughAnInjectedManagerLeavesAGenuinelyEmptyDirectoryExplored() async throws {
+        let fm = MockFileManager()
+        for dir in ["/base", "/base/hollow"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+
+        let tree = await FileSyncManager.buildTree(
+            url: URL(fileURLWithPath: "/base"), sortOption: .name, fileManager: fm, maxDepth: nil)
+
+        let hollow = try #require(tree.first { $0.name == "hollow" })
+        #expect(hollow.isDirectory)
+        #expect(hollow.isUnexplored != true, "nothing failed here — the folder is simply empty")
+    }
+
     // MARK: Disk walk (cold branch)
 
     @Test func getFilesInDirectoryMarksAPermissionDeniedDirectoryUnexplored() throws {
