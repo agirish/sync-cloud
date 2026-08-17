@@ -1085,6 +1085,58 @@ import Events
         }, "the tally does not separate 'nothing recorded' from a genuine failure; lines since the marker: \(lines)")
     }
 
+    /// **The same refusal, with the destination's parent on disk — which is the ordinary shape.**
+    ///
+    /// The test above deliberately empties the root so the `vanished` branch cannot fire, and that
+    /// makes it blind to the case a normalize batch actually produces: a child renamed inside a
+    /// folder that exists, whose destination was not on disk when the undo was registered. There,
+    /// `parentExists` is true and `item.to` is missing, so the `vanished` branch claimed the item
+    /// first and reported "no longer on disk" — which says the user removed it, and a recorded
+    /// `.absent` says the opposite. The banner that tells them the undo refused was lost with it:
+    /// `vanished` only logs.
+    ///
+    /// Both branches decline to act, so nothing was manufactured either way — this is about what
+    /// the user is told, and about the two counters staying separate.
+    @MainActor
+    @Test func anUnrecordedItemIsRefusedAsSuchEvenWhenItsParentExists() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "AbsentRecordedParentExists")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // The parent IS on disk — the whole difference from the test above.
+        let parent = root.appendingPathComponent("Photos")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let riskyChild = parent.appendingPathComponent("a\u{200B}.txt")
+        let safeChild = parent.appendingPathComponent("a.txt")
+
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, false) }
+
+        try #require(!FileManager.default.fileExists(atPath: safeChild.path))
+        try #require(FileManager.default.fileExists(atPath: parent.path),
+                     "the fixture stopped exercising the shadowed branch")
+
+        manager.registerMoveUndo(items: [(from: riskyChild, to: safeChild, overwritten: nil)],
+                                 actionName: "Normalize 1 Name", fileManager: FileManager.default)
+
+        manager.banner = nil
+        let marker = await plantLogMarker("absent-recorded-parent-exists")
+        manager.undoManager?.undo()
+        await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(manager.banner?.message == "Undo left \"a.txt\" in place — there was nothing to move back",
+                "got \(String(describing: manager.banner?.message))")
+        let lines = await logLines(since: marker)
+        #expect(!lines.contains { $0.contains("a.txt is no longer on disk") },
+                "reported as removed by the user an item that was never recorded on disk")
+        #expect(lines.contains {
+            $0.contains("Undo (Normalize 1 Name): moved 0 of 1 item(s) back to source, 0 restore failure(s), 0 left in place")
+                && $0.contains("1 with nothing recorded to move back")
+        }, "the tally counted this as vanished rather than unrecorded; lines: \(lines)")
+    }
+
     /// `path=size` for each of `paths` that is on the virtual disk, in the order given — the shape
     /// the probes in the three doc comments above are written in, so a failure prints the same
     /// table the defect was measured with rather than four separate expectations.

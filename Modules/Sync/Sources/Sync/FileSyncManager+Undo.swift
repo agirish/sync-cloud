@@ -870,6 +870,39 @@ extension FileSyncManager {
                         var nothingRecorded = 0
                         for item in items {
                             var movedBackOK = false
+                            // **A recorded `.absent` must not authorise a move.** It is not an
+                            // identity, it is the absence of one, and the drift guard below cannot
+                            // say so: `compare(.absent, .absent)` answers `.unchanged` — correct,
+                            // and useless, because "nothing changed" here means "there was nothing,
+                            // and there still is nothing". That verdict reached the `else` branch,
+                            // whose FIRST statement is `createDirectory(item.from's parent)`, so an
+                            // undo that could only ever throw still manufactured a folder — for a
+                            // normalize batch, the zero-width-space name the pass had just removed.
+                            // Measured on an empty root with a batch recorded against a
+                            // never-created destination: `[]` before ⌘Z, `["P␣"]` after.
+                            //
+                            // **FIRST, ahead of the `vanished` branch, because the two overlap.**
+                            // That branch fires when the destination's parent exists and the
+                            // destination does not — which is exactly the ordinary normalize shape,
+                            // a child renamed inside a folder that is still there. It claimed such
+                            // an item first and reported "no longer on disk", a sentence that says
+                            // the USER removed it while a recorded `.absent` says it was never
+                            // recorded as being there at all — and it only logs, so the banner that
+                            // tells them the undo refused was lost with it. (The comment here used
+                            // to assert the two could not overlap, on the grounds that `.absent`
+                            // implies a missing parent. It does not: the measured fixture had the
+                            // root as the parent, and the test that pinned this deliberately
+                            // emptied the root, which is what kept the overlap invisible.)
+                            //
+                            // Checked before the drift stat rather than after: with the recorded
+                            // side absent there is nothing a stat could add, and the refusal is the
+                            // same whatever is at `item.to` now.
+                            if item.movedIdentity == .absent {
+                                nothingRecorded += 1
+                                await FileSyncManager.reportUndoRefusedUnrecordedItem(
+                                    of: item.to, actionName: actionName, on: target)
+                                continue
+                            }
                             // The moved item is GONE. Not drift — nothing is there to be a
                             // stranger — and both siblings already say so: the copy-undo has its
                             // own "already deleted themselves" branch, and the move-REDO skips its
@@ -921,32 +954,6 @@ extension FileSyncManager {
                             // case-sensitive volume they're distinct, so a genuine occupant at
                             // item.from must still trip the guard (matches renameItem's isCaseOnly,
                             // which is likewise volume-gated).
-                            // **A recorded `.absent` must not authorise a move.** It is not an
-                            // identity, it is the absence of one, and the drift guard below cannot
-                            // say so: `compare(.absent, .absent)` answers `.unchanged` — correct,
-                            // and useless, because "nothing changed" here means "there was nothing,
-                            // and there still is nothing". That verdict reached the `else` branch,
-                            // whose FIRST statement is `createDirectory(item.from's parent)`, so an
-                            // undo that could only ever throw still manufactured a folder — for a
-                            // normalize batch, the zero-width-space name the pass had just removed.
-                            // Measured on an empty root with a batch recorded against a
-                            // never-created destination: `[]` before ⌘Z, `["P␣"]` after.
-                            //
-                            // The `vanished` branch above does not cover it: that one requires the
-                            // destination's PARENT to exist, and it is precisely the missing-parent
-                            // case that falls through to here. Nor is this that branch's meaning —
-                            // "no longer on disk" says the user removed the item, and a recorded
-                            // `.absent` says it was never recorded as being there at all.
-                            //
-                            // Checked before the drift stat rather than after: with the recorded
-                            // side absent there is nothing a stat could add, and the refusal is the
-                            // same whatever is at `item.to` now.
-                            if item.movedIdentity == .absent {
-                                nothingRecorded += 1
-                                await FileSyncManager.reportUndoRefusedUnrecordedItem(
-                                    of: item.to, actionName: actionName, on: target)
-                                continue
-                            }
                             let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.from)
                                 && item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
                             // "Still the same item?" — the guard the doc comment claimed and the
