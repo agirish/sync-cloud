@@ -315,12 +315,16 @@ extension FileSyncManager {
     /// Goes through ``FileManaging`` rather than `FileManager` directly so the apply path can be
     /// driven by the in-memory test double, like every other write path in the engine.
     nonisolated static func liveFiles(in dir: URL, fileManager fm: FileManaging) -> [FolderFile]? {
-        guard let enumerator = fm.enumerator(
-            at: dir, includingPropertiesForKeys: nil,
-            options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles], errorHandler: nil
-        ) else { return nil }
+        // Through `listing` rather than a bare enumerator: the enumerator comes back non-nil
+        // yielding nothing for a folder it cannot read, so "cannot be listed" used to arrive here
+        // as an empty folder and this function's documented promise — never a stale slot number —
+        // could not be kept. Anything short of a complete listing is a nil: a shallow listing
+        // cannot report `.listedWithUnreadableDescendants`, and if it ever could, a partial view
+        // of a numbered folder is exactly what must not be renumbered against.
+        let listing = fm.listing(of: dir, options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles])
+        guard listing.isComplete else { return nil }
         var files: [FolderFile] = []
-        for case let url as URL in enumerator {
+        for url in listing.urls {
             // The enumerator can hand back a resolved path; re-root every entry on `dir` so the
             // paths compare equal to the ones the plan carries.
             let name = url.lastPathComponent

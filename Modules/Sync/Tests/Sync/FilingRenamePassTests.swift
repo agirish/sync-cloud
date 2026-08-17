@@ -418,4 +418,51 @@ import Events
             profile: manager.filingFolderProfile, fileManager: FileManager.default)
         #expect(name == nil)
     }
+
+    // MARK: A destination folder that cannot be listed
+
+    /// `liveFiles` documents a promise — "a folder that cannot be listed falls back to the file's
+    /// own name, never to a stale slot number" — that it could not keep. Its `guard let enumerator
+    /// … else { return nil }` never fired, because the enumerator is non-nil and simply yields
+    /// nothing for a directory it cannot read. So an unreadable numbered folder arrived at the
+    /// planner as an EMPTY folder, and the empty folder's answer is slot 01.
+    ///
+    /// The two halves are one test because the fix is the difference between them: the same file,
+    /// the same folder, the same profile, and the only change is whether the folder can be read.
+    @Test func anUnreadableDestinationOffersNoSlotRatherThanTheFirstOne() throws {
+        let fm = MockFileManager()
+        for dir in ["/prov", "/prov/Bills"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        // Sizes and dates stated: an attribute-less stub is synthesized as size 0 with no date, so
+        // two bare stubs would be indistinguishable from each other.
+        for name in ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"] {
+            fm.virtualDisk["/prov/Bills/\(name)"] = MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [.size: NSNumber(value: 12), .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+                contents: nil)
+        }
+        let bills = URL(fileURLWithPath: "/prov/Bills")
+        let profile = profile(root: "/prov", rel: "Bills", year: "2021")
+
+        // Readable: three months are there, so a June bill appends as slot 04.
+        let readable = FileSyncManager.liveFiles(in: bills, fileManager: fm)
+        #expect(readable?.count == 3)
+        #expect(FileSyncManager.liveIncomingName(
+            for: "9829custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
+            profile: profile, fileManager: fm) == "04. Jun 2021.pdf")
+
+        // The identical folder, now unlistable.
+        fm.unlistableDirectories = ["/prov/Bills"]
+
+        #expect(FileSyncManager.liveFiles(in: bills, fileManager: fm) == nil,
+                "a folder that could not be listed is not a folder holding no files")
+        let blocked = FileSyncManager.liveIncomingName(
+            for: "9829custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
+            profile: profile, fileManager: fm)
+        #expect(blocked == nil, "the caller must fall back to the file's own name")
+        // Named in the negative too: 01 is the specific wrong answer — the slot an EMPTY folder
+        // hands out — and it would have collided with the March bill already sitting on it.
+        #expect(blocked != "01. Jun 2021.pdf")
+    }
 }
