@@ -164,23 +164,160 @@ import Testing
     /// bar are a `Button` action, three drop handlers and an accessibility action, none of which a
     /// unit test can drive — a `Button` is not an `NSControl`. So a logging call added to four of
     /// the five sites would look exactly like one added to all five. What *is* checkable is an
-    /// absence, and this is that: one assignment to `arrangementRaw` in the whole file, inside
-    /// `commit`. A sixth gesture that writes the arrangement directly fails this test rather than
-    /// silently going unlogged.
+    /// absence, and this is that: one write of the stored arrangement in the whole product, inside
+    /// `commit`. A sixth gesture that writes it directly fails this test rather than silently going
+    /// unlogged.
+    ///
+    /// **Scanned by the KEY, across every source file, not by the local variable's name.** The first
+    /// version counted `"arrangementRaw = "` in this one file, and a write is not obliged to spell
+    /// that: `UserDefaults.standard.set(next.encoded, forKey: PaneBar.arrangementKey)` inside
+    /// `drop(_:at:)` is a live, unlogged sixth route that the count reported as absent, and
+    /// `$arrangementRaw.wrappedValue =` evades it identically. One file was the wrong scope too —
+    /// `DashboardViews.swift` holds the same `@AppStorage(PaneBar.arrangementKey)`, read-only today
+    /// and with nothing saying it stays that way.
     @Test func testTheSheetWritesTheArrangementInExactlyOnePlace() throws {
-        let source = try Self.source()
-        // A scan that cannot find its own anchor is measuring nothing — this fails loudly instead.
-        let commitStart = try #require(source.range(of: "private func commit(_ next: PaneBarArrangement)"),
-                                       "the funnel is gone or renamed; this scan is vacuous without it")
-        let assignments = source.components(separatedBy: "arrangementRaw = ").count - 1
-        #expect(assignments == 1,
-                "\(assignments) places in PaneBarCustomizeSheet.swift write arrangementRaw; every edit must go through commit(_:), which is the only thing that logs it")
+        let writers = try Self.arrangementWrites()
+        // Roots first. A scan whose file list or anchor came back empty measures nothing, and would
+        // report "no stray writes" for free.
+        #expect(Self.productionSources.count > 1,
+                "the repo-wide scan found \(Self.productionSources.count) source files")
+        #expect(Self.productionSources.contains { $0.lastPathComponent == "PaneBarCustomizeSheet.swift" },
+                "the customize sheet is not in the scanned set, so its own writes are invisible here")
+        #expect(Self.productionSources.contains { $0.lastPathComponent == "DashboardViews.swift" },
+                "DashboardViews holds the same @AppStorage key and is not in the scanned set")
+        // The known member of the derived set: the sheet's own binding. If the declaration scan
+        // stopped finding @AppStorage declarations, every assignment count below would be zero.
+        let bound = Self.arrangementBindings.map { "\($0.0.lastPathComponent).\($0.1)" }
+        let bindingsChanged = "the files binding @AppStorage(PaneBar.arrangementKey) changed: \(bound)"
+        #expect(Self.arrangementBindings.map { $0.0.lastPathComponent }.sorted()
+                == ["DashboardViews.swift", "PaneBarCustomizeSheet.swift"], "\(bindingsChanged)")
+
+        let strayWrites = "\(writers.count) places write the stored pane-bar arrangement — "
+            + "\(writers). Every edit must go through PaneBarCustomizeSheet.commit(_:), which is "
+            + "the only thing that logs it; the migration's own write is the one exemption and is "
+            + "listed in `exempt` with its reason."
+        #expect(writers.count == 1, "\(strayWrites)")
+
         // …and that one is inside `commit`, not merely somewhere in the file. `commit` is the last
         // member of its MARK group, so the next `private var`/`func` bounds it.
-        let tail = source[commitStart.upperBound...]
+        let sheet = try Self.source()
+        let commitStart = try #require(sheet.range(of: "private func commit(_ next: PaneBarArrangement)"),
+                                       "the funnel is gone or renamed; this scan is vacuous without it")
+        let tail = sheet[commitStart.upperBound...]
         let bodyEnd = tail.range(of: "\n    }")?.upperBound ?? tail.endIndex
-        #expect(tail[..<bodyEnd].contains("arrangementRaw = next.encoded"),
+        let body = tail[..<bodyEnd]
+        #expect(body.contains("arrangementRaw = next.encoded"),
                 "the single arrangement write is not inside commit(_:)")
+        // **And that write is logged.** Deleting this one line left the whole suite green and
+        // `PaneBarEditLog` dead code with nothing referencing it — the sheet's headline claim
+        // ("all five gestures funnel through one commit, which is what logs it") rested on nothing.
+        // The assignment being alone in `commit` is checked above; this is the other half.
+        let unlogged = "commit(_:) writes the arrangement without logging it, so every gesture in "
+            + "this sheet is silent and PaneBarEditLog has no caller at all"
+        #expect(body.contains("PaneBarEditLog.record(from: before, to: next)"), "\(unlogged)")
+    }
+
+    /// Every write of the stored pane-bar arrangement in the product, as `file.member` strings.
+    ///
+    /// Two shapes, because a write has two spellings and only one of them mentions a variable this
+    /// file could guess at:
+    ///
+    /// * an assignment to a property bound with `@AppStorage(PaneBar.arrangementKey)`, in whichever
+    ///   file declares it, including through `$binding.wrappedValue`;
+    /// * a `set(…, forKey:)` naming the key or its literal, anywhere.
+    ///
+    /// `PaneBarArrangement.swift` is exempt from the second: `PaneBarMigration.apply` writes the
+    /// migrated bar there, before any `@AppStorage` wrapper has read it, and it is not a user edit
+    /// to log — it has its own launch line. Exempted by its exact text AND its file, so a second
+    /// write added to that file later is reported rather than quietly covered.
+    ///
+    /// **What it still cannot see**, stated rather than implied: a write whose key arrives through a
+    /// local (`let k = PaneBar.arrangementKey; d.set(x, forKey: k)`), or through
+    /// `setPersistentDomain`. Both are reachable and neither is a spelling anything in this repo
+    /// uses; the two the review actually demonstrated — a direct `set(…, forKey:)` and
+    /// `$binding.wrappedValue =` — are covered, and each is proven by mutation.
+    private static func arrangementWrites() throws -> [String] {
+        /// The migration's own write, quoted exactly. Exempt by its whole text and its file, so a
+        /// SECOND write added to `PaneBarArrangement.swift` is reported rather than covered.
+        let exempt = ("PaneBarArrangement.swift",
+                      "defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)")
+        var writes: [String] = []
+        for url in productionSources {
+            let bindings = arrangementBindings.filter { $0.0 == url }.map(\.1)
+            for line in try readStrippingComments(url).split(separator: "\n") {
+                let text = line.trimmingCharacters(in: .whitespaces)
+                // `hasSuffix` as well as `contains`, so an assignment whose value sits on the next
+                // line — which is how the declarations in both these files are written — is not a
+                // spelling the scan is blind to.
+                let assigns = bindings.contains {
+                    text.contains("\($0) = ") || text.hasSuffix("\($0) =")
+                        || text.contains("$\($0).wrappedValue = ")
+                        || text.hasSuffix("$\($0).wrappedValue =")
+                }
+                // `.set(` is what separates a write from `string(forKey:)` and friends.
+                let stores = text.contains(".set(")
+                    && (text.contains("forKey: PaneBar.arrangementKey")
+                        || text.contains(#"forKey: "paneBarArrangement""#))
+                guard assigns || stores else { continue }
+                guard !(url.lastPathComponent == exempt.0 && text == exempt.1) else { continue }
+                writes.append("\(url.lastPathComponent): \(text)")
+            }
+        }
+        return writes
+    }
+
+    /// Every file declaring `@AppStorage(PaneBar.arrangementKey)`, with the property's name.
+    private static let arrangementBindings: [(URL, String)] = {
+        var found: [(URL, String)] = []
+        for url in productionSources {
+            guard let source = try? String(contentsOf: url, encoding: .utf8),
+                  source.contains("@AppStorage(PaneBar.arrangementKey)") else { continue }
+            var rest = Substring(source)
+            while let hit = rest.range(of: "@AppStorage(PaneBar.arrangementKey)") {
+                let after = rest[hit.upperBound...]
+                if let varKeyword = after.range(of: "var ") {
+                    let name = after[varKeyword.upperBound...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+                    found.append((url, String(name)))
+                }
+                rest = rest[hit.upperBound...]
+            }
+        }
+        return found
+    }()
+
+    /// Every Swift file the shipped app is built from — `Modules/*/Sources` plus `MacApp`.
+    ///
+    /// Repo-wide rather than this module's, because the key is `public` and nothing stops another
+    /// module writing it. Tests are excluded deliberately: they set the key constantly, on scratch
+    /// domains, which is the point of them.
+    private static let productionSources: [URL] = {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // …/Tests/Dashboard
+            .deletingLastPathComponent()   // …/Tests
+            .deletingLastPathComponent()   // …/Dashboard
+            .deletingLastPathComponent()   // …/Modules
+            .deletingLastPathComponent()   // repo root
+        var urls: [URL] = []
+        for top in ["Modules", "MacApp", "SyncCloudCLI"] {
+            let base = root.appendingPathComponent(top)
+            guard let walk = FileManager.default.enumerator(at: base,
+                                                            includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walk where url.pathExtension == "swift" {
+                guard !url.path.contains("/Tests/") else { continue }
+                urls.append(url)
+            }
+        }
+        return urls
+    }()
+
+    /// Source with whole-line comments removed — the prose in these files quotes the very spellings
+    /// being counted, and a scan that read comments would answer its own question.
+    private static func readStrippingComments(_ url: URL) throws -> String {
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read \(url.lastPathComponent) — this scan would be vacuous")
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 
     private static func source() throws -> String {
