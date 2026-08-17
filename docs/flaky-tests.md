@@ -1133,15 +1133,37 @@ comment states this mechanism in as many words. `plantLogMarker(_:)` writes
 `undo-drift-marker <label> <UUID>` **before** the operation; `logLines(since:)` flushes, resolves
 `entries.lastIndex(where: { $0.message == marker })`, and when that marker is gone records *"the log
 window rolled past this test's own marker — the 1000-entry cap evicted it, so nothing can be
-concluded about the refusal line"* instead of returning a window. Five tests use it
-(`:106`/`:115`, `:168`/`:175`, `:205`/`:217`, `:275`/`:286`, `:345`/`:367`).
+concluded about the refusal line"* instead of returning a window. Ten tests in that suite use it.
 
-Two things to know if you copy it. It is open-ended at the top (`entries[start...]`, no closing
-marker), so rule 2's second job is done instead by matching on strings unique to the test's own
-fixture — its doc comment says so explicitly, and that is the substitute rule 2 describes. And it
-records an `Issue` rather than requiring, so the test continues; that is safe here only because it
-then returns `[]` and the real assertions fail too. Prefer a `#require` when you write a fresh one,
-so the vacuous reading stops the test rather than merely annotating it.
+It implements **both** halves of rule 2: `logLines(since:)` writes its own CLOSING marker, resolves
+that index first, then searches for the opening marker only within `entries[..<end]`, and slices
+strictly between the two.
+
+**It was open-ended until 2026-08-17 — and closing it is NOT what fixed the coverage it was losing.**
+The window ran `entries[start...]` to the end of the buffer, on the stated ground that every
+assertion in the suite matches a string unique to its own fixture. That was not true of it:
+`undoOfANestedNormalizePass…` and `undoAfterARedoOfANestedNormalizePass…` assert the
+**byte-identical** line `Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore
+failure(s), 0 left in place`, both are `@MainActor` but both suspend at `waitUntil`, so they
+interleave. CI runs this target **without** `--no-parallel` (`.github/workflows/tests.yml`), so
+parallel is the configuration that ships.
+
+**Measured, and the result is the lesson: rule 2 alone did not close it, rule 4 did.** Remove the
+second test's own undo so it writes no line at all, and delay the sibling so its identical line lands
+inside the second test's window: the presence assertion PASSED, satisfied by a line its own code
+never wrote — and it passed *just the same* with the window bounded strictly between its own markers,
+because the sibling's line is INSIDE the window, not after it. Bounding keeps out lines from before
+and after; nothing but serialization keeps out a concurrent sibling writing into the middle. With
+`@Suite(.serialized)` the same mutation fails immediately (3 issues → 4). **So do not read rule 2 as
+covering rule 4's job.** The bound is still worth its one line — it removes the tail between the
+flush and the read — but a unique-fragment substitute, and now the bound too, is only as good as a
+grep of the whole package proves it to be. Run one; if a sibling can write your line, serialize.
+
+Two more things to know if you copy it. Searching for `start` inside `entries[..<end]` is what makes
+the bounds unreversible by construction — see the trap warning below. And it records an `Issue`
+rather than requiring, so the test continues; that is safe here only because it then returns `[]` and
+the real assertions fail too. Prefer a `#require` when you write a fresh one, so the vacuous reading
+stops the test rather than merely annotating it.
 
 **Resolve the index before you slice, and never slice inside `#expect`.** `entries[a...b]` on
 reversed bounds *traps* rather than failing, and a trap inside an expectation takes the whole test
