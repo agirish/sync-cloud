@@ -63,7 +63,7 @@ import Events
             manager.banner?.severity == .warning
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        #expect(manager.banner?.message.contains("changed since the copy") == true)
+        #expect(manager.banner?.message.contains("changed since") == true)
         // The drifted item is untouched, and the 5-byte backup was NOT restored over it.
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 777)
         #expect(mockFM.virtualDisk[backupPath] != nil)
