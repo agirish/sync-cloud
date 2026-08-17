@@ -258,6 +258,18 @@ extension FileSyncManager {
     /// final, and rewriting it would follow an unrelated item that happens to have taken the path —
     /// a renumbering cascade (`01 - x.pdf`→`02 - x.pdf` beside `02 - x.pdf`→`03 - x.pdf`) has one
     /// move's `to` equal to another's `from`, and would snapshot the wrong file.
+    ///
+    /// **`applyRenamePlans` is not a second exposure, and `4b21f9ed`'s message was wrong to say so.**
+    /// It claimed the nested-rename fix "also fixes `applyRenamePlans`, which has the identical
+    /// exposure"; that pass renames only FILES — `liveFiles` skips directories and passes
+    /// `.skipsSubdirectoryDescendants` — and every `dst` is `dir.appendingPathComponent(…)` in the
+    /// plan's own folder, so no move's `from` can be an ancestor of another move's `to` and this
+    /// function is a strict no-op for every batch it produces. Both backports had already dropped
+    /// the claim, but the reason they gave implies `main` has one, so it is corrected here rather
+    /// than left to be rediscovered. What `applyRenamePlans` genuinely is, is the closest real
+    /// producer of the LEAF collision above: its cascades stay safe only because the label travels
+    /// with the number (`01. Mar`→`02. Mar` beside `02. Apr`→`03. Apr`, never onto each other), so
+    /// a leaf-rewriting `liveLocation` would find its first victim there.
     nonisolated static func liveLocation(
         of destination: URL, throughRenames renames: [String: String], fileManager fm: FileManaging
     ) -> URL {
@@ -661,8 +673,12 @@ extension FileSyncManager {
     /// state it hands the next undo is reversed again. `normalizeNames` is where that matters —
     /// it applies deepest-first and passes the batch shallowest-first, so a ⌘Z restores a renamed
     /// parent folder before the children renamed inside it, and a ⌘⇧Z renames the children before
-    /// the folder around them. Every other call site passes one item, or items in no relation to
-    /// each other, and is indifferent.
+    /// the folder around them. Every other call site is order-INDIFFERENT, and for a reason rather
+    /// than by luck: it passes one item, or items whose paths cannot reach each other.
+    /// `applyRenamePlans` is the one that has to be checked rather than assumed — it hands over a
+    /// whole renumbering in apply order — and its cascades are safe because the label travels with
+    /// the number (`01. Mar`→`02. Mar` beside `02. Apr`→`03. Apr`), so no move's destination is
+    /// another's source and any order reverses.
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
