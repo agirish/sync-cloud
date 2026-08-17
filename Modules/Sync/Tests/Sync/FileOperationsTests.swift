@@ -60,7 +60,7 @@ import Foundation
         let manager = FileSyncManager()
         var permanentDeleteOffered = false
         manager.permanentDeleteConfirmer = { _ in permanentDeleteOffered = true; return true }
-        let removed = await manager.deleteItems(at: ["/src/data.bin"], fileManager: mockFM)
+        let removed = await manager.deleteItems(at: ["/src/data.bin"], fileManager: mockFM).removed
 
         #expect(removed == 0)                                // nothing was destroyed
         #expect(permanentDeleteOffered == false)             // no permanent-delete prompt
@@ -78,7 +78,7 @@ import Foundation
         mockFM.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
 
         let manager = FileSyncManager()
-        let removed = await manager.deleteItems(at: ["/src/a.bin", "/src/b.bin"], fileManager: mockFM)
+        let removed = await manager.deleteItems(at: ["/src/a.bin", "/src/b.bin"], fileManager: mockFM).removed
 
         #expect(removed == 1)                                // one trashed, one transiently busy
         // The item that trashed still gets its undoable success banner despite the busy failure...

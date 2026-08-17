@@ -1,0 +1,159 @@
+import Testing
+import Foundation
+import Events
+@testable import Sync
+
+/// Two ways the duplicate removal path told the user something untrue about a destructive action.
+///
+/// **The undo promise.** `deleteItems` gets undoability right — it registers a restore-undo only
+/// for items that reached the Trash, and flags its own banner `undoable: false` otherwise — but it
+/// returned a bare `Int`, so the duplicates callers replaced that banner with an unconditional
+/// "press ⌘Z to undo". On a Trash-less volume (exFAT, most SMB shares) that promise is printed
+/// after files were destroyed permanently, and ⌘Z then reverses whatever was previously on top of
+/// the stack.
+///
+/// **The same-size rewrite.** The resolve-time drift check compared byte size alone, so any
+/// same-length edit — 2025 to 2026 — compared equal to the scanned copy and was trashed as
+/// redundant. The merge path in the same file had already rejected that reasoning.
+@Suite struct DuplicateRemovalHonestyTests {
+
+    @MainActor
+    private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        return manager
+    }
+
+    private func stub(size: Int, modified: Date?) -> MockFileManager.FileStub {
+        var attrs: [FileAttributeKey: Any] = [.size: size]
+        if let modified { attrs[.modificationDate] = modified }
+        return MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
+    }
+
+    private func group(keeper: String, redundant: String, reclaim: Int) -> DuplicateGroup {
+        let k = DuplicateCopy(id: keeper, name: (keeper as NSString).lastPathComponent, isDirectory: false,
+                              size: 1000, itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1_000),
+                              uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: redundant, name: (redundant as NSString).lastPathComponent, isDirectory: false,
+                              size: 1000, itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1_000),
+                              uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false)
+        return DuplicateGroup(matchType: .identical, name: k.name, isDirectory: false,
+                              copies: [k, r], reclaimableBytes: reclaim)
+    }
+
+    // MARK: The undo promise
+
+    /// The headline: on a Trash-less volume the copies are destroyed permanently, and the banner
+    /// must not offer an undo that would fire at an unrelated operation.
+    @MainActor
+    @Test func aPermanentRemovalDoesNotPromiseUndo() async throws {
+        let mockFM = MockFileManager()
+        mockFM.shouldFailTrash = true                     // no Trash on this volume
+        let manager = makeManager(mockFM)
+        manager.permanentDeleteConfirmer = { _ in true }  // the user confirms the permanent delete
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
+        manager.duplicateGroups = [g]
+
+        let ok = await manager.resolveDuplicateGroup(g)
+
+        #expect(ok == true)
+        #expect(mockFM.virtualDisk["/b/x"] == nil, "the copy was destroyed permanently")
+        #expect(manager.banner?.message.contains("Reclaimed") == true)
+        #expect(manager.banner?.message.contains("⌘Z") != true,
+                "nothing was registered for undo, so ⌘Z would reverse an unrelated operation")
+        #expect(manager.banner?.isUndoable != true)
+    }
+
+    /// The other direction: a normal Trash removal still offers the undo it genuinely has, or the
+    /// fix would just have removed a working affordance.
+    @MainActor
+    @Test func aTrashedRemovalStillPromisesUndo() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
+        manager.duplicateGroups = [g]
+
+        let ok = await manager.resolveDuplicateGroup(g)
+
+        #expect(ok == true)
+        #expect(mockFM.virtualDisk["/b/x"] == nil)
+        #expect(manager.banner?.message.contains("⌘Z") == true)
+        #expect(manager.banner?.isUndoable == true)
+    }
+
+    // MARK: The outcome type itself
+
+    @Test func theOutcomeSeparatesRecoverableFromPermanent() {
+        #expect(DeleteOutcome(trashed: 3).isUndoable)
+        #expect(DeleteOutcome(trashed: 3).removed == 3)
+        // A mixed batch is NOT undoable: the restore-undo covers only the trashed subset, so an
+        // offered Undo would silently leave the permanent deletions in place.
+        #expect(!DeleteOutcome(trashed: 2, permanentlyDeleted: 1).isUndoable)
+        #expect(DeleteOutcome(trashed: 2, permanentlyDeleted: 1).removed == 3)
+        #expect(!DeleteOutcome(permanentlyDeleted: 2).isUndoable)
+        #expect(!DeleteOutcome().isUndoable, "removing nothing is not something to undo")
+        // Declined items were never removed, by either route.
+        #expect(DeleteOutcome(declined: 4).removed == 0)
+    }
+
+    // MARK: The same-size rewrite
+
+    /// `2025` → `2026`: identical length, different bytes, later mtime. Size alone read this as
+    /// the copy the scan grouped and trashed it.
+    @MainActor
+    @Test func aSameSizeRewriteOfACopyIsRefused() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        // Same size as the scan recorded, edited since.
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 9_999))
+        let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
+        manager.duplicateGroups = [g]
+
+        let ok = await manager.resolveDuplicateGroup(g)
+
+        #expect(ok == false)
+        #expect(mockFM.virtualDisk["/b/x"] != nil, "an edited copy must never be trashed as redundant")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("changed since it was scanned") == true)
+    }
+
+    /// And the guard must not over-refuse an untouched pair, or Tidy stops working entirely.
+    @MainActor
+    @Test func anUntouchedPairStillResolves() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        let when = Date(timeIntervalSince1970: 1_000)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: when)
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: when)
+        let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
+        manager.duplicateGroups = [g]
+
+        #expect(await manager.resolveDuplicateGroup(g) == true)
+        #expect(mockFM.virtualDisk["/b/x"] == nil)
+    }
+
+    /// A scan that recorded no date still resolves on size alone — the fallback that keeps every
+    /// pre-existing group working rather than refusing it for lack of a baseline.
+    @MainActor
+    @Test func aPairWithNoRecordedDateStillResolvesOnSize() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: nil)
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: nil)
+        let k = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false)
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [k, r], reclaimableBytes: 1000)
+        manager.duplicateGroups = [g]
+
+        #expect(await manager.resolveDuplicateGroup(g) == true)
+        #expect(mockFM.virtualDisk["/b/x"] == nil)
+    }
+}

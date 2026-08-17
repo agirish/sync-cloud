@@ -26,7 +26,7 @@ import Events
         manager.banner = nil
 
         let removed = await manager.deleteItems(at: ["/dst/a.txt", "/dst/b.txt"],
-                                                fileManager: mockFM, reportsNothingToDo: true)
+                                                fileManager: mockFM, reportsNothingToDo: true).removed
 
         #expect(removed == 0)
         #expect(manager.banner?.message == "Those 2 items were already gone")

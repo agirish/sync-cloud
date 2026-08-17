@@ -35,7 +35,7 @@ import Foundation
         mockFM.virtualDisk["/docs/notes.txt"] = file(50)
 
         // 1. User deletes both — they go to the (mock) Trash.
-        let removed = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM)
+        let removed = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM).removed
         #expect(removed == 2)
         #expect(mockFM.virtualDisk["/docs/report.pdf"] == nil)
         #expect(mockFM.virtualDisk["/docs/notes.txt"] == nil)

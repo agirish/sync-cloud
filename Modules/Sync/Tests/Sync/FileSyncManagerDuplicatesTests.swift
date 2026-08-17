@@ -206,7 +206,14 @@ import Combine
         #expect(ok == false)                                         // nothing removed
         #expect(mockFM.virtualDisk["/b/x"] != nil)                   // file still there
         #expect(manager.duplicateGroups.count == 1)                  // group NOT dropped
-        #expect(manager.banner == nil)                               // no false "Reclaimed" banner
+        // No false "Reclaimed" banner — the original point of this assertion, which used to be
+        // spelled `banner == nil` because declining produced no feedback of any kind. It now says
+        // what happened: the copy could not be trashed and the permanent delete was declined, so
+        // the file is still there. Silence was indistinguishable from the click doing nothing.
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("Reclaimed") != true)
+        #expect(manager.banner?.message.contains("Kept") == true)
+        #expect(manager.banner?.isUndoable != true)
     }
 
     @MainActor
