@@ -73,15 +73,24 @@ public struct DirectoryListing: Sendable {
 
 public extension FileManaging {
 
-    /// Lists `url`'s children, reporting whether the listing can be trusted.
+    /// Lists what is under `url`, reporting whether the listing can be trusted.
     ///
-    /// Defaults to a shallow listing because every call site converted to this reads one level.
-    /// Pass `options: []` for a recursive listing, which is the only way to reach
+    /// Defaults to a shallow listing — `urls` is then exactly the immediate children, which is what
+    /// every call site converted to this reads. Pass `options: []` for a recursive listing, where
+    /// `urls` is every descendant rather than the children, and which is the only way to reach
     /// `.listedWithUnreadableDescendants`.
     ///
-    /// - Note: a nil enumerator is treated as `.unreadable` for completeness, but on the real
-    ///   filesystem that branch does not fire — it is reachable only from an injected mock. The
-    ///   failure detection that matters happens through the error handler.
+    /// - Important: `url` must be a directory. Handing this a regular file answers `.unreadable`,
+    ///   measured — the enumerator yields nothing and reports the file through the error handler,
+    ///   which is indistinguishable here from a locked directory. That is the safe direction for
+    ///   every current caller, but it is a conflation: a caller that needs to tell "not a folder"
+    ///   from "locked folder" must ask `fileExists(atPath:isDirectory:)` first rather than reading
+    ///   it out of this answer.
+    ///
+    /// - Note: a nil enumerator is treated as `.unreadable` for completeness, but neither the real
+    ///   filesystem nor `MockFileManager` produces one — the real one because that is the whole
+    ///   finding behind this type, the mock because it models the real one faithfully. The failure
+    ///   detection that matters happens through the error handler.
     func listing(
         of url: URL,
         includingPropertiesForKeys keys: [URLResourceKey]? = nil,
