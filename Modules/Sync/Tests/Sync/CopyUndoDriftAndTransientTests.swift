@@ -5,11 +5,17 @@ import Events
 
 /// Pins the two copy-undo gaps closed in round 4:
 ///
-/// 1. **Drift guard** — `registerCopyUndo` snapshots each copied item's byte size at
-///    registration; the undo REFUSES to trash a destination whose current size differs (it is
-///    no longer the copied item — replaced or edited since), matching the "still the same
-///    item?" guards the move- and delete-undos already carry. A refused item stays out of the
-///    redo params.
+/// 1. **Drift guard** — `registerCopyUndo` snapshots each copied item's identity at
+///    registration; the undo REFUSES to trash a destination that is no longer that item —
+///    replaced or edited since — matching the "still the same item?" guards the move- and
+///    delete-undos already carry. A refused item stays out of the redo params.
+///
+///    The snapshot was a byte size when this suite was written, and these comments described
+///    it that way. `3df70dbd` replaced it with `ItemIdentity`, which covers DIRECTORIES (own
+///    modification date + immediate child count) as well as files, and compares a file's
+///    modification date alongside its size. So "directories carry no snapshot" and "the drift
+///    guard is files-only by design" — both written below — stopped being true then, and are
+///    corrected here rather than left asserting the opposite of the code they document.
 /// 2. **Transient trash failures** — a busy/locked destination (EBUSY et al.) is reported as
 ///    retryable instead of escalating to the permanent-delete prompt, the same
 ///    `isTransientTrashFailure` distinction `deleteItems` applies. `registerCreateFolderUndo`
@@ -176,10 +182,13 @@ import Events
     // MARK: Vanished copies
 
     /// A copied DIRECTORY the user already deleted themselves must not raise the phantom
-    /// permanent-delete prompt on ⌘Z: directories carry no size snapshot (the drift guard is
-    /// files-only by design), so the missing item used to fall through to `trashItem`, whose
-    /// no-such-file error is NOT in the transient list — escalating to a "permanently delete?"
-    /// confirmation naming an item that is not on disk.
+    /// permanent-delete prompt on ⌘Z. When this was written, directories carried no size
+    /// snapshot at all, so the missing item fell through to `trashItem`, whose no-such-file
+    /// error is NOT in the transient list — escalating to a "permanently delete?" confirmation
+    /// naming an item that is not on disk. A directory now DOES carry an identity, so the
+    /// missing copy would today reach the drift guard and refuse with a "changed" banner
+    /// instead; the explicit `fileExists` branch ahead of the guard is what keeps this path a
+    /// clean no-op either way, and that branch is what this test pins.
     @MainActor
     @Test func copyUndoOfVanishedDirectorySkipsThePermanentDeletePrompt() async throws {
         let manager = makeManager()
