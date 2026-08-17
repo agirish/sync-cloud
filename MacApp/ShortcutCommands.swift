@@ -519,16 +519,21 @@ extension ContentView {
             preference: tabBarVisible) { tabBarVisible = $0 }
     }
 
+    /// Resolved once and used for both the gate and the act, so the menu item can never be enabled
+    /// by a column stack the pane on screen does not draw — the same pairing the header's arrows
+    /// make. See `paneDrawsColumns(isLeft:)`.
     var shortcutGoBack: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
-        guard syncManager.canGoBack(isLeft: isLeft) else { return nil }
-        return { syncManager.goBack(isLeft: isLeft) }
+        let columns = paneDrawsColumns(isLeft: isLeft)
+        guard syncManager.canGoBack(isLeft: isLeft, drawsColumns: columns) else { return nil }
+        return { syncManager.goBack(isLeft: isLeft, drawsColumns: columns) }
     }
 
     var shortcutGoForward: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
-        guard syncManager.canGoForward(isLeft: isLeft) else { return nil }
-        return { syncManager.goForward(isLeft: isLeft) }
+        let columns = paneDrawsColumns(isLeft: isLeft)
+        guard syncManager.canGoForward(isLeft: isLeft, drawsColumns: columns) else { return nil }
+        return { syncManager.goForward(isLeft: isLeft, drawsColumns: columns) }
     }
 
     /// One resolution of "where does a new folder go", shared by the pane-bar rung and ⇧⌘N:

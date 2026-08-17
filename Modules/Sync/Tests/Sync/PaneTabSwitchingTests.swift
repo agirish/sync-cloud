@@ -67,11 +67,11 @@ import Foundation
 
         manager.focusOn(relativePath: "A", isLeft: true)
         manager.focusOn(relativePath: "A/B", isLeft: true)
-        #expect(manager.canGoBack(isLeft: true))
+        #expect(manager.canGoBack(isLeft: true, drawsColumns: true))
 
         _ = manager.switchTab(to: second, isLeft: true, currentProviderId: "iCloud")
         // A tab that has been nowhere has nowhere to go back to.
-        #expect(!manager.canGoBack(isLeft: true))
+        #expect(!manager.canGoBack(isLeft: true, drawsColumns: true))
     }
 
     @MainActor

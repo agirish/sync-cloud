@@ -34,7 +34,11 @@ extension ContentView {
         PaneTabChips.items(
             syncManager.paneTabs(isLeft: isLeft),
             liveProviderId: isLeft ? leftProviderId : rightProviderId,
-            livePath: syncManager.combinedRelativePath(isLeft: isLeft),
+            // The chip names the folder the pane is *showing*, which is the same answer the header's
+            // crumb gives — the two sit one above the other, so a chip reading a parked column
+            // stack the tree cannot draw would contradict the line directly under it. The tab's
+            // stored location keeps both halves (see `openTabHere`); only this readout is resolved.
+            livePath: syncManager.paneLocation(isLeft: isLeft, drawsColumns: paneDrawsColumns(isLeft: isLeft)),
             // **The discovered list here, not `paneCanShowSource`'s**, and it is the one place that
             // divergence is right: this resolves a NAME and a mark, not whether the pane may go
             // there. A source switched off in Settings still has a folder and a display name, and

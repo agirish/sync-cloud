@@ -393,6 +393,20 @@ struct ContentView: View {
         return layoutMode == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
     }
 
+    /// Whether that presentation draws the pane's column stack.
+    ///
+    /// The header's path line, the tab chip that mirrors it, the crumb and quick-jump routing,
+    /// `‹`/`›`, the lens scan target and New Folder all turn on this one question — see
+    /// `FileSyncManager.paneLocation(isLeft:drawsColumns:)`. In Tree the stack is parked, not on
+    /// screen, and every one of those surfaces that reads it anyway describes a folder the pane is
+    /// not showing.
+    ///
+    /// Through `resolvedViewMode`, so it inherits that member's whole point: Browse, the rail and
+    /// the comparison panes each answer from their own key.
+    func paneDrawsColumns(isLeft: Bool) -> Bool {
+        resolvedViewMode(isLeft: isLeft) == .columns
+    }
+
     /// The destination question on screen, if any. Held here because both surfaces that raise it —
     /// the single-source rail's row menu and an Organize card's "Choose folder…" — are children of this view.
     @State var pendingDestination: PendingDestination?
@@ -524,6 +538,10 @@ struct ContentView: View {
         syncManager.navigateBothPanes(
             toCombinedPath: combined,
             from: isLeft,
+            // Each side answers for itself — the presentation is a per-pane setting, so a linked
+            // click can be a browse move on one side and a re-root on the other.
+            drawsColumns: paneDrawsColumns(isLeft: isLeft),
+            otherDrawsColumns: paneDrawsColumns(isLeft: !isLeft),
             otherIndex: isLeft
                 ? syncManager.rightChildrenIndex(treeRoot: otherRoot)
                 : syncManager.leftChildrenIndex(treeRoot: otherRoot),
@@ -1746,7 +1764,12 @@ struct ContentView: View {
         PaneLogic.lensScanRoot(
             focusRootExpanded: ((lensTargetIsRight ? currentRightPath : currentLeftPath) as NSString)
                 .expandingTildeInPath,
-            browsePath: lensTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath)
+            // Only where the columns are on screen. In Tree the stack is parked state, and reading
+            // it here made the "Scan '<folder>'" offer name — and then walk — a folder that pane was
+            // not showing. The tree lists its scope whole, so its scope is what a scan of it covers.
+            browsePath: paneDrawsColumns(isLeft: !lensTargetIsRight)
+                ? (lensTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath)
+                : PaneBrowsePath())
     }
 
     /// The coverage the ⌂ badge is resolved against for one pane — nil where the badge never
@@ -2455,9 +2478,11 @@ struct ContentView: View {
             isLeft: isLeft,
             title: isLeft ? "Left" : "Right",
             providerId: isLeft ? leftProviderId : rightProviderId,
-            relativePath: syncManager.combinedRelativePath(isLeft: isLeft),
-            canGoBack: syncManager.canGoBack(isLeft: isLeft),
-            canGoForward: syncManager.canGoForward(isLeft: isLeft),
+            // Through the mode, never the bare join: a Tree pane's location is its scope, and the
+            // parked column stack is not part of where it is.
+            relativePath: syncManager.paneLocation(isLeft: isLeft, drawsColumns: mode == .columns),
+            canGoBack: syncManager.canGoBack(isLeft: isLeft, drawsColumns: mode == .columns),
+            canGoForward: syncManager.canGoForward(isLeft: isLeft, drawsColumns: mode == .columns),
             tree: isLeft ? syncManager.leftPaneTree : syncManager.rightPaneTree,
             otherTree: isLeft ? syncManager.rightPaneTree : syncManager.leftPaneTree,
             isLoading: isLeft ? syncManager.isLoadingLeftTree : syncManager.isLoadingRightTree,
@@ -2536,13 +2561,20 @@ struct ContentView: View {
                 relativePath: pane.relativePath,
                 canGoBack: pane.canGoBack,
                 canGoForward: pane.canGoForward,
-                onBack: { syncManager.goBack(isLeft: isLeft) },
-                onForward: { syncManager.goForward(isLeft: isLeft) },
-                onNavigate: { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) },
+                // Same resolved mode the arrows were *enabled* from, so pressing one can never take
+                // the branch its enablement did not count.
+                onBack: { syncManager.goBack(isLeft: isLeft, drawsColumns: pane.viewMode == .columns) },
+                onForward: { syncManager.goForward(isLeft: isLeft, drawsColumns: pane.viewMode == .columns) },
+                // `pane.viewMode` and not a fresh read: the crumbs this routes were drawn from the
+                // same context, so a click can never be resolved against a mode the row it came
+                // from was not laid out in.
+                onNavigate: { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0,
+                                                       drawsColumns: pane.viewMode == .columns) },
                 // The single-source rail has no visible sibling: ⌥-click (and the 🔗-linked crumb click)
                 // must behave as plain navigation there, never drive the hidden right pane.
                 onNavigateBoth: layoutMode == .singleSource
-                    ? { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) }
+                    ? { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0,
+                                                 drawsColumns: pane.viewMode == .columns) }
                     : { navigateBothPanes(toCombinedPath: $0, from: isLeft) },
                 providers: settings.enabledProviders,
                 onSelectProvider: { id in
