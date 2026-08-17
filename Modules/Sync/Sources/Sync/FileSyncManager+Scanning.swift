@@ -876,14 +876,23 @@ extension FileSyncManager {
                             return ([], true)
                         }
                     } else {
-                        var urls: [URL] = []
-                        guard let enumerator = fileManager.enumerator(at: dirURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) else {
+                        // Injected `FileManaging`. This branch used to raise `listingFailed` only
+                        // on a nil enumerator, which never happens — so an unlistable directory
+                        // came back `([], false)`, meaning "listed, and empty", and the walk cached
+                        // it as an authoritatively empty folder. That is the opposite of what the
+                        // real-filesystem branch above decides for the same directory, where
+                        // `contentsOfDirectory` throws and the failure is reported honestly. This
+                        // makes the two branches agree.
+                        let listing = fileManager.listing(of: dirURL, options: [.skipsSubdirectoryDescendants])
+                        // Switched rather than compared with `!=`: `DirectoryListingOutcome`
+                        // promises its callers handle every case, which is what makes a fourth
+                        // case a compile error here instead of one silently absorbed into "fine".
+                        switch listing.outcome {
+                        case .unreadable:
                             return ([], true)
+                        case .listed, .listedWithUnreadableDescendants:
+                            return (listing.urls.map { dirURL.appendingPathComponent($0.lastPathComponent) }, false)
                         }
-                        for case let u as URL in enumerator {
-                            urls.append(dirURL.appendingPathComponent(u.lastPathComponent))
-                        }
-                        return (urls, false)
                     }
                 }
 
