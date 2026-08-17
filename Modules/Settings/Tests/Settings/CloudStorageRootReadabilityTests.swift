@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import Settings
+import Sync
 
 /// Provider discovery must not report "you have no cloud accounts" when what actually happened is
 /// "I could not read the folder they live in".
@@ -157,6 +158,61 @@ import Foundation
         // … and the fact the pass DID establish is published rather than discarded with it.
         #expect(settings.pathValidity["Dropbox"] == false,
                 "a stale validity badge outlived the pass that disproved it")
+    }
+
+    @MainActor
+    @Test func addingAFolderSourceWhileTheRootIsUnreadableKeepsTheAccountsToo() async {
+        // The case a provider COUNT could not see. `availableProviders` holds folder sources
+        // alongside the discovered accounts, so "fewer than before" stopped being a reliable sign
+        // that accounts had been dropped: lose one account and gain one folder source and the
+        // count is unchanged. `addFolderSource` calls `discoverProviders()` itself, so this is the
+        // ordinary sequence rather than a contrived one.
+        let test = TestDefaults(); defer { test.wipe() }
+        let readable = Mutable(true)
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: {
+                readable.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .unreadableRoot
+            },
+            pathValidator: { _ in true })
+
+        await settings.discoverProviders()
+        #expect(settings.availableProviders.map(\.id) == ["iCloud", "Dropbox"])
+
+        readable.value = false
+        _ = settings.addFolderSource(path: "/Users/u/Projects")
+        await settings.discoverProviders()
+
+        let ids = settings.availableProviders.map(\.id)
+        #expect(ids.contains("Dropbox"), "the account was dropped while the root was unreadable: \(ids)")
+        #expect(ids.contains(where: { FolderSource.isFolderSourceId($0) }),
+                "the folder source the user just added is missing: \(ids)")
+    }
+
+    @MainActor
+    @Test func removingAFolderSourceWhileTheRootIsUnreadableStillTakesEffect() async {
+        // The same count rule in the other direction: a legitimate shrink, refused.
+        let test = TestDefaults(); defer { test.wipe() }
+        let readable = Mutable(true)
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: {
+                readable.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .unreadableRoot
+            },
+            pathValidator: { _ in true })
+        let id = settings.addFolderSource(path: "/Users/u/Projects")
+        await settings.discoverProviders()
+        #expect(settings.availableProviders.map(\.id).contains(id))
+
+        readable.value = false
+        settings.removeFolderSource(id: id)
+        await settings.discoverProviders()
+
+        let ids = settings.availableProviders.map(\.id)
+        #expect(!ids.contains(id), "the removed folder source came back: \(ids)")
+        #expect(ids.contains("Dropbox"), "and the account must still be there: \(ids)")
     }
 }
 
