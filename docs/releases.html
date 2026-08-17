@@ -80,6 +80,9 @@
   .rel-head .tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--blue);
     background:rgba(76,141,255,.12);border:1px solid rgba(76,141,255,.25);padding:4px 9px;border-radius:6px}
   .rel-head .tag.latest{color:var(--green);background:rgba(67,201,138,.12);border-color:rgba(67,201,138,.28)}
+  .rel-head .tag.draft{color:var(--amber);background:rgba(242,177,60,.12);border-color:rgba(242,177,60,.30)}
+  .rel.draft{border-style:dashed}
+  .rel.draft::before{opacity:.3}
   .rel > .lede{color:var(--ink-dim);font-size:16px;margin:0 0 26px;max-width:64ch}
 
   .grp{margin-top:24px}
@@ -131,6 +134,33 @@
 </section>
 
 <div class="timeline">
+
+  <!-- v4.1 — DRAFT, not released. Keep the Latest badge on v4.0 until v4.1 is cut. -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v4.1</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Not released yet</b> — this is what is on <code>main</code> today, and it may still change before v4.1 is cut. The headline is <b>tabs</b>: one pane, many parked locations, which turns a two-pane comparison into a place you can keep several jobs open in at once.</p>
+    <div class="grp">
+      <h3>Tabs</h3>
+      <ul class="flist">
+        <li><span class="ic">▭</span><span><b>Every pane gets a tab strip.</b> A tab is a location a pane holds, parked: its folder, the column stack inside it, its history and its selection. The active tab is not stored separately — it is the pane's own live position, captured into the outgoing tab when you switch — which is what keeps the feature cheap: at any instant the app holds exactly the state it held before tabs existed, so no workspace, lens or scan had to learn what a tab is. The strip draws nothing at one tab, and sheds down three rungs as space runs out.</span></li>
+        <li><span class="ic">⌘</span><span><b>Finder's chords, and a route that works at one tab.</b> ⌘T opens a new tab <i>here</i> and the menu item says so; ⌘W closes the tab rather than the window once there is more than one. <b>New Tab</b> is on the pane's own right-click menu, which is the only route that works before a strip exists — the row menu needs a folder under the pointer and the strip's menu needs a strip, and a fresh install has neither. <b>Open in New Tab</b> moves above Quick Look in the row menu, because with no ＋ on screen until a second tab exists, that item is the whole discovery story. Tabs pin, and <i>Close Other Tabs</i> stops being offered when every other tab is pinned and the verb would do nothing.</span></li>
+        <li><span class="ic">⇹</span><span><b>In Compare, both panes wear the strip together.</b> Compare reads as one row — the two panes' headers, breadcrumbs and lists all line up across the seam — and a strip on one side only pushes that pane down 34pt, from which every row names a different folder on the left than on the right. A second tab on either side draws the strip on both; the side with one tab gets a strip holding its chip and a ＋, which is also how you give it a second. Opening a folder in a new tab follows the link, too: with the seam's 🔗 on or ⌥ held, a new tab on one pane opens the same folder on the other.</span></li>
+        <li><span class="ic">⚡</span><span><b>A tab switch inside one folder costs nothing at all.</b> Switching was doing a full re-walk <i>and</i> a scan nobody asked for. Navigation here has never rescanned — drilling through columns moves the same column stack a tab carries and leaves the trees alone — and a switch that changes neither the source nor the scope now does neither either. Switches paint from memory instead of walking the disk.</span></li>
+        <li><span class="ic">↺</span><span><b>The strip survives a quit, and so does what was inside it.</b> A tab drilled four columns deep used to reopen as one full-width column, which went unseen because the breadcrumb still read the right folder — the header joins the pane's two halves, so it looks identical whichever one holds the path. Compare's right pane also gets its own remembered strip: it had been re-seeding a single tab on its stored provider at every launch, so its parked tabs were gone entirely.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Panes and the pane bar</h3>
+      <ul class="flist">
+        <li><span class="ic">👁</span><span><b>Browse keeps its preview column when Compare turns one off.</b> One stored preference served four surfaces, and two of them want different answers: Compare and the Organize/Storage rail are panes read <i>against</i> something, where a preview costs the columns doing that work half their room — while Browse is the pane where reading a file <i>is</i> the task. Turning the preview off to compare two providers took it away from browsing.</span></li>
+        <li><span class="ic">▤</span><span><b>A column row spends its width on the name.</b> Folder rows carried a modification date that is the folder's own mtime — when something was last added or removed directly inside it, which on a tree of filing folders reports the last tidy rather than anything about the contents. It was not free: at the default text size it held 76.4pt of a 210pt column, the difference between 77.6pt of room for a name and 154pt. "Birth Certificate" needs 95.7pt, so it truncated.</span></li>
+        <li><span class="ic">🏷</span><span><b>The pane bar's controls can show their names</b> — a short word under each pill, as Finder's toolbar does, behind a preference in the bar's right-click menu beside Icon Size. Two modes rather than Finder's three: Text Only is dropped, because with the glyph gone the word becomes the only carrier of state.</span></li>
+        <li><span class="ic">⌖</span><span><b>A fixed space on the customize track can be aimed at.</b> Its pill is a dashed outline with no fill, and a shape is hit-testable only where it is painted — so the drag that removes it, the drop that moves things around it, and the menu carrying Move Left / Move Right / Remove were all attached to a 1pt dashed ring. A right-click in the middle of a space passed straight through and offered nothing, and a space once added could never be taken off again. Dragging a control off the bar also stops showing macOS's green ＋, the sign for "the item will still be there", over a target whose only job is to delete it.</span></li>
+      </ul>
+    </div>
+    <p class="known"><b>Still to come in v4.1.</b> The app can now derive a <i>folder profile</i> from your tree — the record the router and Restructure read, which v4.0 could only take from an out-of-repo script. It is not listed above because nothing you can press reaches it yet: the execution model and the setup dialog are still to be built. It joins this list when they are.</p>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.0...main">v4.0...main</a></p>
+  </article>
 
   <!-- v4.0 -->
   <article class="rel">

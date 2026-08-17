@@ -5,6 +5,98 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v4.1 — DRAFT, not released
+
+> **This section is a draft.** v4.1 has not been cut and this is not final copy.
+> Work is still landing, so entries will be added and existing ones may change or
+> be withdrawn. Covers `v4.0..d655b528` — 76 commits. Claims below were checked
+> against the `v4.0` tag: fixes to work that landed *inside* this range earn no
+> entry, because no user of v4.0 was ever exposed to them. That rule takes out most
+> of this range — tabs arrived here, so the several review passes that followed
+> them are repairs to unreleased work, including the ⌘W that briefly took Close
+> away from three other windows.
+>
+> **Landed but deliberately unclaimed:** the app can now derive a *folder profile*
+> from your tree, which is the thing v4.0 said had to come from an out-of-repo
+> script. It is not in this list because `writeProfile` and
+> `FolderSurveyBuilder.build` have **no production callers** — the execution model
+> and the setup dialog are still to come, so nothing a user can press reaches it.
+> It becomes a headline entry the moment it does.
+
+Tabs. One pane, many parked locations — the thing that turns a two-pane comparison
+into a place you can keep several jobs open in at once.
+
+### Tabs
+
+- **Every pane gets a tab strip.** A tab is a location a pane holds, parked: its
+  folder, the column stack inside it, its history and its selection. The active tab
+  is not stored separately — it is the pane's own live position, captured into the
+  outgoing tab when you switch — which is what keeps the feature cheap: at any
+  instant the app holds exactly the state it held before tabs existed, so no
+  workspace, lens or scan had to learn what a tab is.
+- **The strip draws nothing at one tab**, and sheds down three rungs as space runs
+  out — every tab, then tabs at a floor width with the surplus behind a count.
+- **Finder's chords.** ⌘T opens a new tab *here* and the menu item says so, ⌘W
+  closes the tab rather than the window once there is more than one.
+- **New Tab is on the pane's own right-click menu**, which is the only route that
+  works at one tab: the row menu needs a folder under the pointer and the strip's
+  menu needs a strip, and a fresh install has neither. **Open in New Tab** also
+  moves above Quick Look in the row menu — with no ＋ on screen until a second tab
+  exists, that item is the whole discovery story.
+- **Tabs pin.** A pinned tab keeps its place, and *Close Other Tabs* stops being
+  offered when every other tab is pinned and the verb would do nothing.
+- **In Compare, both panes wear the strip together.** Compare reads as one row —
+  the two panes' headers, breadcrumbs and lists all line up across the seam — and a
+  strip on one side only pushes that pane down 34pt, from which every row names a
+  different folder on the left than on the right. A second tab on either side draws
+  the strip on both; the side with one tab gets a strip holding its chip and a ＋,
+  which is also how you give it a second.
+- **Opening a folder in a new tab follows the link.** With the seam's 🔗 on, or ⌥
+  held, a new tab on one pane opens the same folder on the other — the same test a
+  mirrored drill already applied, shared as one expression so a link cannot come to
+  mean one thing for a drill and another for a tab.
+- **A tab switch inside one folder costs nothing at all.** Switching was doing a
+  full re-walk *and* a scan nobody asked for. Navigation here has never rescanned —
+  drilling through columns moves the same column stack a tab carries and leaves the
+  trees alone — and a switch that changes neither the source nor the scope now does
+  neither either. Switches paint from memory instead of walking the disk.
+- **The strip survives a quit, and so does what was inside it.** A tab drilled four
+  columns deep used to reopen as one full-width column, which went unseen because
+  the breadcrumb still read the right folder — the header joins the pane's two
+  halves, so it looks identical whichever one holds the path. Compare's right pane
+  also gets its own remembered strip: it had been re-seeding a single tab on its
+  stored provider at every launch, so its parked tabs were gone entirely.
+
+### Panes and the pane bar
+
+- **Browse keeps its preview column when Compare turns one off.** One stored
+  preference served four surfaces, and two of them want different answers: Compare
+  and the Organize/Storage rail are panes read *against* something, where a preview
+  costs the columns doing that work half their room — while Browse is the pane
+  where reading a file *is* the task. Turning the preview off to compare two
+  providers took it away from browsing.
+- **A column row spends its width on the name.** Folder rows carried a modification
+  date that is the folder's own mtime — when something was last added or removed
+  directly inside it, which on a tree of filing folders reports the last tidy rather
+  than anything about the contents. It was not free: at the default text size it
+  held 76.4pt of a 210pt column, the difference between 77.6pt of room for a name
+  and 154pt. "Birth Certificate" needs 95.7pt, so it truncated.
+- **The pane bar's controls can show their names**, a short word under each pill as
+  Finder's toolbar does, behind a preference in the bar's right-click menu beside
+  Icon Size. Two modes rather than Finder's three: Text Only is dropped, because
+  with the glyph gone the word becomes the only carrier of state.
+- **A fixed space on the customize track can be aimed at.** Its pill is a dashed
+  outline with no fill, and a SwiftUI shape is hit-testable only where it is
+  painted — so the drag that removes it, the drop that moves things around it, and
+  the menu carrying Move Left / Move Right / Remove were all attached to a 1pt
+  dashed ring. A right-click in the middle of a space passed straight through and
+  offered nothing, and a space once added could never be taken off again.
+- **Dragging a control off the pane bar stops showing the copy badge.** macOS put a
+  green ＋ on the cursor — the sign for "the item will still be there" — over a
+  target whose only job is to delete it.
+
+---
+
 ## v4.0
 
 **The largest release SyncCloud has had** — 284 commits,
