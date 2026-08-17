@@ -202,18 +202,45 @@ import UniformTypeIdentifiers
     /// every image this suite can construct that CoreGraphics decodes is one Vision accepts — the
     /// corrupt-image fixture above never reaches `perform`, it fails at `CGImageSourceCreate…`. So
     /// this pins the half that a test can actually reach and says so rather than pretending.
+    ///
+    /// **The absence is read from this test's own marker forward** — mechanism 12 in
+    /// `docs/flaky-tests.md`. `Logger.shared.entries` is one process-wide 1000-line window that
+    /// every suite writes into at once, and the flush marker this used to rely on was written
+    /// *after* the OCR call and never asserted present. That guarantees the line is **visible** if
+    /// it exists — the queue is FIFO, so awaiting a fresh entry's task drains everything enqueued
+    /// before it — and says nothing about whether it **survived**. On a busy run the window can roll
+    /// past the whole call, and an absence measured over a window that no longer holds the interval
+    /// passes having examined nothing: the one failure shape in that file with no symptom at all.
+    /// So a unique marker goes in FIRST, its index is `#require`d, and the filter reads only the
+    /// slice from it onward. A rolled window now fails, loudly, saying the reading was vacuous.
+    ///
+    /// No `.serialized` is needed: the fragment carries `clean-scan.png`, a fixture name no other
+    /// test in this suite or this repo writes (`imageTextIsExtractedViaOCR` uses `scan.png`), so a
+    /// sibling running concurrently cannot drop the asserted line inside the window.
     @MainActor
     @Test func aScanThatOCRsCleanlyReportsNoOCRFailure() async throws {
         let dir = FixtureDir()
         let path = dir.path("clean-scan.png")
         try Self.writeTextImage("INVOICE 1099", to: path)
 
+        // Before the call under test, so it is older than anything the OCR could write: if this is
+        // still in the window, so is everything after it.
+        let marker = "ocr-failure window open \(UUID().uuidString)"
+        await Logger.shared.debug(marker).value
+
         // The fixture must really OCR, or the no-warning assertion below proves nothing.
         let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
         #expect(snippet.uppercased().contains("INVOICE"))
 
         await Logger.shared.debug("ocr-failure-log flush marker").value
-        let failures = Logger.shared.entries.filter {
+        let entries = Logger.shared.entries
+        // The INDEX is computed before the `#require`, deliberately. `#require`ing anything that
+        // holds the entries themselves prints the whole buffer on failure — measured at 152KB of
+        // `LogEntry` — which buries the one sentence that explains what went wrong.
+        let opened = entries.lastIndex { $0.message == marker }
+        let start = try #require(opened,
+                                 "the 1000-line log window rolled past this test's own marker, so the absence below would have examined nothing — see mechanism 12 in docs/flaky-tests.md")
+        let failures = entries[start...].filter {
             $0.level == .warning && $0.message.contains("OCR failed on “clean-scan.png”")
         }
         #expect(failures.isEmpty, "a successful OCR logged a failure: \(failures.map(\.message))")
