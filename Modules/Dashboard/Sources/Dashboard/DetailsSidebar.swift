@@ -690,7 +690,16 @@ public struct DetailsSidebar: View {
         case .listedWithUnreadableDescendants:
             // Part of the tree was withheld, so `total` is a floor. "+" is the same idiom the
             // review card's "1000+ items" uses for a number that is known to be short.
-            return formatted + "+"
+            //
+            // Except at zero, where the idiom breaks. The formatter renders 0 as "Zero KB", so the
+            // folder whose only content is an unreadable subtree came out as **"Zero KB+"** — a
+            // phrase that reads as a size and states nothing ("at least nothing" is true of every
+            // folder alive). The review card's analogous case is guarded by arithmetic, since
+            // `classify` cannot answer partial on a count of zero; this one cannot borrow that,
+            // because bytes and entries are different quantities and a partial walk can legitimately
+            // total zero. "--" is what this function already returns for "no honest number", and a
+            // floor of zero is exactly that.
+            return total == 0 ? nil : formatted + "+"
         case .unreadable:
             // Nothing was read. nil, which the caller renders as "--" — the same thing it shows
             // for a folder it has no answer for, and not a size of zero.
