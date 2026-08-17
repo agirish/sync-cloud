@@ -42,14 +42,41 @@ import Testing
     /// exactly the change it exists to catch. The count assertion still failed, so the suite went
     /// red, but for an incidental reason. A demand that moves with the thing under test cannot
     /// measure it.
-    private static let passesDemanded = 25
+    private static let passesDemanded = 3
+
+    /// The floor these tests run against — **five, not the production fifty.**
+    ///
+    /// Everything below asserts a SHAPE: a demand under the floor is served after an expired
+    /// deadline, a demand over it is served while the deadline holds, a never-true condition still
+    /// terminates. None of those depend on the floor's magnitude, and depending on it was
+    /// expensive: a pass costs 5–7 SECONDS on a saturated CI main actor (8ms idle), so this suite
+    /// and its two siblings were spending ~1,737s of a 665s CI step between them — the largest
+    /// single cost in the run, and all of it testing the test helper rather than the app.
+    ///
+    /// A literal, like ``passesDemanded``, and for the same reason: derived from `pumpFloor` it
+    /// would move with the thing under test and stop measuring it.
+    private static let testFloor = 5
 
     /// Keeps the literal above meaningful: it must be reachable within the floor, or these tests
     /// would be measuring the deadline instead. Fails loudly rather than drifting if the floor
     /// is ever lowered past it.
     @Test func theDemandUsedByTheseTestsSitsBelowTheFloor() {
-        #expect(Self.passesDemanded < LayoutPumpWait.pumpFloor,
-                "\(Self.passesDemanded) passes is not reachable within a floor of \(LayoutPumpWait.pumpFloor) — the floor tests below would be measuring the deadline")
+        #expect(Self.passesDemanded < Self.testFloor,
+                "\(Self.passesDemanded) passes is not reachable within a floor of \(Self.testFloor) — the floor tests below would be measuring the deadline")
+    }
+
+    /// **The production floor's VALUE, pinned here because nothing else exercises it any more.**
+    ///
+    /// The tests below run against ``testFloor`` so they cost five passes instead of fifty. That
+    /// is sound for the loop's shape and blind to the number every real wait actually uses — so
+    /// the number gets its own assertion, which costs nothing. Fifty is the measured figure from
+    /// `docs/flaky-tests.md` mechanism 2; changing it is a decision about flake protection, and
+    /// this is where that decision has to be made deliberately.
+    @Test func theProductionFloorIsStillFifty() {
+        #expect(LayoutPumpWait.pumpFloor == 50,
+                "the floor every real wait uses is now \(LayoutPumpWait.pumpFloor) — see docs/flaky-tests.md mechanism 2 before changing it")
+        #expect(Self.testFloor < LayoutPumpWait.pumpFloor,
+                "the test floor is no longer cheaper than the production one — these tests exist to be cheap")
     }
 
     /// The load-bearing property. With the deadline ALREADY spent, a condition that needs turns
@@ -57,7 +84,7 @@ import Testing
     @Test func theFloorOutlivesAnExpiredDeadline() async {
         var passes = 0
         let needed = Self.passesDemanded
-        let outcome = await LayoutPumpWait.pump(host(), upTo: 0) {
+        let outcome = await LayoutPumpWait.pump(host(), upTo: 0, floor: Self.testFloor) {
             passes += 1
             return passes >= needed
         }
@@ -94,10 +121,18 @@ import Testing
     /// the loop exits at `pumpFloor` and reports 51 passes, red, in milliseconds.
     @Test func theDeadlineStillCarriesTheWaitPastTheFloor() async {
         var passes = 0
-        let needed = LayoutPumpWait.pumpFloor + 10
+        // **Two past the floor, not ten.** A floor-only loop still reaches `floor + 1` through the
+        // post-deadline re-check, so two past it is the smallest demand such a loop cannot meet —
+        // the argument ``LayoutPumpWaitPollTests/aLiveDeadlineCarriesTheWaitPastTheFloor`` already
+        // makes for its own. Ten was inherited from the version that ran against the production
+        // floor, where the margin was noise; against a floor of five it was eight passes of pure
+        // cost, and a pass is seconds on a saturated CI main actor. Measured: this was the last
+        // floor test still over 100s after the rest were made cheap.
+        let needed = Self.testFloor + 2
         // Frozen: every read is the same instant, so `now() < deadline` is true forever.
         let frozen = Date(timeIntervalSince1970: 1_770_000_000)
-        let outcome = await LayoutPumpWait.pump(host(), upTo: 60, now: { frozen }) {
+        let outcome = await LayoutPumpWait.pump(host(), upTo: 60, floor: Self.testFloor,
+                                                now: { frozen }) {
             passes += 1
             return passes >= needed
         }
@@ -110,10 +145,10 @@ import Testing
     /// passes rather than by spinning. The `+ 1` is the loop's post-deadline re-check, which is
     /// what lets a condition that became true during the last sleep still be seen.
     @Test func aConditionThatNeverHoldsStillGetsAVerdict() async {
-        let outcome = await LayoutPumpWait.pump(host(), upTo: 0) { false }
+        let outcome = await LayoutPumpWait.pump(host(), upTo: 0, floor: Self.testFloor) { false }
         #expect(!outcome.held, "a never-true condition reported held")
-        #expect(outcome.pumps == LayoutPumpWait.pumpFloor + 1,
-                "gave up after \(outcome.pumps) passes, expected the floor's \(LayoutPumpWait.pumpFloor) plus the post-deadline re-check")
+        #expect(outcome.pumps == Self.testFloor + 1,
+                "gave up after \(outcome.pumps) passes, expected the floor's \(Self.testFloor) plus the post-deadline re-check")
     }
 
     /// The window entry point carries a byte-identical loop, and the two have drifted before —
@@ -127,12 +162,66 @@ import Testing
 
         var passes = 0
         let needed = Self.passesDemanded
-        let outcome = await LayoutPumpWait.pump(window, upTo: 0) {
+        let outcome = await LayoutPumpWait.pump(window, upTo: 0, floor: Self.testFloor) {
             passes += 1
             return passes >= needed
         }
         #expect(outcome.held,
                 "the window variant gave up after \(outcome.pumps) pass(es) with the deadline spent")
         #expect(outcome.pumps == needed)
+    }
+
+    // MARK: The escape hatch stays shut
+
+    /// **Only a floor's own tests may lower a floor.**
+    ///
+    /// The repo has several of these waits and each carries a floor of 50 main-actor turns. The
+    /// override exists so that the tests OF a floor can assert its shape in five turns instead of
+    /// fifty — they assert a shape, and the shape does not depend on the magnitude. Every real wait
+    /// must take the default: a suite that quietly lowered its own floor would be re-opening
+    /// mechanism 2 by hand, and it would look like a speed-up right up until it went red on a
+    /// loaded runner, which is exactly the history `docs/flaky-tests.md` records.
+    ///
+    /// Scanned across every package's test tree rather than this one, because the floors live in
+    /// four places and the rule is about all of them — `ShortcutRevealTrackerTests` owns Design's.
+    /// Comment-stripped, so a note *about* `floor:` is not a violation.
+    @Test func theFloorIsOnlyLoweredByItsOwnTests() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()   // …/Modules
+        // Each of these IS a floor's own test — the only category allowed to lower one.
+        let permitted: Set<String> = ["LayoutPumpWaitTests.swift", "LayoutPumpWaitPollTests.swift",
+                                      "ShortcutRevealTrackerTests.swift"]
+        var scanned = 0
+        var offenders: [String] = []
+        var permittedSeen: Set<String> = []
+
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let url = files?.nextObject() as? URL {
+            guard url.pathExtension == "swift",
+                  url.path.contains("/Tests/"),
+                  // SwiftPM checks dependencies out under `.build`, and one of them passes a
+                  // `floor:` of its own. Their sources are not this repo's to police.
+                  !url.path.contains("/.build/"),
+                  let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            scanned += 1
+            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            // The DECLARATION is not a caller: `LayoutPumpWait` itself spells the parameter out,
+            // in both targets' copies, and that is the thing being guarded rather than a use of it.
+            guard code.replacingOccurrences(of: "floor: Int = pumpFloor", with: "")
+                      .contains("floor: ") else { continue }
+            let name = url.lastPathComponent
+            if permitted.contains(name) { permittedSeen.insert(name) } else { offenders.append(name) }
+        }
+
+        // Non-vacuity, both halves: the walk found a real tree, and it can actually see the uses
+        // it is permitting — otherwise "no offenders" would mean "no reader".
+        try #require(scanned > 200, "the scan read \(scanned) test files — it is broken, not the repo")
+        #expect(permittedSeen == permitted,
+                "the scan did not find `floor:` in \(permitted.subtracting(permittedSeen)) — it would report any caller as clean")
+        #expect(offenders.isEmpty,
+                "\(offenders) lower a wait floor without being that floor's own test. That is mechanism 2 by hand: the floor is what carries a wait on a congested runner, and a suite that shrinks it will pass locally and go red on CI.")
     }
 }

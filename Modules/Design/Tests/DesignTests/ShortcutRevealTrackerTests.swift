@@ -28,18 +28,44 @@ import Testing
         return (ShortcutRevealTracker(now: { clock.now }), clock)
     }
 
+    /// The fewest polls this wait will make before it may give up, however little of its deadline
+    /// is left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the Dashboard
+    /// and FileExplorer test targets.
+    ///
+    /// **A deadline is in seconds; what this waits for arrives on main-actor turns, and under
+    /// full-suite load those two units come apart.** Measured here on 2026-08-08, waiting for the
+    /// same reveal: **34 polls in 0.207s** under `--filter`, and **4 polls in 4.44s** in a full
+    /// Design run. Five wall-clock seconds bought four evaluations of the condition — the 0.2s
+    /// hold had long since elapsed, and what the wait was short of was turns to notice.
+    private static let pollFloor = 50
+
     /// Bounded, and it FAILS on expiry naming the call site — an unbounded spin here would turn a
     /// regression into a hung suite.
+    ///
+    /// Bounded by **polls as well as by seconds**: it may give up only once both the deadline has
+    /// passed and `pollFloor` polls have been made. **The poll count is the diagnosis, so it goes
+    /// in the message** — a wait that gave up after 4 of them was starved and says nothing about
+    /// the tracker, while one that gave up after 50 was genuinely disproved.
+    ///
+    /// `floor` is overridden **only by the floor's own case below**, which asserts a shape — a
+    /// demand under the floor is served once the deadline is spent — that does not depend on the
+    /// floor being fifty. Depending on it was expensive: a poll costs seconds on a saturated CI
+    /// main actor, so that one test was spending ~184s of a 665s CI step. Every real wait here
+    /// takes the default.
     private func waitUntil(_ what: Comment,
                            timeout: TimeInterval = 5,
+                           floor: Int = ShortcutRevealTrackerTests.pollFloor,
                            sourceLocation: SourceLocation = #_sourceLocation,
                            _ condition: () -> Bool) async {
+        var polls = 0
         let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while ContinuousClock.now < deadline {
+        while polls < floor || ContinuousClock.now < deadline {
+            polls += 1
             if condition() { return }
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
-        #expect(condition(), what, sourceLocation: sourceLocation)
+        #expect(condition(), "\(what.rawValue) — still false after \(polls) polls",
+                sourceLocation: sourceLocation)
     }
 
     /// End to end: ⌥ alone, the deadline arrives, the published flag flips.
@@ -142,6 +168,59 @@ import Testing
         // ...and it still actually arrives.
         clock.advance(by: hold / 2)
         await waitUntil("the reveal lands on the original deadline") { tracker.isActive }
+    }
+
+    // MARK: The floor itself
+
+    /// How many polls the case below demands — a LITERAL, deliberately not derived from
+    /// `pollFloor`. Deriving it defeats its own mutation test: zeroing the floor would also zero
+    /// the requirement, and the condition would hold on the first poll against exactly the change
+    /// the test exists to catch.
+    private static let pollsDemanded = 3
+
+    /// The floor the case below runs against — five, not the production fifty. A literal for the
+    /// same reason `pollsDemanded` is one: derived from `pollFloor` it would move with the thing
+    /// under test.
+    private static let testFloor = 5
+
+    /// Keeps that literal meaningful — and it is the only case that catches a floor lowered to just
+    /// *under* the demand, since the loop's post-deadline `#expect` re-evaluates the condition once
+    /// more and so buys a 25th poll from a floor of 24. The real guarantee is `pollFloor + 1`.
+    @Test func theDemandUsedByTheFloorCaseSitsBelowTheFloor() {
+        #expect(Self.pollsDemanded < Self.testFloor,
+                "\(Self.pollsDemanded) polls is not reachable within a floor of \(Self.testFloor) — the floor case below would be measuring the deadline")
+    }
+
+    /// **The production floor's VALUE**, pinned here because the case below no longer exercises
+    /// it. Fifty is the measured figure from `docs/flaky-tests.md` mechanism 2 — the same number
+    /// `LayoutPumpWait.pumpFloor` carries, deliberately, because the unit that starves is
+    /// main-actor turns either way.
+    @Test func theProductionPollFloorIsStillFifty() {
+        #expect(Self.pollFloor == 50,
+                "the floor every real wait here uses is now \(Self.pollFloor) — see docs/flaky-tests.md mechanism 2")
+        #expect(Self.testFloor < Self.pollFloor, "the test floor is no longer the cheaper one")
+    }
+
+    /// **The floor outlives an expired deadline** — the property the flake fix rests on, pinned
+    /// rather than argued from pass rates.
+    ///
+    /// This is the suite whose wait actually failed CI, and until now its floor was the only one of
+    /// the repo's four with no test: `LayoutPumpWait.pumpFloor` and both `waitPollFloor` copies have
+    /// theirs. The bug the floor prevents reproduces only under congestion, but the floor's
+    /// *guarantee* is deterministic — a property of the loop, provable with a counter and a spent
+    /// deadline on an idle machine.
+    ///
+    /// `waitUntil` records its own labeled failure if it gives up, so a floor that stopped working
+    /// turns this red without any assertion of mine; the count then says by how much.
+    @Test func theFloorOutlivesAnExpiredDeadline() async {
+        var polls = 0
+        await waitUntil("a condition needing \(Self.pollsDemanded) polls never held",
+                        timeout: 0, floor: Self.testFloor) {
+            polls += 1
+            return polls >= Self.pollsDemanded
+        }
+        #expect(polls >= Self.pollsDemanded,
+                "the condition was evaluated only \(polls) times against a floor of \(Self.testFloor)")
     }
 
     /// Nothing armed, nothing scheduled — the timer is torn down rather than left to fire into a

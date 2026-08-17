@@ -47,6 +47,18 @@ enum LayoutPumpWait {
     /// 5.3s per pass against the ~1.1s that reasoning already called congested. A bigger number
     /// was never the answer; the missing unit was.
     ///
+    /// **`floor` is for the floor's OWN tests and nothing else.** Every real wait takes the
+    /// default, and a caller that lowers it is re-opening mechanism 2 by hand — which is why
+    /// `theFloorIsOnlyLoweredByItsOwnTests` scans for it.
+    ///
+    /// The tests of this loop assert a SHAPE — a demand above the floor is served, a demand below
+    /// it is served after an expired deadline, a condition that never holds still gets a verdict —
+    /// and none of that depends on the floor being 50. It cost a great deal that it did: at ~5–7
+    /// seconds per pass on a saturated CI main actor, seven tests of this mechanism were spending
+    /// **1,737 seconds** between them, more than any real suite in the repo. A floor of five
+    /// asserts the same shapes for a tenth of the passes. `pumpFloor`'s VALUE is pinned separately,
+    /// by a constant assertion that costs nothing.
+    ///
     /// With a frozen clock the deadline never expires, so the CONDITION decides when the loop ends
     /// and the assertion is about the loop's shape rather than the machine's speed. Nothing outside
     /// the tests passes this.
@@ -60,11 +72,12 @@ enum LayoutPumpWait {
     /// main-actor turns, and seconds were never the unit that mattered.
     @MainActor
     static func pump(_ view: NSView, upTo seconds: Double,
+                     floor: Int = pumpFloor,
                      now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
         var pumps = 0
         let deadline = now().addingTimeInterval(seconds)
-        while pumps < pumpFloor || now() < deadline {
+        while pumps < floor || now() < deadline {
             view.layoutSubtreeIfNeeded()
             pumps += 1
             if condition() { return (true, pumps) }
@@ -76,11 +89,12 @@ enum LayoutPumpWait {
 
     @MainActor
     static func pump(_ window: NSWindow, upTo seconds: Double,
+                     floor: Int = pumpFloor,
                      now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
         var pumps = 0
         let deadline = now().addingTimeInterval(seconds)
-        while pumps < pumpFloor || now() < deadline {
+        while pumps < floor || now() < deadline {
             window.layoutIfNeeded()
             pumps += 1
             if condition() { return (true, pumps) }
