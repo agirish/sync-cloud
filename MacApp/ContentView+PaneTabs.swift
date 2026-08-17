@@ -28,7 +28,13 @@ extension ContentView {
 
     // MARK: - What the strip renders
 
-    /// **This pane's own provider id — the one place the view's PAIR is narrowed to a SIDE.**
+    /// **This pane's own provider id — the one place the SOURCE pair is narrowed to a side.**
+    ///
+    /// This used to claim to be "the one place the view's PAIR is narrowed to a SIDE", which was
+    /// false: it narrows the provider-id pair, and the pane-LOCATION pair went on being cut by hand
+    /// at five sites in this same file. `paneScope(isLeft:)` and `paneStack(isLeft:)` below are the
+    /// other two, and between them they are that claim — one wrapper per pair, none of them written
+    /// out anywhere else.
     ///
     /// Sixteen sites wrote `isLeft ? leftProviderId : rightProviderId` out by hand, and a ternary is
     /// a spelling nothing could check: swapping the one inside `tabAction`'s
@@ -43,6 +49,43 @@ extension ContentView {
     /// which the argument-token invariants can read.
     func paneProviderId(isLeft: Bool) -> String {
         PaneSideChoice.own(isLeft, left: leftProviderId, right: rightProviderId)
+    }
+
+    /// **This pane's own comparison SCOPE — the same narrowing, for the other pair.**
+    ///
+    /// The commit that introduced `paneProviderId` claimed the sixteen hand-written
+    /// `isLeft ? leftProviderId : rightProviderId` were "gone" and that the view's PAIR was narrowed
+    /// to a SIDE in one place. It narrowed the provider-id pair only: the pane-LOCATION pair went on
+    /// being written out by hand at five sites in this same file, and `tabAction` already narrowed it
+    /// through `PaneSideChoice.own` on line one of its body — so the wrapper existed and simply was
+    /// not applied. Three measured survivors of the whole app suite, each from transposing one of
+    /// those ternaries:
+    ///
+    /// - the three `openedFromScope:` cuts. `PaneTabOpening.location` fails two ways with the
+    ///   sibling's scope and both are bad: a scope that is not a prefix of this pane's location
+    ///   returns `(combined, PaneBrowsePath())` — the columns-flattening defect the rule was
+    ///   extracted to prevent, verbatim — and a scope that IS a prefix but deeper creates the tab at
+    ///   a `relativePath` the user never set, so selecting that chip later writes a comparison scope
+    ///   out of nowhere.
+    /// - `saveBrowseTabs`' overlay, which would store the sibling pane's folder and column stack as
+    ///   *this* pane's active tab, to be restored onto it at the next launch.
+    /// - `ColumnStackPruning`, which would prune the left pane's column stack against the right
+    ///   pane's children index — in Compare, where the sides differ by design, collapsing the left
+    ///   stack to the deepest prefix the right side happens to have.
+    ///
+    /// One wrapper each, so the pair-to-side arguments are written down exactly once and every call
+    /// site spells its side as an `isLeft:` argument the invariants can read.
+    func paneScope(isLeft: Bool) -> String {
+        PaneSideChoice.own(isLeft, left: syncManager.leftRelativePath,
+                           right: syncManager.rightRelativePath)
+    }
+
+    /// This pane's own column stack — the other half of where a pane is (see `PaneBrowsePath`), and
+    /// narrowed separately for `paneScope`'s reasons. A tab carrying one of these and the sibling's
+    /// other is a tab whose stack names folders that are not under its scope.
+    func paneStack(isLeft: Bool) -> PaneBrowsePath {
+        PaneSideChoice.own(isLeft, left: syncManager.leftBrowsePath,
+                           right: syncManager.rightBrowsePath)
     }
 
     /// This pane's chips, through `PaneTabChips` — the rule is over there so it can be tested;
@@ -73,9 +116,12 @@ extension ContentView {
     /// Whether this pane draws a strip at all — see `PaneTabStripVisibility` for the rule, which is
     /// not the plain "does this pane have two tabs" it started as.
     func paneShowsTabStrip(isLeft: Bool) -> Bool {
-        PaneTabStripVisibility.shows(
+        // Through the one flip, like every other reach for the sibling in this file — see
+        // `PaneSideChoice.sibling`.
+        let sibling = PaneSideChoice.sibling(isLeft)
+        return PaneTabStripVisibility.shows(
             own: syncManager.paneTabs(isLeft: isLeft).showsStrip,
-            sibling: syncManager.paneTabs(isLeft: !isLeft).showsStrip,
+            sibling: syncManager.paneTabs(isLeft: sibling).showsStrip,
             isCompare: layoutMode == .compare,
             switchIsOn: tabBarVisible)
     }
@@ -139,8 +185,7 @@ extension ContentView {
         // Read BEFORE the verb runs, because the verb moves the pane: these two are what the
         // arriving tab is compared against to decide whether anything needs reloading at all.
         let fromProvider = paneProviderId(isLeft: isLeft)
-        let fromFocus = PaneSideChoice.own(isLeft, left: syncManager.leftRelativePath,
-                                           right: syncManager.rightRelativePath)
+        let fromFocus = paneScope(isLeft: isLeft)
 
         guard let arrived = verb() else {
             saveBrowseTabs(isLeft: isLeft)
@@ -324,7 +369,8 @@ extension ContentView {
         // teleported to this one's. Linked and in step — which is what linked means — those are the
         // same folder, and drifted they at least both keep their place.
         guard tabsOpenOnBothPanes else { return }
-        openTabHere(isLeft: !isLeft, mirrored: true)
+        let sibling = PaneSideChoice.sibling(isLeft)
+        openTabHere(isLeft: sibling, mirrored: true)
     }
 
     /// `mirrored` changes **only the log line**, and that is the whole reason it exists: a mirrored
@@ -344,9 +390,11 @@ extension ContentView {
         // Through `PaneTabOpening` rather than by reading the two properties directly, so this and
         // `openInNewTab` below cut a location the same way; from the pane's own location it returns
         // exactly the pane's own two halves.
-        let cut = PaneTabOpening.location(of: here,
-                                          openedFromScope: isLeft ? syncManager.leftRelativePath
-                                                                  : syncManager.rightRelativePath)
+        //
+        // …and the scope comes through `paneScope(isLeft:)` rather than a ternary written out here.
+        // Transposed, this cut is the columns-flattening defect the paragraph above describes — the
+        // one the rule was extracted to prevent — reached by a spelling no invariant could look at.
+        let cut = PaneTabOpening.location(of: here, openedFromScope: paneScope(isLeft: isLeft))
         // A mirrored open lands on the pane the user did NOT aim at, so it must not take the focus
         // with it — otherwise ⌘T in a linked Compare leaves every pane-scoped chord pointing at the
         // sibling.
@@ -382,9 +430,7 @@ extension ContentView {
         // Cut against the pane this row belongs to — see `openTabHere`. A folder UNDER the pane's
         // scope keeps that scope and becomes stack, so the new tab opens with the ancestor columns
         // rather than as one full-width column; a folder outside it is all scope, as before.
-        let cut = PaneTabOpening.location(of: relative,
-                                          openedFromScope: isLeft ? syncManager.leftRelativePath
-                                                                  : syncManager.rightRelativePath)
+        let cut = PaneTabOpening.location(of: relative, openedFromScope: paneScope(isLeft: isLeft))
         tabAction(isLeft: isLeft) {
             Logger.shared.info("User opened “\(relative)” in a new tab")
             return syncManager.openTab(
@@ -403,7 +449,12 @@ extension ContentView {
     /// that cannot be navigated to.
     private func mirrorOpenInNewTab(_ relative: String, from isLeft: Bool) {
         guard tabsOpenOnBothPanes else { return }
-        let other = !isLeft
+        // **Through the one flip.** `let other = !isLeft` sat here and dropping the `!` survived the
+        // whole app suite: ⌥/linked Open in New Tab then opened BOTH tabs on the pane the user aimed
+        // at and none on the sibling. ⌘T's identical mirror was pinned and this one was not, which is
+        // the asymmetry that exposed it — so the polarity moved onto a type a test can call
+        // (`theSideChoiceReadsItsArgument`) rather than being spelled out again here.
+        let other = PaneSideChoice.sibling(isLeft)
         let providerId = paneProviderId(isLeft: other)
         // Expanded, for the reason `openInNewTab` gives above: a tilde root exists on no disk, so
         // every mirror would prune away to the sibling's root.
@@ -417,10 +468,9 @@ extension ContentView {
         // Cut against the SIBLING's scope, not this pane's: the landing was pruned to what that
         // pane actually has, and cutting it against the wrong pane's scope would put components in
         // a stack that is not underneath it.
-        let cut = PaneTabOpening.location(of: landing,
-                                          openedFromScope: other ? syncManager.leftRelativePath
-                                                                 : syncManager.rightRelativePath)
-        // The sibling's half of the open — the user aimed at `!other`, so the focus stays there.
+        let cut = PaneTabOpening.location(of: landing, openedFromScope: paneScope(isLeft: other))
+        // The sibling's half of the open — the user aimed at the pane `other` is the sibling of, so
+        // the focus stays there.
         tabAction(isLeft: other, movesFocus: false) {
             Logger.shared.info("Linked panes: also opened “\(landing.isEmpty ? "the source root" : landing)” in a new tab on the other pane")
             return syncManager.openTab(
@@ -718,8 +768,8 @@ extension ContentView {
         // the very columns it exists to keep.
         let saving = syncManager.paneTabs(isLeft: isLeft).replacingActive(
             providerId: paneProviderId(isLeft: isLeft),
-            relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
-            browsePath: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
+            relativePath: paneScope(isLeft: isLeft),
+            browsePath: paneStack(isLeft: isLeft))
         PaneTabsStore.save(tabs: saving.tabs, selected: saving.selectedIndex, isLeft: isLeft)
     }
 
@@ -968,15 +1018,23 @@ struct ColumnStackPruning: ViewModifier {
     let leftTreeRoot: String
     let rightTreeRoot: String
 
+    /// **All three values narrowed through the one door, not by three ternaries.** Transposing them
+    /// left the whole app suite green and prunes the LEFT pane's column stack against the RIGHT
+    /// pane's children index and tree root — in Compare, where the two sides differ by design, the
+    /// left stack collapses to the deepest prefix the right side happens to have, which reads as
+    /// "the columns keep jumping back" with nothing on screen to explain it.
+    ///
+    /// The index is built lazily by `PaneSideChoice.own`'s `@autoclosure`, which is not a detail:
+    /// each of these calls is a whole-tree walk, and an eager `own` would run both on every prune.
     private func prune(isLeft: Bool) {
-        let stack = isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath
+        let stack = PaneSideChoice.own(isLeft, left: syncManager.leftBrowsePath,
+                                       right: syncManager.rightBrowsePath)
         guard !stack.isEmpty || stack.canAdvance else { return }
-        let root = isLeft ? leftTreeRoot : rightTreeRoot
-        syncManager.pruneBrowsePath(
-            isLeft: isLeft,
-            against: isLeft ? syncManager.leftChildrenIndex(treeRoot: root)
-                            : syncManager.rightChildrenIndex(treeRoot: root),
-            treeRoot: root)
+        let root = PaneSideChoice.own(isLeft, left: leftTreeRoot, right: rightTreeRoot)
+        let index = PaneSideChoice.own(isLeft,
+                                       left: syncManager.leftChildrenIndex(treeRoot: root),
+                                       right: syncManager.rightChildrenIndex(treeRoot: root))
+        syncManager.pruneBrowsePath(isLeft: isLeft, against: index, treeRoot: root)
     }
 
     func body(content: Content) -> some View {
@@ -1161,14 +1219,34 @@ enum PaneProviderChange: Equatable {
 /// pane for the same reason.
 ///
 /// **What this cannot see is the ARGUMENTS.** `own(isLeft, left: rightProviderId, right: leftProviderId)`
-/// is a swap the callee has no way to know about, and `paneProviderId(isLeft:)` exists so there is
-/// exactly ONE such call for the pane provider ids rather than sixteen.
-/// `theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven` scans for it — every `left:` must name a
-/// left-ish expression and every `right:` a right-ish one — and that half is a scan, which is
-/// exactly why the number of sites it has to cover is one.
+/// is a swap the callee has no way to know about, and the three `pane…(isLeft:)` wrappers exist so
+/// there is exactly ONE such call per pair rather than sixteen.
+/// `everyPaneSideChoiceCallNarrowsAMatchedPair` scans for it across the whole app target — every
+/// `left:` must name a left-ish expression, every `right:` a right-ish one, and the two must be
+/// halves of the SAME pair, which is the case a per-argument check cannot see because each argument
+/// contains its own side's word. That half is a scan, which is exactly why the number of sites it
+/// has to cover is small.
 enum PaneSideChoice {
     /// This pane's own value out of the view's pair.
-    static func own<T>(_ isLeft: Bool, left: T, right: T) -> T { isLeft ? left : right }
+    ///
+    /// **`@autoclosure`, so only the chosen side is evaluated.** Every pair this narrows used to be
+    /// a ternary, which is lazy by construction, and one of them — `ColumnStackPruning`'s children
+    /// index — is a whole-tree walk per side. An eager parameter would have made the refactor that
+    /// removes the ternary quietly double that cost on every prune.
+    static func own<T>(_ isLeft: Bool, left: @autoclosure () -> T, right: @autoclosure () -> T) -> T {
+        isLeft ? left() : right()
+    }
+
+    /// The OTHER pane — the one flip, so a reach for the sibling is never spelled out by hand.
+    ///
+    /// `let other = !isLeft` in `mirrorOpenInNewTab` was the third measured survivor: dropping the
+    /// `!` opened both halves of an ⌥/linked **Open in New Tab** on the pane the user aimed at and
+    /// none on the sibling, with the whole app suite green. A `!` in a `ContentView` extension is a
+    /// spelling no test can drive; here it is one character in one place that
+    /// `theSideChoiceReadsItsArgument` really calls, and
+    /// `everyReachForTheSiblingPaneGoesThroughTheOneFlip` bans the hand-written form from coming
+    /// back anywhere in the tabs file.
+    static func sibling(_ isLeft: Bool) -> Bool { !isLeft }
 
     /// How this pane is named in `~/sync-cloud.log`. Every tab line carries it: in Compare a line
     /// that does not say which pane it happened in is true of any tab in either strip.

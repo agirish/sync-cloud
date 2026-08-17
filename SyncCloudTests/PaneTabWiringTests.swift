@@ -47,17 +47,31 @@ import Sync
         return String(rest[..<end.lowerBound])
     }
 
-    /// Source with its comment lines removed.
+    /// Source with its comments removed.
     ///
     /// **Every negative assertion below must go through this.** A scan for the ABSENCE of something
     /// is answered by any comment that mentions it — this file has now tripped over its own prose
     /// twice: a doc comment naming `FileTreeView(` broke a Quick Look scan, and a comment
     /// explaining why the header menu registers no `keyboardShortcut` made the check for one pass.
-    /// `ShortcutCommandsTests` carries the same helper for the same reason.
+    ///
+    /// **This was a whole-LINE filter, which is the hole `538ac2e1` had already fixed elsewhere.**
+    /// Dropping only lines whose first non-space characters are `//` leaves a *trailing* comment in
+    /// the text, and the large majority of this suite's scans read it — including positive controls
+    /// like `#expect(body.contains("noteWorkingIn(isLeft: "))`, whose entire job is to stop the
+    /// checks under them passing vacuously. Any of those could be satisfied by the same words
+    /// written after code on any line of the member, with the real call deleted.
+    ///
+    /// It also desynchronised ``topLevelCall``, which counts braces over this text: a `{` or `}`
+    /// inside a trailing comment shifted the depth counter for everything after it, so a call at
+    /// the member's top level could read as `.onlyInsideABranch` or the reverse.
+    ///
+    /// `SyncCloudTests.strippingComments` is the corrected one — a character scanner rather than a
+    /// regex, because a `//` inside `"https://…"` is code — and it is reused rather than copied: a
+    /// third implementation of this is how the three copies of `declarationBody` came to disagree.
+    /// `theCommentStripperIsTheCorrectedOne` is the proof that this file gets that behaviour, and
+    /// that the file it scans stays inside the stripper's stated limits.
     private static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        SyncCloudTests.strippingComments(source)
     }
 
     /// One member's body, found by NAME rather than by its whole declaration — for the scans that
@@ -91,6 +105,135 @@ import Sync
         matches(#"\#(label):[ \t]*(!?[ \t]*[A-Za-z_][A-Za-z0-9_]*)"#, in: source, group: 1)
             .map { $0.replacingOccurrences(of: " ", with: "")
                      .replacingOccurrences(of: "\t", with: "") }
+    }
+
+    /// Every occurrence of `pattern` in `source`, as RANGES rather than as text — for the scans
+    /// that have to ask *where* a match sits (inside a narrowing call, inside an exempt member)
+    /// rather than only whether it exists.
+    static func occurrences(_ pattern: String, in source: String) -> [Range<String.Index>] {
+        var found: [Range<String.Index>] = []
+        var search = source.startIndex
+        while search < source.endIndex,
+              let hit = source.range(of: pattern, options: .regularExpression,
+                                     range: search..<source.endIndex) {
+            found.append(hit)
+            // A zero-width match would spin here forever; step past it instead.
+            search = hit.upperBound > hit.lowerBound ? hit.upperBound : source.index(after: hit.lowerBound)
+        }
+        return found
+    }
+
+    /// Every call of `opener` in `source`, as the span from the opener to its BALANCED closing
+    /// parenthesis.
+    ///
+    /// **Balanced, because the regex this replaces could not be.** The `PaneSideChoice.own` scan
+    /// matched `own\(isLeft,\s*left:\s*[^,]+?,\s*right:\s*[^)\n]+\)`, which cannot read a call whose
+    /// argument contains a comma or a nested `(`, and stops dead at a newline — so
+    /// `own(isLeft, left: syncManager.leftChildrenIndex(treeRoot: root), right: …)` wrapped over two
+    /// lines is a call the scan silently does not see. A call it cannot see is a call whose sides
+    /// may be swapped with nothing to say so.
+    static func callSpans(of opener: String, in source: String) -> [Range<String.Index>] {
+        var found: [Range<String.Index>] = []
+        var search = source.startIndex
+        while let start = source.range(of: opener, range: search..<source.endIndex) {
+            var depth = 1
+            var index = start.upperBound
+            while index < source.endIndex, depth > 0 {
+                if source[index] == "(" { depth += 1 }
+                if source[index] == ")" { depth -= 1 }
+                if depth > 0 { index = source.index(after: index) }
+            }
+            found.append(start.lowerBound..<index)
+            search = index < source.endIndex ? source.index(after: index) : source.endIndex
+        }
+        return found
+    }
+
+    /// The argument text of every call of `opener` — what sits between its balanced parentheses.
+    static func callArguments(of opener: String, in source: String) -> [String] {
+        callSpans(of: opener, in: source).map { span in
+            guard let open = source[span].firstIndex(of: "(") else { return "" }
+            let inner = source.index(after: open)
+            return inner <= span.upperBound ? String(source[inner..<span.upperBound]) : ""
+        }
+    }
+
+    /// One argument list split on its TOP-LEVEL commas — a comma inside a nested call or a
+    /// collection literal belongs to that argument, not to this list.
+    static func topLevelArguments(_ text: String) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var depth = 0
+        for character in text {
+            if character == "(" || character == "[" { depth += 1 }
+            if character == ")" || character == "]" { depth -= 1 }
+            if character == ",", depth == 0 { parts.append(current); current = ""; continue }
+            current.append(character)
+        }
+        parts.append(current)
+        return parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    /// One `PaneSideChoice.own` call, read as the three things it is: which side, and the pair.
+    struct SideNarrowing: Equatable {
+        var choice: String
+        var left: String
+        var right: String
+    }
+
+    /// Every `PaneSideChoice.own(…)` call in `source`, whatever shape it is written in.
+    ///
+    /// A call this cannot parse comes back as `nil` and the caller fails on the count — the old
+    /// regex simply skipped it, which is the difference between "unreadable" and "absent".
+    static func sideNarrowings(in source: String) -> [SideNarrowing?] {
+        callArguments(of: "PaneSideChoice.own(", in: source).map { text in
+            let parts = topLevelArguments(text)
+            guard parts.count == 3,
+                  parts[1].hasPrefix("left:"), parts[2].hasPrefix("right:") else { return nil }
+            return SideNarrowing(
+                choice: parts[0],
+                left: parts[1].dropFirst("left:".count).trimmingCharacters(in: .whitespacesAndNewlines),
+                right: parts[2].dropFirst("right:".count).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    /// One side of a pair with its side-word blanked, so the two halves of a MATCHED pair compare
+    /// equal and a mismatched one does not.
+    ///
+    /// **The hole this closes.** The per-argument check — every `left:` names something left-ish,
+    /// every `right:` something right-ish — is satisfied by
+    /// `own(isLeft, left: syncManager.leftRelativePath, right: syncManager.rightBrowsePath)`,
+    /// because each argument contains its own side's word. That call narrows two DIFFERENT pairs
+    /// and hands back one of each, which is not a pane's value at all.
+    static func sideStemmed(_ argument: String) -> String {
+        argument
+            .replacingOccurrences(of: "left", with: "«side»",
+                                  options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "right", with: "«side»",
+                                  options: [.regularExpression, .caseInsensitive])
+    }
+
+    /// The locals a member binds through the one flip — `let other = PaneSideChoice.sibling(isLeft)`.
+    ///
+    /// A member reaching for the SIBLING pane is not a bug; reaching for it by writing the `!` out
+    /// by hand is, because that `!` sits in a `ContentView` extension no test can instantiate.
+    /// `let other = !isLeft` in `mirrorOpenInNewTab` with the `!` dropped survived the whole app
+    /// suite: ⌥/linked Open in New Tab then opened both tabs on the pane the user aimed at.
+    static func siblingLocals(in body: String) -> Set<String> {
+        Set(matches(#"let (\w+) = PaneSideChoice\.sibling\(isLeft\)"#, in: body, group: 1))
+    }
+
+    /// Every label a side is passed under in the tabs file. `refreshForTabSwitch(movedPane:)` and
+    /// `mirrorOpenInNewTab(_:from:)` spell it differently and would be missed by `isLeft:` alone —
+    /// which is a hole the one door's own invariant had to note in prose.
+    static let sideLabels = ["isLeft", "movedPane", "from"]
+
+    /// Every side argument in `body` naming neither the member's own `isLeft` nor a local it bound
+    /// through the one flip.
+    static func handWrittenSideTokens(in body: String) -> [String] {
+        let allowed = siblingLocals(in: body).union(["isLeft"])
+        return sideLabels.flatMap { argumentTokens(labelled: $0, in: body) }
+            .filter { !allowed.contains($0) }
     }
 
     /// Where a call sits relative to the member's own control flow.
@@ -362,6 +505,18 @@ import Sync
                 "a line about the left pane says it happened in the right one")
         #expect(PaneSideChoice.name(false) == "right",
                 "a line about the right pane says it happened in the left one")
+        // **The third thing `isLeft` decides, and the third measured survivor.** `let other =
+        // !isLeft` in `mirrorOpenInNewTab` with the `!` dropped left the whole app suite green, and
+        // ⌥/linked Open in New Tab then opened BOTH tabs on the pane the user aimed at and none on
+        // the sibling — while ⌘T's identical mirror was pinned, which is the asymmetry that exposed
+        // it. Here it is one call a test can make.
+        #expect(PaneSideChoice.sibling(true) == false,
+                "the sibling of the LEFT pane is the left pane — a mirrored open lands twice on the pane the user aimed at")
+        #expect(PaneSideChoice.sibling(false) == true,
+                "the sibling of the RIGHT pane is the right pane — a mirrored open lands twice on the pane the user aimed at")
+        // Both directions, because a flip and a constant are told apart only by asking twice.
+        #expect(PaneSideChoice.sibling(PaneSideChoice.sibling(true)) == true,
+                "the flip does not come back — it is a constant, not a negation")
     }
 
     // MARK: Where the strip is mounted
@@ -952,14 +1107,34 @@ import Sync
         let focus = try Self.memberBody("private func noteWorkingIn(isLeft: Bool", in: source)
         #expect(focus.contains("syncManager.noteFocusedPane(isLeft: isLeft, because: reason)"),
                 "noteWorkingIn no longer routes through the manager's one door, so the polarity is back somewhere untested")
-        // Both mirrored openers, and ONLY those, opt out. Counted rather than checked per site: a
-        // per-site check passes the moment a third verb quietly stops moving the focus.
+        // **The opt-out defaults to NOT opting out**, which is what lets the reachability walk
+        // below read an argument-free `tabAction(` as the door.
         let code = Self.codeOnly(source)
-        #expect(code.components(separatedBy: "movesFocus: ").count - 1 == 3,
-                "exactly two call sites may pass movesFocus (the third match is the declaration)")
-        #expect(code.contains("tabAction(isLeft: isLeft, movesFocus: !mirrored)"),
+        #expect(code.components(separatedBy: "movesFocus: Bool = true").count - 1 == 1,
+                "the one door's focus move is no longer on by default, so every verb that does not mention `movesFocus` has quietly stopped moving the focus")
+
+        // **Every `movesFocus` in the file is one this suite actually READ out of a `tabAction(`
+        // call**, and which verbs may spell it is
+        // `everyTabVerbAimsAllItsSideTakingCallsAtOnePane`'s structural question, not a number.
+        //
+        // This used to be `movesFocus:` occurrences == 3. That literal is what kills a
+        // `tabAction(isLeft: isLeft, movesFocus: false)` mutation in `closeTab` — but it reports
+        // `(4) == 3` rather than naming the verb, and the next LEGITIMATE opt-out bumps it to 4
+        // too, at which point a wrong fourth and a right fourth are indistinguishable and the
+        // tempting repair is to raise the number the assertion is entirely made of.
+        let declared = Self.callArguments(of: "func tabAction(", in: code)
+        #expect(declared.count == 1, "\(declared.count) declarations of the one door")
+        let optOuts = Self.callArguments(of: "tabAction(", in: code)
+            .filter { !declared.contains($0) && $0.contains("movesFocus:") }
+        #expect(code.components(separatedBy: "movesFocus: ").count - 1 == optOuts.count + 1,
+                "a `movesFocus` is spelled somewhere this scan cannot read it — an opt-out outside a `tabAction(` call is covered by nothing (the +1 is the declaration)")
+        #expect(optOuts.count >= 1, "no opt-out found at all — the accounting above is vacuous")
+        // The two mirrored halves, by the shape of their opt-out rather than by their whole call
+        // text: `!mirrored` is ⌘T's, which opts out only for the mirrored pass, and a bare `false`
+        // is the mirror's own, which always lands on the pane the user did not aim at.
+        #expect(optOuts.contains { $0.contains("movesFocus: !mirrored") },
                 "the mirrored ⌘T is not the opted-out one")
-        #expect(code.contains("tabAction(isLeft: other, movesFocus: false)"),
+        #expect(optOuts.contains { $0.contains("movesFocus: false") },
                 "the mirrored Open in New Tab is not the opted-out one")
     }
 
@@ -1050,28 +1225,10 @@ import Sync
                     "the one door reads `\(bare)` directly — the pane's own value must come through `paneProviderId(isLeft:)`, which is the one place the view's PAIR is narrowed to a SIDE")
         }
 
-        // The one narrowing site, and the arguments `PaneSideChoice` itself cannot see. Every
-        // `left:` must name a left-ish expression and every `right:` a right-ish one — checked
-        // across the whole file, because the value of routing sixteen ternaries through one call
-        // is that there are few enough of these for a scan to be exact.
-        let file = Self.codeOnly(source)
-        let owns = Self.matches(#"PaneSideChoice\.own\(isLeft,\s*left:\s*[^,]+?,\s*right:\s*[^)\n]+\)"#,
-                                in: file, group: 0)
-        #expect(owns.count == Self.matches(#"PaneSideChoice\.own\("#, in: file, group: 0).count,
-                "a `PaneSideChoice.own` call is written in a shape this scan cannot read — it may have its sides swapped and nothing would say so")
-        #expect(owns.count >= 2,
-                "\(owns.count) `PaneSideChoice.own` calls found — the scan below is vacuous")
-        for call in owns {
-            let lefts = Self.matches(#"left: ([^,)\n]+)"#, in: call, group: 1)
-            let rights = Self.matches(#"right: ([^)\n]+)"#, in: call, group: 1)
-            #expect(lefts.count == 1 && rights.count == 1, "unreadable side arguments in “\(call)”")
-            #expect(lefts.first?.lowercased().contains("left") == true
-                    && lefts.first?.lowercased().contains("right") == false,
-                    "“\(call)” hands the RIGHT pane's value to `left:` — the pane a verb was aimed at would read its sibling's")
-            #expect(rights.first?.lowercased().contains("right") == true
-                    && rights.first?.lowercased().contains("left") == false,
-                    "“\(call)” hands the LEFT pane's value to `right:` — the pane a verb was aimed at would read its sibling's")
-        }
+        // The arguments `PaneSideChoice` itself cannot see are checked by
+        // `everyPaneSideChoiceCallNarrowsAMatchedPair`, which reads them across the whole app
+        // target rather than this one file — `PaneSideChoice` is app-wide, and a scan of one file
+        // is a registry pretending to be a derivation.
     }
 
     /// **The verbs that reach the focus door THEMSELVES, and aim it at the pane they were given.**
@@ -1156,6 +1313,21 @@ import Sync
     /// early, the door is called. It still cannot see a door reached only through a THIRD member,
     /// nor one whose *arguments* are wrong (that is `theOneDoorAims…`'s half), nor anything wired
     /// outside `MacApp/`.
+    ///
+    /// **…and the walk now means that.** It accepted any top-level `tabAction(`, but the door
+    /// inside `tabAction` is `if movesFocus { noteWorkingIn(…) }` — inside a branch — so what the
+    /// walk actually guaranteed was "reaches a function that MAY call the door". The thing that
+    /// killed `tabAction(isLeft: isLeft, movesFocus: false)` in `closeTab` was an unrelated spelling
+    /// count elsewhere, reporting `(4) == 3`. The walk reads the call's own arguments now: a
+    /// `tabAction(` that passes `movesFocus: false` is not a door, so that mutation fails HERE, by
+    /// the name of the verb that stopped moving the focus.
+    ///
+    /// A `movesFocus: !mirrored` still counts, and that is a modelling choice worth stating: the
+    /// door runs for the unmirrored pass, which is the one the verb's own pane takes, and the
+    /// mirrored pass is `openNewTabHere`'s deliberate second call onto the sibling. What makes the
+    /// model honest rather than convenient is that `tabAction`'s door shape and its `= true`
+    /// default are asserted in `aTabVerbMovesTheFocusToThePaneItWasAimedAt`, and every opt-out has
+    /// to justify itself structurally in `everyTabVerbAimsAllItsSideTakingCallsAtOnePane`.
     @Test func everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally() throws {
         let tabs = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
         // The extension's own members, not the file's: the helper types below it declare `items`,
@@ -1213,8 +1385,14 @@ import Sync
         /// `openNewTabHere` mirrors through `openTabHere` to `tabAction`.
         func reachesTheFocusDoor(_ name: String, hops: Int) throws -> Bool {
             let body = Self.memberInterior(try Self.memberBodyNamed(name, in: tabs))
-            for door in ["noteWorkingIn(", "tabAction("]
-            where Self.topLevelCall(door, in: body) == .found { return true }
+            if Self.topLevelCall("noteWorkingIn(", in: body) == .found { return true }
+            // `tabAction(` is the door only when the call has not opted out of it. Reading the
+            // call's own arguments is what makes this walk mean its name: `movesFocus: false` puts
+            // `noteWorkingIn` behind a branch that is known to be false, so a verb whose only route
+            // to the door is such a call reaches no door at all.
+            if Self.topLevelCall("tabAction(", in: body) == .found,
+               !Self.callArguments(of: "tabAction(", in: body)
+                   .contains(where: { $0.contains("movesFocus: false") }) { return true }
             guard hops > 0 else { return false }
             for called in Self.matches(#"\b([a-z][A-Za-z0-9]*)\("#, in: body, group: 1)
             where declared.contains(called) && called != name {
@@ -1229,22 +1407,363 @@ import Sync
         // for free.
         #expect(try !reachesTheFocusDoor("tabLogDescription", hops: 2),
                 "the reachability walk says a member that touches no focus door reaches one — it cannot fail, so nothing below it means anything")
+        // **The second negative control, and the one the walk had none of.** `mirrorOpenInNewTab`
+        // goes through `tabAction` on every path and deliberately opts out of the focus door, so a
+        // walk that reads `tabAction(` as a door regardless of its arguments answers YES here — the
+        // reading under which the guarantee was only "reaches a function that MAY call the door".
+        #expect(try !reachesTheFocusDoor("mirrorOpenInNewTab", hops: 2),
+                "the walk counts a `tabAction(…, movesFocus: false)` as reaching the focus door — under that reading `tabAction(isLeft: isLeft, movesFocus: false)` in any verb below passes here, and nothing names the verb that stopped moving the focus")
 
         for verb in verbs.sorted() {
             #expect(try reachesTheFocusDoor(verb, hops: 2),
                     "“\(verb)” is wired to a pane's tab strip and does not say which pane the user is working in on every path — in Compare that leaves ⌘W aimed at the other pane, where its last-tab branch closes the WINDOW")
             // …and it acts on the pane it was GIVEN. Reaching the door is not enough: a verb that
             // hands the door its sibling aims every pane-scoped chord at the wrong strip, which is
-            // the same shipped bug from one level up. Exactly one verb reaches for the sibling and
-            // does it on purpose — ⌘T's mirrored half opens a tab on the OTHER pane, and passes
-            // `movesFocus: !mirrored` precisely so that tab does not take the focus with it.
-            let strays = Self.argumentTokens(
-                labelled: "isLeft",
-                in: Self.memberInterior(Self.codeOnly(try Self.memberBodyNamed(verb, in: tabs))))
-                .filter { $0 != "isLeft" }
-            #expect(strays == (verb == "openNewTabHere" ? ["!isLeft"] : []),
-                    "“\(verb)” passes \(strays) where the pane it was given is expected — the verb acts on the pane the user did not aim at")
+            // the same shipped bug from one level up. A verb MAY reach for the sibling on purpose —
+            // ⌘T's mirrored half opens a tab on the OTHER pane — but only through
+            // `PaneSideChoice.sibling`, whose polarity `theSideChoiceReadsItsArgument` really
+            // drives. That exception used to be the literal `["!isLeft"]` written against
+            // `openNewTabHere` by name; it is derived from the member's own bindings now, so a
+            // second deliberate mirror does not need this line edited and a hand-written `!` is
+            // refused wherever it appears.
+            let hand = Self.handWrittenSideTokens(
+                in: Self.memberInterior(try Self.memberBodyNamed(verb, in: tabs)))
+            #expect(hand.isEmpty,
+                    "“\(verb)” passes \(hand) where the pane it was given, or a sibling taken through `PaneSideChoice.sibling`, is expected — the verb acts on the pane the user did not aim at")
         }
+    }
+
+    /// **The comment stripper this suite scans through is the corrected one, not a third copy.**
+    ///
+    /// ``codeOnly`` was byte-for-byte the whole-line filter `538ac2e1` replaced in
+    /// `SyncCloudTests.swift` — satisfiable by a comment written after code on any line. The large
+    /// majority of this suite's scans read it, including positive controls whose whole job is to
+    /// stop the rest of a test passing vacuously.
+    ///
+    /// Both directions here, because only one of them is obvious: a trailing comment must not
+    /// answer a `contains`, and a `//` inside a string literal must not eat real code. The stripper
+    /// does not parse multiline or raw string literals, so — as its own test does for the file it
+    /// reads — that limit is asserted against the file THIS suite scans rather than assumed.
+    @Test func theCommentStripperIsTheCorrectedOne() throws {
+        let stripped = Self.codeOnly("""
+            let a = 1 // noteWorkingIn(isLeft:
+            /* block noteWorkingIn(isLeft: */ let b = 2
+            let url = "https://example.com" // tail
+            real()
+            """)
+        #expect(!stripped.contains("noteWorkingIn(isLeft:"),
+                "a trailing or block comment survives `codeOnly`, so this suite's positive controls can be satisfied by prose with the real call deleted")
+        #expect(stripped.contains("let a = 1") && stripped.contains("let b = 2")
+                && stripped.contains("\"https://example.com\"") && stripped.contains("real()"),
+                "`codeOnly` ate real code — a stripper that returns nothing satisfies every absence check above")
+        // …and the brace-depth desynchronisation the old filter caused, which `topLevelCall` reads.
+        #expect(Self.topLevelCall("noteWorkingIn(", in: Self.codeOnly("""
+                if x { save() } // a } and a { in prose
+                noteWorkingIn(isLeft: isLeft, "x")
+            """)) == .found,
+                "braces inside a trailing comment still shift the depth counter, so a top-level call reads as being inside a branch")
+
+        // The stated limit, asserted rather than assumed, on the file this suite actually scans.
+        let raw = try Self.source("ContentView+PaneTabs.swift")
+        #expect(!raw.contains("\"\"\"") && !raw.contains("#\""),
+                "the tabs file has grown a multiline or raw string literal, which the stripper does not parse — it would mis-read from there to the end of the file")
+    }
+
+    /// **Every reach for the SIBLING pane in the tabs file goes through the one flip.**
+    ///
+    /// `let other = !isLeft` in `mirrorOpenInNewTab`, with the `!` dropped, survived the whole app
+    /// suite: ⌥/linked **Open in New Tab** then opened both tabs on the pane the user aimed at and
+    /// none on the sibling. ⌘T's identical mirror WAS pinned — `openTabHere(isLeft: !isLeft` was an
+    /// exact-string scan — so the two mirrors of one feature were guarded to different standards
+    /// and the unguarded one is where the defect was.
+    ///
+    /// A `!` in a `ContentView` extension is a spelling nothing can drive, so the fix is not a
+    /// tighter scan: the polarity is `PaneSideChoice.sibling` now, which
+    /// `theSideChoiceReadsItsArgument` really calls in both directions. What is left for a scan is
+    /// the part a value cannot state — that the hand-written form does not come back, anywhere in
+    /// the file, including at sites that do not exist yet.
+    @Test func everyReachForTheSiblingPaneGoesThroughTheOneFlip() throws {
+        let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        // The flip exists, and it is the ONLY one written out in the file. Its BEHAVIOUR is
+        // `theSideChoiceReadsItsArgument`'s; this is only that there is one of it.
+        let flips = file.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.contains("!isLeft") }
+        #expect(flips.count == 1,
+                "\(flips.count) hand-written `!isLeft` in the tabs file where 1 is expected (`PaneSideChoice.sibling`'s own body) — a side flip outside it is a polarity no test can drive")
+        #expect(flips.first?.contains("static func sibling(") == true,
+                "the one `!isLeft` in the file is not `PaneSideChoice.sibling`'s — the flip has moved back somewhere a test cannot call it")
+
+        let extensionBody = try Self.typeBody("extension ContentView {", in: file)
+        let declared = Set(Self.matches(#"\n    (?:private )?func ([a-zA-Z]\w*)\("#,
+                                        in: extensionBody, group: 1))
+        #expect(declared.count >= 20,
+                "\(declared.count) members found in the tabs extension — the member scan is reading the wrong thing and every check below is vacuous")
+
+        var mirrors: Set<String> = []
+        for member in declared.sorted() {
+            let body = Self.memberInterior(try Self.memberBodyNamed(member, in: file))
+            if !Self.siblingLocals(in: body).isEmpty { mirrors.insert(member) }
+            let hand = Self.handWrittenSideTokens(in: body)
+            #expect(hand.isEmpty,
+                    "“\(member)” passes \(hand) as a side — the pane it was given, or a sibling bound through `PaneSideChoice.sibling`, is what a side argument may name")
+        }
+        // **The derived set, not a floor.** A member that stops mirroring and one that starts both
+        // land here, and the second is the one worth a look: reaching for the sibling is a real
+        // decision (it is what puts a tab on the pane the user did not aim at) and it should not
+        // arrive unremarked.
+        #expect(mirrors == ["paneShowsTabStrip", "openNewTabHere", "mirrorOpenInNewTab"],
+                "the members reaching for the sibling pane are \(mirrors.sorted()) — a member has started or stopped mirroring, and which panes a verb touches is not a thing to change silently")
+    }
+
+    /// **A tab verb aims every side-taking call it makes at the ONE pane it moves.**
+    ///
+    /// `theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven` says this of `tabAction`'s own body,
+    /// and that scoping is exactly why the location pair went unguarded: the three `openedFromScope:`
+    /// cuts, the save's overlay and `ColumnStackPruning` are all outside it. Transposing any of them
+    /// left the whole app suite green.
+    ///
+    /// Stated over the verbs instead of over one member, and derived: the pane a verb moves is
+    /// whatever it hands `tabAction`, and every other side it computes has to be the same one. A
+    /// `paneScope(isLeft: !isLeft)` — the shape the `openedFromScope` transposition takes once the
+    /// ternary is gone — is a different token from the verb's own aim and fails here by name.
+    ///
+    /// **The opt-out justifies itself structurally**, which is what the `movesFocus:` count could
+    /// not do. A verb may decline to move the focus only when it is landing on the sibling
+    /// (`movesFocus: false`, aimed at a `PaneSideChoice.sibling` local) or when the decline is its
+    /// caller's mirror flag (`movesFocus: !mirrored`, on a member whose `mirrored` defaults to
+    /// false). A `tabAction(isLeft: isLeft, movesFocus: false)` in any ordinary verb matches
+    /// neither, and fails naming the verb rather than reporting `(4) == 3`.
+    @Test func everyTabVerbAimsAllItsSideTakingCallsAtOnePane() throws {
+        let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let extensionBody = try Self.typeBody("extension ContentView {", in: file)
+        let declared = Set(Self.matches(#"\n    (?:private )?func ([a-zA-Z]\w*)\("#,
+                                        in: extensionBody, group: 1))
+
+        var aims: [String: String] = [:]
+        var optOuts: [String: String] = [:]
+        for member in declared.sorted() {
+            let body = Self.memberInterior(try Self.memberBodyNamed(member, in: file))
+            let calls = Self.callArguments(of: "tabAction(", in: body)
+            guard !calls.isEmpty else { continue }
+            // One per member: two would mean two panes moved by one verb, and the aim below would
+            // silently be the first one's.
+            try #require(calls.count == 1,
+                         "“\(member)” runs \(calls.count) tab verbs through the one door — the aim read below would be only the first")
+            let aim = try #require(Self.argumentTokens(labelled: "isLeft", in: calls[0]).first,
+                                   "“\(member)” calls the one door without naming a pane")
+            aims[member] = aim
+            let strays = Self.sideLabels.flatMap { Self.argumentTokens(labelled: $0, in: body) }
+                .filter { $0 != aim }
+            #expect(strays.isEmpty,
+                    "“\(member)” moves the “\(aim)” pane and passes \(strays) elsewhere — a value taken from the pane the verb is not moving. That is the `openedFromScope:` transposition: the tab is cut against the SIBLING's scope, so it opens with its columns flattened, or at a comparison scope the user never set")
+            if let opt = Self.argumentTokens(labelled: "movesFocus", in: calls[0]).first {
+                optOuts[member] = opt
+            }
+        }
+        // Measured today: eleven verbs go through the one door. A floor well under it passes with
+        // half of them gone, so this is the count, not a safe number.
+        #expect(aims.count >= 11,
+                "\(aims.count) members run a verb through the one door where 11 are expected — the derivation has stopped finding them and every check above is vacuous")
+        #expect(Set(aims.keys).isSuperset(of: ["openTabHere", "openInNewTab", "mirrorOpenInNewTab",
+                                               "closeTab", "selectTab", "setTabPinned"]),
+                "the derivation lost verbs that are plainly there — it is reading the wrong members")
+        // The mirror aims at a pane that is not its own `isLeft`; every other verb aims at `isLeft`.
+        // Without this, "every aim is the same token" satisfies everything above. Unwrapped rather
+        // than compared with `!=`: a missing entry makes `nil != "isLeft"` TRUE, so the shape that
+        // reads as the strongest check here is the one that passes when the derivation found
+        // nothing.
+        let mirrorAim = try #require(aims["mirrorOpenInNewTab"],
+                                     "the mirror no longer runs its open through the one door")
+        #expect(mirrorAim != "isLeft",
+                "the mirror moves the pane it was given rather than the sibling — the linked half opens on the wrong pane")
+        #expect(aims["openTabHere"] == "isLeft", "⌘T moves a pane other than the one it was given")
+
+        #expect(!optOuts.isEmpty, "no verb opts out of the focus door — the checks below are vacuous")
+        for (member, value) in optOuts.sorted(by: { $0.key < $1.key }) {
+            let body = Self.memberInterior(try Self.memberBodyNamed(member, in: file))
+            let aim = aims[member] ?? ""
+            if value == "false" {
+                #expect(Self.siblingLocals(in: body).contains(aim),
+                        "“\(member)” declines to move the focus while acting on “\(aim)”, which is not a sibling it resolved — a verb the user aimed at a pane must say so, or ⌘W stays pointed at the pane they are not looking at")
+            } else {
+                #expect(value == "!mirrored",
+                        "“\(member)” opts out of the focus door conditionally on “\(value)” — the only conditional opt-out this rule knows is a caller's mirror flag")
+                let signature = Self.matches(#"func \#(member)\(([^)]*)\)"#, in: extensionBody, group: 1)
+                #expect(signature.first?.contains("mirrored: Bool = false") == true,
+                        "“\(member)” opts out on `!mirrored` but does not take `mirrored` defaulting to false, so its ordinary callers may be opting out too")
+            }
+        }
+    }
+
+    /// **Every pane PAIR read in the tabs file is narrowed by the one door, or by a member asserted
+    /// to want both sides.**
+    ///
+    /// The commit that introduced `paneProviderId(isLeft:)` said the hand-written
+    /// `isLeft ? leftX : rightX` were "gone" and that the view's pair was narrowed to a side in one
+    /// place. It was true of `…ProviderId` and of nothing else: `leftRelativePath`/`rightRelativePath`,
+    /// `leftBrowsePath`/`rightBrowsePath`, `leftTreeRoot`/`rightTreeRoot` and the two children
+    /// indexes were still cut by hand at five sites in the same file, and the invariant that bans
+    /// the shape is scoped to `tabAction`'s body, which none of them is in.
+    ///
+    /// So the ban is stated over the PAIR rather than over one member's text: a token from either
+    /// half of a pane pair may appear only inside a `PaneSideChoice.own(…)` call, on the line that
+    /// DECLARES a stored property named for one side, or inside one of three members that
+    /// legitimately read both. Each of those three is asserted to still exist and still hold a pair
+    /// token, so an exemption cannot outlive the code it was written for and become a hole with a
+    /// name on it.
+    ///
+    /// This sees the ternary, the `if isLeft { … } else { … }` someone reaches for once the ternary
+    /// is refused, and any other shape — what it cannot see is a narrowing whose sides are
+    /// transposed INSIDE the `own(…)` call, which is
+    /// `everyPaneSideChoiceCallNarrowsAMatchedPair`'s half.
+    @Test func everyPaneLocationPairIsNarrowedByTheOneDoorOrAnAssertedException() throws {
+        let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let pairs = Self.occurrences(
+            #"\b(?:left|right)(?:RelativePath|BrowsePath|TreeRoot|ChildrenIndex|ProviderId)\b"#,
+            in: file)
+        // TODAY'S measured count (28), not a number chosen low enough to be safe. The floor is only
+        // "am I reading the file at all" — nothing is lost by a pair token going away, since the
+        // rule below is about the ones that are THERE.
+        #expect(pairs.count >= 28,
+                "\(pairs.count) pane-pair tokens found in the tabs file where 28 are expected — the scan is reading the wrong text and every judgement below is vacuous")
+
+        let narrowings = Self.callSpans(of: "PaneSideChoice.own(", in: file)
+        #expect(narrowings.count >= 6,
+                "\(narrowings.count) `PaneSideChoice.own` calls in the tabs file where at least 6 are expected — the pairs are being narrowed somewhere this cannot see")
+
+        // The three that read BOTH sides on purpose. Named, and each proved non-vacuous below: the
+        // adopt helper writes one id and re-keys the ignored-items store on the PAIR, the reload
+        // resolves both providers because it refreshes a comparison, and the persistence modifier
+        // watches all six values because either pane moving has to save that pane's strip.
+        var exemptions: [(name: String, span: Range<String.Index>)] = []
+        for (name, declaration, closing) in
+                [("adoptProviderForTab", "private func adoptProviderForTab(", "\n    }\n"),
+                 ("refreshForTabSwitch", "private func refreshForTabSwitch(movedPane isLeft: Bool)", "\n    }\n"),
+                 ("BrowseTabPersistence", "struct BrowseTabPersistence: ViewModifier {", "\n}\n")] {
+            let start = try #require(file.range(of: declaration),
+                                     "“\(name)” is exempted from this rule and is no longer in the file — the exemption is a name that could be hiding a hand-written narrowing")
+            let rest = file[start.upperBound...]
+            let end = try #require(rest.range(of: closing), "“\(name)” never closes")
+            let span = start.lowerBound..<end.upperBound
+            #expect(pairs.contains { span.contains($0.lowerBound) },
+                    "“\(name)” is exempted as a member that reads both sides and now reads neither — a stale exemption")
+            exemptions.append((name, span))
+        }
+
+        var loose: [String] = []
+        for hit in pairs {
+            if narrowings.contains(where: { $0.contains(hit.lowerBound) }) { continue }
+            if exemptions.contains(where: { $0.span.contains(hit.lowerBound) }) { continue }
+            // A stored property named for one side of a pair its owner is HANDED — `let
+            // leftTreeRoot: String`. The declaration is not a narrowing and cannot be transposed;
+            // its uses below are what this rule is about.
+            let lineStart = file[..<hit.lowerBound].lastIndex(of: "\n").map { file.index(after: $0) }
+                ?? file.startIndex
+            let lineEnd = file[hit.upperBound...].firstIndex(of: "\n") ?? file.endIndex
+            let line = String(file[lineStart..<lineEnd])
+            if line.range(of: #"^\s*let (?:left|right)\w+: \w+$"#, options: .regularExpression) != nil {
+                continue
+            }
+            loose.append(line.trimmingCharacters(in: .whitespaces))
+        }
+        #expect(loose.isEmpty,
+                "a pane pair is narrowed to a side by hand at \(loose) — transposing it is invisible to every argument check in this suite, and for the location pair it opens tabs with their columns flattened, saves the sibling's folder as this pane's, or prunes one pane's column stack against the other's tree")
+    }
+
+    /// **Every `PaneSideChoice.own` call in the app target hands it a MATCHED pair, on the side it
+    /// says.**
+    ///
+    /// Two holes, and the first is the one a per-argument check cannot have:
+    /// `own(isLeft, left: syncManager.leftRelativePath, right: syncManager.rightBrowsePath)` passes
+    /// "every `left:` is left-ish, every `right:` is right-ish" because each argument contains its
+    /// own side's word — and it narrows two different pairs, so what comes back is a folder for one
+    /// side and a column stack for the other. Blanking the side word turns that into a comparison
+    /// the scan can make.
+    ///
+    /// The second is scope: this read `ContentView+PaneTabs.swift` alone while `PaneSideChoice` is
+    /// app-target-wide — `CompareReviewReducer` and `DuplicateReviewCoordinator` already use it. A
+    /// scan of one file is a registry pretending to be a derivation, which is the shape this repo
+    /// keeps re-finding, so the whole of `MacApp/**` is walked and the known users are asserted to
+    /// be IN the derived set rather than assumed to be all of it.
+    @Test func everyPaneSideChoiceCallNarrowsAMatchedPair() throws {
+        let macApp = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp")
+        let hostFiles = Self.swiftFiles(under: macApp)
+        #expect(hostFiles.count > 20,
+                "the host walk found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
+
+        var users: Set<String> = []
+        var narrowings: [(file: String, call: SideNarrowing?)] = []
+        for url in hostFiles {
+            let code = Self.codeOnly(try String(contentsOf: url, encoding: .utf8))
+            guard code.contains("PaneSideChoice.") else { continue }
+            users.insert(url.lastPathComponent)
+            for call in Self.sideNarrowings(in: code) {
+                narrowings.append((url.lastPathComponent, call))
+            }
+        }
+        // The derivation found the users it must find. Without this the loop below is satisfied by
+        // reading nothing at all.
+        #expect(users.isSuperset(of: ["ContentView+PaneTabs.swift", "CompareReviewReducer.swift",
+                                      "DuplicateReviewCoordinator.swift"]),
+                "the derivation found \(users.sorted()) as the users of `PaneSideChoice` and is missing one that plainly uses it — it is reading the wrong tree")
+        #expect(narrowings.count >= 6,
+                "\(narrowings.count) `PaneSideChoice.own` calls found across the app target where at least 6 are expected — the checks below are vacuous")
+        // …and a known call site really is in the set, read whole. This one wraps over two lines and
+        // nests a call inside its argument, which is the shape the regex this replaced could not
+        // see at all.
+        #expect(narrowings.contains { $0.call?.left == "syncManager.leftChildrenIndex(treeRoot: root)" },
+                "the column-stack prune's children-index narrowing is not in the derived set — a call this scan cannot read is a call whose sides may be swapped with nothing to say so")
+
+        for (file, call) in narrowings {
+            let call = try #require(call,
+                                    "a `PaneSideChoice.own` call in \(file) is written in a shape this scan cannot read — it may have its sides swapped and nothing would say so")
+            #expect(call.choice == "isLeft",
+                    "“\(file)” narrows a pair on “\(call.choice)” rather than on the side its member was given")
+            #expect(call.left.lowercased().contains("left") && !call.left.lowercased().contains("right"),
+                    "“\(file)” hands the RIGHT pane's “\(call.left)” to `left:` — the pane a verb was aimed at would read its sibling's")
+            #expect(call.right.lowercased().contains("right") && !call.right.lowercased().contains("left"),
+                    "“\(file)” hands the LEFT pane's “\(call.right)” to `right:` — the pane a verb was aimed at would read its sibling's")
+            #expect(Self.sideStemmed(call.left) == Self.sideStemmed(call.right),
+                    "“\(file)” narrows a MISMATCHED pair — `left: \(call.left)` and `right: \(call.right)` are halves of two different pairs, so one pane's answer is assembled out of two questions")
+        }
+    }
+
+    /// The fixture for the pair reader, and for the two holes it closes. Handed known text, because
+    /// the production file is (and must stay) correct — a scan proved only against correct source
+    /// is a scan nobody has watched fail.
+    @Test func theSideNarrowingScanSeesAMismatchedPair() throws {
+        let mismatched = Self.sideNarrowings(
+            in: "PaneSideChoice.own(isLeft, left: m.leftRelativePath, right: m.rightBrowsePath)")
+        let bad = try #require(mismatched.first ?? nil, "the reader could not parse a one-line call")
+        #expect(Self.sideStemmed(bad.left) != Self.sideStemmed(bad.right),
+                "a `left:`/`right:` pair drawn from two DIFFERENT pairs reads as matched — the hole a per-argument check cannot see, since each argument contains its own side's word")
+
+        // …and the matched pair it must not flag, wrapped over two lines with a nested call in its
+        // argument: the shape the regex this replaced stopped dead at.
+        let wrapped = Self.sideNarrowings(in: """
+            PaneSideChoice.own(isLeft, left: m.leftChildrenIndex(treeRoot: root),
+                               right: m.rightChildrenIndex(treeRoot: root))
+            """)
+        #expect(wrapped.count == 1, "a call that wraps or nests parentheses is not read as one call")
+        let good = try #require(wrapped.first ?? nil, "the reader could not parse a wrapped call")
+        #expect(good.choice == "isLeft" && good.left == "m.leftChildrenIndex(treeRoot: root)"
+                && good.right == "m.rightChildrenIndex(treeRoot: root)",
+                "the reader split a wrapped call's arguments wrongly — it read \(good)")
+        #expect(Self.sideStemmed(good.left) == Self.sideStemmed(good.right),
+                "a genuinely matched pair is reported as mismatched, so the check above would fire on correct code and get loosened")
+
+        // A camelCase pair, where the side word is not at the start of the identifier: the stemmer
+        // has to blank it there too, or every such pair reads as mismatched.
+        #expect(Self.sideStemmed("syncManager.isLoadingLeftTree")
+                == Self.sideStemmed("syncManager.isLoadingRightTree"),
+                "the stemmer only blanks a leading `left`/`right`, so a mid-identifier pair reads as mismatched")
+
+        // And an unreadable call comes back as `nil` rather than being skipped — the difference
+        // between "this scan does not cover it" and "there is nothing to cover".
+        #expect(Self.sideNarrowings(in: "PaneSideChoice.own(isLeft, first, second)") == [nil],
+                "a call in a shape the reader does not understand is silently dropped instead of reported")
     }
 
     /// **`focusedPaneSide` has one writer in the host, and it is the manager's door.**
@@ -1839,7 +2358,11 @@ import Sync
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(rule.contains("PaneTabStripVisibility.shows("),
                 "the gate is built by hand — the tested rule is unused")
-        #expect(rule.contains("paneTabs(isLeft: !isLeft)"),
+        // Through the one flip, like every other reach for the sibling in this file — the local it
+        // binds is read off the member rather than spelled here.
+        let sibling = try #require(Self.siblingLocals(in: rule).first,
+                                   "the gate flips the side by hand instead of through `PaneSideChoice.sibling`, where a test can drive the polarity")
+        #expect(rule.contains("paneTabs(isLeft: \(sibling)).showsStrip"),
                 "the gate never asks the sibling pane, so Compare's two rows can sit at different heights")
         #expect(rule.contains("layoutMode == .compare"),
                 "the gate does not restrict the sibling term to Compare")
@@ -1882,7 +2405,11 @@ import Sync
         let here = try Self.memberBody("func openNewTabHere(isLeft: Bool)", in: code)
         #expect(here.contains("guard tabsOpenOnBothPanes else { return }"),
                 "⌘T and the ＋ do not open a tab on the linked pane")
-        #expect(here.contains("openTabHere(isLeft: !isLeft"),
+        // Through the one flip, like the other mirror — see `PaneSideChoice.sibling`. Which local
+        // it binds is read off the member rather than spelled here.
+        let hereSibling = try #require(Self.siblingLocals(in: here).first,
+                                       "the mirrored ⌘T does not take its side through `PaneSideChoice.sibling`, so the flip is back in a `ContentView` extension where no test can drive it")
+        #expect(here.contains("openTabHere(isLeft: \(hereSibling), mirrored: true)"),
                 "the mirrored ⌘T does not target the other pane")
 
         let openThere = try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)", in: code)
@@ -1896,6 +2423,15 @@ import Sync
                 "the mirror copies the path outright instead of pruning it")
         #expect(mirror.contains("expandingTildeInPath"),
                 "the sibling's root is compared unexpanded, so every mirror prunes to its root")
+        // **And this mirror takes its side the same way ⌘T's does.** It did not: `let other =
+        // !isLeft` was written out here, and dropping the `!` survived the whole app suite —
+        // ⌥/linked Open in New Tab opened both tabs on the pane the user aimed at and none on the
+        // sibling. ⌘T's half was pinned above and this one was not, which is the asymmetry that
+        // exposed it.
+        let mirrorSibling = try #require(Self.siblingLocals(in: mirror).first,
+                                         "the mirror flips the side by hand instead of through `PaneSideChoice.sibling` — dropping the `!` is a measured survivor of the whole suite")
+        #expect(mirror.contains("tabAction(isLeft: \(mirrorSibling), movesFocus: false)"),
+                "the mirror opens its tab on a pane other than the sibling it just resolved")
     }
 
     // MARK: What the launch sequence may not overwrite
@@ -1939,9 +2475,12 @@ import Sync
         // **All three halves of where the pane is**, and the two paths separately: `PaneTabsStore`
         // records the cut between scope and stack as a depth, so an entry rebuilt from the joined
         // path reports a depth of zero and the columns are flattened one layer down.
+        // Each through its own narrowing wrapper: the two paths were ternaries written out here,
+        // and transposing either stores the SIBLING pane's folder or column stack as this pane's
+        // active tab, to be restored onto it at the next launch.
         for value in ["providerId: paneProviderId(isLeft: isLeft)",
-                      "relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath",
-                      "browsePath: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath"] {
+                      "relativePath: paneScope(isLeft: isLeft)",
+                      "browsePath: paneStack(isLeft: isLeft)"] {
             #expect(save.contains(value), "the save does not hand the rule the pane's own \(value)")
         }
         // …and what goes to disk is the overlaid strip, not the one it was built from: passing the
@@ -2058,7 +2597,7 @@ import Sync
         //
         // **Asserted as an ORDER, not as a presence.** Checking only that the line exists passed
         // with the read moved below `verb()` — the mutation this test is for.
-        let read = try #require(host.range(of: "let fromFocus = PaneSideChoice.own(isLeft, left: syncManager.leftRelativePath"),
+        let read = try #require(host.range(of: "let fromFocus = paneScope(isLeft: isLeft)"),
                                 "the pane's focus before the switch is never captured")
         let verb = try #require(host.range(of: "verb() else {"), "the verb call is gone")
         #expect(read.upperBound < verb.lowerBound,
