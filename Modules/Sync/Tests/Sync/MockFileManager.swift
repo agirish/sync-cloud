@@ -41,6 +41,17 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// how far the walk went.
     public var onEnumerate: ((URL) -> Void)?
 
+    /// Paths of directories that exist but cannot be LISTED — permission denied, I/O error, a
+    /// volume that went away. Without this the mock models a disk on which every directory is
+    /// readable, so a test for the unreadable case could only pass vacuously.
+    ///
+    /// The modelled behaviour is what the real `FileManager` was measured doing, which is the
+    /// opposite of the intuitive one: `enumerator(at:)` hands back a **non-nil enumerator that
+    /// yields zero entries** and reports the failure through the `errorHandler` — it does not
+    /// return nil. A mock that returned nil here would make every `guard let enumerator … else`
+    /// look tested while that branch stays dead in production.
+    public var unlistableDirectories: Set<String> = []
+
     public func fileExists(atPath path: String) -> Bool {
         sync {
             let exists = virtualDisk.keys.contains(path)
@@ -289,10 +300,18 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             Thread.sleep(forTimeInterval: enumeratorDelay)
         }
 
+        // An unlistable ROOT: report it and yield nothing, exactly as the real enumerator does.
+        // The enumerator stays non-nil — that is the whole point of modelling this.
+        if unlistableDirectories.contains(url.path) {
+            _ = handler?(url, NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError))
+            return MockEnumerator(urls: [])
+        }
+
         // Snapshot the matching children under the lock, then hand off to the enumerator.
         let allChildren: [URL] = sync {
             var children: [URL] = []
             let root = url.path
+            var blockedDescendants: [URL] = []
 
             for (key, _) in virtualDisk {
                 if key.hasPrefix(root) && key != root {
@@ -307,10 +326,27 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                     if mask.contains(.skipsHiddenFiles) && itemURL.lastPathComponent.hasPrefix(".") {
                         continue
                     }
+
+                    // An unlistable DESCENDANT is still yielded as an entry — it exists, it just
+                    // cannot be descended into — while everything below it is withheld. Matches
+                    // the measured shape: a listable root holding one locked subdirectory yields
+                    // the subdirectory and reports it through the handler.
+                    if let blocked = unlistableDirectories.first(where: { key.hasPrefix($0 + "/") }) {
+                        blockedDescendants.append(URL(fileURLWithPath: blocked))
+                        continue
+                    }
+                    if unlistableDirectories.contains(key), !mask.contains(.skipsSubdirectoryDescendants) {
+                        blockedDescendants.append(itemURL)
+                    }
                     children.append(itemURL)
                 }
             }
             children.sort { $0.path < $1.path }
+
+            var reported = Set<String>()
+            for blocked in blockedDescendants where reported.insert(blocked.path).inserted {
+                _ = handler?(blocked, NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError))
+            }
             return children
         }
 
