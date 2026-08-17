@@ -557,6 +557,15 @@ import Sync
                 "in Tree the parked chip still advertises a column stack the pane will not draw")
         #expect(tree[1].fullPath.hasSuffix("/Finance"),
                 "and its tooltip still points into that stack")
+
+        // The ACTIVE chip's path is what Copy Path puts on the pasteboard and what the tooltip
+        // shows, so the three agree by construction — see `copyTabPath`. In Tree that means the
+        // clipboard carries the scope, which is where selecting the tab lands you; a deeper string
+        // than both the label and the tooltip would be the stranger result.
+        let liveInTree = PaneTabChips.items(list, liveProviderId: "iCloud", livePath: "Photos",
+                                            drawsColumns: false, source: { _ in self.iCloud })
+        #expect(liveInTree[0].fullPath.hasSuffix("/Photos"),
+                "Copy Path and the tooltip no longer agree with the chip's own label")
     }
 
     /// A tab at a source root has no folder to name.

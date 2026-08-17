@@ -673,6 +673,13 @@ extension ContentView {
         // this strip does not hold moves nothing.
         noteWorkingIn(isLeft: isLeft, "Copy Path from a browse tab's menu")
         NSPasteboard.general.clearContents()
+        // **`item.fullPath` — so this copies what the chip SAYS, presentation and all.** In Tree
+        // that is the tab's scope rather than its parked column stack, which is a real consequence
+        // of resolving the strip through the presentation and is the intended one: the chip's title,
+        // its tooltip and this clipboard string are three renderings of one answer, and the answer
+        // is where selecting that tab actually lands you. Copying a folder the pane will not show —
+        // deeper than both the label above it and the tooltip under the pointer — would be the
+        // stranger result, not the more useful one. Pinned in `PaneTabWiringTests`.
         NSPasteboard.general.setString(item.fullPath, forType: .string)
         // **Named like every other strip-aimed verb, which this one was not.** The line was
         // "User copied a tab's path: <path>" — a sentence with no side in it, and ⌘T deliberately

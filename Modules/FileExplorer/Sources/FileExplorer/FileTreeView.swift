@@ -481,6 +481,13 @@ public struct FileTreeView: View, Equatable {
     /// A live search hit outranks it: that is a place the user asked for by name, this one is a
     /// place they left behind. See `revealInTree`, which the caller prefers when there is a hit.
     private func carryColumnsIntoTree(_ proxy: ScrollViewProxy) {
+        // **The mirror of `carryTreeIntoColumns`'s guard, and it was missed when that one was
+        // added.** A scroll to a row the list does not hold yet is silently dropped — that is why
+        // the attempt below is made twice — and during a load the deep rows genuinely are not there
+        // yet, so both attempts can miss. Latching `carriedStack` afterwards then makes the failure
+        // permanent: the tree stays at the top with its folders open and nothing ever scrolls.
+        // Refused here, re-asked on the load's falling edge, exactly as the other direction is.
+        guard !isLoading else { return }
         let carry = Self.carryOver(expanded, stack: browsePath, treeRoot: currentPath)
         guard let deepest = carry.deepest else { return }
         // Only when it actually changes: `@State` does not compare, so assigning an equal set
@@ -856,6 +863,13 @@ public struct FileTreeView: View, Equatable {
                 .onAppear {
                     revealInTree(proxy, selecting: false)
                     if search.hit(at: searchHitIndex) == nil { carryColumnsIntoTree(proxy) }
+                }
+                // And on the load's falling edge, because an arrival during a load is refused
+                // rather than answered — the Columns branch pairs its own carry the same way, and
+                // both keep the search's precedence: a hit is a place asked for by name.
+                .onChange(of: isLoading) { _, loading in
+                    guard !loading, search.hit(at: searchHitIndex) == nil else { return }
+                    carryColumnsIntoTree(proxy)
                 }
         }
     }

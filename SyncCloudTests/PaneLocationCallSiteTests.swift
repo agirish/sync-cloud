@@ -85,6 +85,20 @@ import Foundation
                 "the sibling is asked about the CLICKED pane's presentation (the `!` is gone)")
     }
 
+    /// The strip asks the same question the header does, and about the SAME pane. `paneTabItems`
+    /// takes an `isLeft` and hands it to `paneDrawsColumns`; written `!isLeft` the chips would be
+    /// resolved through the sibling's presentation, and every behavioural chip test would still pass
+    /// — they call `PaneTabChips.items` directly and never learn which pane the app asked about.
+    @Test func theTabStripResolvesThroughItsOwnPanesPresentation() throws {
+        let body = try Self.body(of: "func paneTabItems(isLeft: Bool) -> [PaneTabStrip.Item] {",
+                                 in: try Self.source("ContentView+PaneTabs.swift"))
+        #expect(body.contains(
+                    "livePath: syncManager.paneLocation(isLeft: isLeft, drawsColumns: paneDrawsColumns(isLeft: isLeft))"),
+                "the active chip's path is no longer resolved through this pane's presentation")
+        #expect(body.contains("drawsColumns: paneDrawsColumns(isLeft: isLeft),"),
+                "the parked chips are no longer resolved through this pane's presentation")
+    }
+
     /// The negative, as an absence: nothing in the app may take the bare scope+stack join for a
     /// readout again. `combinedRelativePath` is not deleted — a tab's stored location genuinely
     /// wants both halves — it simply has no business describing what a pane is showing.
