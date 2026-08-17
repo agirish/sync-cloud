@@ -356,35 +356,72 @@ public extension ScaledFont {
 
     /// The `NSFont` this resolves to at `scale`.
     ///
-    /// `monospacedDigitSystemFont` on the digits path is not a nicety: measured, "1" is 5.93pt in
+    /// Both halves of a font's identity have to survive this, and the trap each time has been that
+    /// getting one right silently dropped the other.
+    ///
+    /// **The digit width.** `monospacedDigitSystemFont` is not a nicety: measured, "1" is 5.93pt in
     /// the proportional face and 7.87pt in the monospaced-digit one, so a count pill measured with
     /// the wrong face is out by 2pt per digit.
     ///
-    /// `.rounded` is handled for the same reason and it had been missing: the design fell through
-    /// to `systemFont`, so a rounded font measured here silently reported the *default* face's
-    /// width. That is not hypothetical — "Birth Certificate" is 95.729pt in SF Pro and 92.917pt in
-    /// SF Rounded, and the 95.7 figure reached a release-notes draft as the width of a row that
-    /// draws `PaneRowFonts.name`, which is rounded. No ladder measures a rounded font today, so
-    /// nothing shipped wrong; the trap was that the miss was silent, in the one file whose whole
-    /// claim is that its numbers agree with the drawn text.
+    /// **The face.** `.rounded` had been falling through to `systemFont`, so a rounded font measured
+    /// here silently reported the *default* face's width — "Birth Certificate" is 95.729pt in SF Pro
+    /// and 92.917pt in SF Rounded, and the 95.7 figure reached a release-notes draft as the width of
+    /// a row that draws `PaneRowFonts.name`, which is rounded.
+    ///
+    /// The fix for that left the same hole one level down, because `Font.monospacedDigit()`
+    /// *preserves* the design: a font that was both went out through the digits path above the
+    /// design switch and came back in the default face. "1234" at 16pt semibold — the shape the
+    /// filing-spend totals draw — is 40.745pt that way against 42.042pt in the rounded face SwiftUI
+    /// actually lays out. Hence design and digits are composed here rather than raced:
+    ///
+    /// - `.monospaced` answers a digit request on its own (the whole face is fixed-pitch), so it
+    ///   wins outright. `monospacedDigitSystemFont` would give the *proportional* face with
+    ///   equal-width digits — 41.0pt laid out for "1234" where the drawn text is 40.0pt, and the
+    ///   wrong glyph for every letter besides. It keeps `NSFont.monospacedSystemFont` rather than
+    ///   joining the descriptor transform below, which measures the same to the point that a width
+    ///   assertion cannot tell them apart: the difference is object identity. `withDesign` mints a
+    ///   font that is `!=` the canonical one at every weight but `.regular`, and `!=` its own
+    ///   no-digits sibling at all of them — and `LabelMetrics` keys its caches on `NSFont`, so
+    ///   that is a permanent miss rather than a cosmetic difference.
+    /// - `.rounded` and `.serif` are a descriptor transform applied *on top of* whichever base the
+    ///   digit flag chose. `withDesign` carries the descriptor's number-spacing feature across, so
+    ///   the digits stay equal-width through it — measured, "1" and "0" are both 10.510pt in the
+    ///   rounded 16pt semibold face. Every combination here was checked against a hosted `Text`.
+    /// - `.serif` is in that list on purpose. Nothing in SyncCloud draws it today, so it is latent
+    ///   rather than broken — but it is the same silent miss as `.rounded` was, and handling it
+    ///   costs one line and measures right (`NewYork-Semibold`, 34.5pt laid out for "1234" against
+    ///   38.0pt in the default face). The `default:` below is `.default` and nothing else.
     func nsFont(scale: CGFloat) -> NSFont {
         let size = pointSize(scale: scale)
         let appKitWeight = Self.appKitWeight(weight)
-        if usesMonospacedDigits {
-            return NSFont.monospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
-        }
-        let base = NSFont.systemFont(ofSize: size, weight: appKitWeight)
-        switch design {
-        case .monospaced:
+        if case .monospaced = design {
             return NSFont.monospacedSystemFont(ofSize: size, weight: appKitWeight)
-        case .rounded:
-            // `withDesign` returns nil if the face is unavailable; the default face is the honest
-            // fallback, and it is what this line has been returning for every rounded font so far.
-            guard let descriptor = base.fontDescriptor.withDesign(.rounded),
-                  let rounded = NSFont(descriptor: descriptor, size: size) else { return base }
-            return rounded
-        default:
-            return base
+        }
+        // Digits first, then the design on top. The fallbacks below all return `base`, which is
+        // already the digits font — so a face this Mac does not have costs the *design*, never the
+        // digit-width guarantee that is the reason this branch exists.
+        let base = usesMonospacedDigits
+            ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
+            : NSFont.systemFont(ofSize: size, weight: appKitWeight)
+        guard let systemDesign = Self.systemDesign(design) else { return base }
+        // `withDesign` returns nil if the face is unavailable; the base face is the honest fallback.
+        guard let descriptor = base.fontDescriptor.withDesign(systemDesign),
+              let designed = NSFont(descriptor: descriptor, size: size) else { return base }
+        return designed
+    }
+
+    /// The AppKit design `design` names, or nil when there is no face to switch to.
+    ///
+    /// `.monospaced` is handled by `nsFont` before this is reached — it needs the whole face, not a
+    /// transform of the digits font — but it is listed so this stays a total answer to the question
+    /// it asks. `.default` and any design a future SDK adds return nil, which measures in the
+    /// default face rather than guessing at a mapping.
+    private static func systemDesign(_ design: Font.Design) -> NSFontDescriptor.SystemDesign? {
+        switch design {
+        case .rounded: return .rounded
+        case .serif: return .serif
+        case .monospaced: return .monospaced
+        default: return nil
         }
     }
 
