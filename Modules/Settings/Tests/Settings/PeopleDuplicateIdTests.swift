@@ -34,8 +34,22 @@ import Testing
 /// drove the path in a real hosting view so that reinstating `uniqueKeysWithValues` killed the test
 /// process rather than leaving a green suite; with the dedup in place that mutation is now caught
 /// upstream instead, by the Sync suite, and no longer by this one.
+///
+/// **`.machinePinned(.pixelSampling)`** — `renderedInk` below reads painted pixels back out of a
+/// live renderer (`bitmapImageRepForCachingDisplay` + `cacheDisplay` + `colorAt`), which is the
+/// declared meaning of that reason, so this suite has to stand down wherever its siblings do.
+/// It shipped as a bare `@Suite` under a commit message that claimed otherwise. There is no
+/// consequence while CI is this same Mac and excludes only `referenceImages,liveProfile` — but
+/// the day the runner moves, the undeclared suite is the one still sampling an uncalibrated
+/// renderer while every suite that declared itself correctly steps aside.
+///
+/// The trait is applied to the whole suite, as every pinned suite in this repo applies it, which
+/// does take the two members that sample nothing — the source scan and the collapse assertions —
+/// down with it. That is the accepted cost of the one-token declaration: a per-test gate is the
+/// shape that gets forgotten by a renamer, which is the gap `MachinePinnedReason` was minted to
+/// close.
 @MainActor
-@Suite struct PeopleDuplicateIdTests {
+@Suite(.machinePinned(.pixelSampling)) struct PeopleDuplicateIdTests {
 
     /// Two people, one id — the shape a copy-pasted block leaves behind. The second entry differs in
     /// every other field, so "last wins" is a visible choice rather than a coincidence.
