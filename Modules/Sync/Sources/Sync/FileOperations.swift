@@ -538,12 +538,12 @@ extension FileSyncManager {
     ///   the review's trash), which interpret a zero return themselves and post their own,
     ///   better-scoped message — a low-level "already gone" would talk over them.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default,
-                            reportsNothingToDo: Bool = false) async -> Int {
+                            reportsNothingToDo: Bool = false) async -> DeleteOutcome {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before deleting items")
-            return 0
+            return DeleteOutcome()
         }
         let confirmPermanentDelete = permanentDeleteConfirmer
 
@@ -565,8 +565,8 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation { [weak self, progress, prunedPaths] () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
-            guard self != nil else { return ([], []) }
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int) in
+            guard self != nil else { return ([], [], 0) }
             // Publish progress only once this operation actually starts (see copyItems above).
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
@@ -606,6 +606,7 @@ extension FileSyncManager {
                 }
             }
             
+            var declined = 0
             if !trashFailures.isEmpty {
                 let confirmed = await MainActor.run {
                     confirmPermanentDelete(trashFailures.map { $0.lastPathComponent })
@@ -620,9 +621,15 @@ extension FileSyncManager {
                             taskErrors.append(error)
                         }
                     }
+                } else {
+                    // Declining appended to NEITHER list, so the run ended indistinguishable from
+                    // one with nothing to do — silently, or under the "already gone" banner below
+                    // when other selected paths had genuinely vanished. Both are false: these
+                    // items are on disk and untouched, by the user's own choice.
+                    declined = trashFailures.count
                 }
             }
-            return (taskErrors, trashedItems)
+            return (taskErrors, trashedItems, declined)
         }
         
         let items = result.items
@@ -655,14 +662,24 @@ extension FileSyncManager {
             // back only the trashed subset, so a mixed batch (some permanently deleted on a
             // Trash-less volume) must not offer an Undo that would silently leave the permanent
             // deletions in place.
-            self.banner = .success(items.count == 1
-                ? "Deleted \"\(name)\""
-                : "Deleted \(items.count) items", undoable: successfullyTrashed.count == items.count)
+            let deleted = items.count == 1 ? "Deleted \"\(name)\"" : "Deleted \(items.count) items"
+            // A batch can both remove some items and keep others the user declined to destroy.
+            // Reporting only the removals would leave them believing the kept ones went too.
+            let kept = result.declined == 0 ? "" :
+                " — kept \(result.declined) that can't be moved to the Trash"
+            self.banner = .success(deleted + kept, undoable: successfullyTrashed.count == items.count)
         }
         // Surface any failure (e.g. a transiently-busy item), after the success banner so a mixed
         // batch reports both what worked and what didn't.
         if let firstError = result.errors.first {
             present(.deleteFailed(reason: firstError.localizedDescription))
+        } else if items.isEmpty, result.declined > 0 {
+            // Checked BEFORE the "already gone" branch: these items are the opposite of gone, and
+            // that branch would otherwise claim they were.
+            Logger.shared.info("Delete: kept \(result.declined) item(s) that could not be moved to the Trash — the permanent delete was declined")
+            banner = .warning(result.declined == 1
+                ? "Kept that item — it can't be moved to the Trash, and you chose not to delete it permanently"
+                : "Kept those \(result.declined) items — they can't be moved to the Trash, and you chose not to delete them permanently")
         } else if reportsNothingToDo, items.isEmpty, !prunedPaths.isEmpty, progress?.isCancelled != true {
             // Everything selected had already left the disk (deleted in Finder, or by a sync,
             // since the tree was walked), so the per-item `fileExists` pre-check skipped it all.
@@ -720,6 +737,8 @@ extension FileSyncManager {
         if let progress, self.activeProgress === progress {
             self.activeProgress = nil
         }
-        return items.count
+        return DeleteOutcome(trashed: successfullyTrashed.count,
+                             permanentlyDeleted: items.count - successfullyTrashed.count,
+                             declined: result.declined)
     }
 }

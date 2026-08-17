@@ -491,15 +491,38 @@ extension FileSyncManager {
     ///
     /// Unstattable counts as drifted, which refuses. That is the safe direction on both ends: a
     /// path we cannot measure is one we cannot show to be redundant.
+    ///
+    /// **Modification date, not just size.** This used to compare size alone, on the stated
+    /// grounds that the scan reads mtime via `URLResourceValues` which "need not compare equal to
+    /// a re-stat through the file-manager seam". Measured on this machine, that is not so: over
+    /// 200 files the two read paths agreed EXACTLY, 200 of 200. Size alone waves through every
+    /// same-length rewrite — 2025 to 2026, a `sed -i` over fixed-width text — and the merge path
+    /// in this same file had already rejected that reasoning ("Size alone let a same-length
+    /// in-place rewrite slip through"), which is why `MergeFileSnapshot` carries both.
+    ///
+    /// **Folders are still exempt, and that gap is still open.** A folder group's entire
+    /// resolve-time guarantee remains "a directory entry still exists at this path": scan two
+    /// 3,000-file folders as identical, move 1,200 photos out of one, press Move to Trash, and the
+    /// last intact copy of those 1,200 goes. Closing it was attempted here and reverted, because
+    /// the scan records no baseline a resolve-time check can compare against — measured, folder
+    /// copies arrive with `modificationDate` nil, so gating on it refuses EVERY folder group and
+    /// disables folder dedup rather than protecting it. `itemCount` is recorded and is a real
+    /// signal, but it is a RECURSIVE count whose definition a re-walk would have to reproduce
+    /// exactly or every group refuses for the opposite reason. Closing this needs the scan to
+    /// record a comparable folder baseline; it is not a change to this function alone.
     private func copyDriftedInPlace(_ copy: DuplicateCopy) -> Bool {
         guard fileManager.fileExists(atPath: copy.path) else { return false }
         guard !copy.isDirectory else { return false }
         guard let attrs = try? fileManager.attributesOfItem(atPath: copy.path) else { return true }
+        let currentDate = attrs[.modificationDate] as? Date
         let currentSize = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
         // Refuse only on a KNOWN mismatch: a real file always reports its size, so a drifted
         // copy is caught; if size is unavailable (never happens on the real FS) fall back to the
         // existence check rather than over-refuse.
         if let currentSize, currentSize != copy.size { return true }
+        // Same rule for the date: compare it when both ends have one, rather than refusing every
+        // group whose scan recorded no date.
+        if let recorded = copy.modificationDate, let currentDate, recorded != currentDate { return true }
         return false
     }
 
@@ -556,7 +579,8 @@ extension FileSyncManager {
             return false
         }
         let bytes = group.reclaimableBytes
-        let removed = await deleteItems(at: paths, fileManager: fileManager)
+        let outcome = await deleteItems(at: paths, fileManager: fileManager)
+        let removed = outcome.removed
         // Only drop the group and claim success if every copy actually left the disk — a declined,
         // failed, or cancelled trash must not vanish still-listed copies behind a false banner.
         guard removed > 0 else { return false }
@@ -567,7 +591,11 @@ extension FileSyncManager {
             return false
         }
         if currentError == nil {
-            banner = .success("Reclaimed \(Self.formatBytes(bytes)) — press ⌘Z to undo")
+            // Only promise ⌘Z when the delete can actually be taken back. On a Trash-less volume
+            // these files were destroyed permanently and nothing was registered, so the promise
+            // sent ⌘Z at whatever was previously on top of the stack.
+            banner = .success("Reclaimed \(Self.formatBytes(bytes))" + (outcome.isUndoable ? " — press ⌘Z to undo" : ""),
+                              undoable: outcome.isUndoable)
         }
         Logger.shared.info("Duplicates: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
         return true
@@ -605,18 +633,20 @@ extension FileSyncManager {
             }
             return
         }
-        let removed = await deleteItems(at: paths, fileManager: fileManager)
+        let outcome = await deleteItems(at: paths, fileManager: fileManager)
+        let removed = outcome.removed
         guard removed > 0 else { return }
         let done = dropFullyRemovedGroups(from: batch)
         let bytes = done.reduce(0) { $0 + $1.reclaimableBytes }
         Logger.shared.info("Duplicates: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
         if currentError == nil {
             if done.count == batch.count, batch.count == eligible.count {
-                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s") — press ⌘Z to undo")
+                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")" + (outcome.isUndoable ? " — press ⌘Z to undo" : ""),
+                                  undoable: outcome.isUndoable)
             } else {
                 // Partial (cancelled mid-batch, declined fallback, or skipped missing keepers):
                 // claim only what landed; the rest stay listed.
-                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed. Press ⌘Z to undo")
+                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed." + (outcome.isUndoable ? " Press ⌘Z to undo" : ""))
             }
         }
     }
@@ -806,7 +836,7 @@ extension FileSyncManager {
             // Every file in the redundant copy is now present in the keeper → safe to trash it.
             // Its restore-undo joins the merge's group so one ⌘Z takes the whole fold back.
             openUndoGroupIfNeeded()
-            let removed = await deleteItems(at: [redundant.path], fileManager: fm)
+            let removed = await deleteItems(at: [redundant.path], fileManager: fm).removed
             if removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
         }
 

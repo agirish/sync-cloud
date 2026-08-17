@@ -269,7 +269,7 @@ import Foundation
         mockFM.virtualDisk["/docs/b.txt"] = file(200)
 
         // a.txt listed twice: the return value counts each DISTINCT file once.
-        let removed = await manager.deleteItems(at: ["/docs/a.txt", "/docs/b.txt", "/docs/a.txt"], fileManager: mockFM)
+        let removed = await manager.deleteItems(at: ["/docs/a.txt", "/docs/b.txt", "/docs/a.txt"], fileManager: mockFM).removed
         #expect(removed == 2)
         #expect(mockFM.virtualDisk["/docs/a.txt"] == nil && mockFM.virtualDisk["/docs/b.txt"] == nil)
         #expect(mockFM.trashedPaths.count == 2)

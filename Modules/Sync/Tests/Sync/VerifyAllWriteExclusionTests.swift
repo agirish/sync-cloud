@@ -102,7 +102,7 @@ import Foundation
         let (manager, mockFM) = try makeFixture()
 
         manager.isVerifyAllRunning = true
-        let removed = await manager.deleteItems(at: ["/src/f.txt"], fileManager: mockFM)
+        let removed = await manager.deleteItems(at: ["/src/f.txt"], fileManager: mockFM).removed
 
         #expect(removed == 0)
         #expect(manager.banner?.message == "Wait for Verify All to finish before deleting items")
@@ -114,7 +114,7 @@ import Foundation
         // With the verify run finished, the identical call goes through.
         manager.isVerifyAllRunning = false
         manager.banner = nil
-        let removedAfter = await manager.deleteItems(at: ["/src/f.txt"], fileManager: mockFM)
+        let removedAfter = await manager.deleteItems(at: ["/src/f.txt"], fileManager: mockFM).removed
         #expect(removedAfter == 1)
         #expect(mockFM.virtualDisk["/src/f.txt"] == nil)
     }

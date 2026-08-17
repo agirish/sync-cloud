@@ -66,7 +66,7 @@ import Foundation
         mockFM.virtualDisk["/src/solo.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let removed = await manager.deleteItems(
-            at: ["/src/parent", "/src/parent/child.txt", "/src/solo.txt"], fileManager: mockFM)
+            at: ["/src/parent", "/src/parent/child.txt", "/src/solo.txt"], fileManager: mockFM).removed
 
         #expect(removed == 2, "parent+child count once via the ancestor; solo counts on its own")
         #expect(mockFM.virtualDisk["/src/parent"] == nil)
@@ -75,7 +75,7 @@ import Foundation
         // And a delete where nothing leaves the disk reports zero, not the request size.
         mockFM.shouldFailTrash = true                       // Trash-less volume…
         mockFM.virtualDisk["/src/stuck.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let stuck = await manager.deleteItems(at: ["/src/stuck.txt"], fileManager: mockFM)
+        let stuck = await manager.deleteItems(at: ["/src/stuck.txt"], fileManager: mockFM).removed
         #expect(stuck == 0, "…and the permanent-delete fallback was declined")
         #expect(mockFM.virtualDisk["/src/stuck.txt"] != nil)
     }
