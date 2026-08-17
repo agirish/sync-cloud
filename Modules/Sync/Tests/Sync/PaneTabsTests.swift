@@ -440,7 +440,52 @@ import Events
 }
 
 /// What survives a quit — and, as much, what deliberately does not.
-@Suite struct PaneTabsStoreTests {
+///
+/// **`.serialized` for the two log assertions, and they are the only reason.** `Logger.shared` is
+/// process-wide and this suite has a sibling that writes the very line one of them asserts:
+/// `aCorruptValueReadsAsNothingStored` loads a `{not json` LEFT strip, which emits "The stored left
+/// browse tab strip could not be read". Run in parallel with
+/// `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced`, that line can land inside the
+/// window the presence half reads and satisfy it while the call under test wrote nothing at all —
+/// a pass for another test's work. Serializing closes the intra-suite half; the cross-suite half
+/// needs nothing here, because a package-wide grep shows these two sentences are written from this
+/// suite alone.
+@Suite(.serialized) struct PaneTabsStoreTests {
+
+    /// Everything logged between two of this test's own markers, with `act` run between them.
+    ///
+    /// **Never read `Logger.shared.entries` whole in this suite.** `entries` is a rolled 1000-line
+    /// window (`Modules/Events/Sources/Events/Logger.swift:376`) shared by every suite in the
+    /// package, which breaks a naive reading in both directions: a bare `contains` lets a foreign
+    /// line satisfy a presence assertion, and a bare `!contains` passes for free the moment the
+    /// window rolls past the line it was supposed to be looking at. The opening marker is
+    /// `#require`d, and that `#require` IS the eviction guard — if the buffer rolled past this
+    /// test's own first marker, the reading is vacuous and says so instead of passing.
+    ///
+    /// Sliced from the opening marker FIRST and searched inside that slice, so the two indices
+    /// cannot be found out of order: `messages[a...b]` on reversed bounds traps rather than
+    /// failing, which turns a rolled buffer into a dead test host. Same shape as
+    /// `SyncCloudTests/ShortcutCommandsTests.swift:425-440`, deliberately.
+    @MainActor
+    private func loggedWindow(_ act: () -> Void) async throws -> ArraySlice<LogEntry> {
+        let token = UUID().uuidString.prefix(8)
+        await Logger.shared.debug("pane-tabs window open \(token)").value
+        act()
+        await Logger.shared.debug("pane-tabs window close \(token)").value
+        let entries = Logger.shared.entries
+        // Both searches are done BEFORE the `#require`, and the optional is what gets required.
+        // `#require(entries.firstIndex(where:))` expands the whole receiver into the failure
+        // message: measured at 152KB of `LogEntry` dump for one rolled window. This guard fires
+        // exactly when a run is already in trouble, so its output has to stay readable.
+        let openedIndex = entries.firstIndex { $0.message.contains("open \(token)") }
+        let opened = try #require(openedIndex,
+                                  "the log window rolled past this test's own marker, so this reading is vacuous")
+        let tail = entries[opened...]
+        let closedIndex = tail.lastIndex { $0.message.contains("close \(token)") }
+        let closed = try #require(closedIndex,
+                                  "the closing marker never landed — this reading is vacuous")
+        return tail[...closed]
+    }
 
     @Test func aRoundTripKeepsTheStripAndItsSelection() {
         let defaults = ScratchDefaults("PaneTabsStore")
@@ -531,13 +576,19 @@ import Events
     /// with nothing to say it existed. Reachable by a hand-edited plist, which `split` and `restore`
     /// both already treat as a live source of nonsense, and by any later change to the format.
     @MainActor
-    @Test func anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced() async {
+    @Test func anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced() async throws {
         let defaults = ScratchDefaults("PaneTabsStore-corruptLog")
         defaults.set(#"[{"providerId":"iCloud","relativePath":]"#, forKey: PaneTabsStore.tabsKey)
-        #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil,
+
+        // Read between this test's own markers rather than over the whole buffer. The old reading
+        // was a bare `contains` across all 1000 entries, which a rolled window fails spuriously —
+        // the line IS written, and scrolls off while the assertion is being reached.
+        var loaded: (entries: [PaneTabsStore.Entry], selected: Int)?
+        let logged = try await loggedWindow { loaded = PaneTabsStore.load(isLeft: true, from: defaults) }
+
+        #expect(loaded == nil,
                 "the caller must still be told to seed — this is a log line, not a new behaviour")
-        await Logger.shared.debug("pane-tabs unreadable flush marker").value
-        #expect(Logger.shared.entries.contains {
+        #expect(logged.contains {
             $0.level == .warning && $0.message.contains("left browse tab strip could not be read")
         }, "an unreadable strip is thrown away by the next save with nothing said")
     }
@@ -546,14 +597,33 @@ import Events
     /// is the ordinary case** — every fresh install, and every right pane that has never held a
     /// second tab — so a warning there would fire on launches where nothing is wrong. An empty
     /// array decodes fine and is the same "seed it" answer, so it is quiet too.
+    ///
+    /// **An absence assertion is the half that has to be guarded, not the half that looks safe.**
+    /// This used to be `!Logger.shared.entries.contains { … }` over the whole rolled buffer, with
+    /// its flush marker written after the loads and never checked — so once 1000 lines had rolled
+    /// past, "the line is not there" would have been true of a window that no longer contained the
+    /// moment being judged, and the test would have passed without looking at anything. Reading
+    /// between two of its own markers, with the opening one `#require`d, means a rolled window is
+    /// REPORTED rather than silently granted.
+    ///
+    /// It was latent rather than live when this was fixed — measured: planting a warning on the
+    /// empty-decode path makes it fail under `--filter` and under the full package alike, so the
+    /// window does not roll inside this test today. The guard is for the day the package grows.
     @MainActor
-    @Test func aStripThatWasNeverWrittenOrIsEmptyIsNotReported() async {
+    @Test func aStripThatWasNeverWrittenOrIsEmptyIsNotReported() async throws {
         let defaults = ScratchDefaults("PaneTabsStore-quietLoad")
-        #expect(PaneTabsStore.load(isLeft: false, from: defaults) == nil)
-        defaults.set("[]", forKey: PaneTabsStore.rightTabsKey)
-        #expect(PaneTabsStore.load(isLeft: false, from: defaults) == nil)
-        await Logger.shared.debug("pane-tabs quiet-load flush marker").value
-        #expect(!Logger.shared.entries.contains {
+        var neverWritten: (entries: [PaneTabsStore.Entry], selected: Int)?
+        var empty: (entries: [PaneTabsStore.Entry], selected: Int)?
+
+        let logged = try await loggedWindow {
+            neverWritten = PaneTabsStore.load(isLeft: false, from: defaults)
+            defaults.set("[]", forKey: PaneTabsStore.rightTabsKey)
+            empty = PaneTabsStore.load(isLeft: false, from: defaults)
+        }
+
+        #expect(neverWritten == nil)
+        #expect(empty == nil)
+        #expect(!logged.contains {
             $0.message.contains("right browse tab strip could not be read")
         }, "a pane that has never stored a strip is reported as corrupt on every launch")
     }

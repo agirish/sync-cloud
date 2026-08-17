@@ -6,9 +6,12 @@ deepest column is hidden behind the preview: column 420…630, visible 0…270",
 geometry of the bug it exists to catch. Nothing about that message says *the machine decided this*.
 
 This file records the mechanisms that have actually produced false failures in this repo — plus
-one, mechanism 8, that produces no failure at all and hangs the run instead — how to tell each
-from a regression before you start bisecting, and the fix pattern for each. See
-[ci.md](ci.md) for what CI runs and the runner's own quirks.
+two that produce no failure at all: mechanism 8 hangs the run instead, and mechanism 12 makes a test
+**pass** without having examined anything. Read that second one before writing any assertion about
+`Logger.shared.entries`; it is the only mechanism here whose damage is silent and permanent, so
+unlike the rest it costs you nothing to notice and everything to miss. Below: how to tell each from
+a regression before you start bisecting, and the fix pattern for each. See [ci.md](ci.md) for what CI
+runs and the runner's own quirks.
 
 ---
 
@@ -34,6 +37,13 @@ on 2026-08-16**. It should not recur, so treat a fresh instance as a real regres
 failure message says otherwise — the fixture now names every dismissal it sees, with the app's
 activation state, so the message itself tells you whether the panel was never attached or attached
 and then torn down. Do not reach for a rerun first.
+
+**A test asserting on `Logger.shared.entries`, failing only in the full suite?** `entries` is a
+rolled 1000-line window shared by every suite at once, so a line that really was written can be gone
+by the time the assertion reads —
+[mechanism 12](#12-a-log-assertion-reading-a-window-that-has-already-rolled). Do not bisect the code
+that writes the line; check whether the test reads the buffer whole. The same section's other half
+is the reason to go there even when nothing is failing.
 
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
@@ -1321,6 +1331,122 @@ print(((CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIs
 measurements in full; `5c851773` for the change that introduced the `orderOut` and the real desktop
 problem it was fixing; mechanism 1 for the display-asleep sibling, which is a window that exists and
 will not animate.
+
+### 12. A log assertion reading a window that has already rolled
+
+**Symptom.** Two shapes, and it is the second that earns this entry.
+
+- A **presence** assertion fails for a line that really was written — in the full suite only, never
+  under `--filter`, and re-running sometimes clears it.
+- An **absence** assertion **passes**, having looked at nothing at all. There is no symptom. That is
+  the symptom.
+
+**Mechanism.** `Logger.shared` is one process-wide singleton, and `entries` is capped at the newest
+**1000** lines — `Modules/Events/Sources/Events/Logger.swift:376`:
+
+```swift
+if entries.count > 1000 {
+    entries.removeFirst(entries.count - 1000)
+}
+```
+
+swift-testing runs suites in parallel, so every suite in the package writes into that one array at
+once. A test that reads `Logger.shared.entries` *whole* is therefore reading a window whose contents
+are decided by whatever else happened to be running — and 1000 lines is not many when a full package
+run is walking trees and syncing files in a dozen suites beside you.
+
+**Why it presents as a flake rather than as a bug.** Under `--filter` your suite is very nearly the
+only writer, 1000 is effectively unbounded, and the window never rolls. In a full-suite run the rest
+of the package logs past your line *while your own fixture is still working* — awaiting a refresh,
+walking a fixture tree, waiting on a quiescence poll. Same source, opposite verdicts, decided by what
+else was scheduled: step 4 of the triage above ("do not stop at `--filter`") exists for mechanisms
+like this one.
+
+**The two directions cost differently, and that asymmetry is the point.** A rolled window turns a
+presence assertion into a false **failure** — noisy, visible, someone bisects for a day. It turns an
+absence assertion into a false **pass** — silent, and permanent, because nothing will ever draw
+attention to it again. **No other mechanism in this file can make a test pass without it having
+examined anything.** Everything else here at worst wastes your time; this one quietly deletes
+coverage.
+
+**Measured, not theorised.** `f87d9e11` records it in as many words — *"`Logger.shared.entries` is
+capped at 1000, so a test that awaits a whole refresh before reading can watch its own line get
+evicted by other suites — this failed twice in parallel runs before both halves were made to read
+immediately"* — and the finding is kept next to the test it cost, at
+`Modules/Sync/Tests/Sync/LoggingGapTests.swift:51-59`: the first version of
+`wideningAOnePaneRefreshSaysSo` awaited the refresh and then reported a missing line **for a line
+that had been written**.
+
+**Fix.** Four rules. The first two are the whole of it; the second two are what make them hold.
+
+1. **For an absence assertion, write your own marker FIRST and `#require` that it survived.** The
+   marker goes in *before* the call under test, and the assertion reads only from it onward. If the
+   window rolled past your own opening marker, the `#require` fails and says the reading was
+   vacuous — which converts the silent false pass into an ordinary, legible failure. This is the
+   single rule that matters most, because it is the only one guarding the direction nothing else
+   can detect.
+2. **For a presence assertion, read strictly BETWEEN two of your own markers** — open, act, close —
+   rather than over the buffer. This does two jobs at once: the `#require`d opening marker is the
+   eviction guard as above, and the bounded slice stops a *foreign* line with the same text
+   satisfying your assertion, which a whole-buffer `contains` cannot distinguish from your own.
+3. **Read as soon as the decision is taken, not after the work completes.** Most of these lines are
+   written synchronously at the top of an operation, long before it finishes; awaiting the whole
+   operation just hands the rest of the package more time to roll your line away. Wait on the
+   decision's own observable instead — `LoggingGapTests` starts the refresh as a `Task` and waits
+   only for `activeRefreshKey` to move.
+4. **`.serialized` when a sibling in the same suite writes the same line.** The bounded slice keeps
+   out lines from *before* and *after*, not lines a concurrent sibling drops *inside* it.
+   `PaneTabsStoreTests` needs it because `aCorruptValueReadsAsNothingStored` emits the very sentence
+   `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced` asserts. (The cross-*suite* half is
+   mechanism 3's known residual, and is closed here only by picking a fragment no other suite writes
+   — grep the package before trusting one.)
+
+**Slice from the opening marker first, then search inside that slice.** `messages[a...b]` on
+reversed bounds *traps* rather than failing, and inside an `#expect` that takes the whole test host
+down with it — a rolled buffer would then report as infrastructure and lose the rest of the run. See
+`SyncCloudTests/TestSupport.swift` (`textBetween`) and `TextBetweenTests` for the same hazard in
+source scans.
+
+**A flush marker is NOT an eviction guard, and most sites here still only flush.** The common idiom —
+
+```swift
+await Logger.shared.debug("some-test flush marker").value
+return Logger.shared.entries.contains { … }
+```
+
+— is doing something real and necessary: the queue is FIFO, so awaiting a fresh entry's task
+guarantees everything enqueued before it is *visible* in `entries`. But visibility is not survival.
+The marker is written **after** the call under test and its presence is never asserted, so it proves
+your line has arrived while saying nothing about whether it has already been pushed out.
+
+Count it before trusting it, because the ratio is moving. As of 2026-08-16, **thirteen files** still
+use the flush-only idiom against **four** that read a bounded window — and the four are growing, so
+recount rather than quoting this line:
+
+```sh
+grep -rl "flush marker" Modules SyncCloudTests                   # 14 — one hit is this note's prose
+grep -rlE 'debug\("[a-z-]+ window open' Modules SyncCloudTests   # 4  — the bounded-window adopters
+```
+
+They are not wrong today, and none has been observed to roll;
+`LoggingGapTests` in particular is safe for a different reason, rule 3 — it reads at the decision, so
+its window never has time to move. The rest are one busy suite away, and the ones asserting
+*absence* will not tell you when it happens.
+`SyncCloudTests/ContentSignalExtractorTests.swift:215-219` is the clearest live example: an
+`isEmpty` assertion over the whole buffer, marker written afterward and never asserted.
+
+**Model implementations**, in the order worth copying:
+
+- `SyncCloudTests/ShortcutCommandsTests.swift:417-455` — the original two-marker `window(_:)`, with
+  the reasoning in its doc comment and both halves (presence and absence) read through it.
+- `Modules/Sync/Tests/Sync/PaneTabsTests.swift:455-488` — `loggedWindow(_:)`, the Sync-package copy;
+  returns `ArraySlice<LogEntry>` so the level can be asserted too, and computes each index *before*
+  the `#require` so a failure prints an index rather than 152KB of dumped buffer.
+- `Modules/Sync/Tests/Sync/LoggingGapTests.swift:51-59` — why to read at the decision rather than at
+  completion, which is rule 3 and the one that is easy to talk yourself out of.
+
+**See.** `f87d9e11` — *Account for a rollback and a widening the log could not explain* (where it was
+first measured); `Modules/Events/Sources/Events/Logger.swift:376` for the cap itself.
 
 ---
 
