@@ -88,9 +88,23 @@ public struct AutomationDryRunRow: Sendable, Equatable, Identifiable {
     public let destinationDir: URL?
     /// The provider-relative destination shown to the user (e.g. "Invoices/2026").
     public let destinationLabel: String?
+    /// The folder that must **already exist** for `destinationDir` to be safe to create — the
+    /// provider root the preview resolved against.
+    ///
+    /// Everything below it is the rule's to create (`Documents/Invoices/{year}` is a template, and
+    /// building the whole path is the feature), so the root itself is the one thing filing may not
+    /// invent. Without it the apply path's `createDirectory(withIntermediateDirectories: true)`
+    /// happily rebuilds an unmounted provider as an ordinary local folder and moves files into it
+    /// under a success banner — out of a live tree into one nothing ever syncs.
+    ///
+    /// **Required, not optional.** A row that cannot say what must already be there cannot be
+    /// filed safely, and a defaulted `nil` would leave the guard silently unarmed at any call site
+    /// that forgot it — the compiler asks instead.
+    public let destinationAnchor: URL
 
     public init(id: String, fileName: String, ruleID: UUID, ruleName: String,
-                verdict: AutomationVerdict, destinationDir: URL? = nil, destinationLabel: String? = nil) {
+                verdict: AutomationVerdict, destinationDir: URL? = nil, destinationLabel: String? = nil,
+                destinationAnchor: URL) {
         self.id = id
         self.fileName = fileName
         self.ruleID = ruleID
@@ -98,6 +112,7 @@ public struct AutomationDryRunRow: Sendable, Equatable, Identifiable {
         self.verdict = verdict
         self.destinationDir = destinationDir
         self.destinationLabel = destinationLabel
+        self.destinationAnchor = destinationAnchor
     }
 }
 
