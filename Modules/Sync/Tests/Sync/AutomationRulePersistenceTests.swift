@@ -139,6 +139,31 @@ import Testing
         #expect((condition["kindIs"] as? [String: Any])?["_0"] as? String == "spreadsheetOfTheFuture")
     }
 
+    /// The narrower half, which only this line can do: a condition whose payload is unreadable
+    /// costs THAT CONDITION, not the whole `conditions` array, so the rule's other conditions keep
+    /// their meaning. `v2.x` and `v3.x` have no ``AutomationCondition/unrecognized`` case to put it
+    /// in, and degrade the rule instead — safe, but blunter.
+    @Test func anUnreadableConditionDoesNotCostTheRuleItsOtherConditions() throws {
+        let json = """
+        [{"id":"5C6F0B8E-0000-4000-8000-00000000000E","name":"Mixed","enabled":true,
+          "matchMode":"all",
+          "conditions":[{"kindIs":{"_0":"spreadsheetOfTheFuture"}},
+                        {"folderNamed":{"_0":"Downloads"}}],
+          "destinationTemplate":"Docs"}]
+        """
+        let rules = try Self.decode(json)
+        let rule = try #require(rules.first)
+        #expect(rule.conditions.count == 2)
+        // The one it could read is a real condition, not a blob.
+        #expect(rule.conditions.contains(.folderNamed("Downloads")))
+        // The one it could not is carried under its own name and is never complete, so an ALL-OF
+        // rule holding it can never match — which is the whole point.
+        let carried = try #require(rule.conditions.first { if case .unrecognized = $0 { return true } else { return false } })
+        if case .unrecognized(let name, _) = carried { #expect(name == "kindIs") }
+        #expect(!carried.isComplete)
+        #expect(!rule.isRunnable)
+    }
+
     // MARK: Backward tolerance — a file missing something this build expects
 
     @Test func aMissingFieldCostsItsDefaultNotTheWholeSet() throws {

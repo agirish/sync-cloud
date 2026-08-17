@@ -236,20 +236,37 @@ extension AutomationCondition {
                 debugDescription: "Expected exactly one condition key, found \(c.allKeys.count)"))
         }
         let payload = try c.nestedContainer(keyedBy: PayloadKey.self, forKey: key)
-        switch key.stringValue {
-        case "folderNamed": self = .folderNamed(try payload.decode(String.self, forKey: ._0))
-        case "nameMatches": self = .nameMatches(try payload.decode(String.self, forKey: ._0))
-        case "kindIs": self = .kindIs(try payload.decode(FileKind.self, forKey: ._0))
-        case "largerThanMB": self = .largerThanMB(try payload.decode(Int.self, forKey: ._0))
-        case "untouchedForDays": self = .untouchedForDays(try payload.decode(Int.self, forKey: ._0))
-        case "contentContains": self = .contentContains(try payload.decode(String.self, forKey: ._0))
-        case "mentionsAll": self = .mentionsAll(try payload.decode([String].self, forKey: ._0))
-        case "personIs": self = .personIs(try payload.decode(String.self, forKey: ._0))
-        default:
+        // A condition name this build knows but whose PAYLOAD it cannot read takes the same route as
+        // a name it does not know at all. The gap this closes is `kindIs`: `FileKind` is a raw-value
+        // enum decoded strictly here, so a kind added by a newer build threw out of this
+        // initializer, and `AutomationRule` then had to carry the whole `conditions` array as
+        // unreadable — costing the rule every OTHER condition's meaning too. Degrading one condition
+        // is the narrower answer, and the mechanism for it already existed one branch below; only
+        // unknown NAMES were being routed into it.
+        if let recognized = try? Self.recognized(name: key.stringValue, payload: payload) {
+            self = recognized
+        } else {
             // Kept as bytes so it can be written back untouched. Decoding it as `JSONValue` would
             // mean re-encoding through this build's idea of the shape; the raw data cannot drift.
             let raw = try c.decode(RawPayload.self, forKey: key)
             self = .unrecognized(name: key.stringValue, payload: raw.data)
+        }
+    }
+
+    /// The case for a name this build knows, or nil for one it does not. THROWING means "this is my
+    /// case but I cannot read its payload", which the caller treats exactly like an unknown name.
+    private static func recognized(name: String,
+                                   payload: KeyedDecodingContainer<PayloadKey>) throws -> AutomationCondition? {
+        switch name {
+        case "folderNamed": return .folderNamed(try payload.decode(String.self, forKey: ._0))
+        case "nameMatches": return .nameMatches(try payload.decode(String.self, forKey: ._0))
+        case "kindIs": return .kindIs(try payload.decode(FileKind.self, forKey: ._0))
+        case "largerThanMB": return .largerThanMB(try payload.decode(Int.self, forKey: ._0))
+        case "untouchedForDays": return .untouchedForDays(try payload.decode(Int.self, forKey: ._0))
+        case "contentContains": return .contentContains(try payload.decode(String.self, forKey: ._0))
+        case "mentionsAll": return .mentionsAll(try payload.decode([String].self, forKey: ._0))
+        case "personIs": return .personIs(try payload.decode(String.self, forKey: ._0))
+        default: return nil
         }
     }
 
@@ -285,34 +302,6 @@ extension AutomationCondition {
             let value = try JSONDecoder().decode(JSONFragment.self, from: data)
             var c = encoder.singleValueContainer()
             try c.encode(value)
-        }
-    }
-
-    /// The smallest JSON value model that can hold anything a future case's payload might be.
-    private indirect enum JSONFragment: Codable {
-        case null, bool(Bool), number(Double), string(String)
-        case array([JSONFragment]), object([String: JSONFragment])
-
-        init(from decoder: Decoder) throws {
-            let c = try decoder.singleValueContainer()
-            if c.decodeNil() { self = .null }
-            else if let v = try? c.decode(Bool.self) { self = .bool(v) }
-            else if let v = try? c.decode(Double.self) { self = .number(v) }
-            else if let v = try? c.decode(String.self) { self = .string(v) }
-            else if let v = try? c.decode([JSONFragment].self) { self = .array(v) }
-            else { self = .object(try c.decode([String: JSONFragment].self)) }
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var c = encoder.singleValueContainer()
-            switch self {
-            case .null: try c.encodeNil()
-            case .bool(let v): try c.encode(v)
-            case .number(let v): try c.encode(v)
-            case .string(let v): try c.encode(v)
-            case .array(let v): try c.encode(v)
-            case .object(let v): try c.encode(v)
-            }
         }
     }
 }
@@ -512,7 +501,8 @@ extension AutomationRule {
     }
 }
 
-/// The smallest JSON value model that can hold anything a field this build does not know might be.
+/// The smallest JSON value model that can hold anything this build does not recognise — a future
+/// condition's payload (``AutomationCondition/unrecognized``) or a rule field it has no case for.
 /// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
 /// struct and be written back through whatever encoder the caller is using.
 indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
