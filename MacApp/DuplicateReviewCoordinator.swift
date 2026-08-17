@@ -336,9 +336,15 @@ struct DuplicateReviewCoordinator {
                 syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
                 return
             }
-            let removed = await syncManager.deleteItems(at: [review.deletePath])
-            guard removed > 0 else { return }
-            Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
+            let outcome = await syncManager.deleteItems(at: [review.deletePath])
+            guard outcome.removed > 0 else { return }
+            // **Say which way it went.** `removed` folds together the two outcomes `DeleteOutcome`
+            // exists to separate, and this line is in the log he audits: on a Trash-less volume —
+            // exFAT, most SMB shares — the copy was destroyed permanently, and calling that
+            // "Trashed" sends anyone reading the log to a Trash that never received it.
+            Logger.shared.info(outcome.trashed > 0
+                               ? "Trashed the right duplicate copy \(review.deletePath)"
+                               : "Permanently deleted the right duplicate copy \(review.deletePath)")
             selectedBottomTab = .tidy
             selectedTidyLens = .duplicates
             syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
