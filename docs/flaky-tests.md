@@ -1165,7 +1165,17 @@ Each fails in **well under a tenth of a second** — 0.079s, 0.041s, 0.032s.
 
 The fixture's `present` helper called `host.orderOut(nil)` immediately after
 `CommandPalettePanelController.present`, to keep a 900×600 titled window off the user's desktop.
-**That call dismissed the palette it had just raised:**
+**That call dismissed the palette it had just raised — and it reproduces on demand.** Present the
+palette in that suite and make the one call the old fixture made, from inside a running app-target
+run:
+
+```
+before                      panelKey=true   isPresented=true    children=1
+after host.orderOut(nil)                    isPresented=false   children=0   dismissalsSeen=1
+```
+
+One call, the entire failing signature, and the fixture's own witness naming a real `dismiss()` as
+the cause. The chain:
 
 1. Ordering out a parent takes its child out with it.
 2. A child ordered out while it holds key posts `didResignKey`.
@@ -1232,10 +1242,22 @@ correctly predicted it would belong:
   state and stack frames. This is the part that matters if it ever returns: the five messages could
   not distinguish "never attached", which is a real regression in `present`, from "attached and then
   torn down" — and `docs/ci.md` notes the app-target step is the only one that compiles `MacApp/` at
-  all, so misreading it costs the one signal that surface has.
+  all, so misreading it costs the one signal that surface has. The witness reads `isPresented` to
+  separate those two, because there is a *third* route to an empty `childWindows` with no dismissal
+  at all: AppKit orders a `hidesOnDeactivate` child out when the app deactivates, and **ordering out
+  a child detaches it from its parent** (5/5), which leaves the controller holding a panel it
+  believes is still attached.
+- **`onlyTeardownEverOrdersAWindowOut`** scans the fixture's own source and fails if any code
+  outside `teardown` orders a window out. Without it the regression has nothing standing over it:
+  `theHostAndItsPanelStayOutOfSight` passes just as happily for a window that was never ordered in,
+  which is the flexibility it is written to allow — so re-adding the one fatal call leaves the whole
+  suite green until the next run on which the panel happens to hold key.
 
-Verified by mutation: restore the on-screen origin and both halves of
-`theHostAndItsPanelStayOutOfSight` fail, on the same 563-test run.
+Verified by mutation, three of them, each caught by the test that names it and each on a full run of
+the same size: restore the on-screen origin and both halves of `theHostAndItsPanelStayOutOfSight`
+fail; re-add `host.orderOut(nil)` to `present` and only the source scan fails, which is itself the
+measurement that no other test in the suite can see it; delete `witness.record()` and
+`dismissIsIdempotentAndFiresItsCallbackOnce` fails on the count.
 
 **What is NOT closed, and it is a live risk rather than a theoretical one.** The panel really does
 take key here, so a genuine key change during a test still dismisses it — and a stray mouse-down

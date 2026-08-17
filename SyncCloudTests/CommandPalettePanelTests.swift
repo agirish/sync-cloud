@@ -67,22 +67,36 @@ import Sync
     /// `panel → nil`, `isPresented → false`, every one of them in under 0.1s — which
     /// `docs/flaky-tests.md` carried as mechanism 11, cause unknown, for weeks.
     ///
-    /// **That `orderOut` was the trigger.** Three of the five failing tests are synchronous: they
-    /// never await between `present` and their assertions, so the runloop cannot turn and no event
-    /// can be dispatched, which rules out both the click monitor and the ⌘K monitor. `dismiss()` is
-    /// the only thing that clears `isPresented` and unparents the panel — `host.orderOut` alone
-    /// leaves a child attached, measured 25/25 — so `dismiss()` ran, and after the controller
-    /// installs its resign observer the one remaining AppKit window call in that span is this
-    /// fixture's `host.orderOut(nil)`. Ordering out a parent takes its key child out with it, the
-    /// child posts `didResignKey`, and a `NotificationCenter` block observer registered with
-    /// `queue: .main` runs **synchronously** when the post is on the main thread — measured — so the
-    /// controller tore the palette down inside `present`, before the first `#expect` was reached.
+    /// **That `orderOut` was the trigger, and it reproduces on demand.** Presenting the palette in
+    /// this suite and then making the one call the old fixture made, from inside a running
+    /// app-target run:
     ///
-    /// That path needs the panel to have really been key, and **it is** — probed from inside a
-    /// running app-target suite: `isActive=true keyWindow=CommandPaletteWindow panelKey=true`.
-    /// Whether an `xcodebuild` host is frontmost depends on what else the machine is doing, so the
-    /// panel is key on some runs and not others, and that is exactly the burst pattern the flake
-    /// had.
+    /// ```
+    /// before                     panelKey=true   isPresented=true    children=1
+    /// after host.orderOut(nil)                   isPresented=false   children=0   dismissalsSeen=1
+    /// ```
+    ///
+    /// One call, the whole failing signature, and the witness naming a real `dismiss()` as its
+    /// cause. The chain: ordering out a parent takes its key child with it, the child posts
+    /// `didResignKey`, the controller answers that with `dismiss()` — correct behaviour, losing key
+    /// is exactly when the palette should close — and `dismiss()` unparents the panel and clears
+    /// `isPresented`.
+    ///
+    /// Two supporting measurements explain why it could land *inside* `present`, before the first
+    /// `#expect`. A `NotificationCenter` block observer registered with `queue: .main` runs
+    /// **synchronously** when the post is on the main thread, so no runloop turn is needed — which
+    /// is how three of the five failing tests could lose without ever awaiting. And `host.orderOut`
+    /// does **not** by itself unparent anything (25/25), so the missing child was always the app's
+    /// own `removeChildWindow`, never AppKit dropping a relationship.
+    ///
+    /// The chain needs the panel to have really been key, and **it is** — same probe:
+    /// `isActive=true keyWindow=CommandPaletteWindow panelKey=true`. Whether an `xcodebuild` host is
+    /// frontmost depends on what else the machine is doing, so the panel is key on some runs and not
+    /// others, and that is exactly the burst pattern the flake had.
+    ///
+    /// That reproduction is deliberately **not** a shipped test: it only fires while the panel holds
+    /// key, so as a permanent test it would be a new flake of precisely the kind this entry is
+    /// about. Re-run it by hand if this ever needs re-establishing.
     ///
     /// An earlier probe of this same theory fired once in 21 runs and was written off as noise. It
     /// ran in a **standalone binary**, where `NSApp.keyWindow` is `nil` and no window is ever key —
@@ -103,8 +117,9 @@ import Sync
     /// does", and no test reads the host's key state — the window that takes key is the *panel*, as
     /// the probe above shows, and the class that has to permit it is the panel's, which
     /// `theWindowClassCanBecomeKeyAtAll` holds. `makeKey()` goes with the style mask: a borderless
-    /// `NSWindow` answers `canBecomeKey` false, so the call was already a no-op, and keeping one
-    /// that does nothing would only suggest the host's key state here means something.
+    /// `NSWindow` answers `canBecomeKey` **false** — measured here, `canBecomeKey=false` on this very
+    /// host — so the call was already a no-op, and keeping one that does nothing would only suggest
+    /// the host's key state here means something.
     ///
     /// `theHostAndItsPanelStayOutOfSight` is still the guard. It now accepts either remedy — not
     /// ordered in, *or* parked past every display — which the note this replaces already allowed for
@@ -157,21 +172,35 @@ import Sync
         private(set) var dismissals: [String] = []
 
         func record() {
-            let frames = Thread.callStackSymbols
-                .filter { $0.contains("SyncCloud") }
-                .prefix(10)
-                .joined(separator: "\n        ")
+            // Falling back to the unfiltered head matters: if the app's frames are ever unsymbolicated
+            // the filter yields nothing, and an empty stack would quietly remove the most useful half
+            // of this message while still looking like a report.
+            let symbols = Thread.callStackSymbols
+            let ours = symbols.filter { $0.contains("SyncCloud") }
+            let frames = (ours.isEmpty ? symbols : ours).prefix(10).joined(separator: "\n        ")
             dismissals.append("app active=\(NSApp.isActive), key window="
                 + "\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none")\n        "
                 + frames)
         }
 
         /// Read only into a failure message, so it can afford to be long.
-        var report: String {
-            dismissals.isEmpty
-                ? "no dismissal was recorded at all, so the panel was never attached — this is `present` failing, not something tearing the palette down afterwards"
-                : "the palette was dismissed \(dismissals.count)× :\n        "
+        ///
+        /// **`presented` is what makes the no-dismissal case say anything true.** An earlier version
+        /// read "no dismissal was recorded, so the panel was never attached", which is a false
+        /// inference: there are *two* ways to reach an empty `childWindows` without `dismiss()`
+        /// running, and they call for opposite responses. `present` never attaching one is the app
+        /// breaking. The panel being unparented behind the controller's back is not — AppKit orders a
+        /// `hidesOnDeactivate` child out when the app deactivates, and **ordering out a child detaches
+        /// it from its parent** (measured, 5/5), which leaves the controller still holding a panel it
+        /// believes is attached. `isPresented` is exactly the discriminator.
+        func report(presented: Bool) -> String {
+            guard dismissals.isEmpty else {
+                return "the palette was dismissed \(dismissals.count)× :\n        "
                     + dismissals.joined(separator: "\n        ")
+            }
+            return presented
+                ? "no dismissal was recorded and the controller still holds its panel, so the panel was unparented without the controller knowing — AppKit orders a `hidesOnDeactivate` child out on deactivation, and ordering out a child detaches it from its parent"
+                : "no dismissal was recorded and the controller holds no panel either, so `present` never attached one — this is the app, not an ambient teardown"
         }
     }
 
@@ -239,10 +268,10 @@ import Sync
         let host = makeHost()
         let controller = CommandPalettePanelController()
         present(controller, over: host)
-        #expect(controller.isPresented, "the palette is not up — \(witness.report)")
+        #expect(controller.isPresented, "the palette is not up — \(witness.report(presented: controller.isPresented))")
         let panel = try? #require(host.childWindows?.compactMap { $0 as? CommandPaletteWindow }.first)
         #expect(panel != nil,
-                "the panel is not a child of the host — it will not move or order with it. \(witness.report)")
+                "the panel is not a child of the host — it will not move or order with it. \(witness.report(presented: controller.isPresented))")
         // Sized to the host, because the scrim is inside it and has to dim the whole window —
         // including the title bar. That sizing is also *why* a title-bar click never moves key: it
         // lands on this panel, and the scrim's tap dismisses it. Sizing alone was once claimed to
@@ -279,7 +308,7 @@ import Sync
         defer { teardown(host, controller) }
         present(controller, over: host)
         let panel = try #require(host.childWindows?.first,
-                                 "no panel was raised — \(witness.report)")
+                                 "no panel was raised — \(witness.report(presented: controller.isPresented))")
 
         let bounds = Self.displayBounds()
         #expect(!host.isVisible || !bounds.intersects(host.frame),
@@ -304,8 +333,8 @@ import Sync
         defer { teardown(host, controller) }
         var dismissed = false
         present(controller, over: host, onDismiss: { dismissed = true })
-        #expect(controller.isPresented, "the palette is not up — \(witness.report)")
-        let panel = try #require(host.childWindows?.first, "no panel to resign key — \(witness.report)")
+        #expect(controller.isPresented, "the palette is not up — \(witness.report(presented: controller.isPresented))")
+        let panel = try #require(host.childWindows?.first, "no panel to resign key — \(witness.report(presented: controller.isPresented))")
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
         // Delivered on the main queue, so it lands on a later turn. Bounded, and it fails at the
@@ -317,6 +346,14 @@ import Sync
     /// Every exit path runs `onDismiss` exactly once. Six things call `dismiss()` and two can
     /// race — esc arriving as the panel is already resigning key — so a second call must be inert
     /// rather than re-firing the callback that clears the chord suspension.
+    ///
+    /// **This is also the only place `DismissalWitness` is bound to an assertion, and it has to be
+    /// bound somewhere.** The witness is read solely into failure messages, so a green run never
+    /// exercises it: delete `witness.record()` from `present` and all sixteen tests still pass, with
+    /// every diagnostic in the suite silently gone — the same "extracted for testability, one revert
+    /// from being unused" hazard `theMonitorActuallyInstallsTheClickAwayRule` exists to catch one
+    /// level up. Asserting the count here kills that mutation, and this test is the right host for
+    /// it because it is the one that dismisses deliberately and knows exactly how many to expect.
     @Test func dismissIsIdempotentAndFiresItsCallbackOnce() {
         let host = makeHost()
         let controller = CommandPalettePanelController()
@@ -328,6 +365,8 @@ import Sync
         #expect(dismissals == 1, "onDismiss fired \(dismissals) times")
         #expect(!controller.isPresented)
         #expect(host.childWindows?.isEmpty != false, "the panel is still a child of the host after dismissal")
+        #expect(witness.dismissals.count == 1,
+                "the fixture's own dismissal witness saw \(witness.dismissals.count) of the 1 dismissal that happened — with it blind, every failure message in this suite loses the one thing that separates a regression from an ambient teardown")
         teardown(host, controller)
     }
 
@@ -349,7 +388,7 @@ import Sync
         #expect(firstRetired,
                 "the replaced presentation was never told it ended — the chord suspension stays stuck on")
         #expect(host.childWindows?.count == 1,
-                "presenting twice left \(host.childWindows?.count ?? 0) panels parented to the host. \(witness.report)")
+                "presenting twice left \(host.childWindows?.count ?? 0) panels parented to the host. \(witness.report(presented: controller.isPresented))")
         teardown(host, controller)
     }
 
@@ -367,7 +406,7 @@ import Sync
             host.childWindows?.first?.frame == host.frame
         }
         #expect(host.childWindows?.first?.frame == host.frame,
-                "the scrim came adrift of the window it is dimming — \(witness.report)")
+                "the scrim came adrift of the window it is dimming — \(witness.report(presented: controller.isPresented))")
         teardown(host, controller)
     }
 
@@ -680,6 +719,41 @@ import Sync
             }
         }
         return expressions
+    }
+
+    /// **Only `teardown` may order a window out, and this is the only thing that says so.**
+    ///
+    /// `theHostAndItsPanelStayOutOfSight` cannot catch a re-added `host.orderOut(nil)` in `present`:
+    /// a window that was never ordered in satisfies that guard exactly as well as a parked one,
+    /// which is the flexibility it is deliberately written to allow. So the single call that cost
+    /// this suite five tests for weeks would otherwise have nothing standing over it — put it back
+    /// and every test here stays green until the next run on which the panel happens to hold key,
+    /// which is precisely the failure mode that took weeks to name the first time.
+    ///
+    /// The rule is narrow on purpose. Ordering out at *teardown*, after the assertions, is right and
+    /// is what stops these windows accumulating in the app's window list. What is banned is ordering
+    /// one out while a presentation is live, because that takes the panel's key away and the
+    /// controller correctly answers that by dismissing the palette the assertions are about.
+    @Test func onlyTeardownEverOrdersAWindowOut() throws {
+        let source = Self.masked(try Self.fixtureSource())
+        let teardown = try Self.braceBalancedBlock(after: "private func teardown(", in: source,
+                                                   what: "the fixture's teardown")
+        #expect(teardown.contains("orderOut"),
+                "teardown no longer orders the host out, so this suite's windows stay in the app's window list for the rest of the process")
+        // Counted over the whole masked file, so a new helper cannot introduce one somewhere this
+        // scan was not looking. Comments and string bodies are blanked, so the several places that
+        // *discuss* the call do not count.
+        let total = source.components(separatedBy: "orderOut").count - 1
+        #expect(total == 1,
+                "the fixture orders a window out \(total)× in code, and only teardown may — an orderOut while a presentation is live is mechanism 11, and no other test in this suite can see it")
+    }
+
+    /// This file's own text, for the scans that are about the fixture rather than about the app.
+    static func fixtureSource() throws -> String {
+        let text = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
+                                "cannot read this fixture's own source — the scan would be vacuous")
+        try #require(text.count > 500, "this fixture's own source is implausibly short")
+        return text
     }
 
     /// Reads `CommandPalettePanel.swift` itself. Fails loudly when it cannot be found, so a rename
