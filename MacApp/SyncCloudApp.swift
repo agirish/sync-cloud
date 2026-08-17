@@ -764,6 +764,23 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // this fires exactly once, and the trace's own "ARMED" line is worth less each time it
         // repeats.
         DisplayCycleTrace.arm()
+
+        // What the stored pane bar cannot show, recorded once per launch.
+        //
+        // Since `9db37173` a control taken off the bar is gone rather than demoted into ⋯, so a bar
+        // missing something has no symptom beyond a button that is not there. This is the only
+        // trace of that state, and it is deliberately written on EVERY launch rather than only on
+        // the launches that migrate something: the already-stamped path — every launch after the
+        // first — is exactly where a control that never reached a customized bar stays silent.
+        //
+        // **Here rather than in `App.init`, for the reason stated at the top of this file.** It
+        // used to be a `defer` inside `PaneBarMigration.apply`, whose one caller is that `init`,
+        // and SwiftUI may re-run it — so a user who took a control off two releases ago collected
+        // the same paragraph again on every rebuild of the scene. Its neighbours in `init` are
+        // annotated "the repeat App.init calls noted above are harmless" because a repeat writes
+        // nothing; this one wrote. Reading defaults only, and after `init` has already run, so it
+        // reports the bar the session will actually draw.
+        PaneBarMigration.reportStoredArrangementReach(defaults: .standard)
     }
 
     /// The pure branch outcome of the quit guard, split out from the NSAlert plumbing so the

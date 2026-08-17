@@ -879,6 +879,16 @@ public enum PaneBarMigration {
     /// wait to be added deliberately.
     public static let declinedControls: Set<PaneBarItem> = [.delete]
 
+    /// The three routes taken together — the set a shipped control must belong to.
+    ///
+    /// Named because two things read it and one of them is a test: `PaneBarMigrationTests` asserts
+    /// this is *exactly* the default bar's non-spacer controls, which is the whole accounting in one
+    /// comparison. Both directions matter — a control on the bar and on no route is the hazard, and
+    /// a control on a route but not on the bar is a claim about something that does not ship.
+    static var routedControls: Set<PaneBarItem> {
+        baselineControls.union(migratedControls).union(declinedControls)
+    }
+
     /// Controls that ship on the default bar and reach a customized bar through **no route at all**.
     ///
     /// Empty in a correct build. Non-empty means someone added a case to `PaneBarArrangement.default`
@@ -886,12 +896,21 @@ public enum PaneBarMigration {
     /// sheet will see — the exact shape of Search's original bug, minus the ⋯ consolation that made
     /// it recoverable.
     public static var controlsWithoutARoute: [PaneBarItem] {
-        PaneBarArrangement.default.items.filter {
-            !$0.isSpacer
-                && !baselineControls.contains($0)
-                && !migratedControls.contains($0)
-                && !declinedControls.contains($0)
-        }
+        controlsWithoutARoute(shipping: .default, routed: routedControls)
+    }
+
+    /// The same derivation with both inputs handed in, which is the only way to prove it derives
+    /// anything.
+    ///
+    /// In a correct build every shipped control is on a route, so the property above can only ever
+    /// be checked against empty — and a version of it that had been mutated to `return []` would
+    /// answer every such check correctly while leaving the runtime warning permanently dead. Feed
+    /// this an empty `routed` and it must name the whole bar; that is what says it is computing.
+    /// The spacer exemption is exercised by the same call: spacers are layout, and a bar without one
+    /// is not missing an ability anybody could go looking for.
+    static func controlsWithoutARoute(shipping arrangement: PaneBarArrangement,
+                                      routed: Set<PaneBarItem>) -> [PaneBarItem] {
+        arrangement.items.filter { !$0.isSpacer && !routed.contains($0) }
     }
 
     /// Applies every migration a stored arrangement has not had yet, and records how far it got.
@@ -905,14 +924,20 @@ public enum PaneBarMigration {
     /// would record a migration that a crash could still prevent; written only on the success path
     /// it would re-run forever for the bars it correctly left alone.
     ///
-    /// It also **writes down what the resulting bar cannot show**, on every path out — see
-    /// `reportStoredArrangementReach`. That belongs here rather than at the call site for the same
-    /// reason the migration does: this is the one moment in a launch where the stored arrangement
-    /// and the shipped default are both in hand, and it must run even on the path that does no
-    /// migrating at all — an already-stamped install is precisely where a control added without a
-    /// step goes unnoticed, because `apply` returns on the line below without looking at anything.
-    /// The `defer` is registered FIRST so it runs LAST (defers unwind in reverse), after the
-    /// version stamp and after any rewrite, and therefore reads the bar the user will actually get.
+    /// **What the resulting bar cannot show is reported elsewhere** — see
+    /// `reportStoredArrangementReach`, which the app delegate calls once per launch. It used to be
+    /// a `defer` on this function, and that was wrong for the reason stated three lines from the
+    /// call site in `SyncCloudApp`: `App.init` can be re-run by SwiftUI, and this function's one
+    /// production caller is inside it. Every other migration in that `init` is annotated "the
+    /// repeat App.init calls noted above are harmless" precisely because a repeat WRITES NOTHING;
+    /// this one wrote its whole report again each time. So a user who took Preview off two
+    /// releases ago collected the same line however many times SwiftUI felt like rebuilding the
+    /// scene — a per-launch fact logged per-init, which is the "never log a no-op" rule this file
+    /// states and was breaking.
+    ///
+    /// Nothing about the report's content wanted to be here. It reads the stored arrangement and
+    /// the shipped default, both of which are just as available from the delegate, and it runs
+    /// AFTER this function rather than inside it, so it still reads the bar the user actually gets.
     ///
     /// - Returns: the controls this run actually PUT ONTO a stored arrangement, in the order the
     ///   migrated bar carries them — empty when nothing was rewritten. That is what a caller should
@@ -928,7 +953,6 @@ public enum PaneBarMigration {
     ///   is compared rather than flagged: `insert` is allowed to refuse.
     @discardableResult
     public static func apply(defaults: UserDefaults) -> [PaneBarItem] {
-        defer { reportStoredArrangementReach(defaults: defaults) }
         let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
         guard from < currentVersion else { return [] }
         defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
@@ -981,26 +1005,56 @@ public enum PaneBarMigration {
     ///
     /// Proportional by construction: nothing is written for an install whose bar carries every
     /// shipped control, which is every uncustomized one (no stored arrangement at all) and every
-    /// customized one that kept the lot. It runs once per launch, from `apply`.
-    static func reportStoredArrangementReach(defaults: UserDefaults) {
+    /// customized one that kept the lot.
+    ///
+    /// **It runs once per launch, from `SyncCloudAppDelegate.applicationDidFinishLaunching`** —
+    /// which is a statement about the call site and true because of it. It used to say the same
+    /// sentence about `apply`, where it was false: `apply`'s one production caller is `App.init`,
+    /// which SwiftUI may re-run, so the report repeated with it. The delegate method fires exactly
+    /// once per process, which is why the launch breadcrumb and the display-cycle guard's state
+    /// already live there.
+    ///
+    /// - Parameter withoutARoute: the stranded list, defaulted to the real one. A parameter for the
+    ///   same reason `unreachableMessage` takes one — in a correct build it is empty, so the branch
+    ///   that matters is the branch no honest fixture can reach, and a test has to be able to hand
+    ///   in a stranded control to prove this function warns about one at all.
+    public static func reportStoredArrangementReach(defaults: UserDefaults,
+                                                    withoutARoute: [PaneBarItem] = controlsWithoutARoute) {
         // No stored arrangement means the default bar, which carries every control by construction.
         guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return }
         let arrangement = PaneBarArrangement(encoded: stored)
-        if let line = unreachableMessage(for: arrangement, withoutARoute: controlsWithoutARoute) {
+        if let line = unreachableMessage(for: arrangement, withoutARoute: withoutARoute) {
             Logger.shared.warning(line)
         }
         if let line = omissionMessage(for: arrangement) { Logger.shared.info(line) }
     }
 
-    /// Shipped controls this arrangement does not carry, or nil when it carries them all.
+    /// Shipped controls this arrangement does not carry **and could have carried**, or nil.
     ///
     /// Spacers are excluded: they are layout, not ability, and a bar without one is not missing
     /// anything a person could go looking for.
+    ///
+    /// **`declinedControls` are excluded too, and that is the point of the line rather than a
+    /// detail.** A declined control has no migration step *by decision* — Delete's whole rationale
+    /// is that it should wait to be added deliberately — so every bar customized before it shipped
+    /// omits it, permanently and by design. Naming it here told those users, every launch and
+    /// forever, to put back something the design had chosen not to push at them: advice about a
+    /// state that is not a defect, cannot change on its own, and is the majority state. That is the
+    /// nag this file's own "nothing is written for a bar that carries the lot" rule exists to
+    /// prevent, one level up. A control the user really did take off is recorded by `PaneBarEditLog`
+    /// at the moment they took it off, which is a better record than a standing complaint.
+    ///
+    /// The advice clause is dropped for a bar at `maxItems`, because there it is false:
+    /// `PaneBarArrangement.insert` refuses on a full bar and refuses silently, so "put it back from
+    /// Customize Pane Bar…" describes a gesture that does nothing until something else comes off.
     static func omissionMessage(for arrangement: PaneBarArrangement) -> String? {
-        let omitted = omissions(from: arrangement)
+        let omitted = omissions(from: arrangement).filter { !declinedControls.contains($0) }
         guard !omitted.isEmpty else { return nil }
-        return "[panebar] The stored pane-bar arrangement omits \(names(omitted))"
-            + " — put back from Customize Pane Bar…"
+        let advice = arrangement.items.count >= PaneBarArrangement.maxItems
+            ? " — the bar is full at \(PaneBarArrangement.maxItems) items,"
+                + " so nothing can go back on until something comes off"
+            : " — put back from Customize Pane Bar…"
+        return "[panebar] The stored pane-bar arrangement omits \(names(omitted))" + advice
     }
 
     /// The subset of those omissions that has no route back onto a bar of its own accord, or nil.
@@ -1017,8 +1071,13 @@ public enum PaneBarMigration {
                                    withoutARoute: [PaneBarItem]) -> String? {
         let stranded = omissions(from: arrangement).filter { withoutARoute.contains($0) }
         guard !stranded.isEmpty else { return nil }
-        return "[panebar] \(names(stranded)) ship(s) on the default pane bar with no migration step,"
-            + " so this stored arrangement can never show it — see PaneBarMigration"
+        // Agreed rather than hedged. "ship(s) … can never show it" read as a parenthesis for one
+        // control and as a grammatical error for two, in a line whose job is to be read by someone
+        // who has just been handed a bug report.
+        let ship = stranded.count == 1 ? "ships" : "ship"
+        let them = stranded.count == 1 ? "it" : "them"
+        return "[panebar] \(names(stranded)) \(ship) on the default pane bar with no migration step,"
+            + " so this stored arrangement can never show \(them) — see PaneBarMigration"
     }
 
     private static func omissions(from arrangement: PaneBarArrangement) -> [PaneBarItem] {
