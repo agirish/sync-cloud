@@ -26,56 +26,157 @@ import Sync
 ///
 /// ## Where the boundary is, measured
 ///
-/// **Real key transfer is not observable in this test host.** `makeKeyAndOrderFront` gives a window
-/// key only while its *application* is active, and an `xcodebuild test` host is not — even after
-/// `NSApp.activate(ignoringOtherApps:)`, `isKeyWindow` stayed false through a five-second poll. So
-/// two tests here originally asserted `isKeyWindow` and were meaningless: they passed on the one
-/// run where the host happened to be frontmost and failed the next, which is a test that answers
-/// only when nobody is looking.
+/// **Key transfer here is real, and intermittent — which is not what this note used to say.** It
+/// read "real key transfer is not observable in this test host … an `xcodebuild test` host is not
+/// [active], and `isKeyWindow` stayed false through a five-second poll". Probed again on
+/// 2026-08-16 from inside a running app-target suite, the opposite came back:
 ///
-/// The split this suite settled on is the honest one. **AppKit's key machinery is not mine to
-/// test**; what is mine is (1) the window class *permitting* key at all, which is the exact default
-/// that was broken, and (2) what this controller does when key is lost, which is driven here by
-/// posting the notification AppKit would post. Both mutations that matter — a panel that refuses
-/// key, a resign handler that does nothing — are still killed by that pair.
+/// ```
+/// isActive=true  keyWindow=CommandPaletteWindow  panelKey=true  hostVisible=true
+/// ```
+///
+/// The app was active and the panel really was the key window. Both readings are presumably honest
+/// about the moment they were taken — whether an `xcodebuild` host is frontmost depends on what
+/// else is happening on the machine — and **that variability is the whole of mechanism 11**, which
+/// `makeHost` sets out. The lesson is the general one: a single measurement of an environment is a
+/// measurement of that environment *then*, and this suite built a standing rule on one.
+///
+/// The split this suite settled on is still the right one, and does not depend on which way that
+/// reading goes. **AppKit's key machinery is not mine to test**; what is mine is (1) the window
+/// class *permitting* key at all, which is the exact default that was broken, and (2) what this
+/// controller does when key is lost, which is driven here by posting the notification AppKit would
+/// post — deliberately, so the test does not depend on whether a transfer happens to occur. Both
+/// mutations that matter — a panel that refuses key, a resign handler that does nothing — are still
+/// killed by that pair.
 ///
 /// `.serialized` because these build real windows, real child windows and the controller's app-wide
-/// event monitors, all of which are process-wide state. (They no longer *order* any of it in; see
-/// `makeHost`.)
+/// event monitors, all of which are process-wide state. (Everything they order in is parked past
+/// every attached display rather than taken back off the screen list; see `makeHost`.)
 @MainActor
 @Suite(.serialized) struct CommandPalettePanelTests {
 
-    /// A host to hang the panel on. `.titled` so it can take key the way the real window does;
-    /// ordered out and released at the end of each test rather than `close()`d — closing a titled
-    /// window in a test host has ended runs with no verdict before.
+    /// A host to hang the panel on: **borderless, parked past every display, and never ordered out
+    /// while the palette is up.** Ordered out and released at the end of each test rather than
+    /// `close()`d — closing a window in a test host has ended runs with no verdict before.
     ///
-    /// **Key, and never ordered in.** This used to `makeKeyAndOrderFront`, which put a 900×600
-    /// window — dimmed by the palette's own scrim — over the user's desktop half a dozen times
-    /// every app-target run. Nothing here reads a pixel: what these tests are about is the panel's
-    /// parentage, its frame, and what the controller does on dismissal, and all three are object
-    /// state that an unordered window has in full. The suite's own note above says the rest: real
-    /// key transfer is not observable in this host anyway.
+    /// ## What this replaces, and why
     ///
-    /// **Parking it off the displays instead was tried first and does not work — measured, twice.**
-    /// A plain `NSWindow` created at `(-2900, -2600)` and moved back there after being ordered in
-    /// came up at `(-860, -513)`, a corner still on screen, because AppKit's `constrainFrameRect`
-    /// runs on every frame change to a visible titled window. Overriding that constraint away moved
-    /// the window to `(460, 728)` instead — squarely on the display — and desynchronised the panel
-    /// from its host along the way, failing `presentingRaisesAPanelParentedToAndSizedWithTheHost`
-    /// too. An ordered-in titled window goes where AppKit wants it; the way to keep one out of sight
-    /// is not to order it in. (`DetailsWhereItLivesTests` in Dashboard *does* park its window, and
-    /// can: it is borderless, which is the case the constraint skips.)
+    /// This suite used to build a `.titled` host, `makeKey()` it, and have `present` call
+    /// `host.orderOut(nil)` immediately afterwards to keep it off the user's screen. That kept the
+    /// windows invisible, and it cost five intermittent failures — `childWindows → []`,
+    /// `panel → nil`, `isPresented → false`, every one of them in under 0.1s — which
+    /// `docs/flaky-tests.md` carried as mechanism 11, cause unknown, for weeks.
     ///
-    /// Not ordering it in is not enough by itself, which is `present`'s business — see there.
-    /// `theHostAndItsPanelStayOutOfSight` is the guard over both.
+    /// **That `orderOut` was the trigger.** Three of the five failing tests are synchronous: they
+    /// never await between `present` and their assertions, so the runloop cannot turn and no event
+    /// can be dispatched, which rules out both the click monitor and the ⌘K monitor. `dismiss()` is
+    /// the only thing that clears `isPresented` and unparents the panel — `host.orderOut` alone
+    /// leaves a child attached, measured 25/25 — so `dismiss()` ran, and after the controller
+    /// installs its resign observer the one remaining AppKit window call in that span is this
+    /// fixture's `host.orderOut(nil)`. Ordering out a parent takes its key child out with it, the
+    /// child posts `didResignKey`, and a `NotificationCenter` block observer registered with
+    /// `queue: .main` runs **synchronously** when the post is on the main thread — measured — so the
+    /// controller tore the palette down inside `present`, before the first `#expect` was reached.
+    ///
+    /// That path needs the panel to have really been key, and **it is** — probed from inside a
+    /// running app-target suite: `isActive=true keyWindow=CommandPaletteWindow panelKey=true`.
+    /// Whether an `xcodebuild` host is frontmost depends on what else the machine is doing, so the
+    /// panel is key on some runs and not others, and that is exactly the burst pattern the flake
+    /// had.
+    ///
+    /// An earlier probe of this same theory fired once in 21 runs and was written off as noise. It
+    /// ran in a **standalone binary**, where `NSApp.keyWindow` is `nil` and no window is ever key —
+    /// measured — so twenty of those runs could not have fired whatever the code did. The single
+    /// firing was the signal. A null result only retires a hypothesis if the harness could have
+    /// produced a positive.
+    ///
+    /// ## Parking, which the note this replaces said was not open to us
+    ///
+    /// It was not, for a **titled** window: one created at `(-2900, -2600)` came up at
+    /// `(-860, -513)`, because `constrainFrameRect` runs on every frame change to a visible titled
+    /// window, and overriding that constraint moved it to `(460, 728)` — squarely on the display —
+    /// and desynchronised the panel from its host along the way. A **borderless** window is the case
+    /// the constraint skips, which is how `DetailsWhereItLivesTests` in Dashboard has parked its
+    /// window all along.
+    ///
+    /// Nothing here ever needed `.titled`. It was there "so it can take key the way the real window
+    /// does", and no test reads the host's key state — the window that takes key is the *panel*, as
+    /// the probe above shows, and the class that has to permit it is the panel's, which
+    /// `theWindowClassCanBecomeKeyAtAll` holds. `makeKey()` goes with the style mask: a borderless
+    /// `NSWindow` answers `canBecomeKey` false, so the call was already a no-op, and keeping one
+    /// that does nothing would only suggest the host's key state here means something.
+    ///
+    /// `theHostAndItsPanelStayOutOfSight` is still the guard. It now accepts either remedy — not
+    /// ordered in, *or* parked past every display — which the note this replaces already allowed for
+    /// ("a window parked off every display would be just as acceptable"), and which keeps the guard
+    /// about the user's screen rather than about whichever mechanism is currently in force.
     private func makeHost() -> NSWindow {
-        let host = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 900, height: 600),
-                            styleMask: [.titled, .closable, .resizable],
+        let host = NSWindow(contentRect: CGRect(origin: Self.offscreenOrigin(for: Self.hostSize),
+                                                size: Self.hostSize),
+                            styleMask: [.borderless],
                             backing: .buffered, defer: false)
         host.isReleasedWhenClosed = false
-        host.makeKey()
         return host
     }
+
+    static let hostSize = CGSize(width: 900, height: 600)
+
+    /// Everything this suite's windows must stay clear of: the union of every attached display.
+    ///
+    /// **Never empty, and that is deliberate** — the same fallback, for the same reason, as
+    /// `DetailsWhereItLivesTests.displayBounds`. With no displays attached `NSScreen.screens` is
+    /// itself empty and a union of nothing is null, so a guard written only as "intersects no
+    /// screen" would be true of every frame including one at the origin, and an assertion that
+    /// cannot fail is not a guard.
+    static func displayBounds() -> CGRect {
+        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        return union.isNull ? CGRect(x: 0, y: 0, width: 4000, height: 4000) : union
+    }
+
+    /// An origin far enough below-left of every display that a window of `size` cannot reach one.
+    static func offscreenOrigin(for size: CGSize) -> CGPoint {
+        let bounds = displayBounds()
+        return CGPoint(x: bounds.minX - size.width - 2000, y: bounds.minY - size.height - 2000)
+    }
+
+    /// **Every dismissal, and where it came from.**
+    ///
+    /// All five window tests here fail by reporting a *missing object* — `childWindows → []`,
+    /// `panel → nil`, `isPresented → false` — and that shape is equally `present` never attaching
+    /// the panel, which is a real regression in the app, and the panel being attached and then torn
+    /// down afterwards, which is what the fixture used to cause. Nothing in the messages could tell
+    /// those two apart, and that is most of why mechanism 11 took weeks to name: `docs/ci.md` says
+    /// the app-target step is the only one that compiles `MacApp/` at all, so misreading it costs
+    /// the one signal that surface has.
+    ///
+    /// `dismiss()` is what produces both readings, and the fixture owns `onDismiss`, so it sees
+    /// every call to it. Recording the activation state and the app's own stack frames turns "no
+    /// window" into a cause — including for the paths this fix does *not* close, since a stray
+    /// mouse-down anywhere in the app still dismisses by design.
+    @MainActor private final class DismissalWitness {
+        private(set) var dismissals: [String] = []
+
+        func record() {
+            let frames = Thread.callStackSymbols
+                .filter { $0.contains("SyncCloud") }
+                .prefix(10)
+                .joined(separator: "\n        ")
+            dismissals.append("app active=\(NSApp.isActive), key window="
+                + "\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none")\n        "
+                + frames)
+        }
+
+        /// Read only into a failure message, so it can afford to be long.
+        var report: String {
+            dismissals.isEmpty
+                ? "no dismissal was recorded at all, so the panel was never attached — this is `present` failing, not something tearing the palette down afterwards"
+                : "the palette was dismissed \(dismissals.count)× :\n        "
+                    + dismissals.joined(separator: "\n        ")
+        }
+    }
+
+    /// One per test — swift-testing builds a fresh suite instance for each.
+    private let witness = DismissalWitness()
 
     private func teardown(_ host: NSWindow, _ controller: CommandPalettePanelController) {
         controller.dismiss()
@@ -89,27 +190,28 @@ import Sync
                      people: [], registry: nil, isScanning: false, hasSurvey: false)
     }
 
-    /// Presents the palette over `host` and immediately takes the pair back off the screen.
+    /// Presents the palette over `host`, and witnesses any dismissal the test did not ask for.
     ///
-    /// **The `orderOut` is not tidiness, it is the second half of keeping this suite invisible, and
-    /// it has to be here rather than in `makeHost`.** `present` raises the panel with a
-    /// `makeKeyAndOrderFront` of its own, and **ordering a child window front orders its parent in
-    /// too** — measured directly: a titled parent that was never ordered in reads `isVisible ==
-    /// false` right up until a borderless child of it is ordered front, and `true` immediately
-    /// after. So the production code puts both windows on screen no matter what the fixture did
-    /// beforehand, and the fixture's only move is to put them straight back.
+    /// **There is no `orderOut` here any more, and that is the fix for mechanism 11** — `makeHost`
+    /// carries the deduction. The pair stays out of sight because the host is parked past every
+    /// display and the panel is built at `host.frame`, not because it is taken back off the screen
+    /// list. Production still raises the panel with a `makeKeyAndOrderFront` of its own, and
+    /// **ordering a child window front orders its parent in too** — measured: a parent never ordered
+    /// in reads `isVisible == false` right up until a borderless child of it is ordered front, and
+    /// `true` immediately after. That measurement is why the old fixture needed an `orderOut` at
+    /// all, and it is unchanged; what changed is that a window ordered in where nobody can see it
+    /// costs nothing, while ordering the parent back out cost this suite its five tests.
     ///
-    /// Nothing is composited in between: this returns to the runloop only after the `orderOut`, so
-    /// there is no frame for the window server to draw. Everything these tests read — parentage,
-    /// frames, the resize follow, the dismissal callbacks — is object state a hidden window keeps.
+    /// `onDismiss` is wrapped rather than passed straight through: it is the only seam from which an
+    /// ambient teardown can be seen at all. See `DismissalWitness`.
     @discardableResult
     private func present(_ controller: CommandPalettePanelController, over host: NSWindow,
                          onRun: @escaping (PaletteRoute) -> Void = { _ in },
                          onDismiss: @escaping () -> Void = {}) -> CommandPaletteState {
         let state = CommandPaletteState(index: index)
         controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
-                           onRun: onRun, onDismiss: onDismiss)
-        host.orderOut(nil)
+                           onRun: onRun,
+                           onDismiss: { [witness] in witness.record(); onDismiss() })
         return state
     }
 
@@ -137,9 +239,10 @@ import Sync
         let host = makeHost()
         let controller = CommandPalettePanelController()
         present(controller, over: host)
-        #expect(controller.isPresented)
+        #expect(controller.isPresented, "the palette is not up — \(witness.report)")
         let panel = try? #require(host.childWindows?.compactMap { $0 as? CommandPaletteWindow }.first)
-        #expect(panel != nil, "the panel is not a child of the host — it will not move or order with it")
+        #expect(panel != nil,
+                "the panel is not a child of the host — it will not move or order with it. \(witness.report)")
         // Sized to the host, because the scrim is inside it and has to dim the whole window —
         // including the title bar. That sizing is also *why* a title-bar click never moves key: it
         // lands on this panel, and the scrim's tap dismisses it. Sizing alone was once claimed to
@@ -158,20 +261,31 @@ import Sync
     /// not settle it — a scrim sized to the host and shown anyway is exactly the 900×600 gray sheet
     /// this suite used to flash over whatever the user was doing.
     ///
-    /// It is a window being *visible* that is checked, not where its frame sits: a window parked off
-    /// every display would be just as acceptable, and `makeHost`'s note says why that route is not
-    /// open to a titled window. Verified by mutation: with `present`'s `orderOut` dropped, both
-    /// halves fail — and that both fail is itself the measurement that a child window follows its
-    /// parent's visibility rather than needing to be suppressed on its own.
+    /// **The requirement is that the user cannot see them, and there are two ways to satisfy it** —
+    /// not ordered in, or parked past every display. Each is checked as a disjunction so that
+    /// neither is pinned: this suite has now used both remedies, and a guard that mandated the one
+    /// in force would have to be rewritten to change it, which is how a guard comes to be about its
+    /// own implementation rather than about the user's screen.
+    ///
+    /// As it stands both windows *are* visible — the panel's `makeKeyAndOrderFront` orders the host
+    /// in with it — so it is the parking that carries them here. `makeHost` says why.
+    ///
+    /// Verified by mutation: give `makeHost` an on-screen origin (its old `(200, 200)`) and both
+    /// halves fail, the panel's included — which is also the measurement that a child window takes
+    /// its frame from its parent rather than needing to be parked on its own.
     @Test func theHostAndItsPanelStayOutOfSight() throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         defer { teardown(host, controller) }
         present(controller, over: host)
-        let panel = try #require(host.childWindows?.first, "no panel was raised")
+        let panel = try #require(host.childWindows?.first,
+                                 "no panel was raised — \(witness.report)")
 
-        #expect(!host.isVisible, "the host window is on screen at \(host.frame)")
-        #expect(!panel.isVisible, "the palette panel is on screen at \(panel.frame)")
+        let bounds = Self.displayBounds()
+        #expect(!host.isVisible || !bounds.intersects(host.frame),
+                "the host window is on screen at \(host.frame), which is inside \(bounds)")
+        #expect(!panel.isVisible || !bounds.intersects(panel.frame),
+                "the palette panel is on screen at \(panel.frame), which is inside \(bounds)")
     }
 
     /// **Click-away, for the half of it that key state actually owns: another window.**
@@ -190,8 +304,8 @@ import Sync
         defer { teardown(host, controller) }
         var dismissed = false
         present(controller, over: host, onDismiss: { dismissed = true })
-        #expect(controller.isPresented)
-        let panel = try #require(host.childWindows?.first, "no panel to resign key")
+        #expect(controller.isPresented, "the palette is not up — \(witness.report)")
+        let panel = try #require(host.childWindows?.first, "no panel to resign key — \(witness.report)")
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
         // Delivered on the main queue, so it lands on a later turn. Bounded, and it fails at the
@@ -235,20 +349,25 @@ import Sync
         #expect(firstRetired,
                 "the replaced presentation was never told it ended — the chord suspension stays stuck on")
         #expect(host.childWindows?.count == 1,
-                "presenting twice left \(host.childWindows?.count ?? 0) panels parented to the host")
+                "presenting twice left \(host.childWindows?.count ?? 0) panels parented to the host. \(witness.report)")
         teardown(host, controller)
     }
 
+    /// The new frame is parked too. Resizing to somewhere on the display would put a 1200×800 window
+    /// over the user's desktop for the length of this test, which is the whole thing `makeHost` is
+    /// arranged to avoid — and `theHostAndItsPanelStayOutOfSight` would not catch it, because it
+    /// never resizes.
     @Test func thePanelFollowsTheHostWhenItResizes() async {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         present(controller, over: host)
-        host.setFrame(CGRect(x: 120, y: 140, width: 1200, height: 800), display: true)
+        let grown = CGSize(width: 1200, height: 800)
+        host.setFrame(CGRect(origin: Self.offscreenOrigin(for: grown), size: grown), display: true)
         await waitUntil("the panel followed the host's new frame") {
             host.childWindows?.first?.frame == host.frame
         }
         #expect(host.childWindows?.first?.frame == host.frame,
-                "the scrim came adrift of the window it is dimming")
+                "the scrim came adrift of the window it is dimming — \(witness.report)")
         teardown(host, controller)
     }
 

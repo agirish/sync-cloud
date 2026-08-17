@@ -28,12 +28,12 @@ cluster whose membership changes between runs is the signature of
 there, passing in isolation *is* evidence.
 
 **Only the app-target step red, with window assertions failing in under 0.1s?** If the expectations
-read `nil` or `[]` for a panel or a child window, it is *probably* the palette-panel fixture —
-[mechanism 11](#11-five-palette-tests-that-need-a-window-nobody-ordered-in). On CI it costs one
-rerun, **and a rerun of the same SHA that fails the same way is a verdict, not this**; locally a
-rerun sometimes clears it and sometimes does not, so the `origin/main` baseline is the reliable
-local discriminator. Bisecting `MacApp/` will find nothing *once one of those has cleared it* — not
-before.
+read `nil` or `[]` for a panel or a child window, that was
+[mechanism 11](#11-five-palette-tests-the-fixture-dismissed-out-from-under-itself--fixed), **fixed
+on 2026-08-16**. It should not recur, so treat a fresh instance as a real regression until the
+failure message says otherwise — the fixture now names every dismissal it sees, with the app's
+activation state, so the message itself tells you whether the panel was never attached or attached
+and then torn down. Do not reach for a rerun first.
 
 **1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
 the single strongest tell. Condition-based waits give up at their deadline, so a starved test
@@ -1142,7 +1142,10 @@ other way suites-in-parallel decides a verdict.
 
 ---
 
-### 11. Five palette tests that need a window nobody ordered in
+### 11. Five palette tests the fixture dismissed out from under itself — FIXED
+
+**Fixed on 2026-08-16.** Kept because the symptom is worth recognising on sight, and because two of
+the reasoning errors that held this open for weeks generalise well beyond it.
 
 **Symptom.** Only the **app-target** step fails; all seven package suites pass. Five
 `CommandPalettePanelTests` fail together, and every expectation says the same thing a different
@@ -1156,191 +1159,124 @@ presentingAgainReplacesAndRetiresTheOneItReplaced    → (host.childWindows?.cou
 thePanelFollowsTheHostWhenItResizes
 ```
 
-Each fails in **well under a tenth of a second** — 0.079s, 0.041s, 0.032s. That is the quickest way
-to tell it from everything above: a starved test *spends* its ceiling (mechanism 1, triage step 1),
-while this gets a definite "no window" and stops.
+Each fails in **well under a tenth of a second** — 0.079s, 0.041s, 0.032s.
 
-**When it started, which is the useful part.** These five had never failed before `5c851773`
-("Keep the test suites' windows off the user's screen"). Every app-target run before it was green;
-**both commits after it hit this** — `9392107e` and `ec7a9e4f` — and `9392107e` went green on a
-rerun with nothing changed. That commit's own run passed, which on this evidence was luck rather
-than a verdict.
+#### The cause
 
-What it changed is exactly what these assertions are about. The fixture used to
-`makeKeyAndOrderFront` the host; it now uses `makeKey()` and calls `orderOut` on the host
-immediately after `present()`, so the window is **never ordered in and never composited**. The
-tests then assert on child-window attachment against that window. The change was right about the
-user-facing problem it fixed — a 900×600 host appearing over the desktop six times a run — and its
-reasoning about `constrainFrameRect` is measured and sound. The fragility is a side effect, and if
-this is fixed the fix belongs in the fixture, not in `MacApp/`.
+The fixture's `present` helper called `host.orderOut(nil)` immediately after
+`CommandPalettePanelController.present`, to keep a 900×600 titled window off the user's desktop.
+**That call dismissed the palette it had just raised:**
 
-**It used to be CI-only; it is not any more.** Run on 2026-08-14 with the session verifiably
-unlocked throughout: `CommandPalettePanelTests` passed, 18 tests, and all five of the names above
-were confirmed present in the run rather than inferred from a green suite.
+1. Ordering out a parent takes its child out with it.
+2. A child ordered out while it holds key posts `didResignKey`.
+3. The controller's resign observer answers that with `dismiss()` — which is the app behaving
+   correctly; losing key is exactly when the palette should close.
+4. `dismiss()` calls `removeChildWindow` and clears `panel`, which is *both* `childWindows → []`
+   and `isPresented → false` — the entire failing signature, produced inside `present`, before the
+   first `#expect` is reached.
 
-On **2026-08-15** it reproduced locally, three runs in a row, session `UNLOCKED` each time — and,
-the useful half, **it reproduced identically on a worktree checked out at an unmodified
-`origin/main`**, which is how it was told apart from the branch being tested. Failure counts moved
-between runs (10 issues, then 4, then 5) while the names stayed the same. So the guidance below is
-unchanged, but "a local pass proves nothing" now has a partner: **a local failure of these five
-proves nothing either.** Before suspecting your tree, run the app-target step on a scratch worktree
-at `origin/main`:
+**The delivery is synchronous**, which is how three of the five could lose without ever awaiting: a
+`NotificationCenter` block observer registered with `queue: .main` runs on the spot when the post is
+on the main thread. Measured, not assumed.
 
-```sh
-git worktree add /Users/abhishek/Projects/SyncCloud-baseline --detach origin/main
-cd /Users/abhishek/Projects/SyncCloud-baseline && xcodegen
-arch -arm64 xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
-  -destination 'platform=macOS' -derivedDataPath .dd
+**The chain needs the panel to have really been key, and it is.** Probed from inside a running
+app-target suite:
+
+```
+isActive=true  keyWindow=CommandPaletteWindow  panelKey=true  hostVisible=true
 ```
 
-If the same five fail there, it is this, and the rerun advice below applies.
+**This overturns a standing claim.** The suite's own note had read "real key transfer is not
+observable in this test host … an `xcodebuild test` host is not [active], and `isKeyWindow` stayed
+false through a five-second poll", and two tests were retired on the strength of it. Whether an
+`xcodebuild` host is frontmost depends on what else the machine is doing, so both readings are
+presumably honest about their moment — and that variability is the whole of the burst pattern, and
+why CI pass, CI fail, local pass and local fail were all observed on unchanged code. **A single
+measurement of an environment is a measurement of that environment then**; this one became a
+standing rule and then hid the mechanism behind it.
 
-**2026-08-16: a hypothesis tested and NOT confirmed — the fixture's own `orderOut`.**
+The old entry framed the open question as "why does `host.childWindows` intermittently read `[]` for
+a window whose parentage ought to survive an `orderOut` entirely?" **The premise was wrong twice
+over.** Parentage does not survive: ordering out a child detaches it from its parent outright
+(measured, 5/5). And it never got that far here, because the app removed the child itself.
 
-The theory was mechanical and fitted every recorded symptom: `present()` calls `host.orderOut(nil)`
-while the palette is up; ordering the host out could make the child panel post `didResignKey`; and
-`CommandPalettePanelController` answers that notification with `dismiss()`, which removes the panel
-from `host.childWindows` and clears `isPresented`. That would explain the "no window" shape of all
-five expectations, the sub-0.1s failures, and the start at `5c851773`.
+#### The two reasoning errors that kept it open
 
-**It does not survive measurement, and the numbers are the useful part:**
+**A probe run in a state where the mechanism cannot exist is not a refutation.** This exact theory
+was tested, fired **once in twenty-one runs**, and was written off as noise. The probe was a
+standalone binary — and in one of those `NSApp.keyWindow` is `nil` and **no window is ever key**
+(measured since), so twenty of those twenty-one runs could not have fired whatever the code did. The
+single firing was the signal. Before a null result retires a hypothesis, check that the harness was
+in a state where a positive was even possible.
 
-- A standalone AppKit probe (titled host, borderless `.nonactivatingPanel` child,
-  `makeKeyAndOrderFront`, observer on `didResignKeyNotification`, then `host.orderOut(nil)`) fired
-  the observer on its **first run and on none of the twenty runs after it** — same binary, same
-  machine, no change. So the resign *can* happen and almost never does.
-- On the same morning, `CommandPalettePanelTests` at an unmodified `a5b8e5be` failed **10 of 18
-  twice**, and then, a little over an hour later, **passed 10 runs out of 10** with no code change
-  in between.
-- Removing the `orderOut` on its own does not fix the suite — it *breaks* it, because that call is
-  what keeps the titled host off the screen, which is what `theHostAndItsPanelStayOutOfSight` is
-  there to check.
+**"Removing the `orderOut` breaks the suite" was true, and still not a reason to keep it.** It broke
+exactly one assertion — `theHostAndItsPanelStayOutOfSight`, which read `!isVisible` — while fixing
+the other four. Reading a one-test regression as "this remedy is spent" is what closed the door on
+the right answer for weeks.
 
-So the `orderOut` is not established as the cause, a fixture rewrite built on it was reverted
-rather than shipped, and **the honest position is still the one below.** What the trials do add is
-a sharper reproduction rule: on this machine the failure comes and goes in *bursts* over the day
-rather than run to run, so a handful of consecutive passes is not evidence that anything was fixed
-— which is the trap a fix for this will keep setting.
+#### The fix
 
-**What is NOT established: why it is intermittent.** A locked screen looked like the answer and is
-not confirmed. `9392107e` failed while locked and passed on a rerun, which fit; then `ec7a9e4f`
-failed with no live app instance running (`~/sync-cloud.log` silent for the whole window) and no
-way to confirm the session state after the fact. **Do not treat the lock correlation as the cause** —
-one matching pair and one unexplained failure is where this actually stands. If you catch it live,
-the thing worth recording is the session state at the moment the app-target step runs:
+In the fixture only (`SyncCloudTests/CommandPalettePanelTests.swift`), which is where the old entry
+correctly predicted it would belong:
+
+- The host is **borderless** and **parked past every display**, rather than titled and ordered out.
+  Borderless is the case `constrainFrameRect` skips: measured 15/15 each way, a borderless host
+  stays parked through creation, the child's `orderFront` and a later `setFrame`, while a titled one
+  is dragged back to `(-1160, -684)` — on the display. That is why the old entry recorded parking as
+  spent; it was, for a *titled* window.
+- `present` orders nothing out, so there is no AppKit window call at all between the controller
+  installing its resign observer and the assertions.
+- `theHostAndItsPanelStayOutOfSight` accepts **either** remedy — `!isVisible || off every display` —
+  so neither is pinned and changing the mechanism again does not mean rewriting the guard.
+- **Every dismissal is witnessed**, and reported into the failure message with the app's activation
+  state and stack frames. This is the part that matters if it ever returns: the five messages could
+  not distinguish "never attached", which is a real regression in `present`, from "attached and then
+  torn down" — and `docs/ci.md` notes the app-target step is the only one that compiles `MacApp/` at
+  all, so misreading it costs the one signal that surface has.
+
+Verified by mutation: restore the on-screen origin and both halves of
+`theHostAndItsPanelStayOutOfSight` fail, on the same 563-test run.
+
+**What is NOT closed, and it is a live risk rather than a theoretical one.** The panel really does
+take key here, so a genuine key change during a test still dismisses it — and a stray mouse-down
+anywhere in the app does too, by design (`clickDismissesThePalette` answers `true` for a click this
+app cannot attribute to a window of its own). Both need a runloop turn, so neither can reach the
+three synchronous tests, but both can reach the two `async` ones. **Consecutive green runs are not
+evidence that they never will** — this came in bursts over hours, so a handful of passes proves
+nothing. If it reappears, read the witness in the failure message rather than counting reruns: it
+names the activation state and the stack, which is the thing nobody had when this was opened.
+
+#### Still true, and worth keeping
+
+**Check whether the failure spent time.** Every assertion here is a *missing object*, and it fails in
+under 0.1s. A starved test *spends* its ceiling — 25s or 32s. A stall and an absence look nothing
+alike, and reaching for a timing or environment cause before checking which one you have is how this
+entry accumulated two dead hypotheses.
+
+**Do not bisect `MacApp/`.** The app code these tests cover did not change across any of the
+failures: two of the three failing commits were documentation-only, and two sessions hit it on
+disjoint file sets — one editing `MacApp/` directly, the other touching no `MacApp` file at all.
+
+**The display hypothesis is DEAD; do not re-derive it.** `pmset -g log` recovers display state
+retrospectively, so it settles without a new run: a captured app-target run at 09:35:45–09:35:53
+sits inside a display-OFF window and **passed** (531 tests, exit 0), as does one at 09:17:22. Two
+passes with the display verifiably off.
+
+**The lock correlation was never confirmed** — one matching pair and one unexplained failure. If you
+want the session state at the moment a run fails:
 
 ```sh
 swift -e 'import CoreGraphics
 print(((CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool) ?? false ? "LOCKED" : "UNLOCKED")'
 ```
 
-(A locked session does independently break `screencapture -l<windowid>` — *"could not create image
-from window"* — so if a screenshot failed at the same time, that much is the lock.)
-
-**Response.** **On CI**, re-run it; that has cleared it every time so far. **If the rerun of the
-same SHA fails the same way, stop calling it this** — every CI instance so far has cleared on one
-rerun, so a second identical failure is the discriminator that says otherwise, and the next step is
-the `origin/main` baseline below rather than another rerun. That matters because the signature is
-not unique to the flake: a real regression that stops `present()` attaching its child window fails
-these same five, on the same assertions, just as fast — and this is the app-target step, the only
-one that compiles `MacApp/` at all (`docs/ci.md`), so misreading it costs the one signal that
-surface has.
-
-**That discriminator only pays out if the rerun is allowed to finish, and at a busy push cadence it
-is not.** Branch CI is tip-only with `cancel-in-progress`, so every push to `main` kills the run in
-flight — a rerun of `6ac470f6` was evicted before it could answer, and `d81cf6a5`, `a0520ba7` and
-`6ac470f6` all ended cancelled with no verdict at all. **Check that the rerun actually completed
-rather than that it merely started**; a cancelled run is not a pass, and treating one as "it
-cleared" is how this entry would absorb a real regression. If pushes are landing faster than the
-suite runs, the honest move is to hold the next push until one run reports.
-
-**Locally a rerun is unreliable in both directions — do not read either outcome as the answer.**
-This entry said flatly that it does not clear locally, on the strength of three consecutive failures
-on 2026-08-15 with the `origin/main` baseline failing beside them. **That is now falsified**: on
-2026-08-16 another session measured the same worktree, unchanged between runs, failing with 10
-issues across these five and then passing outright on a straight rerun (531 tests, exit 0). So a
-local rerun clears it sometimes. Use the `origin/main` baseline (above) as the local discriminator
-instead of a rerun: a local red here is not a verdict on your tree, and a baseline that *passes*
-while your tree fails is the same discriminator from the other side.
-
-**The display hypothesis was raised, measured, and is DEAD. Do not re-derive it.** The rerun that
-cleared it had followed a `caffeinate -u`, which looked like a lead: mechanism 1 is a display-asleep
-stall, and `c881b7f5` gates the ground-truth walk because an iCloud walk makes no progress with the
-display off, so two of this file's own entries point that way.
-
-It does not survive contact with `pmset -g log`, which recovers display state retrospectively and so
-settles it without needing a new run — no forcing the display down on a machine somebody is working
-at. Verified independently by two sessions:
-
-    09:06:12 off · 09:20:37 on · 09:30:35 off · 09:46:16 on
-
-A captured app-target run at **09:35:45-09:35:53 sits inside a display-OFF window and PASSED** — 531
-tests, exit 0, these five green. An earlier run at 09:17:22 (530 passed) sits inside the other OFF
-window. **Two passes with the display verifiably off.** If display-off caused these failures, neither
-could have happened. The failing runs fall in the 09:20:37-09:30:35 display-ON window, but their
-worktrees are gone and they cannot be timestamped precisely, so the inverted correlation is *not*
-claimed either — only that the proposed direction is refuted.
-
-**The shape was always wrong for it, which is the more general lesson.** Every assertion here is a
-*missing object* — `(panel → nil) != nil`, `(host.childWindows → []).first → nil`, `isPresented →
-false`. The display precedents in this file are all work making **no progress**: a scroll that never
-animates, a walk that never returns. Nothing in these five waits on anything; the window simply is
-not there, and the tests fail in under 0.1s rather than spending a ceiling. **Before reaching for a
-timing or environment cause, check whether the failure spent time or not** — a stall and an absence
-look nothing alike, and this one is an absence.
-
-Same day, the other side of it: CI failed these five on `6ac470f6` while a local run of the
-identical tree passed — so "CI-only" and "local-only" have both now been observed and neither is a
-property of this flake.
-
-**And CI flips across commits with no palette change.** It failed these five on `6ac470f6` and
-passed them on `c21c5f4e` — app-target step green, per-step, which is the one that compiles
-`MacApp`. Be exact about how close those trees are, because the argument is only as good as the
-comparison: they differ by 13 files, including `Modules/Sync` and `Modules/Settings` sources that the
-app target does link, so "near-identical" would overstate it. What is true is that nothing in that
-range touches the palette, its host window, or `MacApp` at all. So the pass/fail pair exists on the
-CI side as well as the local side, and CI pass, CI fail, local pass and local fail have all now been
-observed without any change to the code under test.
-
-**The strongest evidence yet that it is not the tree under test: two sessions hit it on disjoint
-file sets.** One was editing `MacApp/` directly — `ContentView`, `ContentView+PaneTabs`,
-`SyncCloudTests` — and the other touched no `MacApp` file at all (Sync sources, two FileExplorer
-benchmarks, `SettingsView`, docs). Same five tests, same assertions, both cleared by a rerun on one
-side. Two trees with nothing in common between them failing the same way is about as close to
-"neither tree" as circumstantial evidence gets, and it is a better reason not to bisect `MacApp/`
-than the one this entry used to give.
-
-**Do not bisect `MacApp/`** once either discriminator has cleared it — the app code these tests
-cover has not changed across any of the failures, and two of the three failing commits were
-documentation-only. Before that, a lone red on the app-target step with window assertions failing in
-under 0.1s is the *likely* shape of this, not proof of it.
-
-**The open question is narrower than "should the fixture order the window in", and two remedies are
-already spent.** Do not re-derive either — both are written up with numbers in the fixture itself,
-which is the first thing to read:
-
-- **Park a visible window offscreen** (`makeHost`, and see `5c851773`). Measured twice: a window
-  created at `(-2900, -2600)` came up at `(-860, -513)` because `constrainFrameRect` runs on every
-  frame change to a visible *titled* window; overriding the constraint put it at `(460, 728)`,
-  squarely on the display, and desynchronised the panel from its host so
-  `presentingRaisesAPanelParentedToAndSizedWithTheHost` failed too. `DetailsWhereItLivesTests` in
-  Dashboard parks its window successfully because it is *borderless*, the case the constraint skips.
-- **Skip the `orderOut`** (`present`). It is not tidiness: `present` does its own
-  `makeKeyAndOrderFront`, and ordering a child window front orders its parent in as well — measured,
-  a titled parent never ordered in reads `isVisible == false` right up until a borderless child is
-  ordered front, and `true` immediately after. The host reaches the screen regardless of what the
-  fixture did beforehand; the `orderOut` is the only thing that takes it back off.
-
-So the question actually open is: **why does `host.childWindows` intermittently read `[]` for a
-window whose parentage is object state that ought to survive an `orderOut` entirely?** That is not a
-timing question and not an environment one — see the shape argument above — and it is where anyone
-picking this up should start.
-
-**See.** `SyncCloudTests/CommandPalettePanelTests.swift` (`makeHost`, and `present` for the
-child-orders-parent-in measurement); `5c851773` for why the host is no longer ordered in;
-mechanism 1 for the display-asleep sibling, which is a window that exists and will not animate.
+**See.** `SyncCloudTests/CommandPalettePanelTests.swift` — `makeHost` carries the deduction and the
+measurements in full; `5c851773` for the change that introduced the `orderOut` and the real desktop
+problem it was fixing; mechanism 1 for the display-asleep sibling, which is a window that exists and
+will not animate.
 
 ---
+
 
 ## When you fix one
 
