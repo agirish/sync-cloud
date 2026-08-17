@@ -64,7 +64,15 @@ public class FileActionHandler {
     ///   - isLeft: `true` if the folder is in the left pane, `false` if in the right.
     ///   - leftProviderId: Current left-pane provider ID (for path lookup).
     ///   - rightProviderId: Current right-pane provider ID.
-    public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String, suppressLinkedNavigation: Bool = false) {
+    /// - Parameter suppressLinkedNavigation: whether to ignore the "Link both panes" toggle for this
+    ///   focus. **Required, with no default**, and that is the guard rather than a style choice: the
+    ///   one caller that needs it true is the single-source rail, which has no visible sibling pane,
+    ///   and dropping the argument there compiled silently and fell back to honoring the link —
+    ///   dragging the hidden pane along, growing its history, overwriting its saved focus for the
+    ///   next launch and recording "Recent" folders the user never visited. Nothing caught that:
+    ///   every delegate fixture is built with `handler: nil`, so the navigation half is a no-op in
+    ///   all of them, and the rule test calls this method directly, making itself its only reader.
+    public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String, suppressLinkedNavigation: Bool) {
         let side = isLeft ? "left" : "right"
         let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
         // path(for:) returns "" for a provider that vanished from settings; "" prefix-matches
