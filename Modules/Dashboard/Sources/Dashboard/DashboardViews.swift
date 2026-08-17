@@ -1269,17 +1269,24 @@ public struct PaneHeader: View {
 
     /// The ⋯ overflow. Holds whatever this rung folded away **and** whatever was removed from the
     /// bar in the customize sheet, so nothing is ever merely dropped — you lose a pill, never an
-    /// ability. Absent entirely when it would be empty.
+    /// ability. Absent entirely when it would be empty, which is the whole point of it: it appears
+    /// because this pane is too narrow to draw everything, or because you took something off the
+    /// bar yourself — never as a permanent fixture with nothing to say.
+    ///
+    /// It carries **only** those controls. Customize used to ride along at the bottom, which meant
+    /// a ⋯ with one folded item read as a two-entry menu whose second entry had nothing to do with
+    /// the first, and the glyph earned its place in the row on the strength of a command that has
+    /// its own front door — right-clicking the bar, which is where anyone who has customized
+    /// Finder's toolbar aims first. `barContextMenu` is that door and is reachable from every pixel
+    /// of the bar, so nothing is lost by leaving this menu to the controls it folded away.
+    ///
+    /// Dividers separate entries rather than trailing each one; `backForward` alone expands to two
+    /// buttons, so the rule is one rule between groups, not one per button.
     private func viewOptionsMenu(controlSize: ControlSize, overflow: [PaneBarItem]) -> some View {
         Menu {
-            ForEach(overflow) { item in
+            ForEach(Array(overflow.enumerated()), id: \.offset) { index, item in
+                if index > 0 { Divider() }
                 overflowEntry(item)
-                Divider()
-            }
-            Button {
-                isCustomizing = true
-            } label: {
-                Label("Customize Pane Bar…", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -1440,7 +1447,11 @@ public struct PaneHeader: View {
     }
 
     /// Right-clicking the bar itself, which is where anyone who has customized Finder's toolbar will
-    /// try first. The ⋯ menu carries the same Customize entry for anyone who doesn't think to.
+    /// try first — and, since the ⋯ menu stopped carrying a Customize entry, the **only** way to
+    /// open the sheet. That is why `theBarsMenuIsAimableAcrossTheWholeRow` right-clicks its way
+    /// along the row rather than trusting the `.contentShape(Rectangle())` above: the controls sit
+    /// on top of that shape, and one that swallowed the right-click would leave the sheet
+    /// unreachable from a bar too full to have any bare stretch left to aim at.
     @ViewBuilder
     private func barContextMenu() -> some View {
         // Tabs first: they act on the pane, while everything below acts on the bar's own
