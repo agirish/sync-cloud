@@ -115,33 +115,115 @@ public extension FileManaging {
             urls.append(child)
         }
 
-        // Whether the ROOT failed is decided by the entry count, not by comparing the reported URL
-        // against the one we asked for. That comparison looks like the direct signal and is the
-        // trap: measured on this machine, asking for `/var/…/locked` gets the failure reported as
-        // `/private/var/…/locked`, and `standardizedFileURL` does not close that gap — the match
-        // failed in two of three constructions of the same directory.
-        //
-        // The count is exact instead. A DESCENDANT failure can only be reported after the root was
-        // listed successfully, and the unreadable descendant is itself yielded as an entry (a
-        // listable root holding one locked subdirectory yields 2 entries, not 0). So a handler that
-        // fired with nothing to show for it can only mean the root itself could not be read.
-        if failures.isEmpty {
-            return DirectoryListing(urls: urls, outcome: .listed)
+        let verdict = DirectoryListingSupport.classify(entryCount: urls.count, failures: failures, root: url)
+        return DirectoryListing(urls: verdict.outcome == .unreadable ? [] : urls,
+                                outcome: verdict.outcome,
+                                unreadableDescendants: verdict.unreadableDescendants)
+    }
+
+    /// How many entries sit under `url`, counted rather than collected, and whether the count can
+    /// be trusted.
+    ///
+    /// Separate from ``listing(of:includingPropertiesForKeys:options:)`` because the one caller
+    /// that needs this needs it on a folder about to be destroyed, which can hold a hundred
+    /// thousand entries: `listing` drains every one of them into an array to hand back the URLs,
+    /// and this caller wants only the number. It stops at `cap` and says so, so the cost is bounded
+    /// by the cap rather than by the folder.
+    ///
+    /// - Parameter cap: the highest number this will count to. On reaching it the walk stops and
+    ///   `isCapped` is true, which reads as "at least this many".
+    ///
+    /// - Important: when `isCapped` is true, `outcome` describes only the part that was read. A
+    ///   locked subdirectory beyond the cap is never met, so `.listed` there means "nothing
+    ///   unreadable in the first `cap` entries", not "nothing unreadable at all". `.unreadable` is
+    ///   unaffected: it requires a count of zero, which no capped walk can have.
+    func childCount(
+        of url: URL,
+        options: FileManager.DirectoryEnumerationOptions = [],
+        cap: Int
+    ) -> DirectoryChildCount {
+        guard cap > 0 else { return DirectoryChildCount(count: 0, outcome: .listed, isCapped: true) }
+
+        var failures: [URL] = []
+        let record: (URL, Error) -> Bool = { failedURL, _ in
+            failures.append(failedURL)
+            return true
         }
-        if urls.isEmpty {
-            return DirectoryListing(urls: [], outcome: .unreadable)
+
+        guard let enumerator = enumerator(at: url, includingPropertiesForKeys: nil,
+                                          options: options, errorHandler: record) else {
+            return DirectoryChildCount(count: 0, outcome: .unreadable, isCapped: false)
         }
-        // Root read, some subtree below it withheld. Drop any entry that is the root itself, so
-        // the caller's list holds only genuine descendants whichever way the OS spelled them.
-        let rootPath = DirectoryListingSupport.identity(of: url)
-        let descendants = failures.filter { DirectoryListingSupport.identity(of: $0) != rootPath }
-        return DirectoryListing(urls: urls,
-                                outcome: .listedWithUnreadableDescendants,
-                                unreadableDescendants: descendants)
+
+        var count = 0
+        var isCapped = false
+        while enumerator.nextObject() != nil {
+            count += 1
+            if count >= cap {
+                isCapped = true
+                break
+            }
+        }
+
+        let verdict = DirectoryListingSupport.classify(entryCount: count, failures: failures, root: url)
+        return DirectoryChildCount(count: count, outcome: verdict.outcome, isCapped: isCapped)
     }
 }
 
-enum DirectoryListingSupport {
+/// How many entries a directory holds, and how far the answer can be trusted.
+public struct DirectoryChildCount: Equatable, Sendable {
+    /// Entries seen. Meaningless when `outcome == .unreadable`; a floor rather than a total when
+    /// `isCapped` or when `outcome == .listedWithUnreadableDescendants`.
+    public let count: Int
+
+    /// How much of the directory the count actually covers.
+    public let outcome: DirectoryListingOutcome
+
+    /// True when counting stopped at the cap rather than at the end of the directory.
+    public let isCapped: Bool
+
+    /// True when `count` is a floor rather than a total — either the walk stopped early, or part
+    /// of the tree was withheld. False for `.unreadable`, where `count` is not a floor of anything.
+    public var isAtLeast: Bool {
+        outcome == .listedWithUnreadableDescendants || (isCapped && outcome != .unreadable)
+    }
+
+    public init(count: Int, outcome: DirectoryListingOutcome, isCapped: Bool) {
+        self.count = count
+        self.outcome = outcome
+        self.isCapped = isCapped
+    }
+}
+
+public enum DirectoryListingSupport {
+
+    /// Turns "how many entries came back" plus "which URLs the error handler named" into an
+    /// outcome. The one place that rule is written down, so a call site that streams its own
+    /// enumerator — the folder-size walk in the details sidebar, which cannot afford to collect
+    /// what it counts — reaches the same verdict as ``FileManaging/listing(of:includingPropertiesForKeys:options:)``
+    /// rather than restating it slightly differently.
+    ///
+    /// Whether the ROOT failed is decided by the entry count, not by comparing the reported URL
+    /// against the one we asked for. That comparison looks like the direct signal and is the
+    /// trap: measured on this machine, asking for `/var/…/locked` gets the failure reported as
+    /// `/private/var/…/locked`, and `standardizedFileURL` does not close that gap — the match
+    /// failed in two of three constructions of the same directory.
+    ///
+    /// The count is exact instead. A DESCENDANT failure can only be reported after the root was
+    /// listed successfully, and the unreadable descendant is itself yielded as an entry (a
+    /// listable root holding one locked subdirectory yields 2 entries, not 0). So a handler that
+    /// fired with nothing to show for it can only mean the root itself could not be read.
+    public static func classify(
+        entryCount: Int, failures: [URL], root: URL
+    ) -> (outcome: DirectoryListingOutcome, unreadableDescendants: [URL]) {
+        if failures.isEmpty { return (.listed, []) }
+        if entryCount == 0 { return (.unreadable, []) }
+        // Root read, some subtree below it withheld. Drop any entry that is the root itself, so
+        // the caller's list holds only genuine descendants whichever way the OS spelled them.
+        let rootPath = identity(of: root)
+        return (.listedWithUnreadableDescendants, failures.filter { identity(of: $0) != rootPath })
+    }
+
     /// A comparable form of a directory URL, used only to keep the root out of the descendant
     /// list — never to decide whether the root failed, which the entry count settles exactly.
     ///

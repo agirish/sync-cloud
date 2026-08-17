@@ -205,6 +205,83 @@ import Testing
         #expect(listing.urls.isEmpty)
     }
 
+    // MARK: Counting without collecting
+
+    /// `childCount` exists so the folder-replace warning can ask "how many?" of a folder that may
+    /// hold a hundred thousand entries without building an array of them — but it has to reach the
+    /// same verdict `listing` does, or the warning would be back to reading a failure as a zero.
+    @Test func countingAnUnreadableDirectoryIsNotACountOfZero() throws {
+        guard !runningAsRoot else { return }
+        let base = try makeCanonicalTempRoot(prefix: "DirCountLocked")
+        let locked = base.appendingPathComponent("locked")
+        try makeDir(locked, files: 3)
+        try chmod(locked, 0o000)
+        defer {
+            try? chmod(locked, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let counted = FileManager.default.childCount(of: locked, cap: 1000)
+
+        #expect(counted.outcome == .unreadable)
+        #expect(!counted.isAtLeast, "zero-from-a-failure is not a floor of anything")
+    }
+
+    @Test func countingAnEmptyDirectoryIsAnAuthoritativeZero() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DirCountEmpty")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let empty = base.appendingPathComponent("empty")
+        try makeDir(empty)
+
+        let counted = FileManager.default.childCount(of: empty, cap: 1000)
+
+        #expect(counted.count == 0)
+        #expect(counted.outcome == .listed)
+        #expect(!counted.isCapped)
+        #expect(!counted.isAtLeast)
+    }
+
+    @Test func countingStopsAtTheCapAndSaysSo() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DirCountCap")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let full = base.appendingPathComponent("full")
+        try makeDir(full, files: 9)
+
+        let counted = FileManager.default.childCount(of: full, cap: 4)
+
+        #expect(counted.count == 4, "the cap is where counting stops, not a number it reports past")
+        #expect(counted.isCapped)
+        #expect(counted.isAtLeast)
+
+        // Same directory, cap above its size: the count is then the whole truth. Stated so the
+        // assertions above cannot be satisfied by a `childCount` that always reports the cap.
+        let uncapped = FileManager.default.childCount(of: full, cap: 100)
+        #expect(uncapped.count == 9)
+        #expect(!uncapped.isCapped)
+    }
+
+    @Test func countingAPartlyReadableTreeIsAFloorNotATotal() throws {
+        guard !runningAsRoot else { return }
+        let base = try makeCanonicalTempRoot(prefix: "DirCountPartial")
+        let root = base.appendingPathComponent("root")
+        try makeDir(root, files: 2)
+        let locked = root.appendingPathComponent("locked-sub")
+        try makeDir(locked, files: 4)
+        try chmod(locked, 0o000)
+        defer {
+            try? chmod(locked, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let counted = FileManager.default.childCount(of: root, cap: 1000)
+
+        // Two files plus the locked subdirectory itself; its four children are withheld.
+        #expect(counted.count == 3)
+        #expect(counted.outcome == .listedWithUnreadableDescendants)
+        #expect(counted.isAtLeast, "3 is what could be seen of an actual 7")
+        #expect(!counted.isCapped, "the walk finished — it was the disk that withheld the rest")
+    }
+
     // MARK: The double is faithful to the real thing
 
     @Test func theMockModelsAnUnlistableDirectoryTheWayTheRealOneBehaves() throws {
