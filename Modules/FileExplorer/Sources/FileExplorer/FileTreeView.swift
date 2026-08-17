@@ -217,6 +217,12 @@ public struct FileTreeView: View, Equatable {
     /// presentations, which is the very transition it exists to notice.
     @State private var carriedStack = PaneBrowsePath()
 
+    /// The place this pane has already carried out of the Tree and into its columns — see
+    /// `carryTreeIntoColumns`, which stands down when the Tree's answer has not changed since.
+    /// Pane state, because it has to survive the branch switch between the two presentations,
+    /// which is the very transition it exists to notice.
+    @State private var carriedTreePlace: PaneBrowsePath?
+
     /// The channel `.cloudDownloadRequested` travels on for THIS pane — `.default` in the app, and
     /// a private `NotificationCenter` in a test that mounts a pane.
     ///
@@ -376,6 +382,24 @@ public struct FileTreeView: View, Equatable {
     ///    re-enters that pass, and a pass that keeps re-entering is the crash AppKit raises when a
     ///    window needs more constraint passes than it has views. A turn's delay is invisible under
     ///    the flip's own 0.22s cross-fade.
+    /// Applies `carryBack` when the Columns presentation arrives, so a flip back out of the Tree
+    /// opens the columns on the folder the Tree was standing in rather than replaying the stack the
+    /// columns were parked with — which is the last place the user was, but not the most recent.
+    ///
+    /// **Through `onColumnNavigate`, not the binding**, for the reason drilling always is: the seam
+    /// link mirrors a column move into the sibling pane, and only the host can see the other side.
+    ///
+    /// Gated on the place having CHANGED since the last carry. This branch appears on every tab
+    /// switch and pane collapse, not only on a mode flip, and re-applying a stale answer would pull
+    /// the columns back out of wherever the user had walked to since.
+    private func carryTreeIntoColumns(index: PaneChildrenIndex) {
+        guard let target = Self.carryBack(selection: selection, treeRoot: currentPath, index: index),
+              target != carriedTreePlace else { return }
+        carriedTreePlace = target
+        guard target != browsePath else { return }
+        (onColumnNavigate ?? { browsePath = $0 })(target)
+    }
+
     private func flipEdgeIfScrolledAcross() {
         guard let placement, let onBarEdgeFlip else { return }
         let wasAtTop = placement.atTop
@@ -532,6 +556,33 @@ public struct FileTreeView: View, Equatable {
         guard search.isActive else { return .none }
         return PaneSearchRowContext(results: search, path: row.node.id,
                                     isExpanded: expanded.contains(row.node.id))
+    }
+
+        /// Where the Tree says the pane is, translated back into a column stack — the return trip of
+    /// the flip, and nil when the Tree offers no single place to translate.
+    ///
+    /// The two presentations hold "where you are" in different state, and the Tree's half is not a
+    /// path: it is an expansion, which can have several branches open at once and names no one
+    /// folder. **The selection is the Tree's only unambiguous place**, so that is what carries back.
+    /// One row, because two selected rows are two answers and picking either would be a guess.
+    ///
+    /// A selected FILE resolves to the folder holding it, which is what `pruned` does for free — it
+    /// keeps the leading components that are directories and stops at the first that is not. The
+    /// same walk drops a path the tree no longer has, so a stale selection can never leave the
+    /// columns standing in a folder that is gone.
+    ///
+    /// An empty result is a real answer, not a failure: a row selected at the top level says "the
+    /// root", and the columns must come back out to it rather than keep the stack they were parked
+    /// with. Only "no single selection under this root" is nil.
+    ///
+    /// Static and non-private so `PaneTreeCarryBackTests` can pin it, as `rowIsIgnored` is.
+    static func carryBack(selection: Set<String>, treeRoot: String,
+                          index: PaneChildrenIndex) -> PaneBrowsePath? {
+        guard selection.count == 1, let path = selection.first else { return nil }
+        let root = PaneBrowsePath.normalized(treeRoot)
+        guard path.hasPrefix(root + "/") else { return nil }
+        return PaneBrowsePath(relativePath: String(path.dropFirst(root.count + 1)))
+            .pruned(against: index, treeRoot: root)
     }
 
     /// Whether a pane row should carry the ignored treatment (struck-through name, secondary
@@ -714,9 +765,14 @@ public struct FileTreeView: View, Equatable {
             // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
             // walk the same hits in the same order and switching mode mid-search keeps your place.
             .onChange(of: searchRevealNonce) { _, _ in revealInColumns(selecting: true) }
-            // See the Tree branch: an appearance re-opens the columns down to the hit but must not
-            // move a selection the user has made since.
-            .onAppear { revealInColumns(selecting: false) }
+            // Two duties on one arrival, in the order they outrank each other. A hit is a place
+            // asked for by name and `revealInColumns` owns the columns for it; with no hit, the
+            // place worth opening is the one the Tree was standing in. See `carryTreeIntoColumns`,
+            // and the Tree branch, which resolves the mirror image of this the same way.
+            .onAppear {
+                revealInColumns(selecting: false)
+                if search.hit(at: searchHitIndex) == nil { carryTreeIntoColumns(index: childrenIndex) }
+            }
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
             .background(
