@@ -104,18 +104,49 @@ extension FileSyncManager {
         return focus + "/" + browse
     }
 
+    /// Where a pane **in a given presentation** is — the folder its header reads out, and the one
+    /// its "act on the current folder" actions target.
+    ///
+    /// Columns draws the stack, so the location is the join above. Tree draws no columns at all: it
+    /// lists the pane's scope whole, and the stack is parked state rather than a place. Handing the
+    /// join to a Tree pane is how the header came to name `Documents/Claude/Projects/Investing`
+    /// over a tree sitting at its root — the columns' last resting place, kept on screen by a
+    /// presentation that cannot show a column. **The stack is preserved, not cleared**, so flipping
+    /// back to Columns restores both the columns and the path that describes them.
+    ///
+    /// `drawsColumns` rather than a `PaneViewMode`: this module has no view vocabulary, and the
+    /// question the answer actually turns on is whether the stack is on screen.
+    public func paneLocation(isLeft: Bool, drawsColumns: Bool) -> String {
+        drawsColumns
+            ? combinedRelativePath(isLeft: isLeft)
+            : (isLeft ? leftRelativePath : rightRelativePath)
+    }
+
     /// Routes a click on that joined path back to whichever half owns it.
     ///
     /// A crumb inside the scope is a browse move — cheap, no rescan. A crumb *above* the scope is
     /// the only way back out, so it re-roots. Without this split, clicking an ancestor while three
     /// columns deep would either do nothing or re-scan for a folder you were already looking at.
-    @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String) {
+    @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String, drawsColumns: Bool) {
         let focus = isLeft ? leftRelativePath : rightRelativePath
         let side = isLeft ? "left" : "right"
         // Logged because this whole routing was previously silent: a crumb click that navigated
         // nowhere left not one line behind, which is what let a dead root crumb go unexplained.
         let target = combined.isEmpty ? "root" : combined
-        if focus.isEmpty {
+        // Tree has no stack to move, so the browse branches below would all be writes to state it
+        // never draws: the crumb and the quick-jump menu clicked through to *nothing at all*. Every
+        // target is a re-root there, which is also what makes it reachable by Back.
+        if !drawsColumns {
+            // Split so the log stays honest about which of the two happened — `focusOn` no-ops on
+            // the folder the tree is already rooted at, and a "re-roots to" line for a click that
+            // moved nothing is exactly the silence this logging was added to end.
+            if combined == focus {
+                Logger.shared.debug("[crumb] \(side) pane is already rooted at \(target) (tree)")
+            } else {
+                Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) (tree draws no columns)")
+                focusOn(relativePath: combined, isLeft: isLeft)
+            }
+        } else if focus.isEmpty {
             Logger.shared.debug("[crumb] \(side) pane browses to \(target) (scope at root)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: combined))
         } else if combined == focus {
@@ -151,15 +182,21 @@ extension FileSyncManager {
     /// honesty a mirrored column drill applies (see `applyColumnNavigation`), since the two sides
     /// are being compared precisely because they differ. It is an autoclosure so the common case
     /// that lands both panes at their root never pays for building the index.
+    ///
+    /// **Two `drawsColumns` flags, not one.** The presentation is a per-pane setting, so a linked
+    /// click can be a browse move on one side and a re-root on the other; asking the clicked pane's
+    /// mode on the sibling's behalf would drive the sibling through a stack it does not draw.
     @MainActor public func navigateBothPanes(
         toCombinedPath combined: String,
         from isLeft: Bool,
+        drawsColumns: Bool,
+        otherDrawsColumns: Bool,
         otherIndex: @autoclosure () -> PaneChildrenIndex,
         otherTreeRoot: String
     ) {
         let otherFocusBefore = isLeft ? rightRelativePath : leftRelativePath
-        navigatePane(isLeft: isLeft, toCombinedPath: combined)
-        navigatePane(isLeft: !isLeft, toCombinedPath: combined)
+        navigatePane(isLeft: isLeft, toCombinedPath: combined, drawsColumns: drawsColumns)
+        navigatePane(isLeft: !isLeft, toCombinedPath: combined, drawsColumns: otherDrawsColumns)
 
         // Only a browse move can be pruned here. If the sibling re-rooted, its tree is being
         // reloaded and `otherTreeRoot`/`otherIndex` describe the tree it just left — the prune that
@@ -249,28 +286,37 @@ extension FileSyncManager {
     /// having re-rooted once, so gating the arrow on the focus history alone left it dead exactly
     /// where the Columns view leans on it hardest — in a narrow pane, where the single column
     /// replaces its contents and `‹` is the only way back out.
-    public func canGoBack(isLeft: Bool) -> Bool {
+    ///
+    /// `drawsColumns` because the reverse is just as dead: a Tree pane's stack is parked, not on
+    /// screen, so counting it lit `‹` for a move that would change nothing visible — and `goBack`
+    /// then spent the click unwinding an invisible column instead of the history. Three columns
+    /// deep before flipping to Tree, that was three dead clicks before Back appeared to work.
+    public func canGoBack(isLeft: Bool, drawsColumns: Bool) -> Bool {
         let browse = isLeft ? leftBrowsePath : rightBrowsePath
-        return !browse.isEmpty || (isLeft ? leftHistory : rightHistory).canGoBack
+        return (drawsColumns && !browse.isEmpty) || (isLeft ? leftHistory : rightHistory).canGoBack
     }
 
     /// Counterpart of `canGoBack(isLeft:)`. Forward walks back into a column `‹` stepped out of
     /// before it considers the focus history, so the two arrows stay each other's inverse.
-    public func canGoForward(isLeft: Bool) -> Bool {
+    public func canGoForward(isLeft: Bool, drawsColumns: Bool) -> Bool {
         let browse = isLeft ? leftBrowsePath : rightBrowsePath
-        return browse.canAdvance || (isLeft ? leftHistory : rightHistory).canGoForward
+        return (drawsColumns && browse.canAdvance) || (isLeft ? leftHistory : rightHistory).canGoForward
     }
 
     /// Navigates one pane back: out of a column if it is inside one, otherwise to the previous
     /// entry in its own focus history.
-    @MainActor public func goBack(isLeft: Bool) {
+    @MainActor public func goBack(isLeft: Bool, drawsColumns: Bool) {
         // Columns first. Browsing costs no history entry (it never re-roots), so if the pane is
         // inside a column stack that is unambiguously the most recent navigation to undo.
         //
         // Deliberately returns WITHOUT `clearSessionIgnoredPaths()`: that clear belongs to a change
         // of comparison scope, and stepping out of a column changes only where you are looking. An
         // item ignored for this session stays ignored while you walk around.
-        if isLeft ? leftBrowsePath.popLast() : rightBrowsePath.popLast() {
+        //
+        // Skipped whole in Tree: unwinding a stack the pane does not draw is a click that changes
+        // nothing on screen, and it does not even leave the stack alone — it consumes the columns
+        // waiting to be flipped back to. See `canGoBack`.
+        if drawsColumns, isLeft ? leftBrowsePath.popLast() : rightBrowsePath.popLast() {
             let browse = isLeft ? leftBrowsePath : rightBrowsePath
             Logger.shared.debug("Stepped \(isLeft ? "left" : "right") pane out to column depth \(browse.depth)")
             return
@@ -291,8 +337,10 @@ extension FileSyncManager {
 
     /// Navigates one pane forward: back into a column `‹` stepped out of, otherwise to the next
     /// entry in its own focus history. The inverse of `goBack(isLeft:)`, in the same order.
-    @MainActor public func goForward(isLeft: Bool) {
-        if isLeft ? leftBrowsePath.advance() : rightBrowsePath.advance() {
+    @MainActor public func goForward(isLeft: Bool, drawsColumns: Bool) {
+        // The mirror of `goBack`'s skip, and for the same reason: `›` must not spend a click
+        // re-entering a column a Tree pane cannot show.
+        if drawsColumns, isLeft ? leftBrowsePath.advance() : rightBrowsePath.advance() {
             let browse = isLeft ? leftBrowsePath : rightBrowsePath
             Logger.shared.debug("Stepped \(isLeft ? "left" : "right") pane into column depth \(browse.depth)")
             return
