@@ -31,19 +31,19 @@ import Combine
         #expect(manager.leftHistory.index == 2)
 
         // 4. Go Back
-        manager.goBack(isLeft: true)
+        manager.goBack(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "folder1")
         #expect(manager.leftHistory.canGoBack)
         #expect(manager.leftHistory.canGoForward)
 
         // 5. Go Back to Root
-        manager.goBack(isLeft: true)
+        manager.goBack(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "")
         #expect(!manager.leftHistory.canGoBack)
         #expect(manager.leftHistory.canGoForward)
 
         // 6. Go Forward
-        manager.goForward(isLeft: true)
+        manager.goForward(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "folder1")
         #expect(manager.leftHistory.canGoBack)
         #expect(manager.leftHistory.canGoForward)
@@ -59,7 +59,7 @@ import Combine
 
         #expect(manager.leftHistory.entries.count == 3) // Root, a, a/b
 
-        manager.goBack(isLeft: true) // Now at "a"
+        manager.goBack(isLeft: true, drawsColumns: true) // Now at "a"
         #expect(manager.leftRelativePath == "a")
 
         // Navigate to new path "c"
@@ -83,9 +83,9 @@ import Combine
         #expect(!manager.rightHistory.canGoBack)
 
         // Back in the right pane is a no-op; back in the left pane undoes only the left move.
-        manager.goBack(isLeft: false)
+        manager.goBack(isLeft: false, drawsColumns: true)
         #expect(manager.leftRelativePath == "common")
-        manager.goBack(isLeft: true)
+        manager.goBack(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "")
         #expect(manager.rightRelativePath == "")
     }
@@ -130,9 +130,9 @@ import Combine
         #expect(manager.leftHistory.canGoBack)
         #expect(!manager.leftHistory.canGoForward)
 
-        manager.goBack(isLeft: true)
+        manager.goBack(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "docs/projects/app")
-        manager.goForward(isLeft: true)
+        manager.goForward(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "docs/projects")
     }
 
@@ -159,10 +159,10 @@ import Combine
         #expect(manager.rightHistory.entries == ["", "docs/b", "docs"])
 
         // Back in each pane independently undoes that pane's part of the jump.
-        manager.goBack(isLeft: true)
+        manager.goBack(isLeft: true, drawsColumns: true)
         #expect(manager.leftRelativePath == "docs/a")
         #expect(manager.rightRelativePath == "docs")
-        manager.goBack(isLeft: false)
+        manager.goBack(isLeft: false, drawsColumns: true)
         #expect(manager.rightRelativePath == "docs/b")
     }
 
@@ -192,7 +192,7 @@ import Combine
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.focusOn(relativePath: "a", isLeft: true)
         manager.focusOn(relativePath: "a/b", isLeft: true)
-        manager.goBack(isLeft: true)
+        manager.goBack(isLeft: true, drawsColumns: true)
 
         manager.focusBoth(relativePath: "c")
 

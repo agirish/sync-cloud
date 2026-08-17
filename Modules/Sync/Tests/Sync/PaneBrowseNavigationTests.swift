@@ -26,28 +26,28 @@ import Events
         m.leftBrowsePath.drill(into: "Invoices", atDepth: 0)
         m.leftBrowsePath.drill(into: "2025", atDepth: 1)
 
-        m.goBack(isLeft: true)
+        m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.leftBrowsePath.components == ["Invoices"])
         #expect(m.leftRelativePath == "Documents", "focus must not move while columns remain")
 
-        m.goBack(isLeft: true)
+        m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.leftBrowsePath.isEmpty)
         #expect(m.leftRelativePath == "Documents", "the last column pop must still not re-scope")
 
         // Only now does Back reach the focus history.
-        m.goBack(isLeft: true)
+        m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.leftRelativePath == "")
     }
 
     @Test func testCanGoBackIsTrueWhileInsideColumnsWithNoFocusHistory() {
         let m = FileSyncManager()
-        #expect(m.canGoBack(isLeft: true) == false)
+        #expect(m.canGoBack(isLeft: true, drawsColumns: true) == false)
 
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         // Nothing was re-rooted, so the focus history is still empty — the arrow must light up
         // anyway or push navigation has no way back.
         #expect(m.leftHistory.canGoBack == false)
-        #expect(m.canGoBack(isLeft: true) == true)
+        #expect(m.canGoBack(isLeft: true, drawsColumns: true) == true)
     }
 
     /// Forward is Back's inverse in the same order, so drilling, backing out and going forward
@@ -57,15 +57,15 @@ import Events
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.leftBrowsePath.drill(into: "Invoices", atDepth: 1)
 
-        m.goBack(isLeft: true)
-        m.goBack(isLeft: true)
+        m.goBack(isLeft: true, drawsColumns: true)
+        m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.leftBrowsePath.isEmpty)
-        #expect(m.canGoForward(isLeft: true) == true)
+        #expect(m.canGoForward(isLeft: true, drawsColumns: true) == true)
 
-        m.goForward(isLeft: true)
-        m.goForward(isLeft: true)
+        m.goForward(isLeft: true, drawsColumns: true)
+        m.goForward(isLeft: true, drawsColumns: true)
         #expect(m.leftBrowsePath.components == ["Documents", "Invoices"])
-        #expect(m.canGoForward(isLeft: true) == false)
+        #expect(m.canGoForward(isLeft: true, drawsColumns: true) == false)
     }
 
     /// Branching discards the forward stack, like a browser: drilling somewhere else after backing
@@ -73,11 +73,11 @@ import Events
     @Test func testDrillingAfterBackingOutClearsForward() {
         let m = FileSyncManager()
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
-        m.goBack(isLeft: true)
-        #expect(m.canGoForward(isLeft: true) == true)
+        m.goBack(isLeft: true, drawsColumns: true)
+        #expect(m.canGoForward(isLeft: true, drawsColumns: true) == true)
 
         m.leftBrowsePath.drill(into: "Photos", atDepth: 0)
-        #expect(m.canGoForward(isLeft: true) == false)
+        #expect(m.canGoForward(isLeft: true, drawsColumns: true) == false)
     }
 
     // MARK: - Panes stay independent
@@ -87,7 +87,7 @@ import Events
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
 
-        m.goBack(isLeft: true)
+        m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.leftBrowsePath.isEmpty)
         #expect(m.rightBrowsePath.components == ["Photos"], "the sibling pane must not move")
     }
@@ -214,7 +214,7 @@ import Events
         m.ignoredPaths = ["noisy.log"]
 
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
-        m.goBack(isLeft: true)
+        m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.ignoredPaths == ["noisy.log"], "a column pop is not a scope change")
 
         // A real scope change still clears them, so the distinction is doing work rather than

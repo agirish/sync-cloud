@@ -31,6 +31,7 @@ import Events
 
     private func navigate(_ m: FileSyncManager, to combined: String, from isLeft: Bool = true) {
         m.navigateBothPanes(toCombinedPath: combined, from: isLeft,
+                            drawsColumns: true, otherDrawsColumns: true,
                             otherIndex: otherIndex(), otherTreeRoot: otherRoot)
     }
 
@@ -181,10 +182,12 @@ import Events
         var built = 0
 
         m.navigateBothPanes(toCombinedPath: "", from: true,
+                            drawsColumns: true, otherDrawsColumns: true,
                             otherIndex: { built += 1; return otherIndex() }(), otherTreeRoot: otherRoot)
         #expect(built == 0, "going home to the root paid for the sibling's whole tree")
 
         m.navigateBothPanes(toCombinedPath: "Documents", from: true,
+                            drawsColumns: true, otherDrawsColumns: true,
                             otherIndex: { built += 1; return otherIndex() }(), otherTreeRoot: otherRoot)
         #expect(built == 1, "a stack that lands somewhere must still be checked against the sibling")
     }
@@ -197,6 +200,7 @@ import Events
         var built = 0
 
         m.navigateBothPanes(toCombinedPath: "Documents/Invoices/2025", from: true,
+                            drawsColumns: true, otherDrawsColumns: true,
                             otherIndex: { built += 1; return otherIndex() }(), otherTreeRoot: otherRoot)
 
         #expect(m.rightRelativePath == "Documents/Invoices/2025", "above its scope — a re-root")
