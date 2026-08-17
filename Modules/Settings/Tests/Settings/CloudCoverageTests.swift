@@ -27,7 +27,7 @@ import Sync
             autoDiscover: false,
             userDefaults: defaults,
             cloudStorageLister: {
-                [URL(fileURLWithPath: "/Users/test/Library/CloudStorage/Dropbox")]
+                .read([URL(fileURLWithPath: "/Users/test/Library/CloudStorage/Dropbox")])
             })
         await manager.discoverProviders()
         return manager

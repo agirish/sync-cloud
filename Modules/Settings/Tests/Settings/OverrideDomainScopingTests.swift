@@ -31,10 +31,10 @@ import Sync
             autoDiscover: false,
             userDefaults: test.defaults,
             overridesDomainName: test.suiteName,
-            cloudStorageLister: { [
+            cloudStorageLister: { .read([
                 URL(fileURLWithPath: "/CloudStorage/OneDrive-Work"),
                 URL(fileURLWithPath: "/CloudStorage/Dropbox"),
-            ] },
+            ]) },
             pathValidator: { _ in true }
         )
         await settings.discoverProviders()
@@ -70,7 +70,7 @@ import Sync
             autoDiscover: false,
             userDefaults: test.defaults,
             overridesDomainName: test.suiteName,
-            cloudStorageLister: { [URL(fileURLWithPath: "/CloudStorage/Dropbox")] },
+            cloudStorageLister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
             pathValidator: { _ in true }
         )
         await settings.discoverProviders()
@@ -91,7 +91,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [URL(fileURLWithPath: "/CloudStorage/Dropbox")] },
+            cloudStorageLister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
             pathValidator: { _ in true }
         )
         await settings.discoverProviders()

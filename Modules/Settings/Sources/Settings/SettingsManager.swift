@@ -19,12 +19,46 @@ public enum PathChangeOutcome: Equatable, Sendable {
     case refusedDuplicate(existingId: String)
 }
 
+/// What one pass over the CloudStorage root found, and whether it could read the root at all.
+///
+/// Two values rather than a bare `[URL]`, because the empty array had to carry two opposite
+/// meanings: "no cloud accounts are mounted" — ordinary, and the right answer on any Mac using
+/// only iCloud — and "the root is there and could not be listed", where the pass learned nothing.
+/// Discovery *publishes over* the provider list, so serving the second as the first deletes every
+/// account the user actually has.
+public struct CloudStorageAccounts: Sendable, Equatable {
+    /// The account folders directly under the root.
+    public let folders: [URL]
+    /// False only when the root exists and could not be listed.
+    ///
+    /// **An ABSENT root is `true` with no folders**, and that distinction is measured rather than
+    /// assumed: `FileManager.enumerator(at:)` returns non-nil and yields nothing for an empty
+    /// directory, an unreadable one AND a missing one alike, and its `errorHandler` fires for the
+    /// last two both (`NSFileReadNoPermissionError` 257 and `NSFileNoSuchFileError` 260). So the
+    /// error handler alone would report every Mac that has never mounted a cloud account as a
+    /// failure; a stat on the root is what separates "nothing to find" from "could not look".
+    public let rootWasReadable: Bool
+
+    /// The root was read. The folders are the whole truth, empty included.
+    public static func read(_ folders: [URL]) -> CloudStorageAccounts {
+        CloudStorageAccounts(folders: folders, rootWasReadable: true)
+    }
+
+    /// The root is there and could not be listed. Carries no folders and no claim that there are none.
+    public static let unreadableRoot = CloudStorageAccounts(folders: [], rootWasReadable: false)
+
+    public init(folders: [URL], rootWasReadable: Bool) {
+        self.folders = folders
+        self.rootWasReadable = rootWasReadable
+    }
+}
+
 /// Manages the discovery and customization of Cloud Providers available to the application.
 /// Interfaces with `UserDefaults` to persist custom path overwrites per provider.
 @MainActor
 public class SettingsManager: ObservableObject {
     /// Lists the account folders mounted under the CloudStorage root (one URL per provider account).
-    public typealias CloudStorageLister = @Sendable () -> [URL]
+    public typealias CloudStorageLister = @Sendable () -> CloudStorageAccounts
 
     /// Reports whether a provider's root path currently exists as a directory.
     public typealias PathValidator = @Sendable (String) -> Bool
@@ -404,17 +438,37 @@ public class SettingsManager: ObservableObject {
     /// The account *folders* directly under the given CloudStorage root. Plain files are
     /// skipped: a stray file named e.g. "Dropbox" would otherwise surface as a selectable
     /// provider whose path can never be a valid root.
-    nonisolated static func cloudStorageFolders(at rootURL: URL) -> [URL] {
-        var folders: [URL] = []
-        if let enumerator = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) {
-            while let fileURL = enumerator.nextObject() as? URL {
-                let isDirectory = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                if isDirectory {
-                    folders.append(fileURL)
-                }
-            }
+    ///
+    /// The `if let enumerator = …` this replaces had an else-branch the filesystem never reaches:
+    /// the enumerator is non-nil for a directory it cannot read, so an unlistable root produced an
+    /// empty array that discovery then published over the user's provider list — every mounted
+    /// Dropbox / Google Drive / OneDrive account disappearing from the app with nothing said.
+    /// `DirectoryListing` is the seam that tells that apart from a root with nothing in it.
+    ///
+    /// The root is stat'ed FIRST because the listing cannot separate the two failures on its own:
+    /// a missing root fires the same error handler as an unreadable one, and a Mac that has never
+    /// mounted a cloud account has no `~/Library/CloudStorage` at all. Absent is an honest empty.
+    nonisolated static func cloudStorageFolders(at rootURL: URL) -> CloudStorageAccounts {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            // Never mounted a cloud account: genuinely nothing to find, and nothing to report.
+            return .read([])
         }
-        return folders
+        let listing = FileManager.default.listing(
+            of: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles])
+        switch listing.outcome {
+        case .unreadable:
+            return .unreadableRoot
+        case .listed, .listedWithUnreadableDescendants:
+            // A partial answer is still an answer here: this listing does not descend, so an
+            // account folder that cannot be opened is still *named*, which is all discovery needs.
+            return .read(listing.urls.filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            })
+        }
     }
 
     /// Maps the mounted CloudStorage account folders to the providers they represent — the pure
@@ -554,15 +608,16 @@ public class SettingsManager: ObservableObject {
         // The whole pass — listing, mapping, and validity stats — runs off the main
         // actor: validating a root stats network-backed CloudStorage mounts, which can
         // block for seconds and would beachball the Settings window if done here.
-        let (providers, validity) = await Task.detached(priority: .userInitiated) {
+        let (accounts, providers, validity) = await Task.detached(priority: .userInitiated) {
+            let accounts = lister()
             let providers = Self.mapProviders(
-                cloudStorageFolders: lister(),
+                cloudStorageFolders: accounts.folders,
                 iCloudDefaultPath: iCloudPath,
                 folderSources: sources,
                 pathOverride: { overrides[$0] },
                 nameOverride: { nameOverrides[$0] }
             )
-            return (providers, Self.validity(of: providers, using: validator))
+            return (accounts, providers, Self.validity(of: providers, using: validator))
         }.value
 
         // A newer pass published while this one ran off-main: its defaults/disk snapshot is
@@ -572,6 +627,22 @@ public class SettingsManager: ObservableObject {
             return
         }
         lastPublishedDiscoveryGeneration = generation
+
+        // A pass that could not READ the CloudStorage root learned nothing about which accounts
+        // are mounted, and this line publishes OVER the provider list — so serving that failure as
+        // "no accounts" would delete every Dropbox / Google Drive / OneDrive the user has, leaving
+        // the always-present iCloud entry behind to make the list look plausible. Refuse the
+        // shrink, the way `FilingProfileStore.indexForAmending` refuses to amend what it could not
+        // read. Only a SHRINK is refused: an unreadable root that would change nothing, or that
+        // carries a fresh path/name override, still publishes.
+        if !accounts.rootWasReadable, providers.count < availableProviders.count {
+            Logger.shared.warning(
+                "Provider discovery could not read the CloudStorage folder, so it found "
+                + "\(providers.count) provider(s) where \(availableProviders.count) are already "
+                + "known — keeping the known ones rather than replacing them. Cloud accounts have "
+                + "NOT been removed; check that ~/Library/CloudStorage is readable.")
+            return
+        }
 
         // Skip no-op publishes so unrelated saves don't re-render every observer.
         if availableProviders != providers {

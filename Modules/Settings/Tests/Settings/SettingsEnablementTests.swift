@@ -67,7 +67,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [self.folder("Dropbox"), self.folder("OneDrive-Personal")] })
+            cloudStorageLister: { .read([self.folder("Dropbox"), self.folder("OneDrive-Personal")]) })
         await settings.discoverProviders()
 
         #expect(settings.enabledProviders.map(\.id) == settings.availableProviders.map(\.id))
@@ -81,7 +81,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [self.folder("Dropbox")] })
+            cloudStorageLister: { .read([self.folder("Dropbox")]) })
         await settings.discoverProviders()
 
         settings.setEnabled(false, for: "Dropbox")
@@ -98,7 +98,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [self.folder("Dropbox")] })
+            cloudStorageLister: { .read([self.folder("Dropbox")]) })
         await settings.discoverProviders()
 
         settings.setEnabled(false, for: "Dropbox")
@@ -111,9 +111,9 @@ import Sync
     @Test @MainActor func testDisabledStatePersistsAcrossManagerInstances() async {
         let test = TestDefaults()
         defer { test.wipe() }
-        let lister: SettingsManager.CloudStorageLister = { [
+        let lister: SettingsManager.CloudStorageLister = { .read([
             URL(fileURLWithPath: "/Users/test/Library/CloudStorage/Dropbox")
-        ] }
+        ]) }
 
         let first = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: lister)
         await first.discoverProviders()
@@ -132,7 +132,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [self.folder("Dropbox")] })
+            cloudStorageLister: { .read([self.folder("Dropbox")]) })
         await settings.discoverProviders()
 
         settings.setEnabled(false, for: "Dropbox")
@@ -152,7 +152,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [self.folder("Dropbox"), self.folder("GoogleDrive-me@example.com")] })
+            cloudStorageLister: { .read([self.folder("Dropbox"), self.folder("GoogleDrive-me@example.com")]) })
         // Disable Dropbox before it (or Google Drive) is discovered.
         await settings.discoverProviders()
         settings.setEnabled(false, for: "Dropbox")

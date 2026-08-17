@@ -492,7 +492,7 @@ import Testing
         defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
-                                       cloudStorageLister: { [] })
+                                       cloudStorageLister: { .read([]) })
         let fitTested = Set(mustFitTabs(settings).map { $0.0 })
         let exempt = SettingsView.SettingsTab.exemptFromFitGuard
 
@@ -521,7 +521,7 @@ import Testing
         defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
-                                       cloudStorageLister: { [] })
+                                       cloudStorageLister: { .read([]) })
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
@@ -545,7 +545,7 @@ import Testing
         defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
-                                       cloudStorageLister: { [] })
+                                       cloudStorageLister: { .read([]) })
         let appearance = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
 
         for (tab, view) in mustFitTabs(settings) where tab != .appearance {

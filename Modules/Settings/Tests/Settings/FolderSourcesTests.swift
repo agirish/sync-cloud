@@ -17,7 +17,7 @@ import Sync
         SettingsManager(autoDiscover: false,
                         userDefaults: defaults.defaults,
                         overridesDomainName: defaults.suiteName,
-                        cloudStorageLister: { cloudStorage },
+                        cloudStorageLister: { .read(cloudStorage) },
                         pathValidator: valid)
     }
 
