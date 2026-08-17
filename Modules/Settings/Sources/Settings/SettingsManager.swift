@@ -109,6 +109,20 @@ public class SettingsManager: ObservableObject {
     /// from being honored as overrides. Nil falls back to the merged search list.
     private let overridesDomainName: String?
     private let listCloudStorageFolders: CloudStorageLister
+    /// The account folders the last READABLE pass found.
+    ///
+    /// A pass that could not read the root learned nothing about which accounts are mounted, so it
+    /// re-maps from this instead of from the empty list it actually got. That keeps the failure
+    /// confined to the one thing the listing is evidence about: iCloud, folder sources, and every
+    /// path/name override still come from the fresh pass and still publish, while the cloud
+    /// accounts hold at their last good reading.
+    ///
+    /// This replaces a `providers.count < availableProviders.count` refusal, which was the wrong
+    /// instrument on two counts: `availableProviders` also contains FOLDER SOURCES, so adding one
+    /// while the root was unreadable made the counts match and let the truncated list through —
+    /// and `addFolderSource` calls `discoverProviders()` directly, so that is a routine sequence,
+    /// not a contrived one. In the other direction, REMOVING a folder source shrinks the list
+    /// legitimately and was refused.
     private let validatePath: PathValidator
 
     /// Monotonic token for `discoverProviders()` passes: each pass claims the next value at
@@ -118,6 +132,7 @@ public class SettingsManager: ObservableObject {
     /// off-main pass finished *last* would win and could republish stale provider paths that
     /// `path(for:)` then serves to file operations. Same shape as
     /// `FileSyncManager.applyFilters`' filterGeneration.
+    private var lastKnownAccountFolders: [URL] = []
     private var discoveryGeneration = 0
     /// Generation of the most recent discovery pass that published its results.
     private var lastPublishedDiscoveryGeneration = 0
@@ -608,10 +623,14 @@ public class SettingsManager: ObservableObject {
         // The whole pass — listing, mapping, and validity stats — runs off the main
         // actor: validating a root stats network-backed CloudStorage mounts, which can
         // block for seconds and would beachball the Settings window if done here.
+        let lastKnown = lastKnownAccountFolders
         let (accounts, providers, validity) = await Task.detached(priority: .userInitiated) {
             let accounts = lister()
+            // An unreadable root is not evidence that the accounts are gone — see
+            // `lastKnownAccountFolders`. Everything else in this pass is still fresh.
+            let folders = accounts.rootWasReadable ? accounts.folders : lastKnown
             let providers = Self.mapProviders(
-                cloudStorageFolders: accounts.folders,
+                cloudStorageFolders: folders,
                 iCloudDefaultPath: iCloudPath,
                 folderSources: sources,
                 pathOverride: { overrides[$0] },
@@ -635,13 +654,14 @@ public class SettingsManager: ObservableObject {
         // shrink, the way `FilingProfileStore.indexForAmending` refuses to amend what it could not
         // read. Only a SHRINK is refused: an unreadable root that would change nothing, or that
         // carries a fresh path/name override, still publishes.
-        if !accounts.rootWasReadable, providers.count < availableProviders.count {
+        if accounts.rootWasReadable {
+            lastKnownAccountFolders = accounts.folders
+        } else {
             Logger.shared.warning(
-                "Provider discovery could not read the CloudStorage folder, so it found "
-                + "\(providers.count) provider(s) where \(availableProviders.count) are already "
-                + "known — keeping the known ones rather than replacing them. Cloud accounts have "
-                + "NOT been removed; check that ~/Library/CloudStorage is readable.")
-            return
+                "Provider discovery could not read the CloudStorage folder, so it learned nothing "
+                + "about which accounts are mounted — the \(lastKnown.count) found by the last "
+                + "readable pass are being kept. Cloud accounts have NOT been removed; check that "
+                + "~/Library/CloudStorage is readable.")
         }
 
         // Skip no-op publishes so unrelated saves don't re-render every observer.

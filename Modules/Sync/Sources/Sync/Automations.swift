@@ -246,8 +246,11 @@ extension AutomationCondition {
         if let recognized = try? Self.recognized(name: key.stringValue, payload: payload) {
             self = recognized
         } else {
-            // Kept as bytes so it can be written back untouched. Decoding it as `JSONValue` would
-            // mean re-encoding through this build's idea of the shape; the raw data cannot drift.
+            // Kept as bytes so it can be written back untouched — but not because bytes are
+            // inherently safer: `RawPayload` produces them by round-tripping a `JSONFragment`, so
+            // whatever that type can express is exactly what survives here. The claim this comment
+            // used to make ("the raw data cannot drift") was therefore about a property the code
+            // did not have; it holds now because `JSONFragment` keeps integers as integers.
             let raw = try c.decode(RawPayload.self, forKey: key)
             self = .unrecognized(name: key.stringValue, payload: raw.data)
         }
@@ -291,6 +294,10 @@ extension AutomationCondition {
     }
 
     /// Carries an arbitrary JSON value through decode and encode without interpreting it.
+    ///
+    /// "Without interpreting" is true of the SHAPE and, since `JSONFragment` gained its integer
+    /// case, of the values too: this stores the bytes that fragment re-encodes to, so a payload is
+    /// only as faithful as that type is.
     private struct RawPayload: Codable {
         let data: Data
         init(data: Data) { self.data = data }
@@ -514,13 +521,21 @@ extension AutomationRule {
 /// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
 /// struct and be written back through whatever encoder the caller is using.
 indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
-    case null, bool(Bool), number(Double), string(String)
+    case null, bool(Bool), integer(Int), number(Double), string(String)
     case array([JSONFragment]), object([String: JSONFragment])
 
+    /// **`integer` is tried before `number`, and it is not tidiness.** Holding every JSON number as
+    /// `Double` silently rewrites any integer past 2^53 — measured, `9007199254740993` came back
+    /// out as `9007199254740992` — and a nanosecond timestamp is nineteen digits, so the range is
+    /// reachable rather than theoretical. A type whose entire contract is "carry this back
+    /// untouched" must not be the thing that alters it. Everything else round-trips as it arrived,
+    /// also measured: `7` stays `7` (not `7.0`) and is still `Int`-decodable, `true` decodes as a
+    /// Bool rather than as 1, and nesting survives.
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Int.self) { self = .integer(v) }
         else if let v = try? c.decode(Double.self) { self = .number(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }
         else if let v = try? c.decode([JSONFragment].self) { self = .array(v) }
@@ -532,6 +547,7 @@ indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
         switch self {
         case .null: try c.encodeNil()
         case .bool(let v): try c.encode(v)
+        case .integer(let v): try c.encode(v)
         case .number(let v): try c.encode(v)
         case .string(let v): try c.encode(v)
         case .array(let v): try c.encode(v)
