@@ -3,11 +3,11 @@ import Testing
 /// Pins `textBetween`'s one job: answering **nil** for positions that come back out of order,
 /// instead of trapping.
 ///
-/// **Without this suite the guard is free to delete.** Measured, not assumed: removing
-/// `guard from <= to else { return nil }` from `TestSupport.swift` and running the whole target
-/// leaves 563 tests in 44 suites and the same single known failure — not one of the five call
-/// sites notices, because every one of them passes its ranges in the RIGHT order while the code
-/// they scan is correct. The guard only ever runs on the failure path, which is exactly the path
+/// **Without this suite the guard is free to delete.** Measured, not assumed: with this file
+/// absent, removing `guard from <= to else { return nil }` from `TestSupport.swift` and running the
+/// whole target left 563 tests in 44 suites and the same single known failure — not one of the five
+/// call sites noticed, because every one of them passes its ranges in the RIGHT order while the
+/// code they scan is correct. The guard only ever runs on the failure path, which is exactly the path
 /// no green suite visits. A later "simplification" back to `String(source[from..<to])` would
 /// restore the crash for all five, silently, and the first sign of it would be another pair of
 /// `.ips` files.
@@ -36,16 +36,31 @@ import Testing
                 "out-of-order positions did not answer nil — if this line was reached at all")
     }
 
-    /// **The call sites' exact idiom**, end to end: `?.contains(_:) == true` over a nil must be
-    /// FALSE. A helper that answered nil into an expectation that passed anyway would trade a crash
-    /// for a vacuous green, which is the worse of the two.
+    /// **The call sites' exact idiom**, end to end: `?.contains(_:) == true` over a nil must come
+    /// out FALSE. Trading a crash for a vacuous green is the worse of the two outcomes, and nothing
+    /// else in this suite says which one a nil produces.
+    ///
+    /// **The needle sits between the two literals on purpose, and that is the whole test.** It
+    /// first asked for `.contains("anything")` over a fixture containing no such word, so the
+    /// expectation held whichever way `textBetween` answered — nil and any real span alike came out
+    /// false — and it could not fail for its stated reason. With the needle actually there, the
+    /// obvious "helpful" rewrite is caught: an implementation that swaps the bounds and answers
+    /// about the span rather than refusing it finds the needle and fails this.
+    ///
+    /// Both directions are asked, because only the pair shows the idiom DISCRIMINATES rather than
+    /// always saying no — which is the other way this could pass while meaning nothing.
     @Test func aNilAnswerFailsTheCallSiteExpressionRatherThanPassingIt() throws {
-        let body = "second first"
+        let body = "second RETURNS first"
         let first = try #require(body.range(of: "first"))
         let second = try #require(body.range(of: "second"))
+        #expect(first.upperBound > second.lowerBound,
+                "the fixture no longer puts the literals out of order, so the call below is not the nil case at all")
         #expect((textBetween(body, from: first.upperBound, to: second.lowerBound)?
-                    .contains("anything") == true) == false,
-                "a nil answered into the call sites' `== true` idiom does not fail, so an out-of-order scan would pass vacuously")
+                    .contains("RETURNS") == true) == false,
+                "out-of-order positions did not come out false through the call sites' `== true` idiom — either a nil passes vacuously, or the helper answered about the span it was asked to refuse")
+        #expect((textBetween(body, from: second.upperBound, to: first.lowerBound)?
+                    .contains("RETURNS") == true) == true,
+                "the same idiom over ORDERED positions did not find what sits between them, so the check above passes for the wrong reason")
     }
 
     /// Ordered positions still answer the text itself — the half that stops "return nil always"
