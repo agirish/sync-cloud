@@ -9,30 +9,23 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.1 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v4.0..e66747fc` — 81 commits. Claims below were checked
+> be withdrawn. Covers `v4.0..7bb99ee8` — 153 commits. Claims below were checked
 > against the `v4.0` tag: fixes to work that landed *inside* this range earn no
 > entry, because no user of v4.0 was ever exposed to them. That rule takes out most
 > of this range — tabs arrived here, so the several review passes that followed
 > them are repairs to unreleased work, including the ⌘W that briefly took Close
 > away from three other windows.
 >
-> **Landed but deliberately unclaimed — two of them now, and check both before the
-> cut.** Each is real work with no way for a user to reach it yet, which is the one
-> case where "it is in the range" and "it earns an entry" come apart:
->
-> - The app can now derive a *folder profile* from your tree, which is the thing
->   v4.0 said had to come from an out-of-repo script. `writeProfile` and
->   `FolderSurveyBuilder.build` have **no production callers** — the execution model
->   and the setup dialog are still to come.
-> - `DirectoryListing` and `ItemIdentity` give "could not read it" a value distinct
->   from "there is nothing there", which is the fix for a genuine defect: an
->   unlistable directory enumerated as *empty*, so a folder-replace could report
->   nothing to remove. Both types have **no call sites outside their own files**, so
->   no behaviour has changed for anyone yet.
->
-> Both become entries — the second a notable one — the moment something calls them.
+> **Landed but deliberately unclaimed, and check it before the cut.** It is real
+> work with no way for a user to reach it yet, which is the one case where "it is in
+> the range" and "it earns an entry" come apart: the app can now derive a *folder
+> profile* from your tree, which is the thing v4.0 said had to come from an
+> out-of-repo script. `writeProfile` and `FolderSurveyBuilder.build` have **no
+> production callers**, and the one cross-file call that looks live sits under a
+> `propose(tree:root:)` that nothing calls either — the execution model and the
+> setup dialog are still to come. It becomes an entry the moment something calls it.
 > Re-run `grep -rn "<symbol>" Modules MacApp` before the cut rather than trusting
-> this note, which was true at `e66747fc`.
+> this note, which was true at `7bb99ee8`.
 
 Tabs. One pane, many parked locations — the thing that turns a two-pane comparison
 into a place you can keep several jobs open in at once.
@@ -44,30 +37,33 @@ into a place you can keep several jobs open in at once.
   is not stored separately — it is the pane's own live position, captured into the
   outgoing tab when you switch — which is what keeps the feature cheap: at any
   instant the app holds exactly the state it held before tabs existed, so no
-  workspace, lens or scan had to learn what a tab is.
+  workspace, lens or scan had to learn what a tab is. Switching between tabs in one
+  folder paints from memory rather than re-walking the disk.
 - **The strip draws nothing at one tab**, and sheds down three rungs as space runs
-  out — every tab, then tabs at a floor width with the surplus behind a count.
-- **Finder's chords.** ⌘T opens a new tab *here* and the menu item says so; ⌘W
-  closes the tab rather than the window once there is more than one; ⇧⌘[ and ⇧⌘]
-  walk the strip in both directions; ⇧⌘T shows and hides the bar from the View menu.
+  out: every tab at its full width, then tabs at a floor width with the surplus
+  behind a count, then — at the ~220pt Organize and Storage rail — the active tab
+  alone as a chevron menu, with a plain count for the rest and a ＋.
+- **Finder's chords.** ⌘T opens a new tab *here*; ⌘W closes the tab rather than the
+  window once there is more than one; ⇧⌘[ and ⇧⌘] walk the strip in both
+  directions; ⇧⌘T shows the bar at a single tab from the View menu, and once a
+  second tab is open on either pane it is ticked and locked on, so a strip's tabs
+  can never be hidden out of reach.
 - **⌃⇥ cycles tabs in Browse**, where it had always been dead — there is one pane
   there, so a chord that moves between panes had nothing to move between, and a
   strip is exactly the second thing it was missing. Compare keeps it as the pane
   switch, where two panes do exist, and the menu item's title says which you are
   getting.
-- **⌘-double-click a folder to open it in a new tab**, and double-click the empty
-  stretch of the strip for a new one. The double is deliberate: a plain ⌘-click is
-  multi-select and has to stay that way, so the second click is what separates "add
-  this to the selection" from "take me there in a new tab".
-- **New Tab is on the pane's own right-click menu, and on the header card's**, which
-  between them are the routes that work at one tab: the row menu needs a folder
-  under the pointer, the strip's menu needs a strip, and the pane's background menu
-  needs empty space below the rows, which a full column does not have. The card is
-  where a Mac user reaches to act on a pane, and it was the one surface with no tab
-  route at all. **Open in New Tab** also moves above Quick Look in the row menu —
-  with no ＋ on screen until a second tab exists, that item is the whole discovery
-  story. Close Tab withholds itself at one tab rather than offering to close the
-  window.
+- **In Columns, ⌘-double-click a folder to open it in a new tab**, and double-click
+  the empty stretch of the strip for a new one. The double is deliberate: a plain
+  ⌘-click is multi-select and has to stay that way, so the second click is what
+  separates "add this to the selection" from "take me there in a new tab".
+- **New Tab is on the header card's right-click menu** — the one route that needs
+  neither a folder under the pointer, nor a strip, nor empty space below the rows —
+  and on the pane's empty-area menu beside New Folder. The card is where a Mac user
+  reaches to act on a pane, and it was the one surface with no tab route at all;
+  with no ＋ on screen until a second tab exists, those menus are the whole
+  discovery story. Close Tab withholds itself at one tab rather than offering to
+  close the window.
 - **Tabs pin.** A pinned tab keeps its place, and *Close Other Tabs* stops being
   offered when every other tab is pinned and the verb would do nothing.
 - **In Compare, both panes wear the strip together.** Compare reads as one row —
@@ -77,39 +73,111 @@ into a place you can keep several jobs open in at once.
   the strip on both; the side with one tab gets a strip holding its chip and a ＋,
   which is also how you give it a second.
 - **Opening a folder in a new tab follows the link.** With the seam's 🔗 on, or ⌥
-  held, a new tab on one pane opens the same folder on the other — the same test a
-  mirrored drill already applied, shared as one expression so a link cannot come to
-  mean one thing for a drill and another for a tab.
-- **A tab switch inside one folder costs nothing at all.** Switching was doing a
-  full re-walk *and* a scan nobody asked for. Navigation here has never rescanned —
-  drilling through columns moves the same column stack a tab carries and leaves the
-  trees alone — and a switch that changes neither the source nor the scope now does
-  neither either. Switches paint from memory instead of walking the disk.
-- **The strip survives a quit, and so does what was inside it.** A tab drilled four
-  columns deep used to reopen as one full-width column, which went unseen because
-  the breadcrumb still read the right folder — the header joins the pane's two
-  halves, so it looks identical whichever one holds the path. Compare's right pane
-  also gets its own remembered strip: it had been re-seeding a single tab on its
-  stored provider at every launch, so its parked tabs were gone entirely.
+  held, opening a folder in a new tab opens one on the other pane too — pruned to
+  the deepest folder that pane actually has, the same treatment a mirrored drill
+  gets. A pane that shares nothing with its sibling lands at the root rather than on
+  a folder that is not there.
+- **The strip survives a quit** — each tab's source, its folder and the depth of its
+  column stack, and whether it was pinned. Selection, history and a typed search
+  stay with the session. It follows *Reopen panes where I left off*, like the folder
+  restore beside it: turn that off and the app still starts at the root. Compare's
+  right pane gets its own remembered strip rather than sharing the left's.
+
+### Safety
+
+Seven fixes for things a v4.0 install really did. Most of them are the app no
+longer destroying or misdescribing your files.
+
+- **A folder the app cannot read no longer counts as an empty one.**
+  `enumerator(at:)` hands back a perfectly good enumerator for a directory it has no
+  permission to list, and that enumerator then yields nothing — so at four places
+  the "if the listing failed" branch held the honest answer and the filesystem never
+  took it. The folder-replace warning said **"0 items will be removed"**, which is
+  the last sentence you read before replacing a folder; it now says *everything*
+  when nothing could be read, and *at least N* when part of it was withheld. The
+  destination picker drew **"Empty"**, the Details sidebar printed **"Zero KB"**,
+  and the filing rename pass offered slot **01** in a numbered folder it could not
+  list — on top of the 01 already sitting in it. A symlinked folder is no longer
+  mistaken for an unreadable one either: a URL enumerator does not follow a link,
+  which produces the same non-nil-and-empty signature. The scan and the diff have
+  reported unreadable directories since v2.2; these are the four single-folder
+  readings that never learned to.
+- **Undo could destroy the very thing it existed to protect.** The drift guard —
+  the check that stops ⌘Z discarding a file you have changed since — compared a
+  stored byte size with `if let`, and both states that type cannot express fall
+  through it to the delete. So a **copied folder had no drift guard at all**, a
+  folder having no meaningful stat size: copy a folder to a NAS, let files land
+  inside it, press ⌘Z, and on a volume with no Trash the permanent delete is
+  confirmed and they are gone — logged, accurately, as "removed 1 of 1". A **file
+  was compared by size alone**, so an edit that kept the length, 2025 to 2026,
+  compared equal and was trashed as untouched. And the **move-undo never looked at
+  the destination**, only at whether the source path was free: drop a newer v2 where
+  the move had landed, press ⌘Z, and v2 is moved away and the older copy restored
+  over it, reported as a success. Redo had no identity check of any kind. An item
+  that cannot be read is now refused rather than destroyed, and the refusal says
+  which of the two it was — that it changed, or that it could not be checked.
+- **⌘Z is no longer offered for a removal it cannot take back.** On a volume with no
+  Trash — exFAT, most SMB shares — a removal escalates to a permanent delete, and
+  the banner still read "press ⌘Z to undo". Nothing had gone onto the undo stack, so
+  ⌘Z reversed whatever was still on it, which after a filing run is that whole run
+  moving back. **The merge's version was worse**: undoing a merge deletes the copies
+  it folded into the keeper, so with the originals already permanently gone, ⌘Z took
+  the only ones left. A partial batch's offer now expires with the stack too.
+  Separately, the duplicate resolve **compared two file copies by byte size alone**,
+  so a rewrite that kept the length matched the scanned copy and was trashed as
+  redundant — destroying the only instance of its new content. That check now reads
+  the modification date as well; folder groups are still compared without it.
+  Declining a permanent delete is also reported now, rather than ending the run
+  indistinguishably from one that found nothing to do.
+- **Redo re-applies a nested rename in the order that makes it possible.**
+  Normalizing risky names applies deepest-first and registers its undo
+  shallowest-first, and the redo replayed the undo's order — so the parent was
+  renamed back first, and each deeper item's recorded destination then named a
+  parent that had stopped existing, which `createDirectory` obligingly manufactured.
+  Measured: ⌘⇧Z produced a new empty folder carrying exactly the risky name the
+  feature had just removed, left the child un-normalized inside the normalized
+  parent, and wedged the undo stack behind it.
+- **An automation will not rebuild a provider that has gone away.** Applying a batch
+  created the destination with intermediate directories and nothing checked, so a
+  provider unmounted between the preview and the apply was recreated as an ordinary
+  local folder — and this is a *move*, so the files left a live tree for a dead one
+  nothing syncs. It reported success and offered ⌘Z. The single-file filing path had
+  refused this all along; only the automations lacked the guard.
+- **One unreadable value no longer wipes every automation rule.** v4.0 made an
+  unrecognised *condition* survivable and stopped one level short: a condition this
+  build does recognise, holding a value it cannot read, still threw — and the throw
+  came out of the whole array, so every rule vanished from the lens and the next
+  rule you created wrote the empty set back over them. A rule now carries the parts
+  this build cannot read verbatim, is never run while it holds one, and reads *from
+  a newer version* in the editor. As with v4.0's entry, **this protects the next
+  upgrade rather than this one**: the value has to have been written by a build
+  newer than the one reading it.
+- **Tree and Columns agree on where the pane is.** A pane's location is two values
+  and only one of them draws columns. Browse three columns deep, flip to Tree, and
+  the breadcrumb still named the folder the columns had stopped in — a folder the
+  tree was not showing, with `‹` lit but dead once for each column it had, crumb
+  clicks landing on nothing, and Scan offering to walk the wrong folder. The flip
+  now carries the location both ways.
 
 ### Panes and the pane bar
 
 - **Browse keeps its preview column when Compare turns one off.** One stored
-  preference served four surfaces, and two of them want different answers: Compare
-  and the Organize/Storage rail are panes read *against* something, where a preview
-  costs the columns doing that work half their room — while Browse is the pane
-  where reading a file *is* the task. Turning the preview off to compare two
+  preference served four surfaces, and they want two different answers: Compare's
+  two panes and the Organize/Storage rail are read *against* something, where a
+  preview costs the columns doing that work half their room — while Browse is the
+  pane where reading a file *is* the task. Turning the preview off to compare two
   providers took it away from browsing.
 - **A column row spends its width on the name.** Folder rows carried a modification
   date that is the folder's own mtime — when something was last added or removed
   directly inside it, which on a tree of filing folders reports the last tidy rather
-  than anything about the contents. It was not free: at the default text size it
-  held 76.4pt of a 210pt column, the difference between 77.6pt of room for a name
-  and 154pt. "Birth Certificate" needs 95.7pt, so it truncated.
-- **The pane bar's controls can show their names**, a short word under each pill as
-  Finder's toolbar does, behind a preference in the bar's right-click menu beside
-  Icon Size. Two modes rather than Finder's three: Text Only is dropped, because
-  with the glyph gone the word becomes the only carrier of state.
+  than anything about the contents. It was not free: at the default text size the
+  date and the gap beside it took 75pt of a 210pt column. "Birth Certificate" needs
+  92.9pt in the face the row actually draws in, so it truncated.
+- **The pane bar's controls now show their names** — a short word under each pill as
+  Finder's toolbar does, and the bar's right-click menu turns them off beside Icon
+  Size. They are also the first thing the bar sheds on a narrow pane. Two modes
+  rather than Finder's three: Text Only is dropped, because with the glyph gone the
+  word becomes the only carrier of state.
 - **A fixed space on the customize track can be aimed at.** Its pill is a dashed
   outline with no fill, and a SwiftUI shape is hit-testable only where it is
   painted — so the drag that removes it, the drop that moves things around it, and
