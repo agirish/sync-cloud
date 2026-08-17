@@ -68,6 +68,38 @@ import Foundation
         #expect(store.pinned(forRoot: "~/Documents").map(\.relativePath) == ["Legal"])
     }
 
+    /// **The two spellings each hold the same pin — which is the state the bug produced.**
+    ///
+    /// Before the keys were normalised, a folder pinned from the breadcrumb (tilde spelling) read
+    /// as unpinned in the pane (expanded spelling), so pinning it again there was the obvious thing
+    /// to do — and wrote a second entry for the same folder under the other key. Merging the two
+    /// lists by concatenation therefore lands a duplicate on any install that hit the bug, which is
+    /// every install the migration exists for.
+    ///
+    /// Two consequences, and the second is the one a person notices: the ⌘K palette lists the
+    /// folder twice, and `togglePin` removed only the FIRST match — so unpinning it left it pinned,
+    /// with no way to tell why.
+    @Test func aFolderPinnedUnderBothSpellingsMergesToOnePinThatCanBeUnpinned() throws {
+        let defaults = freshDefaults()
+        let expanded = ("~/Documents" as NSString).expandingTildeInPath
+        let legacy = [
+            "~/Documents": [JumpLocation(relativePath: "Legal", name: "Legal")],
+            expanded: [JumpLocation(relativePath: "Legal", name: "Legal"),
+                       JumpLocation(relativePath: "Taxes", name: "Taxes")],
+        ]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "folderJumpPinnedByRoot")
+
+        let store = FolderJumpStore(defaults: defaults)
+        #expect(store.pinned(forRoot: expanded).map(\.relativePath) == ["Legal", "Taxes"],
+                "the merge kept one folder twice; got \(store.pinned(forRoot: expanded).map(\.relativePath))")
+
+        // And one toggle really unpins it, rather than peeling off one of two copies.
+        store.togglePin(root: expanded, relativePath: "Legal", name: "Legal")
+        #expect(!store.isPinned(root: expanded, relativePath: "Legal"),
+                "unpinning removed one duplicate and left the folder pinned")
+        #expect(store.pinned(forRoot: "~/Documents").map(\.relativePath) == ["Taxes"])
+    }
+
     /// A `~` root already works here, and this pins that it keeps working.
     ///
     /// **Written to reproduce a reported defect, which it disproved.** The report was that

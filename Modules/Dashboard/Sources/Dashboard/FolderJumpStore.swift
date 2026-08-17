@@ -37,8 +37,24 @@ public final class FolderJumpStore: ObservableObject {
             // whatever spelling the writer happened to hold — `~/Documents` for a folder source —
             // and reading them back through `key(forRoot:)` would miss every one of them. A fix
             // that makes existing pins reachable must not begin by orphaning them.
-            pinnedByRoot = decoded.reduce(into: [:]) { out, entry in
-                out[Self.key(forRoot: entry.key), default: []].append(contentsOf: entry.value)
+            //
+            // **Deduplicated as they merge, because the bug being repaired is what creates the
+            // duplicates.** A folder pinned from the breadcrumb read as unpinned in the pane, so
+            // pinning it again there was the obvious thing to do — and wrote a second entry for the
+            // same folder under the other spelling. Concatenating the two lists lands that folder
+            // twice on exactly the installs this migration exists for: the ⌘K palette then lists it
+            // twice, and one unpin peels off one copy and leaves it pinned.
+            //
+            // Keys taken in sorted order so the merged ORDER is the same on every launch —
+            // dictionary iteration is not, and pins are shown in the order they are held.
+            pinnedByRoot = decoded.keys.sorted().reduce(into: [:]) { out, rawKey in
+                let key = Self.key(forRoot: rawKey)
+                var list = out[key] ?? []
+                for pin in decoded[rawKey] ?? []
+                where !list.contains(where: { $0.relativePath == pin.relativePath }) {
+                    list.append(pin)
+                }
+                out[key] = list
             }
         }
     }
@@ -102,9 +118,13 @@ public final class FolderJumpStore: ObservableObject {
     func togglePin(root: String, relativePath: String, name: String) {
         let key = Self.key(forRoot: root)
         var list = pinnedByRoot[key] ?? []
-        if let index = list.firstIndex(where: { $0.relativePath == relativePath }) {
-            list.remove(at: index)
-        } else {
+        // `removeAll`, not `remove(at: firstIndex)`: a list written before the keys were normalised
+        // can hold the same folder twice (see `init`), and peeling off one copy leaves the folder
+        // pinned after the user asked for it not to be. The migration dedupes what it reads, so
+        // this is belt and braces — and it is the half that also protects a store built in memory.
+        let before = list.count
+        list.removeAll { $0.relativePath == relativePath }
+        if list.count == before {
             list.append(JumpLocation(relativePath: relativePath, name: name))
         }
         pinnedByRoot[key] = list
