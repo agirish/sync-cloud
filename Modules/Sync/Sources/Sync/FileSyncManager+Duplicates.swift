@@ -719,6 +719,9 @@ extension FileSyncManager {
         var totalFolded = 0
         var allTrashed = true
         var cancelled = false
+        // Set when any redundant copy left by permanent delete rather than the Trash — the merge
+        // is then not reversible, whatever else succeeded.
+        var anyPermanentlyDeleted = false
         // Copies refused at the trash step because their contents changed after the plan was
         // snapshotted — surfaced with a drift-specific warning below, like the keeper drift.
         var driftedCopies: [String] = []
@@ -834,10 +837,18 @@ extension FileSyncManager {
             }
 
             // Every file in the redundant copy is now present in the keeper → safe to trash it.
-            // Its restore-undo joins the merge's group so one ⌘Z takes the whole fold back.
+            // Its restore-undo joins the merge's group so one ⌘Z takes the whole fold back — but
+            // only when it reached the Trash. A copy destroyed permanently registers no restore,
+            // and the group still holds this fold's `registerCopyUndo`, whose reversal DELETES the
+            // copied items. So "Press ⌘Z to undo" would walk the user from a merge that cannot be
+            // taken back to a prompt that removes the folded files from the keeper, with the
+            // originals already gone. Track it and stop making the offer.
             openUndoGroupIfNeeded()
-            let removed = await deleteItems(at: [redundant.path], fileManager: fm).removed
-            if removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
+            // `trashOutcome`, not `outcome`: the copy phase above already binds that name for its
+            // own result in this scope.
+            let trashOutcome = await deleteItems(at: [redundant.path], fileManager: fm)
+            if trashOutcome.removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
+            if trashOutcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
         }
 
         // Only drop the group and claim success when every redundant copy actually left the disk
@@ -845,7 +856,11 @@ extension FileSyncManager {
         // never show a false "Merged" banner over an orphaned folder.
         guard allTrashed, currentError == nil else {
             if cancelled {
-                banner = .warning("Merge of “\(group.name)” cancelled — unfinished copies were left in place. Everything already merged is undoable with ⌘Z; the group stays listed and a retry skips what landed.")
+                banner = .warning("Merge of “\(group.name)” cancelled — unfinished copies were left in place."
+                                  + (anyPermanentlyDeleted
+                                     ? " A copy was deleted permanently, so this cannot be undone."
+                                     : " Everything already merged is undoable with ⌘Z;")
+                                  + " the group stays listed and a retry skips what landed.")
             } else if let drifted = driftedCopies.first {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")
             } else if totalFolded > 0 {
@@ -854,8 +869,15 @@ extension FileSyncManager {
             return false
         }
         duplicateGroups.removeAll { $0.id == group.id }
-        banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name). Press ⌘Z to undo")
+        banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name)."
+                          + (anyPermanentlyDeleted ? "" : " Press ⌘Z to undo"),
+                          undoable: !anyPermanentlyDeleted)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
+        if anyPermanentlyDeleted {
+            // He audits this log, and this is the case where the fold cannot be taken back.
+            Logger.shared.warning(
+                "Duplicates: “\(group.name)” had a redundant copy deleted permanently rather than trashed — the merge is not undoable, and undoing the fold would remove the copied files from \(group.keeper.name)")
+        }
         return true
     }
 
