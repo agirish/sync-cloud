@@ -71,25 +71,33 @@ import Testing
     /// still gets them while the deadline holds. Without this, "raise the floor" and "the wait
     /// stops early" would look identical from the test above.
     ///
-    /// **The deadline is 300s, and that number has a story.** It was 30s, and this test then failed
-    /// six full-package runs out of six while passing every time under `--filter` — because sixty
-    /// passes cost about 1.1 SECONDS each on a congested main actor against 8ms idle, so the
-    /// deadline expired around pass 50 and the loop stopped at the floor. That is precisely
-    /// mechanism 2, committed by the test written to document mechanism 2: a demand denominated in
-    /// passes, bounded by a budget denominated in seconds.
+    /// **The clock is frozen, and that is the whole point.** This test asserts that a demand
+    /// denominated in PASSES is served; bounding it with a budget denominated in SECONDS is
+    /// mechanism 2 committed by the test written to document mechanism 2, and it went wrong twice:
     ///
-    /// A pass-denominated deadline is what this wants and there isn't one, so the deadline is
-    /// instead sized so congestion cannot reach it. That is safe here in a way it is NOT safe in
-    /// the calling suites, and the difference is worth stating: **the regression this guards
-    /// against returns IMMEDIATELY.** If the floor became a ceiling the loop exits at
-    /// `pumpFloor` and returns 51 passes in milliseconds, red. Nothing makes this test spend its
-    /// deadline except a pump that stops evaluating its condition entirely, which is not a
-    /// mutation of the line under test. So the large number costs nothing and buys immunity to the
-    /// machine — the opposite trade from a fifteen-second wait on rows that may never come.
+    /// - At 30s it failed six full-package runs out of six while passing every time under
+    ///   `--filter` — sixty passes cost ~1.1s each on a congested main actor against 8ms idle, so
+    ///   the deadline expired around pass 50 and the loop stopped at the floor.
+    /// - It was then "fixed" by raising the deadline to 300s, on the argument that congestion could
+    ///   not reach that. On 2026-08-13 congestion reached it: 57 passes of the 60 needed, in 304
+    ///   seconds — ~5.3s per pass, five times the rate that argument had already called congested.
+    ///   The run was red, on a commit that shares no symbol with this file.
+    ///
+    /// A bigger number was never the answer. `poll` has had an injectable clock since 2026-08-03
+    /// for exactly this reason and `pump` did not; now it does. With `now` frozen the deadline can
+    /// never expire, so the CONDITION decides when the loop ends and this asserts the loop's shape
+    /// rather than the machine's throughput. `upTo:` is left at an ordinary 60 to make the point
+    /// that its value no longer matters — see ``LayoutPumpWaitPollTests``, whose sibling test has
+    /// had this shape all along.
+    ///
+    /// The regression it guards against still returns immediately: if the floor became a ceiling
+    /// the loop exits at `pumpFloor` and reports 51 passes, red, in milliseconds.
     @Test func theDeadlineStillCarriesTheWaitPastTheFloor() async {
         var passes = 0
         let needed = LayoutPumpWait.pumpFloor + 10
-        let outcome = await LayoutPumpWait.pump(host(), upTo: 300) {
+        // Frozen: every read is the same instant, so `now() < deadline` is true forever.
+        let frozen = Date(timeIntervalSince1970: 1_770_000_000)
+        let outcome = await LayoutPumpWait.pump(host(), upTo: 60, now: { frozen }) {
             passes += 1
             return passes >= needed
         }
