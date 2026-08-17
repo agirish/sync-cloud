@@ -251,13 +251,6 @@ public struct PersonRegistry: Sendable {
         }
     }
 
-    /// One record per id — the last one listed, at the first one's position.
-    ///
-    /// Separate and `internal` so the rule can be tested for what it keeps as well as what it
-    /// drops: the winner is a whole record, not a merge of the two. Merging was the alternative
-    /// and is rejected deliberately — a union of two records' name forms is a person neither
-    /// entry describes, and it would contradict the load-time warning that says which one wins.
-    /// A duplicate is a mistake in a file somebody typed, and the honest repair is to pick one.
     /// The ids that appear more than once in `people`, sorted and unique.
     ///
     /// Read off the RAW list, before `uniqueById` collapses it — which is the whole point: after
@@ -269,6 +262,13 @@ public struct PersonRegistry: Sendable {
         return repeated.sorted()
     }
 
+    /// One record per id — the last one listed, at the first one's position.
+    ///
+    /// Separate and `internal` so the rule can be tested for what it keeps as well as what it
+    /// drops: the winner is a whole record, not a merge of the two. Merging was the alternative
+    /// and is rejected deliberately — a union of two records' name forms is a person neither
+    /// entry describes, and it would contradict the load-time warning that says which one wins.
+    /// A duplicate is a mistake in a file somebody typed, and the honest repair is to pick one.
     static func uniqueById(_ people: [Person]) -> [Person] {
         var positions: [String: Int] = [:]
         var kept: [Person] = []
