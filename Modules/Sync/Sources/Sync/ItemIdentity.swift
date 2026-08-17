@@ -20,6 +20,14 @@ public enum ItemIdentity: Equatable, Sendable {
     /// A directory. `childCount` is its number of immediate children — see `compare` for exactly
     /// what this can and cannot notice.
     case directory(modified: Date?, childCount: Int)
+    /// A symbolic link, described by its OWN size and date, not its target's.
+    ///
+    /// Spelled out rather than folded into `.file` because `attributesOfItem` does not follow
+    /// links — measured: a symlink pointing at a directory reports type `NSFileTypeSymbolicLink`
+    /// and size 98, the link's own bytes. Folded in, a symlinked folder would arrive as an
+    /// ordinary small file, quietly skipping the child-count check while looking like it had one,
+    /// and a link swapped for a same-size file would read as unchanged.
+    case symlink(size: Int, modified: Date?)
     /// Nothing is at the path.
     case absent
     /// Something is at the path but its state could not be read — an unstatable file, or a
@@ -42,9 +50,17 @@ public extension ItemIdentity {
 
     /// Reads the item at `url`.
     ///
-    /// Costs one `attributesOfItem` for a file, plus one shallow directory listing for a folder.
-    /// That is the same order of cost as the size snapshot it replaces, and cheap enough to take
-    /// at registration time (where it already is) and again at undo time.
+    /// **A folder identity is not the same order of cost as the size snapshot it replaces, and a
+    /// caller taking one per item in a batch has to account for that.** Measured on this machine:
+    /// `attributesOfItem` on a directory is ~138 µs, a shallow listing of a 2,000-entry directory
+    /// is ~4.4 ms — about 32× — and it scales with the entry count while the stat does not. For a
+    /// file the cost is unchanged: one `attributesOfItem`, with the modification date riding along
+    /// in the same call as the size.
+    ///
+    /// That lands at registration time rather than undo time — `registerCopyUndo` snapshots every
+    /// copied item up front, on the main actor — so a copy of many large folders pays a listing
+    /// each. Taking folder identities lazily, or off the main actor, is a decision for the call
+    /// site; this type does not make it.
     static func snapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
             // attributesOfItem throws for both "not there" and "there but unreadable", and those
@@ -52,7 +68,18 @@ public extension ItemIdentity {
             return fm.fileExists(atPath: url.path) ? .indeterminate : .absent
         }
 
-        if (attrs[.type] as? FileAttributeType) == .typeDirectory {
+        let type = attrs[.type] as? FileAttributeType
+
+        // Before the directory test, because attributesOfItem does NOT follow links: a symlink to
+        // a directory reports as a link, not as the directory it points at.
+        if type == .typeSymbolicLink {
+            guard let size = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int) else {
+                return .indeterminate
+            }
+            return .symlink(size: size, modified: attrs[.modificationDate] as? Date)
+        }
+
+        if type == .typeDirectory {
             let listing = fm.listing(of: url)
             switch listing.outcome {
             case .unreadable:

@@ -166,6 +166,45 @@ import Testing
         }
     }
 
+    /// A regular file is not a directory, and this API cannot say so — it answers `.unreadable`,
+    /// the same value a locked directory gets. Pinned because it is a conflation a caller could
+    /// otherwise discover the hard way, and because the safe direction today is an accident of
+    /// which callers exist rather than a property of the type.
+    @Test func aRegularFileHandedToTheListingApiReadsAsUnreadable() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DirListNotADir")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let file = base.appendingPathComponent("plain.txt")
+        try Data("hello".utf8).write(to: file)
+
+        #expect(FileManager.default.listing(of: file).outcome == .unreadable)
+
+        // The distinction this type does not carry, and where a caller has to get it instead.
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory))
+        #expect(!isDirectory.boolValue)
+    }
+
+    /// A hidden unreadable child must not drag its readable parent down to `.unreadable`, or a
+    /// caller would refuse to act on a folder that is perfectly fine. Measured: with
+    /// `.skipsHiddenFiles` the enumerator neither yields nor reports it.
+    @Test func aHiddenUnreadableChildDoesNotMakeItsParentUnreadable() throws {
+        guard !runningAsRoot else { return }
+        let base = try makeCanonicalTempRoot(prefix: "DirListHidden")
+        let parent = base.appendingPathComponent("parent")
+        let hidden = parent.appendingPathComponent(".locked")
+        try makeDir(hidden, files: 3)
+        try chmod(hidden, 0o000)
+        defer {
+            try? chmod(hidden, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let listing = FileManager.default.listing(of: parent, options: [.skipsHiddenFiles])
+
+        #expect(listing.outcome == .listed)
+        #expect(listing.urls.isEmpty)
+    }
+
     // MARK: The double is faithful to the real thing
 
     @Test func theMockModelsAnUnlistableDirectoryTheWayTheRealOneBehaves() throws {
@@ -192,6 +231,33 @@ import Testing
 
         #expect(fm.listing(of: URL(fileURLWithPath: "/empty")).outcome == .listed)
         #expect(fm.listing(of: URL(fileURLWithPath: "/locked")).outcome == .unreadable)
+    }
+
+    /// With nested unlistable directories the mock must name the OUTERMOST one, which is the one
+    /// the real enumerator meets first on its way down. Picking the first match out of a `Set`
+    /// instead made the answer depend on an iteration order Swift's per-launch hash seed decides.
+    ///
+    /// This asserts the rule, not the repetition: a Set's order is fixed within a process, so
+    /// looping here would re-run the same draw rather than sample new ones. What makes the code
+    /// deterministic is that the choice no longer consults that order at all.
+    ///
+    /// The fixture deliberately does not create `/root/a` as a stub — only `/root/a/b` below it —
+    /// because that is the shape that exposed the mock withholding the blocked directory from its
+    /// own listing, which turned a partial answer into a wholly unreadable one.
+    @Test func theMockNamesTheOutermostUnlistableAncestor() throws {
+        let fm = MockFileManager()
+        try fm.createDirectory(at: URL(fileURLWithPath: "/root"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: URL(fileURLWithPath: "/root/a/b"), withIntermediateDirectories: true)
+        fm.virtualDisk["/root/a/b/deep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        fm.unlistableDirectories = ["/root/a", "/root/a/b"]
+
+        let listing = fm.listing(of: URL(fileURLWithPath: "/root"), options: [])
+
+        #expect(listing.outcome == .listedWithUnreadableDescendants,
+                "the root itself is readable — this is a partial answer, not an unreadable one")
+        #expect(listing.unreadableDescendants.map(\.path) == ["/root/a"])
+        #expect(listing.urls.map(\.path) == ["/root/a"],
+                "the blocked directory is still an entry; nothing beneath it is")
     }
 
     @Test func theMockReportsAnUnlistableDescendantAsAPartialAnswer() throws {
