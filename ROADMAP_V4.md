@@ -88,10 +88,47 @@ it.** Absence proves nothing on its own; ⌥ read as spare for precisely the rea
 
 The decision follows `tabBar`'s precedent: rather than take a forbidden chord, the command keeps
 none. `ShortcutsWindowCommand` (`MacApp/ShortcutsReference.swift:114`) is already a Help-menu item
-titled "Keyboard Shortcuts"; dropping `.keyboardShortcut` costs the key equivalent and nothing else
-— the item stays where a person looking for it would look. If a chord is wanted back later it needs
-a modifier scanned against the ⌥ ban and the raw `keyboardShortcut` literals both, not just against
-`AppChord.registry`.
+titled "Keyboard Shortcuts"; dropping `.keyboardShortcut` leaves the item where a person looking for
+it would look. If a chord is wanted back later it needs a modifier scanned against the ⌥ ban and the
+raw `keyboardShortcut` literals both, not just against `AppChord.registry`.
+
+**It does not cost "the key equivalent and nothing else", as an earlier draft of this note claimed.**
+Three places advertise ⌘/ today, and implementing this has to touch all three or it ships a
+documented chord that does nothing:
+
+- `MacApp/HelpBook.swift:288` — a **user-facing Help article**: *"Open the full reference from Help ▸
+  Keyboard Shortcuts, or press ⌘/."* The clause after the comma becomes false and has to go.
+- `MacApp/ShortcutsReference.swift:58` — the reference's own row,
+  `Item(keys: "⌘ /", action: "Show this shortcuts reference")`. A shortcuts reference listing a
+  chord it no longer answers to is the worst version of this defect.
+- `SyncCloudTests/ShortcutsReferenceTests.swift:86` — `#expect(listed.contains("⌘/"), "splitting the
+  keys lost the chord whose key IS a slash")`. That row **is** the fixture: the test exists because
+  `/` is both a key and the separator between alternative chords (`⌘ Z / ⇧⌘ Z`), so it guards a real
+  splitting regression. Retiring the row does not just edit a test — it removes the only slash-keyed
+  entry in the table, so either another one has to take its place or the guard lapses silently.
+  Deleting the assertion along with the row is the tempting move and the wrong one.
+
+Count the cost of a chord removal in *documentation and fixtures*, not only in the declaration site.
+
+**⌥⌘V in §3 contradicts this ban, and lands harder than the case the ban was written for.** This
+same file still plans **⌘C / ⌘V / ⌥⌘V** as the pasteboard's cross-cloud move — the table row, the §3
+body and the ordered plan all carry it. ⌥⌘V is an ⌥-chord, so it fires from inside the look-release-
+press reveal exactly as ⌥⌘F did: a user reading the "⌘V" badge who presses ⌘V while still holding ⌥
+sends ⌥⌘V. The shipped precedent cost a fold of every folder, which is annoying and reversible;
+**⌥⌘V would move files across clouds**, which is neither. None of the three pasteboard rows carries
+an ⌥ caveat today, and
+`AppChordTests.noChordContainsOptionSoNothingFiresThroughTheReveal` would turn red the moment ⌥⌘V
+entered `AppChord.registry` — so this is not a subtle tension, it is a plan that cannot be
+implemented as written.
+
+**Not resolved here, deliberately.** Picking the replacement is a product decision about how
+paste-as-move should be spelled, and the lesson from ⌥⌘/ is precisely that a chord chosen by
+"what looks free" is how this happens. What the ban already settles is the *shape* of the answer:
+`tabBar`'s precedent is that a command may ship with **no chord at all** rather than a forbidden
+one, so a menu item under Edit with no key equivalent is a legitimate outcome and not a failure to
+decide. Whoever takes §3 should choose between that, a non-⌥ modifier scanned against both
+`AppChord.registry` and the raw `keyboardShortcut` literals, and a single ⌘V that resolves
+copy-versus-move from context — and should not treat the ⌥⌘V in the rows below as settled.
 
 **One more that followed from those:** with the card gone, anything that only the card could reach
 goes with it. The card lists workspaces, sources, folders and actions at 620pt; a 440pt dropdown
@@ -228,7 +265,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 | **⌘↑ enclosing folder, ⌘↓ open** | small | No `enclosingFolder` / `goUp` in the tree. Both chords free. |
 | **Go to Folder** | small | No path parsing in the palette. Do not add a sheet — teach §7's field to accept a typed path. |
 | **Pins + recents sidebar** | medium | `FolderJumpStore` persists pins, **not** recents — see the correction below. Menu-only today. |
-| **⌘C / ⌘V / ⌥⌘V** | medium | No file pasteboard. All eight `NSPasteboard` sites copy a path *as text*. |
+| **⌘C / ⌘V / ⌥⌘V** ⚠️ | medium | No file pasteboard. All eight `NSPasteboard` sites copy a path *as text*. **⌥⌘V is barred by the ⌥ ban above — spelling unresolved.** |
 | **Gallery view mode** | large | `PaneViewMode` has two cases; a third is free, thumbnails are the job. |
 | **Group by kind / date** | large | Sort is per-pane `KeyPathComparator`; grouping does not exist. |
 | **Drop files on a tab** | large | Needs row drag re-added. **The recorded reason for ranking it last is stale** — see below. |
@@ -276,7 +313,11 @@ a folder that has since gone — the same three questions the tab strip already 
   today they are reachable only through a menu. Browse has the width. With tabs it composes: click
   to switch, ⌘-click to open in a new tab. **Folders only** — the old Left/Right provider sidebar was
   removed on purpose when the provider became a dropdown, and this must not quietly bring it back.
-- **⌘C / ⌘V / ⌥⌘V.** There is no file pasteboard in the app; every existing use copies a path as
+- **⌘C / ⌘V / ⌥⌘V.** ⚠️ **The ⌥⌘V spelling is not available** — see the ⌥ ban above: an ⌥-chord
+  fires from inside the keycap reveal, so a user reading the "⌘V" badge who presses ⌘V while still
+  holding ⌥ would move files. The paste-as-move verb needs a different spelling (or none, following
+  `tabBar`); everything else in this item stands.
+  There is no file pasteboard in the app; every existing use copies a path as
   text. What earns writing one: with tabs, **this is the cross-cloud move** — copy in an iCloud tab,
   paste in a Dropbox one. It is the app's whole subject expressed in two chords people already know,
   and the only item in this release that adds a way to move data rather than a way to look at it. It
@@ -438,7 +479,8 @@ runs long — see the note under the list.
 7. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
    currently cannot answer at all.
 8. **Pins and recents sidebar** (§3). Reads the store step 1 made durable.
-9. **The pasteboard** (§3). ⌘C/⌘V/⌥⌘V — the cross-cloud move, and the largest user-facing gain left.
+9. **The pasteboard** (§3). ⌘C/⌘V + a paste-as-move whose chord is still to be chosen (**not ⌥⌘V** —
+   the ⌥ ban above) — the cross-cloud move, and the largest user-facing gain left.
 10. **§1's switch mirroring** — or delete it, having now run tabs for a release. It has been
     designed twice and carried twice; a third carry is the signal to drop it.
 11. **One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.

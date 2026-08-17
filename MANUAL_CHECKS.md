@@ -214,19 +214,53 @@ to decide whether it closes a **tab** or the **window**. Aiming a verb at the wr
 does not misplace a highlight — it closes the window out from under a pick the user can still see.
 
 That polarity is now driven by `PaneSideChoice.own` and tested for real, and nineteen mutations of
-it are killed by name. What no test reaches is what a person *sees* when the aim moves: the ring
-lands on the other pane, and Copy Path — a read-only verb — moves it too. That is deliberate and
-consistent with clicking a chip, but nothing on screen announces it, so it is worth one walk.
+it are killed by name. What no test reaches is the aim moving under a verb the user did not think of
+as a navigation — Copy Path is read-only and moves it too. That is deliberate and consistent with
+clicking a chip, but nothing announces it, so it is worth one walk.
 
-- [ ] **Copy Path does not cost you the window.** In Compare, put two tabs in the right strip and
-  leave the ring on a one-tab left pane. Right-click a right-strip chip ▸ **Copy Path**, then press
-  ⌘W. The right pane must lose a tab; **the window must not close**. Before this landed, Copy Path
-  was the one strip verb that never moved the aim, so ⌘W went to the left pane's last tab and took
-  the window with it.
-- [ ] **…and the ring visibly follows it.** Same setup: watch the focus ring while you pick Copy
-  Path. It should move to the right pane, as it would had you clicked the chip. If that reads as
-  surprising for a copy, say so — the alternative is a verb that acts on one pane while the chords
-  stay aimed at the other, which is the bug above.
-- [ ] **Unpin, then ⌘W.** Right-click a pinned chip in the right strip ▸ unpin, then ⌘W. The right
-  pane loses a tab. Pin/unpin used to move the aim only on the *pinning* branch, so unpinning left
-  ⌘W pointed at the pane you were not looking at.
+**Read this before running any of the three — an earlier version of these checks could not fail.**
+
+- **There is no focus ring to watch.** `focusedPaneSide` (`FileSyncManager.swift`, and its own
+  declaration says so) deliberately does not feed the action bar, which draws off
+  `PaneLogic.activePane` instead, and nothing else renders it. A check written as "watch the ring
+  follow Copy Path" is unfalsifiable: nothing on screen changes whether the code is right or wrong.
+  **The only observable is the log line** written by `noteFocusedPane`
+  (`FileSyncManager+Navigation.swift`) — *"The pane-scoped chords (⌘W, ⌘T, ⌘F) now aim at … rather
+  than …"*. It is `.debug`, and `minimumLevel` defaults to debug, so `tail -f ~/sync-cloud.log`
+  while you work is the instrument. Note it is deliberately silent on a no-op, so *no line* means
+  the aim was already there.
+- **Staging the verb also aims the verb.** Every route to a pinned or second right-hand tab runs
+  through `tabAction(isLeft:)`, which calls `noteWorkingIn` unconditionally — so by the time you
+  reach the verb under test, the aim is already on the right pane and ⌘W closes a right tab whether
+  the code is correct or broken. **Every check below therefore has an explicit re-aim step: click a
+  row in the LEFT pane after staging and before the verb.** It must select a row — an empty click
+  answers with the current side and is a no-op — and the log line is your confirmation it took.
+- **Preconditions.** Compare mode with both panes visible; the seam's **🔗 link toggle OFF** (linked
+  navigation changes where a folder opens, so it changes what you are staging); and the right strip
+  must hold **at least two** tabs before any ⌘W, or you hit `closeTab`'s last-tab branch, which
+  closes the window on correct code and looks exactly like the bug.
+
+Checks, each staged so that a broken build and a correct one differ:
+
+- [ ] **Copy Path does not cost you the window.** Put **two** tabs in the right strip. Click a row
+  in the **left** pane (log: aim moves left). Now right-click a right-strip chip ▸ **Copy Path**,
+  then press ⌘W. Expect: the log says the aim moved to the right pane on Copy Path, the **right**
+  pane loses a tab, and the window stays open. Before this landed, Copy Path was the one strip verb
+  that never moved the aim, so ⌘W went to the left pane and took the window with it.
+- [ ] **Unpin re-aims too.** With two tabs in the right strip, pin one (right-click ▸ **Pin Tab**).
+  Click a row in the **left** pane to move the aim back. Then right-click the pinned chip ▸ **Unpin
+  Tab** and press ⌘W. Expect: the right pane loses a tab, window stays open. Without the re-aim step
+  this check passes on any build, because pinning aimed the chords right in the first place.
+- [ ] **The line names the pane and the reason.** While doing either walk, confirm the log line
+  actually names the side it moved to and a human reason (*"Copy Path from a browse tab's menu"*,
+  *"Pin/Unpin from a browse tab's menu"*). A move that happens silently, or one that names the wrong
+  pane, is the failure — this is the check that the instrument itself is honest.
+
+**What was here before, and why it is gone.** This section used to assert that "the unpin door sat
+inside the `if pinned` branch" until `b1b0a56d`. Both halves are wrong. `git log -S 'if pinned {' --
+MacApp/ContentView+PaneTabs.swift` returns exactly one commit, `18babda6`, and there the string is
+**prose in a doc comment** recording a mutation that was tried and killed — the shipped code always
+called `noteWorkingIn` unconditionally through `tabAction`. A mutation artifact had been written
+into a checked-in document as if it were release history. And the call was added by `becf9cbd`, as
+that commit's own body says; `b1b0a56d` only gave Copy Path's log line its side and tab. Do not
+reintroduce a "regression fixed" note here without a commit that shows the defect shipped.

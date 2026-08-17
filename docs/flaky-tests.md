@@ -5,13 +5,17 @@ time, the failure looked exactly like a real defect. `ColumnPreviewRevealTests` 
 deepest column is hidden behind the preview: column 420…630, visible 0…270", which is the precise
 geometry of the bug it exists to catch. Nothing about that message says *the machine decided this*.
 
-This file records the mechanisms that have actually produced false failures in this repo — plus
-two that produce no failure at all: mechanism 8 hangs the run instead, and mechanism 12 makes a test
-**pass** without having examined anything. Read that second one before writing any assertion about
-`Logger.shared.entries`; it is the only mechanism here whose damage is silent and permanent, so
-unlike the rest it costs you nothing to notice and everything to miss. Below: how to tell each from
-a regression before you start bisecting, and the fix pattern for each. See [ci.md](ci.md) for what CI
-runs and the runner's own quirks.
+This file records the mechanisms that have actually produced false failures in this repo — and the
+ones that produce no failure at all, which are the more expensive half. Mechanism 8 can hang the run
+instead of failing it, and **four separate mechanisms here can leave an assertion passing having
+examined nothing**: mechanism 2 (a fixed sleep before an absence assertion), mechanism 8 (a bound
+whose expiry is discarded), mechanism 9 (an absence with no paired control that the signal ever
+arrived) and mechanism 12 (a log window that rolled past the interval being read). Read 12 before
+writing any assertion about `Logger.shared.entries`, and read all four before writing any assertion
+that something did *not* happen — a vacuous pass is silent and permanent, so unlike a false failure
+it costs you nothing to notice and everything to miss. Below: how to tell each from a regression
+before you start bisecting, and the fix pattern for each. See [ci.md](ci.md) for what CI runs and the
+runner's own quirks.
 
 ---
 
@@ -1373,30 +1377,55 @@ like this one.
 **The two directions cost differently, and that asymmetry is the point.** A rolled window turns a
 presence assertion into a false **failure** — noisy, visible, someone bisects for a day. It turns an
 absence assertion into a false **pass** — silent, and permanent, because nothing will ever draw
-attention to it again. **No other mechanism in this file can make a test pass without it having
-examined anything.** Everything else here at worst wastes your time; this one quietly deletes
-coverage.
+attention to it again.
+
+**It is not the only mechanism here that can do that, and an earlier draft of this section claimed
+it was.** Mechanism 2 makes an absence vacuous with a fixed sleep before it; mechanism 8 does it with
+a bound whose expiry is discarded; mechanism 9 does it with an absence that has no paired control
+proving the signal could have arrived. All four delete coverage in silence, and a reader taught that
+only this one can will not go looking for the other three. What *is* particular to this one is where
+the trigger lives: the other three are visible in the test's own source, while this one fires on the
+volume of unrelated suites, so the same test is honest or vacuous depending on what else was
+scheduled beside it.
 
 **Measured, not theorised.** `f87d9e11` records it in as many words — *"`Logger.shared.entries` is
 capped at 1000, so a test that awaits a whole refresh before reading can watch its own line get
 evicted by other suites — this failed twice in parallel runs before both halves were made to read
-immediately"* — and the finding is kept next to the test it cost, at
-`Modules/Sync/Tests/Sync/LoggingGapTests.swift:51-59`: the first version of
-`wideningAOnePaneRefreshSaysSo` awaited the refresh and then reported a missing line **for a line
-that had been written**.
+immediately"* — and the finding is kept next to the test it cost, in the doc comment of
+`wideningAOnePaneRefreshSaysSo` in `Modules/Sync/Tests/Sync/LoggingGapTests.swift`: the first
+version of that test awaited the refresh and then reported a missing line **for a line that had
+been written**.
 
 **Fix.** Four rules. The first two are the whole of it; the second two are what make them hold.
 
-1. **For an absence assertion, write your own marker FIRST and `#require` that it survived.** The
-   marker goes in *before* the call under test, and the assertion reads only from it onward. If the
-   window rolled past your own opening marker, the `#require` fails and says the reading was
-   vacuous — which converts the silent false pass into an ordinary, legible failure. This is the
-   single rule that matters most, because it is the only one guarding the direction nothing else
-   can detect.
+1. **An absence assertion needs BOTH guards: your own marker FIRST, `#require`d to have survived,
+   AND an awaited flush LAST.** The marker goes in *before* the call under test and the assertion
+   reads only from it onward, so a window that rolled past your own opening marker fails the
+   `#require` and says the reading was vacuous instead of passing. That closes **eviction** — and it
+   says nothing about **visibility**, which is the other way this assertion reads an empty interval.
+   `Logger.log(level:message:)` is `nonisolated`: it hands the entry to a FIFO queue drained by a
+   `@MainActor` flush task (`log(level:message:)` and `flushPendingEntries()` in
+   `Modules/Events/Sources/Events/Logger.swift`). On a `@MainActor` test that does not suspend
+   between the call under test and the read, that flush has not run, and the line is simply not in
+   `entries` yet. Close it by awaiting one more entry's task before reading — `await
+   Logger.shared.debug("… flush marker").value` — which, the queue being FIFO, drains everything
+   enqueued before it.
+
+   **Measured 2026-08-17, as a pair, because this rule used to say only the first half.** A
+   `@MainActor` probe applying the marker and the `#require` but no trailing flush **passed** an
+   absence for a line its own call under test had just written. The identical probe with one awaited
+   flush added **failed**, correctly seeing the line. A third — flush present, and 1100 filler lines
+   rolling the window between the marker and the read — failed on the `#require` instead. The two
+   guards are independent and both are load-bearing: the flush cannot see eviction, and the marker
+   cannot see the queue. Every implementation in this repo already had the flush; it was the advice
+   that had dropped it, which is why `ContentSignalExtractorTests` below keeps both.
 2. **For a presence assertion, read strictly BETWEEN two of your own markers** — open, act, close —
-   rather than over the buffer. This does two jobs at once: the `#require`d opening marker is the
-   eviction guard as above, and the bounded slice stops a *foreign* line with the same text
-   satisfying your assertion, which a whole-buffer `contains` cannot distinguish from your own.
+   rather than over the buffer. This does three jobs at once: the `#require`d opening marker is the
+   eviction guard as above, the *awaited* closing marker is rule 1's flush (which is why this shape
+   has never shown the visibility bug — it supplies the drain as a side effect of bounding the top,
+   and that is worth knowing deliberately rather than relying on by accident), and the bounded slice
+   stops a *foreign* line with the same text satisfying your assertion, which a whole-buffer
+   `contains` cannot distinguish from your own.
 3. **Read as soon as the decision is taken, not after the work completes.** Most of these lines are
    written synchronously at the top of an operation, long before it finishes; awaiting the whole
    operation just hands the rest of the package more time to roll your line away. Wait on the
@@ -1428,7 +1457,11 @@ down with it — a rolled buffer would then report as infrastructure and lose th
 `SyncCloudTests/TestSupport.swift` (`textBetween`) and `TextBetweenTests` for the same hazard in
 source scans.
 
-**A flush marker is NOT an eviction guard, and most sites here still only flush.** The common idiom —
+**A flush marker is NOT an eviction guard — so add the marker, do not drop the flush.** Most sites
+here still only flush, and the fix for them is to gain a survival guard, not to trade one guard for
+another: the flush is what makes the line *visible* at all (rule 1's second half), and a
+"modernised" test that replaced its flush with an opening marker would go back to reading an
+interval its own line has not reached yet. The common idiom —
 
 ```swift
 await Logger.shared.debug("some-test flush marker").value
@@ -1440,34 +1473,73 @@ guarantees everything enqueued before it is *visible* in `entries`. But visibili
 The marker is written **after** the call under test and its presence is never asserted, so it proves
 your line has arrived while saying nothing about whether it has already been pushed out.
 
-Count it before trusting it, because the ratio is moving. As of 2026-08-16, **thirteen files** still
-use the flush-only idiom against **four** that read a bounded window — and the four are growing, so
-recount rather than quoting this line:
+Count it before trusting it, because the ratio is moving. Re-counted **2026-08-17: twelve files**
+still use the flush-only idiom against **five** that read a bounded window.
 
 ```sh
-grep -rl "flush marker" Modules SyncCloudTests                   # 14 — one hit is this note's prose
-grep -rlE 'debug\("[a-z-]+ window open' Modules SyncCloudTests   # 4  — the bounded-window adopters
+grep -rl "flush marker" Modules SyncCloudTests                   # 14 files, but see both notes below
+grep -rlE 'debug\("[a-z-]+ window open' Modules SyncCloudTests   # 4  — MISSES one adopter, below
 ```
+
+**Neither number is the answer on its own, and the arithmetic is the point of keeping this here.**
+Of the 14 files matching `flush marker`, two are not flush-only sites:
+`Modules/Sync/Tests/Sync/PaneTabsTests.swift` matches only in the prose of a doc comment (it is a
+bounded-window adopter), and `SyncCloudTests/ContentSignalExtractorTests.swift` now reads a bounded
+window *and* keeps its flush. 14 − 2 = **12**. And the adopter regex structurally cannot find
+`ContentSignalExtractorTests`, which builds its marker into a variable and passes it as
+`debug(marker)` rather than as a string literal; 4 + 1 = **5**. A previous revision of this note
+annotated the first command "one hit is this note's prose", which was doubly wrong: the prose hit is
+in a test file, and `docs/` is not even in the grep path, so this file cannot match its own command.
+Read the hits, do not trust the count.
 
 They are not wrong today, and none has been observed to roll;
 `LoggingGapTests` in particular is safe for a different reason, rule 3 — it reads at the decision, so
 its window never has time to move. The rest are one busy suite away, and the ones asserting
 *absence* will not tell you when it happens.
-`SyncCloudTests/ContentSignalExtractorTests.swift:215-219` is the clearest live example: an
-`isEmpty` assertion over the whole buffer, marker written afterward and never asserted.
 
-**Model implementations**, in the order worth copying:
+**The live exposed sites, as of 2026-08-17**, are the absence halves — the ones that cannot report
+their own failure:
 
-- `SyncCloudTests/ShortcutCommandsTests.swift:417-455` — the original two-marker `window(_:)`, with
-  the reasoning in its doc comment and both halves (presence and absence) read through it.
-- `Modules/Sync/Tests/Sync/PaneTabsTests.swift:455-488` — `loggedWindow(_:)`, the Sync-package copy;
+- `Modules/Sync/Tests/Sync/FilingScanAbandonmentLogTests.swift:51`, `:81`, `:138` — three
+  `#expect(await loggedLine(containing:) == nil, …)`. The helper `loggedLine(containing:)` writes
+  `filing-abandon flush marker` **after** the call under test, never asserts it survived, and then
+  searches the whole buffer with `entries.first { … }`.
+- `Modules/Sync/Tests/Sync/UndoRedoLogLabelTests.swift:40` —
+  `#expect(!(await loggerContains("User triggered Redo: Delete 1 Items")))`. Same shape, helper
+  `loggerContains(_:)`. Its siblings in that same test are presence assertions, so a roll would fail
+  *those* loudly while `:40` passed for free — the asymmetry inside one test.
+
+`SyncCloudTests/ContentSignalExtractorTests.swift` used to head this list and no longer belongs on
+it: `9da161d8` converted it, and `aScanThatOCRsCleanlyReportsNoOCRFailure` is now worth copying
+instead. It is the clearest implementation of the corrected rule 1 — a unique marker written and
+awaited *before* the call under test, its index `#require`d with a message naming the reading as
+vacuous, **and** the trailing awaited flush kept, so the interval is both survived and visible. Its
+doc comment also states why it needs no `.serialized`, which is rule 4 answered rather than ignored.
+
+**Model implementations**, in the order worth copying. Cited by **symbol**, deliberately: two of the
+line ranges this list used to carry were correct when written and silently wrong a commit or two
+later, once a sibling inserted a helper above them. A file whose whole value is being checkable
+cannot afford citations that rot without saying so — `grep -n` costs the reader nothing.
+
+- `window(_:)` in `SyncCloudTests/ShortcutCommandsTests.swift` — the original two-marker helper,
+  with the reasoning in its doc comment and both halves (presence and absence) read through it.
+- `loggedWindow(_:)` in `Modules/Sync/Tests/Sync/PaneTabsTests.swift` — the Sync-package copy;
   returns `ArraySlice<LogEntry>` so the level can be asserted too, and computes each index *before*
   the `#require` so a failure prints an index rather than 152KB of dumped buffer.
-- `Modules/Sync/Tests/Sync/LoggingGapTests.swift:51-59` — why to read at the decision rather than at
-  completion, which is rule 3 and the one that is easy to talk yourself out of.
+- `aScanThatOCRsCleanlyReportsNoOCRFailure` in `SyncCloudTests/ContentSignalExtractorTests.swift` —
+  the absence case with both of rule 1's guards, marker-then-`#require` *and* the trailing flush.
+- `wideningAOnePaneRefreshSaysSo` in `Modules/Sync/Tests/Sync/LoggingGapTests.swift` — why to read
+  at the decision rather than at completion, which is rule 3 and the one that is easy to talk
+  yourself out of.
+
+**This mechanism has a different number on each line, so cite it by name.** It is **12** here, 11 on
+`v2.x` and 10 on `v3.x`, because the three registers accumulated different entries before it. Write
+"the rolled log window" — a bare number goes stale the moment a text is cherry-picked between lines,
+and a commit on `v2.x` already refers to that line's entry by this one's number.
 
 **See.** `f87d9e11` — *Account for a rollback and a widening the log could not explain* (where it was
-first measured); `Modules/Events/Sources/Events/Logger.swift:376` for the cap itself.
+first measured); `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap
+itself.
 
 ---
 
