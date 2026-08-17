@@ -30,6 +30,17 @@ extension FileSyncManager {
     ///
     /// Enriched inside `registerMoveUndo` rather than added to `MoveItemState`, so the nine call
     /// sites that build a move state keep passing what they already build.
+    ///
+    /// **Nine, and `d650da77`'s commit message says eight.** Eight is the maintenance lines' count:
+    /// `applyRenamePlans` lives in `FileSyncManager+FilingRename.swift`, which exists on `main`
+    /// alone, and the figure travelled here with the cherry-pick. The code was written against
+    /// `main` and is right; only the message is wrong, and a message cannot be corrected without
+    /// rewriting history, so it is corrected here. Counted rather than remembered, and the nine are
+    /// named so a future recount can be checked against them rather than re-derived: `+BulkSync`,
+    /// `+FilingRename`, `FileSyncManager.swift`, `+NameNormalize`, `FileOperations.swift` ×2,
+    /// `+Filing` ×2, `+Automations`. A grep for the count has to exclude this file's own
+    /// declarations and doc mentions, which is exactly the mistake `d650da77` records correcting
+    /// when it found `liveLocation` saying "ten".
     typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity)
     /// What a move-REDO needs to re-apply one item: where its undo put the item back, where the
     /// original move had sent it, and the identity read at `from` the instant the undo landed it
@@ -379,12 +390,25 @@ extension FileSyncManager {
     /// paragraphs up, whose whole justification is a cascade where one move's `to` IS another's
     /// `from`. Both cannot be true of the same producer, and the fixture the leaf rule is built on
     /// is the version the convention declares impossible. The convention is a property of today's
-    /// planner. What actually makes `to == from` unproducible is the never-overwrite fallback at
-    /// `FileSyncManager+FilingRename.swift:251-258`: a `dst` already occupied by a DIFFERENT item
-    /// is diverted through `generateUniqueURL` before the move runs, so no applied step can land on
-    /// a path another step is still sourcing from — whatever the planner names things. A guard
-    /// whose stated reason is not its operative reason is one planner change away from being
-    /// silently wrong, which is why the leaf rule stays regardless.
+    /// planner.
+    ///
+    /// **The replacement reason was wrong too, and in the more dangerous direction: it declared the
+    /// collision unproducible.** It credited the never-overwrite fallback at
+    /// `FileSyncManager+FilingRename.swift:251-258` — a `dst` already occupied by a DIFFERENT item
+    /// is diverted through `generateUniqueURL` — and concluded that "no applied step can land on a
+    /// path another step is still sourcing from, whatever the planner names things". That fallback
+    /// tests `fileExists` at APPLY time, per step, in `plan.steps` order, so it blocks the
+    /// collision only for a step whose target is still occupied. For an EARLIER one the path has
+    /// already been vacated and no diversion happens: a descending renumber `03→04`, `02→03`,
+    /// `01→02` moves `03` away first, so `02→03` finds `03` free, takes it, and produces a move
+    /// whose `to` is exactly another move's `from`. `applyRenamePlans` is therefore a real producer
+    /// of the leaf collision, which is what the paragraph above already assumes and what the leaf
+    /// rule is here to survive — and that is the whole answer. Nothing needs to make `to == from`
+    /// impossible; not rewriting the leaf is what makes it harmless.
+    ///
+    /// The habit worth keeping from both wrong versions: a guard whose stated reason is not its
+    /// operative reason is one planner change away from being silently wrong. Stating a guarantee
+    /// the code does not have is worse still, because it invites the guard's removal.
     nonisolated static func liveLocation(
         of destination: URL, throughRenames renames: [String: String], fileManager fm: FileManaging
     ) -> URL {
@@ -857,15 +881,26 @@ extension FileSyncManager {
     /// nothing to get wrong. If a second call site ever needs an order, SORT it as `normalizeNames`
     /// does rather than leaning on the reversal.
     ///
-    /// **`applyRenamePlans`' cascades are safe for a different reason than this used to give.** The
-    /// old wording credited the naming convention — the label travels with the number, so
+    /// **`applyRenamePlans`' cascades are safe, and neither reason this has given for it was the
+    /// real one.** The first credited the naming convention — the label travels with the number, so
     /// `01. Mar`→`02. Mar` sits beside `02. Apr`→`03. Apr` and no destination is another's source.
-    /// That is true of today's planner and it is not what guarantees it: the operative rule is the
-    /// never-overwrite fallback at `FileSyncManager+FilingRename.swift:251-258`, which diverts
-    /// `dst` through `generateUniqueURL` the moment the target path is occupied by a different
-    /// item. So even a planner that did renumber onto a live sibling could not produce a move whose
-    /// `to` is another move's `from`. Crediting the convention states a guarantee that a future
-    /// planner change could quietly remove; crediting the fallback states the one that holds.
+    /// That is true of today's planner and is not a guarantee. The second replaced it with the
+    /// never-overwrite fallback at `FileSyncManager+FilingRename.swift:251-258`, which diverts `dst`
+    /// through `generateUniqueURL` when the target is occupied by a different item, and concluded
+    /// that even a planner renumbering onto a live sibling "could not produce a move whose `to` is
+    /// another move's `from`". It can: that fallback stats at APPLY time in step order, so it
+    /// diverts only a step whose target is still occupied, and a descending renumber `03→04`,
+    /// `02→03`, `01→02` vacates `03` before `02→03` looks at it. The chain is produced.
+    ///
+    /// What actually holds is one step further on, and it is a property of the UNDO rather than of
+    /// the planner: undoing that batch first moves `04`→`03`, and `03` is occupied — by the very
+    /// item the `02→03` step put there — so the occupancy check refuses it with
+    /// `restoreTargetOccupiedError`, and a refused item is never added to `movedBackPairs`. `03`→`02`
+    /// refuses for the same reason one link along. The chain links therefore never reach the redo
+    /// params, and the reversal below has nothing to get wrong — the same mechanism that already
+    /// covers the multi-select case in the paragraph above, which is why this now names it once
+    /// instead of inventing a second one. Note what that means in the other direction: it holds
+    /// because the cascade cannot be undone, not because it cannot be built.
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
