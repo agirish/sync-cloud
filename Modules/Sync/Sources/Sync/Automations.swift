@@ -239,6 +239,14 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         }
     }
 
+    /// True when the rule carries a value written by a build that knows more than this one.
+    ///
+    /// Such a rule is deliberately never ``isRunnable``, and this is how a surface tells that apart
+    /// from an ordinary half-built rule — which reads completely differently to a person. "Give the
+    /// rule a condition and destination" is the wrong advice for a rule that already has both, and
+    /// sends the user hunting for something that is not missing.
+    public var hasUnreadableValues: Bool { !unreadableFields.isEmpty }
+
     /// True when any (complete) condition reads file text — the preview then fetches a snippet.
     public var requiresContent: Bool {
         conditions.contains { $0.requiresContent && $0.isComplete }
