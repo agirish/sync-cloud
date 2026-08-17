@@ -656,7 +656,7 @@ import Sync
                 "the line that closes the window does not say which tab was aimed at")
         // …and the branch RETURNS. Falling through would ask the list to close a tab it refuses to
         // close, on a window that is already going: harmless today, and only by that refusal.
-        #expect(String(rest[close.upperBound..<verb.lowerBound]).contains("return"),
+        #expect(textBetween(rest, from: close.upperBound, to: verb.lowerBound)?.contains("return") == true,
                 "the last-tab branch closes the window and then goes on to close a tab as well")
     }
 
@@ -789,7 +789,7 @@ import Sync
                                      "a launch whose only tab lost its folder now says nothing at all")
         #expect(abandoned.lowerBound < claim.lowerBound && gate.upperBound < abandoned.lowerBound,
                 "the abandoned-restore line is not in the guard's own branch")
-        #expect(String(body[abandoned.lowerBound..<claim.lowerBound]).contains("\\(lost)"),
+        #expect(textBetween(body, from: abandoned.lowerBound, to: claim.lowerBound)?.contains("\\(lost)") == true,
                 "the abandoned-restore line does not name the folder that was lost")
     }
 
@@ -1459,8 +1459,8 @@ import Sync
                                 "the selection line is unconditional again — clicking the active chip logs a switch that did not happen")
         let log = try #require(body.range(of: "Logger.shared.debug("))
         let verb = try #require(body.range(of: "syncManager.switchTab(to: id"))
-        #expect(String(body[gate.upperBound..<log.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
                 "the line is not inside the guard — an empty branch with the log after it reads the same way round and logs every re-click")
         #expect(log.upperBound < verb.lowerBound,
                 "the line is written after the switch it announces")
@@ -1491,8 +1491,8 @@ import Sync
         // opens before the line — `if closing > 0 { }` with the log unconditionally after it holds
         // every comparison here and writes "User closed 0 other browse tabs, keeping 1 pinned"
         // again, verbatim. The line has to be the FIRST thing inside the branch.
-        #expect(String(body[gate.upperBound..<log.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
                 "the line is not inside the `if closing > 0` branch — an ⌥-click with nothing to close still logs a close that did not happen")
     }
 

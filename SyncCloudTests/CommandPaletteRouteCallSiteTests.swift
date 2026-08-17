@@ -217,8 +217,8 @@ import Sync
                 "the scope is written before the user has agreed to anything — Cancel would leave half the route applied")
         // The refusal must LEAVE, not fall through. Between the question and the first write there
         // has to be a way out, or "Cancel" swaps nothing and applies everything anyway.
-        let betweenAskAndWrite = body[confirm.upperBound..<scopeWrite.lowerBound]
-        #expect(betweenAskAndWrite.contains("return"),
+        let betweenAskAndWrite = textBetween(body, from: confirm.upperBound, to: scopeWrite.lowerBound)
+        #expect(betweenAskAndWrite?.contains("return") == true,
                 "nothing returns between the confirm and the first write — cancelling falls through and the route applies regardless")
 
         // The swap itself is the app's atomic one. Exchanging the two ids here would leave the

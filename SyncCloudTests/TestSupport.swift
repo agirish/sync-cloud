@@ -93,6 +93,40 @@ func macAppDirectory() -> URL {
         .appendingPathComponent("MacApp")
 }
 
+/// The text between two positions found by **separate** `range(of:)` searches — `nil` when they
+/// come back out of order, rather than a trap.
+///
+/// `body[first.upperBound..<second.lowerBound]` is how a scan asks "what sits between these two
+/// lines", and it is only valid while the two searches happen to land in the expected order —
+/// which is exactly what the surrounding assertions are there to doubt. When the order does not
+/// hold, `Range` traps: `Fatal error: Range requires lowerBound <= upperBound`. That is
+/// `_assertionFailure`, inside `#expect`'s own expression, so it takes down the **whole test
+/// host** — and with it every remaining test in the run. Two crash reports on 2026-08-16
+/// (`SyncCloud-2026-08-16-185034{,.000}.ips`) are that trap, from
+/// `theLostFolderLineDoesNotClaimARestoreThatWasAbandoned` while the regression it guards was
+/// still live: the assertion did its job and the run died reporting infrastructure instead.
+///
+/// **`#expect` records and continues**, which is the half that makes this a hazard rather than a
+/// typo. An ordering `#expect` on the line above does not stop the slice on the line below from
+/// running with the order it just disproved; only `#require` would, and these tests deliberately
+/// keep going so their other assertions still report.
+///
+/// So the ordering becomes part of the answer. Compare against `== true` at the call site and a
+/// `nil` **fails** the expectation — no crash, and no vacuous pass either:
+///
+/// ```swift
+/// #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?.contains("return") == true, "…")
+/// ```
+///
+/// Prefer searching from after the first match — `content[x.upperBound...].range(of:)`, or
+/// `range(of:_:range:)` — wherever the second thing genuinely *is* "the next one after the first",
+/// since that makes the order structural and needs no helper. This exists for the other case: two
+/// independent searches whose relative order is itself under test.
+func textBetween(_ source: String, from: String.Index, to: String.Index) -> String? {
+    guard from <= to else { return nil }
+    return String(source[from..<to])
+}
+
 /// Source with whole-line `//` comments removed — what a source scan should be asking its
 /// questions of, since prose is not code and has answered several of them wrongly.
 func sourceCodeOnly(_ source: String) -> String {
