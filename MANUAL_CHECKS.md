@@ -206,3 +206,27 @@ not crossing, and a swap surviving a relaunch. Those are below. This change's on
 - [ ] **A pane with nothing stored is unchanged.** Hardest to stage now that both keys exist: delete
   `browseTabsRight` from the app's defaults while it is quit, then launch → the right pane opens at
   its last folder exactly as it did before this shipped, rather than at the root.
+
+## Which pane a tab verb aims at (2026-08-17) — the one destructive outcome in the feature
+
+Every strip-aimed verb calls `noteWorkingIn`, which sets `focusedPaneSide`, which is what ⌘W reads
+to decide whether it closes a **tab** or the **window**. Aiming a verb at the wrong pane therefore
+does not misplace a highlight — it closes the window out from under a pick the user can still see.
+
+That polarity is now driven by `PaneSideChoice.own` and tested for real, and nineteen mutations of
+it are killed by name. What no test reaches is what a person *sees* when the aim moves: the ring
+lands on the other pane, and Copy Path — a read-only verb — moves it too. That is deliberate and
+consistent with clicking a chip, but nothing on screen announces it, so it is worth one walk.
+
+- [ ] **Copy Path does not cost you the window.** In Compare, put two tabs in the right strip and
+  leave the ring on a one-tab left pane. Right-click a right-strip chip ▸ **Copy Path**, then press
+  ⌘W. The right pane must lose a tab; **the window must not close**. Before this landed, Copy Path
+  was the one strip verb that never moved the aim, so ⌘W went to the left pane's last tab and took
+  the window with it.
+- [ ] **…and the ring visibly follows it.** Same setup: watch the focus ring while you pick Copy
+  Path. It should move to the right pane, as it would had you clicked the chip. If that reads as
+  surprising for a copy, say so — the alternative is a verb that acts on one pane while the chords
+  stay aimed at the other, which is the bug above.
+- [ ] **Unpin, then ⌘W.** Right-click a pinned chip in the right strip ▸ unpin, then ⌘W. The right
+  pane loses a tab. Pin/unpin used to move the aim only on the *pinning* branch, so unpinning left
+  ⌘W pointed at the pane you were not looking at.
