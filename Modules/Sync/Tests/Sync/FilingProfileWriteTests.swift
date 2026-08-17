@@ -112,7 +112,7 @@ import Testing
     /// error and the existing file is *byte-identical* afterwards.
     ///
     /// The two profiles differ in every readable field, so a permissive guard cannot pass this by
-    /// writing something that happens to read the same: `ROADMAP_V4.md` — "A name-only profile must
+    /// writing something that happens to read the same: `ROADMAP_V5.md` — "A name-only profile must
     /// never land on top of a hand-built one — it would degrade To File and Renames with nothing
     /// failing."
     /// Note the index assertion in here is a control, not coverage: the `profileExists` guard runs

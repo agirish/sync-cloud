@@ -21,7 +21,7 @@ import Foundation
 /// **The profile now has exactly one write path — ``writeProfile(_:in:builtBy:now:)`` — and it is
 /// built to take the paragraph above as a constraint rather than to soften it.** It exists for one
 /// state only: a machine with no profile at all, where the app can otherwise offer nothing (see
-/// `ROADMAP_V4.md` §4.2). It **refuses over an existing `folder-profile.json`** rather than merging
+/// `ROADMAP_V5.md` §4.2). It **refuses over an existing `folder-profile.json`** rather than merging
 /// or replacing — a name-only profile landing on top of a hand-built one would degrade To File and
 /// Renames with nothing failing — it writes atomically so the file on disk is only ever a whole
 /// profile, and it points `profiles.json` at the new id **only when nothing is active**, so it can
@@ -251,7 +251,7 @@ extension FilingProfileStore {
     /// Four guarantees, each of which is a separate test:
     ///
     /// 1. **It refuses over an existing profile** — `WriteRefusal.profileExists`, with the bytes on
-    ///    disk untouched. `ROADMAP_V4.md` §4.2: "A name-only profile must never land on top of a
+    ///    disk untouched. `ROADMAP_V5.md` §4.2: "A name-only profile must never land on top of a
     ///    hand-built one — it would degrade To File and Renames with nothing failing." There is
     ///    deliberately no `overwrite:` parameter; a caller that wants to replace a profile has to
     ///    move the old file itself, in the open.

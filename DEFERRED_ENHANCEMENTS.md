@@ -320,8 +320,12 @@ a third route to something two chords already do.
 
 **Today:** ⌘-double-clicking a folder row opens it in a new tab in the **Columns** view. The tree
 view has no double-click path at all — `FileTreeView` drives navigation from single taps and
-disclosure, and adding a double-click there reopens the gesture competition that got row
-`.draggable` removed (see `PaneColumnsView.swift`, and item 1 of `ROADMAP_V4.md` §3's ranking).
+disclosure, and adding a double-click there re-enters the gesture question. **The attribution here
+was stale and is corrected:** this is not "the competition that got row `.draggable` removed".
+`PaneColumnsView.swift` records that the competition was long *blamed* for the selection drift, drag
+was removed on that theory, and the drift remained — `TapGesture`'s own strictness is the whole
+cause, and it is what a second gesture on the row has to be designed against. `ROADMAP_V4.md` §3
+carries the same correction, because it changes what the drop-on-tab item costs.
 Right-click ▸ **Open in New Tab** works in both views, so the tree is not cut off from the feature.
 
 **Enhancement:** a `.simultaneousGesture(TapGesture(count: 2))` on the tree row, matching Columns.

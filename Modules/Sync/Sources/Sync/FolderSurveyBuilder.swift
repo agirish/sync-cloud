@@ -6,7 +6,7 @@ import Foundation
 /// The profile that drives the Organize router, the rename planner and the classifier's
 /// destination list has only ever come from an out-of-repo Python script, so a machine without one
 /// has no way in: `resurveyFilingMemory` opens by requiring a `profileId` that only a profile
-/// carries. `ROADMAP_V4.md` §4.2 is this type, and everything here is a **pure function of its
+/// carries. `ROADMAP_V5.md` §4.2 is this type, and everything here is a **pure function of its
 /// arguments** — no `FileManager`, no `Date()`, no defaults — so it can run inside a detached
 /// background task and be tested against a fixture with nothing on disk.
 ///
@@ -27,7 +27,7 @@ import Foundation
 /// | `axes.jurisdiction` | 100%, given the declared values |
 ///
 /// **`naming` is left nil, deliberately, and that is not a gap to be filled later.** Two reasons.
-/// `ROADMAP_V4.md` §4.2: a wrong `naming` would have the rename pass propose renames toward a
+/// `ROADMAP_V5.md` §4.2: a wrong `naming` would have the rename pass propose renames toward a
 /// convention nobody actually has — silently, because a rename plan looks the same whether its
 /// premise is right or wrong. And ``FolderProfileEntry/naming`` is decoded but read nowhere outside
 /// test fixtures, so accuracy there buys nothing today. Guessing costs; abstaining does not.

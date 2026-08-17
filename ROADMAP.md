@@ -7,9 +7,18 @@ carries its own finished work stops being scannable — by the last pass, five o
 existed mainly to say they were done. Status re-checked against the code on **2026-08-02**.
 
 Distinct from `DEFERRED_ENHANCEMENTS.md` (hardening / coverage consciously punted) and `REFACTOR.md`
-(internal shape that is correct but worth restructuring). `ROADMAP_V4.md` holds the 4.x Browse
-interface work — tabs and the rest of what is worth taking from Finder — which is scoped to one
-workspace and carries its own shared constraints, so it reads better as a file than as an item here.
+(internal shape that is correct but worth restructuring). `ROADMAP_V4.md` holds the 4.x Browse and
+navigation work — tabs, the ⌘K field, and the rest of what is worth taking from Finder — which is
+scoped to one workspace and carries its own shared constraints, so it reads better as a file than as
+an item here. `ROADMAP_V5.md` holds **Restructure** (item 20 below), which moved out of the 4.x file
+on 2026-08-16 to become its own release: it is one project, it is the only planned work that moves
+folders rather than files, and it needs a plan surface, an on-disk inverse and a background survey
+before any of it lands.
+
+**Four of this file's Interface items are scheduled into v4.2** and are cited by name from
+`ROADMAP_V4.md` §9 rather than restated there — magnitude bars, the treemap ramp, the "Identical"
+badge, and the stat pills as the filter. Their specifications stay here; a spec kept in two places
+drifts in one of them.
 
 Numbers here are positional and change as the list does — **cite items by name, not by number.**
 

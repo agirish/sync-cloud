@@ -312,7 +312,7 @@ import Foundation
 
     // MARK: - The lens over a profile the app derived for itself
 
-    /// **`ROADMAP_V4.md` §4.2 claims this lens returns the identical finding from a derived profile
+    /// **`ROADMAP_V5.md` §4.2 claims this lens returns the identical finding from a derived profile
     /// as from a hand-built one — asserted here rather than described.**
     ///
     /// That claim is what retired the planned degradation test ("there is no degradation left for
