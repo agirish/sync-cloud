@@ -563,15 +563,38 @@ public struct DetailsSidebar: View {
         }
     }
 
-    nonisolated private static func computeDirectorySizeString(path: String) async -> String? {
+    /// The folder total, or nil when there is no honest number to show (the caller renders "--").
+    ///
+    /// Not `private`, so `DetailsSidebarSizeTests` can drive it against a real locked directory.
+    /// The unreadable case cannot be reached any other way: it is a property of the filesystem,
+    /// and the sidebar itself is a SwiftUI view no unit test can drive.
+    nonisolated static func computeDirectorySizeString(path: String) async -> String? {
         let url = URL(fileURLWithPath: path)
         let fm = FileManager.default
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
+
+        // The enumerator is non-nil even for a folder that cannot be listed — it simply yields
+        // nothing — so this walk used to total 0 bytes for a locked folder and the sidebar
+        // reported "Zero KB" as if that were its size. The error handler is what separates the
+        // two, and `DirectoryListingSupport.classify` turns what it saw into the same verdict
+        // `FileManaging.listing(of:)` reaches. This cannot go through `listing` itself: that
+        // collects every entry into an array, and this walk streams a tree that can hold tens of
+        // thousands of them while polling for cancellation.
+        //
+        // A box rather than a captured `var`: the handler is an escaping closure and this
+        // function suspends (`Task.yield`) while the walk runs.
+        final class Failures: @unchecked Sendable { var urls: [URL] = [] }
+        let failures = Failures()
+
         // Descend into package bundles (.app, .rtfd, .photoslibrary…) so their contents count
         // toward the folder total, matching Finder's Get Info. `.skipsPackageDescendants` would
         // treat each bundle as 0 bytes and understate the size.
-        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: keys, options: []) else {
+        guard let enumerator = fm.enumerator(
+            at: url, includingPropertiesForKeys: keys, options: [],
+            // Returning true keeps going: one locked subfolder must not abandon the whole total.
+            errorHandler: { failed, _ in failures.urls.append(failed); return true }
+        ) else {
             return nil
         }
 
@@ -597,7 +620,29 @@ public struct DetailsSidebar: View {
         }
 
         if Task.isCancelled { return nil }
-        return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+
+        let formatted = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        switch DirectoryListingSupport.classify(entryCount: count, failures: failures.urls, root: url).outcome {
+        case .listed:
+            return formatted
+        case .listedWithUnreadableDescendants:
+            // Part of the tree was withheld, so `total` is a floor. "+" is the same idiom the
+            // review card's "1000+ items" uses for a number that is known to be short.
+            //
+            // Except at zero, where the idiom breaks. The formatter renders 0 as "Zero KB", so the
+            // folder whose only content is an unreadable subtree came out as **"Zero KB+"** — a
+            // phrase that reads as a size and states nothing ("at least nothing" is true of every
+            // folder alive). The review card's analogous case is guarded by arithmetic, since
+            // `classify` cannot answer partial on a count of zero; this one cannot borrow that,
+            // because bytes and entries are different quantities and a partial walk can legitimately
+            // total zero. "--" is what this function already returns for "no honest number", and a
+            // floor of zero is exactly that.
+            return total == 0 ? nil : formatted + "+"
+        case .unreadable:
+            // Nothing was read. nil, which the caller renders as "--" — the same thing it shows
+            // for a folder it has no answer for, and not a size of zero.
+            return nil
+        }
     }
     
     /// Inline actions for the metadata card so the Details tab isn't a read-only dead end.
