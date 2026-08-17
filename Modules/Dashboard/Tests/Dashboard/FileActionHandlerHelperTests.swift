@@ -17,7 +17,7 @@ import Settings
         let root = settings.path(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
-        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
         #expect(manager.leftRelativePath == "Projects/Sync")
     }
 
@@ -32,7 +32,7 @@ import Settings
         let root = settings.path(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
-        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
         #expect(manager.leftRelativePath == "Projects/Sync")
         #expect(manager.rightRelativePath == "")
     }
@@ -72,7 +72,7 @@ import Settings
         let root = settings.path(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
-        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
         #expect(manager.leftRelativePath == "Projects/Sync")
         #expect(manager.rightRelativePath == "Projects/Sync")
     }
@@ -86,7 +86,7 @@ import Settings
         let root = settings.path(for: "iCloud")
         let node = FileNode(id: root, name: "root", isDirectory: true)
 
-        handler.focusFolder(node, isLeft: false, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        handler.focusFolder(node, isLeft: false, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
         #expect(manager.rightRelativePath == "")
     }
 

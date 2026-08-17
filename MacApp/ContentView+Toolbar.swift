@@ -81,8 +81,11 @@ extension ContentView {
             },
             onCompare: {
                 guard let folder = selectionNodes.first else { return }
+                // The comparison toolbar's "Compare this folder": both panes ARE visible here, so
+                // the link toggle means what it says and is honored.
                 actionHandler?.focusFolder(folder, isLeft: isLeft,
-                                           leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+                                           leftProviderId: leftProviderId, rightProviderId: rightProviderId,
+                                           suppressLinkedNavigation: false)
             },
             onCopy: {
                 actionHandler?.copyItems(selectionNodes, fromLeft: isLeft,

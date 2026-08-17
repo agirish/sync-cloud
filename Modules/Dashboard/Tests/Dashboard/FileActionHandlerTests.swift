@@ -212,7 +212,7 @@ import Settings
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []))
         let node = FileNode(id: "/somewhere/folder", name: "folder", isDirectory: true)
 
-        handler.focusFolder(node, isLeft: true, leftProviderId: "vanished", rightProviderId: "also-vanished")
+        handler.focusFolder(node, isLeft: true, leftProviderId: "vanished", rightProviderId: "also-vanished", suppressLinkedNavigation: false)
 
         #expect(manager.currentError?.title == "Folder Unavailable")
         #expect(manager.leftRelativePath == "")
@@ -232,7 +232,7 @@ import Settings
         let handler = FileActionHandler(syncManager: manager, settings: settings)
         let aliasedNode = FileNode(id: root.path + "-alias/sub", name: "sub", isDirectory: true)
 
-        handler.focusFolder(aliasedNode, isLeft: true, leftProviderId: "p", rightProviderId: "p")
+        handler.focusFolder(aliasedNode, isLeft: true, leftProviderId: "p", rightProviderId: "p", suppressLinkedNavigation: false)
 
         #expect(manager.currentError?.title == "Can't Focus Folder")
         #expect(manager.leftRelativePath == "")
@@ -268,7 +268,7 @@ import Settings
         let handler = FileActionHandler(syncManager: manager, settings: settings)
         let node = FileNode(id: root.path + "/sub/inner", name: "inner", isDirectory: true)
 
-        handler.focusFolder(node, isLeft: true, leftProviderId: "p", rightProviderId: "p")
+        handler.focusFolder(node, isLeft: true, leftProviderId: "p", rightProviderId: "p", suppressLinkedNavigation: false)
 
         #expect(manager.currentError == nil)
         #expect(manager.leftRelativePath == "sub/inner")
