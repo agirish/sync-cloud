@@ -33,15 +33,39 @@ public final class FolderJumpStore: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.pinnedKey),
            let decoded = try? JSONDecoder().decode([String: [JumpLocation]].self, from: data) {
-            pinnedByRoot = decoded
+            // Re-keyed on the way in. Pins written before this store normalised its keys sit under
+            // whatever spelling the writer happened to hold — `~/Documents` for a folder source —
+            // and reading them back through `key(forRoot:)` would miss every one of them. A fix
+            // that makes existing pins reachable must not begin by orphaning them.
+            pinnedByRoot = decoded.reduce(into: [:]) { out, entry in
+                out[Self.key(forRoot: entry.key), default: []].append(contentsOf: entry.value)
+            }
         }
     }
 
-    func recents(forRoot root: String) -> [JumpLocation] { recentsByRoot[root] ?? [] }
-    func pinned(forRoot root: String) -> [JumpLocation] { pinnedByRoot[root] ?? [] }
+    /// **The one place a provider root becomes a key.** Every entry point below routes through it,
+    /// so a caller holding either spelling of the same root reaches the same entry.
+    ///
+    /// A folder source's path keeps its `~`, and the app carries both forms: the panes and the
+    /// breadcrumb hand over `settings.path(for:)` as stored, while surfaces that touch the disk
+    /// expand it first. Used raw as dictionary keys, those two never met — a folder pinned from the
+    /// breadcrumb was missing from every reader holding the expanded form, and "no pins" is exactly
+    /// what an unpinned provider looks like, so nothing said so.
+    ///
+    /// Expansion plus a trailing-slash trim, and deliberately no more: case-folding would merge two
+    /// genuinely distinct roots on a case-sensitive volume, and symlink resolution would make a key
+    /// depend on disk state that can change under a persisted pin.
+    static func key(forRoot root: String) -> String {
+        var path = (root as NSString).expandingTildeInPath
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
+
+    func recents(forRoot root: String) -> [JumpLocation] { recentsByRoot[Self.key(forRoot: root)] ?? [] }
+    func pinned(forRoot root: String) -> [JumpLocation] { pinnedByRoot[Self.key(forRoot: root)] ?? [] }
 
     func isPinned(root: String, relativePath: String) -> Bool {
-        (pinnedByRoot[root] ?? []).contains { $0.relativePath == relativePath }
+        (pinnedByRoot[Self.key(forRoot: root)] ?? []).contains { $0.relativePath == relativePath }
     }
 
     /// Records a visited folder, moving it to the front and capping the list. The provider root
@@ -50,19 +74,21 @@ public final class FolderJumpStore: ObservableObject {
     public func recordVisit(root: String, relativePath: String, name: String) {
         guard !relativePath.isEmpty, !name.isEmpty else { return }
         let visited = JumpLocation(relativePath: relativePath, name: name)
-        recentsByRoot[root] = Self.inserting(visited, into: recentsByRoot[root] ?? [], cap: Self.maxRecents)
+        let key = Self.key(forRoot: root)
+        recentsByRoot[key] = Self.inserting(visited, into: recentsByRoot[key] ?? [], cap: Self.maxRecents)
     }
 
     /// Pins or unpins a folder for its pane's provider. Pinning the folder that's already pinned
     /// removes it, so the same menu item toggles.
     func togglePin(root: String, relativePath: String, name: String) {
-        var list = pinnedByRoot[root] ?? []
+        let key = Self.key(forRoot: root)
+        var list = pinnedByRoot[key] ?? []
         if let index = list.firstIndex(where: { $0.relativePath == relativePath }) {
             list.remove(at: index)
         } else {
             list.append(JumpLocation(relativePath: relativePath, name: name))
         }
-        pinnedByRoot[root] = list
+        pinnedByRoot[key] = list
         persistPinned()
     }
 

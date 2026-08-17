@@ -15,6 +15,93 @@ import Foundation
         ScratchDefaults("fj-test")
     }
 
+    // MARK: One spelling of a root
+
+    /// Two spellings of one provider root must reach the same entry.
+    ///
+    /// A folder source's path is stored with its `~` intact, so the app holds two spellings of the
+    /// same root and hands whichever one a call site happens to have to this store. They were used
+    /// raw as dictionary keys on both sides, so a pin written under one was invisible to a reader
+    /// holding the other — and nothing said so, because "no pins" is what an unpinned provider
+    /// looks like too.
+    @Test func aTildeRootAndItsExpandedFormAreOneKey() {
+        let store = FolderJumpStore(defaults: freshDefaults())
+        let tilde = "~/Documents"
+        let expanded = (tilde as NSString).expandingTildeInPath
+        // The fixture only means something if the two really are different strings.
+        #expect(tilde != expanded)
+
+        store.togglePin(root: tilde, relativePath: "Legal", name: "Legal")
+        store.recordVisit(root: tilde, relativePath: "Legal/2026", name: "2026")
+
+        #expect(store.pinned(forRoot: expanded).map(\.relativePath) == ["Legal"],
+                "a pin written under the tilde spelling is invisible to the expanded one")
+        #expect(store.recents(forRoot: expanded).map(\.relativePath) == ["Legal/2026"])
+        #expect(store.isPinned(root: expanded, relativePath: "Legal"))
+        // And the other direction, so neither spelling is privileged.
+        store.togglePin(root: expanded, relativePath: "Taxes", name: "Taxes")
+        #expect(Set(store.pinned(forRoot: tilde).map(\.relativePath)) == ["Legal", "Taxes"])
+    }
+
+    /// A trailing slash is the same root too — it arrives from hand-typed Settings paths.
+    @Test func aTrailingSlashIsTheSameRoot() {
+        let store = FolderJumpStore(defaults: freshDefaults())
+        store.togglePin(root: "/Volumes/Data/", relativePath: "Docs", name: "Docs")
+        #expect(store.pinned(forRoot: "/Volumes/Data").map(\.relativePath) == ["Docs"])
+    }
+
+    /// Pins already on disk under the old raw key must survive the change that normalised keys.
+    /// Silently orphaning them would be this fix losing the very data it exists to make reachable.
+    @Test func pinsPersistedUnderTheOldRawKeyAreStillFound() throws {
+        let defaults = freshDefaults()
+        let legacy = ["~/Documents": [JumpLocation(relativePath: "Legal", name: "Legal")]]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "folderJumpPinnedByRoot")
+
+        let store = FolderJumpStore(defaults: defaults)
+        let expanded = ("~/Documents" as NSString).expandingTildeInPath
+        #expect(store.pinned(forRoot: expanded).map(\.relativePath) == ["Legal"])
+        #expect(store.pinned(forRoot: "~/Documents").map(\.relativePath) == ["Legal"])
+    }
+
+    /// A `~` root already works here, and this pins that it keeps working.
+    ///
+    /// **Written to reproduce a reported defect, which it disproved.** The report was that
+    /// `parentAbsolute = rootPath + "/" + parentRelative` handed to `URL(fileURLWithPath:)`
+    /// resolves `~/…` against the working directory, so the listing throws and the menu's "Nearby
+    /// folders" section never appears under a folder source. Measured on this machine, with the
+    /// working directory somewhere else entirely:
+    ///
+    ///     fileExists(atPath: "~/x")            false
+    ///     URL(fileURLWithPath: "~/x").path     /Users/<me>/x        <- expanded
+    ///     contentsOfDirectory(at: thatURL)     OK
+    ///     contentsOfDirectory(atPath: "~/x")   throws, NSFileNoSuchFileError
+    ///
+    /// So `URL(fileURLWithPath:)` expands the tilde and only the PATH-based calls do not. The walk
+    /// is correct as written; this test exists so that stays true — swapping the URL call for
+    /// `contentsOfDirectory(atPath:)` would look equivalent and would break exactly the folder
+    /// sources the report was about.
+    @Test func siblingsResolveATildeRoot() throws {
+        let fm = FileManager.default
+        // A real directory, reached through a spelling that only works if it is expanded. HOME is
+        // the one root a test can name both ways without inventing a fixture outside it.
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let base = home.appendingPathComponent(".synccloud-jump-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
+        for name in ["Legal", "Taxes", "Receipts"] {
+            try fm.createDirectory(at: base.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+
+        let tildeRoot = "~/" + base.lastPathComponent
+        // The fixture is only meaningful if the unexpanded spelling really is unusable as a path.
+        try #require(!fm.fileExists(atPath: tildeRoot))
+
+        let siblings = FolderJump.siblings(rootPath: tildeRoot, relativePath: "Legal", showHidden: true)
+        #expect(siblings.map(\.name) == ["Receipts", "Taxes"],
+                "the tilde root was not expanded, so the parent listing threw and the section vanished")
+        // The relative paths stay relative to the ROOT, whichever way it was spelled.
+        #expect(siblings.map(\.relativePath) == ["Receipts", "Taxes"])
+    }
+
     // MARK: Recents ordering
 
     @Test func insertingMovesToFrontDedupesAndCaps() {
