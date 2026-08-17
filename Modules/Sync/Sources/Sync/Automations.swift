@@ -335,20 +335,19 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// Provider-relative destination folder, may contain tokens (see ``AutomationEvaluator``).
     public var destinationTemplate: String
 
-    /// A `matchMode` written by a **newer build**, kept exactly as it arrived.
-    ///
-    /// Not a mode — a survival mechanism, the same one ``AutomationCondition`` needs for a
-    /// condition name it does not know. `MatchMode` is a raw-value enum, so an unknown value throws
-    /// out of the synthesized decoder, and the whole rule ARRAY is one JSON blob: one rule from a
-    /// newer build used to empty the user's entire list. Keeping the raw value means it round-trips
-    /// untouched, and ``isRunnable`` being false means this build never acts on a combining rule it
-    /// cannot evaluate — guessing `all` or `any` would file the user's files by a rule they did not
-    /// write. `matchMode` itself falls back to `.all` so every reader still has a value to show.
-    private var unrecognizedMatchMode: JSONFragment?
-    /// Top-level keys this build does not know, kept verbatim so a round-trip through it is not a
-    /// silent downgrade of the user's data. See the note on ``AutomationRule`` about why there is no
-    /// `schemaVersion` here.
+    /// Top-level keys this build has **no case for**, kept verbatim so a round-trip through it is
+    /// not a silent downgrade of the user's data. Harmless: a rule carrying one still runs, because
+    /// everything this build needs in order to evaluate it is present and understood.
     private var unknownFields: [String: JSONFragment]
+    /// Keys this build **does** know but whose value it could not read — a `matchMode` a newer build
+    /// added, a `conditions` array holding something this build has no case for.
+    ///
+    /// Two things follow, and both matter. The value is kept exactly as it arrived and written back
+    /// in place of the default that was substituted, so opening the file here does not destroy what
+    /// a newer build wrote. And the rule is never ``isRunnable``: a rule whose meaning is only
+    /// partly known must not act, because the part that is missing is precisely the part that says
+    /// which files it claims.
+    private var unreadableFields: [String: JSONFragment]
 
     public enum MatchMode: String, Codable, Sendable, CaseIterable, Identifiable {
         case all, any
@@ -371,8 +370,8 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         self.matchMode = matchMode
         self.conditions = conditions
         self.destinationTemplate = destinationTemplate
-        self.unrecognizedMatchMode = nil
         self.unknownFields = [:]
+        self.unreadableFields = [:]
     }
 
     /// A rule is runnable only when it has a name, a destination, and conditions the
@@ -381,10 +380,10 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// all-of rule with a half-built row is inert and must read as incomplete everywhere
     /// (card pill, preview gating, runnable count) rather than promising its complete half.
     ///
-    /// A rule whose combining mode came from a newer build is never runnable — see
-    /// ``unrecognizedMatchMode``.
+    /// A rule carrying a value this build could not read is never runnable — see
+    /// ``unreadableFields``.
     public var isRunnable: Bool {
-        guard unrecognizedMatchMode == nil else { return false }
+        guard unreadableFields.isEmpty else { return false }
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty,
               !destinationTemplate.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         switch matchMode {
@@ -457,33 +456,30 @@ extension AutomationRule {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: AnyKey.self)
-        // `decodeIfPresent` for the ordinary absent case; `try?` on top of it because a value of
-        // the wrong TYPE (a hand-edited plist, a field a future build repurposed) must also cost
-        // only itself. Nothing below can throw, which is the property that matters: the array
-        // decode cannot fail on one rule's one bad field.
+        var unreadable: [String: JSONFragment] = [:]
+
+        /// One known field. Absent is not the same as unreadable, and the difference is the whole
+        /// design: an absent key takes the initializer's own default and costs nothing, while a key
+        /// that is THERE and cannot be read is carried verbatim — otherwise this build substitutes
+        /// a default, the next save writes that default over the real value, and the user's rule is
+        /// quietly destroyed by a build that only opened it. Nothing here throws, which is the
+        /// property that matters: the array decode can no longer fail on one rule's one bad field.
         func value<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
-            (try? c.decodeIfPresent(type, forKey: AnyKey(key))) ?? nil
+            let anyKey = AnyKey(key)
+            guard c.contains(anyKey) else { return nil }
+            if let decoded = try? c.decode(type, forKey: anyKey) { return decoded }
+            if let raw = try? c.decode(JSONFragment.self, forKey: anyKey) {
+                unreadable[key.stringValue] = raw
+            }
+            return nil
         }
         id = value(UUID.self, .id) ?? UUID()
         name = value(String.self, .name) ?? ""
         enabled = value(Bool.self, .enabled) ?? true
+        matchMode = value(MatchMode.self, .matchMode) ?? .all
         conditions = value([AutomationCondition].self, .conditions) ?? []
         destinationTemplate = value(String.self, .destinationTemplate) ?? ""
-
-        // Absent is not the same as unrecognized: a rule with no mode at all is an ordinary `all`
-        // rule and stays runnable, while a rule carrying a mode this build cannot evaluate does not.
-        if let raw = value(JSONFragment.self, .matchMode) {
-            if case .string(let name) = raw, let known = MatchMode(rawValue: name) {
-                matchMode = known
-                unrecognizedMatchMode = nil
-            } else {
-                matchMode = .all
-                unrecognizedMatchMode = raw
-            }
-        } else {
-            matchMode = .all
-            unrecognizedMatchMode = nil
-        }
+        unreadableFields = unreadable
 
         let known = Set(CodingKeys.allCases.map(\.stringValue))
         var carried: [String: JSONFragment] = [:]
@@ -497,21 +493,22 @@ extension AutomationRule {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: AnyKey.self)
-        // Carried keys first. They cannot collide with a known one by construction, and writing
-        // them first means that if that ever stopped being true the real value would still win.
+        // Keys this build has no case for. They cannot collide with a known one by construction,
+        // and writing them first means that if that ever stopped being true the real value wins.
         for (name, fragment) in unknownFields.sorted(by: { $0.key < $1.key }) {
             try c.encode(fragment, forKey: AnyKey(name))
         }
         try c.encode(id, forKey: AnyKey(.id))
         try c.encode(name, forKey: AnyKey(.name))
         try c.encode(enabled, forKey: AnyKey(.enabled))
-        if let unrecognizedMatchMode {
-            try c.encode(unrecognizedMatchMode, forKey: AnyKey(.matchMode))
-        } else {
-            try c.encode(matchMode, forKey: AnyKey(.matchMode))
-        }
+        try c.encode(matchMode, forKey: AnyKey(.matchMode))
         try c.encode(conditions, forKey: AnyKey(.conditions))
         try c.encode(destinationTemplate, forKey: AnyKey(.destinationTemplate))
+        // LAST, deliberately: these overwrite the defaults substituted above, so what goes back to
+        // disk for a field this build could not read is what came off it.
+        for (name, fragment) in unreadableFields.sorted(by: { $0.key < $1.key }) {
+            try c.encode(fragment, forKey: AnyKey(name))
+        }
     }
 }
 
