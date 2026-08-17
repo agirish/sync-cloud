@@ -24,7 +24,9 @@ public struct PersonVetoRefusal: Sendable, Equatable {
 public struct PersonVetoEvent: Sendable, Equatable, Codable {
     /// The person the document names.
     public let namedPerson: String
-    /// The person whose folder the backend proposed.
+    /// The person whose folder the refused home belongs to. Not "the backend's" person: the rule
+    /// now sweeps every home on every card, and the keyword engine and the router propose most of
+    /// them — on a machine with no Apple Intelligence, all of them.
     public let proposedPerson: String
     public let fileName: String
     /// Where it would have gone, relative to the provider root.

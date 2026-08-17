@@ -1149,6 +1149,78 @@ public enum FilingEngine {
         }
     }
 
+    /// **Every home on every card, through the cross-person rule — whatever proposed it.**
+    ///
+    /// The rule was reachable only from a backend verdict: `applyVerdicts` consulted it before
+    /// promoting one, and "Try another" before accepting one. Both of those are the *model's*
+    /// answers, and when the rule fires there it declines the model and restores the home the
+    /// heuristics or the router had already put on the card — **which nothing had ever tested.**
+    /// The router's own protection is a −3.0 score penalty, a preference, not a refusal.
+    ///
+    /// So on a machine with no Apple Intelligence — where the classifier returns `[:]`, every
+    /// `applyVerdicts` short-circuits on the empty dictionary, and every card therefore shows a
+    /// router or keyword home — the rule was reachable on no card at all. That is the default
+    /// install, not a corner.
+    ///
+    /// **Measured on the household's own tree before it was written**, because a refusal that runs
+    /// on every card can lose correct homes as easily as wrong ones. Taking the 821 distinctly-named
+    /// corpus documents whose filename names exactly one person, staging each as a loose file and
+    /// running the keyword engine against the real 3,013-folder taxonomy:
+    ///
+    /// | | cards |
+    /// |---|---|
+    /// | with a home at all | 821 |
+    /// | whose LEADING home this refuses | 156 |
+    /// | …where that home was the folder the user themselves had filed it in | **0** |
+    /// | left with no surviving home | **0** |
+    ///
+    /// The refusals are the error the rule was written for, at scale: `Muktha Girish - 2015.pdf`
+    /// and six more of Muktha's CVs led with `Family/Girish`, and eighteen of Abhishek's HDFC
+    /// statements led there too — his father's folder, on the strength of the surname.
+    ///
+    /// One cost is worth stating rather than rounding to zero: three corpus documents *do* sit in a
+    /// folder whose person axis contradicts their filename — `Shweta's Baby Shower.docx` and two
+    /// siblings, under `Family/Aditi/Events/Baby Shower`, which is Aditi's folder and correctly so.
+    /// Nothing suggested that folder for them in the measurement above, so no card actually lost it;
+    /// a tree with more folders like it would pay 0.4% of person-named cards for the 19% it protects.
+    ///
+    /// **A home the user taught is exempt**, matching `applyVerdicts`' own first line. `remembered`
+    /// marks both a learned rule and an automation the user wrote, and either is an instruction
+    /// rather than a guess — an automation whose destination resolves `{person}` through this very
+    /// registry would otherwise be refused by it.
+    ///
+    /// Reported once per card, for the highest-ranked refusal: the card had one home the user would
+    /// have seen, and a file whose every candidate is someone else's folder is one event, not four.
+    public static func refusingCrossPersonHomes(
+        _ suggestions: [FilingSuggestion], providerRoot: String,
+        profile: Sync.FolderProfile?, registry: PersonRegistry?,
+        identity: PersonIdentityIndex? = nil, pageSamples: [String: String] = [:],
+        onVeto: ((PersonVetoRefusal) -> Void)? = nil
+    ) -> [FilingSuggestion] {
+        // No profile ⇒ no folder has a person axis ⇒ the rule cannot fire. Stated here as well as
+        // inside `personVeto` so a scan on a tree that was never surveyed does no per-candidate work.
+        guard profile != nil else { return suggestions }
+        return suggestions.map { s in
+            guard !s.candidates.isEmpty else { return s }
+            var kept: [FilingDestination] = []
+            var firstRefusal: PersonVeto?
+            for c in s.candidates {
+                if c.remembered { kept.append(c); continue }
+                if let veto = personVeto(fileName: s.fileName, destination: c.path,
+                                         providerRoot: providerRoot, profile: profile,
+                                         registry: registry, identity: identity,
+                                         pageSample: pageSamples[s.filePath]) {
+                    if firstRefusal == nil { firstRefusal = veto }
+                    continue
+                }
+                kept.append(c)
+            }
+            guard kept.count != s.candidates.count else { return s }
+            if let reported = firstRefusal?.reported { onVeto?(reported) }
+            return s.replacingCandidates(kept)
+        }
+    }
+
     /// The outcome of the cross-person rule: a refusal, carrying the report when there is one.
     ///
     /// Two shapes, because the protection has two: a registry-resolved contradiction knows both

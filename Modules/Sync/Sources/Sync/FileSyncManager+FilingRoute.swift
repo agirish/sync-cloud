@@ -326,8 +326,27 @@ extension FileSyncManager {
         // rule offered after filing it should key on what the OCR found rather than on a filename
         // that says `Divit - eOCI.pdf`.
         filingPageSamples[suggestion.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
-        guard outcome.routed, let best = outcome.suggestion.best else {
-            Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — no home matched it")
+        // **The same cross-person rule the scan applies, on the one card this replaces.** This
+        // path routes and writes a home without going near `applyVerdicts`, so before the sweep
+        // existed it was a second live way for one family member's document to land on another's
+        // folder — and the rule's own worked example, `Divit - eOCI.pdf`, is a scan with no text
+        // layer, which is to say exactly the file this button exists for.
+        //
+        // After the page sample is recorded, not before: the OCR text is what lets the rule
+        // attribute a file whose name names nobody, which is the case it could never reach.
+        var refused = false
+        let swept = FilingEngine.refusingCrossPersonHomes(
+            [outcome.suggestion], providerRoot: root,
+            profile: filingFolderProfile, registry: filingPersonRegistry,
+            identity: filingPersonIdentity, pageSamples: filingPageSamples,
+            onVeto: { [weak self] refusal in
+                refused = true
+                self?.recordPersonVeto(refusal)
+            })
+        guard outcome.routed, let best = swept.first?.best else {
+            Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
+                               + (refused ? "the home it found is someone else’s folder"
+                                          : "no home matched it"))
             return false
         }
         replaceFilingSuggestion(live.id, candidates: [best])

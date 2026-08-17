@@ -641,6 +641,22 @@ extension FileSyncManager {
         }
 
         if Task.isCancelled { return }
+
+        // **The cross-person rule, applied to the cards rather than to the model.** Until here it
+        // guarded one input — a backend verdict — and every phase above can put a home on a card
+        // without one: the keyword engine, the router, and on this machine (no Apple Intelligence,
+        // classifier returns nothing) those are the only two that ever do. See
+        // ``FilingEngine/refusingCrossPersonHomes(_:providerRoot:profile:registry:identity:pageSamples:onVeto:)``
+        // for what it costs, measured on this tree.
+        //
+        // Last, so it sees every home this scan produced whatever produced it, and BEFORE the
+        // naming pass so nothing is asked what a refused folder would call the file.
+        suggestions = FilingEngine.refusingCrossPersonHomes(
+            suggestions, providerRoot: providerRoot.path,
+            profile: filingFolderProfile, registry: filingPersonRegistry,
+            identity: filingPersonIdentity, pageSamples: routerSnippets,
+            onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })
+
         // What each file would be CALLED once it lands — computed against the taxonomy this scan
         // already walked, so the queue answers "where does this go" and "what is it called there"
         // in one pass. See `namingSuggestions`.

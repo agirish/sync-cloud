@@ -1,0 +1,234 @@
+import Foundation
+import Testing
+@testable import Sync
+
+/// **The cross-person rule guarded one input, and the cards were not it.**
+///
+/// `applyVerdicts` consulted it before promoting a backend verdict, and "Try another" before
+/// accepting one. Both are the model's answers — and when the rule fires in either place it
+/// declines the model and restores the home the keyword engine or the router had already put on the
+/// card, which nothing had ever tested. The router's own protection is a −3.0 score penalty: a
+/// preference, not a refusal.
+///
+/// So on a machine with no Apple Intelligence the rule was reachable on no card at all: the
+/// classifier returns `[:]`, every `applyVerdicts` short-circuits on the empty dictionary, and every
+/// card shows a router or keyword home. That is the default install.
+///
+/// These pin the sweep itself and — the half that matters, because a rule extracted for testability
+/// is one revert from being unused — the two call sites that produce homes without a verdict.
+@Suite struct FilingCrossPersonSweepTests {
+
+    static let root = "/root"
+
+    static let household = PersonRegistry(people: [
+        Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+        Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+    ])
+
+    static func profile() -> FolderProfile {
+        let entries = [
+            FolderProfileEntry(path: "Immigration/OCI/Divit", role: .destination, naming: nil,
+                               anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0,
+                               axes: ["person": "Divit"]),
+            FolderProfileEntry(path: "Immigration/OCI/Aditi", role: .destination, naming: nil,
+                               anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0,
+                               axes: ["person": "Aditi"]),
+            FolderProfileEntry(path: "Immigration/OCI", role: .container, naming: nil,
+                               anchors: [], acceptsNewFiles: nil, fileCount: 0, subfolderCount: 2,
+                               axes: [:]),
+        ]
+        return FolderProfile(profileId: "t", root: "~",
+                             folders: Dictionary(entries.map { ($0.path, $0) },
+                                                 uniquingKeysWith: { a, _ in a }),
+                             personTokens: ["aditi", "divit"])
+    }
+
+    static func dest(_ relative: String, remembered: Bool = false,
+                     confidence: FilingConfidence = .high) -> FilingDestination {
+        FilingDestination(path: "\(root)/\(relative)", confidence: confidence, reasons: ["r"],
+                          newSegments: [], remembered: remembered)
+    }
+
+    static func card(_ name: String, _ candidates: [FilingDestination]) -> FilingSuggestion {
+        FilingSuggestion(filePath: "\(root)/Downloads/\(name)", fileName: name, size: 1000,
+                         modificationDate: nil, candidates: candidates, providerRoot: root)
+    }
+
+    static func sweep(_ cards: [FilingSuggestion],
+                      pageSamples: [String: String] = [:],
+                      onVeto: ((PersonVetoRefusal) -> Void)? = nil) -> [FilingSuggestion] {
+        FilingEngine.refusingCrossPersonHomes(cards, providerRoot: root, profile: profile(),
+                                              registry: household, identity: nil,
+                                              pageSamples: pageSamples, onVeto: onVeto)
+    }
+
+    // MARK: The sweep
+
+    /// The whole point: a home nobody asked a model about is refused, and the next candidate leads.
+    @Test func aWrongPersonHomeIsDroppedAndTheNextCandidateLeads() throws {
+        let out = Self.sweep([Self.card("Aditi OCI.pdf", [
+            Self.dest("Immigration/OCI/Divit"),
+            Self.dest("Immigration/OCI/Aditi"),
+        ])])
+        let card = try #require(out.first)
+        #expect(card.candidates.count == 1)
+        #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Aditi")
+    }
+
+    /// **Removal, not demotion.** A card whose only home is someone else's folder is the case the
+    /// rule most exists for, and demoting a sole candidate leaves it leading. No home is the
+    /// answer: the queue already renders that state, and the user can still file it by hand.
+    @Test func aCardWhoseOnlyHomeIsAnothersFolderIsLeftWithNone() throws {
+        let out = Self.sweep([Self.card("Aditi OCI.pdf", [Self.dest("Immigration/OCI/Divit")])])
+        let card = try #require(out.first)
+        #expect(card.candidates.isEmpty)
+        #expect(card.best == nil)
+    }
+
+    /// **A home the user taught is an instruction, not a guess** — the same exemption
+    /// `applyVerdicts` opens with. `remembered` covers both a learned rule and an automation the
+    /// user wrote, and an automation resolving `{person}` through this very registry would
+    /// otherwise be refused by it.
+    @Test func aRememberedHomeIsExempt() throws {
+        let out = Self.sweep([Self.card("Aditi OCI.pdf", [
+            Self.dest("Immigration/OCI/Divit", remembered: true),
+        ])])
+        let card = try #require(out.first)
+        #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Divit")
+    }
+
+    /// Reported once per card, for the highest-ranked refusal: the card had one home the user would
+    /// have seen, and a file whose every candidate is someone else's folder is one event, not two.
+    @Test func aCardReportsOneRefusalHoweverManyOfItsHomesAreRefused() throws {
+        final class Box: @unchecked Sendable { var reports: [PersonVetoRefusal] = [] }
+        let box = Box()
+        _ = Self.sweep([Self.card("Aditi OCI.pdf", [
+            Self.dest("Immigration/OCI/Divit"),
+            Self.dest("Immigration/OCI/Divit/Application"),
+        ])], onVeto: { box.reports.append($0) })
+        #expect(box.reports.count == 1)
+        // The one the user would have been shown, not whichever was refused last.
+        #expect(box.reports.first?.destination == "Immigration/OCI/Divit")
+    }
+
+    /// The other direction, so the sweep is not simply emptying every card: a correct home, and a
+    /// folder with no person axis at all, both survive untouched — and an untouched card is
+    /// returned as-is rather than rebuilt.
+    @Test func correctAndUnownedHomesSurvive() throws {
+        let cards = [Self.card("Aditi OCI.pdf", [
+            Self.dest("Immigration/OCI/Aditi"),
+            Self.dest("Immigration/Passports"),
+        ])]
+        let out = Self.sweep(cards)
+        #expect(out == cards)
+    }
+
+    /// No profile ⇒ no folder has a person axis ⇒ nothing to contradict. Pinned because the early
+    /// return also skips the per-candidate work on a tree that was never surveyed.
+    @Test func withoutAProfileNothingIsRefused() throws {
+        let cards = [Self.card("Aditi OCI.pdf", [Self.dest("Immigration/OCI/Divit")])]
+        let out = FilingEngine.refusingCrossPersonHomes(
+            cards, providerRoot: Self.root, profile: nil, registry: Self.household)
+        #expect(out == cards)
+    }
+
+    /// A file whose own name names nobody is judged on the page it was read from — the tier that
+    /// gives `Scan 2026-08-02.pdf` an answer at all. Pinned here because the sweep is what passes
+    /// the samples through, and passing an empty dictionary would silently disarm the tier.
+    @Test func aNamelessFileIsJudgedOnItsPage() throws {
+        let card = Self.card("Scan 2026-08-02.pdf", [Self.dest("Immigration/OCI/Divit")])
+        let out = Self.sweep([card], pageSamples: [card.filePath: "Aditi Abhishek OCI application"])
+        #expect(out.first?.candidates.isEmpty == true)
+        // …and with no sample, nothing is known and nothing is refused.
+        #expect(Self.sweep([card]) == [card])
+    }
+}
+
+/// The two paths that put a home on a card without a backend verdict anywhere near it.
+@Suite @MainActor struct FilingCrossPersonSweepCallSiteTests {
+
+    static func write(_ url: URL, bytes: Int = 5000) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: bytes).write(to: url)
+    }
+
+    /// A tree with Divit's OCI folder and a loose document named for Aditi. No classifier is
+    /// injected, so `applyVerdicts` never runs — which is the ordinary state on a machine without
+    /// Apple Intelligence, and was the state in which the rule could not fire at all.
+    static func makeTree() throws -> (FileSyncManager, URL) {
+        let root = try makeCanonicalTempRoot(prefix: "CrossPersonSweep")
+        try write(root.appendingPathComponent("Documents/Immigration/OCI/Divit/Divit - eOCI.pdf"))
+        try write(root.appendingPathComponent("Documents/Immigration/OCI/Divit/OCI Application.pdf"))
+        try write(root.appendingPathComponent("Downloads/Aditi OCI.pdf"))
+        let m = FileSyncManager()
+        let entries = [
+            FolderProfileEntry(path: "Documents/Immigration/OCI/Divit", role: .destination,
+                               naming: nil, anchors: ["oci"], acceptsNewFiles: nil,
+                               fileCount: 2, subfolderCount: 0, axes: ["person": "Divit"]),
+        ]
+        m.filingFolderProfile = FolderProfile(
+            profileId: "t", root: "~",
+            folders: Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a }),
+            personTokens: ["aditi", "divit"])
+        m.filingPersonRegistry = PersonRegistry(people: [
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        ])
+        return (m, root)
+    }
+
+    /// **The scan.** Without the sweep the card leads with `…/OCI/Divit` — the keyword engine put
+    /// it there on the strength of "oci", and nothing downstream looks at whose folder it is.
+    @Test func theScanRefusesAnotherPersonsFolder() async throws {
+        let (m, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
+        m.filingPersonVetoLog = log
+
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                      providerRoot: root)
+
+        let card = try #require(m.filingSuggestions.first { $0.fileName == "Aditi OCI.pdf" })
+        // The premise, so this cannot pass by the engine simply never suggesting the folder.
+        #expect(!card.candidates.isEmpty || log.events.count == 1,
+                "nothing suggested Divit's folder — the fixture stopped exercising the rule")
+        #expect(!card.candidates.contains { $0.path.hasSuffix("/OCI/Divit") },
+                "the scan offered one person's document a home in another's folder")
+        #expect(log.events.first?.proposedPerson == "divit")
+        #expect(log.events.first?.namedPerson == "aditi")
+    }
+
+    /// **The OCR re-read.** `readScan` routes one card and writes the home straight onto it — no
+    /// `applyVerdicts`, so before the sweep it was a second live way into someone else's folder.
+    /// And the file it exists for is a scan with no text layer, which is the rule's own worked
+    /// example: `Divit - eOCI.pdf` extracts nothing.
+    @Test func theOCRReReadRefusesAnotherPersonsFolder() async throws {
+        let (m, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
+        m.filingPersonVetoLog = log
+        m.filingMemory = FilingMemory(profileId: "t", salt: "s", folders: [
+            "Documents/Immigration/OCI/Divit": FilingMemoryEntry(
+                docs: 4, anchors: [FilingMemoryToken(token: "oci", weight: 4.0),
+                                   FilingMemoryToken(token: "overseas", weight: 4.0)],
+                idHashes: []),
+        ])
+        // The card the user clicks "read this scan" on: a nameless scan with no home yet.
+        let scanPath = root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf").path
+        try Self.write(URL(fileURLWithPath: scanPath))
+        m.filingLastProviderRoot = root.path
+        m.prepareFilingRouter(destinations: ["Documents/Immigration/OCI/Divit"],
+                              providerRoot: root.path)
+        m.filingOCRExtractor = { _ in "OCI Card Overseas Citizen of India — Aditi Abhishek" }
+        let card = FilingSuggestion(filePath: scanPath, fileName: "Scan 2026-08-02.pdf", size: 5000,
+                                    modificationDate: nil, candidates: [], providerRoot: root.path)
+        m.publishFilingSuggestions([card])
+
+        let changed = await m.readScan(for: card)
+
+        #expect(changed == false, "the re-read accepted a home in another person's folder")
+        #expect(m.filingSuggestions.first?.candidates.isEmpty == true)
+        #expect(log.events.first?.proposedPerson == "divit")
+    }
+}
