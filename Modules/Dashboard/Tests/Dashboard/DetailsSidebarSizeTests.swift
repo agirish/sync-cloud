@@ -181,4 +181,102 @@ import Testing
         #expect(size.hasSuffix("+"))
         #expect(size.contains("12"), "the bytes it did see, not a floor of nothing: \(size)")
     }
+
+    // MARK: A symlinked folder is not an unreadable one
+
+    /// `enumerator(at:)` does not traverse a symlinked directory: it comes back non-nil, yields
+    /// ZERO entries, and fires the error handler with the link's own URL. That is byte for byte
+    /// the signature this file's other fixtures rely on to mean `.unreadable`, so a folder Finder
+    /// sizes perfectly well rendered as "--" in the sidebar.
+    ///
+    /// The premise is measured inline rather than assumed, because the whole fix rests on it.
+    @Test func aSymlinkedFolderIsSizedRatherThanCalledUnreadable() async throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let real = scratch.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try write(real.appendingPathComponent("a.bin"), bytes: 4000)
+        try write(real.appendingPathComponent("b.bin"), bytes: 6000)
+        let link = scratch.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // The premise: through the link, the URL-based enumerator sees nothing and complains.
+        final class Seen: @unchecked Sendable { var failures = 0 }
+        let seen = Seen()
+        let raw = FileManager.default.enumerator(
+            at: link, includingPropertiesForKeys: nil, options: [],
+            errorHandler: { _, _ in seen.failures += 1; return true })
+        #expect(raw != nil, "non-nil, as everywhere else in this file")
+        #expect(raw?.allObjects.count == 0, "zero entries through a link to a folder holding two")
+        #expect(seen.failures > 0, "…and it reports a failure, which is what made it look unreadable")
+
+        // The control, over the SAME spelling the assertion below uses: asked directly, the
+        // identical tree sizes fine. Without this the fixture could pass on a tree that was empty
+        // for some other reason.
+        let direct = try #require(await DetailsSidebar.computeDirectorySizeString(path: real.path))
+        #expect(direct.contains("10"), "the control: \(direct)")
+
+        let throughLink = try #require(
+            await DetailsSidebar.computeDirectorySizeString(path: link.path),
+            "a symlinked folder must be sized, not rendered as “--”")
+        #expect(throughLink == direct,
+                "the link and its target are the same folder: \(throughLink) vs \(direct)")
+        #expect(!throughLink.hasSuffix("+"), "nothing was withheld — this is a complete total")
+    }
+
+    /// The other direction, and the reason the test above cannot stand alone.
+    ///
+    /// `.unreadable` is also what this function answers for a link it genuinely cannot follow, so
+    /// a fixture that only checked the readable case would pass just as happily against a retry
+    /// that fired unconditionally — and that retry would resurrect the "Zero KB" bug for every
+    /// locked folder reached through a link. Both spellings are driven here, and they must answer
+    /// DIFFERENTLY: the readable link gets a number, the locked one still gets nil.
+    @Test func aLinkToALockedFolderIsStillUnreadable() async throws {
+        guard !skippedBecauseRoot("aLinkToALockedFolderIsStillUnreadable") else { return }
+        let scratch = try makeScratch()
+        let locked = scratch.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try write(locked.appendingPathComponent("secret.bin"), bytes: 8000)
+        let openFolder = scratch.appendingPathComponent("open")
+        try FileManager.default.createDirectory(at: openFolder, withIntermediateDirectories: true)
+        try write(openFolder.appendingPathComponent("plain.bin"), bytes: 8000)
+
+        let lockedLink = scratch.appendingPathComponent("locked-link")
+        let openLink = scratch.appendingPathComponent("open-link")
+        try FileManager.default.createSymbolicLink(at: lockedLink, withDestinationURL: locked)
+        try FileManager.default.createSymbolicLink(at: openLink, withDestinationURL: openFolder)
+        try chmod(locked, 0o000)
+        defer {
+            try? chmod(locked, 0o755)
+            try? FileManager.default.removeItem(at: scratch)
+        }
+
+        // Same shape, same byte count, same kind of link — only the permission differs, so the
+        // two answers cannot both come from a fallback.
+        let throughOpen = await DetailsSidebar.computeDirectorySizeString(path: openLink.path)
+        let throughLocked = await DetailsSidebar.computeDirectorySizeString(path: lockedLink.path)
+
+        let open = try #require(throughOpen, "a link to a readable folder must be sized")
+        #expect(open.contains("8"), "the readable link's real total: \(open)")
+        #expect(throughLocked == nil,
+                "a link to a locked folder has no honest size — got \(throughLocked ?? "nil")")
+        // Stated as a difference too: if these ever agree, one of the two branches has stopped
+        // deciding anything.
+        #expect(throughOpen != throughLocked)
+    }
+
+    /// A broken link resolves to a path that does not exist, and a self-referential one resolves
+    /// to itself. `traversableTarget` refuses both, so neither can be rescued into a size.
+    @Test func aBrokenOrSelfReferentialLinkHasNoSize() async throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let broken = scratch.appendingPathComponent("broken")
+        try FileManager.default.createSymbolicLink(
+            at: broken, withDestinationURL: scratch.appendingPathComponent("nowhere"))
+        let loop = scratch.appendingPathComponent("loop")
+        try FileManager.default.createSymbolicLink(at: loop, withDestinationURL: loop)
+
+        #expect(await DetailsSidebar.computeDirectorySizeString(path: broken.path) == nil)
+        #expect(await DetailsSidebar.computeDirectorySizeString(path: loop.path) == nil)
+    }
 }

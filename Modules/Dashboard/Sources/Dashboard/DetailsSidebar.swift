@@ -636,55 +636,93 @@ public struct DetailsSidebar: View {
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
 
-        // The enumerator is non-nil even for a folder that cannot be listed — it simply yields
-        // nothing — so this walk used to total 0 bytes for a locked folder and the sidebar
-        // reported "Zero KB" as if that were its size. The error handler is what separates the
-        // two, and `DirectoryListingSupport.classify` turns what it saw into the same verdict
-        // `FileManaging.listing(of:)` reaches. This cannot go through `listing` itself: that
-        // collects every entry into an array, and this walk streams a tree that can hold tens of
-        // thousands of them while polling for cancellation.
-        //
-        // A box rather than a captured `var`: the handler is an escaping closure and this
-        // function suspends (`Task.yield`) while the walk runs.
-        final class Failures: @unchecked Sendable { var urls: [URL] = [] }
-        let failures = Failures()
+        /// One streaming pass. nil means the task was cancelled; everything else is what the walk
+        /// saw, handed to `classify` by the caller.
+        ///
+        /// Extracted so it can run TWICE — see the symlink retry below. It has to stay a stream
+        /// rather than going through `FileManaging.listing(of:)`: that collects every entry into
+        /// an array, and this walks a tree that can hold tens of thousands of them while polling
+        /// for cancellation.
+        func walk(_ root: URL) async -> (total: Int64, entries: Int, failures: [URL])? {
+            // The enumerator is non-nil even for a folder that cannot be listed — it simply yields
+            // nothing — so this walk used to total 0 bytes for a locked folder and the sidebar
+            // reported "Zero KB" as if that were its size. The error handler is what separates the
+            // two, and `DirectoryListingSupport.classify` turns what it saw into the same verdict
+            // `FileManaging.listing(of:)` reaches.
+            //
+            // A box rather than a captured `var`: the handler is an escaping closure and this
+            // function suspends (`Task.yield`) while the walk runs.
+            final class Failures: @unchecked Sendable { var urls: [URL] = [] }
+            let failures = Failures()
 
-        // Descend into package bundles (.app, .rtfd, .photoslibrary…) so their contents count
-        // toward the folder total, matching Finder's Get Info. `.skipsPackageDescendants` would
-        // treat each bundle as 0 bytes and understate the size.
-        guard let enumerator = fm.enumerator(
-            at: url, includingPropertiesForKeys: keys, options: [],
-            // Returning true keeps going: one locked subfolder must not abandon the whole total.
-            errorHandler: { failed, _ in failures.urls.append(failed); return true }
-        ) else {
-            return nil
-        }
-
-        var total: Int64 = 0
-        var count = 0
-        while let fileURL = enumerator.nextObject() as? URL {
-            // Check for cancellation periodically to avoid orphaned background work
-            if count % 100 == 0 {
-                if Task.isCancelled { return nil }
-                await Task.yield()
+            // Descend into package bundles (.app, .rtfd, .photoslibrary…) so their contents count
+            // toward the folder total, matching Finder's Get Info. `.skipsPackageDescendants` would
+            // treat each bundle as 0 bytes and understate the size.
+            guard let enumerator = fm.enumerator(
+                at: root, includingPropertiesForKeys: keys, options: [],
+                // Returning true keeps going: one locked subfolder must not abandon the whole total.
+                errorHandler: { failed, _ in failures.urls.append(failed); return true }
+            ) else {
+                // Documented as unreachable on a real filesystem; reported as the root itself
+                // having failed, which is the verdict a nil enumerator used to short-circuit to.
+                return (0, 0, [root])
             }
-            count += 1
-            
-            autoreleasepool {
-                guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
-                      values.isRegularFile == true,
-                      let size = values.fileSize
-                else {
-                    return
+
+            var total: Int64 = 0
+            var count = 0
+            while let fileURL = enumerator.nextObject() as? URL {
+                // Check for cancellation periodically to avoid orphaned background work
+                if count % 100 == 0 {
+                    if Task.isCancelled { return nil }
+                    await Task.yield()
                 }
-                total += Int64(size)
+                count += 1
+
+                autoreleasepool {
+                    guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+                          values.isRegularFile == true,
+                          let size = values.fileSize
+                    else {
+                        return
+                    }
+                    total += Int64(size)
+                }
+            }
+
+            if Task.isCancelled { return nil }
+            return (total, count, failures.urls)
+        }
+
+        guard var walked = await walk(url) else { return nil }
+        var verdictRoot = url
+
+        // A SYMLINKED directory is not an unreadable one, and this walk could not tell them apart.
+        // `enumerator(at:)` refuses to traverse a symlinked directory: non-nil, zero entries, and
+        // the error handler fires with the link's own URL — which is exactly the signature
+        // `classify` answers `.unreadable` for, so a folder Finder sizes fine rendered as "--".
+        //
+        // Same one-way retry as `DirectoryListing.childCount`, and reached through the same public
+        // `traversableTarget`: it may only ever turn a false failure into a real measurement, and a
+        // retry that also fails changes nothing. A link to a locked directory, a broken link and a
+        // self-referential link therefore all still report "--".
+        //
+        // No re-spelling to do, unlike `listing(of:)`: this hands back a NUMBER, and the number is
+        // the target's either way — so `.producesRelativePathURLs` is not needed here.
+        if DirectoryListingSupport.classify(
+            entryCount: walked.entries, failures: walked.failures, root: verdictRoot).outcome == .unreadable,
+           let target = DirectoryListingSupport.traversableTarget(of: url, using: fm) {
+            guard let retried = await walk(target) else { return nil }
+            if DirectoryListingSupport.classify(
+                entryCount: retried.entries, failures: retried.failures, root: target).outcome != .unreadable {
+                walked = retried
+                verdictRoot = target
             }
         }
 
-        if Task.isCancelled { return nil }
-
+        let total = walked.total
         let formatted = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
-        switch DirectoryListingSupport.classify(entryCount: count, failures: failures.urls, root: url).outcome {
+        switch DirectoryListingSupport.classify(
+            entryCount: walked.entries, failures: walked.failures, root: verdictRoot).outcome {
         case .listed:
             return formatted
         case .listedWithUnreadableDescendants:
