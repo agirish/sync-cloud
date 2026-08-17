@@ -119,10 +119,25 @@ final class CommandPalettePanelController: ObservableObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.isMovable = false
-        // A second belt for the case `didResignKey` already covers (the app being deactivated), and
-        // kept because that one case is the only one this cannot be tested for: a panel left
-        // floating over another app would be the worst version of the bug this file fixes.
-        panel.hidesOnDeactivate = true
+        // **The `hidesOnDeactivate = true` that used to sit here never did anything, and the reason
+        // is the line order.** It was described as "a second belt for the case `didResignKey`
+        // already covers (the app being deactivated) … the one case this cannot be tested for", and
+        // measured inside a running app-target suite the panel read `hidesOnDeactivate == false`
+        // right after `present` returned. **`addChildWindow` clears the flag**, and the assignment
+        // came before it:
+        //
+        //     set true                  → true
+        //     addChildWindow            → false      <- here
+        //     makeKeyAndOrderFront      → false
+        //     (set AFTER addChildWindow → true)
+        //
+        // So it was inert for as long as it was written down. It is deleted rather than moved below
+        // the `addChildWindow`, because **the case it was for is covered, and that is now measured
+        // too**: deactivating the app with the palette up (`NSApp.deactivate()`) gives
+        // `children=0, isPresented=false` and exactly one dismissal through `onDismiss` — the panel
+        // resigns key and the observer below closes it outright, which is strictly better than
+        // hiding it. A belt that hides a window already being dismissed buys nothing, and a comment
+        // promising a safety net that is not there is worse than having no net.
         panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
         panel.contentView = NSHostingView(rootView: AnyView(content))
 

@@ -185,21 +185,28 @@ import Sync
 
         /// Read only into a failure message, so it can afford to be long.
         ///
-        /// **`presented` is what makes the no-dismissal case say anything true.** An earlier version
+        /// **`presented` is what makes the no-dismissal case say anything true.** The first version
         /// read "no dismissal was recorded, so the panel was never attached", which is a false
-        /// inference: there are *two* ways to reach an empty `childWindows` without `dismiss()`
-        /// running, and they call for opposite responses. `present` never attaching one is the app
-        /// breaking. The panel being unparented behind the controller's back is not — AppKit orders a
-        /// `hidesOnDeactivate` child out when the app deactivates, and **ordering out a child detaches
-        /// it from its parent** (measured, 5/5), which leaves the controller still holding a panel it
-        /// believes is attached. `isPresented` is exactly the discriminator.
+        /// inference: an empty `childWindows` with no `dismiss()` can also mean the panel was
+        /// unparented behind the controller's back, and `isPresented` separates those.
+        ///
+        /// **The second version then over-corrected and named a cause it had not measured** — it
+        /// blamed AppKit ordering a `hidesOnDeactivate` child out. Two measurements say otherwise:
+        /// this panel reads `hidesOnDeactivate == false` (a `.nonactivatingPanel` ignores the
+        /// setter), and deactivating the app *does* dismiss the palette through the resign observer,
+        /// recording a dismissal — so deactivation is not a no-dismissal case at all. What remains
+        /// true is only the mechanism, not any particular trigger for it: **ordering out a child
+        /// detaches it from its parent** (measured, 5/5), so anything that orders the panel out
+        /// without going through `dismiss()` produces exactly this reading. The message says that
+        /// and stops, because a diagnostic that names the wrong cause confidently is how mechanism
+        /// 11 stayed open.
         func report(presented: Bool) -> String {
             guard dismissals.isEmpty else {
                 return "the palette was dismissed \(dismissals.count)× :\n        "
                     + dismissals.joined(separator: "\n        ")
             }
             return presented
-                ? "no dismissal was recorded and the controller still holds its panel, so the panel was unparented without the controller knowing — AppKit orders a `hidesOnDeactivate` child out on deactivation, and ordering out a child detaches it from its parent"
+                ? "no dismissal was recorded and the controller still holds its panel, so the panel was unparented without the controller knowing — ordering out a child detaches it from its parent, so look for whatever ordered this panel out"
                 : "no dismissal was recorded and the controller holds no panel either, so `present` never attached one — this is the app, not an ambient teardown"
         }
     }
@@ -740,12 +747,19 @@ import Sync
                                                    what: "the fixture's teardown")
         #expect(teardown.contains("orderOut"),
                 "teardown no longer orders the host out, so this suite's windows stay in the app's window list for the rest of the process")
-        // Counted over the whole masked file, so a new helper cannot introduce one somewhere this
-        // scan was not looking. Comments and string bodies are blanked, so the several places that
-        // *discuss* the call do not count.
+        // Counted over the whole masked file *minus* teardown's own block, so a new helper cannot
+        // introduce one somewhere this scan was not looking. Comments and string bodies are blanked,
+        // so the several places that merely *discuss* the call do not count.
+        //
+        // **Outside-the-block, not a total.** The first version asserted `total == 1`, which is a
+        // different rule from the one this test is named for and a broader one: teardown ordering
+        // out both windows is a perfectly correct change, and a total would have banned it while
+        // claiming to be about where the call sits. A guard whose assertion is wider than its reason
+        // is a guard that refuses the next correct fix.
         let total = source.components(separatedBy: "orderOut").count - 1
-        #expect(total == 1,
-                "the fixture orders a window out \(total)× in code, and only teardown may — an orderOut while a presentation is live is mechanism 11, and no other test in this suite can see it")
+        let inTeardown = teardown.components(separatedBy: "orderOut").count - 1
+        #expect(total - inTeardown == 0,
+                "the fixture orders a window out \(total - inTeardown)× outside teardown, and only teardown may — an orderOut while a presentation is live is mechanism 11, and no other test in this suite can see it")
     }
 
     /// This file's own text, for the scans that are about the fixture rather than about the app.

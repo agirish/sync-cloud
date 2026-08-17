@@ -1243,10 +1243,11 @@ correctly predicted it would belong:
   not distinguish "never attached", which is a real regression in `present`, from "attached and then
   torn down" — and `docs/ci.md` notes the app-target step is the only one that compiles `MacApp/` at
   all, so misreading it costs the one signal that surface has. The witness reads `isPresented` to
-  separate those two, because there is a *third* route to an empty `childWindows` with no dismissal
-  at all: AppKit orders a `hidesOnDeactivate` child out when the app deactivates, and **ordering out
-  a child detaches it from its parent** (5/5), which leaves the controller holding a panel it
-  believes is still attached.
+  separate those two, because an empty `childWindows` with no dismissal at all can also mean the
+  panel was unparented behind the controller's back — **ordering out a child detaches it from its
+  parent** (5/5), so anything that orders the panel out without going through `dismiss()` reads the
+  same way. The message names that mechanism and no particular trigger for it: an earlier draft
+  blamed `hidesOnDeactivate`, and both halves of that turned out to be wrong (see below).
 - **`onlyTeardownEverOrdersAWindowOut`** scans the fixture's own source and fails if any code
   outside `teardown` orders a window out. Without it the regression has nothing standing over it:
   `theHostAndItsPanelStayOutOfSight` passes just as happily for a window that was never ordered in,
@@ -1267,6 +1268,30 @@ three synchronous tests, but both can reach the two `async` ones. **Consecutive 
 evidence that they never will** — this came in bursts over hours, so a handful of passes proves
 nothing. If it reappears, read the witness in the failure message rather than counting reruns: it
 names the activation state and the stack, which is the thing nobody had when this was opened.
+
+#### A bystander finding: the deactivation belt that never existed
+
+`CommandPalettePanel.swift` set `panel.hidesOnDeactivate = true`, commented as "a second belt for the
+case `didResignKey` already covers … the one case this cannot be tested for". Measured in the test
+host, the panel read `hidesOnDeactivate == false` right after `present` returned. **`addChildWindow`
+clears the flag**, and the assignment ran before it:
+
+```
+set true                  → true
+addChildWindow            → false     <- here
+(set AFTER addChildWindow → true)
+```
+
+So it was inert for as long as it was written down. The first attempt to explain *that* blamed the
+`.nonactivatingPanel` style mask — which a four-mask probe refuted outright, the setter sticking on
+all four. **Naming a cause without measuring it is the same error this entire entry is about, and it
+was made twice in one afternoon; the second time it was caught only because the first had just been
+written up.**
+
+The line is deleted rather than moved below the `addChildWindow`, because the case it guarded is
+covered and that is now measured too: `NSApp.deactivate()` with the palette up gives `children=0,
+isPresented=false` and one recorded dismissal — the resign observer closes the palette outright,
+which is strictly better than hiding it.
 
 #### Still true, and worth keeping
 
