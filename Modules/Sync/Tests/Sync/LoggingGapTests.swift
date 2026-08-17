@@ -139,12 +139,21 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = PeopleStore(directory: dir, profileId: id, profile: nil)
-        #expect(store.people.count == 2, "the fixture roster did not load, so it proves nothing")
+        // The roster loaded AND was collapsed to one record — both halves matter here. The first
+        // is the fixture working at all; the second is why this warning cannot be derived from
+        // `store.people`, which is the repaired roster and no longer shows the repeat. An earlier
+        // version of the warning did exactly that and went silent; `PersonRegistry.repeatedIds`
+        // reads the raw list instead.
+        #expect(store.people.count == 1, "the fixture roster did not load, or the repeat survived it")
+        #expect(store.people.first?.fullNames == ["Shweta R Dani"],
+                "the collapse kept the wrong record, so the line below would name the wrong loss")
 
         let line = await loggedLine(containing: dup)
         #expect(line != nil, "a roster repeating a person id loaded with nothing in the log")
         #expect(line?.contains("LAST entry") == true,
                 "the line has to say which of the two records wins: \(line ?? "nil")")
+        #expect(line?.contains("dropped") == true,
+                "the line has to say the earlier records are DISCARDED, not merely out-voted: \(line ?? "nil")")
     }
 
     /// The control: a roster whose ids are unique says nothing at all.

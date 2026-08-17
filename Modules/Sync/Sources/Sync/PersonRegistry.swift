@@ -164,6 +164,15 @@ public struct PersonRegistry: Sendable {
 
     public let people: [Person]
     public let source: Source
+    /// Ids that arrived more than once and were collapsed to one record, sorted and unique.
+    ///
+    /// **A reducer has to report what it gave up, or the thing it repaired becomes unsayable.**
+    /// `people` above is the repaired roster, and nothing in it records that a repair happened —
+    /// so `PeopleStore`'s load-time warning, which is the only thing that tells the user their
+    /// file repeats an id, had no way to see one once this collapse existed. (It scanned the
+    /// roster it was handed, and silently stopped firing the moment that roster was clean. Caught
+    /// by its own test, not by reasoning.) Empty is the ordinary case.
+    public let repeatedIds: [String]
 
     struct Phrase: Sendable {
         let tokens: [String]
@@ -185,12 +194,30 @@ public struct PersonRegistry: Sendable {
     public var isEmpty: Bool { people.isEmpty }
 
     public init(people: [Person], source: Source = .file) {
-        self.people = people
+        // **An id names exactly one person from here down, and this is where that becomes true.**
+        // A hand-edited `people.json` can list the same id twice — the in-app paths cannot, since
+        // `add` derives a unique id and `update` matches on one — and every reader below then
+        // answered differently: the phrase list took BOTH records, the token map took the LAST,
+        // `PeopleStore.person(id:)` takes the FIRST, and the Settings list drew the first record
+        // twice because `ForEach` keys on the id. One roster, four answers, in one window.
+        //
+        // The quiet one was `givenClaims`, which appends per record and then only publishes a
+        // given name claimed by exactly one id: a person listed twice claimed their own given
+        // name twice, so `claims.count == 1` was false and their given-name matching was
+        // *disabled by the duplicate*. Measured, not reasoned: with the fix reverted,
+        // `detect(in: "Girish statement.pdf")` on a roster listing Girish twice returns NOTHING.
+        //
+        // Last wins, which is what `PeopleStore` already warns at load and what the two derived
+        // maps already did; the first occurrence's POSITION is kept, since the roster is written
+        // in display order and a repair should not also reorder it.
+        let deduped = PersonRegistry.uniqueById(people)
+        self.people = deduped
         self.source = source
+        self.repeatedIds = PersonRegistry.repeatedIds(in: people)
         var phraseList: [Phrase] = []
         var tokensByPerson: [String: Set<String>] = [:]
         var givenClaims: [String: [String]] = [:]
-        for p in people {
+        for p in deduped {
             var tokens = Set<String>()
             for name in p.nameForms {
                 let words = PersonRegistry.words(name)
@@ -222,6 +249,38 @@ public struct PersonRegistry: Sendable {
             $0.tokens.count != $1.tokens.count ? $0.tokens.count > $1.tokens.count
                                                : $0.tokens.lexicographicallyPrecedes($1.tokens)
         }
+    }
+
+    /// One record per id — the last one listed, at the first one's position.
+    ///
+    /// Separate and `internal` so the rule can be tested for what it keeps as well as what it
+    /// drops: the winner is a whole record, not a merge of the two. Merging was the alternative
+    /// and is rejected deliberately — a union of two records' name forms is a person neither
+    /// entry describes, and it would contradict the load-time warning that says which one wins.
+    /// A duplicate is a mistake in a file somebody typed, and the honest repair is to pick one.
+    /// The ids that appear more than once in `people`, sorted and unique.
+    ///
+    /// Read off the RAW list, before `uniqueById` collapses it — which is the whole point: after
+    /// the collapse there is nothing left to count.
+    static func repeatedIds(in people: [Person]) -> [String] {
+        var seen = Set<String>()
+        var repeated = Set<String>()
+        for p in people where !seen.insert(p.id).inserted { repeated.insert(p.id) }
+        return repeated.sorted()
+    }
+
+    static func uniqueById(_ people: [Person]) -> [Person] {
+        var positions: [String: Int] = [:]
+        var kept: [Person] = []
+        for p in people {
+            if let at = positions[p.id] {
+                kept[at] = p            // later record wins, earlier slot keeps the order
+            } else {
+                positions[p.id] = kept.count
+                kept.append(p)
+            }
+        }
+        return kept
     }
 
     /// The people this text names, as registry ids.

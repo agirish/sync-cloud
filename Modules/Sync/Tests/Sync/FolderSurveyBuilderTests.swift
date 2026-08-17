@@ -464,33 +464,42 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
                 "a folder naming nobody must not inherit a person")
     }
 
-    /// **What a duplicated id actually does to the roster, pinned rather than assumed.**
+    /// **What a duplicated id does to the roster, pinned rather than assumed — and it changed.**
     ///
-    /// It is tempting to say the builder should take only the record the registry kept. It does not,
-    /// and the reason is that the registry does not keep one record: `tokensByPerson` is overwritten
-    /// (so the dropped record's single-word names stop resolving) while `phraseList` accumulates
-    /// (so its multi-word names still do). Filtering to the last record would fix the first
-    /// divergence and create its mirror for full names.
+    /// This test used to record an asymmetry: the registry kept no single record, so
+    /// `tokensByPerson` was overwritten by the last while `phraseList` accumulated both, and a
+    /// folder named for the dropped record stayed a `person-bucket` whose `axes.person` would not
+    /// resolve. It ended with an instruction — if the dropped name ever resolves differently, the
+    /// registry has changed and this needs re-checking. It has: `PersonRegistry.init` now collapses
+    /// a repeated id to one record before building anything.
     ///
-    /// So the roster stays a superset and this test says what that costs: a folder named for the
-    /// dropped record is still called a `person-bucket`, and its `axes.person` does not resolve. That
-    /// is visible and harmless, and it is the direction to prefer — the alternative is a person's
-    /// folder going unrecognised. Asserted so the next person to "tidy" this sees the trade.
-    @Test func aDuplicatedIdLeavesTheRosterASupersetOfWhatResolves() {
+    /// **The trade this now makes, stated so the next reader sees it too.** The roster is no longer
+    /// a superset. A folder named only for a dropped record is not recognised as a person-bucket at
+    /// all — the old comment called that the worse direction, and on the old behaviour it would have
+    /// been, because the file still described two people. It no longer does: one id is one person,
+    /// the file's last entry is that person, and `PeopleStore` warns at load that the earlier
+    /// entries were dropped and their names will not resolve. The folder going unrecognised is the
+    /// visible half of a fact the user has been told, rather than a silent divergence between two
+    /// halves of the same registry.
+    @Test func aDuplicatedIdResolvesOnlyTheRecordTheRegistryKept() {
         let duplicated = PersonRegistry(people: [
             Person(id: "m", displayName: "Muktha", fullNames: [], aliases: []),
             Person(id: "m", displayName: "Mukti", fullNames: [], aliases: ["Mom"]),
         ])
+        // The premise: the collapse really happened, so the assertions below are about one person.
+        #expect(duplicated.people.map(\.displayName) == ["Mukti"])
+        #expect(duplicated.repeatedIds == ["m"], "the registry did not report the repeat it repaired")
+
         let profile = build([dir("Muktha", [file("a.pdf")]), dir("Mukti", [file("b.pdf")]),
                              dir("Receipts", [file("c.pdf")])], registry: duplicated)
 
         let dropped = profile.folders["Muktha"]
-        #expect(dropped?.role == .personBucket, "the roster should still recognise the folder")
-        #expect(dropped?.axes["person"] == nil,
-                "the dropped record's single-word name is not resolvable — if this now resolves, the registry changed and the comment above needs re-checking")
+        #expect(dropped?.role != .personBucket,
+                "a folder named only for the DROPPED record is still read as somebody's bucket")
+        #expect(dropped?.axes["person"] == nil)
 
-        // The surviving record resolves on both, which is what makes the line above a real
-        // asymmetry rather than "nothing resolves".
+        // The surviving record resolves on both, which is what keeps the line above meaningful:
+        // the roster still recognises the person it kept.
         #expect(profile.folders["Mukti"]?.role == .personBucket)
         #expect(profile.folders["Mukti"]?.axes["person"] == "Mukti")
         // And a folder naming nobody is untouched by any of it.
