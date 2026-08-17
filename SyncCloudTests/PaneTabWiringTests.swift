@@ -1459,6 +1459,16 @@ import Sync
                                 "the selection line is unconditional again — clicking the active chip logs a switch that did not happen")
         let log = try #require(body.range(of: "Logger.shared.debug("))
         let verb = try #require(body.range(of: "syncManager.switchTab(to: id"))
+        // **Order first, then nesting.** A log line ABOVE the `if` is caught by the emptiness check
+        // below — `textBetween` answers nil for it, which fails — but it fails saying the line is
+        // "not inside the guard", which describes a line in the wrong branch rather than one that
+        // is not in the branch at all. The distinction is the whole diagnosis when it breaks, and
+        // it costs one comparison. Necessary and not sufficient, exactly as in
+        // `closeOtherTabsSaysNothingWhenThereWasNothingToClose`: `if moves { }` with the log
+        // unconditionally after it satisfies this and still logs every re-click, which is what the
+        // emptiness check is for.
+        #expect(gate.upperBound < log.lowerBound,
+                "the line is written before the guard even opens, so it is not guarded at all and every re-click logs a switch that did not happen")
         #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
                 "the line is not inside the guard — an empty branch with the log after it reads the same way round and logs every re-click")
