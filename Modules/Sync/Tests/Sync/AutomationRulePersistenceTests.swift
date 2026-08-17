@@ -139,6 +139,35 @@ import Testing
         #expect((condition["kindIs"] as? [String: Any])?["_0"] as? String == "spreadsheetOfTheFuture")
     }
 
+    /// A carried field has to come back the SAME VALUE, not merely the same shape.
+    ///
+    /// Holding every JSON number as a `Double` looks harmless — `7` still writes as `7`, not
+    /// `7.0` — right up to 2^53, past which the value is silently rewritten. Nineteen-digit
+    /// nanosecond timestamps live there. A bag whose whole contract is "carry this back untouched"
+    /// must not be what alters it.
+    @Test func aCarriedFieldKeepsItsExactValueWhateverItsType() throws {
+        let extra = #","priority":7,"ratio":0.25,"createdAtNanos":1755112233123456789,"on":true,"tag":null,"list":[1,"a"]"#
+        let rules = try Self.decode("[\(Self.ruleJSON(extra: extra))]")
+        let written = try #require(try Self.reencode(rules).first)
+
+        #expect(written["priority"] as? Int == 7)
+        #expect(written["ratio"] as? Double == 0.25)
+        #expect(written["on"] as? Bool == true, "a bool must not come back as the number 1")
+        #expect(written["tag"] is NSNull)
+        #expect((written["list"] as? [Any])?.count == 2)
+        // The one that was wrong: 1755112233123456789 came back as 1755112233123456768.
+        #expect(written["createdAtNanos"] as? Int == 1_755_112_233_123_456_789)
+
+        // And the bytes a NEWER build reads must still decode as the types it wrote them as —
+        // a Double where an Int was written throws on the way back in.
+        struct Probe: Decodable { let priority: Int; let createdAtNanos: Int; let on: Bool }
+        let data = try JSONSerialization.data(withJSONObject: written)
+        let probe = try JSONDecoder().decode(Probe.self, from: data)
+        #expect(probe.priority == 7)
+        #expect(probe.createdAtNanos == 1_755_112_233_123_456_789)
+        #expect(probe.on)
+    }
+
     // MARK: Backward tolerance — a file missing something this build expects
 
     @Test func aMissingFieldCostsItsDefaultNotTheWholeSet() throws {

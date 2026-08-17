@@ -126,6 +126,38 @@ import Foundation
         // truncated list look plausible, and why the guard above matters.
         #expect(settings.availableProviders.map(\.id) == ["iCloud"])
     }
+
+    @MainActor
+    @Test func anUnreadableRootStillPublishesEverythingItDidLearn() async {
+        // The failure is confined to the one thing the listing is evidence about. A pass that
+        // cannot read the root still re-stats every provider's path, and that answer must reach
+        // the UI: the earlier shape REFUSED THE WHOLE PUBLISH, so a provider whose folder had been
+        // deleted went on showing a valid badge for as long as the root stayed unreadable.
+        let test = TestDefaults(); defer { test.wipe() }
+        let readable = Mutable(true)
+        let dropboxIsValid = Mutable(true)
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: {
+                readable.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .unreadableRoot
+            },
+            pathValidator: { path in path.contains("Dropbox") ? dropboxIsValid.value : true })
+
+        await settings.discoverProviders()
+        #expect(settings.pathValidity["Dropbox"] == true)
+
+        // The root becomes unreadable AND Dropbox's own folder goes away.
+        readable.value = false
+        dropboxIsValid.value = false
+        await settings.discoverProviders()
+
+        // Still listed — the unreadable root is no evidence the account is gone …
+        #expect(settings.availableProviders.map(\.id).contains("Dropbox"))
+        // … and the fact the pass DID establish is published rather than discarded with it.
+        #expect(settings.pathValidity["Dropbox"] == false,
+                "a stale validity badge outlived the pass that disproved it")
+    }
 }
 
 /// One mutable value reachable from the `@Sendable` lister closure.

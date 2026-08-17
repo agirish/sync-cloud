@@ -827,8 +827,51 @@ extension FileSyncManager {
                         // separates the two with its own `leftInPlace`; this is its twin.
                         var leftInPlace = 0
                         var movedBackPairs: [(from: URL, to: URL)] = []
+                        // Items the user removed themselves between the move and the ⌘Z. Counted
+                        // apart from `leftInPlace` because they are not a refusal: this undo did
+                        // not decline to act, there was nothing left to act on.
+                        var vanished = 0
                         for item in items {
                             var movedBackOK = false
+                            // The moved item is GONE. Not drift — nothing is there to be a
+                            // stranger — and both siblings already say so: the copy-undo has its
+                            // own "already deleted themselves" branch, and the move-REDO skips its
+                            // absent sources for the same reason. Only this loop fell through to
+                            // the drift comparison, where `.absent` differs from the recorded
+                            // identity and reported the deleted item as CHANGED.
+                            //
+                            // The sentence was false, and it cost something real: the ORIGINAL
+                            // this move displaced stayed stranded in the Trash. Restoring it is
+                            // the one part of the reversal still available, and it is safe
+                            // precisely here — the destination is empty, so nothing is clobbered.
+                            // Deliberately NOT added to `movedBackPairs`: nothing moved back, and
+                            // a redo has nothing to re-apply.
+                            //
+                            // **The parent has to exist for this to mean what it says**, and that
+                            // condition is the whole difference between the two ways a path can
+                            // come back missing. A NESTED batch whose shallow item was refused
+                            // leaves the deeper item's recorded `to` spelling an ancestor that was
+                            // never restored: the file is still on disk under the ancestor's other
+                            // name, so "no longer on disk" would be false, and moving the backup
+                            // there would manufacture the very folder the refusal declined to
+                            // recreate. Without this clause the nested-refusal test reported
+                            // `a.txt is no longer on disk` about a file sitting in `Photos/`.
+                            // A missing parent falls through to the drift guard, which refuses —
+                            // which is what it did before this branch existed.
+                            let parentExists = fm.fileExists(atPath: item.to.deletingLastPathComponent().path)
+                            if parentExists, !fm.fileExists(atPath: item.to.path) {
+                                vanished += 1
+                                logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
+                                if let trashed = item.overwritten {
+                                    do {
+                                        try fm.moveItem(at: trashed, to: item.to)
+                                    } catch {
+                                        restoreFailures += 1
+                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, on: target)
+                                    }
+                                }
+                                continue
+                            }
                             // A case-only rename ("foo"→"Foo") is NOT a clobber: on a case-insensitive
                             // volume item.from resolves to the very item.to being moved back, so
                             // `fileExists(item.from)` is true even though nothing else took the spot.
@@ -909,7 +952,8 @@ extension FileSyncManager {
                              sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm))
                         }
                         await redoParamResolver.resolve(reversedParams)
-                        logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)")
+                        logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
+                                    + (vanished > 0 ? ", \(vanished) no longer on disk" : ""))
                 }
             }
         }
