@@ -705,8 +705,9 @@ import Design
         }
     }
 
-    /// Mounts the strip at `width` with **no imposed height**, top-aligned in a canvas of `height`,
-    /// so anything the strip draws outside one row is visible rather than cropped by the bitmap.
+    /// Mounts the strip at `width` with **no imposed height**, centred in a canvas of `height`, so
+    /// anything the strip draws outside one row is visible rather than cropped by the bitmap. The
+    /// note below says why centred rather than top-aligned, which this line used to contradict.
     func renderInTallCanvas(items: [PaneTabStrip.Item], width: CGFloat,
                             height: CGFloat) -> NSBitmapImageRep {
         // **Centred, with a clear band on BOTH sides.** Top-aligned, the region above the row was
