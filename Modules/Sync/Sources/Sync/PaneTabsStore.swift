@@ -1,4 +1,5 @@
 import Foundation
+import Events
 
 /// What survives a quit, for a pane's tab strip.
 ///
@@ -124,15 +125,32 @@ public enum PaneTabsStore {
                             from defaults: UserDefaults = .standard) -> (entries: [Entry], selected: Int)? {
         let key = keys(isLeft: isLeft)
         guard let raw = defaults.string(forKey: key.tabs), let data = raw.data(using: .utf8) else {
+            // No key: the ordinary case, and the one this `nil` is *for*. Silent on purpose — every
+            // fresh install and every never-used right pane comes through here.
             return nil
         }
-        guard let entries = try? JSONDecoder().decode([Entry].self, from: data), !entries.isEmpty else {
-            // A key that decodes to nothing is indistinguishable, for the caller, from no key at
-            // all — and seeding is the right answer for both.
+        guard let decoded = try? JSONDecoder().decode([Entry].self, from: data) else {
+            // **A key that is there but unreadable is not the same thing, and it is the one worth a
+            // line.** The caller cannot tell it from "never written" — both return `nil` here — so
+            // it seeds a fresh strip and the next save overwrites this value for good. That stays
+            // the right answer, since there is nothing here to restore; doing it in silence is what
+            // is not, because a strip the user had is then gone with nothing to say it existed.
+            //
+            // Reachable today by hand-editing the plist, which `split` and `restore` below both
+            // already treat as a live source of nonsense, and by any future change to the stored
+            // format that a build written before it has to read. Deliberately no more than this:
+            // no refusal to overwrite, no backup key — the value is unusable either way, and a
+            // strip the app declines to replace is a pane that cannot save its tabs.
+            Logger.shared.warning(
+                "The stored \(isLeft ? "left" : "right") browse tab strip could not be read and will "
+                + "be replaced by the next save: \(raw.prefix(200))")
             return nil
         }
-        let selected = min(max(0, defaults.integer(forKey: key.selected)), entries.count - 1)
-        return (entries, selected)
+        // A key that decodes to nothing is indistinguishable, for the caller, from no key at
+        // all — and seeding is the right answer for both.
+        guard !decoded.isEmpty else { return nil }
+        let selected = min(max(0, defaults.integer(forKey: key.selected)), decoded.count - 1)
+        return (decoded, selected)
     }
 
     /// Writes the strip. Called on every tab mutation, which is cheap: this is at most a handful of
@@ -150,8 +168,28 @@ public enum PaneTabsStore {
         defaults.set(min(max(0, selected), max(0, entries.count - 1)), forKey: key.selected)
     }
 
-    /// Turns stored entries back into tabs, dropping any whose provider is gone and any whose
-    /// folder no longer exists.
+    /// What a restore produced: the strip, and what it had to give up to produce it.
+    ///
+    /// **The second half exists because the first cannot say it.** A tab whose folder is gone is
+    /// not dropped — it comes back at its source root — so it is indistinguishable, in the returned
+    /// list, from a tab the user genuinely left at the root. The count of restored tabs matches the
+    /// count of stored ones, nothing is missing, and the next save writes the root over the stored
+    /// path permanently. Only the caller can say where that folder was, and only if it is told.
+    public struct Restored: Equatable, Sendable {
+        /// The strip, ready to install.
+        public var list: PaneTabList
+        /// The stored COMBINED path of every entry that came back at its source root because that
+        /// folder no longer exists, in strip order. Empty is the ordinary case.
+        public var lostFolders: [String]
+
+        public init(list: PaneTabList, lostFolders: [String] = []) {
+            self.list = list
+            self.lostFolders = lostFolders
+        }
+    }
+
+    /// Turns stored entries back into tabs, dropping any whose provider is gone and re-rooting any
+    /// whose folder no longer exists.
     ///
     /// **A stored path is a claim about a disk that has been out of this app's sight since the last
     /// quit.** A folder deleted, renamed or moved while the app was closed would otherwise restore
@@ -164,8 +202,12 @@ public enum PaneTabsStore {
     public static func restore(entries: [Entry],
                                selected: Int,
                                isKnownProvider: (String) -> Bool,
-                               folderExists: (_ providerId: String, _ relativePath: String) -> Bool) -> PaneTabList? {
+                               folderExists: (_ providerId: String, _ relativePath: String) -> Bool) -> Restored? {
         var restored: [PaneTab] = []
+        // Reported rather than merely counted: "one tab lost its folder" does not tell him WHICH
+        // folder, and the stored path is the only place that answer still exists — the entry is
+        // about to be rewritten at the root by the first thing that saves.
+        var lostFolders: [String] = []
         // **Where the stored selection ends up after entries are dropped.** Clamping the stored
         // index into the shortened list is right only by accident: drop entry 0 of four with entry
         // 2 selected and a clamp lands on the wrong tab, silently opening the pane somewhere the
@@ -184,6 +226,10 @@ public enum PaneTabsStore {
             let (scope, stack) = exists
                 ? split(relativePath: entry.relativePath, stackDepth: entry.stackDepth)
                 : ("", PaneBrowsePath())
+            // An entry already AT the root cannot have fallen back to it, and reporting one would
+            // make every ordinary launch of a pane sitting at its source root emit a warning about
+            // a folder that was never lost.
+            if !exists, !entry.relativePath.isEmpty { lostFolders.append(entry.relativePath) }
             if index == selected { selectedAfterDrops = restored.count }
             restored.append(PaneTab(providerId: entry.providerId, relativePath: scope,
                                     browsePath: stack, isPinned: entry.pinned))
@@ -200,6 +246,7 @@ public enum PaneTabsStore {
             .sorted { ($0.element.isPinned ? 0 : 1, $0.offset) < ($1.element.isPinned ? 0 : 1, $1.offset) }
             .map(\.element)
         let index = restored.firstIndex { $0.id == live } ?? 0
-        return PaneTabList(tabs: restored, selectedIndex: index)
+        return Restored(list: PaneTabList(tabs: restored, selectedIndex: index),
+                        lostFolders: lostFolders)
     }
 }

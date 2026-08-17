@@ -240,6 +240,47 @@ public struct PaneTabList: Equatable, Sendable {
                                       isPinned: active.isPinned)
     }
 
+    /// The pane's LIVE location written over the active entry — the list a **save** has to write.
+    ///
+    /// **The active entry is a stale snapshot by construction** (see `PaneTab`): the pane's one live
+    /// position lives in the manager, and the list's copy of it dates from the moment that tab was
+    /// last parked. So a strip saved straight off the list stores, for the tab on screen, the folder
+    /// it was opened at rather than the folder it is showing — which is exactly how the ACTIVE tab
+    /// lost its columns across a quit while every parked tab kept theirs.
+    ///
+    /// **Three values, not one joined path.** `PaneTabsStore` records where the cut between scope
+    /// and stack falls, as a depth; an entry rebuilt with the combined path as its scope reports a
+    /// depth of zero, which is the same flattening one layer down.
+    ///
+    /// **The id and the pin are kept, not taken from the caller.** This is the same tab with a newer
+    /// location, and the live pane knows nothing about pinning — reading the pin off it would unpin
+    /// the active tab on the next thing that saves. Nothing else moves either: `selectedIndex`,
+    /// `recentlyClosed` and every other tab are the ones this list already had.
+    ///
+    /// A rule here rather than four lines at the call site because the call site is a `View`
+    /// extension nothing can instantiate: the block was covered by source scans alone, and deleting
+    /// it whole passed every test in the repo.
+    public func replacingActive(providerId: String,
+                                relativePath: String,
+                                browsePath: PaneBrowsePath) -> PaneTabList {
+        var copy = self
+        let live = active
+        copy.tabs[copy.selectedIndex] = PaneTab(
+            id: live.id,
+            providerId: providerId,
+            relativePath: relativePath,
+            browsePath: browsePath,
+            // History re-seeded from the new path rather than carried across, which is what
+            // `PaneTab`'s initializer does with no history: every constructed tab agreeing with its
+            // own path is the invariant `applyTab` picks either one by, and the stored format holds
+            // no history at all.
+            selection: live.selection,
+            searchQuery: live.searchQuery,
+            searchIsExpanded: live.searchIsExpanded,
+            isPinned: live.isPinned)
+        return copy
+    }
+
     /// Appends `tab` at the trailing end and makes it active.
     ///
     /// Trailing rather than next-to-the-current (Safari's rule): the ＋ sits at the trailing end, so

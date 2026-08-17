@@ -390,6 +390,25 @@ import Sync
         }
     }
 
+    /// **Open in New Tab expands the pane's root before it compares anything against it.**
+    ///
+    /// A source's stored path may be written with a tilde while a row's id is always absolute, and
+    /// `PathBoundary.relativize` compares them as strings — so an unexpanded root matches nothing,
+    /// the guard below it takes the "outside this pane's source" branch, and the whole entry point
+    /// becomes a silent no-op with a warning that names the wrong reason. The MIRROR's expansion is
+    /// scanned by `bothWaysOfOpeningATabMirrorOntoTheLinkedPane`; this one, the half a user actually
+    /// clicks, was not scanned at all.
+    @Test func openInNewTabExpandsTheSourceRootBeforeRelativizing() throws {
+        let body = Self.codeOnly(try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let root = try #require(body.range(of: "expandingTildeInPath"),
+                                "the pane's root is compared unexpanded — Open in New Tab is a no-op for a tilde-stored source")
+        let relativize = try #require(body.range(of: "PathBoundary.relativize(absolutePath, under: root)"),
+                                      "the row's path is no longer relativized against the pane's root")
+        #expect(root.lowerBound < relativize.lowerBound,
+                "the root is expanded only after it has been compared against")
+    }
+
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {
@@ -562,6 +581,35 @@ import Sync
         #expect(!closedWindow, "⌘W closed the window as well as the tab")
     }
 
+    /// **⌘W on a pane's LAST tab closes the window**, as Finder does — which is what keeps ⌘W
+    /// meaning "get rid of this" rather than acquiring an exception nobody would remember.
+    ///
+    /// Unscanned until now, and invisible to every other test: `PaneTabList.close(at:)` refuses the
+    /// last tab, so deleting this branch does not throw an error or empty a pane — it makes ⌘W do
+    /// *nothing at all* on a one-tab window, silently, in the state every install starts in.
+    ///
+    /// **The other `performClose` is a different one.** `CloseTabCommand` falls back to the key
+    /// window when no tab value is published at all (`closeFallsBackToTheWindowWhenNoTabIsPublished`,
+    /// and the suspended case in `ShortcutCommandsTests`) — that is ⌘W in a window with no tabs. This
+    /// is ⌘W in the window that HAS them, on the one tab it is down to, and nothing asserted it.
+    @Test func closingTheLastTabClosesTheWindowInsteadOfDoingNothing() throws {
+        let body = Self.codeOnly(try Self.memberBody("func closeTab(id: UUID, isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let gate = try #require(body.range(of: "guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {"),
+                                "the last-tab branch is gone — ⌘W on a one-tab window now does nothing")
+        let rest = String(body[gate.upperBound...])
+        let close = try #require(rest.range(of: "NSApp.keyWindow?.performClose(nil)"),
+                                 "the last tab no longer closes its window")
+        let verb = try #require(rest.range(of: "tabAction(isLeft: isLeft)"),
+                                "closeTab no longer runs a tab verb at all")
+        #expect(close.upperBound < verb.lowerBound,
+                "the window close is not in the guard's branch — every ⌘W would close the window")
+        // …and the branch RETURNS. Falling through would ask the list to close a tab it refuses to
+        // close, on a window that is already going: harmless today, and only by that refusal.
+        #expect(String(rest[close.upperBound..<verb.lowerBound]).contains("return"),
+                "the last-tab branch closes the window and then goes on to close a tab as well")
+    }
+
     /// The item itself must not be disabled, or the fallback above can never run.
     @Test func theCloseItemIsNeverDisabled() throws {
         let body = try Self.typeBody("struct CloseTabCommand: View {",
@@ -596,6 +644,47 @@ import Sync
         // showing the right folder path under the wrong root.
         #expect(!Self.codeOnly(body).contains("leftProviderId = active.providerId"),
                 "the bare write is back, and the bootstrap guard does not stop it")
+    }
+
+    /// **The restore is behind "reopen the last folder", and nothing else says so.**
+    ///
+    /// Someone who has turned that setting off has said they want the app to start at the root;
+    /// handing them five tabs' worth of where they were is that answer at five times the volume.
+    /// Unscanned until now, and both mutations are silent: deleting the guard restores tabs for
+    /// someone who asked for none, and inverting it restores them for nobody — a strip that quietly
+    /// never comes back, which the first save then overwrites. Pinned as the exact literal, so
+    /// `guard !GeneralSettings…` fails rather than matching a looser check.
+    @Test func theLaunchRestoreObeysTheReopenTheLastFolderSetting() throws {
+        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let gate = try #require(body.range(of: "guard GeneralSettings.shouldRestoreLastFocus() else { return }"),
+                                "the restore ignores the reopen-last-folder setting, or tests it inverted")
+        let read = try #require(body.range(of: "PaneTabsStore.load(isLeft: isLeft)"),
+                                "the restore no longer reads the stored strip")
+        #expect(gate.upperBound < read.lowerBound,
+                "the setting is consulted after the strip has already been read and acted on")
+    }
+
+    /// **…and it says which folder a re-rooted tab lost.**
+    ///
+    /// A tab whose FOLDER is gone is not dropped — `PaneTabsStore.restore` brings it back at its
+    /// source root, deliberately, because a tab left pointing at nothing is an empty pane with a
+    /// path in its header. But nothing in the restored list distinguishes that from a tab the user
+    /// left at the root: the counts match, `Restored N tabs` reports success, the `dropped` warning
+    /// beside it counts only unknown or disabled SOURCES, and the first save writes the root over
+    /// the stored path for good. The stored path is the last place that folder is named.
+    @Test func theLaunchRestoreNamesTheFolderAReRootedTabLost() throws {
+        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        #expect(body.contains("lostFolders"),
+                "the host never asks the restore what fell back to a source root")
+        let loop = try #require(body.range(of: "for lost in"),
+                                "the fallbacks are collected and never reported")
+        let after = String(body[loop.upperBound...])
+        #expect(after.contains("Logger.shared.warning("),
+                "a lost folder is reported below warning, where a launch-time loss would not stand out")
+        #expect(after.contains("isLeft ? \"left\" : \"right\""),
+                "the line does not say which pane's tab lost its folder")
     }
 
     /// **Both panes are restored, and the right one is easy to drop.** The launch sequence called
@@ -928,6 +1017,38 @@ import Sync
                 "the save refuses the right pane again, so its strip is never written")
     }
 
+    /// **The save writes the LIVE pane over the active entry, through the rule that can be tested.**
+    ///
+    /// The active entry in the list is a snapshot from when that tab was last parked (see
+    /// `PaneTab`), so a strip written straight off the list saves the tab on screen at the folder it
+    /// was opened at — which is what "the active tab lost its columns across a quit" was, while
+    /// every parked tab kept theirs. The overlay lived inline in this member, where nothing could
+    /// reach it: deleting the block whole passed every test in the repo, including the ones about
+    /// the very columns it exists to keep. It is `PaneTabList.replacingActive` now, unit-tested in
+    /// `PaneTabsTests`, and this is the half that a value cannot state — that the host calls it, with
+    /// the pane's own three values, and hands the store the result rather than the list.
+    @Test func theSaveWritesTheLivePaneOverTheActiveEntryThroughTheRule() throws {
+        let save = Self.codeOnly(try Self.memberBody("func saveBrowseTabs(isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        #expect(save.contains("replacingActive("),
+                "the save writes the list's own stale active entry — the tab on screen is stored where it was parked")
+        // **All three halves of where the pane is**, and the two paths separately: `PaneTabsStore`
+        // records the cut between scope and stack as a depth, so an entry rebuilt from the joined
+        // path reports a depth of zero and the columns are flattened one layer down.
+        for value in ["providerId: isLeft ? leftProviderId : rightProviderId",
+                      "relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath",
+                      "browsePath: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath"] {
+            #expect(save.contains(value), "the save does not hand the rule the pane's own \(value)")
+        }
+        // …and what goes to disk is the overlaid strip, not the one it was built from. Asserted
+        // both ways: passing `list.tabs` here would satisfy every presence above and store nothing
+        // the overlay produced.
+        #expect(save.contains("PaneTabsStore.save(tabs: saving.tabs"),
+                "the overlaid strip is built and then not the one that is saved")
+        #expect(!save.contains("PaneTabsStore.save(tabs: list.tabs"),
+                "the store is handed the list's own tabs, so the overlay is dead code")
+    }
+
     /// **One body serves both panes, so every side-dependent call inside it has to thread `isLeft`.**
     ///
     /// A single hardcoded side here is the worst failure this feature can have and the quietest: the
@@ -1125,6 +1246,64 @@ import Sync
         }
     }
 
+    /// **A line that names no tab cannot be read back.** Selecting, cycling and closing all wrote
+    /// sentences that were true of any tab in any pane: "User selected a browse tab", and a close
+    /// that carried only the chip's TITLE — which is the leaf path component. ⌘T deliberately opens
+    /// the folder you are already in, so same-named chips are the expected first sight of the strip,
+    /// and two closes of two different tabs read identically in his log today. In Compare none of
+    /// the three said which pane had moved.
+    ///
+    /// Named verb by verb rather than scanned as a family, like the level check below it: a blanket
+    /// rule passes the moment a verb is renamed out of the pattern.
+    @Test func theTabLinesNameTheSideTheTabAndItsPath() throws {
+        let source = try Self.source("ContentView+PaneTabs.swift")
+        for verb in ["func selectTab(id: UUID, isLeft: Bool)",
+                     "func cycleTab(forward: Bool, isLeft: Bool)",
+                     "func closeTab(id: UUID, isLeft: Bool)"] {
+            let body = Self.codeOnly(try Self.memberBody(verb, in: source))
+            #expect(body.contains("tabLogDescription("),
+                    "“\(verb)” writes a line that names no particular tab")
+            #expect(body.contains("isLeft ? \"left\" : \"right\""),
+                    "“\(verb)” writes a line that does not say which pane it happened in")
+        }
+        // …and the description carries BOTH halves, which is the point: the title alone is the leaf
+        // component ⌘T makes ambiguous by design, and a path alone is not what the chip says.
+        let describe = try Self.memberBody("private func tabLogDescription(id: UUID, isLeft: Bool) -> String",
+                                           in: source)
+        #expect(describe.contains("paneTabItems(isLeft: isLeft)"),
+                "the line names the tab by something other than the chip the user is looking at")
+        #expect(describe.contains("combinedRelativePath"),
+                "the line carries the leaf component only, which two tabs can share")
+        // The ACTIVE entry is a stale snapshot, so describing it from the list would name the folder
+        // that tab was parked at — the exact class of bug this log exists to catch.
+        #expect(describe.contains("index == list.selectedIndex"),
+                "the active tab is described from its parked snapshot rather than from the live pane")
+    }
+
+    /// **Close Other Tabs says nothing when it closed nothing.**
+    ///
+    /// The count came from `closableOthers`, which excludes pinned tabs — and the line was written
+    /// *before* the verb ran, so an ⌥-click on the ✕ of a strip whose every other tab is pinned
+    /// logged "User closed 0 other browse tabs, keeping 1 pinned": a sentence about something that
+    /// did not happen, in the log he audits. The verb still has to run, because "leave me with this
+    /// one" also makes the kept tab live.
+    @Test func closeOtherTabsSaysNothingWhenThereWasNothingToClose() throws {
+        let body = Self.codeOnly(try Self.memberBody("func closeOtherTabs(keeping id: UUID, isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let count = try #require(body.range(of: "closableOthers(keeping: id)"),
+                                 "the line no longer counts what the gesture would actually close")
+        let verb = try #require(body.range(of: "syncManager.closeOtherTabs(keeping: id"),
+                                "the verb is gone")
+        let gate = try #require(body.range(of: "if closing > 0 {"),
+                                "an ⌥-click with nothing to close still logs “User closed 0 other browse tabs”")
+        let log = try #require(body.range(of: "Logger.shared.info("))
+        #expect(count.upperBound < verb.lowerBound,
+                "the count is taken after the verb, where the tabs it counts are already gone")
+        #expect(verb.lowerBound < gate.lowerBound,
+                "the line is written before the close it describes")
+        #expect(gate.upperBound < log.lowerBound, "the guard does not cover the line")
+    }
+
     /// **A mirrored ⌘T must not log the same sentence as the one that caused it.** Both panes open
     /// a tab at their own folder, so without a distinct line the log shows one keystroke firing
     /// twice in the same second — which reads as a bug in the very log used to rule bugs out.
@@ -1140,8 +1319,14 @@ import Sync
                 "the mirror is opened without marking itself as one")
     }
 
-    /// Reopen logs from *inside* the verb, so a press with an empty stack — the item is always
-    /// enabled, so that press is a real thing a user does — writes no line claiming a tab came back.
+    /// Reopen logs from *inside* the verb, so a press that brings nothing back writes no line
+    /// claiming a tab did.
+    ///
+    /// **The item is disabled when there is nothing to reopen**, which this comment used to claim
+    /// the opposite of: `shortcutReopenClosedTab` returns nil on a pane whose `canReopen` is false
+    /// and `ReopenClosedTabCommand` is `.disabled(reopen == nil)`. The guard inside the verb is the
+    /// defensive reading rather than the routine one — and it is still the only thing between an
+    /// empty stack and a line asserting a reopen, which is what is pinned here.
     @Test func reopenOnlyClaimsATabWhenOneComesBack() throws {
         let body = try Self.memberBody("func reopenClosedTab(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
