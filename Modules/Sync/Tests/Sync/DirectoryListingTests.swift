@@ -260,6 +260,35 @@ import Testing
         #expect(!uncapped.isCapped)
     }
 
+    /// A cap of zero opens the directory like any other cap, and this states what falls out of
+    /// that: counting stops on the first entry, so the answer is "at least 1".
+    ///
+    /// It exists because the first version of `childCount` short-circuited a non-positive cap to
+    /// an authoritative `.listed` zero — a verdict about a directory it had not opened, and
+    /// therefore the very thing this file exists to stamp out. The locked half is the half that
+    /// matters: a short-circuit cannot see a failure it never went looking for.
+    @Test func aNonPositiveCapStillOpensTheDirectory() throws {
+        guard !runningAsRoot else { return }
+        let base = try makeCanonicalTempRoot(prefix: "DirCountZeroCap")
+        let full = base.appendingPathComponent("full")
+        try makeDir(full, files: 3)
+        let locked = base.appendingPathComponent("locked")
+        try makeDir(locked, files: 3)
+        try chmod(locked, 0o000)
+        defer {
+            try? chmod(locked, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let counted = FileManager.default.childCount(of: full, cap: 0)
+        #expect(counted.count == 1)
+        #expect(counted.isCapped)
+        #expect(counted.isAtLeast)
+
+        #expect(FileManager.default.childCount(of: locked, cap: 0).outcome == .unreadable,
+                "a cap of zero must not turn an unreadable directory into a readable one")
+    }
+
     @Test func countingAPartlyReadableTreeIsAFloorNotATotal() throws {
         guard !runningAsRoot else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirCountPartial")

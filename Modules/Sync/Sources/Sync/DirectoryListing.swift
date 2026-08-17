@@ -131,7 +131,9 @@ public extension FileManaging {
     /// by the cap rather than by the folder.
     ///
     /// - Parameter cap: the highest number this will count to. On reaching it the walk stops and
-    ///   `isCapped` is true, which reads as "at least this many".
+    ///   `isCapped` is true, which reads as "at least this many". A non-positive cap has no
+    ///   special case: the check runs after the increment, so counting stops on the first entry
+    ///   and the answer is "at least 1" — never a claim about a directory this did not open.
     ///
     /// - Important: when `isCapped` is true, `outcome` describes only the part that was read. A
     ///   locked subdirectory beyond the cap is never met, so `.listed` there means "nothing
@@ -142,8 +144,6 @@ public extension FileManaging {
         options: FileManager.DirectoryEnumerationOptions = [],
         cap: Int
     ) -> DirectoryChildCount {
-        guard cap > 0 else { return DirectoryChildCount(count: 0, outcome: .listed, isCapped: true) }
-
         var failures: [URL] = []
         let record: (URL, Error) -> Bool = { failedURL, _ in
             failures.append(failedURL)
