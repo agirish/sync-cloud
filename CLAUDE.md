@@ -40,6 +40,25 @@ test helper's fix on both lines read as a judgement call to argue rather than th
 the failure mode: nothing announces a maintenance line quietly keeping a defect its own CI runs
 into.
 
+**Open, deliberately deferred: `v3.x` has none of the `DeleteOutcome` family.** As of 2026-08-17
+`Modules/Sync/Sources/Sync/DeleteOutcome.swift` is absent on that line and `deleteItems` there
+still answers an `Int`, so it cannot report whether an item reached the Trash or was destroyed
+permanently. Three fixes that landed on `main` and `v2.x` therefore have no `v3.x` counterpart,
+and each is a ⌘Z promise the line cannot keep on a Trash-less volume (exFAT, most SMB shares):
+
+| Missing on `v3.x` | `v2.x` / `main` | What 3.x still does |
+|---|---|---|
+| merge undo guard (`anyPermanentlyDeleted`) | `f8648c0c` / `7a220e62` | offers ⌘Z after a permanent delete — and undoing the fold DELETES the copied files, with the originals gone |
+| partial-batch `undoable:` flag | `83a05f22` / `8a505b5f` | offers an undo that never expires, so it comes to point at another operation |
+| duplicate-review log branch | `d6791da0` / `b632223d` | logs "Trashed" for a copy destroyed permanently |
+
+This is **not** the usual "cherry-pick it forward" case, which is why it is written down rather
+than done: each fix reads `DeleteOutcome`, so backporting them means backporting the type and a
+`deleteItems` signature change onto a shipped maintenance line. That is a scope call, not a
+mechanical one. Whoever takes it should expect the `MacApp/` caller to need moving in the same
+commit — that is exactly what broke `main` and `v2.x` on 2026-08-16 (green package suites, red
+app-target step).
+
 Two commands settle it before you start, per line, and byte-identical files cherry-pick clean:
 
 ```sh
