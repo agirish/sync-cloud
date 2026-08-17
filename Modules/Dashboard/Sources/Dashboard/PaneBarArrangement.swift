@@ -939,29 +939,44 @@ public enum PaneBarMigration {
     /// the shipped default, both of which are just as available from the delegate, and it runs
     /// AFTER this function rather than inside it, so it still reads the bar the user actually gets.
     ///
-    /// - Returns: the controls this run actually PUT ONTO a stored arrangement, in the order the
-    ///   migrated bar carries them — empty when nothing was rewritten. That is what a caller should
-    ///   log: "moved someone's bar, and here is what onto it" is worth a line, "had nothing to do"
-    ///   is not.
+    /// - Returns: `.unchanged` when no stored arrangement was written, and `.rewritten` — carrying
+    ///   whatever this run can NAME about the change — when one was. The distinction is the whole
+    ///   return value: a caller has to be able to tell "had nothing to do" from "moved someone's
+    ///   bar", and only the first of those may go unlogged.
     ///
-    ///   **The list, not a `Bool`.** The one caller used to be handed `true` and write the literal
-    ///   `"added Search to a stored pane-bar arrangement"`, which was a true sentence only for as
-    ///   long as `migratedControls` had exactly one member — the second step to ship would have made
-    ///   the log state a fact that had not happened, in the file a launch is verified through, and
-    ///   nothing would have said so. A caller cannot name what it was not told; so it is told.
-    ///   Derived from the items rather than from the steps, for the same reason the rewrite itself
-    ///   is compared rather than flagged: `insert` is allowed to refuse.
+    ///   **An enum, not a list, and not a `Bool` beside one.** This returned `[PaneBarItem]` —
+    ///   the controls it had put onto the bar — and the doc claimed that was "empty when nothing was
+    ///   rewritten". It was not. The list is derived by comparing the migrated items against
+    ///   `before`, so it is empty for any **removal**, any **reorder**, and any **repeatable**
+    ///   insertion (spacers are repeatable, which this file says two comments up). Each of those
+    ///   rewrites and SAVES the arrangement and then answers `[]`, so `migrationMessage` answered
+    ///   `nil` and the launch log said nothing at all about a bar that had just been rewritten
+    ///   underneath its owner. Not reachable while `migratedControls == [.search]` — one
+    ///   non-repeatable pure addition — but the entire point of returning something richer than a
+    ///   `Bool` was the day a second step ships, and three of the four shapes such a step can take
+    ///   land in that hole.
+    ///
+    ///   A struct or a `Bool`-plus-names would carry the same two facts and admit a third state
+    ///   that cannot happen — `rewritten == false` with a non-empty `added` — leaving every reader
+    ///   to decide which field to trust. The enum makes "was it rewritten" and "what changed"
+    ///   one indivisible answer, and makes `.rewritten(added: [], removed: [])` a **named case the
+    ///   message builder must handle** rather than a value indistinguishable from doing nothing.
+    ///   That case is precisely the defect, so the type is what forces it to be answered.
+    ///
+    ///   `added` and `removed` are still DERIVED by comparison rather than flagged beside the
+    ///   steps, for the reason the rewrite itself is: `insert` is allowed to refuse.
     @discardableResult
-    public static func apply(defaults: UserDefaults) -> [PaneBarItem] {
+    public static func apply(defaults: UserDefaults) -> Outcome {
         let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
-        guard from < currentVersion else { return [] }
+        guard from < currentVersion else { return .unchanged }
         defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
 
-        // Empty, not populated: there is no stored arrangement, so nothing was rewritten. Reporting
-        // a migration here made the app log "added Search to a stored pane-bar arrangement" on the
-        // first launch of EVERY install that had never customized its bar — the common case — about
-        // an arrangement that does not exist, in the log file a launch is verified through.
-        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return [] }
+        // `.unchanged`, not a rewrite: there is no stored arrangement, so nothing was written.
+        // Reporting a migration here made the app log "added Search to a stored pane-bar
+        // arrangement" on the first launch of EVERY install that had never customized its bar —
+        // the common case — about an arrangement that does not exist, in the log file a launch is
+        // verified through.
+        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return .unchanged }
         var arrangement = PaneBarArrangement(encoded: stored)
         let before = arrangement.items
         // v1 — Search. Appended at the trailing end, where the default carries it and where the
@@ -974,23 +989,81 @@ public enum PaneBarMigration {
         // because spacers are repeatable — gets nothing, silently. The flag then reported a
         // migration that had not happened and wrote the arrangement back unchanged. Reading the
         // items is the only thing that knows.
-        guard arrangement.items != before else { return [] }
+        // **One write path, one derivation.** Every step above this line does nothing but mutate
+        // `arrangement`, so whatever a future step does — insert, remove, reorder — reaches the
+        // defaults through this single `set` and is described by this single `outcome` call. That
+        // is what makes "a rewrite always returns `.rewritten`" a property of the code's shape
+        // rather than of anyone remembering to update a flag beside their new step.
+        guard case .rewritten(let added, let removed) =
+                outcome(before: before, after: arrangement.items) else { return .unchanged }
         defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
-        return arrangement.items.filter { !before.contains($0) }
+        return .rewritten(added: added, removed: removed)
     }
 
-    /// The line a launch writes when the migration put controls onto someone's stored bar — or
-    /// **nil when it put none there**, which is every launch after the first and every install that
-    /// never customized its bar.
+    /// What changed between the bar as stored and the bar the steps produced.
     ///
-    /// Pure, and it takes the controls rather than reading `migratedControls`, for two separate
-    /// reasons. A run adds only what that particular bar was missing, so a bar that already carried
-    /// Search and gained only the next control must not be told it gained both. And a version that
-    /// consulted the claim list would be a line agreeing with a list instead of with the migration —
-    /// the shape the literal it replaces already had.
-    public static func additionMessage(added: [PaneBarItem]) -> String? {
-        guard !added.isEmpty else { return nil }
-        return "[panebar] added \(names(added)) to a stored pane-bar arrangement"
+    /// Split out from `apply` because it is the part with shapes worth testing and `apply` is the
+    /// part that cannot produce them: the only step that ships is one non-repeatable pure addition,
+    /// so a removal, a reorder and a repeatable insertion are unreachable through `apply` today
+    /// and are exactly the shapes the old `[PaneBarItem]` return answered `[]` for. Fed directly,
+    /// each of them is one line to state.
+    ///
+    /// `.unchanged` is decided HERE, by comparing the items, so `apply` cannot write a bar this
+    /// function considers untouched — the two answers are one answer.
+    ///
+    /// Both lists are de-duplicated: a step may insert a repeatable item, and "added Space, Space"
+    /// is not a sentence. Order is the migrated bar's for `added` and the stored bar's for
+    /// `removed`, so a reader sees them where they were.
+    static func outcome(before: [PaneBarItem], after: [PaneBarItem]) -> Outcome {
+        guard after != before else { return .unchanged }
+        var seenAdded: Set<PaneBarItem> = []
+        var seenRemoved: Set<PaneBarItem> = []
+        return .rewritten(
+            added: after.filter { !before.contains($0) && seenAdded.insert($0).inserted },
+            removed: before.filter { !after.contains($0) && seenRemoved.insert($0).inserted })
+    }
+
+    /// What a run of `apply` did to the stored arrangement.
+    ///
+    /// Two cases rather than one list, because the caller's question is "is there anything to say",
+    /// and a list cannot answer it: an empty list used to mean both "nothing happened" and
+    /// "something happened that I cannot name". See `apply`'s `- Returns:` for why that mattered.
+    public enum Outcome: Equatable, Sendable {
+        /// No stored arrangement was written — an install that never customized its bar, a bar
+        /// already stamped at `currentVersion`, or a bar too full to take what a step offered it.
+        /// The only case that may be logged as nothing.
+        case unchanged
+        /// The stored arrangement was rewritten and saved.
+        ///
+        /// **Both lists may be empty and that is a real state**, not a degenerate one: a step that
+        /// reorders, or that inserts a repeatable item the bar already carries, changes the stored
+        /// string while adding and removing no distinct control. The rewrite still happened, and
+        /// `migrationMessage` still has to say so.
+        case rewritten(added: [PaneBarItem], removed: [PaneBarItem])
+    }
+
+    /// The line a launch writes about the migration — **`nil` for `.unchanged` and non-`nil` for
+    /// every rewrite**, which is the contract the whole `Outcome` type exists to make expressible.
+    ///
+    /// Every rewrite line opens with the same stem, so "this launch rewrote somebody's bar" is one
+    /// grep of `~/sync-cloud.log` whether or not the run could name what it did. The naming is the
+    /// part that can come up empty; the fact must not.
+    ///
+    /// Pure, and it is handed what `apply` answered rather than reading `migratedControls`, for two
+    /// separate reasons. A run adds only what that particular bar was missing, so a bar that already
+    /// carried Search and gained only the next control must not be told it gained both. And a
+    /// version that consulted the claim list would be a line agreeing with a list instead of with
+    /// the migration — the shape the literal it replaces already had.
+    public static func migrationMessage(for outcome: Outcome) -> String? {
+        guard case .rewritten(let added, let removed) = outcome else { return nil }
+        let stem = "[panebar] rewrote a stored pane-bar arrangement"
+        var clauses: [String] = []
+        if !added.isEmpty { clauses.append("added \(names(added))") }
+        if !removed.isEmpty { clauses.append("removed \(names(removed))") }
+        // The rewrite it could not name — a reorder, or a repeatable item inserted again. The stem
+        // alone is the honest sentence; saying nothing was the defect.
+        guard !clauses.isEmpty else { return stem }
+        return "\(stem): \(clauses.joined(separator: ", "))"
     }
 
     // MARK: What the resulting bar cannot show

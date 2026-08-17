@@ -39,7 +39,7 @@ import Events
         let defaults = ScratchDefaults("PaneBarMigrationTests-gains")
         defaults.set("flexibleSpace,viewMode,backForward,scan,sort,hiddenFiles", forKey: PaneBar.arrangementKey)
 
-        #expect(PaneBarMigration.apply(defaults: defaults) == [.search],
+        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.search], removed: []),
                 "the migration must report Search as what it added, or the launch line names the wrong control")
 
         let migrated = PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey) ?? "")
@@ -61,8 +61,14 @@ import Events
 
         // The user drags it off.
         defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: defaults).isEmpty, "already stamped — nothing to do")
-        #expect(!PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey)!).items.contains(.search))
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged, "already stamped — nothing to do")
+        // **The whole stored string, not `contains`.** Its six siblings compare the encoding, and
+        // this site compared only Search's absence — so a second run that reordered the bar, or
+        // dropped some OTHER control, satisfied it. `contains` is the wrong question for a test
+        // whose subject is "the migration left this bar alone": the interesting failure is a
+        // rewrite, and a rewrite is exactly what a one-item check cannot see.
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan,sort",
+                "the stored bar was rewritten by a run that reported doing nothing")
     }
 
     /// Running twice must change nothing the second time — `App.init` can be re-run by SwiftUI.
@@ -86,7 +92,7 @@ import Events
         // This expected a non-empty answer and so held the return value to the opposite contract
         // from its sibling — which is how the app came to log a migration on every uncustomized
         // install.
-        #expect(PaneBarMigration.apply(defaults: defaults).isEmpty)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == nil, "nothing to migrate, nothing written")
         #expect(defaults.integer(forKey: PaneBar.migrationKey) == PaneBarMigration.currentVersion)
     }
@@ -114,7 +120,7 @@ import Events
                     "the fixture for \(control.displayName) still carries it, so the refusal is not what is being measured")
             defaults.set(full.encoded, forKey: PaneBar.arrangementKey)
 
-            #expect(PaneBarMigration.apply(defaults: defaults).isEmpty,
+            #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged,
                     "nothing was rewritten, so the migration must not claim it was")
             #expect(defaults.string(forKey: PaneBar.arrangementKey) == full.encoded,
                     "the bar must be untouched")
@@ -128,7 +134,7 @@ import Events
         let defaults = ScratchDefaults("PaneBarMigrationTests-current")
         defaults.set(PaneBarMigration.currentVersion, forKey: PaneBar.migrationKey)
         defaults.set("flexibleSpace,scan", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: defaults).isEmpty)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan")
     }
 
@@ -162,7 +168,7 @@ import Events
         let defaults = ScratchDefaults("PaneBarMigrationTests-stamp")
         defaults.set(1, forKey: PaneBar.migrationKey)
         defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: defaults).isEmpty)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan,sort")
     }
 
@@ -462,7 +468,7 @@ import Events
     ///
     /// Both ends are checked here because the sentence is assembled from two pieces. `apply` is
     /// **run**, not read off `migratedControls`, so a step that claims a control it does not place
-    /// fails here rather than producing a confident line about nothing; and `additionMessage` is
+    /// fails here rather than producing a confident line about nothing; and `migrationMessage` is
     /// handed exactly what `apply` answered. A control added to `migratedControls` with a step in
     /// `apply` is picked up by the loop below and its name required in the line, so nobody has to
     /// remember the call site.
@@ -477,10 +483,10 @@ import Events
             defaults.set(stored.encoded, forKey: PaneBar.arrangementKey)
             #expect(defaults.integer(forKey: PaneBar.migrationKey) == 0, "the fixture is already stamped")
 
-            let added = PaneBarMigration.apply(defaults: defaults)
-            #expect(added == [control],
-                    "the migration put \(control.displayName) onto the bar but reported \(added.map(\.displayName)) — the launch line says whatever this returns")
-            let line = PaneBarMigration.additionMessage(added: added)
+            let outcome = PaneBarMigration.apply(defaults: defaults)
+            #expect(outcome == .rewritten(added: [control], removed: []),
+                    "the migration put \(control.displayName) onto the bar but reported \(outcome) — the launch line says whatever this returns")
+            let line = PaneBarMigration.migrationMessage(for: outcome)
             #expect(line?.contains(control.displayName) == true,
                     "the launch line does not name \(control.displayName), which this run added: \(line ?? "nil")")
         }
@@ -489,13 +495,104 @@ import Events
         // one a second step creates — a bar arranged before either control shipped gains both on
         // the same launch. Written out rather than recomputed from `names`, which would agree with
         // itself whatever it said.
-        #expect(PaneBarMigration.additionMessage(added: [.search, .delete])
-                == "[panebar] added Search, Delete to a stored pane-bar arrangement",
+        #expect(PaneBarMigration.migrationMessage(for: .rewritten(added: [.search, .delete], removed: []))
+                == "[panebar] rewrote a stored pane-bar arrangement: added Search, Delete",
                 "the line cannot name more than one control, which is the whole reason it stopped being a literal")
-        // Nothing added, nothing said: every launch after the one that migrated, and every install
-        // that never customized its bar, goes this way.
-        #expect(PaneBarMigration.additionMessage(added: []) == nil,
+        // Nothing happened, nothing said — and this is now the ONLY outcome that may go unlogged:
+        // every launch after the one that migrated, and every install that never customized its
+        // bar. `.rewritten` with nothing nameable is a different value and is covered by
+        // `everyRewriteLogsSomethingEvenWhenItCannotNameWhatChanged`.
+        #expect(PaneBarMigration.migrationMessage(for: .unchanged) == nil,
                 "a launch that migrated nothing still writes a line claiming it did")
+    }
+
+    /// **The hole this replaced: a rewrite that logs nothing.**
+    ///
+    /// `apply` used to answer `[PaneBarItem]` — the controls it had put onto the bar — and its doc
+    /// promised that was "empty when nothing was rewritten". The list is derived by comparing the
+    /// migrated items against the stored ones, so it is empty for a **removal**, for a **reorder**,
+    /// and for a **repeatable insertion** (spacers repeat, which `PaneBarArrangement.insert` says
+    /// in as many words). Each of those writes the arrangement back and then reports `[]`, so the
+    /// message was `nil` and `~/sync-cloud.log` — the file a launch is verified through — said
+    /// nothing whatever about a bar that had just been rewritten under its owner.
+    ///
+    /// Three of the four shapes a second migration step can take are in that hole, and the entire
+    /// stated purpose of returning something richer than a `Bool` was the day a second step ships.
+    ///
+    /// **Fixtures built by hand, deliberately NOT from `PaneBarArrangement.default`.** The route
+    /// helpers in this file take the shipped default minus one control, which is the pattern that
+    /// cannot see a new case in a persisted user-arrangeable collection — the fixture moves with
+    /// the collection, so the new case is in it before anyone writes a test for it. Nothing here
+    /// enumerates controls at all: the subject is the SHAPE of a change, which is control-agnostic,
+    /// so a control added tomorrow neither helps nor hides.
+    ///
+    /// Fed to `PaneBarMigration.outcome` directly because `apply` cannot produce these shapes —
+    /// the one step that ships is a non-repeatable pure addition. `apply` routes its single write
+    /// through this same function (`theMigrationRoutesItsOwnAnswerThroughOutcome` below), so
+    /// binding it here binds every future step's rewrite too.
+    @Test func everyRewriteLogsSomethingEvenWhenItCannotNameWhatChanged() {
+        // The three shapes, each stated as its own before/after so a reader can check the premise.
+        let shapes: [(String, [PaneBarItem], [PaneBarItem])] = [
+            ("removal", [.scan, .sort, .hiddenFiles], [.scan, .hiddenFiles]),
+            ("reorder", [.scan, .sort, .hiddenFiles], [.hiddenFiles, .sort, .scan]),
+            ("repeatable insertion", [.scan, .space, .sort], [.scan, .space, .sort, .space]),
+        ]
+        for (shape, before, after) in shapes {
+            #expect(before != after, "the \(shape) fixture does not change the bar — it proves nothing")
+            let outcome = PaneBarMigration.outcome(before: before, after: after)
+            #expect(outcome != .unchanged,
+                    "a \(shape) rewrites the stored bar and `outcome` called it unchanged")
+            // The point of the whole change. Not "names what it did" — a reorder has no name — but
+            // "says the bar was rewritten", which is the fact that must never be conditional on
+            // the migration being able to describe its own work.
+            let line = PaneBarMigration.migrationMessage(for: outcome)
+            #expect(line != nil, "a \(shape) rewrote the bar and the launch log said nothing")
+            #expect(line?.contains("rewrote a stored pane-bar arrangement") == true,
+                    "the \(shape) line does not say the bar was rewritten: \(line ?? "nil")")
+        }
+
+        // The two nameable shapes say what they can, on top of the same stem — so one grep finds
+        // every rewrite whether or not it could be named.
+        #expect(PaneBarMigration.outcome(before: [.scan, .sort], after: [.scan, .sort, .search])
+                == .rewritten(added: [.search], removed: []))
+        #expect(PaneBarMigration.outcome(before: [.scan, .sort], after: [.scan])
+                == .rewritten(added: [], removed: [.sort]))
+        #expect(PaneBarMigration.migrationMessage(for: .rewritten(added: [], removed: [.sort]))
+                == "[panebar] rewrote a stored pane-bar arrangement: removed Sort")
+        #expect(PaneBarMigration.migrationMessage(for: .rewritten(added: [.search], removed: [.sort]))
+                == "[panebar] rewrote a stored pane-bar arrangement: added Search, removed Sort")
+        // The unnameable rewrite's whole sentence, as a literal — this is the string that used to
+        // not exist.
+        #expect(PaneBarMigration.migrationMessage(for: .rewritten(added: [], removed: []))
+                == "[panebar] rewrote a stored pane-bar arrangement")
+
+        // A repeatable item added twice is still named once: "added Space, Space" is not a sentence.
+        #expect(PaneBarMigration.outcome(before: [.scan], after: [.scan, .space, .space])
+                == .rewritten(added: [.space], removed: []))
+    }
+
+    /// The call-site half of the test above. A rule extracted so it can be tested is one revert
+    /// away from being a well-tested function nothing calls — and `outcome` is the only thing that
+    /// decides whether `apply` writes at all, so this checks the two answers really are one answer.
+    ///
+    /// Run through `apply` on the one shape it can actually produce, and required to equal what
+    /// `outcome` says about the same before/after. A version of `apply` that had kept its own
+    /// derivation beside the write would pass every other test in this file and fail here.
+    @Test func theMigrationRoutesItsOwnAnswerThroughOutcome() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-routes-through-outcome")
+        let before = PaneBarArrangement(encoded: "flexibleSpace,scan,sort,hiddenFiles").items
+        #expect(!before.contains(.search), "the fixture already carries Search — nothing would migrate")
+        defaults.set(PaneBarArrangement(before).encoded, forKey: PaneBar.arrangementKey)
+
+        let applied = PaneBarMigration.apply(defaults: defaults)
+        let after = PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey) ?? "").items
+        #expect(after != before, "the fixture did not migrate, so this comparison is vacuous")
+        // Recomputed from the two bars that were actually stored, NOT from `applied` — a check of
+        // `applied` against itself would agree whatever either side said.
+        #expect(applied == PaneBarMigration.outcome(before: before, after: after),
+                "`apply` reported \(applied) but `outcome` reads the same rewrite as \(PaneBarMigration.outcome(before: before, after: after))")
+        #expect(PaneBarMigration.migrationMessage(for: applied) != nil,
+                "the one rewrite `apply` can produce logs nothing")
     }
 
     // MARK: - What a launch writes down about the bar
@@ -512,7 +609,7 @@ import Events
         defaults.set(PaneBarMigration.currentVersion, forKey: PaneBar.migrationKey)
         defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
 
-        #expect(PaneBarMigration.apply(defaults: defaults).isEmpty, "nothing to migrate on this path")
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged, "nothing to migrate on this path")
         PaneBarMigration.reportStoredArrangementReach(defaults: defaults)
         await flushLog()
 
@@ -555,7 +652,8 @@ import Events
         // …and the migrating path too, since a `defer` fires on every way out.
         let migrating = ScratchDefaults("PaneBarMigrationTests-reach-apply-migrating")
         migrating.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: migrating) == [.search], "the fixture must really migrate")
+        #expect(PaneBarMigration.apply(defaults: migrating) == .rewritten(added: [.search], removed: []),
+                "the fixture must really migrate")
         await flushLog()
 
         let entries = Logger.shared.entries

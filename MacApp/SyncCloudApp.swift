@@ -140,15 +140,20 @@ struct SyncCloudApp: App {
             // otherwise is the magnifier quietly back in the ⋯ menu, which is exactly how this was
             // reported the first time.
             //
-            // **The line names what was added, and is not written here.** It used to be the
+            // **The line names what changed, and is not written here.** It used to be the
             // literal "added Search to a stored pane-bar arrangement", which was true only while
             // Search was the only step there could be: the second step to ship would have left the
-            // log claiming Search for a launch that added something else. `apply` returns the
-            // controls it actually put onto the bar and `additionMessage` turns them into the
-            // sentence, so the line follows a new step by construction rather than by somebody
-            // remembering this call site.
-            if let line = PaneBarMigration.additionMessage(
-                added: PaneBarMigration.apply(defaults: .standard)) {
+            // log claiming Search for a launch that added something else. `apply` returns an
+            // `Outcome` saying whether it rewrote the stored bar and what it can name about the
+            // change, and `migrationMessage` turns that into the sentence, so the line follows a
+            // new step by construction rather than by somebody remembering this call site.
+            //
+            // The `Outcome` rather than a list of added controls, because a list cannot distinguish
+            // "nothing happened" from "something happened that I cannot name" — a removing,
+            // reordering or repeatable step rewrites the bar and adds no distinct control, and this
+            // call site used to fall silent on exactly those.
+            if let line = PaneBarMigration.migrationMessage(
+                for: PaneBarMigration.apply(defaults: .standard)) {
                 Logger.shared.info(line)
             }
 

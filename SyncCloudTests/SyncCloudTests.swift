@@ -428,11 +428,13 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // scan of the wrong text would otherwise report the absence below for free.
         #expect(source.contains("PaneBarMigration.apply(defaults: .standard)"),
                 "the pane-bar migration no longer runs at launch — every check here is vacuous")
-        #expect(source.contains("PaneBarMigration.additionMessage("),
-                "the launch line is no longer built from what the migration reported adding")
+        #expect(source.contains("PaneBarMigration.migrationMessage("),
+                "the launch line is no longer built from what the migration reported")
         // And the literal is gone. Any control's name hard-coded into this file's log call is the
         // defect: the first one is true today and false on the day a second step ships.
-        for name in ["added Search to", "added Delete to", "added Preview to"] {
+        // Shortened from "added Search to" now that the line reads "…arrangement: added Search":
+        // the needle has to be the part a hand-written literal would still carry.
+        for name in ["added Search", "added Delete", "added Preview", "rewrote a stored"] {
             #expect(!source.contains(name),
                     "SyncCloudApp names a pane-bar control in a log line (“\(name)”) instead of naming what the migration reported")
         }
