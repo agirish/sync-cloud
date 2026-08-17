@@ -119,6 +119,23 @@ into a place you can keep several jobs open in at once.
 - **Dragging a control off the pane bar stops showing the copy badge.** macOS put a
   green ＋ on the cursor — the sign for "the item will still be there" — over a
   target whose only job is to delete it.
+- **The pane bar's ⋯ is now only about width.** It used to appear whenever a control
+  was off the bar for any reason, and hold two unrelated kinds of thing under one
+  glyph: controls this pane is too narrow to draw, and controls you had deliberately
+  taken off in Customize. The second meant the customize sheet could not actually
+  remove anything — it demoted a control into a menu, one click further away than
+  the pill had been, on a bar that then gave up some of the room it had just
+  gained, because ⋯ is a pill too. Removing is now removing, and the sheet's palette
+  is where a control is got back from. ⋯ appears only when the pane is too narrow to
+  draw everything, and holds only what that width folded away. If Show Hidden Files
+  is the one you had taken off, the menu bar's **Hidden Files** item (⇧⌘.) still
+  reaches it.
+- **Customize Pane Bar… has left the ⋯ menu.** It is a command about the bar's
+  appearance, and it was riding under controls that were there because of the
+  window's width — so a ⋯ holding one folded control read as a two-entry menu whose
+  second entry answered a question nobody had asked. Right-click the bar, which is
+  where anyone who has arranged Finder's toolbar tries first and which has always
+  carried the same item.
 
 ### People
 
