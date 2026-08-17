@@ -77,6 +77,13 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             }
             var attrs = stub.attributes ?? [:]
             attrs[.type] = stub.isDirectory ? FileAttributeType.typeDirectory : FileAttributeType.typeRegular
+            // A real regular file always reports a size; a stub built without an attributes
+            // dictionary reported none, so anything reading size off this double saw "unknown"
+            // for an ordinary file — a state the real filesystem does not produce. Synthesized for
+            // the same reason `.type` above is, and only when the fixture did not state one.
+            if !stub.isDirectory, attrs[.size] == nil {
+                attrs[.size] = NSNumber(value: 0)
+            }
             return attrs
         }
     }

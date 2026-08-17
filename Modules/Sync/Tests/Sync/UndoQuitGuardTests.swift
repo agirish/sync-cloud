@@ -51,7 +51,12 @@ import Foundation
             source: URL(fileURLWithPath: "/src/copied.txt"),
             destination: URL(fileURLWithPath: "/dst/copied.txt"),
             overwritten: nil,
-            destinationSize: nil
+            // The real identity of what is on the mock disk, so the drift guard passes and the
+            // undo proceeds — which is what this test is about. It used to pass `nil`, which meant
+            // the same thing only because nil SKIPPED the guard; there is no longer a value that
+            // does that, so the intent has to be stated rather than fallen into.
+            destinationIdentity: ItemIdentity.snapshot(at: URL(fileURLWithPath: "/dst/copied.txt"),
+                                                       fileManager: mockFM)
         )])
         manager.registerCopyUndo(stateResolver: resolver, actionName: "Sync copied.txt", fileManager: mockFM)
         #expect(manager.activeFileOperationsCount == 0)
