@@ -443,6 +443,16 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
 
+        // **One page sample, so every surface that asks who a document is about gets one answer.**
+        //
+        // `routerSnippets` holds whatever the extractor returned — up to 20,000 characters. What
+        // this scan PUBLISHES as `filingPageSamples` is truncated to `contentSampleChars`, and that
+        // published value is what "Try another" and the OCR re-read hand to the cross-person rule.
+        // The scan's own two veto call sites were passing the untruncated strings, so a name printed
+        // past the cut attributed a document during the scan and not on a re-ask — two answers to
+        // one question about the same file. Derived once here and used by all three.
+        let pageSamples = routerSnippets.mapValues { String($0.prefix(FilingRouter.contentSampleChars)) }
+
         // Phase 2.5 — the tree's own profile and memory, with no model call. Reads page 1 for the
         // files still without a home and ranks destinations by what each folder already contains.
         // Skipped entirely when no profile has been loaded, which is the ordinary state.
@@ -632,7 +642,7 @@ extension FileSyncManager {
                                                          satelliteHomes: filingSatelliteHomes,
                                                          profile: filingFolderProfile,
                                                          registry: filingPersonRegistry,
-                                                         pageSamples: routerSnippets,
+                                                         pageSamples: pageSamples,
                                                          identity: filingPersonIdentity,
                                                          onVeto: { [weak self] refusal in
                                                              self?.recordPersonVeto(refusal)
@@ -654,7 +664,7 @@ extension FileSyncManager {
         suggestions = FilingEngine.refusingCrossPersonHomes(
             suggestions, providerRoot: providerRoot.path,
             profile: filingFolderProfile, registry: filingPersonRegistry,
-            identity: filingPersonIdentity, pageSamples: routerSnippets,
+            identity: filingPersonIdentity, pageSamples: pageSamples,
             onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })
 
         // What each file would be CALLED once it lands — computed against the taxonomy this scan
@@ -688,7 +698,7 @@ extension FileSyncManager {
         // discipline, and replaced rather than merged so a sample can never outlive the list of
         // files it describes. Truncated to what the scorer was measured on, not to what the
         // extractor returned (see `filingPageSamples`).
-        filingPageSamples = routerSnippets.mapValues { String($0.prefix(FilingRouter.contentSampleChars)) }
+        filingPageSamples = pageSamples
         filingLastCacheReuse = cacheReuse
         // These results have not been refined — whatever the previous list's refine pass did, it
         // was about files that are no longer on screen. Cleared in the same publish so the summary

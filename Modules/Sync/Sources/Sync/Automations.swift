@@ -235,7 +235,6 @@ extension AutomationCondition {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                 debugDescription: "Expected exactly one condition key, found \(c.allKeys.count)"))
         }
-        let payload = try c.nestedContainer(keyedBy: PayloadKey.self, forKey: key)
         // A condition name this build knows but whose PAYLOAD it cannot read takes the same route as
         // a name it does not know at all. The gap this closes is `kindIs`: `FileKind` is a raw-value
         // enum decoded strictly here, so a kind added by a newer build threw out of this
@@ -243,7 +242,15 @@ extension AutomationCondition {
         // unreadable — costing the rule every OTHER condition's meaning too. Degrading one condition
         // is the narrower answer, and the mechanism for it already existed one branch below; only
         // unknown NAMES were being routed into it.
-        if let recognized = try? Self.recognized(name: key.stringValue, payload: payload) {
+        //
+        // **The container itself is asked for with `try?`, and that is the second half of the same
+        // gap.** A payload that is not an object at all — `{"kindIs":"pdf"}`, the shape a newer
+        // build gets by flattening the wire format — makes `nestedContainer` throw, and it threw
+        // from OUTSIDE the recovery, so the narrowing above did not apply to it and the whole array
+        // was carried as unreadable again. `RawPayload` holds any JSON value, so the recovery could
+        // always represent this; it was only being reached too late.
+        if let payload = try? c.nestedContainer(keyedBy: PayloadKey.self, forKey: key),
+           let recognized = try? Self.recognized(name: key.stringValue, payload: payload) {
             self = recognized
         } else {
             // Kept as bytes so it can be written back untouched — but not because bytes are

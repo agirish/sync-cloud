@@ -164,6 +164,39 @@ import Testing
         #expect(!rule.isRunnable)
     }
 
+    /// **The same narrowing, for a condition whose payload is not an object at all.**
+    ///
+    /// The test above degrades one condition because its payload IS the `{"_0": …}` object this
+    /// build expects and only the value inside is unknown. A newer build that flattens the wire
+    /// shape — `{"kindIs":"pdf"}` — hits `nestedContainer(keyedBy:forKey:)`, which threw out of the
+    /// condition's initializer before the recovery below could run. The whole `conditions` array
+    /// then read as unreadable, and the rule lost every other condition's meaning: exactly the
+    /// failure the narrowing exists to prevent, reachable by the same kind of future build.
+    ///
+    /// `RawPayload` can carry any JSON value, so the recovery was already able to hold it — it was
+    /// only being reached too late.
+    @Test func aConditionPayloadThatIsNotAnObjectCostsOneConditionToo() throws {
+        let json = """
+        [{"id":"5C6F0B8E-0000-4000-8000-00000000000F","name":"Flat","enabled":true,
+          "matchMode":"all",
+          "conditions":[{"kindIs":"pdf"},
+                        {"folderNamed":{"_0":"Downloads"}}],
+          "destinationTemplate":"Docs"}]
+        """
+        let rules = try Self.decode(json)
+        let rule = try #require(rules.first)
+        #expect(rule.conditions.count == 2, "the whole array was carried as one unreadable field")
+        #expect(rule.conditions.contains(.folderNamed("Downloads")))
+        let carried = try #require(rule.conditions.first { if case .unrecognized = $0 { return true } else { return false } })
+        if case .unrecognized(let name, _) = carried { #expect(name == "kindIs") }
+        #expect(!rule.isRunnable)
+        // And the flattened payload goes back to disk as it arrived, not as an object.
+        let written = try Self.reencode(rules)
+        let conditions = try #require(written.first?["conditions"] as? [[String: Any]])
+        #expect(conditions.contains { $0["kindIs"] as? String == "pdf" },
+                "the payload was rewritten on the way out; got \(conditions)")
+    }
+
     /// A carried field has to come back the SAME VALUE, not merely the same shape.
     ///
     /// Holding every JSON number as a `Double` looks harmless — `7` still writes as `7`, not

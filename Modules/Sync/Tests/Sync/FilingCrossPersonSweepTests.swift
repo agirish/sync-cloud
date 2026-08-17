@@ -199,6 +199,42 @@ import Testing
         #expect(log.events.first?.namedPerson == "aditi")
     }
 
+    /// **One page sample, so the scan and a later re-ask agree about who a document is about.**
+    ///
+    /// The rule reads the page only for a file whose own NAME names nobody, and what it is handed
+    /// differs by surface: the scan had the extractor's full return (up to 20,000 characters) while
+    /// "Try another" and the OCR re-read get `filingPageSamples`, truncated to the 400 the scorer
+    /// was measured on. A name printed past that cut therefore attributed the document during the
+    /// scan and not on a re-ask — two answers to one question about one file.
+    ///
+    /// Here the name sits past the cut, so nothing may be refused. The card keeps its home.
+    @Test func aNamePastTheSampleCutDoesNotDecideTheScan() async throws {
+        let (m, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
+        m.filingPersonVetoLog = log
+        // A nameless scan, whose page names Aditi only after 400 characters of filler.
+        try Self.write(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
+        let filler = String(repeating: "oci application overseas citizen india ", count: 40)
+        try #require(filler.count > FilingRouter.contentSampleChars)
+        m.filingSnippetExtractor = { _ in filler + " Aditi Abhishek" }
+        m.filingTokensFromText = { _ in ["oci"] }
+        m.filingContentExtractor = { _ in ["oci"] }
+
+        await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                      providerRoot: root)
+
+        let card = try #require(m.filingSuggestions.first { $0.fileName == "Scan 2026-08-02.pdf" })
+        // The premise: the scan really did offer Divit's folder for this file.
+        // The sibling card, whose FILENAME names Aditi, is refused as it should be — the fixture
+        // proves the rule is live in this scan rather than quietly absent.
+        try #require(log.events.contains { $0.fileName == "Aditi OCI.pdf" },
+                     "the rule did not fire at all here — the fixture stopped exercising it")
+        #expect(!log.events.contains { $0.fileName == "Scan 2026-08-02.pdf" },
+                "a name past the sample cut decided the scan, which a re-ask could not see")
+        #expect(card.candidates.contains { $0.path.hasSuffix("/OCI/Divit") })
+    }
+
     /// **The OCR re-read.** `readScan` routes one card and writes the home straight onto it — no
     /// `applyVerdicts`, so before the sweep it was a second live way into someone else's folder.
     /// And the file it exists for is a scan with no text layer, which is the rule's own worked

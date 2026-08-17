@@ -1191,6 +1191,17 @@ public enum FilingEngine {
     ///
     /// Reported once per card, for the highest-ranked refusal: the card had one home the user would
     /// have seen, and a file whose every candidate is someone else's folder is one event, not four.
+    ///
+    /// **This widens a known open defect, and that is worth stating rather than discovering.**
+    /// `attribution`'s last tier reads an identifier out of the page through ``PersonIdentityIndex``,
+    /// which is rebuilt from the tree as surveyed and takes no correction: a document misfiled once
+    /// into the wrong person's folder teaches that person's identifiers, and the rule then refuses
+    /// to file later scans of it into the right one. Before this, that could only decline a backend
+    /// verdict; now it can strip a router home. The tier is kept anyway — dropping it here would
+    /// make the sweep answer differently from `applyVerdicts` about the same file, which is the
+    /// drift every one of these rules exists to prevent — and it stays narrow, since a page is only
+    /// consulted for a file whose own name names nobody and identifiers only for a page that names
+    /// nobody either. The fix belongs in the index, not here.
     public static func refusingCrossPersonHomes(
         _ suggestions: [FilingSuggestion], providerRoot: String,
         profile: Sync.FolderProfile?, registry: PersonRegistry?,
