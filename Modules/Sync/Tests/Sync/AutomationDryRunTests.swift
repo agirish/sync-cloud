@@ -218,6 +218,51 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("scan.pdf").path))
     }
 
+    @Test func filingRefusesToRebuildAProviderThatWentAwayAfterThePreview() async throws {
+        // The provider unmounts (or the cloud folder is removed) between the preview and the apply.
+        // `createDirectory(withIntermediateDirectories: true)` will happily rebuild the whole path as
+        // an ordinary local folder, so without a guard the file is MOVED out of a live tree into a
+        // dead one nothing syncs — and reported as filed.
+        //
+        // The scanned folder is a SIBLING of the provider root, not a child: with the source inside
+        // the root, deleting the root also deletes the source, and the pre-existing
+        // `fileExists(atPath: src.path)` check would refuse first — the new guard would never be
+        // reached and this test would pass with it removed.
+        let base = try tempDir(); defer { try? FileManager.default.removeItem(at: base) }
+        let inbox = base.appendingPathComponent("Inbox")
+        let providerRoot = base.appendingPathComponent("Provider")
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: providerRoot, withIntermediateDirectories: true)
+        try write("bill.pdf", in: inbox, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "r", conditions: [.kindIs(.pdf)], destinationTemplate: "Filed")
+        ])
+        m.undoManager = UndoManager()
+        await m.runAutomationDryRun(root: inbox, destinationRoot: providerRoot, providerName: nil, now: now)
+        let report = try #require(m.automationDryRun)
+        let actionable = report.rows.filter { $0.destinationDir != nil }
+        #expect(actionable.count == 1)
+
+        // The provider goes away, exactly as an eject or a removed cloud folder would leave it.
+        try FileManager.default.removeItem(at: providerRoot)
+
+        let outcome = await m.applyAutomationFiling(rows: actionable)
+        #expect(outcome.filed == 0)
+        #expect(outcome.failed == 1)
+        // Nothing was rebuilt: neither the root nor the rule's folder under it.
+        #expect(!FileManager.default.fileExists(atPath: providerRoot.path))
+        #expect(!FileManager.default.fileExists(atPath: providerRoot.appendingPathComponent("Filed").path))
+        // And the file is still where the user left it.
+        #expect(FileManager.default.fileExists(atPath: inbox.appendingPathComponent("bill.pdf").path))
+        // The banner names the cause rather than flattening it into "couldn't file 1 file".
+        let banner = try #require(m.banner)
+        #expect(banner.severity == .warning)
+        #expect(banner.message.contains("no longer available"))
+        // The other direction of the guard — that it does NOT refuse a provider that is still
+        // there — is pinned by every filing test above; each anchors on a root that exists, and a
+        // guard stuck closed fails all of them.
+    }
+
     // MARK: Mentions rules & content reading
 
     @Test func mentionsRuleMatchesByNameWithoutReadingContent() async throws {

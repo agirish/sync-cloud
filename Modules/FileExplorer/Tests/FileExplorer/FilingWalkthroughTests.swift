@@ -12,7 +12,8 @@ import Sync
     private func row(_ name: String) -> AutomationDryRunRow {
         AutomationDryRunRow(id: "/inbox/\(name)", fileName: name, ruleID: UUID(), ruleName: "Rule",
                             verdict: .wouldFile(destination: "Docs"),
-                            destinationDir: URL(fileURLWithPath: "/root/Docs"), destinationLabel: "Docs")
+                            destinationDir: URL(fileURLWithPath: "/root/Docs"), destinationLabel: "Docs",
+                            destinationAnchor: URL(fileURLWithPath: "/root"))
     }
 
     @Test func approvingEveryFileFilesEveryFile() {
