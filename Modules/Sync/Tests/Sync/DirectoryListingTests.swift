@@ -245,7 +245,19 @@ import Testing
     }
 
     /// The fallback must not launder a real failure. A symlink to a LOCKED directory is still
-    /// unreadable, and so are the two shapes that resolve to themselves.
+    /// unreadable, and so are the two shapes that resolve to themselves, and so is one to a file.
+    ///
+    /// **This is also the whole of what keeps the retry one-way.** A ternary preferring the direct
+    /// walk's answer used to sit at the end of `listing`, described in three commit bodies as
+    /// enforcing it; it enforced nothing, because a `.unreadable` listing is `([], .unreadable, [])`
+    /// whichever walk produced it, so both branches of it were the same value and replacing it with
+    /// `return retried` passed all 75 tests here. What actually holds the line is `classify` running
+    /// on the retried walk, and what checks THAT is this fixture — so it has to be able to fail.
+    ///
+    /// It could not before. All four cases expected `.unreadable`, which is also the answer for a
+    /// fallback that has stopped rescuing anything, and two of them (broken, self-referential) never
+    /// reach the retry at all. The readable control below is what gives the four something they can
+    /// get wrong: it goes through the same call, on the same disk, and must come back with entries.
     @Test func aSymlinkThatLeadsNowhereReadableIsStillUnreadable() throws {
         guard !skippedBecauseRoot("symlink-failures") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirListSymlinkBad")
@@ -266,6 +278,12 @@ import Testing
         let toFile = base.appendingPathComponent("to-file")
         try FileManager.default.createSymbolicLink(at: toFile, withDestinationURL: file)
 
+        // The control: a link of exactly the same shape, onto a directory nothing is wrong with.
+        let open = base.appendingPathComponent("open")
+        try makeDir(open, files: 2)
+        let toOpen = base.appendingPathComponent("to-open")
+        try FileManager.default.createSymbolicLink(at: toOpen, withDestinationURL: open)
+
         try chmod(locked, 0o000)
         defer {
             try? chmod(locked, 0o755)
@@ -274,9 +292,96 @@ import Testing
 
         for (name, url) in [("to a locked directory", toLocked), ("broken", broken),
                             ("self-referential", selfie), ("to a regular file", toFile)] {
-            #expect(FileManager.default.listing(of: url).outcome == .unreadable,
+            let listing = FileManager.default.listing(of: url)
+            #expect(listing.outcome == .unreadable,
                     "a symlink \(name) is not something the fallback may report as readable")
+            // `urls` is not just meaningless here, it is empty — the retry may not smuggle a
+            // partial answer out behind an `.unreadable` verdict.
+            #expect(listing.urls.isEmpty, "a symlink \(name) handed back \(listing.urls.count) entries")
         }
+
+        let control = FileManager.default.listing(of: toOpen)
+        #expect(control.outcome == .listed,
+                "the fallback has stopped rescuing readable links — the four above prove nothing")
+        #expect(control.urls.count == 2)
+    }
+
+    /// `traversableTarget` is the single seam all three retries reach through, and the two refusals
+    /// inside it are invisible from every one of them: a self-referential link and a broken one end
+    /// in `.unreadable` whether the guard drops them here or the retried walk refuses them again a
+    /// step later. Dropping `resolved.path == url.path ? nil : resolved` therefore passed the whole
+    /// suite, leaving a documented rule as an untested optimisation.
+    ///
+    /// Asked of the seam directly, where the two answers do differ, and paired with the case that
+    /// must come back non-nil so it cannot pass for a `traversableTarget` that refuses everything.
+    @Test func traversableTargetOffersARetryOnlyWhenThereIsSomewhereElseToLook() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DirListRetrySeam")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let real = base.appendingPathComponent("real")
+        try makeDir(real)
+        let good = base.appendingPathComponent("good")
+        try FileManager.default.createSymbolicLink(at: good, withDestinationURL: real)
+        let selfie = base.appendingPathComponent("selfie")
+        try FileManager.default.createSymbolicLink(at: selfie, withDestinationURL: selfie)
+        let broken = base.appendingPathComponent("broken")
+        try FileManager.default.createSymbolicLink(
+            at: broken, withDestinationURL: base.appendingPathComponent("no-such-thing"))
+
+        // The one that must offer a second URL — and it must be a DIFFERENT one, which is the half
+        // the guard decides.
+        let offered = try #require(
+            DirectoryListingSupport.traversableTarget(of: good, using: FileManager.default),
+            "a link onto a real folder is exactly what the retry exists for")
+        #expect(offered.path != good.path)
+        #expect(DirectoryListingSupport.identity(of: offered) == DirectoryListingSupport.identity(of: real))
+
+        // Both shapes that resolve to themselves. Retrying either repeats the same refusal, so the
+        // guard is what keeps a second enumerator from being built to be told the same thing.
+        #expect(DirectoryListingSupport.traversableTarget(of: selfie, using: FileManager.default) == nil,
+                "a self-referential link resolves to itself — there is nowhere else to look")
+        #expect(DirectoryListingSupport.traversableTarget(of: broken, using: FileManager.default) == nil,
+                "a broken link resolves to itself too")
+
+        // Not a link at all: no retry, however readable it is.
+        #expect(DirectoryListingSupport.traversableTarget(of: real, using: FileManager.default) == nil)
+        // And never for an injected file manager, whose paths are not on this disk.
+        #expect(DirectoryListingSupport.traversableTarget(of: good, using: MockFileManager()) == nil)
+    }
+
+    /// The other half of the re-spelling promise: it holds at every DEPTH, not only when the final
+    /// path component is the link.
+    ///
+    /// Re-spelling used to happen on the retry alone, and the retry fires only when the last
+    /// component is a symlink — so one level in, the direct walk succeeded and the enumerator's
+    /// canonicalised TARGET path went back to the caller unchanged. Measured before the fix:
+    ///
+    ///     listing(of: <base>/link)        → <base>/link/Health          ✓
+    ///     listing(of: <base>/link/Health) → <base>/real/Health/Medical  ✗
+    ///
+    /// Both levels are asserted here because level 1 is what already worked; a fixture whose leaves
+    /// all sit at depth 1 cannot see this.
+    @Test func entriesKeepTheCallersSpellingBelowASymlinkTooNotOnlyAtIt() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DirListSymlinkLevel2")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let real = base.appendingPathComponent("real")
+        try makeDir(real.appendingPathComponent("Health/Medical"))
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // Level 1: the retry path, which already re-spelled.
+        let level1 = FileManager.default.listing(of: link)
+        #expect(level1.urls.map(\.path) == [link.appendingPathComponent("Health").path])
+
+        // Level 2: the direct walk, one level INSIDE the link.
+        let level2 = FileManager.default.listing(of: link.appendingPathComponent("Health"))
+        #expect(level2.outcome == .listed)
+        #expect(level2.urls.map(\.path) == [link.appendingPathComponent("Health/Medical").path],
+                "level 2 answered in the target's spelling: \(level2.urls.map(\.path))")
+
+        // Control: asked by its real name, it answers in that name — so the assertions above are
+        // about carrying the CALLER's spelling, not about prefixing everything with the argument.
+        let direct = FileManager.default.listing(of: real.appendingPathComponent("Health"))
+        #expect(direct.urls.map(\.path) == [real.appendingPathComponent("Health/Medical").path])
     }
 
     /// The recursive shape too, since that is the only one that can answer
@@ -304,19 +409,43 @@ import Testing
     /// The same quirk on the counting API, whose one caller is the folder-replace warning. A
     /// symlinked destination folder answered `.unreadable`, so the sentence fell back to
     /// "everything" for a folder it could perfectly well have counted.
+    ///
+    /// Both directions over the same fixture, because the retry here has to be one-way and nothing
+    /// else asks it to be: `childCount`'s rescue must never turn a real failure into a number.
+    /// A link onto a LOCKED directory is a folder the warning genuinely cannot count, and reporting
+    /// "0 items" for it is the original defect this whole seam exists to stop, arriving by the new
+    /// route. The readable half is what keeps the locked half from being satisfied by a `childCount`
+    /// that had simply stopped rescuing anything.
     @Test func countingThroughASymlinkReachesTheRealNumber() throws {
+        guard !skippedBecauseRoot("count-through-symlink") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirCountSymlink")
-        defer { try? FileManager.default.removeItem(at: base) }
         let target = base.appendingPathComponent("target")
         try makeDir(target, files: 4)
         let link = base.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let locked = base.appendingPathComponent("locked")
+        try makeDir(locked, files: 3)
+        let toLocked = base.appendingPathComponent("to-locked")
+        try FileManager.default.createSymbolicLink(at: toLocked, withDestinationURL: locked)
+        try chmod(locked, 0o000)
+        defer {
+            try? chmod(locked, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
 
         let counted = FileManager.default.childCount(of: link, options: [], cap: 1000)
 
         #expect(counted.outcome == .listed)
         #expect(counted.count == 4, "the target's four files, counted through the link")
         #expect(!counted.isCapped)
+
+        // The one-way half. A count of 0 here is exactly the "0 items will be removed" sentence
+        // this seam was built to stop, so `.unreadable` and nothing else will do.
+        let refused = FileManager.default.childCount(of: toLocked, options: [], cap: 1000)
+        #expect(refused.outcome == .unreadable,
+                "a link onto a locked folder is not a folder with \(refused.count) items in it")
+        #expect(refused.count == 0)
     }
 
     /// A regular file is not a directory, and this API cannot say so — it answers `.unreadable`,

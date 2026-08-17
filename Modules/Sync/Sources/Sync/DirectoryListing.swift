@@ -95,11 +95,23 @@ public extension FileManaging {
     /// - Important: a SYMLINKED directory is the other shape the enumerator cannot tell apart from
     ///   a locked one, and unlike the regular-file case it is not the safe direction — so it is
     ///   handled rather than documented. See ``DirectoryListingSupport/traversableTarget(of:using:)``.
-    ///   When the retry succeeds, `urls` is re-spelled under the path the CALLER asked about
-    ///   rather than under the link's target, because a picker's breadcrumbs and recents are keyed
-    ///   on the path it browsed through. `unreadableDescendants` is the one thing that is not:
-    ///   those URLs come from the error handler, which reports absolute paths with no relative
-    ///   base to re-spell from, so on that path alone they carry the target's spelling.
+    ///
+    /// - Important: `urls` is always spelled under the path the CALLER asked about, on both the
+    ///   direct walk and the retry, because a picker's breadcrumbs, its highlighted destination and
+    ///   its recents are all keyed on the path it browsed through. That promise used to hold on the
+    ///   retry alone, which made it hold for exactly one level: the retry fires only when the FINAL
+    ///   component is the link, so drilling one level *into* a symlinked folder succeeded directly
+    ///   and answered in the target's canonical spelling. Measured:
+    ///
+    ///       listing(of: <base>/link)        → <base>/link/Health          ✓ re-spelled
+    ///       listing(of: <base>/link/Health) → <base>/real/Health/Medical  ✗ the target's spelling
+    ///
+    ///   The second line is not under the root the picker is browsing, so the footer read
+    ///   `Dropbox › private › var › folders › … › real › Health › Medical`.
+    ///
+    ///   `unreadableDescendants` is the one thing that is not re-spelled: those URLs come from the
+    ///   error handler, which reports absolute paths with no relative base to re-spell from, so
+    ///   they carry whatever spelling the OS reported.
     ///
     /// - Note: a nil enumerator is treated as `.unreadable` for completeness, but neither the real
     ///   filesystem nor `MockFileManager` produces one — the real one because that is the whole
@@ -111,35 +123,44 @@ public extension FileManaging {
         options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants],
         keeping isWanted: (URL) -> Bool = { _ in true }
     ) -> DirectoryListing {
-        let direct = drainListing(of: url, keys: keys, options: options,
-                                  respellingUnder: nil, keeping: isWanted)
-        guard direct.outcome == .unreadable,
-              let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
-        else { return direct }
-
         // `.producesRelativePathURLs` rather than prefix arithmetic on the paths: measured, the
         // enumerator yields children under `/private/var/…` while `resolvingSymlinksInPath` hands
         // back `/var/…`, so `hasPrefix(target.path)` matches nothing. The relative path is exact
         // at any depth and needs no canonicalisation on either side.
-        let retried = drainListing(of: target, keys: keys,
-                                   options: options.union(.producesRelativePathURLs),
-                                   respellingUnder: url, keeping: isWanted)
+        //
+        // On BOTH walks, not just the retry — see the re-spelling note above. Measured on a
+        // 30,003-entry directory: 0.075s plain against 0.127s re-spelled, of which the option
+        // itself is 0.030s. That is the whole extra cost, and it buys the promise at every depth.
+        let walked = options.union(.producesRelativePathURLs)
+        let direct = drainListing(of: url, keys: keys, options: walked,
+                                  respellingUnder: url, keeping: isWanted)
+        guard direct.outcome == .unreadable,
+              let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
+        else { return direct }
+
         // A link to a locked directory, a broken link and a link to a regular file all land here
-        // and all stay unreadable — the fallback may only ever turn a false failure into a real
-        // listing, never the reverse.
-        return retried.outcome == .unreadable ? direct : retried
+        // and all stay unreadable — but that is `classify` running on the RETRIED walk, not a
+        // choice made here. A ternary preferring `direct` used to sit on this line claiming to
+        // enforce it; it could not, because a `.unreadable` listing is `([], .unreadable, [])`
+        // whichever walk produced it, so the two branches were the same value. What actually holds
+        // the line is `aSymlinkThatLeadsNowhereReadableIsStillUnreadable`, which asks all four
+        // shapes and pairs them with a readable control.
+        return drainListing(of: target, keys: keys, options: walked,
+                            respellingUnder: url, keeping: isWanted)
     }
 
     /// One pass of the enumerator, with no fallback of its own.
     ///
-    /// - Parameter base: when non-nil, every entry is re-spelled as `base` + the entry's relative
-    ///   path before the caller's filter sees it, so a predicate about the path is asked the same
-    ///   question on the direct and the retried walk.
+    /// - Parameter base: every entry is re-spelled as `base` + the entry's relative path before the
+    ///   caller's filter sees it, so a predicate about the path is asked the same question on the
+    ///   direct and the retried walk. On the direct walk `base` is the URL being enumerated, which
+    ///   is what keeps a caller's own spelling of an already-symlinked path from being canonicalised
+    ///   out from under it.
     fileprivate func drainListing(
         of url: URL,
         keys: [URLResourceKey]?,
         options: FileManager.DirectoryEnumerationOptions,
-        respellingUnder base: URL?,
+        respellingUnder base: URL,
         keeping isWanted: (URL) -> Bool
     ) -> DirectoryListing {
         var failures: [URL] = []
@@ -164,7 +185,12 @@ public extension FileManaging {
             // happens to reject everything is a folder with nothing the caller wanted in it, which
             // is a completely different statement.
             entryCount += 1
-            let spelled = base.map { $0.appendingPathComponent(child.relativePath) } ?? child
+            // `isDirectory:` supplied rather than inferred: the no-argument overload STATS the path
+            // to decide the trailing slash, which measured 0.145s of pure syscall over 30,000
+            // entries. The enumerator already knows — checked over 30,003 entries, `hasDirectoryPath`
+            // disagreed with `fileExists(atPath:isDirectory:)` zero times — and `.path`, which is
+            // what every consumer reads, is identical either way.
+            let spelled = base.appendingPathComponent(child.relativePath, isDirectory: child.hasDirectoryPath)
             if isWanted(spelled) { kept.append(spelled) }
         }
 
@@ -207,9 +233,12 @@ public extension FileManaging {
               let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
         else { return direct }
         // No re-spelling to do: this hands back a number, and the number is the target's either
-        // way. Same one-way rule as `listing` — a retry that also fails changes nothing.
-        let retried = drainCount(of: target, options: options, cap: cap)
-        return retried.outcome == .unreadable ? direct : retried
+        // way. A retry that also fails changes nothing — and, as in `listing`, that is `classify`
+        // running on the retried walk rather than a comparison made here: `.unreadable` forces a
+        // count of zero and an uncapped walk, so `direct` and a failed `retried` are the same
+        // value. `countingThroughASymlinkReachesTheRealNumber` and its locked-link control are
+        // what pin it.
+        return drainCount(of: target, options: options, cap: cap)
     }
 
     fileprivate func drainCount(

@@ -701,10 +701,15 @@ public struct DetailsSidebar: View {
         // the error handler fires with the link's own URL — which is exactly the signature
         // `classify` answers `.unreadable` for, so a folder Finder sizes fine rendered as "--".
         //
-        // Same one-way retry as `DirectoryListing.childCount`, and reached through the same public
-        // `traversableTarget`: it may only ever turn a false failure into a real measurement, and a
-        // retry that also fails changes nothing. A link to a locked directory, a broken link and a
-        // self-referential link therefore all still report "--".
+        // Same retry as `DirectoryListing.childCount`, reached through the same public
+        // `traversableTarget`. A link to a locked directory, a broken link and a self-referential
+        // link all still report "--", and that is the `classify` BELOW running on the retried walk
+        // — not a guard here. There was one: the retry's result was adopted only when it classified
+        // as something other than `.unreadable`. It decided nothing, because a walk that fails
+        // yields zero entries and zero bytes whichever root it was asked about, so both branches
+        // reached the same `nil`. `aLinkToALockedFolderIsStillUnreadable` and
+        // `aBrokenOrSelfReferentialLinkHasNoSize` are what hold the line — each paired with a
+        // control link that answers a real number.
         //
         // No re-spelling to do, unlike `listing(of:)`: this hands back a NUMBER, and the number is
         // the target's either way — so `.producesRelativePathURLs` is not needed here.
@@ -712,11 +717,8 @@ public struct DetailsSidebar: View {
             entryCount: walked.entries, failures: walked.failures, root: verdictRoot).outcome == .unreadable,
            let target = DirectoryListingSupport.traversableTarget(of: url, using: fm) {
             guard let retried = await walk(target) else { return nil }
-            if DirectoryListingSupport.classify(
-                entryCount: retried.entries, failures: retried.failures, root: target).outcome != .unreadable {
-                walked = retried
-                verdictRoot = target
-            }
+            walked = retried
+            verdictRoot = target
         }
 
         let total = walked.total

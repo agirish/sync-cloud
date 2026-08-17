@@ -383,8 +383,23 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             return children
         }
 
-        // Return a mock MockDirectoryEnumerator
-        return MockEnumerator(urls: allChildren)
+        // `.producesRelativePathURLs` is modelled rather than ignored, because a caller reads the
+        // answer through `relativePath`, not through `path`. `FileManaging.listing(of:)` re-spells
+        // every entry as "the URL I was asked about" + `relativePath` — that is how a folder
+        // reached through a symlink keeps the caller's spelling at every depth — so an enumerator
+        // that quietly hands back an ABSOLUTE `relativePath` makes it build `/p//p/Health` and lose
+        // the lot. Measured: with the option unmodelled, `listSubfolders(of: "/p")` on this double
+        // came back empty while the real filesystem answered correctly.
+        //
+        // `path` is unchanged either way, which is what every existing assertion reads, so this
+        // only moves for a caller that asked for it — today, `listing(of:)` alone.
+        guard mask.contains(.producesRelativePathURLs) else { return MockEnumerator(urls: allChildren) }
+        let base = URL(fileURLWithPath: url.path, isDirectory: true)
+        return MockEnumerator(urls: allChildren.map { child in
+            let relative = String(child.path.dropFirst(url.path.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return URL(fileURLWithPath: relative, relativeTo: base)
+        })
     }
 }
 

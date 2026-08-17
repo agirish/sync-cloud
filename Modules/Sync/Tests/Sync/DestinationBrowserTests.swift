@@ -248,6 +248,66 @@ import Foundation
         #expect(direct.isComplete)
     }
 
+    /// **Drilling one level INTO a symlinked folder must keep the caller's spelling too.**
+    ///
+    /// The re-spelling that makes the test above pass fires only on the RETRY, and the retry fires
+    /// only when the FINAL path component is the link. One level in, the direct walk succeeds and
+    /// the enumerator hands back the canonicalised TARGET path, which nothing re-spells. Measured
+    /// on a real disk before the fix:
+    ///
+    ///     listSubfolders(of: <base>/link)        → ["<base>/link/Health"]            ✓
+    ///     listSubfolders(of: <base>/link/Health) → ["<base>/real/Health/Medical"]    ✗
+    ///
+    /// The second line is not under the root the picker is browsing, so `trail` takes its
+    /// "outside the root" escape and hands back every component — the footer read
+    /// `Dropbox › private › var › folders › c6 › … › real › Health › Medical`, which is the exact
+    /// failure `trail`'s own docstring cites as the bug it exists to stop. `highlighted` (what Move
+    /// commits to) and the recents key diverge from the browsed path the same way.
+    ///
+    /// Newly reachable: before the symlink fallback landed, `listSubfolders(of: link)` answered
+    /// `.unreadable`, so there was no level two to reach.
+    ///
+    /// Asserted at BOTH levels over the same tree, because level one alone is what shipped: the
+    /// existing fixture's leaves sit at depth 1, exactly the depth where re-spelling does fire.
+    @Test func testDrillingIntoASymlinkedFolderKeepsTheCallersSpelling() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DestSymlinkDeep")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let real = base.appendingPathComponent("real")
+        try FileManager.default.createDirectory(
+            at: real.appendingPathComponent("Health/Medical"), withIntermediateDirectories: true)
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // Level 1: the link itself is the final component, so the retry path re-spells.
+        let level1 = DestinationBrowser.listSubfolders(of: link.path, fileManager: FileManager.default)
+        #expect(level1.folders.map(\.path) == [link.appendingPathComponent("Health").path],
+                "level 1 lost the caller's spelling: \(level1.folders.map(\.path))")
+
+        // Level 2: one level INSIDE the link, where the direct walk succeeds on its own.
+        let health = link.appendingPathComponent("Health").path
+        let level2 = DestinationBrowser.listSubfolders(of: health, fileManager: FileManager.default)
+        #expect(level2.outcome == .listed)
+        #expect(level2.folders.map(\.path) == [link.appendingPathComponent("Health/Medical").path],
+                "level 2 answered in the target's spelling: \(level2.folders.map(\.path))")
+
+        // The user-visible consequence, stated as the footer renders it. `#require` rather than a
+        // subscript after `#expect`: `#expect` records and continues, so indexing an empty array on
+        // the next line would trap the test host and lose the run.
+        let medical = try #require(level2.folders.first).path
+        #expect(DestinationBrowser.trail(of: medical, under: link.path) == ["link", "Health"],
+                "trail took its outside-the-root escape: \(DestinationBrowser.trail(of: medical, under: link.path))")
+        #expect(DestinationBrowser.crumbs(for: medical, under: link.path, providerName: "Dropbox")
+                == ["Dropbox", "Health", "Medical"],
+                "footer read: \(DestinationBrowser.crumbs(for: medical, under: link.path, providerName: "Dropbox"))")
+
+        // Control: the same folder asked about by its real spelling still answers in that spelling.
+        // Without this the assertions above would pass for a `listSubfolders` that had simply
+        // started prefixing everything with whatever it was handed.
+        let realHealth = DestinationBrowser.listSubfolders(
+            of: real.appendingPathComponent("Health").path, fileManager: FileManager.default)
+        #expect(realHealth.folders.map(\.path) == [real.appendingPathComponent("Health/Medical").path])
+    }
+
     // MARK: - Search
 
     /// Both `Divit` folders are found, from different depths.

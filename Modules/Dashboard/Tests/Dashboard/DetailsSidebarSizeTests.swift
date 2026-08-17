@@ -267,6 +267,13 @@ import Testing
 
     /// A broken link resolves to a path that does not exist, and a self-referential one resolves
     /// to itself. `traversableTarget` refuses both, so neither can be rescued into a size.
+    ///
+    /// **With a control that answers differently**, because nil is also this function's fallback
+    /// for everything it cannot measure. Both expectations used to be nil with nothing in the
+    /// fixture that could produce anything else, so a `computeDirectorySizeString` that had stopped
+    /// measuring altogether — or a `traversableTarget` that had stopped resolving anything — would
+    /// have passed it. The third link below is the same shape reaching a real folder, and it has to
+    /// come back with the bytes.
     @Test func aBrokenOrSelfReferentialLinkHasNoSize() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -276,7 +283,21 @@ import Testing
         let loop = scratch.appendingPathComponent("loop")
         try FileManager.default.createSymbolicLink(at: loop, withDestinationURL: loop)
 
-        #expect(await DetailsSidebar.computeDirectorySizeString(path: broken.path) == nil)
-        #expect(await DetailsSidebar.computeDirectorySizeString(path: loop.path) == nil)
+        let real = scratch.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try write(real.appendingPathComponent("a.bin"), bytes: 4096)
+        let sound = scratch.appendingPathComponent("sound")
+        try FileManager.default.createSymbolicLink(at: sound, withDestinationURL: real)
+
+        let brokenSize = await DetailsSidebar.computeDirectorySizeString(path: broken.path)
+        let loopSize = await DetailsSidebar.computeDirectorySizeString(path: loop.path)
+        let soundSize = await DetailsSidebar.computeDirectorySizeString(path: sound.path)
+
+        #expect(brokenSize == nil, "a link to nowhere has no size — got \(brokenSize ?? "nil")")
+        #expect(loopSize == nil, "a link to itself has no size — got \(loopSize ?? "nil")")
+        // The control. If this is nil too, the two above prove nothing about links.
+        let measured = try #require(soundSize, "a link to a readable folder must be sized")
+        #expect(measured.contains("4"), "the control link's real total: \(measured)")
     }
+
 }
