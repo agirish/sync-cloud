@@ -400,6 +400,107 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     // MARK: The pane-bar migration's launch line
 
+    /// Swift source with its comments removed, for the two call-site scans below.
+    ///
+    /// **Whole-line `//` was not enough, and the gap was in the direction that matters.** Both
+    /// scans used to drop lines whose first non-space characters were `//`, which leaves a trailing
+    /// comment and a `/* */` block in the text. A scan's POSITIVE control — "the call is still
+    /// here, so the absence checks below mean something" — is a `contains`, so
+    /// `// PaneBarMigration.migrationMessage(` written at the end of any line, or commented out
+    /// inside a block, satisfied it with the real call deleted. The check that exists to stop the
+    /// rest of the test passing vacuously could itself be satisfied by a comment.
+    ///
+    /// A character scanner rather than a regex, because the one thing it must not do is strip a
+    /// `//` inside a string literal — `"https://…"` would otherwise swallow the rest of the line.
+    /// Escapes are honoured, and block comments nest, as they do in Swift.
+    ///
+    /// **Not handled: multiline (`"""`) and raw (`#"`) string literals.** Rather than pretend
+    /// otherwise, `theCommentStripperHandlesTheFormsTheScannedFileUses` asserts the scanned file
+    /// contains neither, so the day one appears the stripper is corrected instead of quietly
+    /// mis-parsing from there to the end of the file.
+    static func strippingComments(_ source: String) -> String {
+        var out = ""
+        var inString = false
+        var inLine = false
+        var blockDepth = 0
+        var escaped = false
+        var i = source.startIndex
+        func peek(_ offset: Int) -> Character? {
+            source.index(i, offsetBy: offset, limitedBy: source.index(before: source.endIndex))
+                .map { source[$0] }
+        }
+        while i < source.endIndex {
+            let c = source[i]
+            if inLine {
+                if c == "\n" { inLine = false; out.append(c) }
+            } else if blockDepth > 0 {
+                if c == "/", peek(1) == "*" { blockDepth += 1; i = source.index(i, offsetBy: 2); continue }
+                if c == "*", peek(1) == "/" { blockDepth -= 1; i = source.index(i, offsetBy: 2); continue }
+                // Newlines survive so line-oriented positions downstream stay sane.
+                if c == "\n" { out.append(c) }
+            } else if inString {
+                out.append(c)
+                if escaped { escaped = false } else if c == "\\" { escaped = true } else if c == "\"" { inString = false }
+            } else if c == "\"" {
+                inString = true; escaped = false; out.append(c)
+            } else if c == "/", peek(1) == "/" {
+                inLine = true; i = source.index(i, offsetBy: 2); continue
+            } else if c == "/", peek(1) == "*" {
+                blockDepth = 1; i = source.index(i, offsetBy: 2); continue
+            } else {
+                out.append(c)
+            }
+            i = source.index(after: i)
+        }
+        return out
+    }
+
+    /// The stripper's own proof, and the guard on its stated limits.
+    ///
+    /// Every case here is one the two scans below would get wrong without it — a trailing comment
+    /// and a block comment are exactly how a deleted call keeps answering a `contains`, and the
+    /// URL case is how an over-eager stripper would delete real code and fail the same scans from
+    /// the other side. Both directions, because only one of them is obvious.
+    @Test func theCommentStripperHandlesTheFormsTheScannedFileUses() throws {
+        let stripped = Self.strippingComments("""
+        let a = 1 // PaneBarMigration.migrationMessage(
+        // whole line
+        /* block PaneBarMigration.migrationMessage( */ let b = 2
+        /* outer /* nested */ still comment */ let c = 3
+        let url = "https://example.com/x" // tail
+        let quoted = "a \\" // not a comment" + "b"
+        real()
+        """)
+        #expect(!stripped.contains("PaneBarMigration.migrationMessage("),
+                "a commented-out call survived the stripper, so a scan's positive control can be satisfied by a comment")
+        #expect(!stripped.contains("whole line"))
+        #expect(!stripped.contains("still comment"), "nested block comments are not closed correctly")
+        #expect(!stripped.contains("tail"))
+        // …and it did not eat real code. A stripper that deleted everything would satisfy every
+        // expectation above and break both scans below, so these are not optional.
+        #expect(stripped.contains("let a = 1"))
+        #expect(stripped.contains("let b = 2"))
+        #expect(stripped.contains("let c = 3"))
+        #expect(stripped.contains("\"https://example.com/x\""),
+                "the stripper treated a URL's // as a comment and ate the rest of the line")
+        #expect(stripped.contains("\"a \\\" // not a comment\""),
+                "the stripper does not honour escapes inside string literals")
+        #expect(stripped.contains("real()"))
+
+        // The stated limit, asserted rather than assumed: the scanned file uses neither form, so
+        // the stripper is correct FOR IT. If one ever appears this fails here instead of silently
+        // mis-parsing the remainder of the file.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/SyncCloudApp.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read MacApp/SyncCloudApp.swift")
+        #expect(!raw.contains("\"\"\""),
+                "SyncCloudApp.swift now has a multiline string literal, which strippingComments does not parse")
+        #expect(!raw.contains("#\""),
+                "SyncCloudApp.swift now has a raw string literal, which strippingComments does not parse")
+    }
+
     /// **The line this launch writes must be the migration's own answer, not a literal.**
     ///
     /// `App.init` used to hold `Logger.shared.info("[panebar] added Search to a stored pane-bar
@@ -421,9 +522,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             .appendingPathComponent("MacApp/SyncCloudApp.swift")
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read MacApp/SyncCloudApp.swift")
-        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let source = Self.strippingComments(raw)
         // The positive control: this is the right file and the migration still runs at launch. A
         // scan of the wrong text would otherwise report the absence below for free.
         #expect(source.contains("PaneBarMigration.apply(defaults: .standard)"),
@@ -461,9 +560,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             .appendingPathComponent("MacApp/SyncCloudApp.swift")
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read MacApp/SyncCloudApp.swift")
-        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let source = Self.strippingComments(raw)
 
         let call = "PaneBarMigration.reportStoredArrangementReach(defaults: .standard)"
         let sites = source.components(separatedBy: call).count - 1
