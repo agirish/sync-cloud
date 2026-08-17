@@ -29,7 +29,7 @@ import Foundation
     /// Folders only, name-sorted. A file row would be a destination you cannot pick.
     @Test func testSubfoldersListsDirectoriesOnly() throws {
         let fm = try fixture()
-        let names = DestinationBrowser.subfolders(of: "/p", fileManager: fm).map(\.name)
+        let names = DestinationBrowser.listSubfolders(of: "/p", fileManager: fm).folders.map(\.name)
         #expect(names == ["Health", "School"])
     }
 
@@ -37,21 +37,215 @@ import Foundation
     /// can be one without the other.
     @Test func testHiddenFoldersAreDroppedUnlessAsked() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.subfolders(of: "/p", fileManager: fm).map(\.name) == ["Health", "School"])
-        let shown = DestinationBrowser.subfolders(of: "/p", showHidden: true, fileManager: fm).map(\.name)
+        #expect(DestinationBrowser.listSubfolders(of: "/p", fileManager: fm).folders.map(\.name) == ["Health", "School"])
+        let shown = DestinationBrowser.listSubfolders(of: "/p", showHidden: true, fileManager: fm).folders.map(\.name)
         #expect(shown.contains(".hidden"))
     }
 
     /// A path with nothing under it is empty, not an error — the picker renders "Empty" for it.
     @Test func testLeafFolderListsNothing() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.subfolders(of: "/p/School/Divit", fileManager: fm).isEmpty)
+        #expect(DestinationBrowser.listSubfolders(of: "/p/School/Divit", fileManager: fm).folders.isEmpty)
     }
 
     /// An empty root would otherwise resolve against the process working directory.
     @Test func testEmptyRootListsNothing() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.subfolders(of: "", fileManager: fm).isEmpty)
+        #expect(DestinationBrowser.listSubfolders(of: "", fileManager: fm).folders.isEmpty)
+    }
+
+    // MARK: - Listing a folder that cannot be read
+
+    /// The column under a folder nobody could open used to read "Empty" — a statement about
+    /// contents nobody saw, and the same defect as the folder-replace warning's "0 items". The
+    /// three cases are asserted together because what makes this a fix is that they differ.
+    @Test func testAnUnreadableFolderIsNotOfferedAsAnEmptyOne() throws {
+        let fm = try fixture()
+        fm.unlistableDirectories = ["/p/Health/Prescriptions"]
+
+        let unreadable = DestinationBrowser.listSubfolders(of: "/p/Health/Prescriptions", fileManager: fm)
+        #expect(unreadable.outcome == .unreadable)
+        #expect(unreadable.emptyMessage == "Can’t be read")
+
+        // A folder that genuinely holds no subfolders, from the same fixture and the same call.
+        let leaf = DestinationBrowser.listSubfolders(of: "/p/School/Divit", fileManager: fm)
+        #expect(leaf.outcome == .listed)
+        #expect(leaf.emptyMessage == "Empty")
+
+        // And a folder with rows has nothing to say in its place.
+        let populated = DestinationBrowser.listSubfolders(of: "/p", fileManager: fm)
+        #expect(populated.folders.map(\.name) == ["Health", "School"])
+        #expect(populated.emptyMessage == nil)
+    }
+
+    /// The third case, which a `!=` comparison silently folded into the first.
+    ///
+    /// `emptyMessage` asked `outcome == .unreadable ? "Can't be read" : "Empty"`, so a PARTIAL
+    /// listing with no subfolders — the folder opened, something below it did not — announced
+    /// itself as **"Empty"**: a claim about contents nobody saw, which is the exact conflation
+    /// `DirectoryListingOutcome`'s three cases exist to stop, reintroduced one case along.
+    ///
+    /// `listSubfolders` always lists shallowly and so cannot produce this value today. The type is
+    /// public and the wording is part of it, so the rule is asserted on the value rather than on
+    /// the route to it — an unreachable branch that is wrong is still wrong the day it is reached.
+    @Test func testAPartialListingIsNotAnnouncedAsEmpty() throws {
+        let partial = DestinationFolderListing(folders: [], outcome: .listedWithUnreadableDescendants)
+        let empty = DestinationFolderListing(folders: [], outcome: .listed)
+        let unreadable = DestinationFolderListing(folders: [], outcome: .unreadable)
+
+        #expect(partial.emptyMessage != empty.emptyMessage,
+                "a folder with a withheld subtree is not a folder known to hold nothing")
+        #expect(partial.emptyMessage != unreadable.emptyMessage,
+                "…and it is not a folder nobody opened either")
+        #expect(partial.emptyMessage == "Can’t be fully read")
+        #expect(empty.emptyMessage == "Empty")
+        #expect(unreadable.emptyMessage == "Can’t be read")
+    }
+
+    /// A directory the walk could not read means the walk did not establish "no folders match" —
+    /// the same reasoning the three caps already carry, applied to the fourth way of missing a
+    /// match. The pair is the test: the identical query over the identical tree answers
+    /// "complete" when everything was readable.
+    @Test func testSearchThatCouldNotReadADirectorySaysItStoppedShort() throws {
+        let readable = try fixture()
+        let complete = DestinationBrowser.search("Kaiser", under: "/p", fileManager: readable)
+        #expect(complete.matches.map(\.name) == ["Kaiser"])
+        #expect(complete.isComplete)
+
+        let blocked = try fixture()
+        blocked.unlistableDirectories = ["/p/Health/Medical"]
+        let partial = DestinationBrowser.search("Kaiser", under: "/p", fileManager: blocked)
+        #expect(partial.matches.isEmpty, "Kaiser sits behind the folder that could not be read")
+        #expect(!partial.isComplete,
+                "a walk that could not read a directory has not earned “No folders match”")
+    }
+
+    /// The two reasons a result list can be short of the truth are DIFFERENT reasons, and the
+    /// advice under the list is opposite for each — so they cannot travel as one boolean.
+    ///
+    /// A cap stops the walk EARLY: the rows are "the first N" and a tighter query reaches further.
+    /// An unreadable directory lets the walk FINISH and withholds a subtree from it: the rows are
+    /// every match there was, and no query will ever open that folder. Rolled together, the second
+    /// case rendered the first case's sentence, which was false on both halves.
+    @Test func testAWithheldDirectoryIsNotTheSameFactAsHittingACap() throws {
+        let blocked = try fixture()
+        blocked.unlistableDirectories = ["/p/Health/Medical"]
+
+        // Matches exist and are all found; only the unreadable folder is unaccounted for.
+        let withheld = DestinationBrowser.search("School", under: "/p", fileManager: blocked)
+        #expect(withheld.matches.map(\.name) == ["School"])
+        #expect(!withheld.stoppedEarly, "nothing cut this walk short — it ran the tree out")
+        #expect(withheld.skippedUnreadableDirectory)
+
+        // The same tree, readable, with a cap doing the stopping instead.
+        let readable = try fixture()
+        let capped = DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: readable)
+        #expect(capped.stoppedEarly)
+        #expect(!capped.skippedUnreadableDirectory, "every directory here was read")
+
+        // …and both at once, which neither of the above can stand in for. The blocked folder has
+        // to sit where the walk MEETS it before the cap trips: breadth-first with `limit: 1`,
+        // `/p/Health` is listed (and refused) in the same pass that finds `/p/School/Divit`.
+        // Blocking `/p/Health/Medical` instead would leave the walk returning a level too early
+        // to have noticed, which is how this arm first passed with only one of the two facts set.
+        let blockedHigh = try fixture()
+        blockedHigh.unlistableDirectories = ["/p/Health"]
+        let both = DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: blockedHigh)
+        #expect(both.stoppedEarly)
+        #expect(both.skippedUnreadableDirectory)
+    }
+
+    /// The sentence a person actually reads under a NON-empty list. The commit that introduced the
+    /// fourth cause reasoned only about the empty-results wording; this is the branch it missed,
+    /// and both halves of the old sentence were false there.
+    @Test func testTheFootnoteUnderResultsMatchesWhyTheyMightBeShort() throws {
+        let complete = DestinationSearchOutcome(matches: [], stoppedEarly: false,
+                                                skippedUnreadableDirectory: false)
+        #expect(complete.footnote(showing: 3) == nil, "a complete answer caveats nothing")
+
+        let capped = DestinationSearchOutcome(matches: [], stoppedEarly: true,
+                                              skippedUnreadableDirectory: false)
+        #expect(capped.footnote(showing: 3) == "Showing the first 3 — narrow the search, or browse to it.")
+
+        let withheld = DestinationSearchOutcome(matches: [], stoppedEarly: false,
+                                                skippedUnreadableDirectory: true)
+        let text = try #require(withheld.footnote(showing: 3))
+        #expect(text == "Some folders couldn’t be read — a match may be inside one of them.")
+        // The two specific claims that were false. Stated in the negative as well as by equality,
+        // because a reworded sentence could reintroduce either one on its own.
+        #expect(!text.contains("the first"), "this walk completed — these are not “the first 3”")
+        #expect(!text.contains("narrow"), "narrowing cannot reach behind a permission-denied folder")
+
+        let both = DestinationSearchOutcome(matches: [], stoppedEarly: true,
+                                            skippedUnreadableDirectory: true)
+        #expect(both.footnote(showing: 3)
+                == "Showing the first 3, and some folders couldn’t be read — there may be more either way.")
+    }
+
+    /// The empty-results wording, which does survive the fourth cause but must not flatten it back
+    /// into the caps' advice either. Four inputs, four different sentences.
+    @Test func testTheEmptyMessageNamesWhichKindOfNothingItIs() throws {
+        func message(stoppedEarly: Bool, skipped: Bool) -> String {
+            DestinationSearchOutcome(matches: [], stoppedEarly: stoppedEarly,
+                                     skippedUnreadableDirectory: skipped).emptyMessage(query: "Divit")
+        }
+        let complete = message(stoppedEarly: false, skipped: false)
+        let capped = message(stoppedEarly: true, skipped: false)
+        let withheld = message(stoppedEarly: false, skipped: true)
+        let both = message(stoppedEarly: true, skipped: true)
+
+        #expect(complete == "No folders match “Divit”")
+        #expect(Set([complete, capped, withheld, both]).count == 4,
+                "each cause has to reach its own sentence, not share one")
+        // Only the complete walk may make the flat claim; the other three have not earned it.
+        for (name, text) in [("capped", capped), ("withheld", withheld), ("both", both)] {
+            #expect(text != complete, "\(name) reused the complete walk's wording")
+            #expect(text.contains("Divit"), "\(name) dropped the query from its sentence")
+        }
+        #expect(withheld.contains("read"), "the withheld case has to say what happened: \(withheld)")
+    }
+
+    // MARK: - A folder reached through a symlink, on a real disk
+
+    /// The picker announced **"Can't be read"** about a folder Finder lists fine, and `search`
+    /// flagged a walk that had completed and returned every match as truncated — because
+    /// `FileManager.enumerator(at:)` refuses to traverse a symlinked directory, yielding zero
+    /// entries and firing its error handler, which is byte for byte the signature of a locked one.
+    ///
+    /// Against the REAL filesystem, because the behaviour is the real `FileManager`'s; the mock
+    /// disk has no symlinks and could only be evidence about itself. The control is the point: the
+    /// same two questions asked of the link's own target must give the same two answers, or this
+    /// test would pass for a `listSubfolders` that had simply stopped finding anything.
+    @Test func testAFolderReachedThroughASymlinkIsBrowsableAndSearchable() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DestSymlink")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let target = base.appendingPathComponent("provider")
+        for name in ["Medical", "Dental"] {
+            try FileManager.default.createDirectory(at: target.appendingPathComponent(name),
+                                                    withIntermediateDirectories: true)
+        }
+        try Data("x".utf8).write(to: target.appendingPathComponent("loose.txt"))
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let listed = DestinationBrowser.listSubfolders(of: link.path, fileManager: FileManager.default)
+        #expect(listed.outcome == .listed)
+        #expect(listed.folders.map(\.name) == ["Dental", "Medical"])
+        #expect(listed.emptyMessage == nil, "a column with rows has nothing to say in their place")
+        // Rows keyed on the path the user browsed through, not the link's target — the footer's
+        // breadcrumbs, `trail`, and the recents list are all matched against it.
+        #expect(listed.folders.map(\.path) == [link.appendingPathComponent("Dental").path,
+                                               link.appendingPathComponent("Medical").path])
+
+        let found = DestinationBrowser.search("Medical", under: link.path, fileManager: FileManager.default)
+        #expect(found.matches.map(\.name) == ["Medical"])
+        #expect(found.isComplete, "the walk read every directory it queued — it was not truncated")
+        #expect(found.footnote(showing: 1) == nil)
+
+        // Control: the same tree asked about directly, with no symlink in the way.
+        let direct = DestinationBrowser.search("Medical", under: target.path, fileManager: FileManager.default)
+        #expect(direct.matches.map(\.name) == found.matches.map(\.name))
+        #expect(direct.isComplete)
     }
 
     // MARK: - Search
@@ -435,18 +629,18 @@ import Foundation
         let fm = try fixture()
         let outcome = DestinationBrowser.search("divit", under: "/p", fileManager: fm)
         #expect(outcome.matches.count == 2)
-        #expect(outcome.isTruncated == false)
+        #expect(outcome.isComplete)
     }
 
     /// Each of the three caps stops the walk early, and each must say so — a partial list that
     /// reads as the complete one is how "the folder isn't there" becomes a wrong conclusion.
     @Test func testEveryCapReportsTruncation() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: fm).isTruncated,
+        #expect(DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: fm).stoppedEarly,
                 "match limit")
-        #expect(DestinationBrowser.search("divit", under: "/p", maxDepth: 2, fileManager: fm).isTruncated,
+        #expect(DestinationBrowser.search("divit", under: "/p", maxDepth: 2, fileManager: fm).stoppedEarly,
                 "depth ceiling — Kaiser/Divit is below it")
-        #expect(DestinationBrowser.search("divit", under: "/p", maxListings: 1, fileManager: fm).isTruncated,
+        #expect(DestinationBrowser.search("divit", under: "/p", maxListings: 1, fileManager: fm).stoppedEarly,
                 "listing budget")
     }
 
@@ -454,7 +648,7 @@ import Foundation
     /// its "showing the first N" caveat over the browse columns, which ran no walk at all.
     @Test func testABlankQueryIsNotTruncated() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).isTruncated == false)
+        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).isComplete)
     }
 
     /// …and an uncancelled walk is unaffected, so the hook cannot silently disable search.

@@ -15,23 +15,115 @@ public struct DestinationFolder: Identifiable, Hashable, Sendable {
     }
 }
 
-/// What a bounded search found, and whether it saw everything.
+/// One column's worth of subfolders, and whether the folder could be read at all.
+public struct DestinationFolderListing: Equatable, Sendable {
+    /// The subfolders found, name-sorted. Empty and meaningless when `outcome == .unreadable`.
+    public let folders: [DestinationFolder]
+
+    /// How much of the folder the listing covers.
+    public let outcome: DirectoryListingOutcome
+
+    /// What a column with no rows to show should say — nil when there are rows.
+    ///
+    /// Lives here rather than in the view because it is the whole point of this type: a column
+    /// rendering `folders.isEmpty` as "Empty" is making a claim about a folder that, in the
+    /// unreadable case, nobody read. Having one place decide it means the two states cannot drift
+    /// back together.
+    ///
+    /// Switched exhaustively rather than tested with `!=`, which is the guarantee
+    /// ``DirectoryListingOutcome`` states and the reason it has three cases. A `!=` here read a
+    /// PARTIAL listing with no subfolders as "Empty" — the exact conflation the type was built to
+    /// stop, reintroduced one case along.
+    public var emptyMessage: String? {
+        guard folders.isEmpty else { return nil }
+        switch outcome {
+        case .listed:
+            return "Empty"
+        case .listedWithUnreadableDescendants:
+            // Not reachable from `listSubfolders`, which always lists shallowly and so can never
+            // meet a descendant — but this type is public and the wording must not be a lie the
+            // day something recursive builds one.
+            return "Can’t be fully read"
+        case .unreadable:
+            return "Can’t be read"
+        }
+    }
+
+    public init(folders: [DestinationFolder], outcome: DirectoryListingOutcome) {
+        self.folders = folders
+        self.outcome = outcome
+    }
+}
+
+/// What a bounded search found, and — in two separate facts — why it might not be everything.
 ///
-/// The flag exists because all three of `search`'s caps stop it *early* — a match limit, a listing
-/// budget, a depth ceiling — and a truncated walk returning a bare array is indistinguishable from a
-/// complete one. That is the difference between "these are the folders that match" and "these are
-/// the first folders that match", and only the picker can say which it is showing.
+/// One boolean was not enough. All three of `search`'s caps stop it *early*, and for those
+/// "showing the first N, narrow the search" is exactly right. A directory it could not READ is a
+/// fourth way to miss a match with the opposite properties: the walk ran to completion, so these
+/// are not "the first N", and narrowing the query will never reach what sits behind a
+/// permission-denied folder. Rolled into one flag, the advice the picker renders was false on both
+/// halves for that fourth cause.
 public struct DestinationSearchOutcome: Equatable, Sendable {
     /// The folders found, in discovery (breadth-first) order.
     public let matches: [DestinationFolder]
-    /// True when the walk stopped before exhausting the tree, so more matches may exist.
-    public let isTruncated: Bool
 
-    public static let empty = DestinationSearchOutcome(matches: [], isTruncated: false)
+    /// True when a CAP stopped the walk before it exhausted the tree — the match limit, the
+    /// listing budget, the depth ceiling, or cancellation. More matches may exist further out, and
+    /// a tighter query is the way to reach them.
+    public let stoppedEarly: Bool
 
-    public init(matches: [DestinationFolder], isTruncated: Bool) {
+    /// True when at least one directory in range could not be listed. The walk was not cut short;
+    /// part of the tree was simply withheld from it, and no amount of narrowing will open it.
+    public let skippedUnreadableDirectory: Bool
+
+    /// True only when these matches are the whole answer.
+    public var isComplete: Bool { !stoppedEarly && !skippedUnreadableDirectory }
+
+    public static let empty = DestinationSearchOutcome(
+        matches: [], stoppedEarly: false, skippedUnreadableDirectory: false)
+
+    public init(matches: [DestinationFolder], stoppedEarly: Bool, skippedUnreadableDirectory: Bool) {
         self.matches = matches
-        self.isTruncated = isTruncated
+        self.stoppedEarly = stoppedEarly
+        self.skippedUnreadableDirectory = skippedUnreadableDirectory
+    }
+
+    /// What the results pane says when nothing matched.
+    ///
+    /// Here rather than in the view for the same reason as ``DestinationFolderListing/emptyMessage``:
+    /// "No folders match" is a claim about a corpus, and a walk that stopped short or was refused a
+    /// directory has not earned it. Each cause names what a person could do about it, which is a
+    /// different thing in each case — and nothing at all in the withheld case, so it says that too.
+    public func emptyMessage(query: String) -> String {
+        switch (stoppedEarly, skippedUnreadableDirectory) {
+        case (false, false):
+            return "No folders match “\(query)”"
+        case (true, false):
+            return "No matches in the folders searched — “\(query)” may be deeper in, or further afield."
+        case (false, true):
+            return "No matches in the folders that could be read — “\(query)” may be inside one that couldn’t."
+        case (true, true):
+            return "No matches yet — “\(query)” may be deeper in, or inside a folder that couldn’t be read."
+        }
+    }
+
+    /// The footnote under a non-empty result list, or nil when the list is the whole answer.
+    ///
+    /// - Parameter shown: how many rows the list is actually rendering, which is what "the first N"
+    ///   has to agree with.
+    public func footnote(showing shown: Int) -> String? {
+        switch (stoppedEarly, skippedUnreadableDirectory) {
+        case (false, false):
+            return nil
+        case (true, false):
+            return "Showing the first \(shown) — narrow the search, or browse to it."
+        case (false, true):
+            // NOT "the first \(shown)": this walk finished. And not "narrow the search": the
+            // folders it could not open stay shut however short the query gets.
+            return "Some folders couldn’t be read — a match may be inside one of them."
+        case (true, true):
+            return "Showing the first \(shown), and some folders couldn’t be read — there may be more either way."
+        }
     }
 }
 
@@ -51,37 +143,57 @@ public struct DestinationSearchOutcome: Equatable, Sendable {
 /// against the in-memory mock rather than the disk.
 public enum DestinationBrowser {
 
-    /// Immediate subdirectories of `path`, name-sorted case-insensitively.
+    /// Immediate subdirectories of `path`, name-sorted case-insensitively, keeping "there are no
+    /// subfolders here" apart from "this folder could not be read".
+    ///
+    /// Those were one value until recently, and the column that renders it said **"Empty"** — a
+    /// statement about a folder nobody managed to look inside. Same root cause as the
+    /// folder-replace warning's "0 items": the enumerator returns non-nil and yields nothing for a
+    /// directory it cannot list, so the `guard let … else { return [] }` wrapped around it never
+    /// fired and would have returned `[]` in any case.
     ///
     /// Files are dropped: this picker chooses a destination *folder*, and a file row would be a
     /// target you cannot pick. Dot-directories are dropped unless `showHidden` — the enumerator's
     /// own `.skipsHiddenFiles` covers the OS-hidden flag, and the name check covers the rest,
     /// because a folder can be one without the other.
-    public static func subfolders(
+    ///
+    /// The dropping happens **inside** the walk, through `listing`'s `keeping:` filter, rather than
+    /// on an array it hands back. This runs on the user's own folders, which can hold tens of
+    /// thousands of loose files next to a handful of subfolders; collecting every entry first would
+    /// cost memory proportional to the files to answer a question about the folders. That is the
+    /// same reasoning `childCount` and the sidebar's size walk already state for not using
+    /// `listing(of:)` at all, and this is the site where it had not been applied.
+    public static func listSubfolders(
         of path: String,
         showHidden: Bool = false,
         fileManager: FileManaging
-    ) -> [DestinationFolder] {
+    ) -> DestinationFolderListing {
         let root = PaneBrowsePath.normalized(path)
-        guard !root.isEmpty else { return [] }
+        // Not a disk failure: there is no folder to read. `.listed` keeps the empty-state wording
+        // as it was rather than accusing the filesystem of something it did not do.
+        guard !root.isEmpty else { return DestinationFolderListing(folders: [], outcome: .listed) }
         var options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants]
         if !showHidden { options.insert(.skipsHiddenFiles) }
-        guard let enumerator = fileManager.enumerator(
-            at: URL(fileURLWithPath: root),
-            includingPropertiesForKeys: nil,
-            options: options
-        ) else { return [] }
 
-        var folders: [DestinationFolder] = []
-        for case let url as URL in enumerator {
+        let listing = fileManager.listing(of: URL(fileURLWithPath: root), options: options) { url in
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { continue }
-            let name = url.lastPathComponent
-            if !showHidden, name.hasPrefix(".") { continue }
-            folders.append(DestinationFolder(path: url.path))
+                  isDirectory.boolValue else { return false }
+            return showHidden || !url.lastPathComponent.hasPrefix(".")
         }
-        return folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+        // Switched rather than compared with `!=`: `DirectoryListingOutcome` promises callers
+        // handle every case, and that promise is what makes a fourth case a compile error instead
+        // of a wrong answer that ships.
+        switch listing.outcome {
+        case .unreadable:
+            return DestinationFolderListing(folders: [], outcome: .unreadable)
+        case .listed, .listedWithUnreadableDescendants:
+            let folders = listing.urls.map { DestinationFolder(path: $0.path) }
+            return DestinationFolderListing(
+                folders: folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                outcome: listing.outcome)
+        }
     }
 
     /// Folders under `root` whose name contains `query`, breadth-first.
@@ -122,17 +234,34 @@ public enum DestinationBrowser {
         var frontier = [PaneBrowsePath.normalized(root)]
         var depth = 0
         var listings = 0
+        // A directory the walk could not read is a FOURTH way to leave matches unseen, alongside
+        // the three caps — and it is not one of them. The caps stop the walk EARLY, so a tighter
+        // query reaches further; this one lets the walk finish and withholds a subtree from it,
+        // which no query can reach. Reported as its own fact for exactly that reason: rolled in
+        // with the caps, the picker's "showing the first N — narrow the search" was false on both
+        // halves whenever this was the cause.
+        var missedADirectory = false
+        func outcome(stoppedEarly: Bool) -> DestinationSearchOutcome {
+            .init(matches: matches, stoppedEarly: stoppedEarly, skippedUnreadableDirectory: missedADirectory)
+        }
 
         while !frontier.isEmpty, depth < maxDepth, matches.count < limit {
             var next: [String] = []
             for directory in frontier {
-                if isCancelled() { return .init(matches: matches, isTruncated: true) }
-                if listings >= maxListings { return .init(matches: matches, isTruncated: true) }
+                if isCancelled() { return outcome(stoppedEarly: true) }
+                if listings >= maxListings { return outcome(stoppedEarly: true) }
                 listings += 1
-                for folder in subfolders(of: directory, showHidden: showHidden, fileManager: fileManager) {
+                let listing = listSubfolders(of: directory, showHidden: showHidden, fileManager: fileManager)
+                switch listing.outcome {
+                case .listed:
+                    break
+                case .listedWithUnreadableDescendants, .unreadable:
+                    missedADirectory = true
+                }
+                for folder in listing.folders {
                     if folder.name.localizedCaseInsensitiveContains(needle) {
                         matches.append(folder)
-                        if matches.count >= limit { return .init(matches: matches, isTruncated: true) }
+                        if matches.count >= limit { return outcome(stoppedEarly: true) }
                     }
                     next.append(folder.path)
                 }
@@ -142,7 +271,7 @@ public enum DestinationBrowser {
         }
         // Falling out with directories still queued means the DEPTH cap stopped it, which is the
         // third way to leave matches unseen. Only an exhausted frontier is a complete answer.
-        return .init(matches: matches, isTruncated: !frontier.isEmpty)
+        return outcome(stoppedEarly: !frontier.isEmpty)
     }
 
     /// Orders search results so the folder the user meant is first.
