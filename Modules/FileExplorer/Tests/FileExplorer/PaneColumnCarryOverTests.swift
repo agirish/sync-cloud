@@ -120,6 +120,25 @@ import Sync
                 "the carry-over must be gated on there being no search hit to reveal instead")
     }
 
+    /// **The refusal while the tree is still arriving, which no picture here can show.**
+    ///
+    /// What the guard protects is the SCROLL: a `scrollTo` for a row the list does not hold yet is
+    /// silently dropped, and the latch below then makes that failure permanent. An offscreen,
+    /// never-key window's scroll position is not a reliable instrument — `PaneColumnsScrollTests`
+    /// documents a test that stayed green with the reveal inert — so the render fixture asserts row
+    /// ARRIVAL, exactly as the search-reveal suites do, and cannot see this. Removing the guard
+    /// leaves that fixture green, which is why the scan exists rather than being redundant with it.
+    @Test func testTheCarryRefusesWhileTheTreeIsStillArriving() throws {
+        let carryBody = try body(of: "private func carryColumnsIntoTree", in: try source())
+        #expect(carryBody.contains("guard !isLoading else { return }"),
+                "the carry-over decides from a half-built tree again, and latches the result")
+        // Refusing without re-asking is a silent failure with better manners — the pairing is the
+        // point, and the Columns direction makes the same one.
+        let arrival = try body(of: "private var paneList: some View", in: try source())
+        #expect(arrival.contains("onChange(of: isLoading)"),
+                "a carry refused mid-load is never re-asked when the load lands")
+    }
+
     /// The scroll is gated on the stack having CHANGED, because the Tree branch appears on every tab
     /// switch and pane collapse — not only on a mode flip — and a scroll on each of those yanks a
     /// tree the user has since scrolled somewhere else.
