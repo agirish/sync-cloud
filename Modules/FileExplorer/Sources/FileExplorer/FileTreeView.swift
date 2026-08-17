@@ -335,6 +335,17 @@ public struct FileTreeView: View, Equatable {
     /// switch and pane collapse, not only on a mode flip, and re-applying a stale answer would pull
     /// the columns back out of wherever the user had walked to since.
     private func carryTreeIntoColumns(index: PaneChildrenIndex) {
+        // **Never decide from a tree that is still arriving.** Progressive loading publishes a
+        // SHALLOW tree — the root's children and nothing under them — before the deep walk
+        // finishes, and `carryBack` resolves the selection against exactly that index: a selection
+        // three folders down prunes to its first component, which is not a smaller version of the
+        // answer but a confident wrong one. It would then be applied *and latched*, so the right
+        // answer never arrives. `pruneBrowsePath` carries this guard for the same reason and says
+        // so at length; this is the same hazard reached through a different door.
+        //
+        // Skipping is not the whole fix — the falling edge of `isLoading` re-runs this (see the
+        // Columns branch), because an arrival during a load would otherwise never be carried at all.
+        guard !isLoading else { return }
         guard let target = Self.carryBack(selection: selection, treeRoot: currentPath, index: index),
               target != carriedTreePlace else { return }
         carriedTreePlace = target
@@ -446,6 +457,13 @@ public struct FileTreeView: View, Equatable {
                 // the answers the OTHER pane's rows were still relying on. See `badgeMemoRoot` for
                 // why that root is `currentPath` rather than `rootPath`.
                 .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear(underRoot: badgeMemoRoot) }
+                // A pane that re-roots is looking at a different tree, so what was carried out of
+                // the OLD one says nothing about this one — without this, a place with the same
+                // components under the new root ("Claude" in either) reads as already carried and
+                // is skipped. **On the always-mounted wrapper, not on the Columns branch**, which
+                // is not in the hierarchy at all while the pane is in Tree — which is exactly when
+                // most re-rooting happens.
+                .onChange(of: currentPath) { _, _ in carriedTreePlace = nil }
 
             switch emptyState {
             case .none:
@@ -548,6 +566,14 @@ public struct FileTreeView: View, Equatable {
             // that is exactly when this branch learns the Tree has been navigated: nothing else
             // tells the columns that the outline moved.
             .onAppear { carryTreeIntoColumns(index: childrenIndex) }
+            // And on the falling edge of the load, because an arrival that landed mid-load was
+            // refused rather than answered — the same pairing `ColumnStackPruning` makes, and for
+            // the same reason: the deep tree is published before the flag clears, so waiting on the
+            // tree alone would skip and never re-fire.
+            .onChange(of: isLoading) { _, loading in
+                guard !loading else { return }
+                carryTreeIntoColumns(index: childrenIndex)
+            }
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
             .background(
