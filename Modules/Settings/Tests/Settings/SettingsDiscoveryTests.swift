@@ -161,8 +161,9 @@ private func noOverrides(_ id: String) -> String? { nil }
         try fm.createDirectory(at: scanRoot.appendingPathComponent("OneDrive-Personal"), withIntermediateDirectories: true)
         #expect(fm.createFile(atPath: scanRoot.appendingPathComponent("Dropbox").path, contents: Data()))
 
-        let folders = SettingsManager.cloudStorageFolders(at: scanRoot)
-        #expect(folders.map(\.lastPathComponent) == ["OneDrive-Personal"])
+        let accounts = SettingsManager.cloudStorageFolders(at: scanRoot)
+        #expect(accounts.rootWasReadable)
+        #expect(accounts.folders.map(\.lastPathComponent) == ["OneDrive-Personal"])
     }
 }
 
@@ -257,7 +258,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [folder("OneDrive-Personal"), folder("Dropbox")] })
+            cloudStorageLister: { .read([folder("OneDrive-Personal"), folder("Dropbox")]) })
         await settings.discoverProviders()
 
         #expect(settings.availableProviders.map(\.id) == ["iCloud", "OneDrive-Personal", "Dropbox"])
@@ -273,7 +274,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [folder("Dropbox")] })
+            cloudStorageLister: { .read([folder("Dropbox")]) })
         await settings.discoverProviders()
 
         let defaultPath = settings.path(for: "Dropbox")
@@ -296,7 +297,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [folder("GoogleDrive-someone@gmail.com")] })
+            cloudStorageLister: { .read([folder("GoogleDrive-someone@gmail.com")]) })
         await settings.discoverProviders()
 
         settings.setCustomName("Google Drive (Personal)", for: "GoogleDrive-someone@gmail.com")
@@ -316,13 +317,13 @@ private func noOverrides(_ id: String) -> String? { nil }
         let test = TestDefaults()
         defer { test.wipe() }
 
-        let a = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+        let a = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
         a.ignoreGoogleDriveNewerDateOnly = true // didSet persists
         // A fresh instance on the same suite reads the persisted value in init.
-        #expect(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] }).ignoreGoogleDriveNewerDateOnly == true)
+        #expect(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) }).ignoreGoogleDriveNewerDateOnly == true)
 
         a.ignoreGoogleDriveNewerDateOnly = false
-        #expect(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] }).ignoreGoogleDriveNewerDateOnly == false)
+        #expect(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) }).ignoreGoogleDriveNewerDateOnly == false)
     }
 
     @MainActor
@@ -334,7 +335,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { counter.increment(); return [] })
+            cloudStorageLister: { counter.increment(); return .read([]) })
         #expect(counter.count == 0)
 
         await settings.discoverProviders()
@@ -355,7 +356,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { lister.list() })
+            cloudStorageLister: { .read(lister.list()) })
 
         // Older pass: claims its generation, then blocks off-main inside the lister.
         let older = Task { await settings.discoverProviders() }
@@ -389,7 +390,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [folder("Dropbox")] })
+            cloudStorageLister: { .read([folder("Dropbox")]) })
         await settings.discoverProviders()
 
         // An embedded newline would forge an extra line in the single-line log records;
@@ -417,7 +418,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [folder("Dropbox")] },
+            cloudStorageLister: { .read([folder("Dropbox")]) },
             pathValidator: { _ in counter.increment(); return true })
 
         await settings.discoverProviders()

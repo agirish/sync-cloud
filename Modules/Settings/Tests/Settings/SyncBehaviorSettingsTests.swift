@@ -10,7 +10,7 @@ import Foundation
 
     @MainActor
     private func makeManager(_ test: TestDefaults) -> SettingsManager {
-        SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+        SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
     }
 
     @MainActor
@@ -102,7 +102,7 @@ import Foundation
             autoDiscover: false,
             userDefaults: test.defaults,
             overridesDomainName: test.suiteName,
-            cloudStorageLister: { [] }
+            cloudStorageLister: { .read([]) }
         )
 
         settings.setPath("/tmp/custom-root", for: "iCloud")

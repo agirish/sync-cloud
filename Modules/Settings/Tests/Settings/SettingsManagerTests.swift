@@ -8,7 +8,7 @@ import Sync
     @Test @MainActor func testDefaultICloudProvider() {
         let test = TestDefaults()
         defer { test.wipe() }
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
 
         // SettingsManager starts with 1 default iCloud provider, before any discovery
         #expect(settings.availableProviders.count >= 1)
@@ -18,7 +18,7 @@ import Sync
     @Test @MainActor func testPathOverrides() async {
         let test = TestDefaults()
         defer { test.wipe() }
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
         let testPath = "/tmp/test_override"
 
         settings.setPath(testPath, for: "iCloud")
@@ -43,7 +43,7 @@ import Sync
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [] },
+            cloudStorageLister: { .read([]) },
             // Only the override path exists on "disk": the badge must be valid immediately,
             // proving validity was computed against the effective path, not the default.
             pathValidator: { $0 == overridePath })
@@ -63,7 +63,7 @@ import Sync
     @Test @MainActor func testPathForMissingProvider() {
         let test = TestDefaults()
         defer { test.wipe() }
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
         #expect(settings.path(for: "NonExistent") == "")
     }
 }

@@ -16,7 +16,7 @@ import Foundation
         defer { test.wipe() }
         let key = "path_override_Dropbox"
 
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
 
         settings.setPath("/tmp/custom-root", for: "Dropbox")
         #expect(test.defaults.string(forKey: key) == "/tmp/custom-root")
@@ -31,7 +31,7 @@ import Foundation
         let test = TestDefaults()
         defer { test.wipe() }
         func makeManager() -> SettingsManager {
-            SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+            SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
         }
 
         let a = makeManager()
