@@ -1,4 +1,5 @@
 import Design
+import Events
 import SwiftUI
 
 /// One thing that can sit on a pane's bar.
@@ -483,9 +484,16 @@ public enum PaneBarLayout {
     /// ones, every ground is one height and every title sits on one baseline. Applied in both
     /// modes, because the switch out-topping its neighbours is an inconsistency that predates
     /// titles rather than one they introduce.
+    ///
+    /// `titled` has **no default**, for the reason `width(of:)` lost its own: a caller that forgets
+    /// the argument prices a titled row at bare pill height — no type error and no loud symptom,
+    /// just a row measured short of the words it is drawing, which is a clipped title or a header
+    /// that thinks it has room it does not. One production caller exists,
+    /// `PaneBarLadder.height(forRung:)`; requiring the argument turns the whole class of mistake
+    /// into a compile error rather than a layout that is quietly wrong.
     @MainActor
     public static func height(of plan: PaneBarLayoutPlan, controlSize: ControlSize,
-                              titled: Bool = false, scale: CGFloat = 1) -> CGFloat {
+                              titled: Bool, scale: CGFloat = 1) -> CGFloat {
         let pill = PaneNavMetrics.pill(controlSize)
         return titled
             ? PaneBarTitleMetrics.rowHeight(pillHeight: pill.height, scale: scale)
@@ -832,6 +840,60 @@ public enum PaneBarMigration {
     /// Bump this — and add a step below — whenever a control joins `PaneBarArrangement.default`.
     public static let currentVersion = 1
 
+    // MARK: The routes a shipped control has onto a customized bar
+    //
+    // Three sets, and between them they must account for **every non-spacer control in
+    // `PaneBarArrangement.default`**. That accounting is the thing nothing used to do: the hazard
+    // this type's own doc states — a control added to the default bar with no step here reaching a
+    // customized bar through no route at all — was written down and bound to nothing, so the next
+    // control to ship could reproduce Search's bug in silence. `PaneBarMigrationTests` derives the
+    // expected set from `PaneBarArrangement.default` and names any control that belongs to none of
+    // them; `everyControlTheMigrationClaimsToPlaceActuallyLands` keeps `migratedControls` honest by
+    // running the migration rather than trusting the list.
+
+    /// Controls that shipped on the bar **before this mechanism existed**.
+    ///
+    /// Every stored arrangement was written by a build that already offered these, so a bar without
+    /// one of them is a bar someone arranged that way — not an affordance that never had a route.
+    /// That is the whole difference between this set and the two below.
+    ///
+    /// **A frozen historical record, and it must never grow.** A control that ships from now on
+    /// takes a migration step or declines one deliberately; parking it here would be claiming a
+    /// route it never had, which is why the test pins these eight by name rather than reading them.
+    public static let baselineControls: Set<PaneBarItem> = [
+        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview
+    ]
+
+    /// Controls a step in `apply` puts onto a stored bar.
+    ///
+    /// A claim, not a mechanism — the steps are in `apply` and this list could disagree with them.
+    /// It is bound to them behaviourally, one migration run per control, so it cannot.
+    public static let migratedControls: Set<PaneBarItem> = [.search]
+
+    /// Controls that ship on the default bar and **deliberately decline** a step.
+    ///
+    /// Declining is the judgement call (adding a step is the default), so the members are named
+    /// here and named again in the test — a new control cannot join this list by accident, only by
+    /// someone editing both places and saying why. `delete` is the one member and the reasoning is
+    /// on the case itself: the row menu's Delete and ⌘⌫ reach the same act, so it can afford to
+    /// wait to be added deliberately.
+    public static let declinedControls: Set<PaneBarItem> = [.delete]
+
+    /// Controls that ship on the default bar and reach a customized bar through **no route at all**.
+    ///
+    /// Empty in a correct build. Non-empty means someone added a case to `PaneBarArrangement.default`
+    /// and stopped there, and the symptom is a control nobody who has ever opened the customize
+    /// sheet will see — the exact shape of Search's original bug, minus the ⋯ consolation that made
+    /// it recoverable.
+    public static var controlsWithoutARoute: [PaneBarItem] {
+        PaneBarArrangement.default.items.filter {
+            !$0.isSpacer
+                && !baselineControls.contains($0)
+                && !migratedControls.contains($0)
+                && !declinedControls.contains($0)
+        }
+    }
+
     /// Applies every migration a stored arrangement has not had yet, and records how far it got.
     ///
     /// A pane bar that was never customized has no stored arrangement at all and reads the default,
@@ -843,11 +905,21 @@ public enum PaneBarMigration {
     /// would record a migration that a crash could still prevent; written only on the success path
     /// it would re-run forever for the bars it correctly left alone.
     ///
+    /// It also **writes down what the resulting bar cannot show**, on every path out — see
+    /// `reportStoredArrangementReach`. That belongs here rather than at the call site for the same
+    /// reason the migration does: this is the one moment in a launch where the stored arrangement
+    /// and the shipped default are both in hand, and it must run even on the path that does no
+    /// migrating at all — an already-stamped install is precisely where a control added without a
+    /// step goes unnoticed, because `apply` returns on the line below without looking at anything.
+    /// The `defer` is registered FIRST so it runs LAST (defers unwind in reverse), after the
+    /// version stamp and after any rewrite, and therefore reads the bar the user will actually get.
+    ///
     /// - Returns: whether a stored arrangement was actually REWRITTEN — not merely whether the
     ///   migration ran. That is what a caller should log: "moved someone's bar" is worth a line,
     ///   "had nothing to do" is not.
     @discardableResult
     public static func apply(defaults: UserDefaults) -> Bool {
+        defer { reportStoredArrangementReach(defaults: defaults) }
         let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
         guard from < currentVersion else { return false }
         defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
@@ -872,5 +944,136 @@ public enum PaneBarMigration {
         guard arrangement.items != before else { return false }
         defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
         return true
+    }
+
+    // MARK: What the resulting bar cannot show
+
+    /// One line — at most two — saying which shipped controls the stored arrangement does not carry.
+    ///
+    /// The bar logged **nothing at all** before this. That was survivable while a removal cost a
+    /// pill and never an ability: whatever was missing from the bar was still in ⋯. Since
+    /// `9db37173` a removal is permanent, so "my Delete button is gone" and "the control this
+    /// release shipped never appeared" are both states with no trace anywhere — and the second one
+    /// is not even the user's doing.
+    ///
+    /// Proportional by construction: nothing is written for an install whose bar carries every
+    /// shipped control, which is every uncustomized one (no stored arrangement at all) and every
+    /// customized one that kept the lot. It runs once per launch, from `apply`.
+    static func reportStoredArrangementReach(defaults: UserDefaults) {
+        // No stored arrangement means the default bar, which carries every control by construction.
+        guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return }
+        let arrangement = PaneBarArrangement(encoded: stored)
+        if let line = unreachableMessage(for: arrangement, withoutARoute: controlsWithoutARoute) {
+            Logger.shared.warning(line)
+        }
+        if let line = omissionMessage(for: arrangement) { Logger.shared.info(line) }
+    }
+
+    /// Shipped controls this arrangement does not carry, or nil when it carries them all.
+    ///
+    /// Spacers are excluded: they are layout, not ability, and a bar without one is not missing
+    /// anything a person could go looking for.
+    static func omissionMessage(for arrangement: PaneBarArrangement) -> String? {
+        let omitted = omissions(from: arrangement)
+        guard !omitted.isEmpty else { return nil }
+        return "[panebar] The stored pane-bar arrangement omits \(names(omitted))"
+            + " — put back from Customize Pane Bar…"
+    }
+
+    /// The subset of those omissions that has no route back onto a bar of its own accord, or nil.
+    ///
+    /// A **warning**, and a different line from the one above, because it is a different fact: the
+    /// controls above are missing because someone took them off or declined them, and these are
+    /// missing because the build shipped them with nowhere to land.
+    ///
+    /// `withoutARoute` is a parameter, with **no default**, rather than a read of
+    /// `controlsWithoutARoute` from inside. In a correct build that property is empty, so a version
+    /// of this that consulted it directly could only ever be tested against nil — the branch that
+    /// matters would be the one branch no fixture could reach. The one production caller passes it.
+    static func unreachableMessage(for arrangement: PaneBarArrangement,
+                                   withoutARoute: [PaneBarItem]) -> String? {
+        let stranded = omissions(from: arrangement).filter { withoutARoute.contains($0) }
+        guard !stranded.isEmpty else { return nil }
+        return "[panebar] \(names(stranded)) ship(s) on the default pane bar with no migration step,"
+            + " so this stored arrangement can never show it — see PaneBarMigration"
+    }
+
+    private static func omissions(from arrangement: PaneBarArrangement) -> [PaneBarItem] {
+        let carried = Set(arrangement.items)
+        return PaneBarArrangement.default.items.filter { !$0.isSpacer && !carried.contains($0) }
+    }
+
+    private static func names(_ items: [PaneBarItem]) -> String {
+        items.map(\.displayName).joined(separator: ", ")
+    }
+}
+
+/// The one place a user's own edit to the pane bar is written down.
+///
+/// The bar had no logging of any kind, which mattered the moment `9db37173` made a removal
+/// permanent: taking Delete off the bar used to demote it into ⋯ and now deletes it outright, and
+/// neither the act nor its result left a trace in `~/sync-cloud.log`. A support question about a
+/// control that "disappeared" had literally nothing to read.
+///
+/// **Decisions and outcomes only.** One line per edit that actually changed the bar, naming what
+/// moved and what the bar now is; nothing at all for an edit that changed nothing — a drag that
+/// springs back, a Move Left on the leftmost pill, a Remove on Scan. That rule is the whole reason
+/// `message(from:to:)` returns an Optional rather than a String: a no-op has no line to write, and
+/// the last thing this file needs is the strip-chip defect where the most ordinary gesture in a
+/// surface became its loudest log entry.
+public enum PaneBarEditLog {
+
+    /// What changed, as one line — or **nil when nothing did**.
+    ///
+    /// Pure, so the wording is testable without a hosted sheet: the sheet's own gestures need a
+    /// real event loop, so a message built inside a `Button` action would be unverifiable.
+    public static func message(from before: PaneBarArrangement, to after: PaneBarArrangement) -> String? {
+        guard before != after else { return nil }
+        // Multiset differences, not set ones: spacers repeat, so "the bar gained a Space" is a
+        // question about counts. A pure reorder leaves both empty, which is what names it.
+        let added = surplus(of: after.items, over: before.items)
+        let removed = surplus(of: before.items, over: after.items)
+        let what: String
+        switch (added.isEmpty, removed.isEmpty) {
+        case (true, true):   what = "reordered the pane bar"
+        case (false, true):  what = "added \(names(added)) to the pane bar"
+        case (true, false):  what = "removed \(names(removed)) from the pane bar"
+        case (false, false): what = "added \(names(added)) to the pane bar and removed \(names(removed))"
+        }
+        // Restore is not given a verb of its own: it is described by what it did, plus the one fact
+        // that distinguishes it from an edit that happens to land on the same list. A gesture-named
+        // line would have to be trusted; this one is read off the result.
+        let tail = after == PaneBarArrangement.default ? " (the default arrangement)" : ""
+        return "[panebar] User \(what) — it is now \(after.encoded)\(tail)"
+    }
+
+    /// Writes that line, if there is one.
+    ///
+    /// - Returns: whether anything was logged, so the no-op path is assertable. A test cannot prove
+    ///   an absence from `Logger.shared.entries` alone — the buffer is capped and a sibling suite
+    ///   can evict what it is looking for.
+    @discardableResult
+    public static func record(from before: PaneBarArrangement, to after: PaneBarArrangement) -> Bool {
+        guard let line = message(from: before, to: after) else { return false }
+        Logger.shared.info(line)
+        return true
+    }
+
+    /// The items of `lhs` that `rhs` does not account for, counting repeats.
+    private static func surplus(of lhs: [PaneBarItem], over rhs: [PaneBarItem]) -> [PaneBarItem] {
+        var remaining = rhs
+        var extra: [PaneBarItem] = []
+        for item in lhs {
+            if let index = remaining.firstIndex(of: item) {
+                remaining.remove(at: index)
+            } else {
+                extra.append(item)
+            }
+        }
+        return extra
+    }
+
+    private static func names(_ items: [PaneBarItem]) -> String {
+        items.map(\.displayName).joined(separator: ", ")
     }
 }

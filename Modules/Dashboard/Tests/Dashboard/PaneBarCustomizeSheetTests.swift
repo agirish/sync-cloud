@@ -157,4 +157,39 @@ import Testing
         let titles = menuAtCentre(of: .sort)?.items.map(\.title) ?? []
         #expect(titles.contains("Remove"), "a control pill offered \(titles)")
     }
+
+    /// **Every edit this sheet makes goes through `commit`**, which is what logs it.
+    ///
+    /// A source scan, because the alternative cannot be built: the five gestures that change the
+    /// bar are a `Button` action, three drop handlers and an accessibility action, none of which a
+    /// unit test can drive — a `Button` is not an `NSControl`. So a logging call added to four of
+    /// the five sites would look exactly like one added to all five. What *is* checkable is an
+    /// absence, and this is that: one assignment to `arrangementRaw` in the whole file, inside
+    /// `commit`. A sixth gesture that writes the arrangement directly fails this test rather than
+    /// silently going unlogged.
+    @Test func testTheSheetWritesTheArrangementInExactlyOnePlace() throws {
+        let source = try Self.source()
+        // A scan that cannot find its own anchor is measuring nothing — this fails loudly instead.
+        let commitStart = try #require(source.range(of: "private func commit(_ next: PaneBarArrangement)"),
+                                       "the funnel is gone or renamed; this scan is vacuous without it")
+        let assignments = source.components(separatedBy: "arrangementRaw = ").count - 1
+        #expect(assignments == 1,
+                "\(assignments) places in PaneBarCustomizeSheet.swift write arrangementRaw; every edit must go through commit(_:), which is the only thing that logs it")
+        // …and that one is inside `commit`, not merely somewhere in the file. `commit` is the last
+        // member of its MARK group, so the next `private var`/`func` bounds it.
+        let tail = source[commitStart.upperBound...]
+        let bodyEnd = tail.range(of: "\n    }")?.upperBound ?? tail.endIndex
+        #expect(tail[..<bodyEnd].contains("arrangementRaw = next.encoded"),
+                "the single arrangement write is not inside commit(_:)")
+    }
+
+    private static func source() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)                 // …/Tests/Dashboard/<this>.swift
+            .deletingLastPathComponent()                          // …/Tests/Dashboard
+            .deletingLastPathComponent()                          // …/Tests
+            .deletingLastPathComponent()                          // …/Dashboard
+            .appendingPathComponent("Sources/Dashboard/PaneBarCustomizeSheet.swift")
+        return try #require(try? String(contentsOf: url, encoding: .utf8),
+                            "cannot read PaneBarCustomizeSheet.swift — this scan would be vacuous")
+    }
 }

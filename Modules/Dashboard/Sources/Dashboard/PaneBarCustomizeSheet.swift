@@ -56,7 +56,26 @@ struct PaneBarCustomizeSheet: View {
     private func update(_ transform: (inout PaneBarArrangement) -> Void) {
         var next = arrangement
         transform(&next)
+        commit(next)
+    }
+
+    /// **The only place this sheet writes the arrangement.** Every add, remove, reorder and restore
+    /// goes through here, and so does the logging — see `PaneBarEditLog` for why the bar needs any.
+    ///
+    /// One funnel rather than a log call beside each of the five gestures, because the gestures are
+    /// the part of this view no test can drive: a `Button` action and a drop handler need a real
+    /// event loop, so a line added to four of five sites would look identical to a line added to
+    /// all five. `PaneBarCustomizeSheetTests.testTheSheetWritesTheArrangementInExactlyOnePlace`
+    /// counts the assignments in this file instead, which is a claim about absence and so can be
+    /// checked.
+    ///
+    /// The write is unconditional, exactly as it was before: `PaneBarEditLog.record` is what refuses
+    /// a no-op, so an edit that changes nothing still normalizes the stored string the way it always
+    /// did and simply writes no line.
+    private func commit(_ next: PaneBarArrangement) {
+        let before = arrangement
         arrangementRaw = next.encoded
+        PaneBarEditLog.record(from: before, to: next)
     }
 
     /// Everything the palette offers. Spacers last, as in Finder, because they are layout rather than
@@ -65,9 +84,12 @@ struct PaneBarCustomizeSheet: View {
     ///
     /// Hand-written and therefore the second place a new case has to be listed — the enum's own
     /// `allCases` does not reach here. An item missing from this list is not merely absent from the
-    /// sheet: it is a control that can be dragged OFF a bar and never put back, and for a control
-    /// that ships in ⋯ for every stored arrangement (Delete does) the sheet is the only way onto
-    /// the bar at all. `PaneBarCustomizeSheetTests.testThePaletteOffersEveryRemovableControl`
+    /// sheet: it is a control that can be dragged OFF a bar and never put back. ⋯ used to be a
+    /// second way back — it carried every available control the arrangement did not place — and
+    /// since `9db37173` it carries only what the rung folded, so this palette is now the ONLY route
+    /// back onto the bar for a removed control, and the only route on at all for a control that
+    /// declines a migration step (Delete does).
+    /// `PaneBarCustomizeSheetTests.testThePaletteOffersEveryRemovableControl`
     /// checks this against `PaneBarItem.allCases` so the next one cannot be forgotten quietly — it
     /// is what caught Delete's tile missing here.
     static let palette: [PaneBarItem] = [
@@ -427,14 +449,14 @@ struct PaneBarCustomizeSheet: View {
     /// tests live in `PaneBarDrop`.
     private func drop(_ payloads: [String], at index: Int) -> Bool {
         guard let next = PaneBarDrop.applying(payloads, at: index, to: arrangement) else { return false }
-        arrangementRaw = next.encoded
+        commit(next)
         return true
     }
 
     /// Drag-off-the-bar removal, from the palette's drop destination.
     private func dropToRemove(_ payloads: [String]) -> Bool {
         guard let next = PaneBarDrop.removing(payloads, from: arrangement) else { return false }
-        arrangementRaw = next.encoded
+        commit(next)
         return true
     }
 
@@ -611,7 +633,7 @@ struct PaneBarCustomizeSheet: View {
                     .padding(.trailing, 5)
             }
             Spacer(minLength: 12)
-            Button("Restore") { arrangementRaw = PaneBarArrangement.default.encoded }
+            Button("Restore") { commit(.default) }
                 // Same lesson as the provider ghost: the thing that must never be squeezed says so
                 // itself rather than trusting the row to have room.
                 .fixedSize()
