@@ -6,13 +6,31 @@ extension FileSyncManager {
     // MARK: - Undo/Redo Native Registration Stack
     
     typealias CopyItemState = (source: URL, destination: URL, overwritten: URL?)
-    /// `CopyItemState` enriched with the copied item's byte size as stat'ed when the undo was
-    /// registered (nil for directories, or when the size couldn't be read). The undo handler
-    /// refuses to trash a destination whose current size no longer matches — the item is no
-    /// longer the copy the undo was registered for (replaced or edited since), mirroring the
-    /// "still the same item?" drift guards the move- and delete-undos already carry.
-    typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationSize: Int?)
+    /// `CopyItemState` enriched with the copied item's identity as read when the undo was
+    /// registered. The undo handler refuses to trash a destination whose identity no longer
+    /// matches — the item was replaced or edited since the copy — and equally refuses when the
+    /// identity cannot be read at all.
+    ///
+    /// This was a `destinationSize: Int?` guarded with `if let expected`, which is two defects in
+    /// one line. `fileSizeSnapshot` answers nil for a DIRECTORY, deliberately, so `if let` skipped
+    /// the guard entirely and undo of a copied folder had no drift check at all — copy a folder,
+    /// let 200 files land in it, press ⌘Z, and on a Trash-less volume they were destroyed under a
+    /// "removed 1 of 1" log line. And for files the comparison was size-only, so any same-length
+    /// rewrite (2025→2026) compared equal and was trashed as though untouched.
+    typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
+    /// `MoveItemState` enriched with the identity the moved item had once the move completed, so
+    /// the undo can verify that what sits at `to` now is still what it put there.
+    ///
+    /// The move-undo's only guard was that `from` is free. Nothing checked `to`. Drop a newer v2
+    /// at the destination in Finder and press ⌘Z: v2 was moved away to the source path and the
+    /// older version restored over it, reported as a full success. The doc comment claiming the
+    /// move-undo carries a "still the same item?" guard described the occupancy check, which
+    /// answers a different question.
+    ///
+    /// Enriched inside `registerMoveUndo` rather than added to `MoveItemState`, so the eight call
+    /// sites that build a move state keep passing what they already build.
+    typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity)
     /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
     /// holds its backup. Only items that actually reached the Trash are represented — a delete
     /// that fell through to a permanent remove has nothing to restore.
@@ -88,21 +106,41 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a copy-undo that was REFUSED because the item at the copy destination is no
-    /// longer the copy the undo was registered for — its byte size drifted, so it was replaced
-    /// or edited since. Trashing it would destroy work the undo was never asked to reverse; the
-    /// item is left in place, its `overwritten` backup stays in the Trash, and the caller keeps
-    /// the item out of the redo params (a refused item must never be redone).
+    /// Surfaces an undo that was REFUSED because the item it was about to remove or move is no
+    /// longer the item the undo was registered for. Trashing or displacing it would destroy work
+    /// the undo was never asked to reverse; the item is left in place, its `overwritten` backup
+    /// stays in the Trash, and the caller keeps the item out of the redo params (a refused item
+    /// must never be redone).
+    ///
+    /// `verdict` distinguishes the two refusals, which are not the same event to a person reading
+    /// the log: `.changed` means the item demonstrably differs, `.indeterminate` means it could
+    /// not be read and so nothing can be concluded. Both refuse — an unverifiable item is exactly
+    /// the one not to destroy — but only the first is evidence that something was edited.
     nonisolated static func reportUndoRefusedChangedItem(
         of destination: URL,
         actionName: String,
+        verdict: DriftVerdict,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
-        let logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — the item's size changed since the copy, so it is no longer the copied item; leaving it in place"
+        let logMessage: String
+        let bannerMessage: String
+        switch verdict {
+        case .changed:
+            logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — it changed since the operation, so it is no longer the item this undo produced; leaving it in place"
+            bannerMessage = "Undo left \"\(name)\" in place — it changed since"
+        case .indeterminate:
+            logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — its current state could not be read, so it cannot be confirmed as the item this undo produced; leaving it in place"
+            bannerMessage = "Undo left \"\(name)\" in place — it couldn't be checked"
+        case .unchanged:
+            // Not a refusal. Spelled out rather than defaulted so a future verdict has to be
+            // decided here rather than quietly reported as a change.
+            logMessage = "Undo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
+            bannerMessage = "Undo left \"\(name)\" in place"
+        }
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo left \"\(name)\" in place — it changed since the copy")
+            target.banner = .warning(bannerMessage)
         }
     }
 
@@ -178,7 +216,7 @@ extension FileSyncManager {
     func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
         let enriched: [CopyUndoItemState] = items.map { item in
             (source: item.source, destination: item.destination, overwritten: item.overwritten,
-             destinationSize: FileSyncManager.fileSizeSnapshot(at: item.destination, fileManager: fm))
+             destinationIdentity: ItemIdentity.snapshot(at: item.destination, fileManager: fm))
         }
         let resolver = AsyncValueResolver<[CopyUndoItemState]>()
         Task { await resolver.resolve(enriched) }
@@ -187,8 +225,15 @@ extension FileSyncManager {
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
     func registerMoveUndo(items: [MoveItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
-        let resolver = AsyncValueResolver<[MoveItemState]>()
-        Task { await resolver.resolve(items) }
+        // Snapshots each moved item's identity HERE, at registration time — the move has already
+        // happened, so `to` holds the item this undo is responsible for — so the handler can
+        // refuse to move back something that is no longer it.
+        let enriched: [MoveUndoItemState] = items.map { item in
+            (from: item.from, to: item.to, overwritten: item.overwritten,
+             movedIdentity: ItemIdentity.snapshot(at: item.to, fileManager: fm))
+        }
+        let resolver = AsyncValueResolver<[MoveUndoItemState]>()
+        Task { await resolver.resolve(enriched) }
         registerMoveUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
     }
 
@@ -319,15 +364,23 @@ extension FileSyncManager {
                                 }
                                 continue
                             }
-                            // "Still the same item?" drift guard (mirrors the move-undo's occupied
-                            // check and the delete-undo's occupant refusal): if the destination's
-                            // byte size no longer matches the registration-time snapshot, the item
-                            // was replaced or edited since the copy — refuse to trash it, and keep
-                            // it out of the redo params.
-                            if let expected = item.destinationSize,
-                               FileSyncManager.fileSizeSnapshot(at: item.destination, fileManager: fm) != expected {
+                            // "Still the same item?" drift guard: if the destination is no longer
+                            // the item this copy produced, refuse to trash it and keep it out of
+                            // the redo params.
+                            //
+                            // Switched rather than `if let`-ed, which is the fix: the verdict has
+                            // three values and the old shape could only express two, so the third
+                            // — "could not tell" — silently took the destroy path.
+                            //
+                            // Read ONCE and switch on the binding: re-reading inside the branch
+                            // would let the reported verdict disagree with the one that chose it.
+                            let verdict = item.destinationIdentity.drift(at: item.destination, fileManager: fm)
+                            switch verdict {
+                            case .unchanged:
+                                break
+                            case .changed, .indeterminate:
                                 leftInPlace += 1
-                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, on: target)
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, on: target)
                                 continue
                             }
                             do {
@@ -433,7 +486,7 @@ extension FileSyncManager {
                                 // Re-snapshot the size of the item this redo just produced — the
                                 // next undo must guard against drift from THIS copy, not the first.
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
-                                                  destinationSize: FileSyncManager.fileSizeSnapshot(at: param.destination, fileManager: fm)))
+                                                  destinationIdentity: ItemIdentity.snapshot(at: param.destination, fileManager: fm)))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that
@@ -451,7 +504,7 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
@@ -489,7 +542,21 @@ extension FileSyncManager {
                             // which is likewise volume-gated).
                             let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.from)
                                 && item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
-                            if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
+                            // "Still the same item?" — the guard the doc comment claimed and the
+                            // code did not have. The occupancy check below asks whether the SOURCE
+                            // is free; this asks whether the thing at the DESTINATION is still the
+                            // item this undo moved there. Without it, a newer version dropped at
+                            // the destination is moved away to the source path and the older one
+                            // restored over it, reported as a clean success.
+                            //
+                            // Checked before the occupancy branch so a drifted destination refuses
+                            // for the accurate reason rather than falling through to whichever
+                            // branch the source's state happens to select.
+                            let moveVerdict = item.movedIdentity.drift(at: item.to, fileManager: fm)
+                            if moveVerdict != .unchanged {
+                                restoreFailures += 1
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, on: target)
+                            } else if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
                             } else {
@@ -531,21 +598,25 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            let nextUndoStateResolver = AsyncValueResolver<[MoveItemState]>()
+            let nextUndoStateResolver = AsyncValueResolver<[MoveUndoItemState]>()
             target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
 
             target.preCountFileOperation()
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let params = await paramResolver.get()
-                        var nextState: [MoveItemState] = []
+                        var nextState: [MoveUndoItemState] = []
                         var redoFailures = 0
 
                         for param in params {
                             try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
                             do {
                                 let trashed = try FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
-                                nextState.append((from: param.from, to: param.to, overwritten: trashed))
+                                // Snapshot HERE, where the state is produced — the resolver is
+                                // consumed at undo time, and a snapshot taken there would be
+                                // compared against itself.
+                                nextState.append((from: param.from, to: param.to, overwritten: trashed,
+                                                  movedIdentity: ItemIdentity.snapshot(at: param.to, fileManager: fm)))
                             } catch {
                                 // A failed re-move must stay out of the next undo state: undoing
                                 // a phantom move would "restore" from a destination that was
