@@ -310,6 +310,57 @@ import Events
         #expect(mockFM.virtualDisk["/dst/doc.txt"] == nil)
     }
 
+    /// The moved item is GONE — the user deleted it themselves between the move and the ⌘Z.
+    ///
+    /// Not drift: there is nothing at the destination to be a stranger. The copy-undo has said so
+    /// explicitly since before the drift guard existed ("a copy the user already deleted
+    /// themselves: nothing to trash"), and the move-REDO says it too ("a source that is simply
+    /// GONE is not drift"). Only the move-UNDO fell through to the drift comparison, where
+    /// `.absent` differs from the recorded identity and so reported the item as *changed*.
+    ///
+    /// Two things are wrong with that, and the second is the one that costs the user something:
+    /// the sentence is false, and the ORIGINAL this move displaced stays stranded in the Trash —
+    /// where the vanished branch is exactly the place to bring it back, because the destination is
+    /// now empty and nothing can be clobbered by restoring it.
+    @MainActor
+    @Test func moveUndoOfAnItemTheUserDeletedRestoresWhatTheMoveDisplaced() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/report.txt"] = file(100, modified: Date(timeIntervalSince1970: 1_000))
+        // An older file already at the destination: the move displaces it to the Trash, and undo
+        // is what is supposed to bring it back.
+        mockFM.virtualDisk["/dst/report.txt"] = file(42, modified: Date(timeIntervalSince1970: 500))
+
+        let node = FileNode(id: "/src/report.txt", name: "report.txt", isDirectory: false)
+        await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/report.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(mockFM.virtualDisk["/src/report.txt"] == nil)
+
+        // The user deletes the moved file in Finder before pressing ⌘Z.
+        mockFM.virtualDisk["/dst/report.txt"] = nil
+        manager.banner = nil
+        let marker = await plantLogMarker("move-destination-vanished")
+
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        let lines = await logLines(since: marker)
+        // It must not be reported as a change: nothing changed, the item is gone.
+        #expect(lines.allSatisfy { !$0.contains("REFUSED") },
+                "a vanished item is not a refusal; lines since the marker: \(lines)")
+        #expect(manager.banner?.message.contains("changed since") != true,
+                "the banner still claims the deleted item changed: \(String(describing: manager.banner))")
+        #expect(lines.contains { $0.contains("report.txt is no longer on disk") },
+                "the vanished item is not named in the log; lines since the marker: \(lines)")
+        // The displaced original comes back, which is the whole remaining point of this undo.
+        #expect(mockFM.virtualDisk["/dst/report.txt"]?.attributes?[FileAttributeKey.size] as? Int == 42,
+                "the file the move displaced is still stranded in the Trash")
+        // And nothing is invented at the source: the item the user deleted stays deleted.
+        #expect(mockFM.virtualDisk["/src/report.txt"] == nil)
+    }
+
     // MARK: The third verdict
 
     /// An item whose state cannot be read is refused, not destroyed. This is the state the old

@@ -371,13 +371,21 @@ extension AutomationRule {
 /// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
 /// struct and be written back through whatever encoder the caller is using.
 indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
-    case null, bool(Bool), number(Double), string(String)
+    case null, bool(Bool), integer(Int), number(Double), string(String)
     case array([JSONFragment]), object([String: JSONFragment])
 
+    /// **`integer` is tried before `number`, and it is not tidiness.** Holding every JSON number as
+    /// `Double` silently rewrites any integer past 2^53 — measured, `9007199254740993` came back
+    /// out as `9007199254740992` — and a nanosecond timestamp is nineteen digits, so the range is
+    /// reachable rather than theoretical. A type whose entire contract is "carry this back
+    /// untouched" must not be the thing that alters it. Everything else round-trips as it arrived,
+    /// also measured: `7` stays `7` (not `7.0`) and is still `Int`-decodable, `true` decodes as a
+    /// Bool rather than as 1, and nesting survives.
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Int.self) { self = .integer(v) }
         else if let v = try? c.decode(Double.self) { self = .number(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }
         else if let v = try? c.decode([JSONFragment].self) { self = .array(v) }
@@ -389,6 +397,7 @@ indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
         switch self {
         case .null: try c.encodeNil()
         case .bool(let v): try c.encode(v)
+        case .integer(let v): try c.encode(v)
         case .number(let v): try c.encode(v)
         case .string(let v): try c.encode(v)
         case .array(let v): try c.encode(v)
