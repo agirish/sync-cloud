@@ -356,6 +356,17 @@ public struct FileTreeView: View, Equatable {
     /// switch and pane collapse, not only on a mode flip, and re-applying a stale answer would pull
     /// the columns back out of wherever the user had walked to since.
     private func carryTreeIntoColumns(index: PaneChildrenIndex) {
+        // **Never decide from a tree that is still arriving.** Progressive loading publishes a
+        // SHALLOW tree — the root's children and nothing under them — before the deep walk
+        // finishes, and `carryBack` resolves the selection against exactly that index: a selection
+        // three folders down prunes to its first component, which is not a smaller version of the
+        // answer but a confident wrong one. It would then be applied *and latched*, so the right
+        // answer never arrives. `pruneBrowsePath` carries this guard for the same reason and says
+        // so at length; this is the same hazard reached through a different door.
+        //
+        // Skipping is not the whole fix — the falling edge of `isLoading` re-runs this (see the
+        // Columns branch), because an arrival during a load would otherwise never be carried at all.
+        guard !isLoading else { return }
         guard let target = Self.carryBack(selection: selection, treeRoot: currentPath, index: index),
               target != carriedTreePlace else { return }
         carriedTreePlace = target
@@ -435,7 +446,9 @@ public struct FileTreeView: View, Equatable {
     private func carryColumnsIntoTree(_ proxy: ScrollViewProxy) {
         let carry = Self.carryOver(expanded, stack: browsePath, treeRoot: currentPath)
         guard let deepest = carry.deepest else { return }
-        expanded = carry.expanded
+        // Only when it actually changes: `@State` does not compare, so assigning an equal set
+        // re-renders the entire list, and this runs on every appearance of the Tree branch.
+        if carry.expanded != expanded { expanded = carry.expanded }
         guard carriedStack != browsePath else { return }
         carriedStack = browsePath
         let animation = revealAnimation
@@ -464,7 +477,9 @@ public struct FileTreeView: View, Equatable {
     /// `expansionPruned` is: the alternative is a `@State` set no test can read.
     static func carryOver(_ expanded: Set<String>, stack: PaneBrowsePath,
                           treeRoot: String) -> (expanded: Set<String>, deepest: String?) {
-        guard !stack.isEmpty else { return (expanded, nil) }
+        // A resting stack yields a trail of exactly zero entries — `columnDirectories` answers the
+        // root alone and `dropFirst` takes it — so the one guard covers both "nothing parked" and
+        // "nothing to open", with no branch that cannot be taken.
         let trail = stack.columnDirectories(treeRoot: treeRoot).dropFirst()
         guard let deepest = trail.last else { return (expanded, nil) }
         return (expanded.union(trail), deepest)
@@ -521,7 +536,7 @@ public struct FileTreeView: View, Equatable {
                                     isExpanded: expanded.contains(row.node.id))
     }
 
-        /// Where the Tree says the pane is, translated back into a column stack — the return trip of
+    /// Where the Tree says the pane is, translated back into a column stack — the return trip of
     /// the flip, and nil when the Tree offers no single place to translate.
     ///
     /// The two presentations hold "where you are" in different state, and the Tree's half is not a
@@ -621,8 +636,17 @@ public struct FileTreeView: View, Equatable {
                 // Re-rooting the pane makes every remembered expansion under the OLD root dead
                 // weight — see `expansionPruned`. Keyed on the root rather than the tree so it costs
                 // nothing on the republishes that happen constantly.
+                //
+                // The two carry latches go with it, and for the same reason one step further: what
+                // was carried out of the OLD tree says nothing about this one, so a place with the
+                // same components under the new root ("Claude" in either) would read as already
+                // carried and be skipped. **On the always-mounted wrapper, not on either branch** —
+                // each branch is out of the hierarchy exactly when the other is on screen, and a
+                // re-root can happen in either.
                 .onChange(of: currentPath) { _, root in
                     expanded = Self.expansionPruned(expanded, toRoot: root)
+                    carriedTreePlace = nil
+                    carriedStack = PaneBrowsePath()
                 }
 
             switch emptyState {
@@ -737,6 +761,14 @@ public struct FileTreeView: View, Equatable {
             .onAppear {
                 revealInColumns(selecting: false)
                 if search.hit(at: searchHitIndex) == nil { carryTreeIntoColumns(index: childrenIndex) }
+            }
+            // And on the falling edge of the load, because an arrival that landed mid-load was
+            // refused rather than answered — the same pairing `ColumnStackPruning` makes, and for
+            // the same reason: the deep tree is published before the flag clears, so waiting on the
+            // tree alone would skip and never re-fire. Same precedence as the arrival above.
+            .onChange(of: isLoading) { _, loading in
+                guard !loading, search.hit(at: searchHitIndex) == nil else { return }
+                carryTreeIntoColumns(index: childrenIndex)
             }
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
