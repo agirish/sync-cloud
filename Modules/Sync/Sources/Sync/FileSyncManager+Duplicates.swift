@@ -409,7 +409,14 @@ extension FileSyncManager {
             } else {
                 // Partial (cancelled mid-batch, declined fallback, or skipped missing keepers):
                 // claim only what landed; the rest stay listed.
-                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed." + (outcome.isUndoable ? " Press ⌘Z to undo" : ""))
+                // `undoable:` as well as the sentence. The flag is what `invalidateUndoableBanner`
+                // reads to retire the offer when the undo stack moves on — without it the "Press
+                // ⌘Z to undo" here outlives the step it points at, and the next operation makes it
+                // an instruction to reverse the WRONG one. That a warning is normally left standing
+                // is exactly why this needs saying: severity and undoability are separate, which is
+                // why `.warning` takes the parameter at all.
+                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed." + (outcome.isUndoable ? " Press ⌘Z to undo" : ""),
+                                  undoable: outcome.isUndoable)
             }
         }
     }
