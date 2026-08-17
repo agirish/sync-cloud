@@ -36,13 +36,32 @@ import Testing
         return try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
     }
 
+    /// Decodes a two-rule array and re-encodes it, returning each rule beside the object it was
+    /// written back as.
+    ///
+    /// **`#require`, not `#expect`, on the counts.** `#expect` records and CONTINUES, so a wrong
+    /// count is followed by a subscript on a short array — which traps the whole test host, turns a
+    /// clean failure into `signal code 5`, and loses every test after it in the run. That is not
+    /// hypothetical here: it is exactly how the first version of these tests reported the bug they
+    /// were written to catch.
+    private static func decodeAPair(_ json: String) throws
+        -> (first: (rule: AutomationRule, written: [String: Any]),
+            second: (rule: AutomationRule, written: [String: Any])) {
+        let rules = try decode(json)
+        try #require(rules.count == 2)
+        let written = try reencode(rules)
+        try #require(written.count == 2)
+        return ((rules[0], written[0]), (rules[1], written[1]))
+    }
+
     // MARK: Forward tolerance — a file written by a build that knows more than this one
 
     @Test func aFieldThisBuildDoesNotKnowSurvivesARoundTrip() throws {
         let json = "[\(Self.ruleJSON(extra: #","priority":7,"note":{"by":"v5"}"#))]"
         let rules = try Self.decode(json)
         #expect(rules.count == 1)
-        #expect(rules[0].name == "Invoices")
+        let rule = try #require(rules.first)
+        #expect(rule.name == "Invoices")
 
         // The rule is edited in this build and saved back. The unknown fields must still be there:
         // dropping them is a silent downgrade of the user's data by a build that merely opened it.
@@ -60,23 +79,64 @@ import Testing
          \(Self.ruleJSON(id: "5C6F0B8E-0000-4000-8000-00000000000B",
                          name: "FromTheFuture", matchMode: "\"exactlyOne\""))]
         """
-        let rules = try Self.decode(json)
         // Before: `MatchMode(rawValue:)` threw here and took BOTH rules with it.
-        #expect(rules.count == 2)
-        #expect(rules[0].name == "Known")
-        #expect(rules[0].isRunnable)
+        let (known, future) = try Self.decodeAPair(json)
+        #expect(known.rule.name == "Known")
+        #expect(known.rule.isRunnable)
 
         // The rule that arrived with a mode this build cannot evaluate is visible and editable but
         // INERT — guessing `all` or `any` would file the user's files by a rule they never wrote.
-        let future = rules[1]
-        #expect(future.name == "FromTheFuture")
-        #expect(!future.isRunnable)
+        #expect(future.rule.name == "FromTheFuture")
+        #expect(!future.rule.isRunnable)
 
         // And the mode is written back exactly as it came, so the build that understands it still
         // finds its own rule intact.
-        let written = try Self.reencode(rules)
-        #expect(written[0]["matchMode"] as? String == "all")
-        #expect(written[1]["matchMode"] as? String == "exactlyOne")
+        #expect(known.written["matchMode"] as? String == "all")
+        #expect(future.written["matchMode"] as? String == "exactlyOne")
+    }
+
+    @Test func aConditionThisBuildCannotReadIsCarriedBackToDiskUntouched() throws {
+        // The trap that a tolerant decoder walks straight into: swallowing the error and taking the
+        // default leaves the rule looking like "any file -> Docs", and the NEXT SAVE writes that
+        // empty condition list over the real one. Failing loudly at least kept the bytes (the
+        // undecodable payload is preserved under a sibling key); failing quietly does not, because
+        // the decode succeeded and nothing was set aside.
+        //
+        // A condition name no build knows, so this reads the same on every line — whether the
+        // degradation happens per condition or per rule, the outcome has to be the same.
+        let json = """
+        [\(Self.ruleJSON(name: "Known")),
+         {"id":"5C6F0B8E-0000-4000-8000-00000000000D","name":"FutureCondition","enabled":true,
+          "matchMode":"all","conditions":[{"phaseOfTheMoon":{"_0":"waxing"}}],
+          "destinationTemplate":"Docs"}]
+        """
+        let (known, future) = try Self.decodeAPair(json)
+        #expect(known.rule.isRunnable)
+
+        // Inert: a rule this build cannot fully read must not claim files.
+        #expect(!future.rule.isRunnable)
+
+        // And — the point — the condition goes back to disk exactly as it came.
+        let condition = try #require((future.written["conditions"] as? [[String: Any]])?.first)
+        #expect((future.written["conditions"] as? [[String: Any]])?.count == 1)
+        #expect((condition["phaseOfTheMoon"] as? [String: Any])?["_0"] as? String == "waxing")
+    }
+
+    @Test func anUnknownFileKindIsCarriedBackToDiskUntouched() throws {
+        // `FileKind` is a raw-value enum decoded strictly, so a kind a newer build added is the
+        // most likely way for a condition to become unreadable in practice.
+        let json = """
+        [\(Self.ruleJSON(name: "Known")),
+         {"id":"5C6F0B8E-0000-4000-8000-00000000000C","name":"FutureKind","enabled":true,
+          "matchMode":"all","conditions":[{"kindIs":{"_0":"spreadsheetOfTheFuture"}}],
+          "destinationTemplate":"Docs"}]
+        """
+        let (known, future) = try Self.decodeAPair(json)
+        #expect(known.rule.isRunnable)
+        #expect(!future.rule.isRunnable)
+
+        let condition = try #require((future.written["conditions"] as? [[String: Any]])?.first)
+        #expect((condition["kindIs"] as? [String: Any])?["_0"] as? String == "spreadsheetOfTheFuture")
     }
 
     // MARK: Backward tolerance — a file missing something this build expects
@@ -87,20 +147,22 @@ import Testing
         let json = #"[{"name":"Sparse","conditions":[]}]"#
         let rules = try Self.decode(json)
         #expect(rules.count == 1)
-        #expect(rules[0].name == "Sparse")
-        #expect(rules[0].enabled)                       // the initializer's own default
-        #expect(rules[0].matchMode == .all)
-        #expect(rules[0].destinationTemplate.isEmpty)
-        #expect(!rules[0].isRunnable)                   // no destination — correctly inert
+        let rule = try #require(rules.first)
+        #expect(rule.name == "Sparse")
+        #expect(rule.enabled)                           // the initializer's own default
+        #expect(rule.matchMode == .all)
+        #expect(rule.destinationTemplate.isEmpty)
+        #expect(!rule.isRunnable)                       // no destination — correctly inert
     }
 
     @Test func aRuleWithNoIdGetsOneRatherThanTakingTheSetDown() throws {
         let json = #"[{"name":"NoId","conditions":[],"destinationTemplate":"X"}]"#
         let rules = try Self.decode(json)
         #expect(rules.count == 1)
+        let rule = try #require(rules.first)
         // A fresh id is stable from here on: it is written on the next save.
         let written = try #require(try Self.reencode(rules).first)
-        #expect(written["id"] as? String == rules[0].id.uuidString)
+        #expect(written["id"] as? String == rule.id.uuidString)
     }
 
     // MARK: The ordinary case still round-trips byte-for-byte in meaning
@@ -123,7 +185,7 @@ import Testing
         // check only that it is still the single-key object every stored rule carries.
         let conditions = try #require(written["conditions"] as? [[String: Any]])
         #expect(conditions.count == 1)
-        #expect(Set(conditions[0].keys) == ["kindIs"])
+        #expect(Set(try #require(conditions.first).keys) == ["kindIs"])
     }
 
     @Test func aRuleThisBuildWroteReadsBackUnchanged() throws {
