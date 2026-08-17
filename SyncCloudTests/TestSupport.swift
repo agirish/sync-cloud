@@ -122,6 +122,11 @@ func macAppDirectory() -> URL {
 /// `range(of:_:range:)` — wherever the second thing genuinely *is* "the next one after the first",
 /// since that makes the order structural and needs no helper. This exists for the other case: two
 /// independent searches whose relative order is itself under test.
+///
+/// The guard below is pinned by `TextBetweenTests`, and needs to be: every call site passes its
+/// positions in the right order while the code it scans is correct, so deleting the guard leaves
+/// the whole target green. That suite is the only thing standing between a "simplification" back
+/// to `String(source[from..<to])` and five crashing scans.
 func textBetween(_ source: String, from: String.Index, to: String.Index) -> String? {
     guard from <= to else { return nil }
     return String(source[from..<to])
