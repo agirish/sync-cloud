@@ -138,13 +138,19 @@ import Design
 
     // MARK: Removal and the overflow
 
-    @Test func testARemovedControlLeavesTheBarButKeepsAnOverflowPill() {
+    /// **A removed control leaves the bar and takes its pill with it — no ⋯ appears to hold it.**
+    ///
+    /// This used to assert the opposite (`full - 3`: four controls gone, one ⋯ gained), which is
+    /// what "a removal costs a pill, never an ability" looked like once it reached the glass. The
+    /// count is the whole point of measuring it here rather than in the plan: the ⋯ is a real pill
+    /// taking real width, so a bar trimmed to make room got some of that room back as a menu button.
+    @Test func testARemovedControlTakesItsPillWithIt() {
         let full = Self.barFrames(.default).count
         let trimmed = Self.barFrames(
             PaneBarArrangement([.flexibleSpace, .viewMode, .backForward, .scan]))
-        // Four controls gone (New Folder, Sort, Hidden Files, Preview), one ⋯ gained.
-        #expect(trimmed.count == full - 3,
-                "removing four controls and gaining ⋯ should net three fewer pills, got \(trimmed.count) vs \(full)")
+        // Four controls gone (New Folder, Sort, Hidden Files, Preview) and nothing gained.
+        #expect(trimmed.count == full - 4,
+                "removing four controls should net four fewer pills, got \(trimmed.count) vs \(full) — a ⋯ came back")
     }
 
     // MARK: Icon size

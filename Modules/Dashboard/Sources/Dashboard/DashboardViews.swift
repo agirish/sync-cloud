@@ -1267,13 +1267,17 @@ public struct PaneHeader: View {
         .accessibilityLabel("Pane view")
     }
 
-    /// The ⋯ overflow. Holds whatever this rung folded away **and** whatever was removed from the
-    /// bar in the customize sheet, so nothing is ever merely dropped — you lose a pill, never an
-    /// ability. Absent entirely when it would be empty, which is the whole point of it: it appears
-    /// because this pane is too narrow to draw everything, or because you took something off the
-    /// bar yourself — never as a permanent fixture with nothing to say.
+    /// The ⋯ overflow. Holds **only what this rung folded away** — controls that are on your bar and
+    /// that this pane is currently too narrow to draw. Absent entirely when it would be empty, which
+    /// is the whole point of it: it is a symptom of the pane's width, and it disappears when the
+    /// width stops being a problem.
     ///
-    /// It carries **only** those controls. Customize used to ride along at the bottom, which meant
+    /// It used to also carry every available control the arrangement did not place, so that a
+    /// removal "cost a pill and never an ability". That made one glyph stand for two unrelated
+    /// things and, worse, handed straight back what the customize sheet had just been used to
+    /// remove. `PaneBarLayout.plan` has the full reasoning and the cost.
+    ///
+    /// It carries only those controls. Customize used to ride along at the bottom, which meant
     /// a ⋯ with one folded item read as a two-entry menu whose second entry had nothing to do with
     /// the first, and the glyph earned its place in the row on the strength of a command that has
     /// its own front door — right-clicking the bar, which is where anyone who has customized
@@ -1361,10 +1365,9 @@ public struct PaneHeader: View {
                 }
             }
         case .search:
-            // The one entry that matters most in here: a stored arrangement predates this case, so
-            // for anyone who has ever customized their bar this menu is where the magnifier lives
-            // until they drag it out. It also names the shortcut, which is the affordance's real
-            // front door — ⌘F works whether or not the pill is on the bar.
+            // Reached only when the magnifier is ON the bar and this rung folded it — ⋯ no longer
+            // stands in for a bar that never carried it (`PaneBarMigration` puts it there instead).
+            // ⌘F is the affordance's real front door and works whether or not the pill is drawn.
             if let searchIsExpanded {
                 Button {
                     // Opens it and nothing else: the field claims focus itself, one Task hop after
@@ -1376,8 +1379,9 @@ public struct PaneHeader: View {
                 }
             }
         case .delete:
-            // Where Delete lives for everyone who had already arranged their bar — no migration
-            // moves it onto a stored arrangement, so for them this menu IS the button.
+            // Only when the rung folded it. A bar arranged before this control existed does not
+            // carry it and is not offered it here — deliberately, see `PaneBarItem.delete`: the row
+            // menu's Delete and ⌘⌫ reach the same act, so it can wait to be added on purpose.
             if let onDelete {
                 Button(role: .destructive, action: onDelete) {
                     Label("Move Selection to Trash…", systemImage: "trash")

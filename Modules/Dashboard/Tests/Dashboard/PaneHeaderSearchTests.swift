@@ -239,12 +239,19 @@ import Sync
     /// magnifier — and the customize sheet's palette has to be able to give it back. Shipping
     /// without this would make removing Search a one-way door for everyone who ever opened the
     /// sheet.
-    @Test("A stored arrangement without Search offers it in the overflow, and the palette can add it")
+    ///
+    /// It is the palette that carries this now, not ⋯: the overflow stopped offering controls the
+    /// bar does not place, so the sheet is the only way back. `PaneBarMigration` is what stops a
+    /// stored bar needing that trip in the first place.
+    @Test("A stored arrangement without Search does not hide it in ⋯, and the palette can add it")
     func searchIsRecoverableFromAStoredBar() {
         let box = Box()
         let stored = PaneBarArrangement(encoded: "flexibleSpace,backForward,scan,sort")
         #expect(!stored.items.contains(.search))
-        #expect(stored.absent(from: Self.searchingHeader(box).availableItems).contains(.search))
+        let plan = PaneBarLayout.plan(arrangement: stored,
+                                      available: Self.searchingHeader(box).availableItems,
+                                      depth: 0)
+        #expect(!plan.overflow.contains(.search), "the magnifier is back to living invisibly in ⋯")
         #expect(PaneBarCustomizeSheet.palette.contains(.search))
     }
 

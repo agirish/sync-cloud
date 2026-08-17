@@ -210,37 +210,47 @@ import Testing
         #expect(!plan.overflow.contains(.collapse))
     }
 
-    @Test func testARemovedControlStaysReachableInTheOverflow() {
+    /// **A control you took off the bar is off the bar.** ⋯ used to append every available control
+    /// the arrangement did not place, on the principle that a removal should cost a pill and never
+    /// an ability — which meant the customize sheet could not actually remove anything, only demote
+    /// it into a menu. Removing is now removing; the sheet's palette is where you get one back.
+    @Test func testARemovedControlIsNotHandedBackInTheOverflow() {
         let arrangement = PaneBarArrangement([.flexibleSpace, .backForward, .scan])
         let plan = PaneBarLayout.plan(arrangement: arrangement, available: Self.allAvailable, depth: 0)
-        #expect(plan.overflow.contains(.sort))
-        #expect(plan.overflow.contains(.hiddenFiles))
-        #expect(plan.overflow.contains(.newFolder))
+        #expect(plan.overflow.isEmpty,
+                "⋯ offered \(plan.overflow) on a bar that is not folding anything — these were removed on purpose")
+        // The bar itself is untouched by the change: what was placed is still drawn.
+        #expect(plan.visible == [.flexibleSpace, .backForward, .scan])
+        // …and every removed control is still recoverable, from the one place that should offer it.
+        for item in [PaneBarItem.sort, .hiddenFiles, .newFolder] {
+            #expect(PaneBarCustomizeSheet.palette.contains(item),
+                    "\(item) can be removed from the bar and never put back")
+        }
     }
 
-    @Test func testTheOverflowListsRemovedControlsInCanonicalOrder() {
-        // These become menu items. `available` is assembled by each host in whatever order its
-        // optional callbacks happen to be checked in, and passing that order through produced a menu
-        // reading Back/Forward, Sort, Hidden Files, View — an order nobody can learn, and one that
-        // would reshuffle itself the day a host gains another optional callback.
-        let shuffled: [PaneBarItem] = [.hiddenFiles, .preview, .backForward, .viewMode, .sort, .newFolder, .scan]
-        let plan = PaneBarLayout.plan(arrangement: PaneBarArrangement([.flexibleSpace, .scan]),
-                                      available: shuffled, depth: 0)
-        let canonical = PaneBarItem.allCases.filter { shuffled.contains($0) && $0 != .scan }
-        #expect(plan.overflow == canonical, "the overflow menu follows the host's order, not the bar's")
-    }
-
-    @Test func testAControlAddedInALaterReleaseLandsInTheOverflowNotOnTheBar() {
-        // The decided rule, and it falls out of the model: a stored arrangement predates the new
-        // control, so the control is absent, so it arrives in ⋯ rather than rearranging a bar
-        // somebody chose. `preview` stands in for "the next one we add" — an arrangement saved
-        // before it existed.
+    /// The other half of the same rule, and the one with a cost worth restating: a control that
+    /// ships in a later release is absent from every stored arrangement, and no longer lands in ⋯ as
+    /// a consolation. `PaneBarMigration` is what puts it on the bar — this test is what fails if
+    /// anyone assumes the old fallback is still there. `preview` stands in for "the next one we
+    /// add", as an arrangement saved before it existed.
+    @Test func testAControlAddedInALaterReleaseLandsNowhereWithoutAMigration() {
         let savedBeforePreviewExisted = PaneBarArrangement(
             encoded: "flexibleSpace,viewMode,backForward,scan,sort,hiddenFiles")
         let plan = PaneBarLayout.plan(arrangement: savedBeforePreviewExisted,
                                       available: Self.allAvailable, depth: 0)
         #expect(!plan.visible.contains(.preview), "a new control rearranged a bar the user had chosen")
-        #expect(plan.overflow.contains(.preview), "a new control went missing instead of landing in ⋯")
+        #expect(!plan.overflow.contains(.preview),
+                "a new control still falls back into ⋯ — the fallback that hid Search is back")
+    }
+
+    /// Folding still fills ⋯, in the bar's own order: it is the *shed* items, and the ladder sheds
+    /// right to left, so what comes back reads the way the bar did.
+    @Test func testTheOverflowListsFoldedControlsInBarOrder() {
+        let arrangement = PaneBarArrangement([.flexibleSpace, .viewMode, .backForward, .scan,
+                                              .sort, .hiddenFiles, .preview])
+        let plan = PaneBarLayout.plan(arrangement: arrangement, available: Self.allAvailable, depth: 2)
+        #expect(plan.overflow == [.hiddenFiles, .preview],
+                "⋯ listed \(plan.overflow) — the two right-most sheddable controls, in bar order")
     }
 
     // MARK: Icon size

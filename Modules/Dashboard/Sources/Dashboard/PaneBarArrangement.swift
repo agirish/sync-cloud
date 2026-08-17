@@ -24,18 +24,19 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     case flexibleSpace
     /// Appended LAST, per the rule above — the raw values are persisted, so an existing bar keeps
     /// every item it had. A stored arrangement predates this case and therefore does not carry it,
-    /// which puts the magnifier in ⋯ rather than rearranging a bar someone chose (see
-    /// `absent(from:)`). ⌘F opens the field either way, so a bar without it is a bar missing a
+    /// which is what `PaneBarMigration` exists to correct; ⋯ does not, because ⋯ carries only what
+    /// this rung folded. ⌘F opens the field either way, so a bar without it is a bar missing a
     /// button, not an ability.
     case search
     /// Appended last, per the rule above, and deliberately NOT added to `PaneBarMigration`.
     ///
-    /// Search's migration exists because a discoverable affordance landed invisible in ⋯ for
+    /// Search's migration exists because a discoverable affordance was landing invisible for
     /// everyone who had ever opened the customize sheet. That reasoning does not transfer to a
-    /// destructive control: pushing Delete onto a bar someone arranged is the thing that
-    /// mechanism makes possible, not the thing it exists to do. A stored arrangement predates
-    /// this case, so it arrives in ⋯ — where the row menu's Delete and ⌘⌫ were reaching the
-    /// same act all along.
+    /// destructive control: pushing Delete onto a bar someone arranged is the thing that mechanism
+    /// makes possible, not the thing it exists to do. So a bar arranged before this case simply
+    /// does not carry it — and does not offer it in ⋯ either, since ⋯ stopped standing in for a
+    /// bar someone had not opted into. The row menu's Delete and ⌘⌫ were reaching the same act all
+    /// along, which is why this control can afford to wait to be added deliberately.
     case delete
 
     public var id: String { rawValue }
@@ -262,21 +263,11 @@ public struct PaneBarArrangement: Equatable, Sendable {
 
     // MARK: Queries
 
-    /// Available items this bar does NOT carry — they belong in the overflow menu, so a removal costs
-    /// a pill and never an ability.
-    ///
-    /// This is also, for free, the rule for controls added in a future release: a stored arrangement
-    /// predates them, so they are absent, so they arrive in ⋯ rather than rearranging a bar someone
-    /// chose. Discoverability is the release notes' job, not the layout's.
-    ///
-    /// Ordered by `PaneBarItem.allCases` — the canonical bar order — not by `available`. These become
-    /// menu items, and `available` is assembled by each host in whatever order its `if let`s happen to
-    /// run: the menu was listing removed controls as Back/Forward, Sort, Hidden Files, View, which is
-    /// not an order anyone can hold in their head. A menu that reorders itself when a host adds an
-    /// optional callback is not a menu anyone can learn.
-    public func absent(from available: [PaneBarItem]) -> [PaneBarItem] {
-        PaneBarItem.allCases.filter { !$0.isSpacer && available.contains($0) && !items.contains($0) }
-    }
+    // `absent(from:)` used to live here: the available items this bar does not carry, appended to
+    // every ⋯ so that "a removal costs a pill and never an ability". It is gone, and with it that
+    // rule — see `PaneBarLayout.plan`. Nothing replaced it, because nothing needs to: the customize
+    // sheet's palette offers every removable control from `PaneBarCustomizeSheet.palette`, which is
+    // where a control you took off is got back from.
 
     /// The arrangement restricted to what this host can actually offer — a header with no view-mode
     /// binding has no View control to place, and the single-source rail has no Columns mode to preview.
@@ -323,6 +314,19 @@ public enum PaneBarLayout {
     ///
     /// A `depth` past the end simply sheds everything sheddable, which is what the ladder's last rung
     /// asks for.
+    ///
+    /// **The overflow is what this rung folded, and nothing else.** It used to also carry every
+    /// available control the arrangement did not place — "a removal costs a pill and never an
+    /// ability" — and that made ⋯ two menus wearing one glyph: controls the pane is too narrow to
+    /// draw, and controls you had deliberately taken off the bar. The second half handed back what
+    /// the customize sheet had just been used to remove, so removing a control did not remove it;
+    /// it only moved it somewhere less convenient than where it had been.
+    ///
+    /// The cost of dropping it, stated plainly: a control that ships in a later release is absent
+    /// from every stored arrangement and now lands **nowhere** rather than in ⋯. `PaneBarMigration`
+    /// is what puts it on the bar, and it is no longer a special measure for a headline affordance —
+    /// it is the only route a new control has to a bar someone has customized. See `PaneBarItem`'s
+    /// `delete` for the one case that deliberately declines it, and why it can afford to.
     public static func plan(arrangement: PaneBarArrangement,
                             available: [PaneBarItem],
                             depth: Int) -> PaneBarLayoutPlan {
@@ -351,7 +355,7 @@ public enum PaneBarLayout {
             }
         }
         return PaneBarLayoutPlan(visible: visible,
-                                 overflow: folded + arrangement.absent(from: available),
+                                 overflow: folded,
                                  compactsViewMode: compacts)
     }
 
@@ -800,14 +804,22 @@ public enum PaneBar {
 
 /// Brings a bar someone arranged on an earlier build forward when a NEW control ships.
 ///
-/// **Why this exists, stated as the thing it fixes.** `absent(from:)` puts an unrecognized control
-/// in ⋯ and calls that the rule for future releases — "a stored arrangement predates them, so they
-/// are absent, so they arrive in ⋯ rather than rearranging a bar someone chose". That is right for a
-/// control someone can go and find. It is wrong for a headline one: Search shipped as the answer to
-/// "the trees have no search", and for everybody who had ever opened the customize sheet it landed
-/// permanently inside an overflow menu on a bar with visible empty space — the affordance was
-/// there, and invisible. Reported from a real window, which is the only reason it was caught: every
-/// test used a fresh default arrangement, where the item is present and the bug cannot occur.
+/// **Why this exists, stated as the thing it fixes.** The bar used to have a fallback: an available
+/// control the arrangement did not place was appended to ⋯, so a new control at least landed
+/// somewhere. That was right for a control someone can go and find and wrong for a headline one —
+/// Search shipped as the answer to "the trees have no search", and for everybody who had ever
+/// opened the customize sheet it landed permanently inside an overflow menu on a bar with visible
+/// empty space: the affordance was there, and invisible. Reported from a real window, which is the
+/// only reason it was caught: every test used a fresh default arrangement, where the item is
+/// present and the bug cannot occur.
+///
+/// **That fallback is now gone** — ⋯ carries only what the rung folded, see `PaneBarLayout.plan` —
+/// which makes this mechanism load-bearing rather than corrective. A control added to
+/// `PaneBarArrangement.default` without a step below reaches a customized bar through **no route at
+/// all** until its owner opens the customize sheet and drags it on, and nothing anywhere will say
+/// so. Adding the step is not a judgement call about how discoverable the control deserves to be;
+/// declining it is, and `PaneBarItem.delete` is the one case that declined deliberately, on the
+/// strength of having two other routes to the same act.
 ///
 /// **Why it is not just "always restore Search like `scan`".** `PaneBarArrangement.init` re-adds
 /// `scan` unconditionally, which is right for the one control that must never be missing. Doing that
