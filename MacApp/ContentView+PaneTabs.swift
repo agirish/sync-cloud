@@ -56,6 +56,7 @@ extension ContentView {
             // stack the tree cannot draw would contradict the line directly under it. The tab's
             // stored location keeps both halves (see `openTabHere`); only this readout is resolved.
             livePath: syncManager.paneLocation(isLeft: isLeft, drawsColumns: paneDrawsColumns(isLeft: isLeft)),
+            drawsColumns: paneDrawsColumns(isLeft: isLeft),
             // **The discovered list here, not `paneCanShowSource`'s**, and it is the one place that
             // divergence is right: this resolves a NAME and a mark, not whether the pane may go
             // there. A source switched off in Settings still has a folder and a display name, and
@@ -455,9 +456,13 @@ extension ContentView {
         let list = syncManager.paneTabs(isLeft: isLeft)
         let title = paneTabItems(isLeft: isLeft).first { $0.id == id }?.title ?? "a tab"
         guard let index = list.index(of: id) else { return "“\(title)”" }
+        // Resolved exactly as the CHIP is — see `PaneTabChips.items`. He audits this log against
+        // what was on screen, and a line naming a folder the strip never showed is a discrepancy to
+        // reason away rather than a record.
+        let drawsColumns = paneDrawsColumns(isLeft: isLeft)
         let path = index == list.selectedIndex
-            ? syncManager.combinedRelativePath(isLeft: isLeft)
-            : list.tabs[index].combinedRelativePath
+            ? syncManager.paneLocation(isLeft: isLeft, drawsColumns: drawsColumns)
+            : (drawsColumns ? list.tabs[index].combinedRelativePath : list.tabs[index].relativePath)
         return "“\(title)” (\(path.isEmpty ? "the source root" : path))"
     }
 
@@ -1009,14 +1014,23 @@ enum PaneTabChips {
         let root: String
     }
 
+    /// `drawsColumns` is the pane's presentation, and it governs the PARKED chips as much as the
+    /// live one. The presentation is a property of the pane, not of a tab, so every tab in this
+    /// strip will be drawn the same way — and a parked chip titled from a column stack a Tree pane
+    /// cannot draw promises a folder that selecting it does not deliver: the chip would rename
+    /// itself on click, from `Investing` to `Claude`, and its tooltip would point at a folder the
+    /// pane never shows. A tab's STORED location keeps both halves regardless (see `openTabHere`);
+    /// this resolves only what the strip says about it.
     static func items(_ list: PaneTabList,
                       liveProviderId: String,
                       livePath: String,
+                      drawsColumns: Bool,
                       source: (String) -> Source?) -> [PaneTabStrip.Item] {
         list.tabs.enumerated().map { index, tab in
             let isActive = index == list.selectedIndex
             let providerId = isActive ? liveProviderId : tab.providerId
-            let path = isActive ? livePath : tab.combinedRelativePath
+            let parkedPath = drawsColumns ? tab.combinedRelativePath : tab.relativePath
+            let path = isActive ? livePath : parkedPath
             let resolved = source(providerId)
             // A tab at a source root has no folder to name, so it wears the source's name — and
             // the raw id if even that is gone, which at least says which source it meant.

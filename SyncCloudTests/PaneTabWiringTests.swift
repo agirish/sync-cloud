@@ -528,6 +528,7 @@ import Sync
         let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
                                        liveProviderId: "Dropbox",
                                        livePath: "Finance/US/2024",
+                                       drawsColumns: true,
                                        source: { _ in self.iCloud })
         #expect(items[0].title == "2024", "the active chip is naming its parked snapshot, not the pane")
         #expect(items[0].isActive)
@@ -535,10 +536,34 @@ import Sync
         #expect(!items[1].isActive)
     }
 
+    /// **A parked chip promises what selecting it will show, and in Tree that is the tab's SCOPE.**
+    /// The presentation belongs to the pane, not to a tab, so every chip in this strip will be drawn
+    /// the same way — a parked one titled from its column stack renames itself on click (`2024` to
+    /// `Finance`) and its tooltip points at a folder the pane never shows. The stored location keeps
+    /// both halves either way; only the readout resolves.
+    @Test func aParkedChipDropsTheColumnStackAPaneInTreeCannotDraw() {
+        let parked = PaneTab(providerId: "iCloud", relativePath: "Finance",
+                             browsePath: PaneBrowsePath(components: ["US", "2024"]))
+        let live = PaneTab(providerId: "iCloud", relativePath: "Photos")
+        let list = PaneTabList(tabs: [live, parked], selectedIndex: 0)
+
+        let columns = PaneTabChips.items(list, liveProviderId: "iCloud", livePath: "Photos",
+                                         drawsColumns: true, source: { _ in self.iCloud })
+        #expect(columns[1].title == "2024", "in Columns the parked chip names the open column")
+
+        let tree = PaneTabChips.items(list, liveProviderId: "iCloud", livePath: "Photos",
+                                      drawsColumns: false, source: { _ in self.iCloud })
+        #expect(tree[1].title == "Finance",
+                "in Tree the parked chip still advertises a column stack the pane will not draw")
+        #expect(tree[1].fullPath.hasSuffix("/Finance"),
+                "and its tooltip still points into that stack")
+    }
+
     /// A tab at a source root has no folder to name.
     @Test func aChipAtTheRootWearsItsSourcesName() {
         let items = PaneTabChips.items(list(["", "Photos"], selected: 0),
                                        liveProviderId: "iCloud", livePath: "",
+                                       drawsColumns: true,
                                        source: { _ in self.iCloud })
         #expect(items[0].title == "iCloud Drive")
     }
@@ -548,6 +573,7 @@ import Sync
     @Test func aChipWhoseSourceIsGoneStillNamesIt() {
         let items = PaneTabChips.items(list(["", "Photos"], selected: 0, providers: ["iCloud", "Dropbox"]),
                                        liveProviderId: "iCloud", livePath: "",
+                                       drawsColumns: true,
                                        source: { _ in nil })
         #expect(items[0].title == "iCloud")
         #expect(items[0].markImageName == "folder.fill")
@@ -559,6 +585,7 @@ import Sync
     @Test func theChipsPathIsExpanded() {
         let items = PaneTabChips.items(list(["Finance"], selected: 0),
                                        liveProviderId: "iCloud", livePath: "Finance",
+                                       drawsColumns: true,
                                        source: { _ in self.iCloud })
         #expect(!items[0].fullPath.hasPrefix("~"), "the chip's path still carries a tilde")
         #expect(items[0].fullPath.hasSuffix("/Documents/Finance"))

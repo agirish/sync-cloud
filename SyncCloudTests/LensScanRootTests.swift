@@ -83,5 +83,15 @@ import Sync
         #expect(body.contains(
                     "lensTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath"),
                 "the browse path no longer follows the targeted pane (or the ternary flipped)")
+        // And the presentation gate, whole and with its argument — the same hazard one level out.
+        // In Tree the stack is parked state the pane does not draw, so joining it names a folder
+        // that pane is not showing and then SCANS it. `paneDrawsColumns` takes `isLeft` and
+        // `lensTargetIsRight` is its negation: written without the `!` this asks the OTHER pane
+        // which presentation it is in — invisible to every pure-function test above, because the
+        // function never learns which pane it was asked about.
+        #expect(body.contains("paneDrawsColumns(isLeft: !lensTargetIsRight)"),
+                "the scan target no longer asks the TARGETED pane whether it draws columns")
+        #expect(body.contains(": PaneBrowsePath()"),
+                "a Tree pane's scan target no longer drops the parked column stack")
     }
 }
