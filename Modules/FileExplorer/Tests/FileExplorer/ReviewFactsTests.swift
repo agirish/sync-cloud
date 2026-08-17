@@ -80,7 +80,19 @@ import Sync
 
     /// `chmod` is a no-op for root, so the locked directory these tests need would be readable
     /// and they would pass for the wrong reason. Same guard as `DirectoryListingTests`.
-    private var runningAsRoot: Bool { geteuid() == 0 }
+    ///
+    /// It records an issue instead of returning quietly. A bare `return` reports the test as
+    /// **PASSED**, so on a root runner the folder-replace warning's whole unreadable-destination
+    /// story would go green having exercised none of it. Measured `geteuid() == 501` here.
+    private func skippedBecauseRoot(_ fixture: String, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
+        guard geteuid() == 0 else { return false }
+        Issue.record("""
+            Skipped “\(fixture)”: running as root (euid 0), where chmod 000 does not restrict \
+            access, so the locked destination folder this needs is readable and the fixture \
+            proves nothing. Treat the suite as not having covered it.
+            """, sourceLocation: sourceLocation)
+        return true
+    }
 
     private func lock(_ url: URL) throws {
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
@@ -97,7 +109,7 @@ import Sync
     /// them. The safe "everything" wording was already written but sat in the else-branch of a
     /// `guard let enumerator`, which the filesystem never takes — proved inline below.
     @Test func anUnreadableDestinationFolderIsNotAnnouncedAsZeroItems() async throws {
-        guard !runningAsRoot else { return }
+        guard !skippedBecauseRoot("anUnreadableDestinationFolderIsNotAnnouncedAsZeroItems") else { return }
         let scratch = try makeScratch()
         let left = scratch.appendingPathComponent("left")
         let right = scratch.appendingPathComponent("right")
@@ -134,12 +146,39 @@ import Sync
         // Stated separately and in the negative: the sentence above could be reached by a wording
         // change while the count stayed wrong, and "0 items" is the specific claim that was false.
         #expect(text?.contains("0 items") == false)
+
+        // The control, and it belongs INSIDE this test rather than beside it.
+        //
+        // The unreadable branch's whole job is to leave `destinationChildCount` nil — which is
+        // also the field's own default, so deleting the `childCount` call from `loadFacts`
+        // outright would leave every assertion above green. The proof only stands if the same
+        // loader, in the same run, is shown producing a real number for a folder it CAN read.
+        let readable = right.appendingPathComponent("Open")
+        try FileManager.default.createDirectory(at: readable, withIntermediateDirectories: true)
+        try Data("1".utf8).write(to: readable.appendingPathComponent("one.txt"))
+        try Data("2".utf8).write(to: readable.appendingPathComponent("two.txt"))
+        try FileManager.default.createDirectory(at: left.appendingPathComponent("Open"),
+                                                withIntermediateDirectories: true)
+
+        let openFacts = await ReviewCardView.loadFacts(
+            for: difference(left: left, right: right, name: "Open", type: .differentDates),
+            fileManager: FileManager.default)
+
+        #expect(openFacts.destinationIsDirectory)
+        #expect(openFacts.destinationChildCount == 2,
+                "a readable folder must reach a real count — otherwise nil above proves nothing")
+        let openText = ReviewCardModel.warningText(
+            difference: difference(left: left, right: right, name: "Open", type: .differentDates),
+            facts: openFacts, destinationName: "iCloud", isMove: false)
+        #expect(openText?.contains("2 items") == true,
+                "the two sentences have to differ, or “everything” is not a decision: \(openText ?? "nil")")
+        #expect(openText != text)
     }
 
     /// The middle case: the folder itself listed, one subtree inside it did not. The count is then
     /// a floor, and the sentence has to say so rather than presenting it as a total.
     @Test func aPartlyUnreadableDestinationFolderCountsAsAFloor() async throws {
-        guard !runningAsRoot else { return }
+        guard !skippedBecauseRoot("aPartlyUnreadableDestinationFolderCountsAsAFloor") else { return }
         let scratch = try makeScratch()
         let left = scratch.appendingPathComponent("left")
         let right = scratch.appendingPathComponent("right")
