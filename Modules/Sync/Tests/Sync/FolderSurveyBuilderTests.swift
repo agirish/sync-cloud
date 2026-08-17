@@ -162,7 +162,19 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     // MARK: - naming is refused on purpose
 
-    @Test func namingIsNeverGuessed() {
+    /// **This one cannot be shaped the way the rest of the suite is, and the reason is worth stating
+    /// rather than papering over.** Every other fixture here pairs a rule with a fallback that
+    /// answers differently. `naming` has no rule at all: `FolderSurveyBuilder.entry` writes the
+    /// literal `naming: nil`, so *no* tree makes it answer anything else, and a fixture asserting
+    /// `nil` could not fail whatever it walked. The two halves below are what can be made to fail,
+    /// and between them they hold the claim:
+    ///
+    /// - the assertion **discriminates** — the same predicate over a hand-built profile, where the
+    ///   field really does carry a convention, is false. `nil` from the builder is therefore an
+    ///   abstention rather than a field that is nil by construction;
+    /// - the builder has **exactly one** writer of the field and it is that literal, so a detector
+    ///   added later fails this test instead of shipping a silent guess.
+    @Test func namingIsNeverGuessed() throws {
         // Files sharing an obvious convention — the exact shape a detector would claim. The builder
         // still says nothing, because a wrong convention makes the rename pass propose renames
         // toward a convention nobody has.
@@ -170,6 +182,34 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
                                               file("03. Mar 2024.pdf")])])
         #expect(profile.folders["Payslips"]?.naming == nil)
         #expect(profile.folders.values.allSatisfy { $0.naming == nil })
+
+        // The control. A hand-built profile is the OTHER producer of these entries — it records
+        // judgements a walk cannot make, `naming` among them — so this is the on-disk shape, decoded
+        // the way the store reads it, not a struct built by hand around the decoder.
+        let handBuilt = """
+        {"profileId": "test", "root": "~/Documents", "folders": [
+          {"path": "Payslips", "role": "destination", "naming": "ordinal-month",
+           "anchors": [], "fileCount": 3, "subfolderCount": 0, "axes": {}}]}
+        """
+        let hand = try JSONDecoder().decode(FolderProfile.self, from: Data(handBuilt.utf8))
+        #expect(hand.folders["Payslips"]?.naming == "ordinal-month",
+                "the field cannot carry a convention at all, so the assertions above assert nothing")
+        #expect(!hand.folders.values.allSatisfy { $0.naming == nil },
+                "the `allSatisfy` above is vacuous — it holds even of a profile that names one")
+
+        // And nobody has quietly added a guesser: one writer, and it is the abstention.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync/FolderSurveyBuilder.swift")
+        let code = try String(contentsOf: url, encoding: .utf8)
+        #expect(code.contains("public enum FolderSurveyBuilder"),
+                "this is not the builder — the scan below is vacuous")
+        let writers = code.components(separatedBy: "naming:").count - 1
+        #expect(writers == 1, """
+                the builder writes `naming:` \(writers) times — it used to be the one abstention, \
+                so something now guesses a convention
+                """)
+        #expect(code.contains("naming: nil"), "the builder's one `naming:` is no longer the abstention")
     }
 
     // MARK: - Anchors

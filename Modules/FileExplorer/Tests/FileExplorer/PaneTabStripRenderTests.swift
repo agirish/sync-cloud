@@ -312,6 +312,192 @@ import Design
                 "the lone tab draws a ✕ that would close the window")
     }
 
+    /// **A parked tab that is not under the pointer wears NO ✕.** The strip is mostly parked tabs,
+    /// and a row of chips each carrying a permanent ✕ reads as a row of things to dismiss rather
+    /// than places to go — which is why the button is drawn at `opacity` 0 unless the chip is active
+    /// or hovered. Nothing pinned that, and the condition is one edit from being lost.
+    ///
+    /// **Why an ink count is the right measure here and a saturating one everywhere else.** A parked
+    /// chip has no raised ground: its close slot is the strip's flat backdrop, so "pixels unlike the
+    /// backdrop" in that slot is exactly "a glyph is drawn there", and zero means zero. (Inside the
+    /// ACTIVE chip the same count saturates on the ground alone — measured 1,664 out of 1,664 — which
+    /// is why the tests above are differential.)
+    ///
+    /// Both halves are asserted, because the interesting direction is the silent one:
+    /// - the parked chip's slot is **empty**, and
+    /// - a glyph really would have been seen there — the same slot in a strip whose second tab is
+    ///   PINNED carries its pin, on the same groundless backdrop.
+    @Test func anUnhoveredParkedTabDrawsNoCloseButton() {
+        // Two chips with the same title in a wide pane, so both strips lay out identically and the
+        // second chip's close slot is the same box in each.
+        let plain = render(items: [item("Finance", active: true), item("Finance")], width: 900)
+        let again = render(items: [item("Finance", active: true), item("Finance")], width: 900)
+        let pinned = render(items: [item("Finance", active: true), item("Finance", pinned: true)],
+                            width: 900)
+        let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Finance"],
+                                              scale: 1).tabWidth
+        let perPoint = plain.size.width > 0 ? CGFloat(plain.pixelsWide) / plain.size.width : 1
+        // The SECOND chip's close slot: past the first chip and the gap, at the trailing end of the
+        // second, inset by its padding.
+        let slot = NSRect(
+            x: (LiquidGlass.cardGutter + width + PaneTabStripLadder.tabGap + width
+                - PaneTabStripLadder.tabPadding - PaneTabStripLadder.closeSide) * perPoint,
+            y: 0,
+            width: PaneTabStripLadder.closeSide * perPoint,
+            height: CGFloat(plain.pixelsHigh))
+
+        // The harness control: the same render twice differs nowhere, so a difference below is a
+        // difference in what was drawn rather than in how it was drawn.
+        #expect(differingPixels(plain, again, in: slot) == 0,
+                "two identical strips differ in the parked chip's close slot — the harness is unstable")
+        // The claim.
+        #expect(inked(plain, in: slot) < 10, """
+                an un-hovered parked tab draws \(inked(plain, in: slot)) pixels in its close slot — \
+                it is wearing a ✕ nobody asked for
+                """)
+        // …and the slot is the right box, on a backdrop where a glyph WOULD have been seen: the pin
+        // a pinned tab wears sits in exactly this slot.
+        #expect(inked(pinned, in: slot) > 40, """
+                the pinned tab's glyph is not in this box either — the box is wrong, so the \
+                emptiness above proves nothing
+                """)
+        #expect(differingPixels(plain, pinned, in: slot) > 20)
+    }
+
+    // MARK: The chip rung's chevron
+
+    /// **The chip rung's chevron, rendered back** — the test `PaneTabStrip.activeChipMenu` names in
+    /// prose ("`theChipRungWearsAChevron` renders it back") and which did not exist.
+    ///
+    /// On this rung the strip draws ONE chip and a count; the chip is the switcher for every other
+    /// tab, and the chevron is the only thing that says so. It has to be the system's — a
+    /// `chevron.down` drawn in the label renders as nothing, because `.borderlessButton` lays its
+    /// label out itself and drops the trailing image — so the claim can only be checked in pixels.
+    ///
+    /// **What this does and does not catch, measured rather than assumed.** Forcing the indicator off
+    /// (`.menuIndicator(.hidden)`) fails this test twice over: the chip comes out 99.5pt wide against
+    /// 96.5pt of contents, and the band past its title reads 7 pixels instead of 135. *Deleting*
+    /// `.menuIndicator(.visible)` changes nothing at all — `.borderlessButton` shows its indicator by
+    /// default on this macOS, so that line is belt-and-braces rather than the thing holding the
+    /// chevron up. This test pins the chevron being DRAWN, which is the claim the rung actually
+    /// rests on; it cannot report the modifier going missing while the default keeps agreeing with it.
+    ///
+    /// **Measured against the chip's own ground, not against the strip's backdrop.** The chip's
+    /// raised ground differs from the backdrop at every pixel of this band, so `inked` saturates
+    /// there (1,871 of 2,448 with or without a chevron). Every count below is instead "pixels unlike
+    /// the ground the chip is drawn on", sampled out of the same render — a per-pixel difference
+    /// against the local surface, which is what makes a glyph visible and a flat fill invisible.
+    ///
+    /// The chip is **located from its accent rule** rather than from the ladder's `tabWidth`: the
+    /// chip takes its NATURAL width up to that cap (112.5pt against a 156.5pt cap on this fixture),
+    /// and the whole question here is how much wider than its contents that natural width is.
+    @Test func theChipRungWearsAChevron() {
+        let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
+                    item("Medical"), item("Finance")]
+        #expect(PaneTabStripLadder.layout(available: 210, titles: five.map(\.title), scale: 1).rung == .chip,
+                "this fixture is meant to be on the chip rung")
+        let rep = render(items: five, width: 220)
+        let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
+
+        // The chip's span, off the accent rule under it (inset 3pt each side by `activeGround`).
+        let accent = accentBounds(rep)
+        let chipStart = accent.minX / perPoint - 3
+        let chipEnd = accent.maxX / perPoint + 3
+        let titleStart = LiquidGlass.cardGutter + PaneTabStripLadder.tabPadding
+            + PaneTabStripLadder.markSide + PaneTabStripLadder.contentGap
+        let titleEnd = titleStart + LabelMetrics.width(of: "Immigration",
+                                                       font: PaneTabStripLadder.titleFont, scale: 1)
+        // Half a point of slack: the rule's edge is measured in whole pixels, and this only has to
+        // establish that the chip is where the boxes below assume it is.
+        #expect(abs(chipStart - LiquidGlass.cardGutter) < 0.6,
+                "the chip starts at \(chipStart)pt, not the strip's gutter — every box below is off")
+
+        // **The room the indicator takes.** The chip is wider than mark + gap + title + its two
+        // paddings by the indicator's width; with the indicator gone it would be exactly that sum.
+        let contents = PaneTabStripLadder.tabPadding + PaneTabStripLadder.markSide
+            + PaneTabStripLadder.contentGap + (titleEnd - titleStart) + PaneTabStripLadder.tabPadding
+        #expect(chipEnd - chipStart > contents + 8, """
+                the chip is \(chipEnd - chipStart)pt wide against \(contents)pt of contents — there is \
+                no room in it for an indicator, so the rung ends flush after its title
+                """)
+
+        // …and that room is PAINTED. The band runs from just past the title to the chip's trailing
+        // padding, which is where the system draws its indicator.
+        let ground = groundColor(rep, at: chipStart + 3)
+        let chevron = glyphPixels(rep, from: titleEnd + 2, to: chipEnd - PaneTabStripLadder.tabPadding,
+                                  ground: ground)
+        #expect(chevron > 40, """
+                \(chevron) pixels unlike the chip's own ground between its title and its trailing \
+                edge — the space is reserved but nothing is drawn in it
+                """)
+
+        // The zero control: the 5pt gap between the mark and the title is the same measurement over
+        // a band that must be bare ground. Without it, a count that reported the ground itself would
+        // make the assertion above pass with no chevron drawn at all.
+        #expect(glyphPixels(rep, from: chipStart + PaneTabStripLadder.tabPadding
+                            + PaneTabStripLadder.markSide + 1,
+                            to: chipStart + PaneTabStripLadder.tabPadding
+                            + PaneTabStripLadder.markSide + PaneTabStripLadder.contentGap - 1,
+                            ground: ground) == 0,
+                "bare ground reads as painted — this measurement cannot tell a glyph from a fill")
+        // The positive control: the same measurement over the title finds it.
+        #expect(glyphPixels(rep, from: titleStart, to: titleEnd, ground: ground) > 300,
+                "the chip's own title does not register — the measurement is blind")
+        // And the chevron is INSIDE the chip, not spilling past it: the trailing padding is bare.
+        #expect(glyphPixels(rep, from: chipEnd - PaneTabStripLadder.tabPadding + 1, to: chipEnd - 1,
+                            ground: ground) == 0,
+                "something is drawn in the chip's trailing padding")
+    }
+
+    /// The bounding box of the accent-coloured pixels — the 2pt rule under the active chip, which is
+    /// the one thing on the strip that reports where that chip is in the drawn image.
+    func accentBounds(_ rep: NSBitmapImageRep) -> NSRect {
+        var minX = Int.max, maxX = Int.min, minY = Int.max, maxY = Int.min
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                if c.blueComponent - c.redComponent > 0.25 && c.blueComponent > 0.4 {
+                    minX = min(minX, x); maxX = max(maxX, x)
+                    minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+        }
+        guard minX <= maxX else { return .zero }
+        return NSRect(x: minX, y: minY, width: maxX + 1 - minX, height: maxY + 1 - minY)
+    }
+
+    /// The chip's ground, read at a point inside it that nothing is drawn on: `x` points from the
+    /// image's leading edge, at the chip's vertical middle.
+    func groundColor(_ rep: NSBitmapImageRep, at x: CGFloat) -> NSColor {
+        let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
+        let mid = Int(PaneTabStripLadder.stripHeight / 2 * perPoint)
+        return rep.colorAt(x: Int(x * perPoint), y: mid) ?? .black
+    }
+
+    /// Pixels between `x0` and `x1` (in points) that differ from `ground`, over the chip's interior
+    /// rows only.
+    ///
+    /// The rows matter: the chip is 24pt tall inside a 34pt strip, so a full-height band would count
+    /// the backdrop above and below it as "unlike the ground" and report hundreds of pixels for a
+    /// band that is bare. The accent rule locates the chip's bottom, and the rule itself is excluded.
+    func glyphPixels(_ rep: NSBitmapImageRep, from x0: CGFloat, to x1: CGFloat,
+                     ground: NSColor) -> Int {
+        guard x1 > x0 else { return -1 }
+        let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
+        let bottom = Int(accentBounds(rep).minY) - 2
+        let top = max(0, bottom - Int((PaneTabStripLadder.tabHeight - 6) * perPoint))
+        var count = 0
+        for y in top..<min(rep.pixelsHigh, bottom) {
+            for x in Int(x0 * perPoint)..<min(rep.pixelsWide, Int(x1 * perPoint)) {
+                guard let p = rep.colorAt(x: x, y: y) else { continue }
+                if max(abs(p.redComponent - ground.redComponent),
+                       max(abs(p.greenComponent - ground.greenComponent),
+                           abs(p.blueComponent - ground.blueComponent))) > 0.06 { count += 1 }
+            }
+        }
+        return count
+    }
+
     // MARK: The reorder drag
 
     /// **The gap tracks the drop index** (roadmap Fig. 8): the chips the dragged tab has passed

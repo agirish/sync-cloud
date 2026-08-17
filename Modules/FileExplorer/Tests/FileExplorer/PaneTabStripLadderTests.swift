@@ -385,7 +385,23 @@ import Design
         let double = try #require(code.range(of: ".simultaneousGesture(TapGesture(count: 2)"))
         let single = try #require(code.range(of: ".simultaneousGesture(TapGesture().onEnded"),
                                   "the single-click column navigation is gone")
-        #expect(double.lowerBound < single.lowerBound || single.lowerBound < double.lowerBound)
+        // **The order the source states, asserted as an order.** This read
+        // `double.lowerBound < single.lowerBound || single.lowerBound < double.lowerBound`, which is
+        // `a < b || b < a` over two distinct ranges — true of every arrangement of the two, so it
+        // could not fail on the thing this test is named for. The claim beside the gesture is
+        // specific: the double is "Declared BEFORE the single-tap gesture so the two are siblings
+        // rather than one wrapping the other".
+        #expect(double.lowerBound < single.lowerBound, """
+                the ⌘-double-click is declared AFTER the single tap — the two are no longer in the \
+                order the source describes, and a re-order here is how one ends up wrapping the other
+                """)
+        // …and beside it, not somewhere else in the file: siblings are adjacent modifiers on one
+        // row, so the single tap follows within a few lines of the double. A `single` matched in
+        // some other subtree would satisfy the order above while proving nothing about this row.
+        #expect(code.distance(from: double.upperBound, to: single.lowerBound) < 400, """
+                the two gestures are \(code.distance(from: double.upperBound, to: single.lowerBound)) \
+                characters apart — they are no longer declared beside each other on the same row
+                """)
         #expect(code.components(separatedBy: ".simultaneousGesture(TapGesture().onEnded").count - 1 == 1,
                 "there is more than one single-tap handler on a column row")
     }
