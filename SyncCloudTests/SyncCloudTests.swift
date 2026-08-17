@@ -366,7 +366,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
                                        overridesDomainName: test.suiteName,
-                                       cloudStorageLister: { [] })
+                                       cloudStorageLister: { .read([]) })
         settings.ignorePatterns = ["*.tmp"]
         settings.conflictPolicy = .replace
 

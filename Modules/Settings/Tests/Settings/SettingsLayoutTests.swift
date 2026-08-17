@@ -351,7 +351,7 @@ import Testing
         defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
-                                       cloudStorageLister: { [] })
+                                       cloudStorageLister: { .read([]) })
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
@@ -375,7 +375,7 @@ import Testing
         defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
-                                       cloudStorageLister: { [] })
+                                       cloudStorageLister: { .read([]) })
         let appearance = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
 
         for (name, tab) in mustFitTabs(settings) where name != "Appearance" {

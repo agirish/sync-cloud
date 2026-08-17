@@ -140,7 +140,7 @@ import Settings
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: ScratchDefaults("FileActionHandlerTests"),
-            cloudStorageLister: { [] },
+            cloudStorageLister: { .read([]) },
             pathValidator: { _ in true }
         )
         settings.availableProviders = providers

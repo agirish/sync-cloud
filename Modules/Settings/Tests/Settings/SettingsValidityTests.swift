@@ -41,7 +41,7 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     SettingsManager(
         autoDiscover: false,
         userDefaults: test.defaults,
-        cloudStorageLister: { [folder("Dropbox")] },
+        cloudStorageLister: { .read([folder("Dropbox")]) },
         pathValidator: { validPaths.contains($0) })
 }
 
@@ -135,7 +135,7 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [] },
+            cloudStorageLister: { .read([]) },
             pathValidator: { $0 == iCloudDefaultPath })
 
         #expect(settings.isPathValid(for: "iCloud") == true)
