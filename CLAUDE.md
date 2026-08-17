@@ -156,10 +156,26 @@ being monotonic.
 **The notes are part of the release too.** v2.9 reached the point of being tagged with no notes at
 all, because nothing here said to write them; they exist in two places and both are needed:
 
-- `RELEASE_NOTES.md` — **identical on every line.** Write it on the line that owns the release and
-  cherry-pick to the others; verify with `cmp`, don't re-edit the other copies. (As of 2026-08-16
-  this has drifted: `v2.x` lacks the `v4.0` section and `v3.x` has nothing after `v3.1`. Repair
-  it at the next cut rather than leaving it to compound.)
+- `RELEASE_NOTES.md` — **`main` is the superset; a maintenance line carries only the releases it can
+  run.** Decided 2026-08-17, replacing an earlier "identical on every line" rule. Write the notes on
+  the line that owns the release; if that is a maintenance line, cherry-pick them **forward** to
+  `main` so `main` keeps every release. **Do not send a newer major's sections backward** — `v4.0`
+  and `v4.1` stay on `main` alone.
+
+  The old rule read as drift to repair and was one cut away from being obeyed. What it would have
+  produced is the argument against it: `v2.x` is the line someone runs *because they are on macOS
+  15*, and the `v4.0` section it would have gained contains "rules you create in v4.0 cannot be read
+  by `v3.x`" — a warning addressed to somebody who cannot run v4, sitting in the notes of somebody
+  who cannot leave 2.x. The precedent cuts the other way too and is worth knowing: `v2.x` carries
+  the full `v3.0` section deliberately, because its "**if you are on macOS 15, stay on the 2.x
+  line**" only functions in front of a 2.x reader. **The test is whether the section is addressed to
+  that line's reader, not whether the file matches byte for byte.**
+
+  So `cmp` is no longer the check, and a section `main` has that a maintenance line lacks is not a
+  finding. As of 2026-08-17 `v2.x` and `v3.x` are byte-identical to each other and agree with `main`
+  from `## v3.0` down; `main` additionally has `v4.0`, `v4.1`, and four bullets inside `## v3.1`
+  (`### The window, and what the chrome claims`, added retroactively by `27fa9c14`). All three states
+  are correct under this rule and none of them needs repairing.
 - `docs/releases.html` — **`main` only.** GitHub Pages serves `docs/` from `main`, so a section
   landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one, move the
   `latest` badge onto it, and give the superseded release the theme tag every other one carries.
@@ -186,6 +202,28 @@ Two tells worth knowing. The word **"again"** in a claim ("fits on a small displ
 means the release broke it in the first place. And a **short list after a large range** is the
 honest outcome, not a failure of the notes: say what the work actually bought instead of padding —
 v2.9's headline became its test volume, which was the one superlative that survived checking.
+
+**v4.1 added two more, and the first is worth reaching for before the greps.** When a **whole
+feature arrives inside the range**, every "used to / was doing / had been" clause in its section is
+describing that feature's own construction — there is no prior behaviour for it to be better than,
+because it shipped nowhere. Five of eleven tab bullets carried such a clause and all five went; the
+section read as a feature *plus* a run of fixes and was a feature. **Ask "did this thing exist at
+the tag?" of the section before auditing its bullets**, and delete every "used to" in one pass.
+
+**A number that lives in prose rather than in test output has not been checked.** Both measurements
+in the pane-bullet were wrong: "Birth Certificate needs 95.7pt" was measured in the wrong *face*
+(the row draws SF Rounded; 95.7 is SF Pro, the real figure is 92.9), and the 77.6/154pt pair was
+~13pt out in both halves. Re-derive every number, and treat one you cannot reproduce as a finding
+rather than a rounding difference — chasing 95.7 is what turned up `ScaledFont.nsFont(scale:)`
+silently dropping `.rounded` and resolving to the default face, fixed on this line in `1ee595f2`.
+
+Two claims also asserted the *opposite* of the code: that ⌘T's menu item says "here" (it is
+`Button("New Tab")`, under a comment explaining why it deliberately does not) and that a mirror test
+is "shared as one expression so a link cannot come to mean one thing for a drill and another for a
+tab" (it is written twice). Both were asserted from intent. **A sentence about how the code is
+*structured* needs the same grep as a sentence about what it does** — and publishing that a drift
+hazard is structurally prevented, when it is prevented only by two copies currently agreeing, is
+worse than saying nothing.
 
 ### Cutting it
 
