@@ -11,8 +11,9 @@ developed against).
 mechanisms here fail tests for reasons unrelated to the code — throttled CoreAnimation on
 an unattended machine, fixed pumps under contention, process-wide state across parallel
 suites. Before bisecting, work through
-[flaky-tests.md](flaky-tests.md#first-is-it-a-flake-or-a-regression); it records the
-mechanisms this repo has actually hit and how to tell one from a regression.
+[flaky-triage.md](flaky-triage.md); it is one page, and it tells the mechanisms this
+repo has actually hit apart from a regression. [flaky-tests.md](flaky-tests.md) behind
+it carries the measurements and the fix for each.
 
 ## Scope
 

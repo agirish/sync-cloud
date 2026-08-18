@@ -5,114 +5,17 @@ time, the failure looked exactly like a real defect. `ColumnPreviewRevealTests` 
 deepest column is hidden behind the preview: column 420…630, visible 0…270", which is the precise
 geometry of the bug it exists to catch. Nothing about that message says *the machine decided this*.
 
-This file records the mechanisms that have actually produced false failures in this repo — and the
-ones that produce no failure at all, which are the more expensive half. Mechanism 8 can hang the run
-instead of failing it, and **four separate mechanisms here can leave an assertion passing having
-examined nothing**: mechanism 2 (a fixed sleep before an absence assertion), mechanism 8 (a bound
-whose expiry is discarded), mechanism 9 (an absence with no paired control that the signal ever
-arrived) and mechanism 12 (a log window that rolled past the interval being read). Read 12 before
-writing any assertion about `Logger.shared.entries`, and read all four before writing any assertion
-that something did *not* happen — a vacuous pass is silent and permanent, so unlike a false failure
-it costs you nothing to notice and everything to miss. Below: how to tell each from a regression
-before you start bisecting, and the fix pattern for each. See [ci.md](ci.md) for what CI runs and the
-runner's own quirks.
+This file is the **evidence appendix**. It records the mechanisms that have actually produced false
+failures in this repo — and the ones that produce no failure at all, which are the more expensive
+half — with the measurements behind each and the fix pattern for each.
 
----
+**If you are staring at a red suite right now, start at
+[flaky-triage.md](flaky-triage.md)**, not here: it is one page, it tells the mechanisms apart, and
+it links back to each section below. Come here once you know which one you have — or when you are
+about to write an assertion that something did *not* happen, in which case read mechanism 12 and the
+three beside it in [the silent half](flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion).
 
-## First: is it a flake or a regression?
-
-Do these in order. Steps 1–3 cost about a minute and have each been skipped, at least once, in
-favour of a wrong conclusion.
-
-**No verdict at all?** If the run never finished — no output, log frozen mid-line, nothing named —
-none of the steps below apply: they all assume a failure you can read. Go straight to
-[mechanism 8](#8-the-wait-that-hangs-instead-of-failing).
-
-**Several failures at once, all with the same expectation and all at the same wall clock?** A
-cluster whose membership changes between runs is the signature of
-[mechanism 10](#10-every-gate-parks-at-once-on-the-pool-their-releases-need), and it is settled by
-`--no-parallel` rather than by any of the steps below. Note the exception it makes to step 4:
-there, passing in isolation *is* evidence.
-
-**Only the app-target step red, with window assertions failing in under 0.1s?** If the expectations
-read `nil` or `[]` for a panel or a child window, that was
-[mechanism 11](#11-five-palette-tests-the-fixture-dismissed-out-from-under-itself--fixed), **fixed
-on 2026-08-16**. It should not recur, so treat a fresh instance as a real regression until the
-failure message says otherwise — the fixture now names every dismissal it sees, with the app's
-activation state, so the message itself tells you whether the panel was never attached or attached
-and then torn down. Do not reach for a rerun first.
-
-**A test asserting on `Logger.shared.entries`, failing only in the full suite?** `entries` is a
-rolled 1000-line window shared by every suite at once, so a line that really was written can be gone
-by the time the assertion reads —
-[mechanism 12](#12-a-log-assertion-reading-a-window-that-has-already-rolled). Do not bisect the code
-that writes the line; check whether the test reads the buffer whole. The same section's other half
-is the reason to go there even when nothing is failing.
-
-**1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
-the single strongest tell. Condition-based waits give up at their deadline, so a starved test
-*spends* its whole ceiling — 25s or 32s per test — before failing. Real geometry bugs fail
-instantly.
-
-But a spent ceiling says only *the condition never held*, not *why*. Starvation and a premise
-that was false from the start are indistinguishable by timing alone — mechanism 7 spends the
-whole deadline without the machine being loaded at all. Two things separate them. **Was the rest
-of the suite slow too?** Starvation is never selective. And **did the suite's other tests of the
-same shape survive?** `ColumnDrillSourceTests` has two tests that wait on the same deferred
-navigation and run within 50ms of each other; load takes both, and on 2026-08-01 only one failed.
-
-**2. Check what else is running.**
-
-```bash
-uptime                          # load average — anything over ~8 on this Mac is contention
-pmset -g | grep lowpowermode    # 1 = CoreAnimation throttled
-pgrep -fl 'xcodebuild|swift-frontend' | grep -v actions-runner
-git worktree list               # every one of these is a session that may be building
-```
-
-**The self-hosted runner IS this Mac.** A local build competes directly with CI, and there are
-routinely many worktrees open at once — ten, on 2026-08-01, with load peaking above 20. A CI red
-that coincides with your own full-suite run is very likely yours, and not in the way you think.
-
-**3. Run the OLD source under the SAME conditions.** This is the step that settles it, and the one
-easiest to skip. On 2026-08-01 a suite failed 4/4 and CI had been green on the previous commit, so
-the new commit looked guilty. It wasn't:
-
-| Source | Machine | Result |
-|---|---|---|
-| new commit | idle | 573/573 pass, 10s |
-| **previous commit** | **load ~10** | **4 failures, 52s** |
-
-The second row is the whole argument. Without it you are comparing a commit against a *different
-machine state* and calling the difference a regression.
-
-**4. Do not stop at `--filter`.** Passing in isolation proves almost nothing — most of these
-mechanisms need the rest of the suite present to fire. Confirm against the full suite, ideally
-twice.
-
-**5. Never judge `swift test` from piped output.** Under the x64 agent it exits 1 with everything
-passing; `… | tail` masks the real exit code. See [ci.md](ci.md#rosetta-corollary-swift-test-exit-code-lies-under-x86_64).
-
-If steps 1–4 point at the environment, say so *with the evidence* and re-run. If they don't, it's
-your commit — keep going.
-
----
-
-## Reproducing a load-sensitive failure on purpose
-
-Suspected flakes are worth confirming rather than assumed. Load the machine, run the suite, then
-**verify the load generators actually died** — a leaked spinner poisons every later measurement on
-a machine that also runs CI.
-
-```bash
-for i in $(seq 1 6); do (yes > /dev/null &); done
-uptime
-arch -arm64 swift test --filter <Suite>
-pkill -x yes; pgrep -x yes || echo "clean"
-```
-
-Use CPU spin, not `sleep`, when validating that a timing test can actually fail — a sleeping
-process contends for nothing and proves nothing.
+See [ci.md](ci.md) for what CI runs and the runner's own quirks.
 
 ---
 
