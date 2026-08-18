@@ -347,9 +347,26 @@ struct PaneBarCustomizeSheet: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.displayName)
             .accessibilityHint(item.isRemovable ? "Draggable. Actions available." : "Always shown.")
-            .accessibilityAction(named: "Move Left") { update { $0.nudge(index, by: -1) } }
-            .accessibilityAction(named: "Move Right") { update { $0.nudge(index, by: 1) } }
-            .accessibilityAction(named: "Remove") { update { $0.remove(at: index) } }
+            // **Offered on exactly the same terms as the menu eleven lines up.** They were attached
+            // unconditionally while the visual versions are correctly disabled at the ends and for
+            // a pinned item — so a VoiceOver user landing on the always-shown Scan pill was offered
+            // "Remove", activated it, and got nothing: no move, no announcement, no reason. An
+            // action that cannot fire is worse than an absent one, because the absent one does not
+            // claim anything. And this is the keyboard path the sheet exists to provide.
+            //
+            // `if` around the modifier rather than a no-op closure: an action present but inert is
+            // the very state being removed.
+            .accessibilityActions {
+                if index > 0 {
+                    Button("Move Left") { update { $0.nudge(index, by: -1) } }
+                }
+                if index < arrangement.items.count - 1 {
+                    Button("Move Right") { update { $0.nudge(index, by: 1) } }
+                }
+                if item.isRemovable {
+                    Button("Remove") { update { $0.remove(at: index) } }
+                }
+            }
     }
 
     private func trackHelp(_ item: PaneBarItem) -> String {
@@ -573,7 +590,7 @@ struct PaneBarCustomizeSheet: View {
                     // Fixed height rather than a conditional row: the captions used to appear only
                     // under some tiles, which made the grid's rows different heights and clipped the
                     // longest of them against the row below.
-                    Text(captionFor(item, onBar: onBar))
+                    Text(captionFor(item))
                         .scaledFont(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -602,7 +619,7 @@ struct PaneBarCustomizeSheet: View {
 
     /// The one line under a tile's name. Deliberately not "on the bar" — the check already says that,
     /// and repeating it under seven of the ten tiles turned the palette into a wall of grey text.
-    private func captionFor(_ item: PaneBarItem, onBar: Bool) -> String {
+    private func captionFor(_ item: PaneBarItem) -> String {
         if !item.isRemovable { return "always shown" }
         if !appliesHere(item) { return "other panes" }
         if item.isSpacer { return "repeatable" }

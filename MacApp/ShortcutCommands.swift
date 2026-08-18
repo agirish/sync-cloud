@@ -634,7 +634,12 @@ struct WorkspaceCommands: View {
                 // meaning here — one of them is always current — so `false` is dropped.
                 set: { isOn in if isOn { selection?.wrappedValue = workspace } }
             ))
-            .keyboardShortcut(AppChord.workspace(index + 1).key, modifiers: AppChord.workspace(index + 1).modifiers)
+            // A tenth workspace gets no chord rather than crashing the menu bar — see
+            // `AppChord.workspace(_:)`. `keyboardShortcut` takes an optional shortcut, so "no
+            // chord" is a state SwiftUI already has a spelling for.
+            .keyboardShortcut(AppChord.workspace(index + 1).map {
+                KeyboardShortcut($0.key, modifiers: $0.modifiers)
+            })
             .disabled(selection == nil)
         }
     }

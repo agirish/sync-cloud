@@ -839,7 +839,11 @@ public struct PaneHeader: View {
                     .menuStyle(.button)
                     .buttonStyle(navButtonStyle)
                     .fixedSize()
+                // **`.help` is the accessibility HELP on macOS, never the name.** An icon-only
+                // button with only a tooltip has no accessible name at all; this file already knew
+                // that, since Scan and Delete carry labels three rungs away.
                     .help("Choose how this pane shows its files")
+                    .accessibilityLabel("View mode")
                 } else {
                     viewModeSwitch(viewMode, controlSize: controlSize)
                 }
@@ -852,6 +856,7 @@ public struct PaneHeader: View {
                 }
                 .buttonStyle(navButtonStyle)
                 .help("Collapse the source pane")
+                .accessibilityLabel("Collapse the source pane")
             }
 
         case .backForward:
@@ -872,6 +877,7 @@ public struct PaneHeader: View {
                 .shortcutKeycap(AppChord.paneBack.display)
                 .disabled(!canGoBack)
                 .help(ShortcutHint.tooltip("Go back to this pane's previous folder", AppChord.paneBack.display))
+                .accessibilityLabel("Back")
 
                 Button(action: onForward) {
                     Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
@@ -880,6 +886,7 @@ public struct PaneHeader: View {
                 .shortcutKeycap(AppChord.paneForward.display)
                 .disabled(!canGoForward)
                 .help(ShortcutHint.tooltip("Go forward to this pane's next folder", AppChord.paneForward.display))
+                .accessibilityLabel("Forward")
             }
 
         case .scan:
@@ -929,6 +936,7 @@ public struct PaneHeader: View {
                 .buttonStyle(navButtonStyle)
                 .shortcutKeycap(AppChord.newFolder.display)
                 .help(ShortcutHint.tooltip("New folder in this pane's current folder", AppChord.newFolder.display))
+                .accessibilityLabel("New folder")
             }
 
         case .sort:
@@ -958,6 +966,7 @@ public struct PaneHeader: View {
             .buttonStyle(navButtonStyle)
             .fixedSize()
             .help("Choose how items are sorted")
+            .accessibilityLabel("Sort")
 
         case .hiddenFiles:
             // Hidden-files toggle, icon-only. The eye mirrors the state: open when hidden files are
@@ -973,6 +982,11 @@ public struct PaneHeader: View {
                                        ? "Hidden files are visible — click to hide them"
                                        : "Hidden files are hidden — click to show them",
                                        AppChord.hiddenFiles.display))
+            // The worst of the unnamed rungs, because its STATE rides in a glyph swap — eye against
+            // eye.slash — and was named only in the tooltip. Label plus value, the shape
+            // `ContentView+SplitLayout`'s link toggle already uses.
+            .accessibilityLabel("Hidden files")
+            .accessibilityValue(showHiddenFiles ? "Shown" : "Hidden")
 
         case .preview:
             if showsPreviewToggle {
@@ -1044,6 +1058,7 @@ public struct PaneHeader: View {
                 // question the hold asked.
                 .shortcutKeycap(AppChord.findInPane.display)
                 .help(ShortcutHint.tooltip("Find a file or folder in this pane", AppChord.findInPane.display))
+                .accessibilityLabel("Search this pane")
             }
         }
     }
@@ -1308,6 +1323,7 @@ public struct PaneHeader: View {
         .buttonStyle(navButtonStyle)
         .fixedSize()
         .help("More pane options")
+        .accessibilityLabel("More pane options")
     }
 
     /// One folded-or-removed control, as a menu item. Deliberately the same verbs as the pill: the

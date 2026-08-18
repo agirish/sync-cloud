@@ -726,6 +726,14 @@ public struct LogViewer: View {
         .buttonStyle(.hoverAffordance(selected ? .filled : .segment, tint: hueAccent))
         .fixedSize()
         .help("Show \(label.lowercased())")
+        // **Exactly one of these is active, which makes it this window's primary state — and it
+        // was carried only by ink, fill and border width.** `.help` describes the ACTION ("Show
+        // errors"), never the state, and on macOS it lands on the accessibility help rather than
+        // the name. The label and count go into one spoken name so the chip does not announce as
+        // two unrelated strings, and the trait says which one is on.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(count.formatted())")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: Day-grouped list

@@ -187,7 +187,9 @@ extension ContentView {
         // The chord is the segment's 1-based POSITION, the same enumeration `WorkspaceCommands`
         // binds its chords from — both count `Workspace.allCases`, so the badge and the key
         // equivalent cannot disagree.
-        let chord = AppChord.workspace(ordinal).display
+        // Empty past nine, which reads as "no badge" everywhere this is shown — the same answer
+        // the menu gives. See `AppChord.workspace(_:)`.
+        let chord = AppChord.workspace(ordinal)?.display ?? ""
         Button {
             selection.wrappedValue = workspace
         } label: {

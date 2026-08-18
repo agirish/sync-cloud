@@ -618,6 +618,12 @@ struct HelpView: View {
         // rest wash the same shape they would fill if chosen.
         .buttonStyle(.hoverAffordance(isSelected ? .filled : .row,
                                       shape: .roundedRect(6)))
+        // **Which topic is open is carried by ink and fill, and neither is audible.** Without this
+        // every row announces as "<Title>, button" and the one that is open is indistinguishable
+        // from the ten that are not. `SettingsRail.railRow` is this row with this line — the same
+        // shape, the same accent fill, the same selection question — so the omission was a copy
+        // that stopped one line early rather than a decision.
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .padding(.horizontal, 6)
     }
 

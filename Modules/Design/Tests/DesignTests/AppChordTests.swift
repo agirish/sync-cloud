@@ -35,8 +35,14 @@ import Foundation
         #expect(AppChord.verifyDifferences.display == "⇧⌘V")
         #expect(AppChord.differencesList.display == "⌘D")
         #expect(AppChord.foldAllDifferences.display == "⇧⌘F")
-        #expect(AppChord.workspace(1).display == "⌘1")
-        #expect(AppChord.workspace(5).display == "⌘5")
+        #expect(AppChord.workspace(1)?.display == "⌘1")
+        #expect(AppChord.workspace(5)?.display == "⌘5")
+        // **Past nine there is no chord, and asking for one must not take the app down.**
+        // `Character.init(String)` requires exactly one grapheme cluster, so a two-digit ordinal
+        // trapped — at menu-bar construction, which is to say the app would not open. Four
+        // workspaces exist today; this is the boundary the 1…9 loops below never approach.
+        #expect(AppChord.workspace(10) == nil)
+        #expect(AppChord.workspace(0) == nil)
         // The live fixture for `aCommentedPinDoesNotCountAsAPin`: a trailing comment inside this
         // very body, naming a chord the way a real pin does. It has to sit HERE — the coverage scan
         // reads this member and nothing else, so a decoy anywhere else would prove only the
@@ -51,7 +57,7 @@ import Foundation
         // `AppChord.registry` plus the workspace family, which is parameterised and so is not in
         // it. Re-typing the members here is what let a chord be added without every "for every
         // chord" test seeing it — the same hand-copy this type exists to remove.
-        let all: [AppChord] = AppChord.registry + (1...9).map { AppChord.workspace($0) }
+        let all: [AppChord] = AppChord.registry + (1...9).compactMap { AppChord.workspace($0) }
         for chord in all {
             #expect(!chord.modifiers.contains(.option),
                     "\(chord.display) contains ⌥ and would fire from inside the ⌥-hold reveal")
@@ -96,7 +102,7 @@ import Foundation
     /// declared and so is invisible to the check above. This is the one the tab work had to think
     /// about: ⌘1…⌘N are the workspaces', which is why tabs deliberately have no ⌘-digit.
     @Test func noChordCollidesWithAWorkspaceDigit() {
-        let digits = Set((1...9).map { String(AppChord.workspace($0).key.character) })
+        let digits = Set((1...9).compactMap { AppChord.workspace($0).map { String($0.key.character) } })
         for chord in AppChord.registry where chord.modifiers == .command {
             #expect(!digits.contains(String(chord.key.character)),
                     "\(chord.display) collides with a workspace's ⌘-digit")

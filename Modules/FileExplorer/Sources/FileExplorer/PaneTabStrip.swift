@@ -442,6 +442,13 @@ public struct PaneTabStrip: View {
         .help(Self.closableOthers(of: item, in: items) > 0
               ? "Close this tab (⌥ to close the others)"
               : "Close this tab")
+        // **`.opacity(0)` hides a control from the eye and from nothing else.** Every parked tab
+        // was carrying an invisible, unnamed close button in the accessibility tree, so what a
+        // VoiceOver user walked through did not match what is drawn — and the name is needed for
+        // the visible half regardless, since `.help` is the accessibility help on macOS, not the
+        // name. The two lines are one decision: it is announced exactly when it is drawn.
+        .accessibilityLabel("Close \(item.title)")
+        .accessibilityHidden(!(item.isActive || hoveredTab == item.id))
     }
 
     // MARK: - The narrow rungs

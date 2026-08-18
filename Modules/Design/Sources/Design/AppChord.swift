@@ -60,10 +60,18 @@ public extension AppChord {
     /// this app had claimed it. No ⌥, per the invariant `AppChordTests` guards.
     static let commandPalette = AppChord("k", .command)
 
-    /// ⌘1…⌘n by the workspace bar's own enumeration order — the caller passes the 1-based
+    /// ⌘1…⌘9 by the workspace bar's own enumeration order — the caller passes the 1-based
     /// ordinal, so the badge and the registration count the same list.
-    static func workspace(_ ordinal: Int) -> AppChord {
-        AppChord(KeyEquivalent(Character("\(ordinal)")), .command)
+    ///
+    /// **Nil past nine, rather than trapping.** `Character.init(String)` requires exactly one
+    /// grapheme cluster, so a tenth workspace produced a two-character string and crashed — at
+    /// MENU-BAR CONSTRUCTION, not at the tenth key press, which is to say the app would not open.
+    /// There are four workspaces today and the tests exercise 1…9, so nothing approaches it; a
+    /// latent trap on a number the UI is free to grow is worth one optional. A tenth item simply
+    /// gets no chord, which is what the platform does too — ⌘0 is not "the tenth".
+    static func workspace(_ ordinal: Int) -> AppChord? {
+        guard (1...9).contains(ordinal) else { return nil }
+        return AppChord(KeyEquivalent(Character("\(ordinal)")), .command)
     }
 
     // Panes
