@@ -222,9 +222,9 @@ anything out of reach.
   reverse pane switch to mirror. **⇧⌘[ and ⇧⌘] cycle both directions everywhere**, so
   this is a missing second route, not a missing capability.
 - **⌘-double-click opens a new tab in Columns only.** The tree view drives navigation
-  from single taps and disclosure, and a second recognizer on the same row is the
-  shape that broke column navigation once already. **Right-click ▸ Open in New Tab
-  works in both views.**
+  from single taps and disclosure, and a second recognizer there has to be proved not
+  to cost either — the proof the row drag that was removed on the same suspicion
+  never got. **Right-click ▸ Open in New Tab works in both views.**
 - **⌘W closes the window when the focused pane holds one tab**, whatever the other
   pane holds — so in Compare, a focused pane with one tab and a sibling with five
   takes the window and all six. That is Finder's rule, and every alternative makes ⌘W
