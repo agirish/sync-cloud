@@ -520,13 +520,42 @@ import Sync
         }
     }
 
+    // MARK: - Duplicate-review drift gate (trashRightCopy, both ends)
+
+    /// **The gate compares dates too, because size alone waves through an equal-length rewrite.**
+    /// `2025` → `2026`, `true` → `fals`, any `sed -i` over fixed-width text. The engine's
+    /// `copyDriftedInPlace` was fixed to compare both; this is the same rule, so Compare cannot be
+    /// the weaker door.
+    @Test func testGateRefusesASameLengthRewrite() {
+        let scanned = Date(timeIntervalSince1970: 1_000_000)
+        let edited = Date(timeIntervalSince1970: 1_000_500)
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100,
+            currentDate: edited, scannedDate: scanned))
+        #expect(PaneLogic.duplicateCopyMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100,
+            currentDate: scanned, scannedDate: scanned))
+    }
+
+    /// A missing date on either end is not a mismatch — a scan that recorded none must not refuse
+    /// every review, which is the engine's own rule.
+    @Test func testGateDoesNotRefuseWhenADateIsUnknown() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        #expect(PaneLogic.duplicateCopyMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100,
+            currentDate: now, scannedDate: nil))
+        #expect(PaneLogic.duplicateCopyMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100,
+            currentDate: nil, scannedDate: now))
+    }
+
     // MARK: - Duplicate-review keeper gate (trashRightCopy)
 
     @Test func testKeeperGateRefusesMissingKeeper() {
         // Gone entirely: refuse whether it was a file or a folder.
-        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: false, isDirectory: false, statSucceeded: false, currentSize: nil, scannedSize: 100))
-        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: false, isDirectory: true, statSucceeded: false, currentSize: nil, scannedSize: 100))
     }
 
@@ -536,18 +565,18 @@ import Sync
         // snapshot — an in-place edit or replacement means the right copy is no longer
         // provably identical to the keeper, so trashing it could trash the last copy of
         // the original content.
-        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: false, statSucceeded: true, currentSize: 555, scannedSize: 100))
-        #expect(PaneLogic.duplicateKeeperMatchesScan(
+        #expect(PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100))
     }
 
     @Test func testKeeperGateFolderIsExistenceOnly() {
         // A folder's stat size isn't its recursive content size (the engine's carve-out),
         // so folders never size-refuse — existence decides.
-        #expect(PaneLogic.duplicateKeeperMatchesScan(
+        #expect(PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: true, statSucceeded: true, currentSize: 555, scannedSize: 100))
-        #expect(PaneLogic.duplicateKeeperMatchesScan(
+        #expect(PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: true, statSucceeded: false, currentSize: nil, scannedSize: 100))
     }
 
@@ -555,9 +584,9 @@ import Sync
         // A failed attributes read refuses for a file (engine: `guard let attrs ... else
         // { return false }`); a successful stat with no size value falls back to the
         // existence check rather than over-refuse (engine: `if let currentSize`).
-        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: false, statSucceeded: false, currentSize: nil, scannedSize: 100))
-        #expect(PaneLogic.duplicateKeeperMatchesScan(
+        #expect(PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: false, statSucceeded: true, currentSize: nil, scannedSize: 100))
     }
 
