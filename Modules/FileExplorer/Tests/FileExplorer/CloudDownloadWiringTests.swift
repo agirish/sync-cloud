@@ -387,15 +387,14 @@ import Sync
         }
     }
 
-    /// Yields until `condition` holds or the deadline passes — no window to pump here, since nothing
-    /// is mounted. Returns whether it held.
+    /// Yields until `condition` holds, or until BOTH the deadline has passed and `pumpFloor` polls
+    /// have been made — no window to pump here, since nothing is mounted, which is exactly what
+    /// `poll` is for beside `pump`. Returns whether it held.
+    ///
+    /// The floor rather than the deadline is the bound that matters: **seconds do not convert to
+    /// polls at any fixed rate** on a congested main actor. See `docs/flaky-tests.md`, mechanism 2.
     private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        return condition()
+        await LayoutPumpWait.poll(upTo: seconds, until: condition).held
     }
 
     // MARK: - The republish clear's root

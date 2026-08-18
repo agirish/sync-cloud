@@ -326,15 +326,15 @@ import Foundation
     ///
     /// Generous, because it waits for something to HAPPEN rather than bounding an absence: the
     /// watch task is main-actor isolated and in a full parallel run this repo has measured deferred
-    /// main-actor work landing 13 s late. A short deadline would report starvation as a defect.
+    /// main-actor work landing 13 s late.
+    ///
+    /// The generosity is not what carries it — **seconds do not convert to polls at any fixed
+    /// rate**, so a longer deadline buys nothing on a starved main actor. `LayoutPumpWait.poll`'s
+    /// floor is what does: the wait gives up only once the deadline has passed AND `pumpFloor`
+    /// polls have been made. See `docs/flaky-tests.md`, mechanism 2.
     @MainActor
     private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        return condition()
+        await LayoutPumpWait.poll(upTo: seconds, until: condition).held
     }
 
     /// Counts probes across the poll's `@Sendable` closure without a data race.

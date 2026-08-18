@@ -52,8 +52,12 @@ private final class RevealBox: ObservableObject {
         // suite load (CI run 30403470882; shrinking the pump to 1ms reproduces that failure
         // exactly). The deadline is a ceiling, not a wait: the poll returns as soon as the
         // caret lands, ~150ms in a quiet run.
-        #expect(await Self.becomesEditingText(window),
-                "the revealed field must hold the caret — no second click")
+        let caret = await Self.becomesEditingText(window)
+        #expect(caret.held,
+                """
+                the revealed field must hold the caret — no second click \
+                (gave up after \(caret.passes) passes)
+                """)
     }
 
     // MARK: Behaviour-preservation of the extraction
@@ -102,6 +106,49 @@ private final class RevealBox: ObservableObject {
         #expect(expanded == false)
     }
 
+    // MARK: The floor itself
+
+    /// **The floor outlives an expired deadline** — the property the fix rests on, and the one
+    /// thing standing over it.
+    ///
+    /// The sweep in `docs/flaky-tests.md` mechanism 2 finds an UNFLOORED loop; nothing in it can
+    /// see a floor that was deleted from a floored one, and `pumpUntil` takes no argument a scan
+    /// could watch. So this asserts the shape directly: with the deadline already spent, a
+    /// condition that never holds is still evaluated `pumpFloor` times.
+    ///
+    /// Deliberately drives `pumpUntil` rather than `becomesEditingText`, because the caret arrives
+    /// on the first pass in a quiet run — a fixture whose condition is already true would pass with
+    /// the floor set to zero and prove nothing.
+    @Test func theFloorOutlivesAnExpiredDeadline() async {
+        let window = Self.host(EmptyView())
+        var evaluated = 0
+        let outcome = await Self.pumpUntil(window, timeout: 0) {
+            evaluated += 1
+            return false
+        }
+        #expect(outcome.held == false, "the condition never holds — the wait must say so")
+        #expect(evaluated >= Self.passesDemanded,
+                """
+                the deadline was spent before the first pass, so only the floor can carry this — \
+                the condition was evaluated \(evaluated) times against a demand of \
+                \(Self.passesDemanded)
+                """)
+    }
+
+    /// **The production floor's VALUE**, pinned separately and cheaply.
+    ///
+    /// The case above deliberately does NOT compare against `pumpFloor`: deriving the demand from
+    /// the constant defeats the mutation test, because zeroing the floor would zero the expectation
+    /// with it and the case would pass against a wait that no longer has a floor at all. Measured
+    /// here rather than reasoned — the first version of that case did derive it, and survived
+    /// `pumpFloor = 0` untouched.
+    @Test func theProductionFloorIsFifty() {
+        #expect(Self.pumpFloor == 50,
+                "the floor every real wait here uses is now \(Self.pumpFloor) — see docs/flaky-tests.md mechanism 2")
+        #expect(Self.passesDemanded <= Self.pumpFloor,
+                "the demand above must be reachable within the floor, or it measures the deadline")
+    }
+
     // MARK: Fixtures
 
     /// Mounts a view in an off-screen key window and lets AppKit lay it out.
@@ -126,17 +173,50 @@ private final class RevealBox: ObservableObject {
         return responder.isKind(of: NSTextView.self)
     }
 
+    /// Ten times what a starved run has been measured to need, which also clears what an idle one
+    /// wants — so the floor carries this wait on its own. Same number and same reason as
+    /// `LayoutPumpWait.pumpFloor` in FileExplorer; that type is in another package's test target,
+    /// so the constant is restated rather than shared.
+    private static let pumpFloor = 50
+
+    /// What `theFloorOutlivesAnExpiredDeadline` demands — a LITERAL, deliberately not derived from
+    /// `pumpFloor`, so zeroing the floor cannot zero the expectation along with it.
+    private static let passesDemanded = 25
+
+    /// Pumps `window`'s layout until `condition` holds, or until BOTH the deadline has passed and
+    /// `pumpFloor` passes have been made.
+    ///
+    /// **Seconds are the wrong unit and the deadline alone was the bug.** What this waits on is
+    /// main-actor turns, and a congested test host delivers them at no fixed rate — 15s bought
+    /// four polls in a suite measured in `docs/flaky-tests.md` mechanism 2, so raising the ceiling
+    /// buys nothing. The floor is the bound that means something.
+    ///
+    /// Deliberately takes no `floor:` argument. `LayoutPumpWait` has one for its own tests and pays
+    /// for it with a repo-wide scan keeping every real wait on the default; with nothing here able
+    /// to lower it, there is nothing for such a scan to catch.
+    ///
+    /// Returns the pass count as well, because that is the diagnosis: a wait that gave up after a
+    /// handful of passes was starved, one that gave up after a thousand was genuinely disproved,
+    /// and elapsed time cannot tell those apart.
+    private static func pumpUntil(_ window: NSWindow, timeout: TimeInterval,
+                                  _ condition: () -> Bool) async -> (held: Bool, passes: Int) {
+        var passes = 0
+        let deadline = Date().addingTimeInterval(timeout)
+        while passes < pumpFloor || Date() < deadline {
+            passes += 1
+            window.layoutIfNeeded()
+            if condition() { return (true, passes) }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return (condition(), passes + 1)
+    }
+
     /// Polls until a text editor holds first responder, pumping layout each pass so AppKit can
     /// finish standing up the field editor. 15s matches the ceiling the FileExplorer mounted
     /// suites converged on for a loaded run of the whole test host.
-    private static func becomesEditingText(_ window: NSWindow, timeout: TimeInterval = 15) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            if isEditingText(window) { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return isEditingText(window)
+    private static func becomesEditingText(_ window: NSWindow,
+                                           timeout: TimeInterval = 15) async -> (held: Bool, passes: Int) {
+        await pumpUntil(window, timeout: timeout) { isEditingText(window) }
     }
 }
 
