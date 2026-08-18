@@ -67,4 +67,40 @@ import Design
         #expect(scrolled == column,
                 "the scrolled row still widens its card to \(scrolled) in a \(column)pt column — the rail can overlap the pane beside it again")
     }
+
+    /// **And the shipped rail is actually built that way.** Everything above is a replica — it
+    /// builds both arms itself, so what it proves is that a horizontal `ScrollView` contains an
+    /// over-wide row, which is a fact about SwiftUI rather than about this app. Delete the
+    /// `ScrollView` from `lensTitle` and every expectation above still passes while the rail goes
+    /// back to overlapping the pane beside it, which is the exact screenshot it was written for.
+    ///
+    /// A source scan, because `lensTitle` is private to a `LensWorkspaceView` that needs a live
+    /// `FileSyncManager` — the same reason the fixture is a replica in the first place. It reads
+    /// the function's own body rather than the file, so a `ScrollView` somewhere else on the page
+    /// cannot satisfy it.
+    @Test func theShippedRailIsTheScrolledArm() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()                   // …/Tests/FileExplorer
+            .deletingLastPathComponent()                   // …/Tests
+            .deletingLastPathComponent()                   // …/FileExplorer (package)
+            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(source.range(of: "private func lensTitle(_ counts: RailCounts) -> some View {"),
+                                 "lensTitle has been renamed or removed — this scan is reading nothing")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    private "), "could not find where lensTitle ends")
+        let body = rest[..<end.lowerBound]
+
+        #expect(body.contains("ScrollView(.horizontal) {"),
+                "lensTitle no longer wraps the rail in a horizontal ScrollView — an over-wide rail widens its card and draws over the pane beside it")
+        // The two settings that make it cost nothing when the rail does fit. Without the first the
+        // row rubber-bands at every width; the second is what keeps a 27pt band from spending
+        // height it does not have on an indicator.
+        #expect(body.contains(".scrollBounceBehavior(.basedOnSize)"))
+        #expect(body.contains(".scrollIndicators(.never)"))
+        // And the half that answers the clip: the chosen rung is scrolled into view, so the item
+        // you selected is never the one drawn cut in half.
+        #expect(body.contains("rail.scrollTo(id, anchor: .center)"),
+                "the selected rung is no longer scrolled into view — at a narrow column it can sit off-screen with nothing saying so")
+    }
 }

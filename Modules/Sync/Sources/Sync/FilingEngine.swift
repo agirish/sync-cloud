@@ -1013,6 +1013,30 @@ public enum FilingEngine {
     /// opinion of a guess. A visa foil went out as a bare filename and came back `High` for
     /// `Immigration/Form I-94/Abhishek`, which outranked the `Medium` the router had earned by
     /// reading `CHENNAI (MADRAS) … Visa Type/Class R H1B` off page 1.
+    /// Which of the files handed to the classifier were judged **without their text** — the set
+    /// every `contentBlind` rule below is asked about.
+    ///
+    /// **"We read it and got nothing", never "we did not read."** The two look identical at the
+    /// call site and are not the same claim: a scan with reading switched off, or one on a machine
+    /// with no extractor, hands EVERY file over on its name. Penalising the model for that would
+    /// leave those installs with no intelligent suggestions at all — while telling the user nothing
+    /// true, since nobody looked. Blindness is a fact about the *document* (a scan with no text
+    /// layer), so it is only asserted when there was a reader to be blind despite.
+    ///
+    /// A cache hit counts as read-or-not by the same rule: the verdict it replays was produced from
+    /// whatever that earlier pass could see, and the key records the file, not what was read.
+    ///
+    /// **One expression, called twice.** This rule was written out at both call sites — the scan in
+    /// `FileSyncManager+Filing` and the refine pass in `FileSyncManager+FilingRefine` — with the
+    /// same three-line comment above each. Two copies that currently agree are not a guarantee that
+    /// they will, and neither copy was reachable from a test: every suite passed `contentBlind:`
+    /// explicitly, so the derivation had no coverage at all while the rules it feeds had plenty.
+    public static func contentBlindFiles(handedOver: [String], read: Set<String>,
+                                         hadReader: Bool) -> Set<String> {
+        guard hadReader else { return [] }
+        return Set(handedOver).subtracting(read)
+    }
+
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      existingRelative: Set<String>, providerRoot: String,
                                      rejectedByFile: [String: Set<String>] = [:],

@@ -90,17 +90,42 @@ struct PeopleTester: View {
 
     /// The extension is stripped, because that is what the veto matches on — testing the raw string
     /// would answer a question the engine never asks.
-    private var stem: String { (text as NSString).deletingPathExtension }
+    private var stem: String { Self.stem(of: text) }
+
+    /// `nonisolated` here and on the four rules below, for the reason `RailItemLabel.badgeText`
+    /// states: a `View`'s static members inherit `@MainActor`, so a pure rule extracted for testing
+    /// is reachable only from the main actor — and a test suite that is not itself `@MainActor`
+    /// does not fail to compile, it **traps the test host at runtime**, which reports as
+    /// infrastructure rather than as a failure. These read their inputs and return a String; there
+    /// is nothing here for the main actor to protect.
+    nonisolated static func stem(of filename: String) -> String {
+        (filename as NSString).deletingPathExtension
+    }
 
     private func line(for match: PersonMatch) -> String {
-        let who = displayName(match.personId)
+        Self.line(for: match, registry: registry)
+    }
+
+    nonisolated static func line(for match: PersonMatch, registry: PersonRegistry) -> String {
+        let who = displayName(match.personId, in: registry)
         return match.isPhrase
             ? "\(who) — matched the full name “\(match.form)”"
             : "\(who) — matched “\(match.form)”"
     }
 
-    /// What identifying them actually does, in this tree, with real numbers.
     private var consequence: String? {
+        Self.consequence(of: stem, registry: registry, factsById: factsById)
+    }
+
+    /// What identifying them actually does, in this tree, with real numbers.
+    ///
+    /// **Static so it can be asserted.** This file had 136 lines and no test of any kind: the
+    /// surface is reachable only from `SettingsView` and an env-gated render probe, so reverting
+    /// one line here reinstated the defect the comment below documents with nothing to catch it.
+    /// The rule is small and the wrong answer it produced was a *contradiction of the engine*,
+    /// which is the worst thing a diagnostic can do.
+    nonisolated static func consequence(of stem: String, registry: PersonRegistry,
+                            factsById: [String: PersonFilingFacts]) -> String? {
         // **Distinct people.** `matches` can hold two entries for ONE person — a phrase match plus
         // a token match, or two different strong tokens — and the dedupe in `explain` only removes
         // exact repeats of the same word. Counting rows made `Mom - Muktha Girish Passport.pdf`
@@ -116,7 +141,7 @@ struct PeopleTester: View {
                 : nil
         }
         guard facts.folderCount > 0 else {
-            return "\(displayName(id)) has no folders recorded yet, so this changes nothing."
+            return "\(displayName(id, in: registry)) has no folders recorded yet, so this changes nothing."
         }
         let others = factsById.values.filter { $0.personId != id && $0.folderCount > 0 }.count
         let folders = facts.folderCount == 1 ? "their 1 folder" : "their \(facts.folderCount) folders"
@@ -126,11 +151,15 @@ struct PeopleTester: View {
     }
 
     private func absorbedLine(_ absorbed: AbsorbedWord) -> String {
-        "“\(absorbed.word)” would have named \(displayName(absorbed.wouldHaveNamed)) on its own — "
+        Self.absorbedLine(absorbed, registry: registry)
+    }
+
+    nonisolated static func absorbedLine(_ absorbed: AbsorbedWord, registry: PersonRegistry) -> String {
+        "“\(absorbed.word)” would have named \(displayName(absorbed.wouldHaveNamed, in: registry)) on its own — "
             + "“\(absorbed.absorbedInto)” claimed it first."
     }
 
-    private func displayName(_ id: String) -> String {
+    nonisolated static func displayName(_ id: String, in registry: PersonRegistry) -> String {
         registry.people.first { $0.id == id }?.displayName ?? id
     }
 }

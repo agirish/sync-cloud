@@ -408,6 +408,20 @@ import Testing
                                     personTokens: ["aditi", "divit"])
         let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil)
         #expect(idx.folderPerson.isEmpty)
+
+        // **`folderPerson` starts empty, so the line above is the fallback answering.** Delete the
+        // whole person-axis build from `makeIndex` and it still passes — it cannot fail, which makes
+        // it a statement about a field rather than about the registry. The same profile WITH a
+        // registry is what turns it into one: the axis is inert *because* there is nobody to
+        // resolve, not because nothing ever populates it.
+        let registry = PersonRegistry(people: [
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        ])
+        let peopled = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil,
+                                             registry: registry)
+        #expect(peopled.folderPerson["School/Aditi"] == "aditi")
+        #expect(peopled.folderPerson["School/Divit"] == "divit")
     }
 
     // MARK: - Tokenizing, which must agree with the builder that wrote the memory

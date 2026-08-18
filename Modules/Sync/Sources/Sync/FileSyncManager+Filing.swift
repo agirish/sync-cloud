@@ -619,21 +619,12 @@ extension FileSyncManager {
                     Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
                         + "from cache, \(classifiedCount) sent to the backend")
                 }
-                // Files the backend judged without their text — a cache hit counts, since the
-                // verdict it replays was produced from whatever that earlier pass could see, and
-                // the key records the file, not what was read from it.
-                //
-                // **"We read it and got nothing", never "we did not read".** The two look identical
-                // from here and are not the same claim: a scan with reading switched off, or on a
-                // machine with no extractor, hands EVERY file over on its name, and penalising the
-                // model for that would leave those installs with no intelligent suggestions at all
-                // — while telling the user nothing true, since nobody looked. Blindness is a fact
-                // about the document (a scan with no text layer), so it is only asserted when there
-                // was a reader to be blind despite.
-                let didRead = filingReadsContents && filingSnippetExtractor != nil
-                let contentBlind = didRead
-                    ? Set(toClassify.map { $0.id }).subtracting(snippets.keys)
-                    : []
+                // Files the backend judged without their text. The rule — including why a scan with
+                // no reader yields an EMPTY set rather than every file — is stated once, on
+                // `FilingEngine.contentBlindFiles`, and called from here and from the refine pass.
+                let contentBlind = FilingEngine.contentBlindFiles(
+                    handedOver: toClassify.map { $0.id }, read: Set(snippets.keys),
+                    hadReader: filingReadsContents && filingSnippetExtractor != nil)
                 suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
                                                          providerRoot: providerRoot.path,
                                                          rejectedByFile: rejectedByFile,

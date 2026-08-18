@@ -742,6 +742,33 @@ import Design
         #expect(RailItemLabel.badgeText(1_192) == "1.1k")
     }
 
+    @Test("The rail item actually wears the label it composes")
+    func theRailAppliesItsSpokenLabel() throws {
+        // The suite above asserts what `accessibilityLabel(title:state:)` *returns*. Nothing
+        // asserted that the view ever calls it — delete the `.accessibilityLabel(…)` from
+        // `RailItemLabel`'s body and every expectation here still passes while the row goes back to
+        // announcing nothing, which is precisely the regression the function was written for.
+        //
+        // **A source scan, because a live one is not available.** SwiftUI publishes no accessibility
+        // tree to an `NSHostingView` with no assistive client attached: walking this view's
+        // `accessibilityChildren()` in this harness returns an empty `AXGroup`, measured, so an
+        // assertion made against it would be green with the modifier deleted. Scanning the file is
+        // weaker — it pins a spelling, not a behaviour — but it fails on the one edit that matters,
+        // and it names the file rather than reading nothing and passing.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()                   // …/Tests/FileExplorer
+            .deletingLastPathComponent()                   // …/Tests
+            .deletingLastPathComponent()                   // …/FileExplorer (package)
+            .appendingPathComponent("Sources/FileExplorer/OrganizeOverview.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        try #require(source.count > 5000, "OrganizeOverview.swift could not be read — the scan below would be vacuous")
+
+        // Fed by the function, not restated: an inlined "\(title), \(count)" here would satisfy a
+        // bare "is there a label" scan while free to drift from what the tests above pin.
+        #expect(source.contains(".accessibilityLabel(Self.accessibilityLabel(title: title, state: state))"),
+                "RailItemLabel no longer speaks its state — the row announces six identical titles and the tint is the only carrier again")
+    }
+
     @Test("A lens that has never scanned does not claim a scan found nothing")
     func theHelpDoesNotInventAScan() {
         // `railHelp` took the badge, and `badge ?? 0` reads a nil — which means *no number to show*

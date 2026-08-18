@@ -112,6 +112,58 @@ import Testing
         dir("/root/Documents", [dir("/root/Documents/Visa"), dir("/root/Documents/I-94")]),
     ]
 
+    // MARK: - Which files are blind in the first place
+
+    /// **Every rule below is asked about a set no test used to compute.** All four `contentBlind`
+    /// suites pass the set explicitly, and the parameter defaults to `[]` — the feature-off value —
+    /// so the derivation at the two call sites had no coverage of any kind while the rules it feeds
+    /// had plenty.
+    @Test func aFileHandedOverWithNoTextIsBlindAndOneWithTextIsNot() {
+        let blind = FilingEngine.contentBlindFiles(
+            handedOver: ["/root/a.pdf", "/root/b.pdf"], read: ["/root/b.pdf"], hadReader: true)
+        #expect(blind == ["/root/a.pdf"])
+    }
+
+    /// **The half that keeps installs without a reader working.** "We read it and got nothing" and
+    /// "we did not read" look identical at the call site: a scan with reading switched off hands
+    /// EVERY file over on its name, and calling all of them blind would cap every verdict at `.low`,
+    /// refuse every new folder and demote every backend answer — leaving those machines with no
+    /// intelligent suggestions at all, while telling the user nothing true, since nobody looked.
+    @Test func noReaderMeansNoFileIsCalledBlind() {
+        #expect(FilingEngine.contentBlindFiles(
+            handedOver: ["/root/a.pdf", "/root/b.pdf"], read: [], hadReader: false).isEmpty)
+        // …and the same inputs WITH a reader do call them blind, so the expectation above is about
+        // the reader rather than about the function answering empty for everything.
+        #expect(FilingEngine.contentBlindFiles(
+            handedOver: ["/root/a.pdf", "/root/b.pdf"], read: [], hadReader: true).count == 2)
+    }
+
+    /// A file that was never handed to the classifier is not blind — it has no verdict to govern.
+    /// `read` naming files outside the batch (a cache carrying earlier scans) must not add to it.
+    @Test func blindnessCoversOnlyTheFilesActuallyHandedOver() {
+        #expect(FilingEngine.contentBlindFiles(
+            handedOver: ["/root/a.pdf"], read: ["/root/z.pdf"], hadReader: true) == ["/root/a.pdf"])
+        #expect(FilingEngine.contentBlindFiles(
+            handedOver: [], read: ["/root/z.pdf"], hadReader: true).isEmpty)
+    }
+
+    /// And both call sites reach it. The rule used to be written out twice, once per pass, with the
+    /// same comment above each — and the pass that was missed on the last two filing fixes was the
+    /// refine one, which is the pass that actually reaches the cloud model.
+    @Test func bothClassifierPassesDeriveBlindnessFromTheSameRule() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync")
+        for file in ["FileSyncManager+Filing.swift", "FileSyncManager+FilingRefine.swift"] {
+            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            try #require(text.count > 5000, "\(file) could not be read — this scan would be vacuous")
+            #expect(text.contains("FilingEngine.contentBlindFiles("),
+                    "\(file) derives contentBlind itself again — the rule is back to two copies that have to be kept in step by hand")
+            #expect(!text.contains(".subtracting(snippets.keys)"),
+                    "\(file) still spells the subtraction out inline")
+        }
+    }
+
     /// A home the router read out of the document, exactly as `FileSyncManager.route` builds one.
     private func routed(_ path: String, to folder: String) -> FilingSuggestion {
         let dest = FilingDestination(path: folder, confidence: .medium, reasons: ["Matched “chennai”"],

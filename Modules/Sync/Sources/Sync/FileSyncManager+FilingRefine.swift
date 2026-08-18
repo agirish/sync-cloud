@@ -306,11 +306,11 @@ extension FileSyncManager {
         // `uniqueKeysWithValues` is safe here where it is not on `scope`: this maps the manager's
         // own published list, whose ids come from a directory walk.
         let before = Dictionary(uniqueKeysWithValues: filingSuggestions.map { ($0.id, $0.best?.path) })
-        // Same rule as the scan: blindness is a fact about the document, not about whether
-        // anybody looked. See `findFilingSuggestions`.
-        let contentBlind = (filingReadsContents && filingSnippetExtractor != nil)
-            ? Set(eligible.map { $0.filePath }).subtracting(snippets.keys)
-            : []
+        // Same rule as the scan, and now literally the same expression — see
+        // `FilingEngine.contentBlindFiles`.
+        let contentBlind = FilingEngine.contentBlindFiles(
+            handedOver: eligible.map { $0.filePath }, read: Set(snippets.keys),
+            hadReader: filingReadsContents && filingSnippetExtractor != nil)
         // The profile and the registry are passed here as well as on the scan, and the omission
         // was a real hole: the cross-person veto lived only on the scan path, so *Refine* — the
         // pass that reaches the cloud model, the one most likely to produce a confident wrong

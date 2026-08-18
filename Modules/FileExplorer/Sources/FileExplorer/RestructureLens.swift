@@ -93,13 +93,23 @@ struct RestructureLens: View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.turn.left.up")
                 .scaledFont(.system(size: 10, weight: .semibold))
-            Text(findings.isEmpty
-                 ? "Nothing about this folder itself — but about the folder above it:"
-                 : "About the folder above this one:")
+            Text(Self.ancestorHeading(hasFindingsHere: !findings.isEmpty))
                 .scaledFont(.system(size: 11, weight: .medium))
         }
         .foregroundStyle(.secondary)
         .padding(.top, findings.isEmpty ? 0 : 6)
+    }
+
+    /// The ancestor section's heading, as a value so it can be asserted without an accessibility
+    /// tree — the same reason `cleanTitle`/`cleanMessage` are static.
+    ///
+    /// The two forms are not decoration. With nothing found inside the scope the list would
+    /// otherwise open straight onto findings about a *different* folder, which reads as the lens
+    /// having answered the question it was asked; the first form says outright that it did not.
+    static func ancestorHeading(hasFindingsHere: Bool) -> String {
+        hasFindingsHere
+            ? "About the folder above this one:"
+            : "Nothing about this folder itself — but about the folder above it:"
     }
 
     private func findingCard(_ finding: StructureFinding) -> some View {

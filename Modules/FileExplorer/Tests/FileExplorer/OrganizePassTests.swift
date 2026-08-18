@@ -391,18 +391,46 @@ import SwiftUI
     /// The same rule stated over every pass at once, so a second pass stranding two lenses cannot
     /// slip through a fixture built around the file pass alone.
     @Test func noPassIsEverOfferedTwiceInTheFooter() {
-        // Every lens unscanned and nothing runnable, so every lens strands together (no card is
-        // offered for a pass this host cannot run either).
-        let subject = overview(OrganizeLens.allCases.filter(\.carriesBadge).map {
-            section($0, .notScanned)
-        }, runnable: [])
-        #expect(subject.strandedUnscanned.count == 4, "every lens should have stranded")
+        // **The fixture has to reach the rule.** This was built with `runnable: []`, which makes
+        // `offersPassRun` return false at its guard for every section — so `offers.count <= 1` held
+        // at zero, by construction, and the dedupe the test names was never executed. A rule
+        // asserted over an empty set is the same shape as the one `offersPassRun` was extracted to
+        // replace.
+        //
+        // The file pass is the only one that answers two lenses, so it is the only pass that can
+        // strand more than one row — and it strands rather than takes a card when SOME of its
+        // lenses have answered, which is what puts it in the footer at all. Duplicates and
+        // Restructure are left unscanned WITH their passes runnable, so they take cards and drop
+        // out of `strandedUnscanned`, which is what makes this a fixture about the file pass.
+        let subject = overview([
+            section(.toFile, .findings(count: 12, headline: "12 files", examples: ["a"])),
+            section(.renames, .notScanned),
+            section(.duplicates, .notScanned),
+            section(.restructure, .notScanned),
+        ], runnable: Set(OrganizePass.allCases))
+
+        var total = 0
         for pass in OrganizePass.allCases {
             let offers = subject.sections.filter {
                 subject.offersPassRun(for: $0) && pass.lenses.contains($0.lens)
             }
             #expect(offers.count <= 1, "\(pass.rawValue) offered \(offers.count) times")
+            total += offers.count
         }
+        // **What this can and cannot catch, measured rather than assumed.** `offersPassRun`
+        // returning true unconditionally IS caught: both of the file pass's lenses are in the
+        // fixture, so the count goes to 2. Replacing `firstStrandedLens(of:) == section.lens` with
+        // a plain "is this lens stranded" — the dedupe itself — is NOT, and no fixture can catch it
+        // here, because two lenses of one pass cannot strand while that pass is runnable: with both
+        // unscanned the pass enters `pendingPasses` and takes a card instead, and with the pass not
+        // runnable the guard above returns false for both. That is the "which the flags cannot
+        // produce today but which the shape of the rule allows" case `strandedUnscanned` documents.
+        // The loop is kept as the statement of the rule; the two expectations below are the
+        // falsifiable part.
+        #expect(total == 1,
+                "the footer made \(total) run offers — with the file pass half-answered it should make exactly one, and a zero here means the loop above asserted nothing")
+        #expect(subject.offersPassRun(for: section(.renames, .notScanned)),
+                "the stranded rename lens is the row that carries the file pass's offer")
     }
 
     /// A stranded lens whose pass this host cannot run says so and offers nothing — the quiet line

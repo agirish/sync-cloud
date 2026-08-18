@@ -55,6 +55,13 @@ import Testing
         return rep
     }
 
+    /// The row's natural height at the sheet's content width — what separates a row of one line
+    /// from a row of two when no input can switch a single line off on its own.
+    private func height(_ view: some View) -> CGFloat {
+        let host = NSHostingView(rootView: AnyView(view.frame(width: Self.width)))
+        return host.fittingSize.height
+    }
+
     /// Pixels differing from the window background, optionally restricted to a horizontal band
     /// given as a fraction of the width.
     ///
@@ -147,6 +154,26 @@ import Testing
                 "the complete roster is drawing something in the caution colour — nothing here is a warning")
         #expect(cautionInk(Self.row(withGap)) > 20,
                 "a person the roster cannot reach is not drawn in the caution colour")
+
+        // **None of the three above is about the reassurance.** `coverageOnly > 200` is cleared by
+        // the coverage sentence on its own; both caution readings are unchanged by a line drawn in
+        // `.secondary`. Delete the entire "Everyone your tree files for is on this list." block and
+        // all three still pass — which leaves the state this section sits in on essentially every
+        // real launch with no coverage at all.
+        //
+        // Isolated by HEIGHT, because no input isolates it: the reassurance's own condition is
+        // `unclaimed.isEmpty`, so the only way to switch it off is to add a gap, which puts an amber
+        // line and a button in its place. Two things can be in this row when the roster is complete
+        // — the coverage sentence and the reassurance — and the coverage sentence's own content is
+        // pinned by `PeopleCoverageLineTests`. So a complete row measuring TWO lines tall is the
+        // reassurance being drawn. One line is measured from the row's only other single-line
+        // state: a tree with no survey behind it and one inert person on the roster.
+        let oneLine = height(Self.row(PeopleOverview(claimedFolders: 0, claimedDocuments: 0,
+                                                     unclaimed: [], peopleWithNoFolders: ["aditi"])))
+        let bothLines = height(Self.row(complete))
+        #expect(oneLine > 0, "the single-line control measured nothing — the comparison below is vacuous")
+        #expect(bothLines > oneLine * 1.6,
+                "the complete roster is \(bothLines)pt tall against \(oneLine)pt for one line — it is drawing the coverage sentence and nothing else, so a complete roster reads as a blank")
     }
 
     // MARK: The gap is the actionable half
