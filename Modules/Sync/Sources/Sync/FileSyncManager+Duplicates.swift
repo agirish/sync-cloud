@@ -271,14 +271,56 @@ extension FileSyncManager {
     private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
         let keeper = group.keeper
         guard fileManager.fileExists(atPath: keeper.path) else { return false }
-        guard !keeper.isDirectory else { return true }
-        guard let attrs = try? fileManager.attributesOfItem(atPath: keeper.path) else { return false }
+        return !copyDriftedInPlace(keeper)
+    }
+
+    /// Whether `copy` is still on disk but no longer what the scan recorded — an in-place rewrite
+    /// (a re-export to the same name, a provider re-download, an edit) that leaves the path intact
+    /// while replacing the bytes underneath it.
+    ///
+    /// **One member because two callers must agree**: the keeper check above and the
+    /// removal-candidate check below ask the same question about opposite ends of a group, and a
+    /// group is only safe to act on when *neither* end drifted. A copy that has simply *vanished*
+    /// is not drift — there is nothing left to trash, and `dropFullyRemovedGroups` accounts for it.
+    ///
+    /// Unstattable counts as drifted, which refuses. That is the safe direction on both ends: a
+    /// path we cannot measure is one we cannot show to be redundant.
+    ///
+    /// **Modification date, not just size.** Size alone waves through every same-length rewrite —
+    /// 2025 to 2026, a `sed -i` over fixed-width text — and the merge path in this same file had
+    /// already rejected that reasoning ("Size alone let a same-length in-place rewrite slip
+    /// through"), which is why `MergeFileSnapshot` carries both.
+    ///
+    /// **Folders are exempt, and that gap is open.** A folder group's entire resolve-time
+    /// guarantee is "a directory entry still exists at this path". Closing it needs the scan to
+    /// record a comparable folder baseline; it is not a change to this function alone.
+    private func copyDriftedInPlace(_ copy: DuplicateCopy) -> Bool {
+        guard fileManager.fileExists(atPath: copy.path) else { return false }
+        guard !copy.isDirectory else { return false }
+        guard let attrs = try? fileManager.attributesOfItem(atPath: copy.path) else { return true }
+        let currentDate = attrs[.modificationDate] as? Date
         let currentSize = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
         // Refuse only on a KNOWN mismatch: a real file always reports its size, so a drifted
-        // keeper is caught; if size is unavailable (never happens on the real FS) fall back to the
+        // copy is caught; if size is unavailable (never happens on the real FS) fall back to the
         // existence check rather than over-refuse.
-        if let currentSize, currentSize != keeper.size { return false }
-        return true
+        if let currentSize, currentSize != copy.size { return true }
+        // Same rule for the date: compare it when both ends have one, rather than refusing every
+        // group whose scan recorded no date.
+        if let recorded = copy.modificationDate, let currentDate, recorded != currentDate { return true }
+        return false
+    }
+
+    /// The copies this group would TRASH that no longer hold the bytes the scan grouped.
+    ///
+    /// The keeper check alone is half a guarantee, and the dangerous half is the other one: the
+    /// keeper is the file being *kept*, while these are the files being *destroyed*. A group is a
+    /// point-in-time snapshot, the results outlive the scan for the whole session, and one of these
+    /// paths being rewritten in place between scan and click means the copy is no longer a copy —
+    /// trashing it destroys the only instance of its new content, under a banner calling it
+    /// redundant.
+    private func driftedRemovalCandidates(_ group: DuplicateGroup) -> [DuplicateCopy] {
+        let removalPaths = Set(group.recommendedRemovalPaths)
+        return group.copies.filter { removalPaths.contains($0.path) && copyDriftedInPlace($0) }
     }
 
     /// Drops every group whose recommended copies are all off the disk — trashed just now,
@@ -309,6 +351,11 @@ extension FileSyncManager {
         guard !paths.isEmpty else { return false }
         guard keeperStillExists(group) else {
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.")
+            return false
+        }
+        if let drifted = driftedRemovalCandidates(group).first {
+            banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
+            Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
             return false
         }
         let bytes = group.reclaimableBytes
@@ -351,7 +398,7 @@ extension FileSyncManager {
     /// name-only group can't talk this into trashing it.
     public func applyRecommendedDuplicates(_ scope: [DuplicateGroup]) async {
         let eligible = scope.filter { $0.isRecommendedForBatch }
-        let batch = eligible.filter { keeperStillExists($0) }
+        let batch = eligible.filter { keeperStillExists($0) && driftedRemovalCandidates($0).isEmpty }
         let paths = batch.flatMap { $0.recommendedRemovalPaths }
         guard !paths.isEmpty else {
             if !eligible.isEmpty {
