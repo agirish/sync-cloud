@@ -199,10 +199,16 @@ public final class PersonTagStore: ObservableObject {
         guard isPersistent, let data = try? Data(contentsOf: fileURL) else { return }
         guard let file = try? JSONDecoder().decode(PersonTagFile.self, from: data) else {
             // The container decodes tag-by-tag, so reaching here means the *file* is not JSON at
-            // all. Left on disk untouched rather than overwritten: a corrupt file the user can
-            // inspect is recoverable, and one this build has replaced with `{}` is not.
+            // all. A corrupt file the user can inspect is recoverable and one this build has
+            // replaced is not — but "left as it is" was only true until the next verdict, because
+            // `record` calls `save` and `save` wrote straight over it. So the bytes are set aside
+            // on the FIRST save instead (see `save`), which keeps both halves of the promise: the
+            // file is recoverable, and the app still works.
             Logger.shared.warning("Couldn't read person-tags.json — verdicts are unavailable this "
-                                  + "session, and the file has been left as it is")
+                                  + "session. The file is kept: the first verdict you record moves "
+                                  + "it aside as person-tags.json.unreadable rather than "
+                                  + "overwriting it.")
+            fileWasUnreadable = true
             return
         }
         tags = file.tags.filter { $0.verdict.isActionable }
@@ -225,11 +231,37 @@ public final class PersonTagStore: ObservableObject {
         }
     }
 
+    /// True when the file on disk could not be parsed at all, so the next save must not land on
+    /// top of it. Cleared once the bytes have been set aside — see `save`.
+    private var fileWasUnreadable = false
+
     private func save() {
         guard isPersistent else { return }
         do {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
+            // **Once, on the first save after an unreadable read.** `moveItem` rather than a copy,
+            // so the working file this build is about to write cannot be mistaken for the original,
+            // and the flag is cleared whatever happens: a set-aside that fails must not be retried
+            // on every later verdict, and a second attempt would anyway be moving THIS build's file
+            // rather than the user's.
+            if fileWasUnreadable {
+                fileWasUnreadable = false
+                let kept = fileURL.appendingPathExtension("unreadable")
+                do {
+                    try? fileManager.removeItem(at: kept)
+                    try fileManager.moveItem(at: fileURL, to: kept)
+                    Logger.shared.warning("person-tags.json could not be read, so it has been kept "
+                                          + "as \(kept.lastPathComponent) and a fresh file written "
+                                          + "beside it. Nothing you recorded before now is lost — "
+                                          + "it is in that file.")
+                } catch {
+                    Logger.shared.error("Couldn't set aside the unreadable person-tags.json "
+                                        + "(\(error.localizedDescription)) — NOT overwriting it; "
+                                        + "this session's verdicts stay in memory only")
+                    return
+                }
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             // Carried tags go back in. Dropping them would make this build's *read* of a newer

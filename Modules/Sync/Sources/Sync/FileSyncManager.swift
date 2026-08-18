@@ -913,13 +913,34 @@ public class FileSyncManager: ObservableObject {
     /// runs eagerly whenever the roster, the profile or a tag moves. A household that has never
     /// pressed "not theirs" pays one array scan for it.
     private func rejectedIdentifiers() -> [String: Set<String>] {
-        guard let tags = filingPersonTagStore?.tags, tags.contains(where: { $0.verdict == .rejected }),
+        let rejections = (filingPersonTagStore?.tags ?? []).filter { $0.verdict == .rejected }
+        guard !rejections.isEmpty,
               let directory = filingProfilesDirectory, let id = filingFolderProfile?.profileId,
-              let memory = filingMemory,
-              let corpus = FilingSurveyStore.corpus(id: id, in: directory)
+              let memory = filingMemory
         else { return [:] }
-        return PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: memory.salt)
+        // **Read once per change to the rejections, not once per verdict.** This rebuild fires on
+        // every write to the tag store, and the People queue's whole interaction is pressing yes or
+        // no on rows — so without the cache the SECOND rejection and every confirmation after it
+        // paid a full corpus decode on the main actor. Measured on the real profile: 4,866 KB,
+        // **100 ms**. That is the hitch `loadedFilingVerdictCache` exists to keep off this actor,
+        // arriving through a different door.
+        //
+        // The salt is in the key because a re-survey re-salts the hashes, and a map translated
+        // under the old salt names nothing in the new memory.
+        if let cached = rejectedIdentifierCache, cached.rejections == rejections, cached.salt == memory.salt {
+            return cached.value
+        }
+        guard let corpus = FilingSurveyStore.corpus(id: id, in: directory) else { return [:] }
+        let value = PersonIdentityIndex.rejectedIdentifiers(tags: rejections, corpus: corpus,
+                                                            salt: memory.salt)
+        rejectedIdentifierCache = (rejections, memory.salt, value)
+        return value
     }
+
+    /// The last translation of ``PersonTagStore``'s rejections into identifier hashes, with the
+    /// inputs it was derived from. See `rejectedIdentifiers()` for why it is worth keeping.
+    private var rejectedIdentifierCache: (rejections: [PersonTag], salt: String,
+                                          value: [String: Set<String>])?
 
     func refreshFilingArtifactFingerprint() {
         guard let dir = filingProfilesDirectory, let id = filingFolderProfile?.profileId else { return }

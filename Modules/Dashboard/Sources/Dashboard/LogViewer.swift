@@ -731,7 +731,13 @@ public struct LogViewer: View {
         // errors"), never the state, and on macOS it lands on the accessibility help rather than
         // the name. The label and count go into one spoken name so the chip does not announce as
         // two unrelated strings, and the trait says which one is on.
-        .accessibilityElement(children: .ignore)
+        // `.accessibilityLabel` alone, NOT `.accessibilityElement(children: .ignore)`. This is a
+        // `Button`; the container form is for views that are not already one element, and applied
+        // to a Button it replaces the element AppKit would have activated. A label on the Button
+        // does the one thing needed — replace the two concatenated child texts with one spoken
+        // name — and cannot cost the chip its action. Untestable from here either way: assertions
+        // against the live accessibility tree pass vacuously with no assistive client attached,
+        // which is exactly why the form that cannot break is the one to use.
         .accessibilityLabel("\(label), \(count.formatted())")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }

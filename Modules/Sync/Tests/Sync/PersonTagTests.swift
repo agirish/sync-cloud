@@ -441,3 +441,58 @@ import Foundation
         #expect(index.verdict(personId: "aditi", path: "x", fingerprint: "second") == .rejected)
     }
 }
+
+/// **"Left on disk untouched" has to survive the next verdict, or it is not a promise.**
+///
+/// `load()` refuses to parse a file that is not JSON at all and says, in a comment and in the log,
+/// that it leaves it alone so the user can recover it. That held exactly until the user judged
+/// anything: `record` calls `save`, and `save` wrote a fresh file straight over it.
+@MainActor
+@Suite struct PersonTagCorruptFileTests {
+
+    private func makeDir() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("person-tags-corrupt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test func aVerdictDoesNotOverwriteAFileThisBuildCouldNotRead() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let corrupt = Data("{ this is not json — half a write, or a bad merge".utf8)
+        try corrupt.write(to: url)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        #expect(store.tags.isEmpty)
+
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        // The bytes are still recoverable — beside the live file, not under it.
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
+                "the unreadable file was destroyed by the next verdict")
+        // ...and the app kept working: the new verdict is on disk and readable.
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"])
+    }
+
+    /// The set-aside copy is written once, not re-written on every later save — a second verdict
+    /// must not replace the preserved bytes with the working file this build has since produced.
+    @Test func theSetAsideCopyIsNotOverwrittenByLaterSaves() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let corrupt = Data("{ not json".utf8)
+        try corrupt.write(to: url)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        #expect(FileManager.default.contents(atPath: kept.path) == corrupt)
+    }
+}

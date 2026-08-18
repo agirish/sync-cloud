@@ -97,6 +97,47 @@ import Testing
         #expect(m.filingPersonIdentity.isEmpty)
     }
 
+    /// **And once per CHANGE to the rejections, not once per verdict.**
+    ///
+    /// This rebuild fires on every write to the tag store, and the queue's whole interaction is
+    /// pressing yes or no on rows — so an uncached read put a 100 ms main-actor decode of a 4,866 KB
+    /// corpus behind every press after the first rejection. The probe here is the same one the test
+    /// below uses: a corpus file that cannot be decoded. Recording the rejection while it is
+    /// READABLE fills the cache; breaking the file afterwards proves nothing reads it again.
+    @Test func theCorpusIsNotReReadForEveryVerdict() throws {
+        let (m, dir) = try Self.makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+                                       verdict: .rejected, path: Self.misfiled)
+        try #require(m.filingPersonIdentity.count(for: "muktha") == 1,
+                     "the first rejection did not take effect, so the cache below proves nothing")
+
+        // Break the corpus. Anything that reads it again now answers nil and the un-learn collapses.
+        try Data("{ not json at all".utf8)
+            .write(to: dir.appendingPathComponent("p/filing-corpus.json"))
+
+        m.filingPersonTagStore?.record(personId: "muktha", key: .path("other.pdf"),
+                                       verdict: .confirmed, path: "other.pdf")
+        #expect(m.filingPersonIdentity.count(for: "muktha") == 1,
+                "the corpus was re-read for a verdict that changed no rejection")
+    }
+
+    /// And a NEW rejection does re-read, because the answer really has changed.
+    @Test func aNewRejectionReReadsTheCorpus() throws {
+        let (m, dir) = try Self.makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+                                       verdict: .rejected, path: Self.misfiled)
+        try #require(m.filingPersonIdentity.count(for: "muktha") == 1)
+
+        // A second rejection, this time for Muktha's own claim, withdraws the identifier from her
+        // too — which can only happen if the corpus was consulted again.
+        m.filingPersonTagStore?.record(personId: "muktha", key: .path(Self.misfiled),
+                                       verdict: .rejected, path: Self.misfiled)
+        #expect(m.filingPersonIdentity.count(for: "muktha") == 0,
+                "a new rejection was answered from the cache")
+    }
+
     /// **The corpus is read only when there is a rejection to translate.** It is megabytes, and the
     /// rebuild runs whenever the roster, profile or memory moves — so a household that has never
     /// pressed "not theirs" must not pay for it.

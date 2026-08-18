@@ -93,6 +93,51 @@ public enum AccentFill {
         return NSColor(srgbRed: scaled(r), green: scaled(g), blue: scaled(b), alpha: srgb.alphaComponent)
     }
 
+    /// The luminance a semantic colour has to REACH to be read as body text on the app's dark
+    /// sheets — the mirror of ``textLuminance``, and needed for the same reason.
+    ///
+    /// **Measured, because the dark side is not automatically fine.** Leaving dark untouched is
+    /// right for a GLYPH (`ChromeInk.semantic` does exactly that, and every semantic colour clears
+    /// the 3:1 a glyph needs). It is not right for text: on a 0.13 sheet `SemanticColor.move`
+    /// measures **3.86:1** against the 4.5 floor and `error` lands on 4.50 with nothing to spare.
+    /// A member called `bodyText` that quietly misses its own bar for two of six colours is the
+    /// kind of guard whose name is wider than what it does.
+    /// 0.26, derived rather than picked: the app's darkest sheet is ~0.13 sRGB (linear 0.0144), and
+    /// 4.5:1 against it needs a luminance of 0.2398. The margin above that is the same shape as
+    /// ``textLuminance``'s on the light side.
+    public static let darkTextLuminance: CGFloat = 0.26
+
+    /// `color` lightened enough to be read as text on a dark sheet, or unchanged when it already is.
+    public static func lightenedForText(_ color: Color) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            var resolved: NSColor?
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = NSColor(color).usingColorSpace(.sRGB)
+            }
+            guard let srgb = resolved else { return NSColor(color) }
+            return lightened(srgb, to: darkTextLuminance)
+        })
+    }
+
+    /// The scalar step. **Blends toward white rather than scaling each channel**, because scaling up
+    /// clips: `SemanticColor.error` is already at full red, so a per-channel multiply raises green
+    /// and blue against a red that cannot move and swings the hue. A blend keeps the colour
+    /// recognisable, which is the whole reason a semantic colour is being used as ink.
+    public static func lightened(_ srgb: NSColor, to target: CGFloat) -> NSColor {
+        let (r, g, b) = (srgb.redComponent, srgb.greenComponent, srgb.blueComponent)
+        guard AccentLabel.relativeLuminance(red: r, green: g, blue: b) < target else { return srgb }
+        // 24 steps of 1/24 reaches any target this table needs; the loop stops at the first that
+        // clears it, so the colour moves as little as it has to.
+        for step in 1...24 {
+            let t = CGFloat(step) / 24
+            let (mr, mg, mb) = (r + (1 - r) * t, g + (1 - g) * t, b + (1 - b) * t)
+            if AccentLabel.relativeLuminance(red: mr, green: mg, blue: mb) >= target {
+                return NSColor(srgbRed: mr, green: mg, blue: mb, alpha: srgb.alphaComponent)
+            }
+        }
+        return .white
+    }
+
     /// sRGB component → linear light. Matches `AccentLabel.relativeLuminance`'s transfer function,
     /// which is the one the contrast figures are computed with.
     private static func linear(_ component: CGFloat) -> CGFloat {

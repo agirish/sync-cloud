@@ -54,14 +54,17 @@ public enum ChromeInk {
     /// and the difference is not academic. `SemanticColor.caution` as a bare `.foregroundStyle` on
     /// the near-white Settings sheet measures **1.38:1** — the People section's one actionable line
     /// was drawn that way — and the fill-target deepening only lifts it to 4.17:1. This clears the
-    /// text floor. Dark is untouched, for the same reason it is untouched above: deepening there
-    /// would fix light by breaking dark.
+    /// text floor — and dark is LIFTED rather than left alone, which is where this parts company
+    /// with `semantic` above. Leaving dark untouched is right for a glyph, whose bar is 3:1 and
+    /// which every semantic colour clears; text needs 4.5, and on a 0.13 sheet `move` measures
+    /// **3.86:1** while `error` lands exactly on 4.50. Two of six missing a bar the member's own
+    /// name promises is not a rounding difference.
     ///
     /// Everywhere else in this app a caution is a **fill behind a wash**, which is the other correct
     /// answer and the one to prefer for anything that is not a sentence. This exists for the
     /// sentences.
     public static func bodyText(_ scheme: ColorScheme, _ color: Color) -> Color {
-        scheme == .dark ? color : AccentFill.deepenedForText(color)
+        scheme == .dark ? AccentFill.lightenedForText(color) : AccentFill.deepenedForText(color)
     }
 
     /// The optional-tint form, for a control whose dark treatment is not a flat colour but a
