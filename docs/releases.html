@@ -135,10 +135,10 @@
 
 <div class="timeline">
 
-  <!-- v4.1 — DRAFT, not released. Keep the Latest badge on v4.0 until v4.1 is cut. -->
-  <article class="rel draft">
-    <div class="rel-head"><span class="v">v4.1</span><span class="tag draft">In development</span></div>
-    <p class="lede"><b>Not released yet</b> — this is what is on <code>main</code> today, and it may still change before v4.1 is cut. The headline is <b>tabs</b>: one pane, many parked locations, which turns a two-pane comparison into a place you can keep several jobs open in at once.</p>
+  <!-- v4.1 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v4.1</span><span class="tag latest">Latest</span></div>
+    <p class="lede">The headline is <b>tabs</b>: one pane, many parked locations, which turns a two-pane comparison into a place where several jobs stay open at once. Behind them the release is mostly repair — eleven things a v4.0 install really did, most of them the app destroying or misdescribing a file and saying nothing about it. On the v4 line, so it <b>requires macOS 26</b> — coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>Tabs</h3>
       <ul class="flist">
@@ -196,13 +196,13 @@
         <li><span class="ic k">⌫</span><span><b>⌘W closes the window when the focused pane holds one tab</b>, whatever the other pane holds — so in Compare, a focused pane with one tab and a sibling with five takes the window and all six. That is Finder's rule, and every alternative makes ⌘W conditional on state you cannot see. The header card's <b>Close Tab</b> withholds itself at one tab, so the menu route cannot surprise anyone; this is the chord only.</span></li>
       </ul>
     </div>
-    <p class="known"><b>Still to come in v4.1.</b> The app can now derive a <i>folder profile</i> from your tree — the record the router and Restructure read, which v4.0 could only take from an out-of-repo script. It is not listed above because nothing you can press reaches it yet: the execution model and the setup dialog are still to be built. It joins this list when they are.</p>
-    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.0...main">v4.0...main</a></p>
+    <p class="known"><b>Not in v4.1.</b> The app can now derive a <i>folder profile</i> from your tree — the record the router and Restructure read, which v4.0 could only take from an out-of-repo script. It is not listed above because nothing you can press reaches it: the execution model and the setup dialog are still to be built. It ships when they are.</p>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v4.0...v4.1">v4.0...v4.1</a></p>
   </article>
 
   <!-- v4.0 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v4.0</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v4.0</span><span class="tag">The v4 line</span></div>
     <p class="lede">The largest release SyncCloud has had, and a major for the reason v2.0 was one: the shape of the app changed. The workspace bar goes from five segments to four — <b>Browse, Compare | Organize, Storage</b> — the first two looking at trees, the last two acting on or accounting for one. The duplicate finder and the rules engine stop being places: they were never peers of Compare and Storage, they are things you do to a single tree, and <b>Organize</b> is now the one place the app proposes a change to one. <b>Browse</b> arrives as the plain file browser the app has always contained and never let you look at directly. Underneath all of it, SyncCloud learns who the people in your documents are, and files by that. On the v3 line, so it <b>requires macOS 26</b> — coming from 2.x, read the v3.0 entry first.</p>
     <div class="grp">
       <h3>Four workspaces</h3>

@@ -5,23 +5,15 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.1 — DRAFT, not released
+## v4.1
 
-> **This section is a draft.** v4.1 has not been cut and this is not final copy.
-> Covers `v4.0..9bf48ef0`. Every claim was checked against the `v4.0` tag: fixes to
-> work that landed *inside* this range earn no entry, because no user of v4.0 was
-> ever exposed to them. That rule takes out most of the range — tabs arrived here,
-> so the review passes that followed them are repairs to unreleased work.
->
-> **Check before the cut.** The app can now derive a *folder profile* from your
-> tree, which v4.0 said had to come from an out-of-repo script. It is unclaimed
-> because nothing you can press reaches it: `writeProfile` and
-> `FolderSurveyBuilder.build` have no production callers. Re-run
-> `grep -rn "<symbol>" Modules MacApp` rather than trusting this note, which was
-> true at `7bb99ee8`.
+Tabs. One pane, many parked locations — the thing that turns a two-pane
+comparison into a place where several jobs stay open at once. Behind them the
+release is mostly repair: eleven things a v4.0 install really did, most of them
+the app destroying or misdescribing a file and saying nothing about it.
 
-Tabs. One pane, many parked locations — the thing that turns a two-pane comparison
-into a place you can keep several jobs open in at once.
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
+v4.0 section first.
 
 ### Tabs
 
