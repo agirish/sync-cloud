@@ -324,47 +324,31 @@ which is how the `bool`-only version was caught:
 
 Mirroring AppKit's own order (`objectForKey:`, then `boolForKey:`) is what makes the two agree.
 
-## What the churn costs is still unmeasured
+## What the churn costs — answered, and the answer is the bad one
 
 The suppression is **app-global and permanent for the session**: every window the process opens —
-Settings sheet, Activity Log, anything added later — runs without AppKit's runaway-layout guard,
-not just the Columns pane that needs it.
+Settings sheet, Activity Log, anything added later — runs without AppKit's runaway-layout guard, not
+just the Columns pane that needs it. The mitigation's own commit said "the window still churns the
+passes, it just survives them", and left the cost open. It is open no longer.
 
-The mitigation's own commit says "the window still churns the passes, it just survives them", and
-**nobody knows what that costs.** It could be a hitch too short to see or a core pegged after every
-provider switch, and those are materially different products. This is an honest open question, not
-a guess:
+See "The runaway, finally measured" and "The manual repro, traced" below: up to **5,840
+update-constraints passes against a 227-view budget**, and the cost is **seconds of frozen main
+thread** — a click stamped `press→settled 4676.7 ms` alongside a 3,615-pass cycle, and a 174-node
+publish taking **2.96 s** instead of its usual 0.3 ms. Not a hitch too short to see. It is a pegged
+core, and it is almost certainly what the open dead-click and column-jitter reports are.
 
-- **A headless measurement was attempted and did not get there.** A synthetic never-settling
-  constraint loop — two sibling views each re-dirtying the other from inside `updateConstraints`,
-  which is the shape of the real bug and avoids AppKit's stricter "you dirtied yourself in your own
-  `updateConstraints`" guard — churns hard but never reaches the display-cycle limit branch at all.
-  That is the same wall the three investigations above hit: no fixture has ever reproduced this
-  path, which is why the mitigation is a mitigation.
-- **The right instrument already exists and is not armed.** `MainThreadHitchMonitor`'s duty-cycle
-  line — what fraction of each second the main thread was busy — is precisely the "brief hitch vs.
-  pegged core" discriminator, and it is deliberately not a spike threshold. But it is gated behind
-  `PaneScrollTrace.isEnabled`, so a normal session records nothing.
-- **And now a second one, which measures the churn itself rather than its cost.**
-  `DisplayCycleTrace` (above) counts the passes. Arm both for the same session and the two lines
-  answer different halves of the question: how many passes the switch spent, and what that did to
-  the main thread.
+**Still open: the duty cycle.** `MainThreadHitchMonitor`'s line — what fraction of each second the
+main thread was busy — is gated behind `PaneScrollTrace.isEnabled`, so a normal session records
+nothing. Arm it alongside `DisplayCycleTrace` and the two lines answer different halves: how many
+passes a switch spent, and what that did to the main thread. The manual repro is still the only
+reliable trigger, so it needs a real session — and the crash-rate variance above applies to the
+churn too, so take several switches, not one.
 
-To get the number, the manual repro is still the only reliable trigger, so it needs a real session:
-launch with the trace flag on, put both panes in Columns, switch a pane's provider, and read the
-`[hitch]` duty-cycle lines around the switch out of `~/sync-cloud.log`. Budget an hour, and expect
-the crash-rate variance above to apply to the churn as well — take several switches, not one.
-
-**Until that is done, v2.9 ships a mitigation of known-correct plumbing and unknown cost.** That is
-a deliberate trade and it is the right one at this point: the alternative is shipping the crash
-itself, which is unambiguously worse than an unquantified hitch.
-
-**This is now answered, and the answer is the bad one.** See "The runaway, finally measured" and
-"The manual repro, traced" below: up to 5,840 update-constraints passes against a 227-view budget,
-and the cost is **seconds of frozen main thread** — a click stamped `press→settled 4676.7 ms`
-alongside a 3,615-pass cycle, and a 174-node publish that takes 2.96 s instead of its usual 0.3 ms.
-Not a hitch too short to see. It is a pegged core, and it is almost certainly what the open
-dead-click and column-jitter reports are.
+**A headless measurement was attempted and did not get there.** A synthetic never-settling
+constraint loop — two sibling views each re-dirtying the other from inside `updateConstraints` —
+churns hard but never reaches the display-cycle limit branch at all. That is the same wall the three
+investigations above hit: no fixture has ever reproduced this path, which is why the mitigation is a
+mitigation.
 
 ## The slow-walk precondition, and why it is NOT the cause
 
@@ -612,34 +596,16 @@ falsified is that the *timing* of the restructure relative to the tracking loop 
 Whatever the loop is, issuing the same restructure a turn later does not calm it — so the next
 candidate should be about what the restructure *does*, not when it is issued.
 
-### The tracking-loop asymmetry — the hypothesis, now falsified above
-
-A click reaches the drill through **two** paths in `PaneColumnsView`, and they treat the same call
-differently:
-
-- The **List's selection binding** computes the target and then defers: `DispatchQueue.main.async`,
-  guarded by `DeferredColumnNavigation.isStillValid`. Its comment says why — *"writing it from
-  inside the List's own selection commit is the mid-commit sibling write that drops clicks
-  outright (`aa9d407`)"*.
-- The **tap gesture** calls `onNavigate(navigation(for:depth:))` **synchronously**, and the comment
-  immediately below it states the context in the code's own words: *"This closure runs INSIDE the
-  same tracking loop."*
-
-So one path defers restructuring the column stack out of `NSTableView`'s mouse-down tracking loop,
-and the other restructures it — adding or removing whole columns, each its own `List`, `NSTableView`
-and hosting view — from inside that nested loop, while display cycles are running in it.
-
-That predicts everything measured here. A programmatic `browsePath` write never enters the tracking
-loop, which is why the fixture drills to 7 passes and `defaults write` switches were mostly quiet;
-a real click does, which is why clicking reproduces every time. It also explains the offscreen
-fixture's immunity — a window that is never key gets no mouse tracking at all.
-
-**The candidate fix followed directly** — defer the tap gesture's `onNavigate` by a runloop turn as
-the List path already does — **and it was wrong.** It was built, installed and clicked; the section
-above this one records what happened (worse churn, and the dead click back). Kept here because the
-reasoning still reads as sound and the next person will otherwise re-derive it: the flaw is not in
-the observation, it is in assuming that deferring work off a loop calms the loop.
-
+**The hypothesis it killed, in short, so nobody re-derives it.** A click reaches the drill through
+two paths in `PaneColumnsView`: the List's selection binding computes the target and then defers
+(`DispatchQueue.main.async`, guarded by `DeferredColumnNavigation.isStillValid`, because writing it
+from inside the List's own selection commit drops clicks outright — `aa9d407`), while the tap
+gesture calls `onNavigate` synchronously, inside `NSTableView`'s mouse-down tracking loop. That
+asymmetry predicts everything measured here: a programmatic `browsePath` write never enters the
+tracking loop (the fixture drills in 7 passes, `defaults write` switches are mostly quiet), a real
+click does, and an offscreen window that is never key gets no mouse tracking at all. The reasoning
+still reads as sound; the flaw is the last step, assuming that deferring work off a loop calms the
+loop.
 ## The next lead
 
 **That step has been taken** — the trace is armed, the repro is traced, and the sections above
