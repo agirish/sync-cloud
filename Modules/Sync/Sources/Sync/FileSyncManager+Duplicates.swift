@@ -469,15 +469,41 @@ extension FileSyncManager {
         }
         let paths = batch.flatMap { $0.recommendedRemovalPaths }
         guard !paths.isEmpty else {
-            if !eligible.isEmpty {
+            // **"Nothing to remove" is not "something changed".** This said "rescan before removing
+            // copies" for every empty batch, and drift is only one of the two ways to get one: a
+            // group that survived the checks above and still contributes no paths has every removal
+            // candidate FOLDER-PROTECTED — reachable by re-aiming the keeper of a folder-protected
+            // group, as `dropFullyRemovedGroups` notes. Nothing changed there, so a rescan finds
+            // exactly the same thing and the advice sends the user around a loop.
+            if batch.isEmpty, !eligible.isEmpty {
                 banner = .warning("The keepers are no longer at their scanned locations — rescan before removing copies.")
+            } else if !batch.isEmpty {
+                banner = .warning("Nothing to remove — every copy in \(batch.count == 1 ? "this group is" : "these groups is") protected.")
             }
             return
         }
+        // Which of those paths were on disk immediately before the delete. A copy that had already
+        // vanished externally still makes its group RESOLVE — every removal path is gone, so it
+        // correctly drops off the list — but this run freed nothing for it, and its recorded bytes
+        // were being added to the total the banner prints. Measured on `main`, whose accounting is
+        // the same: two identical pairs with one copy already removed by something else reported
+        // 5 KB reclaimed from 2 groups for a run that trashed one 1 KB file.
+        //
+        // Not covered by the drift filter above, which is the tempting assumption: that filter
+        // refuses a group whose redundant copy is unreadable, but `keeperStillExists` and the drift
+        // checks are per group — one whose keeper is intact and whose only removal path is already
+        // gone passes both and reaches this line.
+        let presentBefore = Set(paths.filter { fileManager.fileExists(atPath: $0) })
         let removed = await deleteItems(at: paths, fileManager: fileManager)
         guard removed > 0 else { return }
         let done = dropFullyRemovedGroups(from: batch)
-        let bytes = done.reduce(0) { $0 + $1.reclaimableBytes }
+        // Group-level, because `reclaimableBytes` is a group-level figure the scan computed from the
+        // whole removal set: a group that was PARTLY gone beforehand still credits its whole recorded
+        // number, and re-deriving that per copy would change what the ordinary case reports too.
+        // What this fixes is the whole-group case — a group removed entirely by something else no
+        // longer contributes to a total claiming this run freed it.
+        let credited = done.filter { !Set($0.recommendedRemovalPaths).isDisjoint(with: presentBefore) }
+        let bytes = credited.reduce(0) { $0 + $1.reclaimableBytes }
         Logger.shared.info("Tidy: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
         if currentError == nil {
             if done.count == batch.count, batch.count == eligible.count {
