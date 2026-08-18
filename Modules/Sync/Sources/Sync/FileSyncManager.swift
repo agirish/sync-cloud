@@ -859,6 +859,12 @@ public class FileSyncManager: ObservableObject {
                     // is a separate ObservableObject behind a plain var, so a view watching only
                     // the manager would see nothing.
                     self?.objectWillChange.send()
+                    // **A "not theirs" has to take effect when it is pressed, not next launch.**
+                    // The identifier index is built from the surveyed tree plus these rejections,
+                    // and every other input to it rebuilds on its own `didSet`. Without this the
+                    // correction sat on disk while the wrong attribution kept being made — which is
+                    // most of what made it feel like the app was not listening.
+                    self?.rebuildPersonIdentityIndex()
                 }
         }
     }
@@ -895,7 +901,24 @@ public class FileSyncManager: ObservableObject {
         }
         filingPersonIdentity = PersonIdentityIndex.make(registry: registry,
                                                         profile: filingFolderProfile,
-                                                        memory: filingMemory)
+                                                        memory: filingMemory,
+                                                        rejectedIdentifiers: rejectedIdentifiers())
+    }
+
+    /// The identifiers the user's rejections withdraw, or empty when there are none.
+    ///
+    /// **The corpus is read only when there is a rejection to translate**, and that gating is the
+    /// whole reason this is a function rather than a stored value. `filing-corpus.json` is megabytes
+    /// — 4.9 MB on the tree this was built against — and this rebuild is documented as cheap and
+    /// runs eagerly whenever the roster, the profile or a tag moves. A household that has never
+    /// pressed "not theirs" pays one array scan for it.
+    private func rejectedIdentifiers() -> [String: Set<String>] {
+        guard let tags = filingPersonTagStore?.tags, tags.contains(where: { $0.verdict == .rejected }),
+              let directory = filingProfilesDirectory, let id = filingFolderProfile?.profileId,
+              let memory = filingMemory,
+              let corpus = FilingSurveyStore.corpus(id: id, in: directory)
+        else { return [:] }
+        return PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: memory.salt)
     }
 
     func refreshFilingArtifactFingerprint() {

@@ -198,11 +198,134 @@ import Testing
                                          identity: identity).isEmpty)
     }
 
+    // MARK: - Un-learning a misfile
+
+    /// **The whole point of the correction, and why it has to act before the single-owner filter.**
+    ///
+    /// Muktha's passport number is in her folder eleven times and, once the scan is misfiled, in
+    /// Aditi's once. Two claimants, so the index drops it: the number that identified her best now
+    /// identifies nobody, and pressing "not Aditi's" changed nothing at all — the index is rebuilt
+    /// from the tree as surveyed and took no tags.
+    ///
+    /// Withdrawing Aditi's claim hands the identifier back to Muktha rather than merely blanking
+    /// it, which is what a correction ought to buy.
+    @Test func rejectingAMisfileHandsTheIdentifierBackToItsRealOwner() {
+        let memory = Self.memory(["Immigration/Passport/Muktha": ["z1234567"],
+                                  "School/Aditi": ["z1234567"]])
+        let profile = Self.profile()
+
+        // Before: two claimants, so nobody owns it.
+        let confused = PersonIdentityIndex.make(registry: Self.household, profile: profile,
+                                                memory: memory)
+        #expect(confused.isEmpty, "the fixture must reproduce the silenced identifier")
+
+        let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
+            "School/Aditi/Scan 2026-08-02.pdf": FilingCorpusDocument(
+                size: 100, modified: 1, anchors: [],
+                idHashes: [FilingMemory.hash("z1234567", salt: "s")]),
+        ])
+        let tags = [PersonTag(personId: "aditi", key: .path("School/Aditi/Scan 2026-08-02.pdf"),
+                              verdict: .rejected, recordedPath: "School/Aditi/Scan 2026-08-02.pdf")]
+        let withdrawn = PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: "s")
+
+        let repaired = PersonIdentityIndex.make(registry: Self.household, profile: profile,
+                                                memory: memory, rejectedIdentifiers: withdrawn)
+        #expect(repaired.count(for: "muktha") == 1, "the identifier was not handed back")
+        #expect(repaired.count(for: "aditi") == 0)
+        #expect(Self.household.attribute(fileName: "Scan.pdf", pageSample: "passport no z1234567",
+                                         identity: repaired) == ["muktha"])
+    }
+
+    /// And the plain direction: an identifier the index gave to the wrong person alone stops being
+    /// theirs, rather than being handed to somebody the tree never claimed it for.
+    @Test func rejectingAnIdentifierNobodyElseClaimsLeavesItUnowned() {
+        let memory = Self.memory(["School/Aditi": ["z1234567"]])
+        let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
+            "School/Aditi/Scan.pdf": FilingCorpusDocument(
+                size: 100, modified: 1, anchors: [],
+                idHashes: [FilingMemory.hash("z1234567", salt: "s")]),
+        ])
+        let tags = [PersonTag(personId: "aditi", key: .path("School/Aditi/Scan.pdf"),
+                              verdict: .rejected, recordedPath: "School/Aditi/Scan.pdf")]
+        let index = PersonIdentityIndex.make(
+            registry: Self.household, profile: Self.profile(), memory: memory,
+            rejectedIdentifiers: PersonIdentityIndex.rejectedIdentifiers(
+                tags: tags, corpus: corpus, salt: "s"))
+        #expect(index.isEmpty)
+    }
+
+    /// **A confirmation is not a claim.** "Yes, this is Muktha's" on a joint statement must not
+    /// hand her a household account number the tree never gave her alone.
+    @Test func aConfirmationWithdrawsNothing() {
+        let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
+            "Family/Muktha/Statement.pdf": FilingCorpusDocument(
+                size: 100, modified: 1, anchors: [],
+                idHashes: [FilingMemory.hash("j5550000", salt: "s")]),
+        ])
+        let tags = [PersonTag(personId: "muktha", key: .path("Family/Muktha/Statement.pdf"),
+                              verdict: .confirmed, recordedPath: "Family/Muktha/Statement.pdf")]
+        #expect(PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: "s").isEmpty)
+    }
+
+    /// A corpus salted differently from the memory hashes nothing in common, so translating a
+    /// rejection through it would withdraw a claim at random. It withdraws none instead.
+    @Test func aCorpusWithTheWrongSaltWithdrawsNothing() {
+        let corpus = FilingCorpus(profileId: "t", salt: "OTHER", documents: [
+            "School/Aditi/Scan.pdf": FilingCorpusDocument(
+                size: 100, modified: 1, anchors: [],
+                idHashes: [FilingMemory.hash("z1234567", salt: "OTHER")]),
+        ])
+        let tags = [PersonTag(personId: "aditi", key: .path("School/Aditi/Scan.pdf"),
+                              verdict: .rejected, recordedPath: "School/Aditi/Scan.pdf")]
+        #expect(PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: "s").isEmpty)
+    }
+
+    /// A fingerprint-keyed rejection reaches the corpus through the path it was recorded at — the
+    /// corpus has no fingerprints, so without that a durable verdict would translate to nothing.
+    @Test func aFingerprintKeyedRejectionStillFindsItsDocument() {
+        let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
+            "School/Aditi/Scan.pdf": FilingCorpusDocument(
+                size: 100, modified: 1, anchors: [],
+                idHashes: [FilingMemory.hash("z1234567", salt: "s")]),
+        ])
+        let tags = [PersonTag(personId: "aditi", key: .fingerprint("fp-1"),
+                              verdict: .rejected, recordedPath: "School/Aditi/Scan.pdf")]
+        let out = PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: "s")
+        #expect(out["aditi"] == [FilingMemory.hash("z1234567", salt: "s")])
+    }
+
     /// With no memory there is nothing to learn from, and attribution is exactly what it was.
     @Test func withNoMemoryTheIndexIsEmpty() {
         let identity = PersonIdentityIndex.make(registry: Self.household, profile: Self.profile(),
                                                 memory: nil)
         #expect(identity.isEmpty)
         #expect(identity.count(for: "muktha") == 0)
+    }
+}
+
+/// **The two sides of the name-learning comparison split words the same way.**
+///
+/// The learner cut filenames on Unicode letters and numbers; the matcher cuts ASCII-only runs. For
+/// a roster holding a non-ASCII name the guard that stops one person being offered another's name
+/// was comparing keys built by different splitters — it could never match, so the run was rejected.
+/// Conservative, and therefore silent.
+@Suite struct PersonNameTokenizerTests {
+
+    @Test func theLearnerAndTheMatcherAgreeOnANonASCIIName() {
+        let written = PersonNameLearning.spelledWords("José García - passport")
+        #expect(written.map { $0.lowercased() } == PersonRegistry.words("José García - passport"),
+                "two splitters: \(written) vs \(PersonRegistry.words("José García - passport"))")
+    }
+
+    /// Still the tree's own spelling, which is the whole reason the helper exists — a suggestion is
+    /// offered as the filename wrote it, not lowercased by the matcher.
+    @Test func theSpellingIsTheFilesOwn() {
+        #expect(PersonNameLearning.spelledWords("Muktha Girish - CV") == ["Muktha", "Girish", "CV"])
+    }
+
+    /// And plain ASCII is unchanged, so this alignment moved nothing that already worked.
+    @Test func anASCIINameSplitsExactlyAsBefore() {
+        #expect(PersonNameLearning.spelledWords("Shweta R Dani 2015.pdf")
+                == ["Shweta", "R", "Dani", "2015", "pdf"])
     }
 }

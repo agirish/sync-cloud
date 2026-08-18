@@ -159,19 +159,13 @@ public enum PersonNameLearning {
 
     /// Words as the filename writes them, so a suggestion can be offered in the tree's own spelling
     /// rather than lowercased by the matcher's tokenizer.
+    ///
+    /// **The matcher's own boundaries**, via ``PersonRegistry/spelledWords(_:)``. This used to be a
+    /// second hand-rolled split — Unicode letters and numbers, against the matcher's ASCII-only —
+    /// so every key built here was compared against keys built by a different rule. The two agreed
+    /// on plain ASCII names and on nothing else; see that member for what it cost.
     static func spelledWords(_ s: String) -> [String] {
-        var out: [String] = []
-        var current = ""
-        for ch in s {
-            if ch.isLetter || ch.isNumber {
-                current.append(ch)
-            } else if !current.isEmpty {
-                out.append(current)
-                current = ""
-            }
-        }
-        if !current.isEmpty { out.append(current) }
-        return out
+        PersonRegistry.spelledWords(s)
     }
 
     /// The folders to read, for a caller that has to do the reading — every folder the profile

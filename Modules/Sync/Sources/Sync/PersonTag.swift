@@ -104,12 +104,26 @@ public struct PersonTag: Sendable, Equatable, Identifiable {
 /// nothing else; the alternative — one `[PersonTag]` with a synthesized decoder — throws on the
 /// first surprise and takes every verdict the user ever made with it.
 struct PersonTagFile: Sendable, Equatable {
+    /// The version the file was written under, kept rather than assumed. See `encode`: this build
+    /// re-stamps whichever is HIGHER, so opening a newer file does not relabel it as an older one.
     var schemaVersion: Int
     var tags: [PersonTag]
+    /// Elements this build could not decode into a `PersonTag`, held exactly as they arrived.
+    ///
+    /// **A tag that cannot be read is not a tag that can be discarded.** Decoding tag-by-tag stops
+    /// one bad element taking the file down, but the element itself was then swallowed by an
+    /// ignore-wrapper — not counted, not logged — and the next verdict the user recorded rewrote
+    /// the file without it. Forty judgements could disappear with nothing on screen and nothing in
+    /// the log. Same failure the automation rules had, same answer: carry the raw value and write
+    /// it back. It plays no part in any lookup, which is the point — it is data being preserved,
+    /// not a verdict being honoured.
+    var unreadable: [JSONFragment]
 
-    init(schemaVersion: Int = PersonTagFile.currentSchema, tags: [PersonTag] = []) {
+    init(schemaVersion: Int = PersonTagFile.currentSchema, tags: [PersonTag] = [],
+         unreadable: [JSONFragment] = []) {
         self.schemaVersion = schemaVersion
         self.tags = tags
+        self.unreadable = unreadable
     }
 
     static let currentSchema = 1
@@ -165,23 +179,41 @@ extension PersonTagFile: Codable {
         // throws away every good one — the failure that wiped the rule file. Each element is
         // decoded in its own `try?` so a tag this build cannot read costs exactly itself.
         var list: [PersonTag] = []
+        var raw: [JSONFragment] = []
         if var array = try? c.nestedUnkeyedContainer(forKey: .tags) {
             while !array.isAtEnd {
-                // A failed element still has to be consumed, or the loop cannot advance past it.
+                // A failed element still has to be consumed, or the loop cannot advance past it —
+                // and consuming it is where it used to be LOST. `JSONFragment` consumes it and
+                // keeps it, so `encode` can put it back exactly as it was found. `AnyIgnored`
+                // remains the last resort for an element even that cannot represent, which is the
+                // only case where stepping over really is all that can be done.
                 if let tag = try? array.decode(PersonTag.self) {
                     list.append(tag)
+                } else if let fragment = try? array.decode(JSONFragment.self) {
+                    raw.append(fragment)
                 } else {
                     _ = try? array.decode(AnyIgnored.self)
                 }
             }
         }
         tags = list
+        unreadable = raw
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
-        try c.encode(PersonTagFile.currentSchema, forKey: .schemaVersion)
-        try c.encode(tags, forKey: .tags)
+        // **The higher of the two, not this build's own.** Stamping `currentSchema` unconditionally
+        // relabels a file a newer build wrote as one written by this one — while that same write
+        // now carries the newer build's own tags through `unreadable`. The number would then be the
+        // only thing in the file claiming those tags are v1 shaped, and it would be wrong. Reading
+        // it here is also what stops `schemaVersion` being a field nothing consults, which is the
+        // pattern this file was faulted for rather than the fix for it.
+        try c.encode(max(schemaVersion, PersonTagFile.currentSchema), forKey: .schemaVersion)
+        // Elements this build could not read go back in beside the ones it could. Appended last so
+        // the tags it understands keep the order the store sorted them into.
+        var array = c.nestedUnkeyedContainer(forKey: .tags)
+        for tag in tags { try array.encode(tag) }
+        for fragment in unreadable { try array.encode(fragment) }
         try c.encode("Whose document this is, as YOU said — never what the app worked out. "
                      + "Computed attributions are recomputed on every gather and are not stored. "
                      + "Keyed by the document's text fingerprint where it has one, so a verdict "

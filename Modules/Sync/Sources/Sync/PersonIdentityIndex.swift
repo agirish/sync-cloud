@@ -52,8 +52,13 @@ public struct PersonIdentityIndex: Sendable, Equatable {
     ///
     /// A folder's identifiers count for the person that folder belongs to; an identifier claimed by
     /// two different people is dropped rather than assigned.
+    /// - Parameter rejectedIdentifiers: `personId` → identifier hashes the user has said are **not**
+    ///   that person's, from ``rejectedIdentifiers(tags:corpus:)``. A claim withdrawn here is
+    ///   withdrawn before the single-owner filter below, which is what makes the correction do
+    ///   something rather than nothing — see the discussion there.
     public static func make(registry: PersonRegistry, profile: FolderProfile?,
-                            memory: FilingMemory?) -> PersonIdentityIndex {
+                            memory: FilingMemory?,
+                            rejectedIdentifiers: [String: Set<String>] = [:]) -> PersonIdentityIndex {
         guard let profile, let memory, !registry.isEmpty else { return .empty }
         var claims: [String: Set<String>] = [:]
         for (path, entry) in memory.folders {
@@ -61,8 +66,61 @@ public struct PersonIdentityIndex: Sendable, Equatable {
                   let personId = registry.person(forAxisValue: axis) else { continue }
             for token in entry.idHashes { claims[token.token, default: []].insert(personId) }
         }
+        // **The user's "no" un-teaches the identifier, and it has to happen HERE — before the
+        // single-owner filter — or it does nothing at all.**
+        //
+        // A misfile does not merely add a wrong owner; it usually SILENCES the identifier. Muktha's
+        // passport number sits in eleven of her folders and, once the scan lands in `School/Aditi`,
+        // in one of Aditi's — so the hash is claimed by two people, `people.count == 1` is false,
+        // and it is dropped. The number that identified her best now identifies nobody.
+        //
+        // Withdrawing Aditi's claim first therefore does two things with one line: it stops the
+        // wrong attribution, and it hands the identifier back to its real owner. Filtering the
+        // finished `owner` map instead could only ever do the first, and in this — the common —
+        // shape there would have been nothing there to filter.
+        //
+        // The index is otherwise rebuilt from the tree as surveyed and takes no correction at all:
+        // the People queue wrote a verdict that `attribute`, `personVeto` and `personIs` never
+        // consulted, so the only un-learn was moving the file and re-surveying. That matters more
+        // since the cross-person rule began sweeping every card rather than only backend verdicts.
+        for (personId, hashes) in rejectedIdentifiers {
+            for hash in hashes { claims[hash]?.remove(personId) }
+        }
         var owner: [String: String] = [:]
         for (hash, people) in claims where people.count == 1 { owner[hash] = people.first! }
         return PersonIdentityIndex(owner: owner, salt: memory.salt)
+    }
+
+    /// The identifiers a rejection withdraws, keyed by the person it was withdrawn from.
+    ///
+    /// A tag says "this DOCUMENT is not theirs"; the index reasons in identifier hashes. The corpus
+    /// is what joins the two — it holds each document's own `idHashes`, keyed by the same
+    /// root-relative path the tag records — so this is the whole translation and it is a lookup per
+    /// rejection rather than a pass over 10,000 documents.
+    ///
+    /// **Only `.rejected`.** A confirmation adds nothing: the identifier already reached the index
+    /// through the folder the document sits in, and inventing a claim from a tag would let a "yes"
+    /// on a joint statement hand a household account to one person.
+    ///
+    /// Returns empty when the corpus and the index disagree about their salt, since the hashes
+    /// would name nothing in common. That is the survey's own invariant; asserted rather than
+    /// assumed because a stale corpus beside a rebuilt memory is exactly when this would go quiet.
+    public static func rejectedIdentifiers(tags: [PersonTag], corpus: FilingCorpus,
+                                           salt: String) -> [String: Set<String>] {
+        guard corpus.salt == salt else { return [:] }
+        var out: [String: Set<String>] = [:]
+        for tag in tags where tag.verdict == .rejected {
+            // The path the verdict was recorded at, which is the corpus's own key. A
+            // fingerprint-keyed tag carries it too — see `PersonTag.recordedPath`.
+            let path: String
+            switch tag.key {
+            case .path(let p): path = tag.recordedPath.isEmpty ? p : tag.recordedPath
+            case .fingerprint: path = tag.recordedPath
+            }
+            guard !path.isEmpty, let document = corpus.documents[path], !document.idHashes.isEmpty
+            else { continue }
+            out[tag.personId, default: []].formUnion(document.idHashes)
+        }
+        return out
     }
 }

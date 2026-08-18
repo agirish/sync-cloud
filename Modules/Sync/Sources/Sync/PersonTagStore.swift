@@ -22,6 +22,12 @@ public final class PersonTagStore: ObservableObject {
     private let fileManager: FileManager
     /// Verdicts written by a newer build, kept out of the way and written back untouched.
     private var carried: [PersonTag] = []
+    /// Entries this build could not decode into a tag at all, held verbatim so the next save does
+    /// not delete them. See ``PersonTagFile/unreadable`` — `carried` above is the milder case (a
+    /// tag that decoded, whose VERDICT is unknown); this one never became a tag.
+    private var unreadable: [JSONFragment] = []
+    /// The schema the file on disk was written under, carried so a newer number is not stamped down.
+    private var loadedSchema = PersonTagFile.currentSchema
 
     public var fileURL: URL {
         directory.appendingPathComponent("\(profileId)/person-tags.json")
@@ -137,12 +143,32 @@ public final class PersonTagStore: ObservableObject {
 
     /// Withdraws a verdict entirely, putting the document back in front of whatever the channels
     /// say about it. The undo for a misclick, and the only way a row returns to the queue.
-    public func clear(personId: String, key: PersonTagKey) {
-        guard let i = tags.firstIndex(where: { $0.personId == personId && $0.key == key })
-        else { return }
-        let removed = tags.remove(at: i)
+    ///
+    /// **Withdraws what `record` would have replaced, not merely the exact key.** `record`
+    /// supersedes across key KINDS at one recorded path — a fingerprint-keyed verdict and a
+    /// path-keyed one about the same document are one answer given twice, and it drops the older.
+    /// Matching only the exact key here made the two halves disagree: clearing a document whose
+    /// verdict happens to be stored under the other kind removed nothing, said nothing, and left
+    /// the row judged. Whoever wires this to a control would have found a button that silently
+    /// does nothing for exactly the documents the durable key was introduced for.
+    ///
+    /// **No production caller yet** — the People queue takes a judged row off screen and offers no
+    /// way back, which is a UI gap this cannot close on its own. The correctness half is here so
+    /// the control, when it exists, is wired to something that works.
+    public func clear(personId: String, key: PersonTagKey, path: String? = nil) {
+        let recordedPath = path ?? tags.first { $0.personId == personId && $0.key == key }?.recordedPath
+        let before = tags.count
+        tags.removeAll { tag in
+            guard tag.personId == personId else { return false }
+            if tag.key == key { return true }
+            // The other kind of key naming the same document — what `record` would have superseded.
+            guard let recordedPath, !recordedPath.isEmpty else { return false }
+            return tag.recordedPath == recordedPath && Self.isDifferentKind(tag.key, key)
+        }
+        guard tags.count != before else { return }
         save()
-        Logger.shared.info("People: withdrew the verdict on \(removed.recordedPath) for \(personId)")
+        Logger.shared.info("People: withdrew the verdict on \(recordedPath ?? "(unknown path)") "
+                           + "for \(personId)")
     }
 
     private func keyKind(_ key: PersonTagKey) -> String {
@@ -181,9 +207,21 @@ public final class PersonTagStore: ObservableObject {
         }
         tags = file.tags.filter { $0.verdict.isActionable }
         carried = file.tags.filter { !$0.verdict.isActionable }
+        unreadable = file.unreadable
+        loadedSchema = file.schemaVersion
         if !carried.isEmpty {
             Logger.shared.info("People: \(carried.count) tag(s) carry a verdict this build does not "
                                + "know; they are kept as they are and written back unchanged")
+        }
+        // Said out loud, because the whole defect was that it was not. An entry that cannot be
+        // decoded at all is a judgement the user made that this build cannot show them — the log
+        // line is the only place it can be noticed at all, and its absence is what let the next
+        // save destroy them silently.
+        if !unreadable.isEmpty {
+            Logger.shared.warning("People: \(unreadable.count) entry/entries in person-tags.json "
+                                  + "could not be read by this build. They are NOT shown and are "
+                                  + "not acted on, and they are written back exactly as found — "
+                                  + "a newer version of SyncCloud should read them.")
         }
     }
 
@@ -198,7 +236,8 @@ public final class PersonTagStore: ObservableObject {
             // file destructive, which is the failure the tag-by-tag decode exists to prevent —
             // and it would be undone here if the write forgot them.
             let all = (tags + carried).sorted { $0.id < $1.id }
-            let data = try encoder.encode(PersonTagFile(tags: all))
+            let data = try encoder.encode(PersonTagFile(schemaVersion: loadedSchema, tags: all,
+                                                        unreadable: unreadable))
             try data.write(to: fileURL, options: .atomic)
         } catch {
             Logger.shared.warning("Couldn't save person-tags.json — the verdict is in memory only "

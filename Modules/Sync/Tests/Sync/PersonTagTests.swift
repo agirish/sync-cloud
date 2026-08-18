@@ -108,6 +108,98 @@ import Foundation
                 "the two readable tags after the broken ones must survive")
     }
 
+    /// **An entry this build cannot read is a judgement, not litter.**
+    ///
+    /// The test above proves the two readable tags survive a broken neighbour. It says nothing
+    /// about the neighbour — which was swallowed by an ignore-wrapper, uncounted and unlogged, and
+    /// then deleted by the next save. Forty verdicts could go that way with nothing on screen and
+    /// nothing in the log.
+    @Test func anEntryThisBuildCannotReadIsKept() throws {
+        let broken = """
+            {
+              "tags": [
+                { "path": "b.pdf", "person": "divit", "verdict": "confirmed" },
+                "not even an object",
+                { "person": "aditi", "verdict": "confirmed" }
+              ]
+            }
+            """
+        let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
+        #expect(file.tags.map(\.personId) == ["divit"])
+        // The string AND the object with neither key — both unreadable, both kept.
+        #expect(file.unreadable.count == 2, "an unreadable entry was dropped; got \(file.unreadable)")
+        #expect(file.unreadable.contains(.string("not even an object")))
+    }
+
+    /// And the save that would have destroyed them puts them back.
+    @MainActor @Test func anUnreadableEntrySurvivesTheNextVerdict() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("person-tags-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profileDir = dir.appendingPathComponent("p")
+        try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
+        let url = profileDir.appendingPathComponent("person-tags.json")
+        try Data("""
+            {
+              "schemaVersion": 7,
+              "tags": [
+                { "at": "b.pdf", "person": "aditi", "verdict": "confirmed", "shape": "from-the-future" }
+              ]
+            }
+            """.utf8).write(to: url)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        #expect(store.tags.isEmpty, "the entry has no key this build understands")
+
+        // Any write rewrites the whole file — the moment the entry would be lost.
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.unreadable.count == 1, "the unreadable entry was destroyed by the save")
+        // Verbatim: every field it arrived with, including the one this build has no case for.
+        if case .object(let o) = reread.unreadable[0] {
+            #expect(o["shape"] == .string("from-the-future"))
+            #expect(o["person"] == .string("aditi"))
+        } else {
+            Issue.record("carried entry changed shape: \(reread.unreadable[0])")
+        }
+
+        /// **And the version is not stamped down.** A file written under a newer schema, rewritten
+        /// by this build as version 1, would be the only thing left claiming the entry it just
+        /// carried is v1 shaped.
+        #expect(reread.schemaVersion == 7, "a newer schema was relabelled as this build's own")
+    }
+
+    /// **Clearing withdraws what recording would have replaced.**
+    ///
+    /// `record` supersedes across key KINDS at one recorded path — a fingerprint-keyed verdict and
+    /// a path-keyed one about the same document are one answer given twice. `clear` matched the
+    /// exact key only, so asking it to withdraw the verdict on a document whose tag is stored under
+    /// the other kind removed nothing and said nothing: a silent no-op for exactly the documents
+    /// the durable key exists for.
+    @MainActor @Test func clearingWithdrawsAVerdictStoredUnderTheOtherKindOfKey() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Recorded durably, by fingerprint, at a known path.
+        store.record(personId: "aditi", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
+        #expect(store.tags.count == 1)
+
+        // The caller has the path — which is all the People queue ever has for a row.
+        store.clear(personId: "aditi", key: .path("a.pdf"), path: "a.pdf")
+        #expect(store.tags.isEmpty, "the verdict survived a withdrawal aimed at the same document")
+    }
+
+    /// And it stays narrow: another person's verdict at the same path is untouched.
+    @MainActor @Test func clearingLeavesAnotherPersonsVerdictAlone() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.record(personId: "aditi", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "divit", key: .fingerprint("fp-1"), verdict: .rejected, path: "a.pdf")
+        store.clear(personId: "aditi", key: .path("a.pdf"), path: "a.pdf")
+        #expect(store.tags.map(\.personId) == ["divit"])
+    }
+
     /// **The verbatim round-trip.** An unrecognized verdict read from a newer build has to go back
     /// to disk exactly as it arrived — a build that quietly rewrote `"maybe"` as `"rejected"`, or
     /// dropped it, would be destroying the newer build's data while looking like it worked.

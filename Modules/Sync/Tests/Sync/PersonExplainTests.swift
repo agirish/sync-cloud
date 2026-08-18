@@ -15,16 +15,41 @@ import Testing
 
     // MARK: - explain
 
-    /// **`detect` is defined in terms of `explain`**, so the tester cannot show a rule the engine
-    /// does not have. Pinned across a spread of inputs rather than one, because the risk is a
-    /// divergence in some case, not in all of them.
-    @Test func detectAgreesWithExplainOnEveryShape() {
-        for text in ["Aditi Abhishek - OCI", "Mom - passport", "Muktha Girish", "Abhishek",
-                     "Scan 2026-08-02", "", "Abhishek Girish and Muktha Girish"] {
-            #expect(Self.household.detect(in: text)
-                    == Set(Self.household.explain(in: text).matches.map(\.personId)),
-                    "the two disagree on “\(text)”")
+    /// **What the matcher answers, stated rather than derived.**
+    ///
+    /// This asserted that `detect` agrees with `explain` — over a spread of inputs, with a comment
+    /// explaining that they cannot disagree because `detect` IS `Set(explain(...).map(\.personId))`.
+    /// It compared the model to itself: every one of those cases passes with any matching rule
+    /// whatsoever, including one that names nobody at all. The shapes were well chosen; only the
+    /// assertion was empty, so they are kept and given real answers.
+    ///
+    /// Each line is a rule the file's prose claims elsewhere: a longer phrase consumes the words
+    /// inside it (`Aditi Abhishek` is Aditi, not Aditi-and-her-father), an alias resolves to the
+    /// person, a bare given name matching two people still resolves to whoever claims it as a
+    /// first name, and text naming nobody names nobody.
+    @Test func theMatcherAnswersEachShapeAsTheRulesSay() {
+        let cases: [(String, Set<String>)] = [
+            ("Aditi Abhishek - OCI", ["aditi"]),
+            ("Mom - passport", ["muktha"]),
+            ("Muktha Girish", ["muktha"]),
+            ("Abhishek", ["abhishek"]),
+            ("Scan 2026-08-02", []),
+            ("", []),
+            ("Abhishek Girish and Muktha Girish", ["abhishek", "muktha"]),
+        ]
+        for (text, expected) in cases {
+            #expect(Self.household.detect(in: text) == expected,
+                    "“\(text)” → \(Self.household.detect(in: text).sorted())")
         }
+    }
+
+    /// And the seam the test above used to assert: `explain` reports exactly what `detect` answers.
+    /// Worth one line, since the People section shows the explanation and the veto acts on the set —
+    /// but it is a wiring check, not the matcher's coverage, which is what the case table above is.
+    @Test func explainReportsTheSamePeopleDetectAnswers() {
+        let text = "Abhishek Girish and Mom"
+        #expect(Set(Self.household.explain(in: text).matches.map(\.personId))
+                == Self.household.detect(in: text))
     }
 
     /// The form is reported **as the roster spells it**, not as the tokenizer sees it — the point
@@ -164,7 +189,12 @@ import Testing
     /// Capped, because this is an illustration and not a filing diary.
     @MainActor
     @Test func theVetoLogForgetsTheOldest() {
-        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "veto-cap-\(UUID().uuidString)")!)
+        // Cleaned up like every sibling in this file: a UUID-named suite with no teardown leaves a
+        // plist in the shared `~/Library/Preferences` on every run, for as long as the suite exists.
+        let name = "veto-cap-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let log = PersonVetoLog(userDefaults: defaults)
         for i in 0..<(PersonVetoLog.capacity + 10) {
             log.record(PersonVetoEvent(namedPerson: "aditi", proposedPerson: "divit",
                                        fileName: "\(i).pdf", destination: "d",

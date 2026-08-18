@@ -482,9 +482,30 @@ public struct PersonRegistry: Sendable {
     /// *from* a name elsewhere — Settings takes initials with it, and a second hand-rolled split
     /// would disagree with matching on exactly the names that are hard.
     public static func words(_ s: String) -> [String] {
+        split(s.lowercased())
+    }
+
+    /// The same runs, in the string's **own spelling** — for a caller that has to show the user
+    /// what the tree wrote rather than what the matcher compares.
+    ///
+    /// **Beside `words` and over the same `split`, because the two used to disagree.** The name
+    /// learner cut filenames on Unicode letters and numbers while this matcher cuts ASCII-only, so
+    /// for a roster holding `José García` the guard that stops one person being offered another's
+    /// name was comparing `josé garcía` against keys spelled `jos garc a`. It could never match, so
+    /// the run was rejected — conservative, and therefore silent, which is why it had no test.
+    ///
+    /// Aligning the derived helper to the matcher rather than widening the matcher is deliberate:
+    /// `words` builds the persisted `strong` and `given` maps every existing roster is matched
+    /// through, and this file already declares it the authority for anything derived from a name.
+    public static func spelledWords(_ s: String) -> [String] {
+        split(s)
+    }
+
+    /// Where a name breaks into words. One rule, so `words` and `spelledWords` cannot drift.
+    private static func split(_ s: String) -> [String] {
         var out: [String] = []
         var current = ""
-        for ch in s.lowercased().unicodeScalars {
+        for ch in s.unicodeScalars {
             if CharacterSet.alphanumerics.contains(ch), ch.isASCII {
                 current.unicodeScalars.append(ch)
             } else if !current.isEmpty {
