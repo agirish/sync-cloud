@@ -74,6 +74,10 @@ import Design
 
     // MARK: - Fixtures
 
+    /// Wide enough that nothing folds into ⋯. Shared with `ink(_:trailing:)`, which measures a crop
+    /// in points and therefore has to agree with it.
+    private static let renderWidth: Double = 700
+
     private static func header(expanded: Bool, query: String, canSearch: Bool = true) -> PaneHeader {
         PaneHeader(
             title: "Left",
@@ -90,7 +94,7 @@ import Design
     private static func rendered(expanded: Bool, query: String, canSearch: Bool = true) throws -> NSBitmapImageRep {
         let defaults = ScratchDefaults("PaneBarSearchTintTests-render")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
-        let size = CGSize(width: 700, height: LiquidGlass.headerHeight)
+        let size = CGSize(width: Self.renderWidth, height: LiquidGlass.headerHeight)
         let host = NSHostingView(rootView: AnyView(
             header(expanded: expanded, query: query, canSearch: canSearch)
                 .defaultAppStorage(defaults)
@@ -113,7 +117,10 @@ import Design
     /// Pixels that depart from the background at all, over the bar's half of the header — or, given
     /// `trailing:`, over that many points at its trailing edge.
     private static func ink(_ rep: NSBitmapImageRep, trailing points: Double? = nil) -> Int {
-        let from = points.map { rep.pixelsWide - Int($0 * Double(rep.pixelsWide) / 700.0) }
+        // Scaled off the width the fixture actually rendered at, not a repeated literal: a crop
+        // measured in points against a hardcoded 700 silently stops meaning "the bar's trailing
+        // end" the moment the fixture is widened.
+        let from = points.map { rep.pixelsWide - Int($0 * Double(rep.pixelsWide) / Self.renderWidth) }
             ?? rep.pixelsWide / 2
         var hits = 0
         for x in from..<rep.pixelsWide {

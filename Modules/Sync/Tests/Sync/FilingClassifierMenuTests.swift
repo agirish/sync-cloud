@@ -159,8 +159,12 @@ import Testing
             try #require(text.count > 5000, "\(file) could not be read — this scan would be vacuous")
             #expect(text.contains("FilingEngine.contentBlindFiles("),
                     "\(file) derives contentBlind itself again — the rule is back to two copies that have to be kept in step by hand")
-            #expect(!text.contains(".subtracting(snippets.keys)"),
-                    "\(file) still spells the subtraction out inline")
+            // Deliberately NOT a ban on spelling `.subtracting(snippets.keys)`: that expression is
+            // general-purpose, a future line could want it for something unrelated, and a scan that
+            // forbids it pins a spelling rather than a behaviour. What matters is that the value
+            // handed to `applyVerdicts` comes from the shared rule, so that is what is asserted.
+            let assigned = text.contains("let contentBlind = FilingEngine.contentBlindFiles(")
+            #expect(assigned, "\(file) no longer builds its contentBlind set from the shared rule")
         }
     }
 

@@ -696,7 +696,20 @@ extension FileSyncManager {
             if batch.isEmpty, !eligible.isEmpty {
                 banner = .warning("These groups changed since they were scanned — rescan before removing copies.")
             } else if !batch.isEmpty {
-                banner = .warning("Nothing to remove — every copy in \(batch.count == 1 ? "this group is" : "these groups is") protected.")
+                // **Name the cause only where the cause has been checked.** Protection is the
+                // reachable reason and the useful thing to say — but an empty removal list is also
+                // exactly what a group carrying no redundant copies produces, and this method is
+                // `public` with a `DuplicateGroup` initializer that validates nothing, so what a
+                // "group" is belongs to the caller. Measured: a one-copy group, with nothing
+                // protected anywhere, was told every copy in it was protected.
+                let allProtected = batch.allSatisfy { group in
+                    !group.redundantCopies.isEmpty
+                        && group.redundantCopies.allSatisfy(\.isProtectedFromRemoval)
+                }
+                let subject = batch.count == 1 ? "this group" : "these groups"
+                banner = .warning(allProtected
+                    ? "Nothing to remove — every copy in \(subject) is protected."
+                    : "Nothing to remove — \(subject) offered no copies to remove.")
             }
             return
         }
@@ -707,10 +720,13 @@ extension FileSyncManager {
         // pairs with one copy already removed by something else reported "Reclaimed 5 KB from 2
         // groups — press ⌘Z to undo" for a run that trashed one 1 KB file.
         //
-        // Not covered by the drift filter above, which is the tempting assumption: that filter
-        // refuses a group whose redundant copy is unreadable, but `keeperStillExists` and the drift
-        // checks are per group — one whose keeper is intact and whose only removal path is already
-        // gone passes both and reaches this line.
+        // **The drift filter above does not cover this, and the reason is its first line.**
+        // `copyDriftedInPlace` opens with `guard fileManager.fileExists(...) else { return false }`
+        // — a copy that is GONE is explicitly *not* drifted, so the group sails through the batch
+        // filter. (The `else { return true }` on the attribute read below it fires only for a file
+        // that exists and cannot be stat'ed, which is a different state.) Two earlier explanations
+        // of this line were wrong in both directions — first that the drift filter caught it, then
+        // that it did not for an unrelated reason — so the guard above is the one to read.
         let presentBefore = Set(paths.filter { fileManager.fileExists(atPath: $0) })
         let outcome = await deleteItems(at: paths, fileManager: fileManager)
         let removed = outcome.removed

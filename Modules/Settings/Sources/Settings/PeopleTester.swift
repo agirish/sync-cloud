@@ -125,7 +125,7 @@ struct PeopleTester: View {
     /// The rule is small and the wrong answer it produced was a *contradiction of the engine*,
     /// which is the worst thing a diagnostic can do.
     nonisolated static func consequence(of stem: String, registry: PersonRegistry,
-                            factsById: [String: PersonFilingFacts]) -> String? {
+                                        factsById: [String: PersonFilingFacts]) -> String? {
         // **Distinct people.** `matches` can hold two entries for ONE person — a phrase match plus
         // a token match, or two different strong tokens — and the dedupe in `explain` only removes
         // exact repeats of the same word. Counting rows made `Mom - Muktha Girish Passport.pdf`

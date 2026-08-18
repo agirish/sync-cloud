@@ -31,8 +31,16 @@ import Sync
         let clean = try Self.rendered(hasReviewed: true, findings: [])
         let answer = try Self.rendered(hasReviewed: true, findings: [Self.finding()])
 
+        // **An ink count cannot answer this, measured.** The clean state inks 8,181 px and the
+        // findings list 8,374 — within 2% of each other, because a sentence with an icon and a card
+        // with two scheme rows simply happen to cover similar area. `differingPixels` separates them
+        // at 79,946 of 537,600 (14.9%). The same conclusion `PaneBarDeleteTests` reached, in a suite
+        // that had no reason to expect it.
         #expect(Self.ink(clean) > 200, "the clean state paints almost nothing — the lens reveals a blank pane")
-        #expect(Self.differingPixels(clean, answer) > 0, "a clean tree and a tree with findings draw identically")
+        let differing = Self.differingPixels(clean, answer)
+        let canvas = clean.pixelsWide * clean.pixelsHigh
+        #expect(Double(differing) > Double(canvas) * 0.05,
+                "\(differing) of \(canvas) pixels separate a clean tree from one with findings — the two states are drawing the same thing")
 
         // And the words, which no render can read back here: the claim is about the whole tree only
         // when the lens is looking at the whole tree.

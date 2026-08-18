@@ -16,8 +16,11 @@ private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 /// off, once where the launch breadcrumb reads it back to say whether the crash is armed. They
 /// matched, and a typo in either would have made the diagnostic lie in the worst possible
 /// direction: registering one key and reading another reports ARMED for a session that is in fact
-/// suppressed, which is the exact question `docs/columns-layout-loop.md` exists to answer. Both
-/// sites sit inside `if !isRunningTests`, so no test covers either.
+/// suppressed, which is the exact question `docs/columns-layout-loop.md` exists to answer. The
+/// registration sits inside `if !isRunningTests` so no test reaches it; the read runs from the app
+/// delegate and is not gated, but it reads `.standard`, which under a test host carries whatever
+/// the process already holds — so neither site can be driven to a chosen state in place. That is
+/// what ``isArmed(in:)`` taking its defaults is for.
 enum DisplayCycleAssert {
     static let key = "NSWindowAssertWhenDisplayCycleLimitReached"
 

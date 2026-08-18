@@ -232,6 +232,40 @@ import Events
         #expect(mockFM.virtualDisk["/b/x"] != nil)
     }
 
+    /// **A banner that names a cause must have checked it.** The empty-batch message says every
+    /// copy is protected — but an empty removal list is equally what a group carrying no redundant
+    /// copies at all produces, and `applyRecommendedDuplicates` is `public` over a `DuplicateGroup`
+    /// initializer that validates nothing, so what counts as a "group" is the caller's to decide.
+    ///
+    /// Measured before the fix: a one-copy group, with nothing protected anywhere, was told that
+    /// every copy in it was protected — the same class of mistake as the drift wording it replaced,
+    /// one state over.
+    @MainActor
+    @Test func aGroupWithNothingToRemoveIsNotCalledProtected() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        // One copy, and it is the keeper: no redundant copies, so nothing is protected.
+        let only = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                                 modificationDate: Date(timeIntervalSince1970: 1_000),
+                                 uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [only], reclaimableBytes: 0)
+        try #require(g.redundantCopies.isEmpty, "the fixture gained a redundant copy — it no longer reproduces the case")
+        try #require(g.recommendedRemovalPaths.isEmpty)
+        try #require(g.isRecommendedForBatch, "the fixture is ineligible, so it never reaches the banner")
+        manager.duplicateGroups = [g]
+
+        await manager.applyRecommendedDuplicates([g])
+
+        let said = try #require(manager.banner?.message)
+        #expect(!said.contains("protected"),
+                "a group with no redundant copies was told every copy in it is protected: “\(said)”")
+        #expect(!said.contains("changed since they were scanned"),
+                "…and it is not drift either: “\(said)”")
+        #expect(said.contains("Nothing to remove"), "the banner stopped saying nothing was removed: “\(said)”")
+    }
+
     /// …and the drift wording survives for the case it was written for, so the fix above is a
     /// narrowing rather than a removal.
     @MainActor
