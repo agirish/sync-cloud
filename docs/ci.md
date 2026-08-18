@@ -248,3 +248,63 @@ its own.
 
 Deliberately here and not in [flaky-tests.md](flaky-tests.md): that file is
 about tests whose *verdict* the machine decided. Here no test ran at all.
+### The runner only runs while the Mac is awake — and sleep reads as a red run
+
+The runner is a LaunchAgent on this Mac, so a job survives only as long as the
+machine does. **Closing the lid kills the job in flight**, and so does idle
+sleep on battery; the nightly `Maintenance Sleep` / `Sleep Service Back to
+Sleep` cycle then keeps it dead, because the DarkWakes in between are 2–45
+seconds and never long enough to run anything. Read the machine's own account
+with `pmset -g log | grep 'Entering Sleep'` before reading anything into a
+red run.
+
+**What it looks like from GitHub is a failure that names nothing.** The run
+is `failure`, the package-suites step is `cancelled` (or every step's
+conclusion is `null`), there is **no test output at all**, and
+`gh run view <id> --log-failed` returns empty. About ten minutes after the
+machine stops answering, GitHub gives up on the connection and fails the job:
+
+| run | SHA | machine slept | job failed |
+|---|---|---|---|
+| `32104076252` | `b290a64b` (`v3.x`) | 06:06:22Z, `Clamshell Sleep` | 06:17:06Z |
+| `32111380208` | `b9b276f0` (`v3.x`) | 09:16:59Z, `Maintenance Sleep` | 09:27:00Z |
+
+Both on 2026-08-18. For the first, the Dashboard package — the only one that
+commit touched — had been run by hand on the same tree minutes earlier and was
+green, which is what settled that the red was not about the code. The second is
+the sharper lesson: the runner picked that job up at 09:17:00Z, one second after
+the machine entered sleep, and lost it ten minutes later without executing a
+single test.
+
+**The local logs are where the verdict actually is**, in
+`~/actions-runner-synccloud-x64/_diag/`:
+
+- `Worker_*.log` — `[StepsRunner] Step result: Canceled`, with no `✘` and no
+  `Test run with N tests` anywhere above it. The worker does not learn the job
+  is gone until the machine wakes, and its completion call then fails with
+  `Job not found: <guid>. job ref not found` — an hour later, in the run above.
+- `Runner_*.log` — `[BrokerServer] SocketException (89): Operation canceled`
+  and a retry backoff, which is the listener discovering the same thing.
+
+**`gh api repos/agirish/sync-cloud/actions/runners` will say `offline` while
+`Runner.Listener` is very much alive in `ps`.** That combination is this, not
+a wedged agent — do not go hunting for `Runner.Worker` processes to kill (see
+the fork-deadlock section above, which is the failure that *does* want that).
+
+There is nothing to fix in the runner. Re-run the job when the Mac is awake
+and on power:
+
+```sh
+gh run rerun <id> --failed
+```
+
+If the listener does need a restart, it takes `stop` then `start` **from the
+runner root** — `./svc.sh restart` is not one of its verbs
+(`[install, start, stop, status, uninstall]`):
+
+```sh
+cd ~/actions-runner-synccloud-x64 && ./svc.sh stop && ./svc.sh start
+```
+
+That reconnects in seconds and buys nothing on a machine that is about to
+sleep again, which is exactly how the second run in the table above was lost.
