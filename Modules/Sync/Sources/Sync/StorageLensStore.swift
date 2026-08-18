@@ -56,16 +56,63 @@ public enum StorageLensStore {
         let snapshots: [StorageLensSnapshot]
     }
 
-    /// Every stored snapshot, newest first. Any failure yields an empty list — a missing report
-    /// costs a re-scan, which is exactly what the user got before this existed.
+    /// How a read of the snapshot file went.
+    ///
+    /// **Absent, unreadable and foreign-schema all answered `[]`, and both writers are
+    /// read-modify-writes over that answer.** So an unreadable file did not cost a re-scan, which
+    /// is what the doc claimed: the next analysis wrote a file holding ONE snapshot and the other
+    /// eleven roots were gone, and "Forget this root" filtered an empty list to an empty list,
+    /// which trips the delete-the-file guard below — forget one silently meaning forget all.
+    /// `FilingProfileStore.indexForAmending` is the sibling that gets this right: it refuses to
+    /// amend what it could not read.
+    ///
+    /// A schema this build does not know is treated as unreadable rather than as empty, and that
+    /// is the sharper half: a NEWER build's file is perfectly good data, and overwriting it is not
+    /// a recovery.
+    enum Read {
+        /// No file. Nothing to lose, and a scan writes the first one.
+        case absent
+        /// A file that could not be decoded, or one written under another schema.
+        case unreadable
+        case loaded([StorageLensSnapshot])
+    }
+
+    static func read(from url: URL) -> Read {
+        guard let data = try? Data(contentsOf: url) else { return .absent }
+        guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return .unreadable }
+        guard payload.schema == currentSchema else { return .unreadable }
+        return .loaded(payload.snapshots.sorted { $0.completedAt > $1.completedAt })
+    }
+
+    /// Every stored snapshot, newest first. Absent and unreadable both read as empty here, which is
+    /// right for the DISPLAY callers this serves: a missing report costs a re-scan. A caller about
+    /// to WRITE must use ``read(from:)``, because for it the two are not the same fact at all.
     public static func load(from url: URL) -> [StorageLensSnapshot] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
-            Logger.shared.warning("Storage Lens snapshots at \(url.lastPathComponent) could not be read — starting fresh")
-            return []
+        if case .loaded(let snapshots) = read(from: url) { return snapshots }
+        return []
+    }
+
+    /// Moves an unreadable file aside, once, so a fresh one can be written without destroying it.
+    ///
+    /// Returns false when the set-aside fails, in which case the caller must not write: the whole
+    /// point is that the bytes survive, and a write that lands on top of them after a failed rename
+    /// is the original defect with extra steps.
+    private static func setAsideUnreadable(_ url: URL) -> Bool {
+        let kept = url.appendingPathExtension("unreadable")
+        do {
+            try? FileManager.default.removeItem(at: kept)
+            try FileManager.default.moveItem(at: url, to: kept)
+            Logger.shared.error("Storage Lens snapshots at \(url.lastPathComponent) could not be read "
+                                + "(or were written by a newer SyncCloud), so they have been kept as "
+                                + "\(kept.lastPathComponent) and a fresh file will be written beside "
+                                + "them. Nothing was overwritten.")
+            return true
+        } catch {
+            Logger.shared.error("Storage Lens snapshots at \(url.lastPathComponent) could not be read and "
+                                + "could not be moved aside (\(error.localizedDescription)) — NOT "
+                                + "overwriting them; this analysis was not saved.")
+            return false
         }
-        guard payload.schema == currentSchema else { return [] }
-        return payload.snapshots.sorted { $0.completedAt > $1.completedAt }
     }
 
     /// The stored snapshot for `root`, if there is one.
@@ -88,17 +135,44 @@ public enum StorageLensStore {
     /// the first's snapshot.
     public static func saveInBackground(_ snapshot: StorageLensSnapshot, to url: URL) {
         writeQueue.async {
-            var all = load(from: url).filter { $0.root != snapshot.root }
+            let existing: [StorageLensSnapshot]
+            switch read(from: url) {
+            case .loaded(let snapshots): existing = snapshots
+            case .absent: existing = []
+            case .unreadable:
+                // The file is kept and a fresh one is written beside it. Merging into `[]` without
+                // this is what silently replaced eleven roots with one.
+                guard setAsideUnreadable(url) else { return }
+                existing = []
+            }
+            var all = existing.filter { $0.root != snapshot.root }
             all.insert(snapshot, at: 0)
             write(Array(all.prefix(maxRoots)), to: url)
         }
     }
 
     /// Forgets the snapshot for `root`, or every one when `root` is nil.
+    ///
+    /// **"Forget this root" may not empty the file it could not read.** Filtering `[]` yields `[]`,
+    /// and `write` reads an empty list as "delete the file" — so one unreadable byte turned a
+    /// request to forget ONE root into forgetting all twelve, with the request itself as the
+    /// trigger. Forget-all is unaffected: that is what the user asked for either way.
     public static func clearInBackground(root: String?, from url: URL) {
         writeQueue.async {
-            let remaining = root.map { r in load(from: url).filter { $0.root != r } } ?? []
-            write(remaining, to: url)
+            guard let root else { write([], to: url); return }
+            switch read(from: url) {
+            case .absent:
+                return                                    // nothing to forget
+            case .unreadable:
+                // Kept rather than deleted, and the request is refused rather than applied to a
+                // list this build cannot see.
+                _ = setAsideUnreadable(url)
+                Logger.shared.error("Storage Lens snapshots: “Forget this root” could not be applied "
+                                    + "because the file could not be read. It has been kept beside "
+                                    + "the fresh one rather than emptied; the other roots are in it.")
+            case .loaded(let snapshots):
+                write(snapshots.filter { $0.root != root }, to: url)
+            }
         }
     }
 
