@@ -217,7 +217,19 @@ import Design
         let layout = PaneTabStripLadder.layout(available: 120, titles: five, scale: 1)
         #expect(layout.rung == .chip)
         #expect(layout.visibleCount == 1)
-        #expect(layout.tabWidth >= 0)
+        // **Not `>= 0`, which the production `max(0, min(…))` makes true by construction** — and
+        // it was this suite's only assertion on the chip rung's width. Shrink that rung by 24pt
+        // and at 120pt the name budget drops below the chrome width, leaving no room for any name
+        // at all, and `>= 0` would still have passed. The floor is the chrome the chip must carry
+        // plus something for the name; the arithmetic today leaves ~14pt of name against a
+        // declared 96pt minimum, which is the margin this pins.
+        // The chrome a chip must carry whatever its name: the mark, the close button, the gap
+        // between them and the padding on both sides. Anything at or below this leaves ZERO points
+        // for the name, which is the state this rung exists to avoid.
+        let chrome = PaneTabStripLadder.markSide + PaneTabStripLadder.closeSide
+            + PaneTabStripLadder.contentGap + PaneTabStripLadder.tabPadding * 2
+        #expect(layout.tabWidth > chrome,
+                "the chip rung has no room left for a name: \(layout.tabWidth)pt against \(chrome)pt of chrome")
     }
 
     // MARK: Close Other Tabs, when the others are pinned

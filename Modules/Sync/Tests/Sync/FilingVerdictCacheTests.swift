@@ -45,9 +45,10 @@ private final class SpendProbe: @unchecked Sendable {
     }
 
     private func key(_ path: String, model: String = "test-model", size: Int = 5000,
-                     excluded: [String] = []) -> FilingVerdictKey {
+                     excluded: [String] = [], artifacts: String = "") -> FilingVerdictKey {
         FilingVerdictKey(filePath: path, modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
-                         size: size, model: model, promptVersion: 1, excludedRelativePaths: excluded)
+                         size: size, model: model, promptVersion: 1, excludedRelativePaths: excluded,
+                         artifacts: artifacts)
     }
 
     private let verdict = FilingVerdict(relativePath: "Documents/Vehicles/Tesla",
@@ -73,10 +74,25 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(base != key("/root/f.pdf", excluded: ["Documents/A"]))
         #expect(base != FilingVerdictKey(filePath: "/root/f.pdf",
                                          modificationDate: Date(timeIntervalSince1970: 1_700_000_001),
-                                         size: 5000, model: "test-model", promptVersion: 1))
+                                         size: 5000, model: "test-model", promptVersion: 1,
+                                         artifacts: ""))
         #expect(base != FilingVerdictKey(filePath: "/root/f.pdf",
                                          modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
-                                         size: 5000, model: "test-model", promptVersion: 2))
+                                         size: 5000, model: "test-model", promptVersion: 2,
+                                         artifacts: ""))
+    }
+
+    /// **The artifacts axis, which nothing compared.** Two halves existed — the fingerprint on a
+    /// temp directory, and key equality with a hand-passed value — and neither joined them. A
+    /// re-survey changes what every file is asked about; a key that ignored it would replay
+    /// answers composed against the old tree.
+    @Test func aDifferentArtifactFingerprintIsADifferentKey() {
+        let base = key("/root/f.pdf", artifacts: "abc")
+        #expect(base != key("/root/f.pdf", artifacts: "def"))
+        #expect(base == key("/root/f.pdf", artifacts: "abc"))
+        // And the empty fingerprint — "no artifacts on this machine" — is its own value, not a
+        // wildcard that matches whatever was recorded.
+        #expect(base != key("/root/f.pdf", artifacts: ""))
     }
 
     // MARK: Staleness

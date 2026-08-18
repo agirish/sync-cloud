@@ -76,13 +76,34 @@ import Design
     }
 
     /// The guard on the measurement above: a header that draws NO trash at all would also report
-    /// zero red pixels, and the empty-selection case would pass for the wrong reason. So prove the
-    /// same crop is non-empty in both states — something is drawn there either way.
+    /// zero red pixels, and the empty-selection case would pass for the wrong reason.
+    ///
+    /// **`ink > 40` was not that guard.** The crop is the trailing HALF of a 700pt header holding
+    /// six rungs, so forty pixels of ink is met by the neighbours alone — wrap the Delete button in
+    /// `if selectionCount > 0` instead of `.disabled(…)` and every assertion in this file still
+    /// passed, which is exactly the regression the file's own prose names: Delete vanishing rather
+    /// than dimming, so the bar reflows on every click.
+    ///
+    /// The differential is the guard, and it needs no coordinates: a header built WITHOUT the rung
+    /// is the control, and the rung's own ink is what the two crops differ by. Asserted in both
+    /// selection states, because "drawn but dimmed" and "drawn and red" are both drawn.
     @Test func testTheRungIsDrawnInBothStates() throws {
-        for count in [0, 3] {
-            let ink = try Self.inkPixels(inBarOf: Self.header(onDelete: {}, selectionCount: count))
-            #expect(ink > 40, "no glyph painted in the bar at selectionCount \(count)")
-        }
+        // An ink COUNT cannot answer this, and two attempts at one have now failed here. Forty
+        // pixels of ink is met by the neighbours alone; and a differential against a header built
+        // WITHOUT the rung fails too, because removing a rung lets the others reflow into the crop
+        // and the total barely moves. Both mutations survived.
+        //
+        // Differing pixels can answer it. Dimming recolours the trash in place, so the two
+        // selection states differ in a small, local patch; making it VANISH reflows every rung to
+        // its left, so they differ almost everywhere. The bound separates the two.
+        let dimmed = try Self.rendered(Self.header(onDelete: {}, selectionCount: 0))
+        let enabled = try Self.rendered(Self.header(onDelete: {}, selectionCount: 3))
+        let differing = Self.differingPixels(dimmed, enabled)
+        let cropped = (dimmed.pixelsWide / 2) * dimmed.pixelsHigh
+
+        #expect(differing > 0, "nothing changed between the two selection states at all")
+        #expect(Double(differing) < Double(cropped) * 0.12,
+                "\(differing) of \(cropped) pixels moved between selection states — the bar is reflowing rather than dimming, so every click resizes it")
     }
 
     // MARK: - Fixtures
@@ -102,7 +123,7 @@ import Design
     /// Renders the header wide enough that nothing folds into ⋯, against a pinned arrangement and
     /// a pinned appearance — the machine's own customized bar and system theme must not decide
     /// what this test measures.
-    private static func rendered(_ header: PaneHeader) throws -> NSBitmapImageRep {
+    static func rendered(_ header: PaneHeader) throws -> NSBitmapImageRep {
         let defaults = ScratchDefaults("PaneBarDeleteTests-render")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
         let size = CGSize(width: 700, height: LiquidGlass.headerHeight)
@@ -138,6 +159,25 @@ import Design
         try count(in: header) { px in
             px.redComponent < 0.72 || px.greenComponent < 0.72 || px.blueComponent < 0.72
         }
+    }
+
+    /// Pixels that differ between two renders, over the same trailing-half crop. Counting what
+    /// MOVED is the only measurement that separates "recoloured in place" from "removed, and the
+    /// neighbours slid over".
+    static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
+        var differing = 0
+        for x in (a.pixelsWide / 2)..<a.pixelsWide {
+            for y in 0..<a.pixelsHigh {
+                guard let pa = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      let pb = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let d = abs(pa.redComponent - pb.redComponent)
+                    + abs(pa.greenComponent - pb.greenComponent)
+                    + abs(pa.blueComponent - pb.blueComponent)
+                if d > 0.05 { differing += 1 }
+            }
+        }
+        return differing
     }
 
     private static func count(in header: PaneHeader,

@@ -40,10 +40,20 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
     /// written before this existed, which is why it decodes with a default rather than failing:
     /// a shape change that throws discards the whole cache file, and those entries are still
     /// answers to the question a tree with no artifacts asks.
+    /// A digest of the filing artifacts the question was composed against — see
+    /// ``FilingProfileStore/fingerprint(id:in:)``.
+    ///
+    /// **Deliberately NOT defaulted.** It used to default to `""`, which meant the scan's
+    /// `artifacts: filingArtifactFingerprint` argument could be deleted and everything still
+    /// compiled — measured, and 2,246 Sync tests passed with it gone. What that costs is not
+    /// hypothetical: regenerate the profile, rescan, and every verdict composed against the OLD
+    /// tree is replayed until the cache is deleted by hand, and on the refine tier those are
+    /// answers that were paid for. A required argument turns that deletion into a build error,
+    /// which is the guard this repo prefers wherever a silent default can drop a fact.
     public let artifacts: String
 
     public init(filePath: String, modificationDate: Date?, size: Int, model: String,
-                promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String = "") {
+                promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String) {
         self.filePath = filePath
         self.modifiedMillis = modificationDate.map { Int(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
         self.size = size

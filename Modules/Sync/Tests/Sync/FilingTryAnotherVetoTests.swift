@@ -153,8 +153,15 @@ import Testing
                                                   encoding: .utf8),
                                       "cannot read \(file) — this scan would be vacuous")
             try #require(source.count > 500, "\(file) is implausibly short")
-            #expect(source.contains("personVeto("),
-                    "\(file) resolves a backend verdict without the cross-person rule")
+            // **Calls, not occurrences.** `FilingEngine.swift` DECLARES `personVeto`, so a bare
+            // `contains("personVeto(")` matched its own `static func` line and survived deleting
+            // every call in the file. Subtracting the declaration is what makes the count a
+            // statement about call sites; a sibling scan in this package excludes self-declaring
+            // files for exactly this reason.
+            let occurrences = source.components(separatedBy: "personVeto(").count - 1
+            let declarations = source.components(separatedBy: "func personVeto(").count - 1
+            #expect(occurrences - declarations >= 1,
+                    "\(file) resolves a backend verdict without the cross-person rule (\(occurrences) occurrence(s), \(declarations) of them the declaration)")
         }
         // And the refine reaches it through `applyVerdicts`, which is where its own guards live.
         let refine = try #require(try? String(contentsOf: dir.appendingPathComponent("FileSyncManager+FilingRefine.swift"),
