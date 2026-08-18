@@ -48,6 +48,22 @@ public enum ChromeInk {
         scheme == .dark ? color : AccentFill.deepened(color)
     }
 
+    /// A semantic colour used as **body text**, kept legible in both appearances.
+    ///
+    /// `semantic(_:_:)` above is the 3:1 bar a glyph or a non-text control needs; text needs 4.5:1,
+    /// and the difference is not academic. `SemanticColor.caution` as a bare `.foregroundStyle` on
+    /// the near-white Settings sheet measures **1.38:1** — the People section's one actionable line
+    /// was drawn that way — and the fill-target deepening only lifts it to 4.17:1. This clears the
+    /// text floor. Dark is untouched, for the same reason it is untouched above: deepening there
+    /// would fix light by breaking dark.
+    ///
+    /// Everywhere else in this app a caution is a **fill behind a wash**, which is the other correct
+    /// answer and the one to prefer for anything that is not a sentence. This exists for the
+    /// sentences.
+    public static func bodyText(_ scheme: ColorScheme, _ color: Color) -> Color {
+        scheme == .dark ? color : AccentFill.deepenedForText(color)
+    }
+
     /// The optional-tint form, for a control whose dark treatment is not a flat colour but a
     /// *fallback to the standard label hierarchy* — `PaneBreadcrumb`'s root crumb, which without a
     /// tint distinguishes the current folder from its ancestors by `.primary` vs `.secondary`.

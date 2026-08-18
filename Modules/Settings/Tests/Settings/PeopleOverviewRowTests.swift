@@ -219,3 +219,38 @@ import Testing
                 "an unresolvable id still draws a line — most likely a blank one, or the raw id")
     }
 }
+
+/// **Numbers here are grouped, like every other count the app prints.**
+///
+/// The coverage line interpolated its counts raw — "holding 1204 filed documents" — two panels away
+/// from `RestructureLens.cleanMessage`'s "Checked 3,013 folders". Same app, same kind of number, two
+/// formats, and on a real tree this one is four digits.
+///
+/// Asserted on the SENTENCE rather than on a render: this is about the string, and a pixel count
+/// cannot tell "1204" from "1,204" — it can barely tell it from "1205".
+@MainActor
+@Suite struct PeopleCoverageLineTests {
+
+    /// The line as the row builds it, reached the way the row's other tests reach it.
+    private func line(folders: Int, documents: Int) -> String {
+        PeopleOverviewRow(overview: PeopleOverview(claimedFolders: folders,
+                                                   claimedDocuments: documents,
+                                                   unclaimed: [], peopleWithNoFolders: []),
+                          store: PeopleStore(people: [])).coverageLineForTesting
+    }
+
+    @Test func fourDigitCountsAreGrouped() {
+        let text = line(folders: 3013, documents: 1204)
+        #expect(text.contains(1204.formatted()), "the document count is ungrouped: \(text)")
+        #expect(text.contains(3013.formatted()), "the folder count is ungrouped: \(text)")
+        // The formatter is locale-aware, so this pins the DIFFERENCE rather than a comma.
+        #expect(!text.contains("1204") || 1204.formatted() == "1204", "raw interpolation survived")
+    }
+
+    /// The singular arms are untouched — "1 folder" is not "1.0 folders".
+    @Test func theSingularsStillRead() {
+        #expect(line(folders: 1, documents: 1).contains("1 folder in your tree"))
+        #expect(line(folders: 1, documents: 1).contains("1 filed document"))
+        #expect(!line(folders: 1, documents: 1).contains("documents"))
+    }
+}

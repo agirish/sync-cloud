@@ -11,6 +11,7 @@ import SwiftUI
 /// so plainly rather than showing an empty space: "everyone in your tree is accounted for" is
 /// itself worth reading once.
 struct PeopleOverviewRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let overview: PeopleOverview
     @ObservedObject var store: PeopleStore
 
@@ -27,7 +28,11 @@ struct PeopleOverviewRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Label(unclaimedLine(person), systemImage: "person.badge.questionmark")
                         .scaledFont(.subheadline)
-                        .foregroundStyle(SemanticColor.caution)
+                        // **The one actionable line in People, and it measured 1.38:1.** Bare
+                        // caution is `Color.yellow`; as a sentence on the near-white sheet it is
+                        // barely there. Everywhere else in the app a caution is a fill behind a
+                        // wash — this is prose, so it takes the ink treatment instead.
+                        .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Button("Add \(person.name)") {
@@ -52,12 +57,21 @@ struct PeopleOverviewRow: View {
         .padding(.top, 4)
     }
 
+    /// **Grouped, like every other count this app prints.** Raw interpolation rendered "holding
+    /// 1204 filed documents" two panels away from `RestructureLens.cleanMessage`'s "Checked 3,013
+    /// folders" — same app, same kind of number, two formats. On a real tree this one is four
+    /// digits, so the difference is on screen rather than theoretical.
+    /// The coverage sentence, for the test that asserts its NUMBER FORMAT — which is a property of
+    /// the string and invisible to the render probes beside it.
+    var coverageLineForTesting: String { coverageLine }
+
     private var coverageLine: String {
-        let folders = overview.claimedFolders == 1 ? "1 folder" : "\(overview.claimedFolders) folders"
+        let folderCount = overview.claimedFolders
+        let folders = folderCount == 1 ? "1 folder" : "\(folderCount.formatted()) folders"
         let docs = overview.claimedDocuments
         guard docs > 0 else { return "\(folders) in your tree belong to someone on this list" }
         return "\(folders) in your tree belong to someone on this list, holding "
-            + "\(docs) filed document\(docs == 1 ? "" : "s")"
+            + "\(docs.formatted()) filed document\(docs == 1 ? "" : "s")"
     }
 
     private func unclaimedLine(_ person: PeopleOverview.UnclaimedPerson) -> String {

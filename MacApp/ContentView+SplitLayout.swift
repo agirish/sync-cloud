@@ -140,8 +140,11 @@ extension ContentView {
         if collapsed {
             HStack(spacing: 0) {
                 railSpine
+                // Collapsed, the workspace has everything but the spine — and the spine is what
+                // the overflow would land on. Same reason as the split branch below.
                 bottomPaneView
                     .frame(maxWidth: .infinity)
+                    .clipped()
             }
             .frame(width: totalWidth, height: geo.size.height)
         } else {
@@ -160,8 +163,23 @@ extension ContentView {
                 paneColumn(isLeft: true)
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: railWidth)
+                // **The workspace may not paint on the pane beside it.** A `LensHeaderCard` whose
+                // row 2 holds `.fixedSize()` prose and a control does not shrink to the width it is
+                // offered — its own `.frame(maxWidth: .infinity)` reports the LARGER of the proposal
+                // and what its children insist on — and SwiftUI centres an oversized child, so the
+                // excess spills past BOTH edges. The workspace is drawn after the source pane, so
+                // the left half of that excess landed on the file list: at the 340pt floor with
+                // Duplicates selected the card measures ~600pt, and rail items, a "410 groups" pill
+                // and half of "1.7 MB reclaimable" were painted over a pane they have nothing to do
+                // with, while "Apply 410 recommended" ran off the other side.
+                //
+                // The clip belongs HERE and nowhere inside the card: this is the only place that
+                // knows a definite width. A `.clipped()` on the card clips to the card's own
+                // resolved 600pt and is a no-op — measured, 6,678 pixels of ink outside the column
+                // either way (`LensHeaderCardOverrunTests`).
                 bottomPaneView
                     .frame(width: totalWidth - railWidth)
+                    .clipped()
             }
             .frame(width: totalWidth, height: geo.size.height)
             .overlay(alignment: .leading) {

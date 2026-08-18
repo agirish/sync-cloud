@@ -1002,6 +1002,26 @@ public struct LensWorkspaceView: View {
         // in `body` decides WHICH rung to draw, and this makes the drawn rung unable to overflow
         // whatever that decision was. A shedding rule fed a wrong width is a bug; a shedding rule
         // fed a wrong width AND a row that overlaps the pane next to it is the screenshot.
+        // **A clip that says nothing is a second defect on top of the first.** The rail scrolls,
+        // so at a narrow column the SELECTED item is drawn cut in half at the search toggle and
+        // `.scrollIndicators(.never)` means nothing on screen admits there is more — the render
+        // showed "Rules" entirely off-screen with Organize selected, and "All"/"To File" off the
+        // LEADING edge with Duplicates selected. The indicator stays off (a 27pt row cannot spare
+        // the height, which is why it was turned off in the first place), so the two halves are
+        // answered another way:
+        //
+        // The selected rung is scrolled into view whenever it changes, so the item you chose is
+        // never the one drawn cut in half. That is the reported harm; what it does NOT do is
+        // announce that the row scrolls at all.
+        //
+        // **A fade mask at the two edges was tried and reverted, and the reason is worth keeping.**
+        // It costs no height, which is what made it look free — but it dims the LEADING item, which
+        // on this rail is "All" and is usually the selected one, and it shifts what the row draws:
+        // `OrganizeRailTests` measures the leading model against the drawn row and the fade put it
+        // 13–15pt out at three text sizes, while the accent-ring test lost the overview's ring
+        // entirely. A row whose first item is faded to advertise that a later item exists has
+        // traded the wrong thing.
+        ScrollViewReader { rail in
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
             // **Promoting Storage's readout here was tried and was worse**, and the rail below is
@@ -1028,6 +1048,15 @@ public struct LensWorkspaceView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.never)
+        .onChange(of: selectedRailItemID) { _, id in
+            guard let id else { return }
+            withAnimation(.easeOut(duration: 0.18)) { rail.scrollTo(id, anchor: .center) }
+        }
+        .onAppear {
+            guard let id = selectedRailItemID else { return }
+            rail.scrollTo(id, anchor: .center)
+        }
+        }
     }
 
     /// What each of Storage's sections has to say — the one accessor the rail and the width model
@@ -1077,6 +1106,20 @@ public struct LensWorkspaceView: View {
         .help(section.map { "\($0.title) — \($0.subtitle)." }
               ?? "Every ranked list, under the treemap.")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .id(Self.railItemID(storageSection: section))
+    }
+
+    /// The scroll handle for one rail item, and the identity `selectedRailItemID` names.
+    ///
+    /// **One expression for both rails and for both ends of the lookup**, so a handle and the thing
+    /// that scrolls to it cannot come to mean different items — the failure this repo has already
+    /// paid for once, where a mirror test was written twice and the two copies drifted.
+    static func railItemID(organizeLens: OrganizeLens?) -> String {
+        "rail-organize-\(organizeLens?.id ?? "all")"
+    }
+
+    static func railItemID(storageSection: StorageSection?) -> String {
+        "rail-storage-\(storageSection?.id ?? "all")"
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
@@ -1440,6 +1483,18 @@ public struct LensWorkspaceView: View {
         }
     }
 
+    /// Which rung the rail should keep in view — the selected one, whichever rail is drawn.
+    ///
+    /// The rail scrolls, and at a narrow column the item you just chose could be the one drawn cut
+    /// in half at the search toggle. Nothing said so: `.scrollIndicators(.never)` is deliberate (a
+    /// 27pt row cannot spare the height), so the answer is to move the selection into view rather
+    /// than to advertise that it is not.
+    private var selectedRailItemID: String? {
+        lens == .storage
+            ? Self.railItemID(storageSection: storageSection)
+            : Self.railItemID(organizeLens: organizeLens)
+    }
+
     /// The hairline between the rail's three groups.
     private var railSeparator: some View {
         Rectangle()
@@ -1467,6 +1522,8 @@ public struct LensWorkspaceView: View {
         .chromeHover()
         .help("Every lens's answer for what Organize is pointed at, on one page.")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        // The handle `scrollTo` aims at — see `selectedRailItemID`.
+        .id(Self.railItemID(organizeLens: nil))
     }
 
     /// One rail item.
@@ -1493,6 +1550,7 @@ public struct LensWorkspaceView: View {
         .chromeHover()
         .help(item.help(state: counts.state(item)))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .id(Self.railItemID(organizeLens: item))
     }
 
     /// The number a rail item's badge would carry — **the whole list it names, never the filtered

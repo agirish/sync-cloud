@@ -158,8 +158,14 @@ import Design
             let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds),
                                    "no bitmap rep")
             host.cacheDisplay(in: host.bounds, to: rep)
+            // **What the badge is SPECIFIED to paint, in this appearance.** Raw
+            // `SemanticColor.caution` is `Color.yellow`, and a glyph whose colour is its meaning
+            // takes `ChromeInk.semantic` — deepened in light, untouched in dark — because system
+            // yellow on a light row measures under the 3:1 a meaning-carrying glyph needs. The
+            // window above is `.aqua`, so light is the branch under test.
             let target = try #require(
-                NSColor(SemanticColor.caution).usingColorSpace(.sRGB), "caution has no sRGB value")
+                NSColor(ChromeInk.semantic(.light, SemanticColor.caution)).usingColorSpace(.sRGB),
+                "the badge's ink has no sRGB value")
 
             var hits = 0
             for x in stride(from: 0, to: rep.pixelsWide, by: 1) {

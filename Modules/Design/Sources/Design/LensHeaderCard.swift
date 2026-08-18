@@ -157,7 +157,14 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
             .frame(height: LensHeaderMetrics.tabRow)
 
             HStack(spacing: 8) {
+                // **The prose yields first.** `SummaryRun` — what every lens puts here — is
+                // `.fixedSize()`, so row 2 as a whole refused to compress and simply drew wider
+                // than the column. Giving the summary a lower layout priority means the counts
+                // truncate before a control does, which is the right order: "1.7 MB reclaimable"
+                // shortened still reads, and "Apply 410 recommended" cut in half is a control the
+                // user cannot use. It changes nothing at any width where the row already fits.
                 summary()
+                    .layoutPriority(-1)
                 Spacer(minLength: 8)
                 trailing()
             }
@@ -182,6 +189,18 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
         }
         .padding(LensHeaderMetrics.padding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // **This frame does NOT constrain the card to the width it was offered, and that is the
+        // whole shape of the defect.** With `maxWidth: .infinity` the frame reports the LARGER of
+        // the proposal and what its child insists on — and a row of `.fixedSize()` children insists
+        // — so a card offered 340pt resolves to ~600pt and the parent centres it, spilling ~130pt
+        // past each edge. A `.clipped()` here is therefore a no-op: it clips to 600.
+        //
+        // The clip that works belongs to whoever owns a DEFINITE width, which is the split —
+        // `ContentView+SplitLayout` gives the workspace `.frame(width: totalWidth - railWidth)` and
+        // clips there. Stated here because this is where the next person will reach for it, and
+        // where it would look like it had worked. Measured: 6,678 pixels of ink outside the column
+        // with the clip on this line, 0 with it at the split
+        // (`LensHeaderCardOverrunTests`).
         .bottomSectionCard(surfaceStyle, level: level, hue: hue, tint: tint)
     }
 }

@@ -2590,6 +2590,7 @@ struct PeopleList: View {
 /// evidence, then the caveat. The caveat line is the only tinted one, because a name shared with
 /// somebody else is the single fact on this screen that can change an outcome.
 private struct PersonRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let facts: PersonFilingFacts
     let person: Person
     let preventedCount: Int
@@ -2620,7 +2621,8 @@ private struct PersonRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let caveat = caveatLine {
-                    Text(caveat).scaledFont(.subheadline).foregroundStyle(SemanticColor.caution)
+                    Text(caveat).scaledFont(.subheadline)
+                        .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

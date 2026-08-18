@@ -18,6 +18,7 @@ import SwiftUI
 /// smaller version of the same change. A mixed folder lives in its most consequential section
 /// and its other steps ride along, exactly as they do through its own Rename button.
 struct RenamePassLens: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var syncManager: FileSyncManager
     let plans: [RenamePlan]
     /// The folded Names lens (P10): names that will not store cleanly — this provider's own rules,
@@ -482,7 +483,8 @@ struct RenamePassLens: View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "minus.circle")
                 .scaledFont(.caption2)
-                .foregroundStyle(SemanticColor.caution)
+                // A glyph, so the 3:1 treatment — see `RiskyNameBadge` for the same call.
+                .foregroundStyle(ChromeInk.semantic(colorScheme, SemanticColor.caution))
             VStack(alignment: .leading, spacing: 1) {
                 Text(skip.fileName)
                     .scaledFont(.caption)

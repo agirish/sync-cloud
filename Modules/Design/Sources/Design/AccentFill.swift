@@ -47,23 +47,48 @@ public enum AccentFill {
     /// `NSColor(name:dynamicProvider:)` block rather than computed once at call time — the same trap
     /// `Color.onFillLabel(_:)` documents for static fills, met from the other side.
     public static func deepened(_ color: Color) -> Color {
+        deepened(color, to: targetLuminance)
+    }
+
+    /// The luminance a semantic colour has to reach to be read as BODY TEXT on the app's light
+    /// sheets, which is a stricter bar than carrying a white label.
+    ///
+    /// **Measured against the sheet, not asserted.** ``targetLuminance`` exists so a FILL can carry
+    /// white at 4.5:1; used the other way round — coloured ink on a near-white ground — it lands at
+    /// 4.17:1, because the two problems are not symmetric. Yellow is the case that shows it:
+    /// `SemanticColor.caution` as bare `.foregroundStyle` measures **1.38:1** on a 0.96 sheet, and
+    /// deepening to the fill target only reaches 4.17. This target clears 4.5 with margin.
+    /// `SemanticInkContrastTests` measures every semantic colour against the floor rather than
+    /// trusting this number.
+    public static let textLuminance: CGFloat = 0.14
+
+    /// `color` darkened enough to be read as text on a light sheet. See ``textLuminance``.
+    public static func deepenedForText(_ color: Color) -> Color {
+        deepened(color, to: textLuminance)
+    }
+
+    private static func deepened(_ color: Color, to target: CGFloat) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             var resolved: NSColor?
             appearance.performAsCurrentDrawingAppearance {
                 resolved = NSColor(color).usingColorSpace(.sRGB)
             }
             guard let srgb = resolved else { return NSColor(color) }
-            return deepened(srgb)
+            return deepened(srgb, to: target)
         })
     }
 
     /// The scalar step, on already-resolved sRGB components. Exposed to the tests so they can assert
     /// the contrast this type promises against real numbers instead of a rendered pixel.
-    public static func deepened(_ srgb: NSColor) -> NSColor {
+    public static func deepened(_ srgb: NSColor) -> NSColor { deepened(srgb, to: targetLuminance) }
+
+    /// The same step against an explicit target, so the text bar and the fill bar are one
+    /// implementation rather than two that could drift.
+    public static func deepened(_ srgb: NSColor, to target: CGFloat) -> NSColor {
         let (r, g, b) = (srgb.redComponent, srgb.greenComponent, srgb.blueComponent)
         let luminance = AccentLabel.relativeLuminance(red: r, green: g, blue: b)
-        guard luminance > targetLuminance else { return srgb }
-        let k = targetLuminance / luminance
+        guard luminance > target else { return srgb }
+        let k = target / luminance
         func scaled(_ component: CGFloat) -> CGFloat { encode(linear(component) * k) }
         return NSColor(srgbRed: scaled(r), green: scaled(g), blue: scaled(b), alpha: srgb.alphaComponent)
     }

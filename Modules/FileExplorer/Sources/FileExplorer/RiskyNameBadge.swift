@@ -28,6 +28,7 @@ import SwiftUI
 /// late, so an absent badge takes no space rather than an empty 16pt of it on every clean name in
 /// the pane.
 struct RiskyNameBadge: View {
+    @Environment(\.colorScheme) private var colorScheme
     /// Why the name is hostile; nil draws nothing at all.
     let reason: String?
     /// The pane's resolved fonts — see `PaneRowFonts`.
@@ -37,7 +38,10 @@ struct RiskyNameBadge: View {
         if let reason {
             Image(systemName: RiskyNameGlyph.risky)
                 .font(fonts.riskyNameBadge)
-                .foregroundStyle(SemanticColor.caution)
+                // A GLYPH whose colour is the meaning: the 3:1 treatment, not the body-text one.
+                // (The audit listed this beside three prose sites; it is an `Image`, so the bar is
+                // different and so is the fix.)
+                .foregroundStyle(ChromeInk.semantic(colorScheme, SemanticColor.caution))
                 // The reason itself, not a generic "risky name": the tooltip is the only place the
                 // *why* is available without opening a menu, and "ends with a space" is the part
                 // that makes the mark actionable rather than merely alarming.

@@ -85,6 +85,7 @@ private struct DraftCondition: Identifiable {
 /// The plain-words rule builder (N2). Edits a working copy and hands the finished rule back on Save;
 /// Cancel discards. No file access here — this only shapes the rule; the preview does the evaluation.
 struct AutomationRuleEditor: View {
+    @Environment(\.colorScheme) private var colorScheme
     let accent: Color
     /// The folder destinations resolve against (the folder being previewed). When non-nil, a Browse…
     /// button appears and relativizes the picked folder against this root; nil hides Browse.
@@ -322,7 +323,9 @@ struct AutomationRuleEditor: View {
             Text("“\(name)” — written by a newer version of SyncCloud. It is kept as-is and never "
                  + "matches; remove the row to drop it.")
                 .scaledFont(.system(size: 11))
-                .foregroundStyle(SemanticColor.caution)
+                // Prose, so it takes the ink treatment rather than raw caution — see
+                // `ChromeInk.bodyText`.
+                .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                 .fixedSize(horizontal: false, vertical: true)
         case .largerThanMB:
             HStack(spacing: 5) {
