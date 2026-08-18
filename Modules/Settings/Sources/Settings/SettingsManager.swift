@@ -229,6 +229,38 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    /// The curated source list, read so that a payload this build cannot decode is **kept** rather
+    /// than quietly becoming an empty list.
+    ///
+    /// **The loss was invisible twice over.** `init` assigns the property directly, so the `didSet`
+    /// that persists it does not fire — nothing is written at launch, and Settings simply looks
+    /// like a fresh install. Then the first add, remove or path edit fires it and writes the
+    /// empty-based list over the bytes that were still on disk, so the only copy of a
+    /// hand-curated list is gone at the moment the user touches the panel to ask where it went.
+    /// `try? … ?? []` said nothing at either step.
+    ///
+    /// This is the shape `FileSyncManager.readPersistedStore` was built for and applies to the
+    /// filing rules — a sibling module, `internal`, so the behaviour is restated here rather than
+    /// shared: preserve the bytes under a `.unreadable` sibling key, say so at `.error`, and carry
+    /// on with an empty list so the app still starts. Absent stays absent: a first launch has no
+    /// bytes and must not log anything.
+    static func readFolderSources(from defaults: UserDefaults) -> [FolderSource] {
+        guard let data = defaults.data(forKey: folderSourcesKey) else { return [] }
+        if let decoded = try? JSONDecoder().decode([FolderSource].self, from: data) { return decoded }
+        let backupKey = folderSourcesKey + ".unreadable"
+        // Read-and-compare rather than an unconditional write: after this line the bytes are under
+        // the backup key however they got there, and a re-launch on a still-corrupt store must not
+        // rewrite the same payload every time.
+        if defaults.data(forKey: backupKey) != data {
+            defaults.set(data, forKey: backupKey)
+        }
+        Logger.shared.error(
+            "The saved folder-source list could not be read (\(data.count) bytes) and is being "
+            + "treated as empty — the unreadable copy was kept under \"\(backupKey)\". Your "
+            + "added folders are not lost; they are in that value.")
+        return []
+    }
+
     /// The ruleset names under a *folder* source are checked against — the standing answer to
     /// "would this folder survive being put somewhere that has rules?". Defaults to `.oneDrive`,
     /// the strictest; `.localFolder` means "don't check". See `CloudProvider.nameRuleType`.
@@ -410,8 +442,7 @@ public class SettingsManager: ObservableObject {
         self.conflictPolicy = ConflictPolicy.persisted(from: userDefaults)
         self.defaultSortOption = userDefaults.string(forKey: Self.defaultSortOptionKey).flatMap(SortOption.init(rawValue:)) ?? .name
         self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
-        self.folderSources = userDefaults.data(forKey: Self.folderSourcesKey)
-            .flatMap { try? JSONDecoder().decode([FolderSource].self, from: $0) } ?? []
+        self.folderSources = Self.readFolderSources(from: userDefaults)
         self.folderNameRule = userDefaults.string(forKey: Self.folderNameRuleKey)
             .flatMap(CloudProvider.ProviderType.init(rawValue:)) ?? .oneDrive
         // Seed with the always-present iCloud provider so the app can start immediately,
