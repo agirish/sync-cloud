@@ -404,18 +404,38 @@ ones, whatever they poll:
 
 ```sh
 grep -rn --include='*.swift' -E 'while .*(Date\(\)|ContinuousClock\.now) *<' Modules SyncCloudTests \
-  | grep -v '/\.build/' | grep -v Floor
+  | grep -v '/\.build/' | grep -vi floor
 ```
 
-Run on this line 2026-08-09: **39 unfloored clock-bounded loops**, against 3 floored ones correctly
-excluded. Most of the 39 are fixed pumps with no condition to starve — the separate problem this
-section already distinguishes. The ones that *do* poll a condition, and so still carry this defect,
-are the real residual, and there are more of them than the list above says:
-`ExpandingSearchFieldTests`, `CloudDownloadWatchTests`, `CloudDownloadWiringTests`,
-`HeaderLadderTests`, `SectionRowHeightTests`, `DifferencesTableIdentityTests`,
-`BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests`. **Eight remain; one is
-now fixed.** Naming one and calling it "the real residual" is how this list stayed wrong through
-two sweeps; the count above is reproducible, so check it rather than trusting the prose.
+**The exclusion must be case-insensitive, and it was not.** The recipe published here filtered
+`grep -v Floor`, which counts a loop floored with a lowercase variable — `while polls < floor ||
+…`, the form a helper that names its own parameter `floor:` produces — as *unfloored*. On this line
+that changed nothing, because no such loop exists here; on `main` and `v3.x` it inflated the
+headline number by one, and the whole point of quoting a reproducible command is that the number it
+prints can be trusted.
+
+Run on this line 2026-08-18: **36 unfloored clock-bounded loops**, against 4 floored ones correctly
+excluded. Most of the 36 are fixed pumps with no condition to starve — the separate problem this
+section already distinguishes. The ones that *do* poll a condition, and so still carry this defect:
+
+- `HeaderLadderTests`, `SectionRowHeightTests`, `DifferencesTableIdentityTests` (×2) — the
+  view-based settles, migrated on `main` on 2026-08-04 and still unmigrated here.
+- `BulkSyncCancellationAndReservationTests` and `MergeCancelMidCopyTests` — **do not fix these
+  alone.** `awaitProgress()` is a *synchronous* method on a mock `FileManaging`, called from the
+  seam, so it can neither be `async` nor use this package's already-floored `waitUntil`; it must
+  block a real thread. That is mechanism 10's structure exactly, and mechanism 10's proposed real
+  fix — a dedicated thread outside the cooperative pool — is the same fix these two want. Doing
+  them separately means rebuilding the same seam twice.
+
+`ExpandingSearchFieldTests`, `CloudDownloadWatchTests` and `CloudDownloadWiringTests` came off this
+list on 2026-08-18. **`CloudDownloadWiringTests` still has a hit at `WatchPark.park`, and it is not
+this defect**: that loop detects *cancellation* — a cancelled `Task.sleep` throws at once — and its
+`!released` clause is a cooperative exit so a 45 s park does not outlive the test. There is no
+condition being starved, and a floor would be meaningless on it. Sort by "is there a condition to
+starve" before adding anything here.
+
+Naming one and calling it "the real residual" is how this list stayed wrong through two sweeps; the
+count above is reproducible, so check it rather than trusting the prose.
 
 **`poll` is invisible to the sweep above, deliberately and with a cost.** It reads an injected
 `now()` rather than `Date()`, so the pattern matches neither its floored form nor an unfloored one
