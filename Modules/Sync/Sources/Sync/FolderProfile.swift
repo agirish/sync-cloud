@@ -26,13 +26,26 @@ public struct FolderProfile: Sendable, Equatable {
     /// person?". ``PersonRegistry/seeded(from:)`` is what reads it.
     public let personAliases: [String: String]
 
+    /// `role` strings this build has no case for, and how many folders carried each.
+    ///
+    /// **The profile is written by a generator that is not this app**, so a role added there
+    /// arrives here before any code knows it. Empty is the ordinary state; anything else is
+    /// reported once when the file is opened (see ``FilingProfileStore/profile(id:in:)``), because
+    /// a folder silently demoted to "no role" files differently and nothing else would say so.
+    public let unknownRoles: [String: Int]
+    /// Folder entries that could not be decoded at all, even leniently. Also reported once.
+    public let undecodableFolders: Int
+
     public init(profileId: String, root: String, folders: [String: FolderProfileEntry],
-                personTokens: Set<String>, personAliases: [String: String] = [:]) {
+                personTokens: Set<String>, personAliases: [String: String] = [:],
+                unknownRoles: [String: Int] = [:], undecodableFolders: Int = 0) {
         self.profileId = profileId
         self.root = root
         self.folders = folders
         self.personTokens = personTokens
         self.personAliases = personAliases
+        self.unknownRoles = unknownRoles
+        self.undecodableFolders = undecodableFolders
     }
 
     public var isEmpty: Bool { folders.isEmpty }
@@ -176,11 +189,77 @@ extension FolderProfile: Decodable {
         let aliases: [String: String]?
     }
 
+    /// One folder entry with `role` as a plain string, so a value this build has no case for costs
+    /// the ROLE rather than the file. Every other field is optional here for the same reason: the
+    /// retry exists to salvage an entry, and refusing it over a missing count would defeat that.
+    private struct LenientEntry: Decodable {
+        let path: String
+        let role: String?
+        let naming: String?
+        let anchors: [String]?
+        let acceptsNewFiles: Bool?
+        let fileCount: Int?
+        let subfolderCount: Int?
+        let axes: [String: String]?
+
+        /// The entry as this build can use it — an unrecognised role reads as no role, which is
+        /// what `role: nil` already means everywhere: "the survey said nothing".
+        var entry: FolderProfileEntry {
+            FolderProfileEntry(path: path, role: role.flatMap(FolderRole.init(rawValue:)),
+                               naming: naming, anchors: anchors ?? [],
+                               acceptsNewFiles: acceptsNewFiles, fileCount: fileCount ?? 0,
+                               subfolderCount: subfolderCount ?? 0, axes: axes ?? [:])
+        }
+    }
+
+    /// Consumes one element of an unkeyed container without caring what it was.
+    private struct AnyIgnoredEntry: Decodable {
+        init(from decoder: Decoder) throws { _ = try decoder.singleValueContainer() }
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
         root = try c.decodeIfPresent(String.self, forKey: .root) ?? "~"
-        let list = try c.decodeIfPresent([FolderProfileEntry].self, forKey: .folders) ?? []
+        // **One unknown `role` string used to kill the whole filing layer, unrepairably.**
+        //
+        // `FolderRole` is a raw-value enum and `role` is optional, but *optional* only makes an
+        // ABSENT key fine: a present value the enum has no case for throws `dataCorrupted`, and the
+        // throw escapes `decodeIfPresent` and the `?? []` alike — a `??` handles nil, not a throw.
+        // One entry out of 3,013 carrying a role a newer generator wrote therefore took the entire
+        // profile down, and with it `filingFolderProfile`, `filingMemory`, `filingProfilesDirectory`,
+        // `contentIndexDirectory`, the people store and the tag store — all six left unset by one
+        // `if let` in `SyncCloudApp`. Organize reports "not scanned", the roster and every person
+        // verdict are unreachable, and it cannot be repaired from inside the app: `writeProfile`
+        // refuses to overwrite, so the user has to delete the JSON by hand. The schema-version
+        // probe does not catch it either — a new role INSIDE the current schema is not a new schema.
+        //
+        // Decoded entry by entry, each with a lenient retry, on the pattern `PersonTagFile` already
+        // uses: an unknown role costs that folder its role, a truly undecodable entry costs itself,
+        // and neither costs the file. Both are counted and reported at the door rather than
+        // swallowed — a folder demoted to "no role" files differently.
+        var list: [FolderProfileEntry] = []
+        var unknown: [String: Int] = [:]
+        var undecodable = 0
+        if var array = try? c.nestedUnkeyedContainer(forKey: .folders) {
+            while !array.isAtEnd {
+                if let entry = try? array.decode(FolderProfileEntry.self) {
+                    list.append(entry)
+                } else if let lenient = try? array.decode(LenientEntry.self) {
+                    if let raw = lenient.role, FolderRole(rawValue: raw) == nil {
+                        unknown[raw, default: 0] += 1
+                    }
+                    list.append(lenient.entry)
+                } else {
+                    // A failed decode does not advance the container, so the element still has to
+                    // be consumed or the loop cannot move past it.
+                    _ = try? array.decode(AnyIgnoredEntry.self)
+                    undecodable += 1
+                }
+            }
+        }
+        unknownRoles = unknown
+        undecodableFolders = undecodable
         folders = Dictionary(list.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
 
         var people: Set<String> = []

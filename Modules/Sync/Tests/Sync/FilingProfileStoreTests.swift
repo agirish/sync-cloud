@@ -304,3 +304,63 @@ struct RealFilingProfileTests {
         #expect(index.destinations.count > 1000)
     }
 }
+
+/// **Identity was read from one place and written from another.**
+///
+/// Everything is read from `profiles/<activeProfileId>/`, named by `profiles.json`. The app then
+/// built the roster and the tag store from `profile.profileId` — a field INSIDE the artifact that
+/// decodes to `"default"` when absent, which nothing rejects. Omit it and reads come from `work/`
+/// while the first roster edit writes to `default/`, where nothing reads it; the fingerprint hashes
+/// that same empty directory, so every cached classification is keyed against artifacts not in use.
+/// The same split appears on a directory rename, which the docs present as the way to add a second
+/// tree.
+@Suite struct FilingProfileIdentityTests {
+
+    private func makeProfiles(activeId: String, folderId: String?) throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("profile-identity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(activeId),
+                                                withIntermediateDirectories: true)
+        try Data("""
+        {"schemaVersion":1,"activeProfileId":"\(activeId)"}
+        """.utf8).write(to: dir.appendingPathComponent("profiles.json"))
+        let idField = folderId.map { "\"profileId\":\"\($0)\"," } ?? ""
+        try Data("""
+        {\(idField)"root":"~/Documents","folders":[]}
+        """.utf8).write(to: dir.appendingPathComponent("\(activeId)/folder-profile.json"))
+        return dir
+    }
+
+    /// The folder the artifacts were found in is the identity, whatever the file calls itself.
+    @Test func theLoadedIdIsTheFolderNotTheFieldInside() throws {
+        let dir = try makeProfiles(activeId: "work", folderId: nil)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let loaded = try #require(FilingProfileStore.active(in: dir))
+        // The premise: the field really did decode to something else, or this proves nothing.
+        #expect(loaded.profile.profileId == "default",
+                "the fixture stopped reproducing the split")
+        #expect(loaded.id == "work",
+                "the id every store is built from is still the field inside the file")
+    }
+
+    /// And when they agree — the ordinary case — nothing changes.
+    @Test func anAgreeingProfileLoadsUnderItsOwnId() throws {
+        let dir = try makeProfiles(activeId: "abhishek", folderId: "abhishek")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let loaded = try #require(FilingProfileStore.active(in: dir))
+        #expect(loaded.id == "abhishek")
+        #expect(loaded.profile.profileId == "abhishek")
+    }
+
+    /// The fingerprint follows the same id, so a cached verdict is keyed against the artifacts
+    /// actually in use rather than an empty directory that happens to share a name.
+    @Test func theFingerprintOfTheLoadedIdIsNotEmpty() throws {
+        let dir = try makeProfiles(activeId: "work", folderId: nil)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let loaded = try #require(FilingProfileStore.active(in: dir))
+        #expect(!FilingProfileStore.fingerprint(id: loaded.id, in: dir).isEmpty)
+        #expect(FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: dir).isEmpty,
+                "the fixture stopped showing why the wrong id is wrong")
+    }
+}

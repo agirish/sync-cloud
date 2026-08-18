@@ -20,19 +20,50 @@ public enum FilingSurveyStore {
         directory.appendingPathComponent("\(id)/filing-memory.json")
     }
 
-    /// The corpus for `id`, or nil when absent or unreadable.
+    /// How a corpus read went. **Absent and unreadable are different facts and the caller must be
+    /// able to tell them apart**, which is the whole reason this type exists.
     ///
-    /// Nil is an ordinary state — it means the next survey reads every document rather than the
-    /// changed ones, which is slow and correct, not broken.
-    public static func corpus(id: String, in directory: URL) -> FilingCorpus? {
-        guard let data = try? Data(contentsOf: corpusURL(id: id, in: directory)) else { return nil }
-        do {
-            return try JSONDecoder().decode(FilingCorpus.self, from: data)
-        } catch {
-            Logger.shared.warning("Couldn't read the filing corpus — the next survey will read every "
-                                  + "document instead of the changed ones: \(error.localizedDescription)")
+    /// A tree that has never been surveyed has no corpus, and re-reading every document is the
+    /// correct answer. A corpus that is ON DISK and cannot be parsed says nothing about the tree —
+    /// and a survey that treats it as absent starts from an empty corpus, merges whatever this pass
+    /// happened to read into it, and writes the result over the memory. With the display asleep or
+    /// files offloaded, that is a near-empty memory written over megabytes of learned content, and
+    /// the moved fingerprint discards every cached classification with it. The unreadable-ROOT
+    /// guard in `FileSyncManager+FilingSurvey` already refuses exactly this harm; it arrived
+    /// through the corpus door instead.
+    public enum CorpusRead: Sendable {
+        /// No corpus file — an ordinary state, and the next survey reads everything.
+        case absent
+        /// A corpus file that could not be parsed. Nothing may be inferred about the tree from it.
+        case unreadable
+        case loaded(FilingCorpus)
+
+        /// The corpus when there is one. Absent and unreadable both answer nil, which is what the
+        /// callers that genuinely cannot tell them apart already assumed.
+        public var corpus: FilingCorpus? {
+            if case .loaded(let c) = self { return c }
             return nil
         }
+    }
+
+    /// The corpus for `id`, saying which of the three states it found.
+    public static func corpusRead(id: String, in directory: URL) -> CorpusRead {
+        guard let data = try? Data(contentsOf: corpusURL(id: id, in: directory)) else { return .absent }
+        do {
+            return .loaded(try JSONDecoder().decode(FilingCorpus.self, from: data))
+        } catch {
+            Logger.shared.warning("Couldn't read the filing corpus: \(error.localizedDescription)")
+            return .unreadable
+        }
+    }
+
+    /// The corpus for `id`, or nil when absent or unreadable.
+    ///
+    /// Nil is an ordinary state for a caller that only wants to know whether a corpus is available
+    /// — it means reading every document rather than the changed ones, which is slow and correct.
+    /// A caller that is about to WRITE over learned state must use ``corpusRead(id:in:)`` instead.
+    public static func corpus(id: String, in directory: URL) -> FilingCorpus? {
+        corpusRead(id: id, in: directory).corpus
     }
 
     /// Writes both artifacts atomically. Throws rather than logging, so a caller that promised the

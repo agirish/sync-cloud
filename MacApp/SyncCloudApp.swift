@@ -391,18 +391,21 @@ struct SyncCloudApp: App {
             // The roster is the one filing artifact the user edits, so it is handed over as a
             // STORE rather than a value — Settings writes through it, and the manager's
             // subscription recompiles the registry and the fingerprint without a relaunch.
+            // `loaded.id` — the folder the artifacts were actually read from — NOT
+            // `profile.profileId`, the field inside the file. See `FilingProfileStore.active`: the
+            // two can disagree, and when they do the writes went where nothing reads.
             manager.filingPeopleStore = PeopleStore(directory: profiles,
-                                                    profileId: loaded.profile.profileId,
+                                                    profileId: loaded.id,
                                                     profile: loaded.profile)
             // His verdicts on whose document is whose. A store for the same reason the roster is:
             // the person view writes through it, and nothing else on this machine may.
             manager.filingPersonTagStore = PersonTagStore(directory: profiles,
-                                                          profileId: loaded.profile.profileId)
+                                                          profileId: loaded.id)
             // Part of the question every file is asked — a re-survey must not replay answers the
             // old tree produced. Read from the same directory the artifacts came from.
             manager.filingArtifactFingerprint =
-                FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: profiles)
-            Logger.shared.info("Filing profile '\(loaded.profile.profileId)' loaded — "
+                FilingProfileStore.fingerprint(id: loaded.id, in: profiles)
+            Logger.shared.info("Filing profile '\(loaded.id)' loaded — "
                                + "\(loaded.profile.folders.count) folder(s), "
                                + "\(loaded.memory?.folders.count ?? 0) with filing memory, "
                                + "\(manager.filingPeopleStore?.people.count ?? 0) person(s), "

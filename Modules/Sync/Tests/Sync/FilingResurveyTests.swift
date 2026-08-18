@@ -93,6 +93,58 @@ import Events
                 "the published memory must still describe the tree")
     }
 
+    /// **The same harm, through the corpus door.** `FilingSurveyStore.corpus` answered nil for a
+    /// corpus that is ABSENT and for one that is on disk and unparseable, and the survey started
+    /// from an empty corpus either way — merging whatever this pass read into nothing and writing
+    /// the result over the memory. With the display asleep or files offloaded that is a near-empty
+    /// memory over megabytes of learned content, and the moved fingerprint discards every cached
+    /// classification with it.
+    ///
+    /// Absent still surveys from scratch, which is correct. Unreadable refuses, because nothing
+    /// about the tree can be inferred from a file that could not be read.
+    @Test func anUnreadableCorpusLeavesBothArtifactsExactlyAsTheyWere() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let memoryBefore = try Data(contentsOf: memoryURL)
+        let learnedBefore = try #require(manager.filingMemory).folders.count
+        #expect(learnedBefore > 0, "fixture: there must be something to lose")
+
+        // A half-written or truncated corpus — the shape a crash or a full disk leaves behind.
+        let corrupt = Data("{ \"documents\": { \"a.pdf\": ".utf8)
+        try corrupt.write(to: corpusURL)
+
+        // A real document appears, so the pass has something to read and every reason to write.
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report.changed == false, "the survey ran on a corpus it could not read")
+        #expect(try Data(contentsOf: memoryURL) == memoryBefore,
+                "the folder memory was rewritten from an empty corpus")
+        #expect(try Data(contentsOf: corpusURL) == corrupt,
+                "the unreadable corpus was overwritten rather than left for inspection")
+        #expect(manager.filingMemory?.folders.count == learnedBefore,
+                "the published memory must still describe the tree")
+    }
+
+    /// The other direction, so the refusal above cannot be "the survey stopped working": with NO
+    /// corpus at all the survey runs and writes one, which is what a first survey is.
+    @Test func anAbsentCorpusStillSurveysFromScratch() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        try FileManager.default.removeItem(at: corpusURL)
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(FileManager.default.fileExists(atPath: corpusURL.path),
+                "an absent corpus must be rebuilt, not refused")
+        #expect(report.documentsRead > 0, "a survey with no corpus must read the tree")
+    }
+
     // MARK: - The thing that was asked for
 
     /// A folder created after the last survey, holding one filed document, becomes a destination the

@@ -66,8 +66,29 @@ public enum FilingProfileStore {
     }
 
     /// The folder profile for `id`, or nil when absent or unreadable.
+    ///
+    /// **What the decode salvaged is reported here, once.** A `role` this build has no case for
+    /// costs that folder its role rather than taking the whole profile — and with it the filing
+    /// layer — down; a folder demoted that way files differently, so the count and the offending
+    /// strings belong in the log the user can read. Said at the door rather than from inside the
+    /// decoder, which stays a pure function of its bytes.
     public static func profile(id: String, in directory: URL) -> FolderProfile? {
-        decode(FolderProfile.self, at: profileURL(id: id, in: directory), what: "folder profile")
+        guard let profile = decode(FolderProfile.self, at: profileURL(id: id, in: directory),
+                                   what: "folder profile") else { return nil }
+        if !profile.unknownRoles.isEmpty {
+            let named = profile.unknownRoles.sorted { $0.key < $1.key }
+                .map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
+            Logger.shared.warning("Folder profile '\(id)': \(profile.unknownRoles.values.reduce(0, +)) "
+                                  + "folder(s) carry a role this build does not know — \(named). They "
+                                  + "are read with no role, which is how an unsurveyed folder reads. "
+                                  + "A newer SyncCloud will use them.")
+        }
+        if profile.undecodableFolders > 0 {
+            Logger.shared.warning("Folder profile '\(id)': \(profile.undecodableFolders) folder "
+                                  + "entry/entries could not be read and were skipped. The rest of "
+                                  + "the profile is in use.")
+        }
+        return profile
     }
 
     /// The filing memory for `id`, or nil when absent or unreadable.
@@ -112,13 +133,34 @@ public enum FilingProfileStore {
         return Set(file?.notNames ?? [])
     }
 
-    /// All artifacts for the active profile, when there is one.
+    /// All artifacts for the active profile, when there is one — **and the id they were loaded
+    /// under**, which is not always the one inside the profile.
+    ///
+    /// **Identity was read from one place and written from another.** Everything here is read from
+    /// `profiles/<activeProfileId>/`, where `activeProfileId` comes from `profiles.json`; the app
+    /// then built the roster and tag stores from `profile.profileId`, a field INSIDE the artifact
+    /// that decodes to `"default"` when absent. Omit it — which nothing rejects — and reads come
+    /// from `work/` while the first roster edit writes to `default/`, where nothing reads it. The
+    /// fingerprint hashes the same empty directory, so every cached verdict is keyed against
+    /// artifacts not in use. The same split appears on a directory rename, which the docs present
+    /// as the way to add a second tree.
+    ///
+    /// The DIRECTORY is the identity: it is where the file was actually found. The field inside is
+    /// informational, and a disagreement is reported rather than silently preferred either way —
+    /// it means the generator wrote something inconsistent, and only the log can say so.
     public static func active(in directory: URL)
-        -> (profile: FolderProfile, memory: FilingMemory?, registry: PersonRegistry)? {
+        -> (id: String, profile: FolderProfile, memory: FilingMemory?, registry: PersonRegistry)? {
         guard let id = activeProfileId(in: directory), let profile = profile(id: id, in: directory) else {
             return nil
         }
-        return (profile, memory(id: id, in: directory),
+        if profile.profileId != id {
+            Logger.shared.warning("Filing profile: profiles.json names '\(id)' and the profile in "
+                                  + "that folder calls itself '\(profile.profileId)'. The folder "
+                                  + "wins — everything is read from and written to '\(id)' — but "
+                                  + "the two should agree; fix `profileId` in "
+                                  + "\(id)/folder-profile.json.")
+        }
+        return (id, profile, memory(id: id, in: directory),
                 personRegistry(id: id, profile: profile, in: directory))
     }
 

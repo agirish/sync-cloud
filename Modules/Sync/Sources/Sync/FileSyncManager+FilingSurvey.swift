@@ -114,7 +114,30 @@ extension FileSyncManager {
         // The salt binds the corpus to the memory: every stored identifier is hashed under it, so a
         // corpus written under one salt cannot contribute to a memory written under another. Prefer
         // what is already on disk, in that order, and mint one only for a tree that has neither.
-        let existing = FilingSurveyStore.corpus(id: profileId, in: directory)
+        // **An unreadable corpus must not be treated as an absent one.** Absent means "never
+        // surveyed" and starting from empty is right; unreadable says nothing about the tree, and
+        // starting from empty there means this pass merges whatever it happened to read into
+        // nothing and writes the result over the memory. With the display asleep or files
+        // offloaded that is a near-empty memory over megabytes of learned content, and the moved
+        // fingerprint throws away every cached classification with it — the same harm the
+        // unreadable-ROOT guard above refuses, arriving through the corpus door.
+        //
+        // Refusing costs a survey; continuing costs the survey history. The file itself is left
+        // exactly as it is, so it can be inspected or removed by hand.
+        let existing: FilingCorpus?
+        switch FilingSurveyStore.corpusRead(id: profileId, in: directory) {
+        case .unreadable:
+            Logger.shared.warning("Folder memory: filing-corpus.json is on disk but could not be "
+                                  + "read, so this pass would have started from an empty corpus and "
+                                  + "written the result over what has been learned. Nothing was "
+                                  + "re-surveyed and both files were left exactly as they are — "
+                                  + "move filing-corpus.json aside to survey from scratch.")
+            return .none
+        case .absent:
+            existing = nil
+        case .loaded(let corpus):
+            existing = corpus
+        }
         let salt = existing?.salt.isEmpty == false ? existing!.salt
             : (previousMemory?.salt.isEmpty == false ? previousMemory!.salt : Self.newSurveySalt())
         var corpus = existing ?? FilingCorpus(profileId: profileId, salt: salt)
