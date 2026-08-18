@@ -611,29 +611,42 @@ enum PaneLogic {
         min(max(base - Double(translation), inspectorMinWidth), inspectorMaxWidth)
     }
 
-    /// Whether the kept LEFT copy of a duplicate review is still where — AND what — the scan
-    /// saw it, mirroring the engine's `keeperStillExists` gate (FileSyncManager+Duplicates)
-    /// that every other duplicate-removal path honors: existence, plus for FILES a byte-size
-    /// comparison against the scan snapshot. An in-place edit or replacement changes the size,
-    /// and the "redundant" right copy is then no longer provably identical to the keeper —
-    /// trashing it could trash the last copy of the original content. Folders keep the
-    /// existence-only check (a folder's stat size isn't its recursive content size).
+    /// Whether one copy of a duplicate review is still where — AND what — the scan saw it.
+    ///
+    /// **Asked of BOTH ends, which is the whole point of the rename.** It was
+    /// `duplicateKeeperMatchesScan` and Compare called it on the keeper alone, because
+    /// `DuplicateCompareContext` carried nothing about the delete candidate beyond its path — the
+    /// check was structurally impossible, while the comment beside it claimed it mirrored the
+    /// engine's full gate. The engine has always checked both (`copyDriftedInPlace` is called for
+    /// the keeper and again for every removal candidate), and it calls the removal candidate the
+    /// dangerous half: a Compare review is designed to stay open, and while it is, a provider
+    /// re-download or an edit can replace the right copy. Trashing it then destroys the only
+    /// instance of its new content, under a button that says the left copy is kept.
+    ///
+    /// **Modification date as well as size**, mirroring the engine for the same reason it does:
+    /// size alone waves through every equal-length rewrite — 2025 to 2026, a `sed -i` over
+    /// fixed-width text. Both ends are compared only when both are known, so a scan that recorded
+    /// no date does not refuse every review.
     ///
     /// `statSucceeded: false` (the attributes read threw) refuses for a file, exactly like the
     /// engine's failed-attributes guard; `currentSize` nil with a successful stat (never happens
     /// on the real FS) falls back to the existence check rather than over-refuse — also like
-    /// the engine.
-    static func duplicateKeeperMatchesScan(
+    /// the engine. Folders keep the existence-only check here: a folder's stat size is not its
+    /// recursive content size, and the engine's own folder gap is tracked separately.
+    static func duplicateCopyMatchesScan(
         exists: Bool,
         isDirectory: Bool,
         statSucceeded: Bool,
         currentSize: Int?,
-        scannedSize: Int
+        scannedSize: Int,
+        currentDate: Date? = nil,
+        scannedDate: Date? = nil
     ) -> Bool {
         guard exists else { return false }
         guard !isDirectory else { return true }
         guard statSucceeded else { return false }
         if let currentSize, currentSize != scannedSize { return false }
+        if let scannedDate, let currentDate, scannedDate != currentDate { return false }
         return true
     }
 }

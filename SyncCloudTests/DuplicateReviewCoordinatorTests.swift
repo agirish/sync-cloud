@@ -96,6 +96,8 @@ private final class Harness {
             deletePath: "\(tidyProviderRoot)/\(deleteRel)",
             keepIsDirectory: true,
             keepScannedSize: 1234,
+            keepScannedDate: nil,
+            deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
             keeperRelativePath: keepRel,
             redundantRelativePath: deleteRel,
             restore: restore ?? SavedCompareState(
