@@ -48,6 +48,18 @@ enum CloudFilingClassifier {
         // bypassed, never make a cloud call once EITHER the monthly or the total (lifetime) cap has
         // been reached. Returning nil reuses the existing graceful on-device fallback. A monthly cap
         // of 0 = unlimited; the total cap defaults to $5 (see `totalBudgetCap(in:)`).
+        // **If the spend record cannot be read, no paid call may be made.** The caps are enforced
+        // against what this store says; a payload it could not decode says nothing, and spending
+        // on "nothing" is how the $5 lifetime cap gets re-armed from scratch. Refusing falls back
+        // to the on-device path, which is the same graceful degradation every other pause uses —
+        // and `FilingSpendStore` has kept the bytes, so this is recoverable rather than terminal.
+        if FilingSpendStore.isUnreadable(defaults: env.defaults) {
+            Logger.shared.warning("Cloud Filing paused — the recorded spend could not be read, so "
+                                  + "neither budget cap can be enforced. The unreadable values are "
+                                  + "kept under their \".unreadable\" keys; clear or repair them in "
+                                  + "Settings to resume. Using on-device suggestions.")
+            return nil
+        }
         let monthlyCap = env.defaults.double(forKey: FileSyncManager.monthlyBudgetCapKey)
         let totalCap = FileSyncManager.totalBudgetCap(in: env.defaults)
         let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(defaults: env.defaults), now: env.now())
@@ -118,11 +130,25 @@ enum CloudFilingClassifier {
 
             // Record spend for the Filing UI (history + total).
             if let u = usage {
+                // **An unknown model id means an unknown cost, not a free scan.** The pre-flight
+                // path already answers this nil honestly — its comment says the caller shows
+                // "estimate unavailable" rather than a wrong number — while this one coerced it to
+                // `0`, and that is the figure both budget caps are enforced against. Reachable by
+                // hand-setting the model id, which the code explicitly promises to honour. The call
+                // is still recorded (its tokens are real); the flag is what stops the 0 reading as
+                // "this cost nothing".
+                let priced = CloudFilingProtocol.estimatedCostUSD(model: model, usage: u)
+                if priced == nil {
+                    Logger.shared.error("Cloud Filing: no price table for model “\(model)”, so this "
+                                        + "scan's cost is unknown and is recorded as $0.00. Lifetime "
+                                        + "spend is now a floor rather than a total, and both budget "
+                                        + "caps under-count by whatever this call cost.")
+                }
                 FilingSpendStore.record(FilingSpendEntry(
                     timestamp: env.now(), model: model, fileCount: files.count, placedCount: verdicts?.count ?? 0,
                     inputTokens: u.inputTokens, outputTokens: u.outputTokens,
                     cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens,
-                    estimatedCostUSD: CloudFilingProtocol.estimatedCostUSD(model: model, usage: u) ?? 0),
+                    estimatedCostUSD: priced ?? 0, costUnpriced: priced == nil),
                     defaults: env.defaults)
             }
 

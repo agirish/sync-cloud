@@ -1,3 +1,4 @@
+import Events
 import Foundation
 
 /// One cloud (Claude) Filing classification call, recorded for the spend history.
@@ -12,17 +13,45 @@ public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
     public let cacheReadTokens: Int
     public let cacheCreationTokens: Int
     public let estimatedCostUSD: Double
+    /// True when this scan's cost could NOT be derived — an unrecognised model id, which the price
+    /// table answers `nil` for. `estimatedCostUSD` is then 0 because the call still has to be
+    /// recorded, and the flag is what stops that 0 being read as "this scan was free".
+    ///
+    /// **The pre-flight path already handled the identical nil honestly** — its own comment says
+    /// the caller shows "estimate unavailable" rather than a wrong number — while the post-flight
+    /// path coerced it to `0`, and that is the number the budget caps enforce against. Reachable
+    /// through a hand-set model id, which the code explicitly promises to honour.
+    public let costUnpriced: Bool
 
     public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens }
 
     public init(id: String = UUID().uuidString, timestamp: Date, model: String, fileCount: Int,
                 placedCount: Int, inputTokens: Int, outputTokens: Int, cacheReadTokens: Int,
-                cacheCreationTokens: Int, estimatedCostUSD: Double) {
+                cacheCreationTokens: Int, estimatedCostUSD: Double, costUnpriced: Bool = false) {
         self.id = id; self.timestamp = timestamp; self.model = model
         self.fileCount = fileCount; self.placedCount = placedCount
         self.inputTokens = inputTokens; self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens; self.cacheCreationTokens = cacheCreationTokens
         self.estimatedCostUSD = estimatedCostUSD
+        self.costUnpriced = costUnpriced
+    }
+
+    /// Optional-with-default for the same reason ``FilingSpendTotals`` is: an entry written before
+    /// a field existed must not throw, because a throw here empties the capped history the MONTHLY
+    /// cap is summed from.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        timestamp = try c.decodeIfPresent(Date.self, forKey: .timestamp) ?? Date(timeIntervalSince1970: 0)
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        fileCount = try c.decodeIfPresent(Int.self, forKey: .fileCount) ?? 0
+        placedCount = try c.decodeIfPresent(Int.self, forKey: .placedCount) ?? 0
+        inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens) ?? 0
+        outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
+        cacheReadTokens = try c.decodeIfPresent(Int.self, forKey: .cacheReadTokens) ?? 0
+        cacheCreationTokens = try c.decodeIfPresent(Int.self, forKey: .cacheCreationTokens) ?? 0
+        estimatedCostUSD = try c.decodeIfPresent(Double.self, forKey: .estimatedCostUSD) ?? 0
+        costUnpriced = try c.decodeIfPresent(Bool.self, forKey: .costUnpriced) ?? false
     }
 }
 
@@ -31,8 +60,26 @@ public struct FilingSpendTotals: Codable, Equatable, Sendable {
     public var costUSD: Double
     public var tokens: Int
     public var scans: Int
-    public init(costUSD: Double = 0, tokens: Int = 0, scans: Int = 0) {
+    /// Scans whose cost could not be priced — an unrecognised model id. `costUSD` is then a FLOOR
+    /// rather than a total, and the surfaces that show it say so.
+    public var unpricedScans: Int
+
+    public init(costUSD: Double = 0, tokens: Int = 0, scans: Int = 0, unpricedScans: Int = 0) {
         self.costUSD = costUSD; self.tokens = tokens; self.scans = scans
+        self.unpricedScans = unpricedScans
+    }
+
+    /// **Every field optional-with-default, like every neighbouring store in this module.**
+    /// `FilingVerdictCache`, `FilingMemory`, `PersonRegistry` and `PaneTabsStore` all decode this
+    /// way precisely so that adding one field cannot make the decoder throw on every existing
+    /// user's data — and a throw here is not a read failure, it is an erasure: `record` writes the
+    /// zeroed value straight back over the lifetime total the budget cap is enforced against.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        tokens = try c.decodeIfPresent(Int.self, forKey: .tokens) ?? 0
+        scans = try c.decodeIfPresent(Int.self, forKey: .scans) ?? 0
+        unpricedScans = try c.decodeIfPresent(Int.self, forKey: .unpricedScans) ?? 0
     }
 }
 
@@ -70,10 +117,61 @@ public enum FilingSpendStore {
     /// wrote (record runs off the main actor); observers hop to main themselves.
     public static let didChange = Notification.Name("com.synccloud.filing-spend-did-change")
 
+    /// How a spend read went. **Absent and unreadable are different facts, and for a MONEY store
+    /// the difference is the whole thing.**
+    ///
+    /// Both used to answer "zero", and `record` then wrote that zero back: one unreadable payload
+    /// erased the lifetime total, re-armed the $5 cap from scratch, and made the erasure permanent.
+    /// Settings showed $0.00 lifetime with nothing to say why. The CAP side of this same feature
+    /// was carefully defended against exactly this — `totalBudgetCap` distinguishes an absent key
+    /// from a stored 0, and says so — while the SPENT side was not.
+    public enum Read<T>: Sendable where T: Sendable {
+        /// Nothing recorded yet. Zero is the honest answer.
+        case absent
+        /// A payload that could not be decoded. Nothing may be concluded about spend from it.
+        case unreadable
+        case loaded(T)
+
+        /// The value, treating both failures as empty — for the display surfaces that genuinely
+        /// have one answer for "nothing yet" and "cannot say". A caller enforcing a BUDGET, or
+        /// about to write, must switch on the case instead.
+        public func value(orEmpty empty: T) -> T {
+            if case .loaded(let v) = self { return v }
+            return empty
+        }
+    }
+
+    static func read<T: Decodable & Sendable>(_ type: T.Type, key: String,
+                                              defaults: UserDefaults) -> Read<T> {
+        guard let data = defaults.data(forKey: key) else { return .absent }
+        if let decoded = try? JSONDecoder().decode(type, from: data) { return .loaded(decoded) }
+        // Kept, then never written over — see `recordLocked`. Read-and-compare so a repeated read
+        // on a still-corrupt store does not rewrite the same payload.
+        let backupKey = key + ".unreadable"
+        if defaults.data(forKey: backupKey) != data {
+            defaults.set(data, forKey: backupKey)
+        }
+        return .unreadable
+    }
+
+    public static func entriesRead(defaults: UserDefaults = .standard) -> Read<[FilingSpendEntry]> {
+        read([FilingSpendEntry].self, key: historyKey, defaults: defaults)
+    }
+
+    public static func totalsRead(defaults: UserDefaults = .standard) -> Read<FilingSpendTotals> {
+        read(FilingSpendTotals.self, key: totalsKey, defaults: defaults)
+    }
+
+    /// True when either persisted figure is on disk and unreadable, so no budget may be enforced
+    /// against what this store can currently say.
+    public static func isUnreadable(defaults: UserDefaults = .standard) -> Bool {
+        if case .unreadable = entriesRead(defaults: defaults) { return true }
+        if case .unreadable = totalsRead(defaults: defaults) { return true }
+        return false
+    }
+
     public static func entries(defaults: UserDefaults = .standard) -> [FilingSpendEntry] {
-        guard let data = defaults.data(forKey: historyKey),
-              let decoded = try? JSONDecoder().decode([FilingSpendEntry].self, from: data) else { return [] }
-        return decoded
+        entriesRead(defaults: defaults).value(orEmpty: [])
     }
 
     public static func last(defaults: UserDefaults = .standard) -> FilingSpendEntry? {
@@ -82,9 +180,7 @@ public enum FilingSpendStore {
     }
 
     public static func totals(defaults: UserDefaults = .standard) -> FilingSpendTotals {
-        guard let data = defaults.data(forKey: totalsKey),
-              let decoded = try? JSONDecoder().decode(FilingSpendTotals.self, from: data) else { return .init() }
-        return decoded
+        totalsRead(defaults: defaults).value(orEmpty: .init())
     }
 
     /// The locked read-modify-write half of `record`; the public entry posts `didChange` after
@@ -92,20 +188,56 @@ public enum FilingSpendStore {
     private static func recordLocked(_ entry: FilingSpendEntry, defaults: UserDefaults) {
         lock.lock()
         defer { lock.unlock() }
-        var list = entries(defaults: defaults)
-        list.append(entry)
-        if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
-        // Only write when encoding succeeds. `set(nil, forKey:)` REMOVES the key, so an encode
-        // failure here would silently erase the whole capped history / totals rather than
-        // no-op — leave the prior value intact instead.
-        if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: historyKey) }
+        // **A payload this build could not read is never written over.** Adding to a list that
+        // decoded as empty, or to a total that decoded as zero, is what turned one unreadable
+        // value into a permanent erasure — and into a budget cap re-armed from scratch. The bytes
+        // are preserved by `read` under a `.unreadable` sibling key; this refuses the write that
+        // would otherwise land on top of them, and says so once per record.
+        //
+        // The last-scan snapshot is written regardless: it is display-only, it is a fresh value
+        // rather than an accumulation, and nothing is enforced against it.
+        let historyState = entriesRead(defaults: defaults)
+        let totalsState = totalsRead(defaults: defaults)
+
         if let data = try? JSONEncoder().encode(entry) { defaults.set(data, forKey: lastKey) }
 
-        var t = totals(defaults: defaults)
-        t.costUSD += entry.estimatedCostUSD
-        t.tokens += entry.totalTokens
-        t.scans += 1
-        if let data = try? JSONEncoder().encode(t) { defaults.set(data, forKey: totalsKey) }
+        switch historyState {
+        case .unreadable:
+            // `Logger.shared` is main-actor isolated on this line, and this runs off the main
+            // actor — the hop is the same one `FileSyncManager+Scanning` uses for its own
+            // off-actor logging. (On `main` the singleton is `nonisolated` and the hop is absent;
+            // that change did not travel here.)
+            Task { @MainActor in
+            Logger.shared.error("Filing spend: the saved scan history could not be read, so this "
+                                + "scan was NOT added to it — the unreadable copy is kept under "
+                                + "\"\(historyKey).unreadable\". The monthly cap cannot be "
+                                + "enforced until it is resolved, and cloud Filing stays paused.")
+            }
+        case .absent, .loaded:
+            var list = historyState.value(orEmpty: [])
+            list.append(entry)
+            if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
+            // Only write when encoding succeeds. `set(nil, forKey:)` REMOVES the key, so an encode
+            // failure here would silently erase the whole capped history rather than no-op.
+            if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: historyKey) }
+        }
+
+        switch totalsState {
+        case .unreadable:
+            Task { @MainActor in
+            Logger.shared.error("Filing spend: the lifetime totals could not be read, so this "
+                                + "scan was NOT added to them — the unreadable copy is kept under "
+                                + "\"\(totalsKey).unreadable\". The lifetime cap cannot be "
+                                + "enforced until it is resolved, and cloud Filing stays paused.")
+            }
+        case .absent, .loaded:
+            var t = totalsState.value(orEmpty: .init())
+            t.costUSD += entry.estimatedCostUSD
+            t.tokens += entry.totalTokens
+            t.scans += 1
+            if entry.costUnpriced { t.unpricedScans += 1 }
+            if let data = try? JSONEncoder().encode(t) { defaults.set(data, forKey: totalsKey) }
+        }
     }
 
     public static func record(_ entry: FilingSpendEntry, defaults: UserDefaults = .standard) {
