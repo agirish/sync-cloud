@@ -400,13 +400,18 @@ provider switch but one blew AppKit's budget:
 
 | | passes | window's view budget | over budget by |
 |---|---|---|---|
-| worst seen | **5,840** | 227 | **25×** |
+| worst seen *(superseded — see below)* | **5,840** | 227 | **25×** |
 | typical | 600–4,800 | 146–233 | 3–20× |
 | rate | **9 of 10 switches** | | |
 
 AppKit raises once passes exceed the view count, so essentially every one of these would have been
 the crash — which is exactly why the manual repro "reproduces by hand, every time". The session
 survived only because the assert is suppressed.
+
+**"Worst seen" was wrong when written, by 2.4×.** The same build spent 14,160 passes against 230
+views nine seconds before the 5,840 below it — read from the same log two weeks later, in
+["Two weeks of trace, read"](#two-weeks-of-trace-read--2026-08-18). Taking the worst from what was
+on screen during a session, rather than from the log the trace was writing, is how it was missed.
 
 **Two cycles per switch, and the budget moves the wrong way.** Each switch produced a cycle at
 ~146–157 views and a second at ~230–233. The tree being dropped is what shrinks the view count, so
@@ -417,6 +422,10 @@ that reduces view count during a republish makes the cliff nearer.
 spent 21–23 passes, 37–40% of its own budget, on three separate occasions — and every one of those
 was *before* any main-window churn. This is a different window from the pane, so the app-global
 suppression is load-bearing for more than Columns.
+
+**And "37–40% of its own budget" is an understatement**: across two weeks the popover goes *over*
+budget on every build carrying the trace, on windows as small as one view — see
+["Two weeks of trace, read"](#two-weeks-of-trace-read--2026-08-18).
 
 ### What the metric ruled out that survival counts never could
 
@@ -639,6 +648,72 @@ the List path already does — **and it was wrong.** It was built, installed and
 above this one records what happened (worse churn, and the dead click back). Kept here because the
 reasoning still reads as sound and the next person will otherwise re-derive it: the flaw is not in
 the observation, it is in assuming that deferring work off a loop calms the loop.
+
+## Two weeks of trace, read — 2026-08-18
+
+The trace has been armed on this Mac since 2026-08-04, and nobody had read it since. **1,408 cycle
+events across seven builds**, 2026-08-04 → 2026-08-18. Three things in it correct what is above.
+
+Every event is attributable to a build, because `SyncCloudApp` writes a launch breadcrumb into the
+same log the trace writes to — so a walk that carries the most recent `SyncCloud <version> (build N)`
+line forward attributes every cycle after it. The whole analysis is one pass over:
+
+```sh
+grep -E '\[INFO\] SyncCloud .*\(build |\[cycle\] "' ~/sync-cloud.log
+```
+
+**1. The ceiling recorded above is 2.4× low.** "Worst seen 5,840 / 227 views / 25×" is the
+*second*-worst cycle of that morning. Nine seconds earlier the same build spent **14,160 passes
+against a 230-view budget — 62× over**:
+
+| time | build | views | passes | over |
+|---|---|---|---|---|
+| 06:56:39 | `3.0-dev`/300 | 233 | 4,769 | 20× |
+| **06:56:59** | `3.0-dev`/300 | **230** | **14,160** | **62×** |
+| 06:57:08 | `3.0-dev`/300 | 227 | 5,840 | 26× |
+
+That is shipped code, checked rather than assumed. The deferral candidate's give-away line —
+`dropped a stale deferred tap navigation`, which exists only in that build — first appears at
+**08:12:53**, so the whole 08:12–08:15 cluster is the candidate: it holds the 13,882 this file
+already attributes to it, and a **26,366** it does not mention. Neither belongs to the app.
+
+**2. The magnitude fell across builds. The FREQUENCY did not.** The 62× runaways belong to
+`3.0-dev` during a session where somebody was deliberately reproducing it. On today's `4.1-dev`/401
+the main window's worst is 278 passes against 88 views — 3.2×, nothing like 62 — and it is still
+**over AppKit's budget in 158 of 539 main-window cycles**. Every one of those would have raised
+without the suppression.
+
+| build | main-window cycles | over budget | worst |
+|---|---|---|---|
+| `3.0-dev`/300 | 42 | 41 | 14,160 / 230 (62×) |
+| `3.1-dev`/301 | 12 | 0 | 95 / 318 |
+| `3.2-dev`/302 | 307 | 75 | 467 / 147 (3.2×) |
+| `4.0-dev`/400 | 129 | 3 | 1,079 / 452 (2.4×) |
+| `4.1-dev`/401 | 539 | **158** | 278 / 88 (3.2×) |
+
+Read the two middle columns together rather than either alone, and mind what the denominator is:
+the trace reports only cycles clearing both the floor and ⅛ of budget, so these are already the
+noisy ones, not all cycles. "9 of 10 switches blew the budget" above was measured on 300 under a
+deliberate repro; a quarter to a third of *reported* cycles going over is what ordinary use looks
+like.
+
+**3. The popover does not merely churn — it goes over.** "21–31 passes against 53–57 views, 37–40%
+of its own budget" understates it. `"untitled"` exceeds its budget on **all seven builds carrying
+the trace** — from 11% of its reported cycles on the oldest to 38% on `3.1-dev`, and 44 of 173 on
+today's `4.1-dev` — and does it on windows of one and two views: 49 passes against a **1-view**
+window on 2026-08-15. So the app-global suppression is not just load-bearing for more than Columns;
+the popover would be raising on its own.
+
+(The range was written "25–33%" here first, off a four-build subset of the same table. Quoting a
+spread from part of the data is the error this file keeps recording; the seven-build figures are
+what the command above prints.)
+
+**And `3.2-dev` is in that table, which the top of this file could not say.** "Which line has
+actually crashed" had only crash reports to work from, and no 3.x-maintenance build had produced
+one — so this line's exposure read as unmeasured. It produces the runaway: 75 of 307 main-window
+cycles over budget. **v2.x is still unmeasured rather than immune**, and now for a stated reason
+rather than an absence — no 2.x build appears anywhere in this log at all.
+
 
 ## The next lead
 
