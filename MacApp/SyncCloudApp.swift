@@ -10,6 +10,28 @@ import AppIntents
 // Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.
 private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 
+/// AppKit's display-cycle assert, named once.
+///
+/// **The key was spelled as a bare literal twice, ~630 lines apart** — once where it is registered
+/// off, once where the launch breadcrumb reads it back to say whether the crash is armed. They
+/// matched, and a typo in either would have made the diagnostic lie in the worst possible
+/// direction: registering one key and reading another reports ARMED for a session that is in fact
+/// suppressed, which is the exact question `docs/columns-layout-loop.md` exists to answer. Both
+/// sites sit inside `if !isRunningTests`, so no test covers either.
+enum DisplayCycleAssert {
+    static let key = "NSWindowAssertWhenDisplayCycleLimitReached"
+
+    /// Whether AppKit will raise — **mirroring AppKit's own order** (`objectForKey:`, then
+    /// `boolForKey:`), which is what makes the breadcrumb agree with what actually happens.
+    ///
+    /// Absent means armed: under tests nothing is registered at all, deliberately, so CI keeps
+    /// failing loudly if a fixture ever reproduces the runaway. See
+    /// `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in".
+    static func isArmed(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: key) == nil || defaults.bool(forKey: key)
+    }
+}
+
 @main
 /// The main entry point for the SyncCloud macOS application.
 /// Manages the lifecycle of `FileSyncManager` and configures the root `ContentView`.
@@ -101,7 +123,7 @@ struct SyncCloudApp: App {
             // `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in" has the
             // method, so this does not get re-litigated from the crash rate again.
             UserDefaults.standard.register(
-                defaults: ["NSWindowAssertWhenDisplayCycleLimitReached": false])
+                defaults: [DisplayCycleAssert.key: false])
 
             // The log line that reports which state this session is in is deliberately NOT here —
             // it is in the delegate's `applicationDidFinishLaunching`, for exactly the reason the
@@ -453,10 +475,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // agree. See `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in".
         //
         // Here rather than in `App.init` because this fires exactly once; init can be re-run.
-        let assertKey = "NSWindowAssertWhenDisplayCycleLimitReached"
-        let assertArmed = UserDefaults.standard.object(forKey: assertKey) == nil
-            || UserDefaults.standard.bool(forKey: assertKey)
-        if assertArmed {
+        if DisplayCycleAssert.isArmed(in: .standard) {
             Logger.shared.info(
                 "[layout-guard] AppKit display-cycle assert is ARMED — a Columns provider switch "
                 + "can crash this session (docs/columns-layout-loop.md)")
