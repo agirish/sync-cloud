@@ -308,4 +308,91 @@ import UniformTypeIdentifiers
         #expect(texts.allSatisfy { $0.contains("MARKER") },
                 "a document came back without its marker — the reads are not returning real text")
     }
+
+    // MARK: - "Could not look" is not "nothing to say"
+
+    /// **Every reader here answers `""` on failure, so a log line is the only thing that separates a
+    /// read failure from a document with nothing in it.** Two of the three branches had none: a text
+    /// file the scan cannot open, and a PDF that will not parse, each contributed no tokens and no
+    /// excerpt, and the document then went to the classifier on its filename alone with nothing
+    /// anywhere saying why. The OCR branch beside them already argues exactly that case in prose.
+    ///
+    /// Driven with real files, because that is the only way to make these reads fail: `chmod 000`
+    /// for the text branch and bytes that are not a PDF for the other. Both are read through the
+    /// marker-and-slice discipline the OCR test above establishes — see mechanism 12 in
+    /// `docs/flaky-tests.md` — and the fixture names are unique to this test for the same reason.
+    @MainActor
+    @Test func aFileThatCannotBeReadSaysSoRatherThanReadingAsEmpty() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("unreadable-notes.txt")
+        try "policy declarations geico".write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path) }
+
+        let marker = "unreadable-text window open \(UUID().uuidString)"
+        await Logger.shared.debug(marker).value
+
+        #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).isEmpty,
+                "the fixture is readable after chmod 000 — this test is not exercising a failed read")
+
+        // FIFO, so awaiting a later entry drains everything the read enqueued before it.
+        await Logger.shared.debug("unreadable-text flush marker").value
+        let entries = Logger.shared.entries
+        let opened = entries.lastIndex { $0.message == marker }
+        let from = try #require(opened,
+                                "the 1000-line log window rolled past this test's own marker, so the reading below examined nothing — see mechanism 12 in docs/flaky-tests.md")
+        let said = entries[from...].filter {
+            $0.level == .warning && $0.message.contains("unreadable-notes.txt")
+        }
+        #expect(!said.isEmpty,
+                "a text file that could not be opened produced no text and no warning — the document is classified on its filename alone and nothing says why")
+    }
+
+    /// The same for the PDF branch. `PDFDocument(url:)` returns nil rather than throwing, so there
+    /// is no error to quote and the line says the one thing that is known — it did not open.
+    @MainActor
+    @Test func aPDFThatWillNotOpenSaysSo() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("unparseable-statement.pdf")
+        try Data("this is not a pdf".utf8).write(to: URL(fileURLWithPath: path))
+
+        let marker = "unparseable-pdf window open \(UUID().uuidString)"
+        await Logger.shared.debug(marker).value
+
+        #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).isEmpty)
+
+        await Logger.shared.debug("unparseable-pdf flush marker").value
+        let entries = Logger.shared.entries
+        let from = try #require(entries.lastIndex { $0.message == marker },
+                                "the 1000-line log window rolled past this test's own marker — see mechanism 12 in docs/flaky-tests.md")
+        let said = entries[from...].filter {
+            $0.level == .warning && $0.message.contains("unparseable-statement.pdf")
+        }
+        #expect(!said.isEmpty, "a PDF that will not parse read as a PDF with no text in it")
+    }
+
+    /// **The guard on both.** A file that reads fine logs nothing, so the two tests above are about
+    /// the failure rather than about this reader narrating every file it touches — a scan walks
+    /// thousands of documents, and a per-file line on the happy path would bury the warnings it is
+    /// there to surface.
+    @MainActor
+    @Test func aFileThatReadsFineIsSilent() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("quiet-notes.txt")
+        try "Declarations Page. Your GEICO auto insurance policy."
+            .write(toFile: path, atomically: true, encoding: .utf8)
+
+        let marker = "quiet-read window open \(UUID().uuidString)"
+        await Logger.shared.debug(marker).value
+
+        #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).contains("GEICO"),
+                "the fixture did not read — a silent log would then prove nothing")
+
+        await Logger.shared.debug("quiet-read flush marker").value
+        let entries = Logger.shared.entries
+        let from = try #require(entries.lastIndex { $0.message == marker },
+                                "the 1000-line log window rolled past this test's own marker — see mechanism 12 in docs/flaky-tests.md")
+        let said = entries[from...].filter { $0.message.contains("quiet-notes.txt") }
+        #expect(said.isEmpty, "a readable file logged \(said.map(\.message)) — the warnings above would be lost in the noise")
+    }
 }

@@ -194,4 +194,97 @@ import Events
         #expect(await manager.resolveDuplicateGroup(g) == true)
         #expect(mockFM.virtualDisk["/b/x"] == nil)
     }
+
+    // MARK: What the batch says when it removes nothing, and what it claims it freed
+
+    /// **"Nothing to remove" is not "something changed."** Every empty batch produced the same
+    /// warning — "These groups changed since they were scanned — rescan before removing copies" —
+    /// and drift is only one of the two ways to get one. A group whose every redundant copy is
+    /// PROTECTED contributes no paths while nothing about it has changed at all, so a rescan finds
+    /// exactly the same group and the advice sends the user around a loop.
+    @MainActor
+    @Test func aBatchOfProtectedCopiesIsNotReportedAsDrift() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+
+        let keeper = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                                   modificationDate: Date(timeIntervalSince1970: 1_000),
+                                   uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let protectedCopy = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 1000,
+                                          itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1_000),
+                                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false,
+                                          isProtectedFromRemoval: true)
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [keeper, protectedCopy], reclaimableBytes: 1000)
+        try #require(g.recommendedRemovalPaths.isEmpty, "the fixture no longer produces an empty removal list")
+        try #require(g.isRecommendedForBatch, "the fixture is not eligible, so it never reaches the banner under test")
+        manager.duplicateGroups = [g]
+
+        await manager.applyRecommendedDuplicates([g])
+
+        let said = try #require(manager.banner?.message)
+        #expect(!said.contains("changed since they were scanned"),
+                "a group nothing has touched was reported as drifted — a rescan finds the same thing: “\(said)”")
+        #expect(said.contains("protected"), "the banner does not say why nothing was removed: “\(said)”")
+        // And both copies are still there — nothing was trashed on the way to that message.
+        #expect(mockFM.virtualDisk["/b/x"] != nil)
+    }
+
+    /// …and the drift wording survives for the case it was written for, so the fix above is a
+    /// narrowing rather than a removal.
+    @MainActor
+    @Test func aDriftedBatchStillSaysToRescan() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        // The redundant copy was rewritten since the scan — a different size is a KNOWN mismatch.
+        mockFM.virtualDisk["/b/x"] = stub(size: 2000, modified: Date(timeIntervalSince1970: 1_000))
+        let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
+        manager.duplicateGroups = [g]
+
+        await manager.applyRecommendedDuplicates([g])
+
+        #expect(manager.banner?.message.contains("changed since they were scanned") == true,
+                "a genuinely drifted batch stopped telling the user to rescan: “\(manager.banner?.message ?? "nil")”")
+        #expect(mockFM.virtualDisk["/b/x"] != nil, "a drifted copy was trashed")
+    }
+
+    /// **Space the user never got back must not be reported as reclaimed.**
+    ///
+    /// A group whose redundant copy vanished externally between the scan and the click still
+    /// resolves — every removal path is gone, so it correctly drops off the list — but this run
+    /// freed nothing for it. Measured before the fix, two identical pairs with one copy already
+    /// removed by something else reported **"Reclaimed 5 KB from 2 groups — press ⌘Z to undo"** for
+    /// a run that trashed one 1 KB file.
+    ///
+    /// **The keeper of the vanished group has to match its recorded size**, or the fixture proves
+    /// nothing: `keeperStillExists` refuses a drifted keeper, so a keeper stubbed at a different
+    /// size drops the group at the batch filter and the accounting line is never reached. A first
+    /// draft of this test did exactly that, passed against the unfixed code, and read as evidence
+    /// the defect was unreachable.
+    @MainActor
+    @Test func bytesAreNotCreditedForCopiesThatVanishedExternally() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/a/y"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        // `/b/y` is deliberately NOT on the disk: something else removed it after the scan.
+
+        let here = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1_000)
+        let gone = group(keeper: "/a/y", redundant: "/b/y", reclaim: 4_000)
+        manager.duplicateGroups = [here, gone]
+
+        await manager.applyRecommendedDuplicates([here, gone])
+
+        let said = try #require(manager.banner?.message)
+        print("PROBE banner=\(said) err=\(String(describing: manager.currentError))")
+        #expect(said.contains(FileSyncManager.formatBytes(1_000)),
+                "the banner does not name what this run actually freed: “\(said)”")
+        #expect(!said.contains(FileSyncManager.formatBytes(5_000)),
+                "the banner credited this run with space a copy that had already vanished used to take: “\(said)”")
+        #expect(said.contains("1 KB"), "the banner does not name the one group this run actually freed: “\(said)”")
+    }
 }
