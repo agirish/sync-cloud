@@ -8,7 +8,7 @@ User-facing changes, newest first. For the full commit history see the
 ## v4.1 — DRAFT, not released
 
 > **This section is a draft.** v4.1 has not been cut and this is not final copy.
-> Covers `v4.0..f7bbe192`. Every claim was checked against the `v4.0` tag: fixes to
+> Covers `v4.0..9bf48ef0`. Every claim was checked against the `v4.0` tag: fixes to
 > work that landed *inside* this range earn no entry, because no user of v4.0 was
 > ever exposed to them. That rule takes out most of the range — tabs arrived here,
 > so the review passes that followed them are repairs to unreleased work.
@@ -63,7 +63,7 @@ into a place you can keep several jobs open in at once.
 
 ### Safety
 
-Nine fixes for things a v4.0 install really did. Most of them are the app no longer
+Eleven fixes for things a v4.0 install really did. Most of them are the app no longer
 destroying or misdescribing your files.
 
 - **A folder the app cannot read no longer counts as an empty one.** macOS hands
@@ -94,6 +94,23 @@ destroying or misdescribing your files.
   ones left. Separately, the duplicate resolve **compared two copies by byte size
   alone**, so a rewrite that kept the length was trashed as redundant; that check now
   reads the modification date, and folder groups re-verify their contents.
+- **Apply recommended told you it had freed space it had not.** A group whose copies
+  something else had already removed still counts as resolved — it leaves the list,
+  correctly — but the run reclaimed nothing for it, and its recorded size went into
+  the total anyway. Two identical pairs with one copy already gone reported
+  **"Reclaimed 5 KB from 2 groups"** for a run that trashed one 1 KB file. The same
+  button also gave the wrong advice when it removed nothing at all: **"these groups
+  changed since they were scanned — rescan"** was shown for every empty batch, and
+  the usual reason is the opposite one — every copy in the group is protected, so
+  nothing has changed and the rescan finds exactly what you started with.
+- **The log says when a document could not be read**, rather than reading like a
+  document with nothing in it. A file the filing scan cannot open — no permission,
+  deleted between the walk and the read, an unreachable mount — contributed no text,
+  so the suggestion was made from the filename alone with nothing anywhere saying
+  why. Three readers were silent about it: a text file that will not open, a PDF that
+  will not parse, and an image that will not decode. The OCR reader already said so;
+  now all four do. What is suggested is unchanged — this is the difference between a
+  scan you can diagnose and one you cannot.
 - **Redo re-applies a nested rename in the order that makes it possible.** It
   replayed the undo's order, so a parent was renamed back first and each deeper
   item's recorded destination named a parent that had stopped existing — which
