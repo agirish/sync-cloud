@@ -1178,6 +1178,145 @@ import Combine
         #expect(manager.duplicateGroups.first?.keeper.path == "/a/y")
         #expect(manager.banner?.severity == .warning, "a partial outcome must not read as full success")
     }
+
+    /// **A folder's stat size is not its recursive content size**, so the drift check must never
+    /// compare the two — the exemption the keeper check has always had, now expressed as a
+    /// CONTENT comparison rather than as no comparison at all. Untested, this is one wrong line
+    /// away from refusing EVERY folder duplicate group.
+    @MainActor
+    @Test func aFolderCopyIsNotRefusedForItsStatSize() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 400_000, itemCount: 4)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == true, "a folder group was refused because a directory stat is not its content size")
+        #expect(mockFM.virtualDisk["/b/Photos"] == nil)
+    }
+
+    /// **The gap this closes, as the report described it.** Scan two 3,000-file folders as
+    /// identical, move 1,200 photos out of the KEEPER, press Move to Trash — and the last intact
+    /// copy of those 1,200 was destroyed, because a folder group's entire resolve-time guarantee
+    /// was "a directory entry still exists at this path".
+    @MainActor
+    @Test func aFolderThatLostFilesSinceTheScanIsRefused() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        // The scan recorded four files each; the keeper has since lost one.
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 3, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 400_000, itemCount: 4)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(mockFM.virtualDisk["/b/Photos"] != nil,
+                "the backup was trashed while the keeper was missing 1,200 photos")
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    /// And the other end: the REDUNDANT copy gaining content nothing else has. Trashing it then
+    /// destroys the only instance of that content, under a banner calling it redundant.
+    @MainActor
+    @Test func aRedundantFolderThatGainedFilesIsRefused() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: 5, bytesEach: 100_000)
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 400_000, itemCount: 4)
+        manager.duplicateGroups = [group]
+
+        #expect(await manager.resolveDuplicateGroup(group) == false)
+        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
+    }
+
+    /// **A same-count, different-bytes edit is caught too** — swap one file for another of a
+    /// different size and the count alone would wave it through.
+    @MainActor
+    @Test func aFolderWhoseBytesChangedIsRefused() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 90_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 400_000, itemCount: 4)
+        manager.duplicateGroups = [group]
+
+        #expect(await manager.resolveDuplicateGroup(group) == false)
+        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
+    }
+
+    /// A folder that cannot be listed completely counts as drifted, which refuses — a partial
+    /// listing cannot prove a folder is still what it was.
+    @MainActor
+    @Test func anUnlistableFolderIsRefused() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        mockFM.unlistableDirectories.insert("/a/Photos")
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 400_000, itemCount: 4)
+        manager.duplicateGroups = [group]
+
+        #expect(await manager.resolveDuplicateGroup(group) == false)
+        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
+    }
+
+    /// Nested folders count as entries too — `itemCount` is every descendant, files and folders
+    /// alike, which is what the scan's own rollup records.
+    @MainActor
+    @Test func aFolderWithSubfoldersCountsThemAsEntries() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        for root in ["/a/Photos", "/b/Photos"] {
+            mockFM.virtualDisk[root] = MockFileManager.FileStub(isDirectory: true,
+                                                                attributes: [.size: 96], contents: nil)
+            mockFM.virtualDisk["\(root)/2019"] = MockFileManager.FileStub(
+                isDirectory: true, attributes: [.size: 96], contents: nil)
+            for i in 0..<2 {
+                mockFM.virtualDisk["\(root)/2019/p\(i).jpg"] = MockFileManager.FileStub(
+                    isDirectory: false, attributes: [.size: 50_000], contents: nil)
+            }
+        }
+        // 3 entries: the 2019 folder plus its two files.
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 100_000, itemCount: 3)
+        manager.duplicateGroups = [group]
+
+        #expect(await manager.resolveDuplicateGroup(group) == true,
+                "a nested folder group was refused; the entry count must include subfolders")
+    }
+
+    /// Plants a folder holding `files` regular files of `bytesEach`.
+    static func plantFolder(_ fm: MockFileManager, at path: String, files: Int, bytesEach: Int) {
+        fm.virtualDisk[path] = MockFileManager.FileStub(isDirectory: true,
+                                                        attributes: [.size: 96], contents: nil)
+        for i in 0..<files {
+            fm.virtualDisk["\(path)/p\(i).jpg"] = MockFileManager.FileStub(
+                isDirectory: false, attributes: [.size: bytesEach], contents: nil)
+        }
+    }
+
+    static func folderGroup(keeper: String, redundant: String,
+                            size: Int, itemCount: Int) -> DuplicateGroup {
+        let k = DuplicateCopy(id: keeper, name: "Photos", isDirectory: true, size: size,
+                              itemCount: itemCount, modificationDate: nil, uniqueItemCount: 0,
+                              depth: 2, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: redundant, name: "Photos", isDirectory: true, size: size,
+                              itemCount: itemCount, modificationDate: nil, uniqueItemCount: 0,
+                              depth: 2, isRecommendedKeeper: false)
+        return DuplicateGroup(matchType: .identical, name: "Photos", isDirectory: true,
+                              copies: [k, r], reclaimableBytes: size)
+    }
 }
 
 /// A real FileManager that simulates external activity landing mid-merge: the FIRST copy it
