@@ -36,6 +36,16 @@ import Sync
     /// A fixed instant, so the formatted string cannot vary with the day the suite runs.
     private static let stamp = Date(timeIntervalSince1970: 1_700_000_000)
 
+    /// Built independently of the app's formatter, for the same reason `theTreesDateKeepsItsFormat`
+    /// builds one: the string is locale- and timezone-dependent, so a literal would pin this suite
+    /// to the Mac that wrote it.
+    private static let reference: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
     private func folder(dated: Bool) -> FileNode {
         FileNode(id: "/root/Birth Certificate", name: "Birth Certificate", isDirectory: true,
                  modificationDate: dated ? Self.stamp : nil)
@@ -55,13 +65,14 @@ import Sync
     /// The window background is not decoration: without one the row composites against a borderless
     /// window's own buffer and every comparison reads as zero — the "diffs against BLACK" trap that
     /// would make every claim here vacuous in the direction they are asserted.
-    private func bitmap<V: View>(_ view: V) -> NSBitmapImageRep? {
+    private func bitmap<V: View>(_ view: V, width: CGFloat? = nil) -> NSBitmapImageRep? {
+        let size = CGSize(width: width ?? Self.canvas.width, height: Self.canvas.height)
         let subject = view
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
+            .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
         let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
+        host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -153,6 +164,67 @@ import Sync
     }
 
     // MARK: - The call sites
+
+    /// **What the withheld date actually buys the name, measured — this is where the release
+    /// notes' number comes from.**
+    ///
+    /// The date is `caption` with monospaced digits: "Nov 14, 2023" is 66.35pt, and the `HStack`
+    /// puts a 10pt gap in front of it at comfortable density, so it costs the name about 76pt.
+    /// A 210pt column is `PaneViewMode.defaultColumnWidth`, and at that width the cost is enough
+    /// to truncate a name as ordinary as "Birth Certificate" (92.917pt in the row's rounded face).
+    ///
+    /// **Asserted as a shape, not as a pixel count.** At a width where nothing truncates, the two
+    /// rows differ only where the date is drawn and the name region is pixel-identical; at 210pt
+    /// the name region differs too, which it can only do by rendering different glyphs. Comparing
+    /// the totals alone would pass just as well if the date merely got wider, and pinning the
+    /// counts themselves would break on any font revision.
+    @Test func theFoldersDateCostsA210ptColumnItsName() throws {
+        let name = "Birth Certificate"
+        func info(_ dated: Bool) -> FileRowInfo {
+            FileRowInfo(FileNode(id: "/root/\(name)", name: name, isDirectory: true,
+                                 modificationDate: dated ? Self.stamp : nil))
+        }
+        func rendered(_ dated: Bool, width: CGFloat) throws -> NSBitmapImageRep {
+            try #require(bitmap(FileRowView(node: info(dated), isIgnored: false, diffStatus: nil,
+                                            containedDiffCount: 0, density: .comfortable),
+                                width: width))
+        }
+        /// Differing pixels strictly left of `x`, i.e. in the name's half of the row.
+        func nameRegionDiff(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, before x: Int) -> Int {
+            var n = 0
+            for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
+                for px in 0..<min(x, min(a.pixelsWide, b.pixelsWide)) {
+                    guard let p = a.colorAt(x: px, y: y), let q = b.colorAt(x: px, y: y) else { continue }
+                    let d = max(abs(p.redComponent - q.redComponent),
+                                max(abs(p.greenComponent - q.greenComponent),
+                                    abs(p.blueComponent - q.blueComponent)))
+                    if d > 0.02 { n += 1 }
+                }
+            }
+            return n
+        }
+
+        // The string this rests on, so a formatter change cannot quietly move the measurement.
+        #expect(FileRowView.secondaryText(for: info(true), showsFolderDate: true)
+                    == Self.reference.string(from: Self.stamp))
+
+        // Roomy: the date is drawn, and it is the ONLY thing that changes.
+        let wideDated = try rendered(true, width: 260)
+        let wideUndated = try rendered(false, width: 260)
+        #expect(pixelsDiffering(wideDated, wideUndated) > 0, "the date must actually be painted at 260pt")
+        #expect(nameRegionDiff(wideDated, wideUndated, before: 150) == 0,
+                "at 260pt the name has room either way, so its glyphs must be identical")
+
+        // At the real column width, the name itself has to re-render — that is the truncation.
+        let tightDated = try rendered(true, width: 210)
+        let tightUndated = try rendered(false, width: 210)
+        #expect(nameRegionDiff(tightDated, tightUndated, before: 150) > 0,
+                """
+                At the 210pt default column width the folder date no longer costs the name \
+                anything — either the date stopped being drawn, or the name stopped truncating. \
+                The release notes claim it costs about 76pt and truncates "Birth Certificate".
+                """)
+    }
 
     /// The positive control, and the reason the zero-difference claims below mean anything: the
     /// tree's row DOES paint a folder date, so this harness demonstrably renders one.

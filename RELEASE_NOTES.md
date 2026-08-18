@@ -165,8 +165,9 @@ destroying or misdescribing your files.
   half the room — while Browse is the pane where reading a file *is* the task.
 - **A column row spends its width on the name.** Folder rows carried the folder's
   own mtime, which on a tree of filing folders reports the last tidy rather than
-  anything about the contents — and at the default text size it took 75pt of a 210pt
-  column, enough to truncate "Birth Certificate".
+  anything about the contents — and at the default text size it cost the name about
+  76pt of a 210pt column (66pt of date, plus the gap in front of it), enough to
+  truncate "Birth Certificate".
 - **The pane bar's controls now show their names** — a short word under each pill as
   Finder's toolbar does, turned off from the bar's right-click menu beside Icon Size,
   and the first thing the bar sheds on a narrow pane. Text Only is dropped: with the
