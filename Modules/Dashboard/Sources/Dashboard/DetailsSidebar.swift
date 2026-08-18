@@ -635,6 +635,12 @@ public struct DetailsSidebar: View {
         let fm = FileManager.default
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
+        // Built ONCE. `resourceValues(forKeys:)` takes a Set, and constructing it inside the
+        // per-entry loop allocated and hashed a fresh three-element Set for every entry — ~39,000
+        // of them when sizing near the root — for a value that never changes. The enumerator is
+        // already given `keys` as `includingPropertiesForKeys`, so the values are prefetched and
+        // this Set is pure overhead on top of a lookup that is already cheap.
+        let keySet = Set(keys)
 
         /// One streaming pass. nil means the task was cancelled; everything else is what the walk
         /// saw, handed to `classify` by the caller.
@@ -679,7 +685,7 @@ public struct DetailsSidebar: View {
                 count += 1
 
                 autoreleasepool {
-                    guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+                    guard let values = try? fileURL.resourceValues(forKeys: keySet),
                           values.isRegularFile == true,
                           let size = values.fileSize
                     else {

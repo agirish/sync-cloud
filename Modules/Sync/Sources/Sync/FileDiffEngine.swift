@@ -68,34 +68,25 @@ public struct FileDiffEngine {
         // recomputed for every node — which is why flattening the same tree got measurably
         // slower the deeper the pane was focused (the right pane's 60-character root cost twice
         // the left pane's 25-character one for the same node count).
-        let baseUTF8 = Array(basePath.utf8)
         let baseGraphemeCount = basePath.count
 
         func relativeKey(of id: String) -> String {
-            // Fast path: strip the base by BYTES — but only when the byte that follows it is a
-            // separator, or there is none.
+            // **There was a byte fast path here, and it was SLOWER than the code it bypassed.**
+            // It compared `id.utf8` against an `Array<UInt8>` and rebuilt the result with
+            // `String(decoding:as:)` — a generic sequence comparison with no memcmp, plus an
+            // allocation that re-validates UTF-8 — where `hasPrefix` + `dropFirst` on a native
+            // string is a near-memcmp compare and a storage-sharing slice.
             //
-            // That guard is not tidiness. A byte prefix is NOT a String prefix: `hasPrefix`
-            // compares Characters, so for base "/a/cafe" and id "/a/cafe\u{0301}/x.txt" (an "e"
-            // followed by a combining acute — one Character, "é") the bytes match while
-            // `hasPrefix` is false, because the boundary falls INSIDE a grapheme cluster.
-            // Slicing there yielded "\u{0301}/x.txt", a key beginning with a naked combining
-            // mark, where the pre-change code kept the whole path. Requiring a "/" makes the
-            // match a genuine path-component boundary, which a combining mark can never be.
+            // Measured on the shipped function over a 40,400-node tree, three runs each:
+            // **0.348–0.422s with it, 0.179–0.205s without — about 1.9x.** (A first reading said
+            // 4.8x and did not reproduce; the range above is what three runs of each actually
+            // give, and the smaller number is the one to trust.)
             //
-            // Every id the app actually passes here is `basePath + "/" + …` by construction, so
-            // this costs nothing today — but that invariant is not stated or enforced anywhere,
-            // this method is public, and the failure it prevents is a silently mis-keyed entry
-            // that reads as a spurious difference rather than as an error.
-            if id.utf8.starts(with: baseUTF8) {
-                let rest = id.utf8.dropFirst(baseUTF8.count)
-                if rest.isEmpty { return "" }
-                if rest.first == UInt8(ascii: "/") {
-                    return String(decoding: rest.dropFirst(), as: UTF8.self)
-                }
-                // Not a component boundary (a sibling sharing the base's spelling, or the
-                // grapheme case above) — fall through and let the original logic decide.
-            }
+            // It changed no answer either. Its stated purpose was the combining-mark case below —
+            // base "/a/cafe" against "/a/cafe\u{0301}/x.txt", where the bytes match but the
+            // boundary falls inside a grapheme cluster — and on exactly that input it declined to
+            // slice and fell through to this fallback, which is what produced the answer. Removing
+            // it leaves the same three tests green.
             // Fallback: the original grapheme-based strip, kept verbatim rather than replaced.
             // `hasPrefix` compares by CANONICAL EQUIVALENCE, so a base and a path that spell the
             // same folder in different Unicode normalizations (precomposed "é" against "e" +
@@ -222,6 +213,9 @@ public struct FileDiffEngine {
                     basePath = canonicalPath
                 }
             }
+            // After the canonicalisation above, so it describes the base actually used. Read by
+            // the per-entry key derivation below — see the note there for what it is worth.
+            let baseGraphemeCount = basePath.count
 
             // The error handler fires when the enumerator cannot descend into a directory
             // (permission denied) or read an entry. A nil handler silently SKIPPED the subtree —
@@ -297,7 +291,13 @@ public struct FileDiffEngine {
                     if isReg || isDir {
                         var relativePath = fileURL.path
                         if relativePath.hasPrefix(basePath) {
-                            relativePath = String(relativePath.dropFirst(basePath.count))
+                            // Hoisted, like the tree path's — `basePath.count` is a grapheme count,
+                            // an O(basePath) walk, and this recomputed it per entry. Small: measured
+                            // at 39,000 paths under a 74-character root it is 24ms per walk against
+                            // 20ms hoisted, so the honest claim is 4ms on a pass that also stats
+                            // every entry. Free and correct, not the win the sibling's comment
+                            // implies — see `relativeKey` there for where the real cost was.
+                            relativePath = String(relativePath.dropFirst(baseGraphemeCount))
                         }
                         if relativePath.hasPrefix("/") {
                             relativePath.removeFirst()

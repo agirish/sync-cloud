@@ -66,3 +66,51 @@ import Testing
         #expect(paneTree(tree).selectedNodes(at: ["/root/gone.txt"]).isEmpty)
     }
 }
+
+/// **The prune's ordering is by bytes now, and the two orderings must agree about ancestry.**
+///
+/// `pruneNestedNodes` sorts so parents come first, then drops anything inside an accepted parent.
+/// It sorted by `id.count` — a grapheme count, an O(path) walk — inside the comparator, so it ran
+/// O(n log n) times rather than n, re-walking two full absolute paths per comparison. `utf8.count`
+/// is O(1) and preserves what the prune actually depends on: an ancestor's path is a byte PREFIX of
+/// its descendants', so it is strictly shorter in bytes too.
+///
+/// The case worth pinning is the one where the two counts disagree — a non-ASCII name makes a path
+/// longer in bytes than in Characters, so a shallower folder can sort after a deeper one under the
+/// old comparator and before it under the new. Ancestry must survive either way.
+@Suite struct PruneOrderingTests {
+
+    private func node(_ path: String) -> FileNode {
+        FileNode(id: path, name: String(path.split(separator: "/").last ?? ""), isDirectory: true)
+    }
+
+    @Test func anAncestorIsKeptAndItsDescendantsDropped() {
+        let pruned = [node("/r/a/b/c.txt"), node("/r/a"), node("/r/a/b")].pruneNestedNodes()
+        #expect(pruned.map(\.id) == ["/r/a"])
+    }
+
+    /// **Where the two counts disagree.** "/r/文書" is 5 Characters and 11 bytes; a sibling
+    /// "/r/aaaaaaaa" is 11 Characters and 11 bytes. The ancestor must still lead its own subtree
+    /// whichever way the comparator counts.
+    @Test func aNonASCIIAncestorStillComesBeforeItsChildren() {
+        let ancestor = "/r/文書"
+        let child = "/r/文書/deep/file.txt"
+        #expect(ancestor.count != ancestor.utf8.count, "the fixture stopped exercising the disagreement")
+
+        let pruned = [node(child), node("/r/aaaaaaaa"), node(ancestor)].pruneNestedNodes()
+        #expect(Set(pruned.map(\.id)) == [ancestor, "/r/aaaaaaaa"],
+                "the non-ASCII ancestor did not lead its own subtree; got \(pruned.map(\.id))")
+    }
+
+    /// Siblings are all kept — the prune drops descendants, not equals.
+    @Test func siblingsAreAllKept() {
+        let pruned = [node("/r/a"), node("/r/b"), node("/r/c")].pruneNestedNodes()
+        #expect(Set(pruned.map(\.id)) == ["/r/a", "/r/b", "/r/c"])
+    }
+
+    /// A path that merely shares a prefix is not inside it — "/r/ab" is not under "/r/a".
+    @Test func aPrefixThatIsNotAComponentBoundaryIsNotNested() {
+        let pruned = [node("/r/a"), node("/r/ab")].pruneNestedNodes()
+        #expect(Set(pruned.map(\.id)) == ["/r/a", "/r/ab"])
+    }
+}
