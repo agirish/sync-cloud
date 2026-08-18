@@ -102,6 +102,8 @@ private final class Harness {
             deletePath: "\(lensProviderRoot)/\(deleteRel)",
             keepIsDirectory: true,
             keepScannedSize: 1234,
+            keepScannedDate: nil,
+            deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
             keeperRelativePath: keepRel,
             redundantRelativePath: deleteRel,
             restore: restore ?? SavedCompareState(
@@ -379,6 +381,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                 keepPath: "\(harness.lensProviderRoot)/Docs",
                 deletePath: "\(harness.lensProviderRoot)/Backup/Docs",
                 keepIsDirectory: true, keepScannedSize: 1234,
+                keepScannedDate: nil,
+                deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
                 keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
                 restore: SavedCompareState(leftProviderId: "was-left-\(token)",
                                            rightProviderId: "was-right-\(token)",
@@ -449,6 +453,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             keepPath: "\(calm.lensProviderRoot)/Docs",
             deletePath: "\(calm.lensProviderRoot)/Backup/Docs",
             keepIsDirectory: true, keepScannedSize: 1234,
+            keepScannedDate: nil,
+            deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
             keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
             // Both panes were already on this source before the review, so the review pinned
             // nothing: there is no leftover on either side.

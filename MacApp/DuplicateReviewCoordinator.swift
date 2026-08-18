@@ -134,6 +134,9 @@ struct DuplicateReviewCoordinator {
         duplicateReview = DuplicateCompareContext(
             groupName: keep.name, keepPath: keepPath, deletePath: deletePath,
             keepIsDirectory: keep.isDirectory, keepScannedSize: keep.size,
+            keepScannedDate: keep.modificationDate,
+            deleteIsDirectory: delete.isDirectory, deleteScannedSize: delete.size,
+            deleteScannedDate: delete.modificationDate,
             keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
@@ -367,13 +370,15 @@ struct DuplicateReviewCoordinator {
             return
         }
         Task {
-            // Never trash the right copy if the kept LEFT copy is no longer where — and WHAT — the
-            // review saw it: an external move/delete during a long side-by-side review would
-            // otherwise make this the last copy, and an in-place edit/replacement means the right
-            // copy is no longer provably identical to the keeper. (duplicateReviewActive only
-            // compares the pane's focused PATH, not existence or content.) Mirrors the FULL
-            // keeperStillExists gate the other duplicate-removal paths honor — existence plus, for
-            // files, byte size vs the scan snapshot — via PaneLogic.duplicateKeeperMatchesScan.
+            // **Both copies, because the engine checks both and the right one is the dangerous
+            // half.** The keeper is the file being kept; the right copy is the file being
+            // destroyed. A review is designed to stay open — while it is, an external move or
+            // delete of the LEFT copy makes this the last one, and a provider re-download or an
+            // edit of the RIGHT copy makes it the only instance of its new content. Either way the
+            // pair is no longer the pair the scan grouped. (`duplicateReviewActive` only compares
+            // the pane's focused PATH, not existence or content.) This is the same gate
+            // `copyDriftedInPlace` applies to the keeper and to every removal candidate, reached
+            // through `PaneLogic.duplicateCopyMatchesScan` so the two cannot drift apart.
             //
             // The stat runs OFF the main actor. This `Task` inherits @MainActor isolation, and
             // `attributesOfItem` is a synchronous stat: against a keeper on an unmounted cloud or
@@ -383,10 +388,19 @@ struct DuplicateReviewCoordinator {
             // Sendable facts cross back — the attributes dictionary itself never leaves the task.
             let fm = syncManager.fileManager
             let keepPath = review.keepPath
-            let keeper = await Task.detached(priority: .userInitiated) { () -> (exists: Bool, statSucceeded: Bool, size: Int?) in
-                let attrs = try? fm.attributesOfItem(atPath: keepPath)
-                let size = (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int)
-                return (exists: fm.fileExists(atPath: keepPath), statSucceeded: attrs != nil, size: size)
+            let deletePath = review.deletePath
+            // One detached task for BOTH stats: two would double the worst case on a slow mount,
+            // and the pair is one question — is this still the pair the scan grouped?
+            let measured = await Task.detached(priority: .userInitiated) { () -> (keep: CopyStat, delete: CopyStat) in
+                func stat(_ path: String) -> CopyStat {
+                    let attrs = try? fm.attributesOfItem(atPath: path)
+                    return CopyStat(
+                        exists: fm.fileExists(atPath: path),
+                        statSucceeded: attrs != nil,
+                        size: (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int),
+                        date: attrs?[.modificationDate] as? Date)
+                }
+                return (stat(keepPath), stat(deletePath))
             }.value
             // That stat is the ONLY suspension between the user's click and the trash, and it
             // exists precisely for the case where it is slow: an unmounted cloud or SMB keeper can
@@ -403,14 +417,39 @@ struct DuplicateReviewCoordinator {
                     "The duplicate review changed while the left copy was being checked — skipping the trash of \(review.deletePath)")
                 return
             }
-            guard PaneLogic.duplicateKeeperMatchesScan(
-                exists: keeper.exists,
+            guard PaneLogic.duplicateCopyMatchesScan(
+                exists: measured.keep.exists,
                 isDirectory: review.keepIsDirectory,
-                statSucceeded: keeper.statSucceeded,
-                currentSize: keeper.size,
-                scannedSize: review.keepScannedSize
+                statSucceeded: measured.keep.statSucceeded,
+                currentSize: measured.keep.size,
+                scannedSize: review.keepScannedSize,
+                currentDate: measured.keep.date,
+                scannedDate: review.keepScannedDate
             ) else {
                 syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
+                return
+            }
+            // **A vanished right copy is not drift.** There is nothing left to trash and nothing
+            // was lost, so this says so and clears the review rather than warning about a change
+            // the user probably made deliberately — the same distinction `dropFullyRemovedGroups`
+            // draws in the engine.
+            guard measured.delete.exists else {
+                Logger.shared.info("The right duplicate copy \(review.deletePath) is already gone — nothing to trash")
+                syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
+                dispatchReview(.rightCopyTrashed)
+                return
+            }
+            guard PaneLogic.duplicateCopyMatchesScan(
+                exists: measured.delete.exists,
+                isDirectory: review.deleteIsDirectory,
+                statSucceeded: measured.delete.statSucceeded,
+                currentSize: measured.delete.size,
+                scannedSize: review.deleteScannedSize,
+                currentDate: measured.delete.date,
+                scannedDate: review.deleteScannedDate
+            ) else {
+                syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")
+                Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
                 return
             }
             let outcome = await syncManager.deleteItems(at: [review.deletePath])
@@ -432,6 +471,15 @@ struct DuplicateReviewCoordinator {
     }
 }
 
+/// One copy as a fresh stat found it — the Sendable facts that cross back from the detached stat,
+/// deliberately not the attributes dictionary itself.
+private struct CopyStat: Sendable {
+    let exists: Bool
+    let statSucceeded: Bool
+    let size: Int?
+    let date: Date?
+}
+
 /// A live "compare two duplicate copies" review handed off from the Duplicates lens to the Compare tab. Holds the
 /// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right —
 /// plus the Compare setup to put back when the review ends.
@@ -439,12 +487,20 @@ struct DuplicateCompareContext: Equatable {
     let groupName: String
     let keepPath: String
     let deletePath: String
-    /// Whether the keeper is a folder, and its byte size as the duplicate scan measured it.
-    /// Carried so "Trash right copy" can apply the engine's full `keeperStillExists` semantics
-    /// (existence + file byte-size vs the scan snapshot) via
-    /// `PaneLogic.duplicateKeeperMatchesScan`, not just an existence check.
+    /// What the duplicate scan measured about EACH copy, so "Trash right copy" can apply the
+    /// engine's full drift gate to both ends via `PaneLogic.duplicateCopyMatchesScan`.
+    ///
+    /// **The delete candidate's facts are the ones this used to be missing**, and they are the
+    /// dangerous half: the keeper is the file being kept, the candidate is the file being
+    /// destroyed. Without them the check was structurally impossible — a review is designed to
+    /// stay open, and a provider re-download or an edit of the right copy in that window made it
+    /// the only instance of its new content, which the button then trashed.
     let keepIsDirectory: Bool
     let keepScannedSize: Int
+    let keepScannedDate: Date?
+    let deleteIsDirectory: Bool
+    let deleteScannedSize: Int
+    let deleteScannedDate: Date?
     /// The two copies as provider-root-relative paths — used to re-focus the panes when the user
     /// returns to Compare after a lens detour reset the shared left pane to the rail's root.
     let keeperRelativePath: String
