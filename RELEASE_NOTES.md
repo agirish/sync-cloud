@@ -9,7 +9,7 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.1 has not been cut and this is not final copy.
 > Work is still landing, so entries will be added and existing ones may change or
-> be withdrawn. Covers `v4.0..7bb99ee8` — 153 commits. Claims below were checked
+> be withdrawn. Covers `v4.0..4dbb0bd2` — 178 commits. Claims below were checked
 > against the `v4.0` tag: fixes to work that landed *inside* this range earn no
 > entry, because no user of v4.0 was ever exposed to them. That rule takes out most
 > of this range — tabs arrived here, so the several review passes that followed
@@ -158,6 +158,48 @@ longer destroying or misdescribing your files.
   tree was not showing, with `‹` lit but dead once for each column it had, crumb
   clicks landing on nothing, and Scan offering to walk the wrong folder. The flip
   now carries the location both ways.
+
+- **An unreadable `~/Library/CloudStorage` made your cloud accounts disappear.** The
+  same non-nil-and-empty enumerator, behind the one site with a read-modify-write
+  after it: the folder produced an empty array, and provider discovery *publishes
+  over* the list it holds, so every mounted Dropbox, Google Drive and OneDrive
+  vanished from the app at once — with the synthesized iCloud entry left behind to
+  make the truncated list look plausible. Nothing was logged. Absent, unreadable and
+  missing are now three different answers, measured rather than assumed: a genuinely
+  empty folder leaves the error handler silent, while mode-000 and a folder that is
+  not there both fire it, with distinct codes.
+- **The cross-person veto never fired for a folder that did not exist yet.** v4.0
+  said a suggestion filing one person's document into another's folder is refused,
+  and for a destination the model proposed *creating* that was not true: the rule
+  opened with an exact lookup of the destination in the folder profile, and a profile
+  describes the folders that do exist, so every proposed-new-folder destination
+  missed the lookup and skipped the veto — no refusal, no log line, no user-visible
+  trace. `Immigration/OCI/Divit/Application` slipped through even while its parent
+  sat in the profile marked as Divit's.
+
+### Organize's scope, and the palette's pins
+
+- **A row menu in the pane that did not have focus wiped Organize's scope.** A
+  SwiftUI context menu does not move focus, and the scope setter read the *focused*
+  pane's root — so right-clicking a folder in the other pane normalised it against
+  the wrong root, which answers "nothing" for a folder that is not underneath it.
+  The scope you had set and the folder you had just named were both gone, it survived
+  a relaunch, and the scan that followed took the right pane's folder with the left
+  pane's root.
+- **Right-click ▸ Open in Browse or Storage re-aimed every Organize lens.** The write
+  was gated on a layout flag that predates Browse existing, and Browse and Storage
+  both answer to it — so opening a folder in either pointed all six lenses at
+  somewhere the user had never told Organize about, and that survived a relaunch too.
+  Paths resolved correctly, so nothing looked wrong; the lenses were simply answering
+  about another folder.
+- **A folder pinned in the breadcrumb now reads as pinned in the pane.** The
+  folder-jump store keyed on the caller's string with no normalising, and the app
+  carries two spellings of the same root — a folder source keeps its `~`, while every
+  surface that touches the disk expands it first. A pin written under one spelling
+  was invisible to every reader holding the other, and "no pins" is exactly what an
+  unpinned provider looks like, so nothing said so. Installs that pinned the same
+  folder twice because of it get the two entries merged into one, rather than a
+  duplicate that the palette listed twice and that unpinning left pinned.
 
 ### Panes and the pane bar
 
