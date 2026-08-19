@@ -216,4 +216,92 @@ import Foundation
         // Hidden on: it appears, matching what the pane would show.
         #expect(FolderJump.siblings(rootPath: root.path, relativePath: "Projects/2026", showHidden: true).map(\.name) == [".secret"])
     }
+
+    // MARK: Recents outlive the session (v4.2)
+
+    /// The ⌘K field's empty state IS this list, so a session-scoped one is empty at exactly the
+    /// moment it is most wanted — the first ⌘K after launch.
+    @Test func recentsSurviveARelaunch() {
+        let defaults = freshDefaults()
+        let store = FolderJumpStore(defaults: defaults)
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal/2026", name: "2026")
+
+        // A second store on the same domain is what a relaunch looks like from here.
+        let relaunched = FolderJumpStore(defaults: defaults)
+        #expect(relaunched.recentPaths(forRoot: "/Volumes/Data") == ["Legal/2026", "Legal"],
+                "recents did not survive, or came back in the wrong order — newest leads")
+    }
+
+    /// Persisted recents go through the same key normalisation the pins do, so the two lists — read
+    /// side by side by the same caller — cannot come to disagree about what a root is.
+    @Test func recentsComeBackUnderEitherSpellingOfTheRoot() {
+        let defaults = freshDefaults()
+        let tilde = "~/Documents"
+        let expanded = (tilde as NSString).expandingTildeInPath
+        #expect(tilde != expanded)
+
+        FolderJumpStore(defaults: defaults).recordVisit(root: tilde, relativePath: "Legal", name: "Legal")
+        let relaunched = FolderJumpStore(defaults: defaults)
+        #expect(relaunched.recentPaths(forRoot: expanded) == ["Legal"])
+        #expect(relaunched.recentPaths(forRoot: tilde) == ["Legal"])
+    }
+
+    /// The cap is a constant that can be lowered. A list written under a larger one must not stay
+    /// long forever, so it is applied on the way in as well as on the way out.
+    @Test func aLongerStoredListIsCappedOnTheWayIn() throws {
+        let defaults = freshDefaults()
+        let stored = ["/Volumes/Data": (1...12).map { loc("F\($0)") }]
+        // The fixture only means something if it is longer than the cap.
+        #expect(stored["/Volumes/Data"]!.count > FolderJumpStore.maxRecents)
+        defaults.set(try JSONEncoder().encode(stored), forKey: "folderJumpRecentsByRoot")
+
+        let store = FolderJumpStore(defaults: defaults)
+        let back = store.recentPaths(forRoot: "/Volumes/Data")
+        #expect(back.count == FolderJumpStore.maxRecents)
+        #expect(back.first == "F1" && back.last == "F8", "the cap kept the wrong end of the list")
+    }
+
+    // MARK: A remembered folder that has gone
+
+    @Test func reachableKeepsWhatIsThereAndDropsWhatIsGone() {
+        let present: Set<String> = ["/root", "/root/Legal", "/root/Legal/2026"]
+        let kept = FolderJumpStore.reachable(["Legal", "Gone", "Legal/2026"],
+                                             underRoot: "/root") { present.contains($0) }
+        #expect(kept == ["Legal", "Legal/2026"], "order is the list's order, and a gone folder is absent")
+    }
+
+    /// The root is checked first so an unreachable mount costs ONE stalled `stat`, not one per
+    /// remembered folder — which is the whole reason the guard is there rather than relying on
+    /// each child answering false.
+    @Test func reachableStopsAtAMissingRootAfterASingleCheck() {
+        var asked: [String] = []
+        let kept = FolderJumpStore.reachable(["A", "B", "C", "D"], underRoot: "/asleep") { path in
+            asked.append(path)
+            return false
+        }
+        #expect(kept.isEmpty)
+        #expect(asked == ["/asleep"], "every remembered folder was stat'ed under a root already known to be gone")
+    }
+
+    /// Filtered, never pruned: an external drive asleep at the wrong moment must not cost the user
+    /// the entries. The list is drawn from the store, and the store is not written back to.
+    @Test func filteringDoesNotTouchWhatIsStored() {
+        let defaults = freshDefaults()
+        let store = FolderJumpStore(defaults: defaults)
+        store.recordVisit(root: "/asleep", relativePath: "Legal", name: "Legal")
+
+        #expect(FolderJumpStore.reachable(store.recentPaths(forRoot: "/asleep"),
+                                          underRoot: "/asleep") { _ in false }.isEmpty)
+        #expect(store.recentPaths(forRoot: "/asleep") == ["Legal"], "drawing the list pruned the store")
+        #expect(FolderJumpStore(defaults: defaults).recentPaths(forRoot: "/asleep") == ["Legal"],
+                "the entry did not survive to the next launch — a sleeping drive cost the user their recents")
+    }
+
+    /// The root itself is never a row (`emptyQueryRows` skips "" and "."), and neither is it a
+    /// path to `stat` — a `"."` under a live root exists, so without this it would be offered.
+    @Test func reachableRefusesTheRootsOwnSpellings() {
+        let kept = FolderJumpStore.reachable(["", ".", "Legal"], underRoot: "/root") { _ in true }
+        #expect(kept == ["Legal"])
+    }
 }

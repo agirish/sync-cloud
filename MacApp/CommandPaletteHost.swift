@@ -134,8 +134,17 @@ extension ContentView {
             folders: folders,
             // The one recents list — `FolderJumpStore` is already fed by every pane focus change
             // (see ContentView's `onChange(of: leftRelativePath)`), and it carries the pins too.
-            recentFolders: FolderJumpStore.shared.recentPaths(forRoot: root),
-            pinnedFolders: FolderJumpStore.shared.pinnedPaths(forRoot: root),
+            //
+            // **Resolved here, where the list is drawn, and filtered rather than pruned from the
+            // store.** Recents persist across launches as of v4.2, so this list now routinely
+            // outlives the folders in it — renamed, deleted, or on a drive that is not awake. A row
+            // that cannot deliver its destination should not be offered; an entry whose drive is
+            // merely asleep should not be destroyed. `reachable` holds both ends, and stops at the
+            // root so an unreachable mount costs one stalled `stat` rather than a dozen.
+            recentFolders: Self.reachableFolders(
+                FolderJumpStore.shared.recentPaths(forRoot: root), under: root),
+            pinnedFolders: Self.reachableFolders(
+                FolderJumpStore.shared.pinnedPaths(forRoot: root), under: root),
             people: syncManager.filingPersonRegistry?.people ?? [],
             registry: syncManager.filingPersonRegistry,
             isScanning: isScanning || syncManager.isSuggestingFiles,
@@ -200,6 +209,12 @@ extension ContentView {
 
     /// Whether a source's folder is there right now. Expanded first, and required to be a
     /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
+    /// The store's rule, wired to the real disk. Separate from `FolderJumpStore.reachable` so the
+    /// rule stays testable without one, and `static` for the reason `isMountedFolder` is.
+    static func reachableFolders(_ relatives: [String], under root: String) -> [String] {
+        FolderJumpStore.reachable(relatives, underRoot: root, isDirectory: isMountedFolder)
+    }
+
     static func isMountedFolder(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         let expanded = (path as NSString).expandingTildeInPath

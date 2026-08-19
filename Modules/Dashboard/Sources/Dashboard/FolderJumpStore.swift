@@ -20,13 +20,19 @@ struct JumpLocation: Codable, Equatable, Identifiable, Hashable, Sendable {
 public final class FolderJumpStore: ObservableObject {
     public static let shared = FolderJumpStore()
 
-    /// Recents are session-scoped (they mean "where I've been just now"), so they live in memory.
+    /// Recents outlive the session, as of v4.2.
+    ///
+    /// They were in memory because they mean "where I've been just now" — true of the pane's own
+    /// jump menu, and false of the ⌘K field, whose empty state IS this list. Session-scoped, the
+    /// first ⌘K of the day opens on nothing at all: the one moment the user is most likely to want
+    /// yesterday's folder is the one moment the app had forgotten it.
     @Published private(set) var recentsByRoot: [String: [JumpLocation]] = [:]
     /// Pins are curated and outlive the session, so they persist.
     @Published private(set) var pinnedByRoot: [String: [JumpLocation]] = [:]
 
     private let defaults: UserDefaults
     private static let pinnedKey = "folderJumpPinnedByRoot"
+    private static let recentsKey = "folderJumpRecentsByRoot"
     static let maxRecents = 8
 
     init(defaults: UserDefaults = .standard) {
@@ -57,6 +63,24 @@ public final class FolderJumpStore: ObservableObject {
                 out[key] = list
             }
         }
+        // Recents, through the same re-keying — not for a legacy spelling (nothing ever wrote this
+        // key before) but so the two lists cannot come to disagree about what a root is; they are
+        // read side by side by the same callers.
+        //
+        // **Capped on the way in as well as on the way out.** The cap is a constant that can be
+        // lowered, and a list written under a larger one would otherwise stay long forever.
+        if let data = defaults.data(forKey: Self.recentsKey),
+           let decoded = try? JSONDecoder().decode([String: [JumpLocation]].self, from: data) {
+            recentsByRoot = decoded.keys.sorted().reduce(into: [:]) { out, rawKey in
+                let key = Self.key(forRoot: rawKey)
+                var list = out[key] ?? []
+                for visit in decoded[rawKey] ?? []
+                where !list.contains(where: { $0.relativePath == visit.relativePath }) {
+                    list.append(visit)
+                }
+                out[key] = Array(list.prefix(Self.maxRecents))
+            }
+        }
     }
 
     /// **The one place a provider root becomes a key.** Every entry point below routes through it,
@@ -71,7 +95,7 @@ public final class FolderJumpStore: ObservableObject {
     /// Expansion plus a trailing-slash trim, and deliberately no more: case-folding would merge two
     /// genuinely distinct roots on a case-sensitive volume, and symlink resolution would make a key
     /// depend on disk state that can change under a persisted pin.
-    static func key(forRoot root: String) -> String {
+    nonisolated static func key(forRoot root: String) -> String {
         var path = (root as NSString).expandingTildeInPath
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }
         return path
@@ -111,6 +135,7 @@ public final class FolderJumpStore: ObservableObject {
         let visited = JumpLocation(relativePath: relativePath, name: name)
         let key = Self.key(forRoot: root)
         recentsByRoot[key] = Self.inserting(visited, into: recentsByRoot[key] ?? [], cap: Self.maxRecents)
+        persistRecents()
     }
 
     /// Pins or unpins a folder for its pane's provider. Pinning the folder that's already pinned
@@ -131,9 +156,42 @@ public final class FolderJumpStore: ObservableObject {
         persistPinned()
     }
 
+    /// Written on every visit, which is every pane folder change. Cheap on purpose: a capped list
+    /// of eight small values per root, and `UserDefaults` coalesces its own writes to disk — the
+    /// alternative (persisting on quit) loses the whole list to a crash or a force-quit, and the
+    /// list is worth exactly as much as it is current.
+    private func persistRecents() {
+        if let data = try? JSONEncoder().encode(recentsByRoot) {
+            defaults.set(data, forKey: Self.recentsKey)
+        }
+    }
+
     private func persistPinned() {
         if let data = try? JSONEncoder().encode(pinnedByRoot) {
             defaults.set(data, forKey: Self.pinnedKey)
+        }
+    }
+
+    /// The stored folders that are still there — **filtered, never deleted**.
+    ///
+    /// A recent or a pin can name a folder that has since been renamed, deleted, or that lives on a
+    /// drive which is not awake right now. Offering it is offering a destination that cannot be
+    /// delivered; deleting it would mean an external disk being asleep at the wrong moment quietly
+    /// costs the user their pins. So the answer is drawn from the list rather than written back to
+    /// it: the entry survives and reappears when its drive does.
+    ///
+    /// **The root is checked first, and a missing root ends it.** Under an unreachable network
+    /// mount every `stat` can block, and one stall is better than one per remembered folder.
+    ///
+    /// `isDirectory` is injected so the rule is testable without a disk, and `nonisolated` so a
+    /// caller off the main actor could use it.
+    public nonisolated static func reachable(_ relatives: [String], underRoot root: String,
+                                      isDirectory: (String) -> Bool) -> [String] {
+        let base = key(forRoot: root)
+        guard !base.isEmpty, isDirectory(base) else { return [] }
+        return relatives.filter { relative in
+            guard !relative.isEmpty, relative != "." else { return false }
+            return isDirectory((base as NSString).appendingPathComponent(relative))
         }
     }
 
