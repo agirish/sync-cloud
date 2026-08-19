@@ -331,9 +331,12 @@ Right-click ▸ **Open in New Tab** works in both views, so the tree is not cut 
 **Enhancement:** a `.simultaneousGesture(TapGesture(count: 2))` on the tree row, matching Columns.
 
 **Why deferred:** the tree's single-tap already carries selection and disclosure, and a second
-recognizer on the same row is exactly the shape that broke column navigation before. It needs a
-proof that a single click still selects and still discloses — the same proof `.draggable` never
-got. **Effort:** low. **Risk:** medium (gesture competition). **Value:** low.
+recognizer on the same row has to be shown not to cost either. The precedent is real, but it is
+about the gesture being *added* rather than the one already there: competition on that row is what
+stopped cross-pane drag from ever starting, and is why `.draggable` went — it is **not** what causes
+the selection drift, which is `TapGesture`'s strictness and predates it (see **Today** above). So
+what this needs is a proof that a single click still selects and still discloses — the proof
+`.draggable` never got. **Effort:** low. **Risk:** medium (gesture competition). **Value:** low.
 
 ---
 
