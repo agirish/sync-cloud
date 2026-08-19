@@ -197,6 +197,15 @@ public struct PaletteIndex: Equatable, Sendable {
     /// *where you just were* and *where you keep going back to* — and a row labelled "Recent" for a
     /// folder you pinned months ago would be the wrong one.
     public var pinnedFolders: [String]
+
+    /// Why none of the remembered folders can be reached right now, or nil.
+    ///
+    /// Set when the provider **root** did not answer — an external drive asleep, a network mount
+    /// down. That takes out every recent and every pin at once, and this landing IS that list, so
+    /// dropping them silently makes ⌘K open blank and "I have no recents" indistinguishable from
+    /// "my drive is not awake". The rows are kept and marked instead, which is what this palette
+    /// already does for an unmounted source.
+    public var rememberedUnavailable: String?
     public var people: [Person]
     /// The registry, when there is one. Person routing is phrase-first and longest-wins; the
     /// palette must not hand-roll a second matcher (see ``PaletteRouter/personRow(for:index:)``).
@@ -209,7 +218,8 @@ public struct PaletteIndex: Equatable, Sendable {
 
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
                 folders: [String] = [], recentFolders: [String] = [],
-                pinnedFolders: [String] = [], people: [Person] = [],
+                pinnedFolders: [String] = [], rememberedUnavailable: String? = nil,
+                people: [Person] = [],
                 registry: PersonRegistry? = nil, isScanning: Bool = false,
                 hasSurvey: Bool = false) {
         self.providers = providers
@@ -217,6 +227,7 @@ public struct PaletteIndex: Equatable, Sendable {
         self.folders = folders
         self.recentFolders = recentFolders
         self.pinnedFolders = pinnedFolders
+        self.rememberedUnavailable = rememberedUnavailable
         self.people = people
         self.registry = registry
         self.isScanning = isScanning
@@ -662,6 +673,10 @@ public enum PaletteRouter {
                     id: "folder.\(entry.0)", group: .folders, title: leaf(entry.0),
                     detail: "\(entry.1) · \(entry.0)", symbol: entry.2,
                     route: .folder(path: (root as NSString).appendingPathComponent(entry.0)),
+                    // Kept and marked rather than dropped when the root is asleep — see
+                    // `rememberedUnavailable`. ↑↓ skip these and ↩ refuses them, so a row that
+                    // cannot deliver is never run.
+                    unavailable: index.rememberedUnavailable,
                     score: 1_000 - offset))
             }
         }

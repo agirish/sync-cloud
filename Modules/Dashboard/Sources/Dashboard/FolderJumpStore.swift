@@ -11,6 +11,22 @@ struct JumpLocation: Codable, Equatable, Identifiable, Hashable, Sendable {
     var id: String { relativePath }
 }
 
+/// Both remembered lists as they should be drawn, and whether the root was there to be asked.
+///
+/// `rootIsAvailable == false` means the lists are **everything remembered, unchecked** — the caller
+/// shows them, marked unavailable, rather than dropping them. See `FolderJumpStore.reachable`.
+public struct RememberedFolders: Equatable, Sendable {
+    public var recents: [String]
+    public var pinned: [String]
+    public var rootIsAvailable: Bool
+
+    public init(recents: [String], pinned: [String], rootIsAvailable: Bool) {
+        self.recents = recents
+        self.pinned = pinned
+        self.rootIsAvailable = rootIsAvailable
+    }
+}
+
 /// Backs the pane header's folder quick-jump menu. Each pane already has back/forward history and an
 /// up-the-tree breadcrumb — both move *up and back*. This adds the lateral hops they can't reach:
 /// sibling folders (from disk), the folders you've recently visited (this session), and a curated
@@ -187,12 +203,47 @@ public final class FolderJumpStore: ObservableObject {
     /// caller off the main actor could use it.
     public nonisolated static func reachable(_ relatives: [String], underRoot root: String,
                                       isDirectory: (String) -> Bool) -> [String] {
+        let resolved = reachable(recents: relatives, pinned: [], underRoot: root,
+                                 isDirectory: isDirectory)
+        // A root that did not answer yields nothing *through this signature*, which is the
+        // per-folder question: "is this one still there" cannot be answered under a sleeping root,
+        // and guessing yes would offer a destination that cannot be delivered. The caller that
+        // wants to SAY the root is asleep asks the two-list form below instead.
+        return resolved.rootIsAvailable ? resolved.recents : []
+    }
+
+    /// Both remembered lists, resolved in one pass — **and whether the root answered at all.**
+    ///
+    /// The distinction is the point. A folder that has gone under a live root should not be
+    /// offered; a root that is merely asleep takes out **every** recent and **every** pin at once,
+    /// and the ⌘K landing *is* that list, so hiding them turns "my drive is not awake" into a
+    /// palette that opens blank. Those are different claims and this answers both: the lists come
+    /// back unchecked with `rootIsAvailable == false`, for the caller to mark unavailable rather
+    /// than drop. Decided 2026-08-19 (ROADMAP_V4 §7), narrowing "a remembered folder that has gone
+    /// does not appear" to the case where the root is actually there to be asked.
+    ///
+    /// One pass so the root is `stat`ed **once** for both lists — under an unreachable network
+    /// mount every one of those can block.
+    public nonisolated static func reachable(recents: [String], pinned: [String],
+                                             underRoot root: String,
+                                             isDirectory: (String) -> Bool) -> RememberedFolders {
         let base = key(forRoot: root)
-        guard !base.isEmpty, isDirectory(base) else { return [] }
-        return relatives.filter { relative in
-            guard !relative.isEmpty, relative != "." else { return false }
-            return isDirectory((base as NSString).appendingPathComponent(relative))
+        guard !base.isEmpty, isDirectory(base) else {
+            return RememberedFolders(recents: named(recents), pinned: named(pinned),
+                                     rootIsAvailable: false)
         }
+        func present(_ relatives: [String]) -> [String] {
+            named(relatives).filter { isDirectory((base as NSString).appendingPathComponent($0)) }
+        }
+        return RememberedFolders(recents: present(recents), pinned: present(pinned),
+                                 rootIsAvailable: true)
+    }
+
+    /// The entries that name a folder at all. The root's own spellings are never rows — a `"."`
+    /// under a live root exists, so without this it would be offered as a destination you are
+    /// already at.
+    private nonisolated static func named(_ relatives: [String]) -> [String] {
+        relatives.filter { !$0.isEmpty && $0 != "." }
     }
 
     /// Pure move-to-front dedupe + cap (newest first). Extracted so the recents ordering is testable

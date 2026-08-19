@@ -32,15 +32,20 @@ import Dashboard
                 "recents go to the router unresolved — a folder that has gone is offered as a destination")
         #expect(!host.contains("pinnedFolders: FolderJumpStore.shared.pinnedPaths"),
                 "pins go to the router unresolved — same defect, and a pin outlives a recent")
-        #expect(host.contains("recentFolders: Self.reachableFolders("))
-        #expect(host.contains("pinnedFolders: Self.reachableFolders("))
+        #expect(host.contains("let remembered = Self.reachableFolders("),
+                "the lists are no longer resolved before they reach the router")
+        #expect(host.contains("recentFolders: remembered.recents"))
+        #expect(host.contains("pinnedFolders: remembered.pinned"))
+        // The asleep-root half: resolving is not enough if the answer is thrown away.
+        #expect(host.contains("rememberedUnavailable: remembered.rootIsAvailable ? nil : \"Not available\""),
+                "an asleep root drops every recent and every pin silently — \u{2318}K opens blank with nothing saying why")
     }
 
     @Test func theHostsResolverIsTheStoresRuleAndNotASecondCopy() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         // Two copies of "is this folder still there" would be two answers the first time one of
         // them learns something (a root check, a symlink rule, a cache).
-        #expect(host.contains("FolderJumpStore.reachable(relatives, underRoot: root, isDirectory: isMountedFolder)"),
+        #expect(host.contains("FolderJumpStore.reachable(recents: recents, pinned: pinned, underRoot: root,"),
                 "the host resolves folders with its own rule rather than the store's")
     }
 
@@ -48,11 +53,14 @@ import Dashboard
     /// drops the root guard, on a target that does not run the Dashboard suite.
     @Test func theStoresRuleStopsAtAMissingRoot() {
         var asked = 0
-        let kept = FolderJumpStore.reachable(["A", "B"], underRoot: "/asleep") { _ in
+        let resolved = FolderJumpStore.reachable(recents: ["A", "B"], pinned: [], underRoot: "/asleep") { _ in
             asked += 1
             return false
         }
-        #expect(kept.isEmpty)
-        #expect(asked == 1)
+        #expect(asked == 1, "a folder was stat'ed under a root already known to be gone")
+        // **Kept, not emptied** — the caller marks them unavailable. Dropping them is what made
+        // \u{2318}K open blank on a sleeping drive.
+        #expect(resolved.rootIsAvailable == false)
+        #expect(resolved.recents == ["A", "B"])
     }
 }

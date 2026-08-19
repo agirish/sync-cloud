@@ -46,6 +46,51 @@ import Foundation
                      isScanning: isScanning, hasSurvey: hasSurvey)
     }
 
+    // MARK: A root that is merely asleep
+
+    /// **The remembered folders are listed, marked, and unrunnable — not dropped.**
+    ///
+    /// The root is checked before any of its children, so a sleeping drive takes out every recent
+    /// and every pin at once. This landing IS that list, so dropping them makes ⌘K open blank and
+    /// "I have no recents" indistinguishable from "my drive is not awake". Decided 2026-08-19
+    /// (ROADMAP_V4 §7), narrowing the earlier "a remembered folder that has gone does not appear"
+    /// to the case where the root was there to be asked.
+    @Test func anAsleepRootListsItsRememberedFoldersMarkedRatherThanHidingThem() throws {
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
+            providerRoot: Self.root, folders: [],
+            recentFolders: ["Legal", "Finance/US"], pinnedFolders: ["Archive/2019/Legal"],
+            rememberedUnavailable: "Not available",
+            people: [], registry: nil, isScanning: false, hasSurvey: true)
+        let rows = PaletteRouter.rows(query: "", index: index)
+        let folders = rows.filter { $0.group == .folders }
+
+        #expect(folders.count == 3, "a sleeping drive cost the user their remembered folders entirely")
+        #expect(folders.allSatisfy { $0.unavailable == "Not available" },
+                "the rows are offered as if they could be delivered")
+        // Marked is only half of it: the palette must also refuse to RUN one.
+        #expect(PaletteSelection.chosen(at: rows.firstIndex(where: { $0.group == .folders }), in: rows) == nil,
+                "↩ on an unreachable folder still tries to go there")
+        // …and the opening highlight must skip past them to something that works.
+        let opening = try #require(PaletteSelection.initialIndex(in: rows))
+        #expect(rows[opening].isAvailable, "the palette opens with ↩ aimed at a row it cannot run")
+        #expect(rows[opening].group != .folders)
+    }
+
+    /// The other side, so the assertion above is not just "unavailable is whatever we passed":
+    /// with the root awake the very same folders are live rows.
+    @Test func aWakeRootListsTheSameFoldersAsRunnable() {
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
+            providerRoot: Self.root, folders: [],
+            recentFolders: ["Legal", "Finance/US"], pinnedFolders: ["Archive/2019/Legal"],
+            rememberedUnavailable: nil,
+            people: [], registry: nil, isScanning: false, hasSurvey: true)
+        let folders = PaletteRouter.rows(query: "", index: index).filter { $0.group == .folders }
+        #expect(folders.count == 3)
+        #expect(folders.allSatisfy { $0.isAvailable })
+    }
+
     static func routes(_ query: String, _ index: PaletteIndex? = nil) -> [PaletteRoute] {
         PaletteRouter.rows(query: query, index: index ?? Self.index()).map(\.route)
     }

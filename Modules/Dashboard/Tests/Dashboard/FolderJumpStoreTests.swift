@@ -298,6 +298,60 @@ import Foundation
                 "the entry did not survive to the next launch — a sleeping drive cost the user their recents")
     }
 
+    // MARK: A root that is merely asleep
+
+    /// **An asleep root keeps its rows; a live root drops what has gone.** The two are different
+    /// claims and the single-list signature can only make the first, which is why the two-list one
+    /// exists (decided 2026-08-19, ROADMAP_V4 §7).
+    ///
+    /// The consequence if this regresses is not one missing row: the root is checked first, so
+    /// every recent and every pin goes at once — and ⌘K's empty-query landing IS that list, so the
+    /// palette opens blank and "I have no recents" cannot be told from "my drive is not awake".
+    @Test func anAsleepRootKeepsEverythingRememberedAndSaysSo() {
+        var asked: [String] = []
+        let resolved = FolderJumpStore.reachable(recents: ["Legal", "Tax"], pinned: ["Clients"],
+                                                 underRoot: "/asleep") { path in
+            asked.append(path)
+            return false
+        }
+        #expect(resolved.rootIsAvailable == false)
+        #expect(resolved.recents == ["Legal", "Tax"], "an asleep drive cost the user their recents")
+        #expect(resolved.pinned == ["Clients"], "an asleep drive cost the user their pins")
+        #expect(asked == ["/asleep"],
+                "a folder was stat'ed under a root already known to be gone — the one stalled call became several")
+    }
+
+    /// The other half, and it must still drop: under a root that answered, a folder that is gone
+    /// cannot be delivered and must not be offered.
+    @Test func aLiveRootStillDropsWhatHasGone() {
+        let present: Set<String> = ["/root", "/root/Legal", "/root/Clients"]
+        let resolved = FolderJumpStore.reachable(recents: ["Legal", "Gone"], pinned: ["Clients", "AlsoGone"],
+                                                 underRoot: "/root") { present.contains($0) }
+        #expect(resolved.rootIsAvailable)
+        #expect(resolved.recents == ["Legal"])
+        #expect(resolved.pinned == ["Clients"])
+    }
+
+    /// The root is `stat`ed **once for both lists**, not once per list. Under an unreachable mount
+    /// each of those can block, and this is the call site that resolves recents and pins together.
+    @Test func theRootIsAskedOnceForBothLists() {
+        var rootChecks = 0
+        _ = FolderJumpStore.reachable(recents: ["A"], pinned: ["B"], underRoot: "/root") { path in
+            if path == "/root" { rootChecks += 1 }
+            return true
+        }
+        #expect(rootChecks == 1, "the root was stat'ed once per list — under a sleeping mount that is one stall per list")
+    }
+
+    /// The root's own spellings are refused whichever way the root answered — an asleep root must
+    /// not smuggle in a `"."` row that a live one would have filtered.
+    @Test func anAsleepRootStillRefusesTheRootsOwnSpellings() {
+        let resolved = FolderJumpStore.reachable(recents: ["", ".", "Legal"], pinned: ["."],
+                                                 underRoot: "/asleep") { _ in false }
+        #expect(resolved.recents == ["Legal"])
+        #expect(resolved.pinned.isEmpty)
+    }
+
     /// The root itself is never a row (`emptyQueryRows` skips "" and "."), and neither is it a
     /// path to `stat` — a `"."` under a live root exists, so without this it would be offered.
     @Test func reachableRefusesTheRootsOwnSpellings() {

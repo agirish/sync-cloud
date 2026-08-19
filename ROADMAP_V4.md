@@ -511,14 +511,17 @@ app performs constantly, and it does not exist if AppKit owns the field.
 | Question | Decision | What follows |
 |---|---|---|
 | **How wide on a big window** | **620pt ceiling** — today's card width. | Unchanged from the shape above; the three candidates only differ above ~1150pt of window (at 960 every option gives ~330, at the 760 minimum ~359). **On the primary machine the ceiling is always binding**: all 29 `[palette] panel … frame=` lines in `~/sync-cloud.log` are 1697×983 or 1710×986, so the field opens at exactly 620 every time and the shed-on-open band never fires there. The width ladder is for other displays and other people, and cannot be judged by using it here. |
-| **A click on the pane while the list is up** | **Dismisses, and stops there** — today's rule, and still no scrim. | The transparent full-window panel keeps hit-testing and swallowing that click; the file is not selected and the click is not passed through. The window looks live and is not, deliberately. |
-| **After ↩ lands you somewhere** | **Collapse, and remember the query.** | The next open prefills it, selected. Not `ExpandingSearchField`'s collapse-and-clear — the one place this field deliberately departs from that idiom, because the query is the expensive part to retype and the folder you just left is the likeliest neighbour of the one you want next. |
-| **How long it is remembered** | **Cleared on a source change, and expired 30 seconds after it was last used.** | Session-only — nothing new is persisted. **Evaluated lazily when the field opens**, by comparing a stored timestamp; no `Timer`, nothing running while the app idles. Inject the clock rather than reading `Date()` at the seam, or the expiry is untestable. **Thirty seconds rather than five minutes, and the number is load-bearing** — see the ↩ hazard below. |
+| **A click on the pane while the list is up** | ~~Dismisses, and stops there.~~ **Reversed 2026-08-19: it dismisses AND lands.** | The decision below was taken believing the swallow was a property of the panel; it was a property of it being *sized to the host*, which only the dim ever justified. Measured with the dim gone: `panel.frame == host.frame` and the content claimed a hit at the window's far corner. The panel is its list now, and the mouse monitor — which returns the event it dismisses on — does the rest. A window you can see through is a window you expect to click. |
+| **After ↩ lands you somewhere** | ~~Collapse, and remember the query.~~ **Deferred past v4.2, 2026-08-19** — it collapses and clears. | The next open prefills it, selected. Not `ExpandingSearchField`'s collapse-and-clear — the one place this field deliberately departs from that idiom, because the query is the expensive part to retype and the folder you just left is the likeliest neighbour of the one you want next. |
+| **How long it is remembered** | ~~Cleared on a source change, expired after 30 seconds.~~ **Deferred with the row above** — the two ship together or not at all. | Session-only — nothing new is persisted. **Evaluated lazily when the field opens**, by comparing a stored timestamp; no `Timer`, nothing running while the app idles. Inject the clock rather than reading `Date()` at the seam, or the expiry is untestable. **Thirty seconds rather than five minutes, and the number is load-bearing** — see the ↩ hazard below. |
 | **⌘K while it is already open** | **Selects the text**, so the next keystroke replaces it. | **This retires a shipped behaviour**: ⌘K currently *closes* the palette, through `CommandPalettePanelController.closesThePalette` and its local monitor. That rule and its test change rather than move — escape stays the only close, which it already was for everything except this chord. |
 | **The placeholder, which no longer fits** | **Two measured rungs**, like everything else on this row. | Full: *Go to a place, a folder, a person, or an action…*; short: *Go to a folder, person, or action…*. At a 960pt window the field has ~249pt of text room against the full string's ~282pt, so without a rung it is a fragment. The short string goes in the same measured arithmetic as the pill's label, not a width guess. |
-| **A remembered folder that has gone** | **It does not appear.** | Resolved when the list is drawn, and — the reading being taken — **filtered rather than deleted**: the stored entry survives, so a folder on a drive that was asleep at launch comes back when the drive does, while never being offered as a destination it cannot deliver. The accepted cost is that an unreachable recent is simply absent, with nothing on screen saying why. |
+| **A remembered folder that has gone** | **It does not appear** — *when the root is reachable*. | Resolved when the list is drawn, and **filtered rather than deleted**: the stored entry survives, so a folder on a drive that was asleep at launch comes back when the drive does, while never being offered as a destination it cannot deliver. |
+| **A remembered folder whose ROOT is asleep** | **It appears, marked unavailable** — decided 2026-08-19, narrowing the row above. | The root is checked first (one stalled `stat` instead of a dozen), so an asleep drive takes out **every recent and every pin at once** — and the empty-query landing *is* that list, so ⌘K opens completely blank and "I have no recents" is indistinguishable from "my drive is not awake". That is a different claim from the row above, which is about one folder that has gone. Unavailable rows are how this palette already says an unmounted source exists (`PaletteSelection.initialIndex` skips them, ↩ refuses them), so nothing false is offered and no new empty state is needed. |
 
-**The ↩ hazard the 30 seconds exists for.** `PaletteSelection.initialIndex` preselects the first
+**The ↩ hazard the 30 seconds exists for** — kept because it is the argument that will be needed again when the memory is picked up, and because it names a live property of the shipped field (`⌘K ↩` means *go to my most recent folder*).
+
+ `PaletteSelection.initialIndex` preselects the first
 available row, so `⌘K ↩` today means *go to my most recent folder* — the fastest path the feature
 has. A restored query puts that reflex over a list ranked by something the user did not just type,
 and the field showing text they did not just enter is exactly what hides it. It is the same defect
@@ -592,8 +595,13 @@ runs long — see the note under the list.
    fourth in this app rather than in a probe. The field is an `NSViewRepresentable` over
    `NSTextField`; SwiftUI has no way to focus a toolbar-hosted field, which is what ⌘K needs.
 3. **The field, and its width in the reserve** (§7). One commit — the reserve arithmetic has no
-   symptom when it is wrong until the toolbar is behind a chevron. The route-table walk from the
-   decisions block happens here, before the card is deleted.
+   symptom when it is wrong until the toolbar is behind a chevron. ~~The route-table walk from the
+   decisions block happens here, before the card is deleted.~~ **It did not** — the card went in
+   `7e8fff03` with the walk still outstanding, so it is owed against the deleted card rather than
+   ahead of it. Scoped 2026-08-19: render the landing and a same-leaf query at the 620pt ceiling
+   **and the 320pt floor**, and confirm all fourteen destinations are present *and distinguishable*.
+   The narrow width is the whole risk — the card had room for a row's `detail`, and without it
+   `Clients/Legal` and `Archive/Legal` are both a row reading "Legal".
 4. **Go to Folder** (§3). Nearly free once 3 lands, pointless before it.
 5. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
    shortcuts reference gives the chord up rather than take a replacement.

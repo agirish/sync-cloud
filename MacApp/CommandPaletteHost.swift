@@ -106,8 +106,10 @@ extension ContentView {
             onRun: { [self] route in runPaletteRoute(route) },
             onDismiss: {
                 showCommandPalette = false
-                // Cleared on close, which is today's rule. §7's 30-second memory replaces this
-                // line and nothing else.
+                // Cleared on close. §7 decided a 30-second memory would replace this line;
+                // **that was deferred past v4.2 on 2026-08-19**, so clearing is the shipped rule
+                // rather than a placeholder. The argument for the memory, and the ↩ hazard that
+                // sets its length, are kept in ROADMAP_V4 §7 for whoever picks it up.
                 goToQuery = ""
                 // **Here, not in the field's own teardown.** Measured: by the time SwiftUI removes
                 // the field from the window, AppKit has already dropped the field editor and the
@@ -147,6 +149,11 @@ extension ContentView {
         // it that this call site got wrong, and the installed app was the only thing that noticed.
         let folders = PaletteIndex.folders(profileRoot: profile?.root, providerRoot: root,
                                            keys: Array(profile?.folders.keys ?? [:].keys))
+        // **Both remembered lists in one pass**, so the root is `stat`ed once rather than twice —
+        // under an unreachable network mount each of those can block.
+        let remembered = Self.reachableFolders(
+            recents: FolderJumpStore.shared.recentPaths(forRoot: root),
+            pinned: FolderJumpStore.shared.pinnedPaths(forRoot: root), under: root)
         return PaletteIndex(
             providers: settings.enabledProviders.map { provider in
                 PaletteProvider(id: provider.id, name: provider.displayName,
@@ -175,10 +182,12 @@ extension ContentView {
             // that cannot deliver its destination should not be offered; an entry whose drive is
             // merely asleep should not be destroyed. `reachable` holds both ends, and stops at the
             // root so an unreachable mount costs one stalled `stat` rather than a dozen.
-            recentFolders: Self.reachableFolders(
-                FolderJumpStore.shared.recentPaths(forRoot: root), under: root),
-            pinnedFolders: Self.reachableFolders(
-                FolderJumpStore.shared.pinnedPaths(forRoot: root), under: root),
+            recentFolders: remembered.recents,
+            pinnedFolders: remembered.pinned,
+            // Nil while the root answers. When it does not, every remembered folder is listed
+            // marked with this rather than dropped — decided 2026-08-19; the wording is the one
+            // an unmounted provider already uses, so the two read as the same kind of fact.
+            rememberedUnavailable: remembered.rootIsAvailable ? nil : "Not available",
             people: syncManager.filingPersonRegistry?.people ?? [],
             registry: syncManager.filingPersonRegistry,
             isScanning: isScanning || syncManager.isSuggestingFiles,
@@ -245,8 +254,10 @@ extension ContentView {
     /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
     /// The store's rule, wired to the real disk. Separate from `FolderJumpStore.reachable` so the
     /// rule stays testable without one, and `static` for the reason `isMountedFolder` is.
-    static func reachableFolders(_ relatives: [String], under root: String) -> [String] {
-        FolderJumpStore.reachable(relatives, underRoot: root, isDirectory: isMountedFolder)
+    static func reachableFolders(recents: [String], pinned: [String],
+                                 under root: String) -> RememberedFolders {
+        FolderJumpStore.reachable(recents: recents, pinned: pinned, underRoot: root,
+                                  isDirectory: isMountedFolder)
     }
 
     /// Where the Go-to field is on screen, or `nil` if the toolbar is not showing one.
