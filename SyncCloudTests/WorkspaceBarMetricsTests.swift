@@ -310,4 +310,156 @@ import FileExplorer
         #expect(WorkspaceBarMetrics.fullWidth(labelWidths: []) == 0)
         #expect(WorkspaceBarMetrics.iconOnlyWidth(segmentCount: 0) == 0)
     }
+
+    // MARK: The open field's share of the row (§7)
+
+    /// `styles(...)` with the field open, at a text scale.
+    private func openStyles(contentWidth: CGFloat, labelWidths: [CGFloat],
+                            scale: CGFloat = 1, separators: Int = 1) -> ToolbarBarStyles {
+        let search = searchWidths(scale: scale)
+        return WorkspaceBarMetrics.styles(
+            contentWidth: contentWidth, labelWidths: labelWidths,
+            searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
+            separators: separators,
+            openField: OpenFieldRequest(keycapWidth: search.keycap, scale: scale))
+    }
+
+    /// **Nothing moves on a wide window.** The field reaches its ceiling with every label still
+    /// spelled out — the state the primary machine is always in (its window is ~1700pt), and
+    /// therefore the state that would hide a broken ladder from the only person running this.
+    @Test func testAWideWindowOpensTheFieldAtItsCeilingAndMovesNothingElse() {
+        let resolved = openStyles(contentWidth: 1700, labelWidths: labelWidths())
+        #expect(resolved.workspace == .full, "the bar shed labels it did not need to")
+        #expect(resolved.field?.width == GoToFieldMetrics.ceilingWidth)
+        #expect(resolved.field?.placeholder == .full)
+    }
+
+    /// **The field takes the spare, and stops at the ceiling.** Between the two ends it is neither
+    /// fixed nor greedy: exactly what the row has left, which is what makes the open field feel
+    /// like part of the toolbar rather than a card that happens to be up there.
+    @Test func testTheFieldTakesWhatTheRowHasLeft() {
+        let widths = labelWidths()
+        let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+        // A width chosen so the spare lands strictly between the floor and the ceiling — the
+        // fixture is worthless if it happens to sit at either end.
+        let spare = (GoToFieldMetrics.floorWidth + GoToFieldMetrics.ceilingWidth) / 2
+        let contentWidth = WorkspaceBarMetrics.reservedChrome + bar + spare
+        let resolved = openStyles(contentWidth: contentWidth, labelWidths: widths)
+        #expect(spare > GoToFieldMetrics.floorWidth && spare < GoToFieldMetrics.ceilingWidth)
+        #expect(resolved.workspace == .full)
+        #expect(resolved.field?.width == spare, "the field did not take the row's spare width")
+    }
+
+    /// **The labels shed only when the field would otherwise be under its floor — and shedding
+    /// has to actually buy something.** The second half is what a rule like this gets wrong: a
+    /// shed that leaves the field the same width is a bar that lost its words for nothing.
+    @Test func testTheLabelsShedForTheFieldAndTheShedBuysItWidth() {
+        let widths = labelWidths()
+        let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+        // One point under the floor with the labels up: the last width at which the bar sheds.
+        let contentWidth = WorkspaceBarMetrics.reservedChrome + bar + GoToFieldMetrics.floorWidth - 1
+        let resolved = openStyles(contentWidth: contentWidth, labelWidths: widths)
+        #expect(resolved.workspace == .iconOnly, "the field was left under its floor with the labels up")
+        let gained = bar - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
+        #expect(gained > 0)
+        #expect(resolved.field?.width == GoToFieldMetrics.floorWidth - 1 + gained,
+                "the shed did not reach the field")
+        // And one point wider, the labels stay: this is a band, not a general rule.
+        #expect(openStyles(contentWidth: contentWidth + 1, labelWidths: widths).workspace == .full)
+    }
+
+    /// **At the window's own floor the field is still above its floor — so §7's "below the 320pt
+    /// floor" case cannot happen in this app.**
+    ///
+    /// Measured, not assumed, and it is the reverse of what the section predicted. The icon-only
+    /// bar's width does not depend on the text size (it is glyphs and padding), so the narrowest
+    /// window there is leaves the field ~359pt at every text size — comfortably over its 320
+    /// floor. The floor's real job is therefore not to clamp the field but to decide **when the
+    /// labels shed**, and the last-resort branch that opens the field under its floor is defensive
+    /// rather than reachable. It stops being defensive the moment a fifth workspace lands, or
+    /// `reservedChrome` grows, or the window's minimum is lowered — which is what this pins.
+    @Test func testTheNarrowestWindowStillClearsTheFieldsFloor() throws {
+        for size in FontSize.allCases {
+            let resolved = openStyles(contentWidth: Self.windowFloor,
+                                      labelWidths: labelWidths(scale: size.scale), scale: size.scale)
+            let width = try #require(resolved.field?.width)
+            #expect(resolved.workspace == .iconOnly)
+            #expect(width >= GoToFieldMetrics.floorWidth,
+                    "at the window floor / \(size.displayName) the field opens at \(width), under its own floor")
+        }
+    }
+
+    /// **What the narrow end actually costs is the invitation, not the field.** At the floor the
+    /// full placeholder needs ~390pt of field against the ~359 there is, so the short rung is what
+    /// absorbs it — and the rung exists precisely because this state is reachable and the wide one
+    /// is the common one.
+    @Test func testTheNarrowestWindowShortensTheInvitation() {
+        #expect(openStyles(contentWidth: Self.windowFloor, labelWidths: labelWidths()).field?.placeholder
+                == .short)
+        // And it is a rung, not a permanent state: the wide window says the whole sentence.
+        #expect(openStyles(contentWidth: 1700, labelWidths: labelWidths()).field?.placeholder == .full)
+    }
+
+    /// **The shed is a band, and both of its edges are silent.** Above it the field reaches its
+    /// ceiling with the labels up; below it the bar is icon-only at rest, so opening the field
+    /// changes nothing a user can see. Only in between does the row visibly rearrange — which is
+    /// the claim §7 makes and the one thing about this rule a person would notice being wrong.
+    @Test func testTheShedIsABandWithTwoSilentEdges() {
+        let widths = labelWidths()
+        var band: [CGFloat] = []
+        for contentWidth in stride(from: Self.windowFloor, through: 1600, by: 1) {
+            let closed = styles(contentWidth: contentWidth, labelWidths: widths)
+            let open = openStyles(contentWidth: contentWidth, labelWidths: widths)
+            if closed.workspace == .iconOnly {
+                #expect(open.workspace == .iconOnly,
+                        "at \(contentWidth)pt opening the field moved a bar that was already glyphs")
+            }
+            if closed.workspace == .full && open.workspace == .iconOnly { band.append(contentWidth) }
+            // Above the band the field is at its ceiling, which is the other silent edge.
+            if open.field?.width == GoToFieldMetrics.ceilingWidth {
+                #expect(open.workspace == .full,
+                        "at \(contentWidth)pt the bar shed labels for a field already at its ceiling")
+            }
+        }
+        let first = band.first ?? 0
+        let last = band.last ?? 0
+        #expect(!band.isEmpty, "the shed-on-open never happens at any width — the rule is dead")
+        #expect(band.count == Int(last - first) + 1, "the band has a hole in it")
+        // The numbers §7 quotes, held to the arithmetic rather than to prose: a band inside the
+        // window's own range, roughly 710–950. Loose bounds, because the exact edges move with the
+        // labels' rendered widths; a band that walked out of this range would be a real change.
+        #expect(first >= Self.windowFloor && last <= 1000,
+                "the shed band is \(first)–\(last)pt, outside the range §7 describes")
+    }
+
+    /// **The chevron guard, swept.** Everything above is a claim about one width; this is the
+    /// claim that matters at every width — the row never promises more than it has. A toolbar that
+    /// does not fit does not truncate: macOS folds it behind an overflow chevron, and the control
+    /// that disappears is whichever one macOS picks.
+    @Test func testTheOpenFieldNeverOverspendsTheRowAtAnyWidthOrTextSize() {
+        for size in FontSize.allCases {
+            let widths = labelWidths(scale: size.scale)
+            for contentWidth in stride(from: Self.windowFloor, through: 2400, by: 13) {
+                let resolved = openStyles(contentWidth: contentWidth, labelWidths: widths,
+                                          scale: size.scale)
+                let bar = resolved.workspace == .full
+                    ? WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+                    : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
+                let spent = bar + (resolved.field?.width ?? 0)
+                let available = contentWidth - WorkspaceBarMetrics.reservedChrome
+                #expect(spent <= available,
+                        "at \(contentWidth)pt / \(size.displayName) the row spends \(spent) of \(available)")
+                #expect((resolved.field?.width ?? 0) <= GoToFieldMetrics.ceilingWidth)
+            }
+        }
+    }
+
+    /// The closed row is untouched by all of this: `styles` without a field resolves exactly what
+    /// it resolved before, which is what the rest of this suite is asserting.
+    @Test func testAClosedFieldLeavesTheLadderExactlyAsItWas() {
+        let widths = labelWidths()
+        for contentWidth in stride(from: Self.windowFloor, through: 2000, by: 37) {
+            #expect(styles(contentWidth: contentWidth, labelWidths: widths).field == nil)
+        }
+    }
 }

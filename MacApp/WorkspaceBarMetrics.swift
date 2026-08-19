@@ -117,9 +117,14 @@ enum WorkspaceBarMetrics {
     /// two different controls rather than one row of peers.
     static func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
                        searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
-                       separators: Int = 1) -> ToolbarBarStyles {
+                       separators: Int = 1,
+                       openField: OpenFieldRequest? = nil) -> ToolbarBarStyles {
         let available = contentWidth - reservedChrome
         let bar = fullWidth(labelWidths: labelWidths, separators: separators)
+        if let request = openField {
+            return openStyles(available: available, bar: bar, labelWidths: labelWidths,
+                              separators: separators, request: request)
+        }
         let searchFull = CommandPaletteBarMetrics.width(style: .full, labelWidth: searchLabelWidth,
                                                         keycapWidth: searchKeycapWidth)
         let searchCompact = CommandPaletteBarMetrics.width(style: .compact, labelWidth: searchLabelWidth,
@@ -127,6 +132,42 @@ enum WorkspaceBarMetrics {
         if bar + searchFull <= available { return ToolbarBarStyles(workspace: .full, search: .full) }
         if bar + searchCompact <= available { return ToolbarBarStyles(workspace: .full, search: .compact) }
         return ToolbarBarStyles(workspace: .iconOnly, search: .compact)
+    }
+
+    /// The open field's share of the row. **The field takes the spare; the labels shed only when
+    /// that leaves it under its floor.**
+    ///
+    /// Not a fourth rung on the ladder above, because the priority inverts while the field is open:
+    /// closed, the pill's word is the cheapest thing on the row and the workspace labels are the
+    /// last to go; open, the field is the control being *used*, and a user typing a folder name
+    /// into 200pt while four labels sit beside them would be watching the row spend its width on
+    /// the wrong control. So the bar sheds *for* the field — and only as far as it must, which is
+    /// why this asks the labelled bar first and re-asks with glyphs rather than starting there.
+    ///
+    /// The result is a shed-on-open band and not a general rule: above roughly 950pt of content
+    /// width the field reaches its ceiling with the labels untouched, and below roughly 710 the bar
+    /// is already icon-only at rest, so nothing appears to move at either end.
+    private static func openStyles(available: CGFloat, bar: CGFloat, labelWidths: [CGFloat],
+                                   separators: Int, request: OpenFieldRequest) -> ToolbarBarStyles {
+        func layout(spare: CGFloat) -> GoToFieldLayout {
+            // `max(0,)` rather than a fallback width: a negative spare means the row cannot seat
+            // the field at all, and a field drawn wider than its share is the overflow chevron.
+            let width = min(max(spare, 0), request.ceiling)
+            return GoToFieldLayout(width: width,
+                                   placeholder: GoToFieldMetrics.placeholder(
+                                       forWidth: width, keycapWidth: request.keycapWidth,
+                                       scale: request.scale))
+        }
+        let spareWithLabels = available - bar
+        if spareWithLabels >= request.floor {
+            return ToolbarBarStyles(workspace: .full, search: .compact,
+                                    field: layout(spare: spareWithLabels))
+        }
+        // Shedding buys the difference between the two bar widths. Below the floor even then, the
+        // field opens as wide as it can — §7's narrow case, where the short placeholder is what
+        // absorbs the rest.
+        let shed = available - iconOnlyWidth(segmentCount: labelWidths.count, separators: separators)
+        return ToolbarBarStyles(workspace: .iconOnly, search: .compact, field: layout(spare: shed))
     }
 }
 
@@ -138,4 +179,27 @@ enum WorkspaceBarMetrics {
 struct ToolbarBarStyles: Equatable {
     var workspace: WorkspaceBarStyle
     var search: CommandPaletteBarStyle
+    /// The open Go-to field's share of the row, or `nil` when the field is closed and the pill is
+    /// what the toolbar draws. Resolved here rather than by the field, for the same reason the
+    /// other two are: it is spending the same width they are.
+    var field: GoToFieldLayout?
+
+    init(workspace: WorkspaceBarStyle, search: CommandPaletteBarStyle,
+         field: GoToFieldLayout? = nil) {
+        self.workspace = workspace
+        self.search = search
+        self.field = field
+    }
+}
+
+/// What the open field needs the row to know about it: its own floor and ceiling, and the two
+/// measurements that decide its placeholder. Passed in rather than read, so the arithmetic stays
+/// pure and a test can put the field at any width without a toolbar.
+struct OpenFieldRequest: Equatable {
+    var floor: CGFloat = GoToFieldMetrics.floorWidth
+    var ceiling: CGFloat = GoToFieldMetrics.ceilingWidth
+    /// The ⌘K/esc keycap's measured width — the field keeps a key at its trailing end.
+    var keycapWidth: CGFloat
+    /// Settings ▸ Text size, so the placeholder rung is decided at the size it will be drawn.
+    var scale: CGFloat
 }

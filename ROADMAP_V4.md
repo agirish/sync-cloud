@@ -397,9 +397,15 @@ control you type into.
   minus the dim. Without it, a click meant to dismiss selects a file instead.
 - **Go to Folder rides the same field** (§3): a typed path resolves against the pane's provider
   roots.
-- **The narrow case is not free.** At a 760pt window the field can take about 400 of ~406 available
-  points, and only because the workspace bar has already shed its labels for glyphs. Below the 320pt
-  floor it opens as wide as it can and the placeholder shortens.
+- **The narrow case is not free — but it never reaches the floor.** Built and measured
+  2026-08-18: at the 760pt window minimum the field opens at **359pt**, above its own 320pt floor,
+  and at *every* text size, because the icon-only bar's width is glyphs and padding and does not
+  scale with type. So the branch that opens the field under its floor is defensive rather than
+  reachable, and **the floor's real job is deciding when the labels shed**, not clamping the field.
+  What the narrow end actually costs is the invitation: the full placeholder needs ~390pt of field
+  at the default text size, so the short rung is what absorbs the difference.
+  `testTheNarrowestWindowStillClearsTheFieldsFloor` pins it, and starts failing the moment a fifth
+  workspace lands, `reservedChrome` grows, or the window's minimum is lowered.
 
 ### The spikes, run 2026-08-18 — two answers, one correction, and one settled in the app itself
 
