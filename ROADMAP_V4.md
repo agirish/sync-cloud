@@ -401,7 +401,7 @@ control you type into.
   points, and only because the workspace bar has already shed its labels for glyphs. Below the 320pt
   floor it opens as wide as it can and the placeholder shortens.
 
-### The spikes, run 2026-08-18 — two answers, one correction, one still open
+### The spikes, run 2026-08-18 — two answers, one correction, and one settled in the app itself
 
 Run as a self-driving AppKit probe (`NSHostingController` window, `ToolbarSpacer(.flexible)`, a
 `.primaryAction` item whose width is animated) on macOS 26.6.2. **Its toolbar is an approximation of
@@ -457,16 +457,48 @@ arithmetic off this file's constants at the default text size — `reservedChrom
 labels need beside a compact pill. They are the shape of the rule, not its constants: the real ones
 come out of `styles()` and the test that pins it, at every text size.)
 
-**4. Still open, and it decides how the field is written: can a SwiftUI `TextField` in a toolbar item
-hold first responder at all?** In the probe it never did — not via `@FocusState` with the documented
-one-turn hop, not from a synthesized click — while an `NSTextField` in an `NSViewRepresentable` in
-the *same slot of the same probe* took it on `makeFirstResponder` and typed normally. That is a
-positive control, so the negative is not vacuous — **but the probe could not host a `WindowGroup`
-scene** (it produced no window at all), and this app is one. **Settle it in SyncCloud itself as the
-first step of the field's commit, not from this probe.** If it holds, two consequences: the field is
-an `NSViewRepresentable` over `NSTextField`, and ↑ ↓ ↩ esc come from the field editor's
-`control(_:textView:doCommandBy:)` rather than `.onKeyPress` — which is the more reliable path for
-arrows anyway.
+**4. Settled in SyncCloud itself, 2026-08-18 — and it went the other way from the spike in one half.**
+Run as a throwaway probe *in this app*: the `.primaryAction` item swapped for a field, focus asked
+for after launch, and the readings taken off the real window.
+
+**Read the confound first, because every early reading was void.** A second copy of SyncCloud
+launched from a shell **cannot become active while the installed app is running** — same bundle id
+— so `appActive=false`, `isKey=false`, and *nothing* about focus is measurable: the first pass duly
+reported that a SwiftUI `TextField` could not be focused and that no window existed at 2.6s (the app
+spends its first seconds reloading 23,798 content digests). Rebuilt with
+`PRODUCT_BUNDLE_IDENTIFIER=com.abhishekgirish.SyncCloudFieldProbe` and polled for the window, it
+activates and every question becomes answerable. A focus probe in a background app measures AppKit
+refusing to focus a background window.
+
+What the real toolbar holds, dumped from `NSToolbar.items`: a SwiftUI `TextField` in a toolbar item
+does materialise as an AppKit control —
+`ToolbarItemHostingView → AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<PlatformTextFieldAdaptor>> → AppKitTextField`,
+`isEditable = true`, `acceptsFirstResponder = true`. It is there and it is focusable. Then:
+
+| | SwiftUI `TextField` | `NSTextField` in an `NSViewRepresentable` |
+|---|---|---|
+| `@FocusState`, view-owned | **does not take it** — responder stays the pane's list | — |
+| `@FocusState`, owned by the scene root and passed down | **does not take it either** | — |
+| `window.makeFirstResponder` | takes it (`_SystemTextFieldFieldEditor`, delegate `SwiftUI.AppKitTextField`) | **takes it** (`NSTextView`, delegate `NSTextField`) |
+| a click | takes it | takes it |
+| survives 20 forced re-renders | yes — **when SwiftUI's own focus state does not disagree** | yes |
+| typing reaches the binding | yes (`"abc"`) | yes (`"abc"`) |
+| ↑ ↓ ↩ esc | `.onKeyPress(.downArrow/.return/.escape)` all fire | `doCommandBy` gives `moveDown:`, `insertNewline:`, `cancelOperation:` |
+
+**So the spike was right about `@FocusState` and wrong about the click** — in the real app a click
+focuses the SwiftUI field perfectly well. The half that matters is the half that survived: **there
+is no SwiftUI way to put the caret in a toolbar-hosted field**, and ⌘K — the whole reason this
+control exists — is exactly that: focus claimed programmatically, with no click to ride in on.
+
+**Decision: the field is an `NSViewRepresentable` over `NSTextField`, and its keys come from
+`control(_:textView:doCommandBy:)`.** Two reasons, and the second is the one that would have bitten
+later. A SwiftUI field would need an AppKit reach-in anyway to be focusable by ⌘K — walking the
+toolbar item's view tree for a `SwiftUI.AppKitTextField`, which is SwiftUI's private shape and not
+ours to depend on. And a SwiftUI field focused behind SwiftUI's back is **one re-render from losing
+the caret**: with the scene-root `@FocusState` still reading `false`, the click-granted focus was
+revoked inside two seconds and the typing that followed went nowhere, while the same click with the
+view-owned state survived the whole churn. That is a defect that reproduces on a re-render this
+app performs constantly, and it does not exist if AppKit owns the field.
 
 ### Decided 2026-08-18, with him, one question at a time
 
@@ -550,7 +582,9 @@ runs long — see the note under the list.
 1. **Persist recents in `FolderJumpStore`** (§3's second correction). A prerequisite, not a
    follow-up: everything about the field opening on your last four folders is false without it.
    Ships with its cap, its order, and its answer for a folder that has since gone.
-2. **The two spikes** (§7). Forty minutes that decide whether §7's shape holds at all.
+2. ~~**The two spikes** (§7).~~ **Done, 2026-08-18** — all four questions answered in §7, the
+   fourth in this app rather than in a probe. The field is an `NSViewRepresentable` over
+   `NSTextField`; SwiftUI has no way to focus a toolbar-hosted field, which is what ⌘K needs.
 3. **The field, and its width in the reserve** (§7). One commit — the reserve arithmetic has no
    symptom when it is wrong until the toolbar is behind a chevron. The route-table walk from the
    decisions block happens here, before the card is deleted.
