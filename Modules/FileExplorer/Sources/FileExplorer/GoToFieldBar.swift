@@ -46,11 +46,19 @@ public struct GoToFieldBar: View {
     @Environment(\.appFontScale) private var scale
 
     public var body: some View {
-        switch mode {
-        case .closed(let style):
-            CommandPaletteBar(style: style, chord: chord, action: onOpen)
-        case .open(let layout):
-            open(layout)
+        // **One root view for both states, and it has to be one.** Returning the pill from one
+        // branch and the field from another changes the toolbar item's content type, and measured
+        // in the app that leaves `NSToolbarItem.view` NIL after the field closes — the item stays
+        // in `NSToolbar.items`, still counts as visible, and draws nothing. The control vanished
+        // from the row on close and a resize did not bring it back. The conditional is a CHILD of
+        // a stable container now.
+        HStack(spacing: 0) {
+            switch mode {
+            case .closed(let style):
+                CommandPaletteBar(style: style, chord: chord, action: onOpen)
+            case .open(let layout):
+                open(layout)
+            }
         }
     }
 
