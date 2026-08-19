@@ -43,9 +43,11 @@ extension FocusedValues {
 
 extension ContentView {
 
-    /// ⌘K toggles. Every open starts from an empty query — a palette that reopened holding the last
-    /// thing you typed would answer a question you have already had answered, and the reset is what
-    /// keeps the empty-query landing (recents, then places) reachable after the first use.
+    /// ⌘K opens, and on an already-open field **selects** rather than closing — Escape is the close.
+    /// (It toggled until 2026-08-18; the body below carries why it stopped.) Every open starts from
+    /// an empty query — a palette that reopened holding the last thing you typed would answer a
+    /// question you have already had answered, and the reset is what keeps the empty-query landing
+    /// (recents, then places) reachable after the first use.
     ///
     /// **It raises a panel rather than flipping an overlay flag**, for the reasons recorded at the
     /// top of `CommandPalettePanel.swift`: as an in-window overlay its clicks and keystrokes went
@@ -81,6 +83,14 @@ extension ContentView {
             Logger.shared.warning("⌘K pressed with no window to present the command palette over")
             return
         }
+        // **Who holds the caret right now**, captured before the field exists — the field is in
+        // this window's toolbar, so opening it takes first responder away from whatever the user
+        // was using, and closing it has to give that back. Measured 2026-08-19: without this the
+        // window itself was left as first responder (`<SwiftUI.AppKitWindow>`), and the pane
+        // stopped answering arrow keys and type-select until it was clicked. It could not happen
+        // before §7, when the field lived in the palette's own panel and never touched this
+        // window's responder.
+        let caretWasWith = host.firstResponder
         let index = paletteIndex
         let state = CommandPaletteState(index: index)
         // The field is what the user types into now, so it opens first and the list follows it.
@@ -99,6 +109,13 @@ extension ContentView {
                 // Cleared on close, which is today's rule. §7's 30-second memory replaces this
                 // line and nothing else.
                 goToQuery = ""
+                // **Here, not in the field's own teardown.** Measured: by the time SwiftUI removes
+                // the field from the window, AppKit has already dropped the field editor and the
+                // window is its own first responder — a rule asked at that point correctly declines
+                // to act on a caret the field no longer holds, and restores nothing. This fires
+                // while the caret is still in the field, which is the moment the question can be
+                // answered.
+                Self.restoreCaret(to: caretWasWith, in: host)
             })
         // **The flag is raised BEFORE `present` now, and it has to be**: the panel anchors itself
         // to the toolbar field, and the field does not exist until this flag says the toolbar item
@@ -241,12 +258,61 @@ extension ContentView {
     /// The whole ITEM's view is what is returned, not the text field inside it — the list aligns to
     /// the control's capsule, which includes the magnifier and the key beside the text.
     static func goToFieldScreenFrame(in host: NSWindow) -> CGRect? {
+        guard let view = goToFieldItemView(in: host) else { return nil }
+        return host.convertToScreen(view.convert(view.bounds, to: nil))
+    }
+
+    /// The toolbar item's view that holds the Go-to field, or `nil` when the row is showing the
+    /// closed pill.
+    ///
+    /// **`view.window === host` is a precondition, not a nicety.** `NSToolbar.items` includes items
+    /// macOS has folded behind the overflow chevron, whose views are out of the window's hierarchy
+    /// — `convert(_:to: nil)` on one of those answers in its own bounds and the frame that comes
+    /// back is the window's bottom-left corner, at a plausible width. That is an anchor the caller
+    /// cannot tell from a real one, so it is refused here and the caller's retry (and then its
+    /// warning) does its job instead.
+    static func goToFieldItemView(in host: NSWindow) -> NSView? {
         guard let toolbar = host.toolbar else { return nil }
         for item in toolbar.items {
-            guard let view = item.view, containsEditableField(view) else { continue }
-            return host.convertToScreen(view.convert(view.bounds, to: nil))
+            guard let view = item.view, view.window === host, containsEditableField(view)
+            else { continue }
+            return view
         }
         return nil
+    }
+
+    /// Puts the caret back where ⌘K found it, if ⌘K is still holding it.
+    ///
+    /// Both refusals carry as much weight as the restore:
+    ///
+    /// - **Only if the caret is in the Go-to field.** Every close path runs this, including the one
+    ///   where the user clicked into a pane — and there they have already said where focus goes.
+    /// - **Only to a view still in this window.** A remembered responder whose view has since been
+    ///   torn down would move the caret somewhere invisible, which is worse than the window keeping
+    ///   it.
+    static func restoreCaret(to previous: NSResponder?, in host: NSWindow) {
+        restoreCaret(to: previous, in: host, caretIsInField: caretIsInTheGoToField(host))
+    }
+
+    /// The rule itself, with the one fact that needs a laid-out toolbar passed in rather than
+    /// asked for — an `NSToolbarItem`'s view is only in a window once AppKit has displayed the
+    /// toolbar, which no test host does, so asking here would make every assertion below vacuous.
+    static func restoreCaret(to previous: NSResponder?, in host: NSWindow, caretIsInField: Bool) {
+        guard caretIsInField, let previous else { return }
+        if let view = previous as? NSView, view.window !== host { return }
+        host.makeFirstResponder(previous)
+    }
+
+    /// Whether the window's first responder is the editor of the toolbar's Go-to field.
+    ///
+    /// Asked of the field editor rather than of the field: an `NSTextField` being typed into is
+    /// never itself the first responder — the window's shared `NSTextView` is, with the field as
+    /// its delegate.
+    static func caretIsInTheGoToField(_ host: NSWindow) -> Bool {
+        guard let editor = host.firstResponder as? NSTextView,
+              let field = editor.delegate as? NSView,
+              let item = goToFieldItemView(in: host) else { return false }
+        return field.isDescendant(of: item)
     }
 
     private static func containsEditableField(_ view: NSView) -> Bool {

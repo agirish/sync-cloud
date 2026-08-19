@@ -46,4 +46,24 @@ import Foundation
         #expect(containerIndex.lowerBound < switchIndex.lowerBound,
                 "the state switch is the ROOT of the toolbar item's content again — closing the field will leave NSToolbarItem.view nil and the control will vanish from the toolbar")
     }
+
+    /// **The caret claim waits between attempts.** Same defect as the panel's anchor, on the other
+    /// half of the same open: a bare `DispatchQueue.main.async` retry is not a retry, because
+    /// blocks queued during a main-queue drain run in that drain — measured in the running app on
+    /// 2026-08-19, all three attempts were spent before the field was in a window and it logged
+    /// `claimFocus GAVE UP — never mounted`. ⌘K opened a field with no caret.
+    ///
+    /// A source scan again, and for the same reason as above: `makeFirstResponder` on a toolbar-
+    /// hosted field cannot be reached from a test host. The panel's own pacing IS asserted
+    /// behaviourally — `theAnchorKeepsLookingAcrossRunloopTurnsRatherThanSpendingEveryRetryAtOnce`
+    /// in `CommandPalettePanelTests` — so the rule is pinned once for real and once by spelling.
+    @Test func theCaretClaimRetriesOnADelayRatherThanInTheSameRunloopTurn() throws {
+        let text = try source()
+        let claim = try #require(text.range(of: "private func claimFocus("))
+        let body = String(text[claim.upperBound...].prefix(900))
+        #expect(!body.contains("DispatchQueue.main.async {"),
+                "the caret claim retries with a bare `async` — every attempt runs in one runloop turn, before the field is mounted, and \u{2318}K opens a field with no caret")
+        #expect(body.contains("DispatchQueue.main.asyncAfter("),
+                "the caret claim no longer waits between attempts")
+    }
 }

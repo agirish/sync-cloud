@@ -824,6 +824,107 @@ import Sync
                 "the selection is a stale index into the previous results — ↩ would run a row nobody looked at")
     }
 
+    /// **The field's frame arrives in the content's own coordinate space, flipped.**
+    ///
+    /// AppKit measures up from the bottom left of the screen; SwiftUI measures down from the top
+    /// left of the panel. One translation does both, in `refreshAnchor`, and nothing downstream
+    /// knows which convention it holds — so if it is ever dropped or half-applied the list is
+    /// mirrored about the window's middle and lands at the bottom of the window, which no unit
+    /// elsewhere would notice.
+    ///
+    /// Verified by mutation: dropping the flip (`y: bottomLeft.y`) fails this, and so does losing
+    /// the field's own height from the subtraction.
+    @Test func theFieldsFrameArrivesFlippedIntoTheContentsOwnSpace() {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        // A field 28pt tall whose BOTTOM edge sits 120pt above the host's bottom, 60pt in from its
+        // left. Deliberately not centred and not square, so a transposed or halved translation
+        // cannot land on the right answer by accident.
+        let field = CGRect(x: host.frame.minX + 60, y: host.frame.minY + 120, width: 420, height: 28)
+        let state = present(controller, over: host, anchor: { field })
+        // Its TOP is 120 + 28 = 148 above the bottom, so it is height − 148 below the top.
+        #expect(state.fieldFrame == CGRect(x: 60, y: host.frame.height - 148, width: 420, height: 28),
+                "the list is anchored in the wrong space — it will draw mirrored about the window's middle")
+    }
+
+    /// **The anchor keeps looking across runloop turns rather than burning its retries at once.**
+    ///
+    /// This is the defect that shipped, measured in the running app on 2026-08-19: the retry was a
+    /// bare `DispatchQueue.main.async`, and blocks queued from inside a main-queue drain run in
+    /// that same drain — so all six "retries" were six calls in one turn, every one of them ahead
+    /// of the SwiftUI update that mounts the toolbar item. ⌘K then put an invisible panel over the
+    /// window with no list in it and logged `the Go to field never appeared`.
+    ///
+    /// Modelled the way the real thing behaves: an anchor with nothing to give for the first
+    /// 100 ms. Under the shipped code every retry is spent inside the first millisecond and this
+    /// fails; the mutation to confirm that is to put `.async` back.
+    @Test func theAnchorKeepsLookingAcrossRunloopTurnsRatherThanSpendingEveryRetryAtOnce() async {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        let ready = Date().addingTimeInterval(0.1)
+        let field = CGRect(x: host.frame.minX + 60, y: host.frame.minY + 120, width: 420, height: 28)
+        let state = present(controller, over: host, anchor: { Date() >= ready ? field : nil })
+        #expect(state.fieldFrame == .zero, "anchored to a field that did not exist yet")
+        // Bounded, and generously: the budget under test is ~0.6s, and a wait that cannot end is
+        // how a regression here becomes a hung suite rather than a failing one.
+        let deadline = Date().addingTimeInterval(3)
+        while state.fieldFrame == .zero, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        #expect(state.fieldFrame != .zero,
+                "every retry was spent inside one runloop turn — ⌘K opens an empty panel with no list")
+    }
+
+    /// The whole of what the toolbar field can do to the list, which is everything the palette's
+    /// own field used to do: type, ↑ ↓, ↩.
+    ///
+    /// **This is the seam §7 created**, and none of it existed before: the field is in another
+    /// window now, so every one of these is a call across that gap rather than a keystroke arriving
+    /// at the view that owns the list.
+    @Test func theToolbarFieldDrivesTheListAcrossTheGap() throws {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        var ran: [PaletteRoute] = []
+        let state = present(controller, over: host, onRun: { ran.append($0) })
+
+        controller.setQuery("legal")
+        #expect(state.query == "legal", "typing in the toolbar never reached the list")
+
+        let opened = state.selection
+        controller.move(by: 1)
+        #expect(state.selection != opened, "↓ from the field editor did not move the selection")
+        let landed = try #require(state.selection)
+        #expect(state.rows[landed].isAvailable,
+                "↓ parked the highlight on a row that cannot be chosen — ↩ would do nothing")
+
+        controller.runSelection()
+        #expect(ran.count == 1, "↩ from the field editor ran nothing")
+        #expect(!controller.isPresented,
+                "↩ ran a route with the field still open — the route lands under a palette that is about to close")
+    }
+
+    /// After a dismiss the field's calls are inert rather than aimed at the presentation that
+    /// replaced it. `dismiss()` drops the state, and every one of these reads it.
+    @Test func theFieldsCallsAreInertOnceThePaletteHasClosed() {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        var ran = 0
+        let state = present(controller, over: host, onRun: { _ in ran += 1 })
+        let selected = state.selection
+        controller.dismiss()
+
+        controller.setQuery("legal")
+        controller.move(by: 1)
+        controller.runSelection()
+        #expect(state.query.isEmpty, "a keystroke after the close still reached the retired list")
+        #expect(state.selection == selected, "↓ after the close still moved a retired selection")
+        #expect(ran == 0, "↩ after the close ran a route")
+    }
+
     @Test func theIndexIsSnapshottedRatherThanReReadPerKeystroke() {
         // A palette that re-indexed between a key and its character would be walking the folder
         // profile inside a keystroke. The state takes the index once, at init.

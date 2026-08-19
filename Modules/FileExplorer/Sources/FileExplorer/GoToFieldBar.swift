@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Events
 import Design
 
 /// The toolbar's Go-to control in both of its states: the pill you click, and the field it becomes.
@@ -132,6 +133,13 @@ struct GoToTextField: NSViewRepresentable {
     let onSubmit: () -> Void
     let onCancel: () -> Void
 
+    /// One display frame. Short enough that the caret arrives without a visible wait, long enough
+    /// that the runloop gets to mount the toolbar item between attempts.
+    static let retryInterval: TimeInterval = 1.0 / 60.0
+    /// ~0.6s of frames. Generous because the cost of running out is a dead field, and the cost of
+    /// an unused attempt is nothing — the loop stops the moment the window appears.
+    static let focusAttempts = 36
+
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField(string: text)
         field.isBordered = false
@@ -159,19 +167,36 @@ struct GoToTextField: NSViewRepresentable {
         context.coordinator.callbacks = (onMove, onSubmit, onCancel)
         guard context.coordinator.claimedToken != focusToken else { return }
         context.coordinator.claimedToken = focusToken
-        claimFocus(field, attemptsLeft: 3)
+        claimFocus(field, attemptsLeft: Self.focusAttempts)
     }
 
     /// Claiming the caret, with a retry rather than a single shot.
     ///
     /// The first update after the field is created can run before it is in a window, and
     /// `makeFirstResponder` on a windowless view is a silent no-op — which would read as "⌘K opened
-    /// a field you then have to click". One turn later it is mounted. The retry re-reads the field's
-    /// window each time rather than capturing one.
+    /// a field you then have to click". The retry re-reads the field's window each time rather than
+    /// capturing one.
+    ///
+    /// **The retry has to be `asyncAfter`, and three attempts was not a budget.** Measured in the
+    /// running app (2026-08-19): with a bare `DispatchQueue.main.async` every attempt was spent
+    /// before the field was mounted — the main queue drains blocks queued *during* a drain in the
+    /// same pass, so all three ran back-to-back inside one runloop turn, ahead of the SwiftUI
+    /// update that installs the toolbar item. The app said so (`claimFocus GAVE UP — never
+    /// mounted`) and ⌘K opened a field with no caret. A frame between attempts is what lets the
+    /// runloop do the mounting this is waiting for.
     private func claimFocus(_ field: NSTextField, attemptsLeft: Int) {
         guard let window = field.window else {
-            guard attemptsLeft > 0 else { return }
-            DispatchQueue.main.async { claimFocus(field, attemptsLeft: attemptsLeft - 1) }
+            guard attemptsLeft > 0 else {
+                // Said out loud, because this failure has no other trace: the field is on screen
+                // and simply does not take what you type, which reads as ⌘K being broken rather
+                // than as focus never having been claimed. The panel logs the matching half when
+                // its anchor runs out.
+                Logger.shared.warning("[palette] the Go to field never reached a window — it opened without the caret")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryInterval) {
+                claimFocus(field, attemptsLeft: attemptsLeft - 1)
+            }
             return
         }
         window.makeFirstResponder(field)
@@ -229,3 +254,4 @@ struct GoToTextField: NSViewRepresentable {
         }
     }
 }
+

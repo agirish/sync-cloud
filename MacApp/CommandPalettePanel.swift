@@ -21,8 +21,11 @@ import FileExplorer
 //
 // A real window settles all of it by construction:
 //
-// - **Keyboard.** The panel becomes key, so its field is the first responder and the pane's field
-//   cannot be. No focus race, no `@FocusState` write to lose.
+// - **Keyboard.** Originally: the panel becomes key, so its field is the first responder and the
+//   pane's field cannot be. **§7 inverted this and the inversion is load-bearing** — the field
+//   moved to the host's toolbar, so the panel must now REFUSE key or taking it would pull the
+//   caret out of the field being typed into. `CommandPaletteWindow` below carries the whole
+//   argument; do not "restore" `canBecomeKey` to `true` on the strength of this paragraph.
 // - **Clicking away.** Split across three mechanisms, and it took four attempts to get here: the
 //   panel spans the host's whole frame, so clicks over the host — content, toolbar band and title
 //   bar alike — land on the panel's own scrim and are dismissed by its tap; a left-click in another
@@ -30,8 +33,11 @@ import FileExplorer
 //   moves no key at all, and only the mouse monitor covers it. `clickDismissesThePalette` carries
 //   the boundary, the corrections, and what is still unverified; read it before changing any half.
 // - **The scrim still belongs to the palette.** The panel is sized to the host window and is
-//   transparent, so `CommandPaletteView` draws exactly what it drew before: dimmed backdrop, card
-//   floating near the top. Nothing about the look changes.
+//   transparent. It drew `CommandPaletteView` — a dimmed backdrop with a card floating near the
+//   top — until §7 replaced that with `GoToResultsPanel`: **no dim**, and a list hung under the
+//   toolbar field rather than centred. The scrim survives the redesign as a transparent,
+//   hit-testing fill, which is why clicking anywhere over the window still dismisses; what it no
+//   longer does is say so by darkening.
 
 /// The panel class, which exists for one overridden line — and as of §7 that line reads the other
 /// way round.
@@ -106,6 +112,10 @@ final class CommandPalettePanelController: ObservableObject {
 
     var isPresented: Bool { panel != nil }
 
+    /// One display frame between anchor attempts, and ~0.6s of them. See `refreshAnchor`.
+    static let anchorRetryInterval: TimeInterval = 1.0 / 60.0
+    static let anchorAttempts = 36
+
     // MARK: Driven from the toolbar field
 
     /// What the user typed. Goes through `setQuery` so the selection moves with the list.
@@ -131,7 +141,14 @@ final class CommandPalettePanelController: ObservableObject {
     /// - Parameter retriesLeft: the field is a SwiftUI toolbar item that mounts a turn or two
     ///   after the flag that opens it, so the first look routinely finds nothing. Retried on the
     ///   main queue rather than measured once, and the panel draws nothing until this succeeds.
-    private func refreshAnchor(retriesLeft: Int = 6) {
+    ///
+    ///   **A frame apart, and not six bare `async` hops.** Measured 2026-08-19: blocks queued from
+    ///   inside a main-queue drain run in that same drain, so six "retries" were six calls in one
+    ///   runloop turn — all of them ahead of the SwiftUI update that mounts the field. The palette
+    ///   then logged `the Go to field never appeared` and put an invisible panel over the window
+    ///   with no list in it. Spacing the attempts is what gives the runloop the turn this is
+    ///   waiting for.
+    private func refreshAnchor(retriesLeft: Int = CommandPalettePanelController.anchorAttempts) {
         guard let panel, let state else { return }
         guard let screenRect = anchor?(), screenRect.width > 0 else {
             guard retriesLeft > 0 else {
@@ -140,7 +157,9 @@ final class CommandPalettePanelController: ObservableObject {
                 Logger.shared.warning("[palette] the Go to field never appeared — the list has nothing to hang from")
                 return
             }
-            DispatchQueue.main.async { [weak self] in self?.refreshAnchor(retriesLeft: retriesLeft - 1) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.anchorRetryInterval) { [weak self] in
+                self?.refreshAnchor(retriesLeft: retriesLeft - 1)
+            }
             return
         }
         let bottomLeft = panel.convertPoint(fromScreen: screenRect.origin)
