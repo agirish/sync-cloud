@@ -401,14 +401,52 @@ control you type into.
   points, and only because the workspace bar has already shed its labels for glyphs. Below the 320pt
   floor it opens as wide as it can and the placeholder shortens.
 
-### Two spikes before committing to the shape
+### The spikes, run 2026-08-18 — two answers, one correction, one still open
 
-Neither is answerable from a mockup, both are about twenty minutes, and both are cheaper now than
-halfway through:
+Run as a self-driving AppKit probe (`NSHostingController` window, `ToolbarSpacer(.flexible)`, a
+`.primaryAction` item whose width is animated) on macOS 26.6.2. **Its toolbar is an approximation of
+this app's** — four workspace segments without the rule, one or three utility buttons — so the
+numbers below are the *shape* of the answer and not this app's constants. Re-measure in SyncCloud
+before pinning any of them in a test.
 
-1. Does a toolbar item animate its width smoothly under macOS 26's grouped toolbar?
-2. Does a non-key panel under a focused toolbar field draw its selection highlight the way the card
-   does?
+**1. Yes, a toolbar item animates its width, and smoothly.** 135 → 440pt gave 61 intermediate frames
+over a 500ms ease-out and 15 over a 120ms one, sampled at 8ms off the item's own backing `NSView`.
+Nothing about macOS 26's grouped toolbar clamps or steps it.
+
+**2. Yes, a non-key panel keeps the caret in the field and draws its selection normally.** With the
+panel hung under the field: host stays key, panel reports `isKey=false`, first responder stays the
+field editor, and synthesized keystrokes still land in the field (`"tax"` → `"taxes"` typed *with the
+panel up*). The selection fill renders identically key and non-key — equal blue-pixel counts off
+`cacheDisplay` — because the highlight is our own `fill(accent)` and not an AppKit emphasized
+selection. **The polarity inversion in the shape above is sound.**
+
+**3. The correction, and it is the one that moves the design: the width ceiling is far tighter than
+the mockup assumed.** Sweeping the field's width until `NSToolbar.visibleItems` dropped below
+`items` — the chevron, measured rather than feared:
+
+| Window | Workspace bar | Widest field with nothing folded |
+|---|---|---|
+| 960pt | full labels | **340pt** |
+| 960pt | glyphs only | **580pt** |
+| 1280pt | full labels | 660pt |
+| 1440pt | full labels | ≥700pt (sweep ceiling) |
+
+So **440pt at a 960pt window folds two toolbar items behind the chevron** — the utilities silently
+leave. `clamp(320, spare, 620)` cannot be honoured at 960 with the labels up. The fix that keeps the
+shape is already built: **the workspace bar drops to its glyph rung while the field is open**, which
+bought ~240pt in the probe. That makes the field's width and the bar's rung one decision, computed
+together, and it is the same `WorkspaceBarMetrics` reserve rather than a second ladder beside it.
+
+**4. Still open, and it decides how the field is written: can a SwiftUI `TextField` in a toolbar item
+hold first responder at all?** In the probe it never did — not via `@FocusState` with the documented
+one-turn hop, not from a synthesized click — while an `NSTextField` in an `NSViewRepresentable` in
+the *same slot of the same probe* took it on `makeFirstResponder` and typed normally. That is a
+positive control, so the negative is not vacuous — **but the probe could not host a `WindowGroup`
+scene** (it produced no window at all), and this app is one. **Settle it in SyncCloud itself as the
+first step of the field's commit, not from this probe.** If it holds, two consequences: the field is
+an `NSViewRepresentable` over `NSTextField`, and ↑ ↓ ↩ esc come from the field editor's
+`control(_:textView:doCommandBy:)` rather than `.onKeyPress` — which is the more reliable path for
+arrows anyway.
 
 ---
 
