@@ -74,15 +74,14 @@ struct SyncCloudApp: App {
     /// Watches for ⌥ held alone, and publishes it to every `.shortcutKeycap(_:)` in the window.
     /// One per app: it installs local `NSEvent` monitors, and a second would double them.
     @StateObject private var shortcutReveal = ShortcutRevealTracker()
-    /// The first-run welcome gate, shared with ContentView by key. Held here too so the Help ▸
-    /// Welcome to SyncCloud command can flip it back to `false` and re-summon the tour: ContentView's
-    /// `@AppStorage` on the same key observes the write and re-renders the overlay.
-    @AppStorage(FirstRunWelcome.hasSeenDefaultsKey) private var hasSeenFirstRunWelcome = false
-    /// Whether the welcome tour has been dismissed this session. App-owned (like hasBootstrappedSession)
-    /// so a window close + Dock reopen doesn't resurrect it; the Help command resets it to re-summon
-    /// the tour even after the user dismissed it earlier this session. @State (never persisted): a
-    /// dismissal only lasts the session unless "Don't show this again" also set the persisted flag.
-    @State private var welcomeDismissedThisSession = false
+    /// Whether setup has been dismissed this session. App-owned (like `hasBootstrappedSession`) so a
+    /// window close + Dock reopen doesn't resurrect a form the user answered *Not now* to. @State,
+    /// never persisted: a dismissal lasts the session, and the form offers itself again next launch
+    /// unless it was actually completed.
+    @State private var setupDismissedThisSession = false
+    /// Whether Help ▸ Set Up SyncCloud… asked for the form. Held here because the menu command lives
+    /// in this scene and ContentView's overlay chain is what reads it.
+    @State private var showSetup = false
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
@@ -518,7 +517,8 @@ struct SyncCloudApp: App {
                     showSettings: $showSettings,
                     showHelp: $showHelp,
                     hasBootstrappedSession: $hasBootstrappedSession,
-                    welcomeDismissedThisSession: $welcomeDismissedThisSession,
+                    setupDismissedThisSession: $setupDismissedThisSession,
+                    showSetup: $showSetup,
                     duplicateReview: $duplicateReview,
                     reviewStore: reviewStore
                 )
@@ -653,14 +653,19 @@ struct SyncCloudApp: App {
                 }
                 .keyboardShortcut("?", modifiers: .command)
 
-                // Re-summon the welcome tour on demand (it only auto-shows once per install). Close
-                // the other overlays first, then clear both the persisted seen flag and this
-                // session's dismissal so the tour shows again from the start. ContentView observes both.
-                Button("Welcome to SyncCloud") {
+                // Open the setup form on demand. It auto-shows once, on a machine that has never
+                // been set up; this is the way back to it, and it is deliberately unconditional —
+                // the form's own re-run state is what handles a machine that is already configured.
+                //
+                // **Nothing persisted is cleared here.** The old Welcome command had to reset
+                // `hasSeenFirstRunWelcome` to re-show the tour, which meant a user who opened it
+                // from the menu and then quit got greeted again on the next launch. An explicit
+                // latch cannot do that.
+                Button("Set Up SyncCloud…") {
                     showSettings = false
                     showHelp = false
-                    hasSeenFirstRunWelcome = false
-                    welcomeDismissedThisSession = false
+                    setupDismissedThisSession = false
+                    showSetup = true
                 }
                 // The discoverability half of the shortcuts story: review-mode keys, the drag
                 // move modifier, and ⌥-breadcrumb navigation are otherwise invisible.

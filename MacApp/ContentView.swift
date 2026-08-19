@@ -74,16 +74,32 @@ struct ContentView: View {
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
 
-    /// First-run welcome gate (H1). Persisted; set when the welcome tour is dismissed with "Don't
-    /// show this again" left checked (the default), so it auto-shows once per install.
-    @AppStorage(FirstRunWelcome.hasSeenDefaultsKey) private var hasSeenFirstRunWelcome: Bool = false
-    /// Whether the welcome tour has been dismissed for the rest of this session. App-owned (a
-    /// binding) for the same reason as `hasBootstrappedSession`: a window close + Dock reopen
-    /// recreates ContentView and its @State, and the tour shouldn't reappear after the user already
-    /// dismissed it. Separate from the persisted flag so an unchecked "Don't show this again" can
-    /// hide the tour now yet let it return next launch. Help ▸ Welcome to SyncCloud flips this back
-    /// to false to re-summon the tour mid-session.
-    @Binding var welcomeDismissedThisSession: Bool
+    /// The retired welcome tour's seen flag, still read and never written.
+    ///
+    /// **It is now evidence about the user rather than about the tour.** Every machine that ran a
+    /// build before the setup form carries it, and it means "this person has already been greeted",
+    /// so `SetupFlow.shouldAutoShow` uses it to refuse to open the form over somebody's working app.
+    /// A fresh install has it false and gets the form; Help ▸ Set Up SyncCloud… ignores it entirely.
+    @AppStorage(SetupFlow.legacyWelcomeSeenDefaultsKey) private var hasSeenFirstRunWelcome: Bool = false
+    /// Set when the user reaches the end of the setup form. Persisted, so it never auto-opens twice.
+    @AppStorage(SetupFlow.hasCompletedDefaultsKey) private var hasCompletedSetup: Bool = false
+    /// Whether setup has been dismissed for the rest of this session. App-owned (a binding) for the
+    /// same reason as `hasBootstrappedSession`: a window close + Dock reopen recreates ContentView
+    /// and its @State, and a form the user answered *Not now* to must not come back when they
+    /// reopen the window.
+    ///
+    /// Separate from `hasCompletedSetup`, and the difference is the whole point: *Not now* hides it
+    /// for this session and leaves the persisted flag alone, so the form offers itself again on the
+    /// next launch of a machine that still has not been set up.
+    @Binding var setupDismissedThisSession: Bool
+    /// Whether Help ▸ Set Up SyncCloud… asked for the form explicitly. App-owned so the menu
+    /// command — which lives in the App scene and cannot see this view's state — can set it.
+    ///
+    /// **The explicit latch is what makes the form reachable after it has been completed.** The
+    /// auto-show gate refuses a machine that is already set up, which is correct for a launch and
+    /// wrong for a menu item; the two are separate inputs to the same overlay rather than one flag
+    /// the menu has to lie to.
+    @Binding var showSetup: Bool
 
     /// Number of provider-id `onChange` notifications still expected from an in-flight pane
     /// swap. A swap flips both @AppStorage ids at once, which would fire both id onChanges and
@@ -734,19 +750,18 @@ struct ContentView: View {
                 settingsOverlay
             } else if showHelp {
                 helpOverlay
-            } else if !welcomeDismissedThisSession && !isBootstrappingProviders && FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
-                // Wait for provider discovery to finish before showing the welcome card.
-                // Its primary action is derived from enabledProviders.count, which is empty at
-                // first render (discovery runs async in onAppear); showing it early would flash
-                // the "Choose providers…" front door and then flip to "Scan now" once ≥2
-                // providers are found.
-                firstRunOverlay
+            } else if showSetup || shouldAutoShowSetup {
+                // Wait for provider discovery to finish before showing the form. Its Sources step
+                // is a list of what was discovered, and that list is empty at first render
+                // (discovery runs async in onAppear) — opening early would show "SyncCloud found 0
+                // places on this Mac" and then fill in behind the user's eyes.
+                setupOverlay
             }
         }
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
-        .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
-        .animation(.easeOut(duration: 0.15), value: welcomeDismissedThisSession)
+        .animation(.easeOut(duration: 0.15), value: showSetup)
+        .animation(.easeOut(duration: 0.15), value: setupDismissedThisSession)
         .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
         // The armed launch diagnostic, fired once discovery has given the palette a root to index.
         .onChange(of: isBootstrappingProviders) { _, bootstrapping in
@@ -793,13 +808,13 @@ struct ContentView: View {
             guard isOpen, pendingDestination != nil else { return }
             showHelp = false
         }
-        // The welcome tour is the third member of the same chain, and the one with a persisted
-        // flag: "Welcome to SyncCloud" clears `hasSeenFirstRunWelcome` on disk, so latching it
-        // behind a pick would both do nothing now and re-show the tour on the next launch.
-        .onChange(of: welcomeDismissedThisSession) { _, dismissed in
-            guard !dismissed, pendingDestination != nil else { return }
-            welcomeDismissedThisSession = true
-            hasSeenFirstRunWelcome = true
+        // Setup is the third member of the same chain. A destination pick is a direct answer to
+        // something the user just did to a file, so it wins — and a form refused here must leave
+        // nothing behind, which for this one means putting the session latch back rather than
+        // persisting anything.
+        .onChange(of: showSetup) { _, isOpen in
+            guard isOpen, pendingDestination != nil else { return }
+            showSetup = false
         }
         .quickLookPreview($quickLookURL)
         // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
@@ -1531,30 +1546,6 @@ struct ContentView: View {
         Self.applyFullSettingsReset(settings: settings, syncManager: syncManager)
     }
 
-    /// The first-run welcome tour (H1). FirstRunOverlay owns the paged layout and primary-action
-    /// choice; this wires it to the toolbar's scan, the Providers-tab settings path, and the
-    /// dismissal bookkeeping (`dismissWelcome`).
-    @ViewBuilder
-    private var firstRunOverlay: some View {
-        FirstRunOverlay(
-            leftProviderName: paneNames.left,
-            rightProviderName: paneNames.right,
-            providerCount: settings.enabledProviders.count,
-            glassHue: glassHue,
-            glassLevel: glassLevel,
-            surfaceTint: surfaceTint,
-            onScan: { dontShowAgain in
-                dismissWelcome(persist: dontShowAgain)
-                forceRefreshAction()
-            },
-            onChooseProviders: { dontShowAgain in
-                dismissWelcome(persist: dontShowAgain)
-                openProviderSettings()
-            },
-            onDismiss: { dontShowAgain in dismissWelcome(persist: dontShowAgain) }
-        )
-    }
-
     /// The in-window Help overlay (Help ▸ SyncCloud Help / ⌘?). HelpOverlay owns the backdrop,
     /// card decoration, and the searchable topic/article layout; this just feeds it the current
     /// surface style so the Help card matches Settings and Welcome, and wires dismissal.
@@ -1568,13 +1559,64 @@ struct ContentView: View {
         )
     }
 
-    /// Hide the welcome tour for the rest of this session, and — when the user left "Don't show
-    /// this again" checked — persist the seen flag so it won't auto-open on future launches.
-    /// Leaving it unchecked keeps the flag false, so the tour returns next launch; Help ▸ Welcome
-    /// to SyncCloud re-opens it any time regardless.
-    private func dismissWelcome(persist: Bool) {
-        welcomeDismissedThisSession = true
-        if persist { hasSeenFirstRunWelcome = true }
+    /// Whether the form opens itself, given everything this window knows.
+    ///
+    /// The session latch and the discovery wait are this view's business; the rest of the rule is
+    /// `SetupFlow.shouldAutoShow`, where it can be tested without a window.
+    private var shouldAutoShowSetup: Bool {
+        !setupDismissedThisSession && !isBootstrappingProviders
+            && SetupFlow.shouldAutoShow(hasCompletedSetup: hasCompletedSetup,
+                                        hasSeenLegacyWelcome: hasSeenFirstRunWelcome,
+                                        hasFilingProfile: syncManager.filingFolderProfile != nil)
+    }
+
+    /// The setup form (Fig. 1–6). `SetupSheet` owns the card, the rail and every step; this wires
+    /// it to the live settings object, the roster where one exists, and the two ways out.
+    @ViewBuilder
+    private var setupOverlay: some View {
+        GeometryReader { proxy in
+            SetupSheet(
+                settings: settings,
+                peopleStore: syncManager.filingPeopleStore,
+                glassHue: glassHue,
+                glassLevel: glassLevel,
+                surfaceTint: surfaceTint,
+                availableSize: proxy.size,
+                hasFilingProfile: syncManager.filingFolderProfile != nil,
+                // Through the one door, not by writing the latch here: `openSettings(on:)` stashes
+                // the tab it displaces so a refused open — one landing mid-destination-pick — can
+                // put it back. Presetting the tab and raising the latch by hand is the pairing that
+                // door exists to stop anyone having to remember.
+                onOpenSettings: { tab in
+                    dismissSetup()
+                    openSettings(on: tab)
+                },
+                onFinish: { finishSetup() },
+                onDismiss: { dismissSetup() }
+            )
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .transition(.opacity)
+    }
+
+    /// Hide the form for the rest of this session, persisting nothing.
+    ///
+    /// **Nothing, deliberately.** Every answer the form collected is already written — preferences
+    /// and the source list are live settings, and the roster answers are in the draft — so there is
+    /// no "save" to perform here. What is *not* recorded is that setup was finished, which is what
+    /// lets an unanswered form offer itself again next launch.
+    private func dismissSetup() {
+        setupDismissedThisSession = true
+        showSetup = false
+    }
+
+    /// The user reached the end of the form.
+    private func finishSetup() {
+        hasCompletedSetup = true
+        // The retired tour's flag is set alongside it so a build that predates the form — or a
+        // rollback to one — does not greet a user who has already been through all of this.
+        hasSeenFirstRunWelcome = true
+        dismissSetup()
     }
 
     /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered

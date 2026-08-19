@@ -2,310 +2,30 @@ import SwiftUI
 import AppKit
 import Design
 
-/// Pure decision logic + tour content behind the first-run welcome overlay (H1), kept UI-free so
-/// SyncCloudTests can pin the show gate, primary-action branch, and page sequence without a view.
-enum FirstRunWelcome {
-    /// UserDefaults key for the seen flag. QA reset:
-    /// `defaults delete com.abhishekgirish.SyncCloud hasSeenFirstRunWelcome`.
-    static let hasSeenDefaultsKey = "hasSeenFirstRunWelcome"
-
-    enum PrimaryAction: Equatable {
-        /// Two providers are ready — the front door is a scan.
-        case scan
-        /// Fewer than two providers discovered — send the user to Settings ▸ Providers first.
-        case chooseProviders
-    }
-
-    /// The overlay auto-shows once per install: the seen flag is set when the user dismisses with
-    /// "Don't show this again" left checked (the default). Help ▸ Welcome to SyncCloud re-opens it.
-    static func shouldShow(hasSeenWelcome: Bool) -> Bool {
-        !hasSeenWelcome
-    }
-
-    /// Which action the primary button performs, given how many providers discovery found.
-    /// A useful scan needs both panes on a real provider, so below two the front door is
-    /// the Providers tab instead.
-    static func primaryAction(providerCount: Int) -> PrimaryAction {
-        providerCount >= 2 ? .scan : .chooseProviders
-    }
-
-    /// Which illustration heads a page. Kept on the pure data so reordering pages can never
-    /// desync the artwork from the copy.
+/// The illustrations that head the setup form's welcome strip.
+///
+/// **Kept when the six-page welcome tour was retired, because the drawings were never the problem
+/// with it.** They are built from the app's own provider logos, SF Symbols and shapes — no new
+/// assets — and they are the one part of that screen that said something a sentence could not: what
+/// a Columns drill actually looks like, what "two panes" means before you have seen one.
+///
+/// `SetupArtworkRenderTests` renders each case to a bitmap and reads it back, which is how the
+/// Browse illustration's three separate columns and its lit diagonal are held to being three
+/// separate columns and a diagonal.
+enum SetupArt {
+    /// Which illustration a panel carries. Kept on plain data so reordering the strip can never
+    /// desync a drawing from its copy.
     ///
-    /// `FirstRunWelcomeTests.testEveryIllustrationIsUsedByExactlyOnePage` pins this against
-    /// ``pages``, because an art case is unusually easy to strand: nothing outside this file
-    /// references one, so a case added without a page — or a page deleted without its case —
-    /// compiles and renders exactly as before.
-    enum Art: Hashable { case welcome, browse, compare, transfer, duplicates, filing }
-
-    /// One page of the welcome tour. Pure data so the sequence is testable.
-    struct Page: Equatable {
-        let art: Art
-        let title: String
-        let blurb: String
-    }
-
-    /// The tour: an intro page, then one page per headline feature. The view renders each page's
-    /// `art` as a small vector illustration above the copy, and adds the pane pill / choose-
-    /// providers hint on the final page. Blurbs describe shipping behavior — keep them honest.
-    ///
-    /// **This is the one screen in the app nobody who works on it ever sees.** It renders once per
-    /// install, on a machine that has never run SyncCloud, and `shouldShow` is false forever after
-    /// — so it drifts silently while every other surface gets looked at daily. It spent the whole
-    /// Organize build calling Duplicates a *workspace*, which it stopped being when the five
-    /// segments folded to three; `testTheTourCallsNoRetiredWorkspaceAWorkspace` is derived from
-    /// ``retiredWorkspaceRawValues`` so the next fold cannot leave the same kind of lie behind.
-    ///
-    /// The last page is the one carrying the Scan CTA and the provider pill (see
-    /// `lastPageContext`), so whatever sits there has to make sense directly above "Scan now".
-    static let pages: [Page] = [
-        Page(art: .welcome,
-             title: "Welcome to SyncCloud",
-             blurb: "Browse your files, compare two cloud folders side by side, and let SyncCloud clean up what it finds — duplicates, loose files, names that don't travel."),
-        // Browse leads the bar, so it leads the tour — and it is also where a fresh install opens,
-        // which is why the blurb below may say so. The two constants that answer that question now
-        // agree: `ContentView.selectedWorkspace`'s `@AppStorage` default (what a first run gets,
-        // because `migrateSelection` returns nil when nothing is stored) and
-        // `WorkspaceSelection.default` (where an unreadable stored selection lands) are both
-        // `.browse`. They were `.compare` and `.browse` for a release while both files claimed
-        // otherwise, so this is a claim with a guard under it rather than a reading of one file:
-        // `theFirstRunDefaultAgreesWithTheFallback` fails if they part again. If it ever does, the
-        // blurb goes back to describing Browse without naming it the landing page.
-        Page(art: .browse,
-             title: "Browse your files",
-             blurb: "SyncCloud opens here — one provider's tree at full width, in columns or as an outline. Press Space to preview a file, and ⌘K to jump to a folder by name."),
-        Page(art: .compare,
-             title: "Compare side by side",
-             blurb: "Point each pane at a folder in iCloud, OneDrive, Google Drive, Dropbox — or any folder on your Mac. SyncCloud shows exactly what differs: files on only one side, and ones that changed."),
-        Page(art: .transfer,
-             title: "Copy & move differences",
-             blurb: "Send files either direction with a click. SyncCloud confirms before it writes, resolves name collisions, and every action can be undone with ⌘Z."),
-        Page(art: .duplicates,
-             title: "Clear out duplicates",
-             blurb: "Organize's Duplicates lens finds files with identical contents and picks which copies to remove — and never trashes the last copy of anything."),
-        // TWO lines, not three, and that is a layout constraint rather than a style preference:
-        // this is the last page, so it is the one carrying the provider pill under its blurb (see
-        // `lastPageContext`). At three lines the header outgrows `headerMinHeight` and pushes the
-        // dots and the button row down, so the card jumps as you step onto it. It shipped at four
-        // — "Settings." alone on a line — which is what `FirstRunBlurbFitTests` now measures.
-        Page(art: .filing,
-             title: "Let Organize do the filing",
-             blurb: "Organize puts loose files where they belong and proposes better names — using content on your Mac, or AI when you turn it on in Settings."),
-    ]
+    /// **Two cases outlive the panels that used them.** `welcome` heads the card itself rather than
+    /// a panel, and `transfer` and `duplicates` are the tour pages the fold to three panels
+    /// dropped. They are kept because `SetupIllustration` still draws them and the render tests still
+    /// check them — an illustration is cheap to keep and expensive to redraw — but nothing requires
+    /// every case to be used any more, which is why the old
+    /// `testEveryIllustrationIsUsedByExactlyOnePage` did not survive the fold. What replaced it is
+    /// the other direction: `everyPanelsArtworkIsDrawn` fails on a panel whose art nothing renders.
+    enum Art: Hashable, Sendable { case welcome, browse, compare, transfer, duplicates, filing }
 }
-
-/// The first-run welcome tour: a few informative pages about what SyncCloud does, then a scan (or
-/// choose-providers) front door. Mirrors the settings overlay's dimmed-backdrop centered-card
-/// pattern — click outside, Esc, ✕, or Skip all dismiss. Each dismissal reports the "Don't show
-/// this again" checkbox so the caller can decide whether to persist the seen flag.
-struct FirstRunOverlay: View {
-    let leftProviderName: String
-    let rightProviderName: String
-    let providerCount: Int
-    let glassHue: LiquidGlassHue
-    let glassLevel: GlassLevel
-    let surfaceTint: Double
-    let onScan: (_ dontShowAgain: Bool) -> Void
-    let onChooseProviders: (_ dontShowAgain: Bool) -> Void
-    let onDismiss: (_ dontShowAgain: Bool) -> Void
-
-    @State private var pageIndex = 0
-    /// On by default: the tour is a once-per-install thing out of the box. Unchecking it tells the
-    /// caller not to persist the seen flag, so the tour returns on the next launch.
-    @State private var dontShowAgain = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var pages: [FirstRunWelcome.Page] { FirstRunWelcome.pages }
-    private var isLastPage: Bool { pageIndex >= pages.count - 1 }
-
-    private var primaryAction: FirstRunWelcome.PrimaryAction {
-        FirstRunWelcome.primaryAction(providerCount: providerCount)
-    }
-
-    var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
-                .ignoresSafeArea()
-                .onTapGesture { onDismiss(dontShowAgain) }
-
-            card
-                // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
-                .contentShape(Rectangle())
-        }
-        .transition(.opacity)
-    }
-
-    /// The card, decorated the same way as the settings card so the in-window overlays read as one
-    /// system: the accent tint, then the glass material at the level's face value via
-    /// `groundedGlassCard`, which keeps Clear distinguishable from Frosted while still giving the
-    /// content a ground to sit on.
-    @ViewBuilder
-    private var card: some View {
-        cardContent
-            .contentSurface(hue: glassHue, tint: surfaceTint)
-            // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
-            // one on top put a second border over the dark specular edge.
-            .groundedGlassCard(level: glassLevel)
-            .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
-    }
-
-    /// The card's fixed width, and the inset between its edge and the text. Named because the blurb
-    /// line-budget test has to lay text out at exactly the width the card gives it — a test
-    /// restating `460 - 48` would keep passing after either number moved.
-    static let cardWidth: CGFloat = 460
-    static let cardPadding: CGFloat = 24
-    /// The floor the page header is held at, so pages of different blurb lengths do not move the
-    /// dots and the button row as you step through. A page whose content EXCEEDS this is the
-    /// alignment bug: the floor can only pad a short page, never shrink a tall one.
-    static let headerMinHeight: CGFloat = 250
-
-    private var cardContent: some View {
-        VStack(spacing: 16) {
-            pageHeader
-                // Cross-fade (+ a gentle scale-in) the page contents as the user steps through.
-                .id(pageIndex)
-                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97)))
-
-            pageDots
-
-            controls
-        }
-        .padding(Self.cardPadding)
-        .frame(width: Self.cardWidth)
-        .overlay(alignment: .topTrailing) { closeButton }
-    }
-
-    /// Icon + title + blurb for the current page, plus the pane pill on the final page. A minimum
-    /// height keeps the card from resizing as pages of different blurb lengths swap in.
-    @ViewBuilder
-    private var pageHeader: some View {
-        let page = pages[pageIndex]
-        VStack(spacing: 18) {
-            TourArtwork(art: page.art, leftName: leftProviderName, rightName: rightProviderName)
-                .frame(height: 120)
-                .frame(maxWidth: .infinity)
-                // Decorative — the title and blurb carry the meaning.
-                .accessibilityHidden(true)
-
-            VStack(spacing: 8) {
-                Text(page.title)
-                    .scaledFont(.title2.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                Text(page.blurb)
-                    .scaledFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // The pane pill (or the choose-providers hint) lives on the last page, right above the
-            // Scan CTA, so the user sees which two folders they're about to compare.
-            if isLastPage {
-                lastPageContext
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: Self.headerMinHeight, alignment: .top)
-    }
-
-    @ViewBuilder
-    private var lastPageContext: some View {
-        if primaryAction == .scan {
-            HStack(spacing: 8) {
-                Text(leftProviderName)
-                    .fontWeight(.medium)
-                Image(systemName: "arrow.left.arrow.right")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("compared with")
-                Text(rightProviderName)
-                    .fontWeight(.medium)
-            }
-            .scaledFont(.callout)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.quaternary.opacity(0.5), in: Capsule())
-        } else {
-            Text("SyncCloud finds your cloud folders automatically — pick the two to compare in Settings.")
-                .scaledFont(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var pageDots: some View {
-        HStack(spacing: 6) {
-            ForEach(pages.indices, id: \.self) { i in
-                Circle()
-                    .fill(i == pageIndex ? Color.primary.opacity(0.7) : Color.secondary.opacity(0.25))
-                    .frame(width: 6, height: 6)
-            }
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Page \(pageIndex + 1) of \(pages.count)")
-    }
-
-    /// The "Don't show this again" checkbox above the navigation row: Back / Skip on the way in,
-    /// and the Scan (or Choose providers) front door on the final page.
-    private var controls: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Toggle("Don't show this again", isOn: $dontShowAgain)
-                .toggleStyle(.checkbox)
-                .scaledFont(.callout)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 10) {
-                if pageIndex > 0 {
-                    Button("Back") {
-                        withAnimation(.easeInOut(duration: 0.15)) { pageIndex -= 1 }
-                    }
-                }
-
-                Spacer()
-
-                if isLastPage {
-                    switch primaryAction {
-                    case .scan:
-                        Button("Scan now") { onScan(dontShowAgain) }
-                            .buttonStyle(.borderedProminent)
-                            .chromeHover()
-                            .keyboardShortcut(.defaultAction)
-                            .shortcutKeycap("⏎")
-                    case .chooseProviders:
-                        Button("Choose providers…") { onChooseProviders(dontShowAgain) }
-                            .buttonStyle(.borderedProminent)
-                            .chromeHover()
-                            .keyboardShortcut(.defaultAction)
-                            .shortcutKeycap("⏎")
-                    }
-                } else {
-                    Button("Skip") { onDismiss(dontShowAgain) }
-                    Button("Next") {
-                        withAnimation(.easeInOut(duration: 0.15)) { pageIndex += 1 }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .chromeHover()
-                    .keyboardShortcut(.defaultAction)
-                    .shortcutKeycap("⏎")
-                }
-            }
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var closeButton: some View {
-        CloseButton { onDismiss(dontShowAgain) }
-            .keyboardShortcut(.cancelAction)
-            .shortcutKeycap("esc")
-            .padding(4)
-            .help(ShortcutHint.tooltip("Skip", "esc"))
-            .accessibilityLabel("Skip")
-    }
-}
-
-// MARK: - Tour artwork
+// MARK: - The illustrations
 
 /// The provider asset-catalog image name for a display name, or nil for the neutral/box hues that
 /// have no bundled logo. Mirrors the classification the sidebar/pane headers use.
@@ -341,12 +61,12 @@ private struct ProviderGlyph: View {
     }
 }
 
-/// Small illustrations that head each tour page — built from the app's own provider logos, SF
+/// Small illustrations that head a welcome panel — built from the app's own provider logos, SF
 /// Symbols, and shapes (no new assets), tinted with each provider's brand hue and animated in on
 /// appear (motion gated on Reduce Motion). Decorative: the title and blurb carry the meaning, so
-/// `pageHeader` marks the artwork `.accessibilityHidden(true)`.
-struct TourArtwork: View {
-    let art: FirstRunWelcome.Art
+/// the setup card marks the artwork `.accessibilityHidden(true)`.
+struct SetupIllustration: View {
+    let art: SetupArt.Art
     let leftName: String
     let rightName: String
 
@@ -649,3 +369,4 @@ private struct FilingArt: View {
             .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.5)))
     }
 }
+

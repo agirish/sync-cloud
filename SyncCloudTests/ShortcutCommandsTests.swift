@@ -496,14 +496,12 @@ import Foundation
         try #require(content.count > 500, "ContentView.swift is implausibly short")
         let code = Self.codeOnly(content)
 
-        // The welcome tour is the third member of the chain and the one with a persisted flag,
-        // so it is guarded too — inverted, because its "open" is a *cleared* dismissal.
-        #expect(code.contains(".onChange(of: welcomeDismissedThisSession)"),
-                "the welcome tour can still latch behind the destination picker")
-        #expect(code.contains("hasSeenFirstRunWelcome = true"),
-                "a refused tour leaves the persisted seen-flag cleared, so it returns next launch")
-
-        for latch in ["showSettings", "showHelp"] {
+        // The setup form is the third member of the chain, and it replaced the welcome tour this
+        // check used to name. The tour's half was inverted — its "open" was a *cleared* dismissal,
+        // so the refusal had to write the persisted seen-flag — and the form's is not: an explicit
+        // `showSetup` latch refuses exactly like the other two, which is the simplification that
+        // came with dropping a screen whose only way back was to un-persist a flag.
+        for latch in ["showSettings", "showHelp", "showSetup"] {
             let start = try #require(code.range(of: ".onChange(of: \(latch)) { _, isOpen in"),
                                      "\(latch) has no open-guard at all")
             let rest = code[start.upperBound...]

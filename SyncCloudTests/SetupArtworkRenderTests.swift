@@ -17,7 +17,7 @@ import AppKit
 /// can only ever fail for the wrong reason. `testTheRendererSeesAShippedIllustration` is the
 /// control: if the renderer cannot see `DuplicatesArt`, which has shipped since the tour existed, then
 /// it cannot see any of them and the Browse check below is not evidence.
-@Suite struct FirstRunArtworkRenderTests {
+@Suite struct SetupArtworkRenderTests {
 
     /// Renders one page's artwork at the size the card gives it, and returns the bitmap.
     ///
@@ -26,8 +26,8 @@ import AppKit
     /// What lands in the bitmap is whatever a single render pass produces, which is precisely why
     /// the control test below exists rather than an assumption that `onAppear` ran.
     @MainActor
-    static func render(_ art: FirstRunWelcome.Art) throws -> NSBitmapImageRep {
-        let view = TourArtwork(art: art, leftName: "iCloud", rightName: "Dropbox")
+    static func render(_ art: SetupArt.Art) throws -> NSBitmapImageRep {
+        let view = SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox")
             .frame(width: 260, height: 120)
             .tint(.blue)
         let renderer = ImageRenderer(content: view)
