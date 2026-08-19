@@ -472,13 +472,26 @@ arrows anyway.
 
 | Question | Decision | What follows |
 |---|---|---|
-| **How wide on a big window** | **620pt ceiling** — today's card width. | Unchanged from the shape above. Worth knowing the three candidates only differ above ~1150pt of window: at 960 every option gives ~330, at the 760 minimum ~359. 620 is reached at about a 1250pt window. |
+| **How wide on a big window** | **620pt ceiling** — today's card width. | Unchanged from the shape above; the three candidates only differ above ~1150pt of window (at 960 every option gives ~330, at the 760 minimum ~359). **On the primary machine the ceiling is always binding**: all 29 `[palette] panel … frame=` lines in `~/sync-cloud.log` are 1697×983 or 1710×986, so the field opens at exactly 620 every time and the shed-on-open band never fires there. The width ladder is for other displays and other people, and cannot be judged by using it here. |
 | **A click on the pane while the list is up** | **Dismisses, and stops there** — today's rule, and still no scrim. | The transparent full-window panel keeps hit-testing and swallowing that click; the file is not selected and the click is not passed through. The window looks live and is not, deliberately. |
 | **After ↩ lands you somewhere** | **Collapse, and remember the query.** | The next open prefills it, selected. Not `ExpandingSearchField`'s collapse-and-clear — the one place this field deliberately departs from that idiom, because the query is the expensive part to retype and the folder you just left is the likeliest neighbour of the one you want next. |
-| **How long it is remembered** | **Cleared on a source change, and expired 5 minutes after it was last used.** | Session-only — nothing new is persisted. **Evaluated lazily when the field opens**, by comparing a stored timestamp; no `Timer`, nothing running while the app idles. Both halves are one rule: a query is only worth restoring while it is still the thought you were having. Inject the clock rather than reading `Date()` at the seam, or the expiry is untestable. |
+| **How long it is remembered** | **Cleared on a source change, and expired 30 seconds after it was last used.** | Session-only — nothing new is persisted. **Evaluated lazily when the field opens**, by comparing a stored timestamp; no `Timer`, nothing running while the app idles. Inject the clock rather than reading `Date()` at the seam, or the expiry is untestable. **Thirty seconds rather than five minutes, and the number is load-bearing** — see the ↩ hazard below. |
 | **⌘K while it is already open** | **Selects the text**, so the next keystroke replaces it. | **This retires a shipped behaviour**: ⌘K currently *closes* the palette, through `CommandPalettePanelController.closesThePalette` and its local monitor. That rule and its test change rather than move — escape stays the only close, which it already was for everything except this chord. |
 | **The placeholder, which no longer fits** | **Two measured rungs**, like everything else on this row. | Full: *Go to a place, a folder, a person, or an action…*; short: *Go to a folder, person, or action…*. At a 960pt window the field has ~249pt of text room against the full string's ~282pt, so without a rung it is a fragment. The short string goes in the same measured arithmetic as the pill's label, not a width guess. |
 | **A remembered folder that has gone** | **It does not appear.** | Resolved when the list is drawn, and — the reading being taken — **filtered rather than deleted**: the stored entry survives, so a folder on a drive that was asleep at launch comes back when the drive does, while never being offered as a destination it cannot deliver. The accepted cost is that an unreachable recent is simply absent, with nothing on screen saying why. |
+
+**The ↩ hazard the 30 seconds exists for.** `PaletteSelection.initialIndex` preselects the first
+available row, so `⌘K ↩` today means *go to my most recent folder* — the fastest path the feature
+has. A restored query puts that reflex over a list ranked by something the user did not just type,
+and the field showing text they did not just enter is exactly what hides it. It is the same defect
+`setQuery` already guards one level down ("an index into the PREVIOUS results names a different row
+after a keystroke, so ↩ would run something the user never looked at").
+
+Considered and **rejected**: dropping the preselection on a restored-query open. It removes the
+hazard completely, but its cost falls on the *only* flow the restore exists for — searched, landed,
+wanted the neighbour, `⌘K ↓ ↩` — and at a 30-second window it buys that with a keystroke on the good
+path to fix a risk the short window has already taken out. **Row 0 stays selected.** If the reflex
+ever does misfire in use, the fix is the guard, not a longer memory.
 
 ---
 
