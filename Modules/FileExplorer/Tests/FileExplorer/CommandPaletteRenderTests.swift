@@ -5,7 +5,7 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// The palette, **rendered and read back**, in light and dark.
+/// The palette's results list, **rendered and read back**, in light and dark.
 ///
 /// ## Why pixels, on a view whose every decision is elsewhere
 ///
@@ -19,9 +19,14 @@ import Design
 /// - **The reason on an unavailable row is drawn**, not merely present in the model. It is the row's
 ///   trailing text on a row whose title may be long; a layout that dropped it would leave an
 ///   unmounted source looking like an ordinary one.
-/// - **The highlight is drawn on the selected row and only there**, in both schemes. The palette is
+/// - **The highlight is drawn on the selected row and only there**, in both schemes. This surface is
 ///   driven entirely by ↑ ↓ ↩, so a highlight that did not render would leave every keystroke
 ///   landing somewhere invisible.
+///
+/// **The subject is `PaletteResultsList`, not a whole palette.** The 620pt card these tests were
+/// written against is gone — ⌘K is the toolbar's Go to field with `GoToResultsPanel` under it — and
+/// the list is the part both surfaces drew. Mounting it alone was always how the highlight was made
+/// measurable (see the type's own note); now it is also the only thing left to mount.
 ///
 /// **`.machinePinned(.pixelSampling)`** — it reads pixels out of a live renderer.
 @MainActor
@@ -47,48 +52,6 @@ import Design
 
     static func rows(_ query: String) -> [PaletteRow] {
         PaletteRouter.rows(query: query, index: index())
-    }
-
-    /// Mounts the palette over a plain backdrop and returns the whole canvas.
-    ///
-    /// The scrim is part of the subject: it is what tells the eye the palette owns the window, and
-    /// it is drawn from `glassLevel.overlayScrimOpacity` rather than by this view, so a level that
-    /// stopped dimming would show up here.
-    static func render(query: String, selection: Int?, scheme: ColorScheme) -> NSBitmapImageRep {
-        let rows = rows(query)
-        let subject = CommandPaletteView(
-            rows: rows,
-            query: .constant(query),
-            selection: .constant(selection),
-            accent: .blue,
-            glassLevel: .frosted,
-            onRun: { _ in },
-            onClose: {})
-            .frame(width: canvas.width, height: canvas.height)
-            .background(scheme == .dark ? Color(red: 0.11, green: 0.12, blue: 0.13)
-                                        : Color(red: 0.91, green: 0.92, blue: 0.93))
-            .environment(\.colorScheme, scheme)
-            // **The app pins this and so must the harness.** SwiftUI materials thin out and
-            // DESATURATE when the window is not key, and a borderless test window never is: without
-            // it the whole card renders greyscale and every colour assertion here reads zero. That
-            // is not a product bug — `ContentView` sets exactly this on the real window — it is the
-            // harness measuring an inactive-window rendering the user never sees.
-            .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
     }
 
     /// Mounts **the results list on its own**, without the card's glass wrapper.
@@ -172,13 +135,32 @@ import Design
 
     // MARK: It draws at all, in both schemes
 
+    /// **A blank-render smoke check, and no more than that — the mutation said so.**
+    ///
+    /// The exact half is the baseline: `PaletteResultsList` with no rows paints **nothing at all** —
+    /// no background, no chrome, no frame of its own. Measured, 0 ink in both schemes. That is a real
+    /// invariant and it is what stops the floor below being a comparison against unknown furniture.
+    ///
+    /// **The floor does NOT tell you the rows drew, and an earlier version of this comment claimed
+    /// it did.** Mutating the subject down to a single row left the test green, so the claim was
+    /// measured and withdrawn rather than reworded. The numbers say why: for this 20-row fixture,
+    /// one row inks 108,838 and all twenty ink 150,783 (light; 109,507 / 156,798 dark). Ink here is
+    /// dominated by a fixed cost that arrives with the first row, so it separates *blank* from
+    /// *drawn* and nothing finer.
+    ///
+    /// What actually catches a row-level regression is below: `theHighlightFollowsTheSelection`,
+    /// `theSelectionMovesDownTheScreenAsTheIndexRises` and the two differing-pixel tests. This one
+    /// only catches the case where the list renders as an empty page.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
-    func thePaletteDrawsItsCardAndRows(scheme: ColorScheme) {
-        let rep = Self.render(query: "", selection: 0, scheme: scheme)
-        // A card, a field and a dozen rows is a lot of paint. The floor is set well under what an
-        // intact render produces and well over what a scrim alone would.
-        #expect(Self.inked(rep) > 60_000,
-                "the palette painted almost nothing in \(scheme) — a blank card, not a blank page")
+    func theListDrawsItsRows(scheme: ColorScheme) {
+        let rows = Self.rows("")
+        #expect(rows.count > 4, "too few rows to tell — this test would be vacuous")
+        let empty = Self.inked(Self.renderList(rows: [], selection: nil, scheme: scheme))
+        #expect(empty == 0,
+                "an empty results list painted \(empty) pixels in \(scheme) — it draws only rows, and the floor below is only meaningful while that holds")
+        let drawn = Self.inked(Self.renderList(rows: rows, selection: 0, scheme: scheme))
+        #expect(drawn > 50_000,
+                "the results list rendered as a blank page in \(scheme) — \(drawn) ink, against ~150,000 measured intact")
     }
 
     // MARK: The highlight is real, and it is where the selection says
@@ -246,16 +228,16 @@ import Design
     /// weaker.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func twoDifferentQueriesRenderDifferentLists(scheme: ColorScheme) {
-        let legal = Self.render(query: "legal", selection: 0, scheme: scheme)
-        let medical = Self.render(query: "medical", selection: 0, scheme: scheme)
+        let legal = Self.renderList(rows: Self.rows("legal"), selection: 0, scheme: scheme)
+        let medical = Self.renderList(rows: Self.rows("medical"), selection: 0, scheme: scheme)
         #expect(Self.differingPixels(legal, medical) > 1_000,
-                "two different queries rendered the same palette in \(scheme)")
+                "two different queries rendered the same list in \(scheme)")
     }
 
     /// The empty-query landing and a typed query are different pages. If the field's text never
     /// reached the view, or the list never recomputed, these would coincide.
     @Test func theEmptyLandingIsNotTheSameAsAQueriedList() {
-        #expect(Self.differingPixels(Self.render(query: "", selection: 0, scheme: .light),
-                                     Self.render(query: "legal", selection: 0, scheme: .light)) > 2_000)
+        #expect(Self.differingPixels(Self.renderList(rows: Self.rows(""), selection: 0, scheme: .light),
+                                     Self.renderList(rows: Self.rows("legal"), selection: 0, scheme: .light)) > 2_000)
     }
 }

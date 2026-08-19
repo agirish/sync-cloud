@@ -33,8 +33,8 @@ import FileExplorer
 //   moves no key at all, and only the mouse monitor covers it. `clickDismissesThePalette` carries
 //   the boundary, the corrections, and what is still unverified; read it before changing any half.
 // - **The scrim still belongs to the palette.** The panel is sized to the host window and is
-//   transparent. It drew `CommandPaletteView` — a dimmed backdrop with a card floating near the
-//   top — until §7 replaced that with `GoToResultsPanel`: **no dim**, and a list hung under the
+//   transparent. It drew a dimmed backdrop with a card floating near the top — a view since
+//   deleted — until §7 replaced that with `GoToResultsPanel`: **no dim**, and a list hung under the
 //   toolbar field rather than centred. The scrim survives the redesign as a transparent,
 //   hit-testing fill, which is why clicking anywhere over the window still dismisses; what it no
 //   longer does is say so by darkening.

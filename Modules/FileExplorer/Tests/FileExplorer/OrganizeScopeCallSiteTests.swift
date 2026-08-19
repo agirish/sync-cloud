@@ -45,9 +45,10 @@ import Sync
     /// a four-line body into the *next* member's doc comment, and failed a correct implementation.
     /// Fails loudly when the declaration is gone, so a rename cannot silently empty the haystack.
     static func body(of declaration: String, in source: String) throws -> String {
-        // **Uniqueness, because `range(of:)` silently takes the FIRST match.** Measured: adding a
-        // second `public var body: some View {` above `CommandPaletteView`'s — an onboarding variant,
-        // say — made the hit-shape scan read the decoy and pass with BOTH of its defects present.
+        // **Uniqueness, because `range(of:)` silently takes the FIRST match.** Measured on the ⌘K
+        // palette's card, since deleted: adding a second `public var body: some View {` above the
+        // real one — an onboarding variant, say — made that file's hit-shape scan read the decoy
+        // and pass with BOTH of its defects present.
         //
         // **Counted over `codeOnly`, not the raw text.** The first version counted the whole file and
         // so counted *prose*: one doc comment mentioning a member by name failed a correct
