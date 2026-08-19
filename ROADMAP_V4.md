@@ -437,6 +437,26 @@ shape is already built: **the workspace bar drops to its glyph rung while the fi
 bought ~240pt in the probe. That makes the field's width and the bar's rung one decision, computed
 together, and it is the same `WorkspaceBarMetrics` reserve rather than a second ladder beside it.
 
+**The width rule, decided 2026-08-18: the field takes the spare, and the bar sheds only when it must.**
+Not a new ladder — `WorkspaceBarMetrics.styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:)`
+is already the one place both toolbar controls' widths are added together, for the reason its own
+comment gives: two controls sizing themselves against the same row from two decisions is how the
+toolbar ends up behind the chevron with two green tests. The field's *open* width becomes another
+input to that function, and the rung falls out of it:
+
+- **Labels stay and the field takes whatever is left**, clamped to its ceiling. Above roughly 950pt
+  of content width nothing in the row moves at all; the field reaches its 620pt ceiling at about
+  1270.
+- **Only if that leaves the field under its floor do the workspace labels shed**, which buys the
+  field the ~230pt difference between `fullWidth` and `iconOnlyWidth`.
+- Below roughly 710pt of content width **nothing moves either**, because the bar is already
+  icon-only at rest — that is today's shipped threshold, unchanged.
+
+So the visible shed-on-open is confined to a band of roughly 710–950pt. (Those three numbers are
+arithmetic off this file's constants at the default text size — `reservedChrome`, and the 708pt the
+labels need beside a compact pill. They are the shape of the rule, not its constants: the real ones
+come out of `styles()` and the test that pins it, at every text size.)
+
 **4. Still open, and it decides how the field is written: can a SwiftUI `TextField` in a toolbar item
 hold first responder at all?** In the probe it never did — not via `@FocusState` with the documented
 one-turn hop, not from a synthesized click — while an `NSTextField` in an `NSViewRepresentable` in
