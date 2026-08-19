@@ -134,6 +134,27 @@ enum WorkspaceBarMetrics {
         return ToolbarBarStyles(workspace: .iconOnly, search: .compact)
     }
 
+    /// **Both answers, resolved together and cached together.** The row has to know what it looks
+    /// like with the field open AND with it closed, because the field opens on a keystroke rather
+    /// than on a resize — and re-deriving one of them inside a geometry callback that only fires on
+    /// resize is how the toolbar comes to be laid out for the state it was in a moment ago.
+    ///
+    /// Resolving both here also keeps the state write coarse: the caller stores this value, and it
+    /// changes only when one of the two answers does, not on every pixel of a window drag.
+    static func styleSet(contentWidth: CGFloat, labelWidths: [CGFloat],
+                         searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
+                         fieldKeycapWidth: CGFloat, scale: CGFloat,
+                         separators: Int = 1) -> ToolbarBarStyleSet {
+        ToolbarBarStyleSet(
+            closed: styles(contentWidth: contentWidth, labelWidths: labelWidths,
+                           searchLabelWidth: searchLabelWidth, searchKeycapWidth: searchKeycapWidth,
+                           separators: separators),
+            open: styles(contentWidth: contentWidth, labelWidths: labelWidths,
+                         searchLabelWidth: searchLabelWidth, searchKeycapWidth: searchKeycapWidth,
+                         separators: separators,
+                         openField: OpenFieldRequest(keycapWidth: fieldKeycapWidth, scale: scale)))
+    }
+
     /// The open field's share of the row. **The field takes the spare; the labels shed only when
     /// that leaves it under its floor.**
     ///
@@ -190,6 +211,13 @@ struct ToolbarBarStyles: Equatable {
         self.search = search
         self.field = field
     }
+}
+
+/// The row in both of its states — what it draws with the Go-to control closed, and what it draws
+/// with the field open. One value so the two cannot be resolved from different widths.
+struct ToolbarBarStyleSet: Equatable {
+    var closed: ToolbarBarStyles
+    var open: ToolbarBarStyles
 }
 
 /// What the open field needs the row to know about it: its own floor and ceiling, and the two

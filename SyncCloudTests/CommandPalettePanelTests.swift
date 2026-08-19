@@ -252,19 +252,26 @@ import Sync
     /// ambient teardown can be seen at all. See `DismissalWitness`.
     @discardableResult
     private func present(_ controller: CommandPalettePanelController, over host: NSWindow,
+                         anchor: @escaping () -> CGRect? = { CGRect(x: 100, y: 100, width: 400, height: 28) },
                          onRun: @escaping (PaletteRoute) -> Void = { _ in },
                          onDismiss: @escaping () -> Void = {}) -> CommandPaletteState {
         let state = CommandPaletteState(index: index)
         controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
+                           anchor: anchor,
                            onRun: onRun,
                            onDismiss: { [witness] in witness.record(); onDismiss() })
         return state
     }
 
-    /// The panel this app raises must be *able* to take key. A borderless `NSPanel` refuses by
-    /// default, and refusing is the whole defect: no key window means no first responder means the
-    /// keystrokes go somewhere else.
-    @Test func theWindowClassCanBecomeKeyAtAll() {
+    /// **The panel must REFUSE key, and this assertion was inverted on 2026-08-18.**
+    ///
+    /// While the palette carried its own field, refusing key was the whole defect — no key window,
+    /// no first responder, keystrokes somewhere else. §7 moved the field into the host's toolbar,
+    /// so the polarity inverts with it: a panel that takes key pulls the caret out of the field the
+    /// user is typing into, mid-word. Measured before it was built — with the panel non-key the
+    /// host stays key, the field editor keeps first responder, typed characters keep arriving, and
+    /// the row highlight draws identically because it is this app's own fill.
+    @Test func theWindowClassRefusesKeySoTheFieldKeepsTheCaret() {
         let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
@@ -276,7 +283,8 @@ import Sync
         // they are borderless and were never shown** — the `.titled` hosts below are ordered out
         // instead, for the measured reason `makeHost` gives.
         defer { panel.close() }
-        #expect(panel.canBecomeKey, "a borderless panel that cannot become key cannot hold a caret")
+        #expect(!panel.canBecomeKey,
+                "the palette panel takes key — the toolbar field loses the caret the moment the list appears")
         // ...and never main, so the menu bar and window title keep describing the document window.
         #expect(!panel.canBecomeMain)
     }
@@ -294,9 +302,10 @@ import Sync
         // lands on this panel, and the scrim's tap dismisses it. Sizing alone was once claimed to
         // be what made clicking there dismiss; it is not, and it was reported broken twice.
         #expect(panel?.frame == host.frame)
-        // Whether it *did* take key is AppKit's business and unobservable here; that it *may* is
-        // this app's, and `theWindowClassCanBecomeKeyAtAll` holds it.
-        #expect(panel?.canBecomeKey == true)
+        // The polarity, restated where the panel is a real presentation rather than a bare window:
+        // `theWindowClassRefusesKeySoTheFieldKeepsTheCaret` holds the class, this holds what was
+        // actually raised.
+        #expect(panel?.canBecomeKey == false)
         teardown(host, controller)
     }
 
@@ -351,9 +360,13 @@ import Sync
         var dismissed = false
         present(controller, over: host, onDismiss: { dismissed = true })
         #expect(controller.isPresented, "the palette is not up — \(witness.report(presented: controller.isPresented))")
-        let panel = try #require(host.childWindows?.first, "no panel to resign key — \(witness.report(presented: controller.isPresented))")
+        _ = try #require(host.childWindows?.first, "no panel at all — \(witness.report(presented: controller.isPresented))")
 
-        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+        // **Posted for the HOST, not the panel.** The panel cannot become key any more, so it can
+        // never resign it: an observer left on the panel would be a dismissal path that silently
+        // never fires, and this test would have kept passing by posting a notification nothing in
+        // the app can produce.
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: host)
         // Delivered on the main queue, so it lands on a later turn. Bounded, and it fails at the
         // deadline rather than passing on timeout.
         await waitUntil("the palette dismissed after resigning key") { !controller.isPresented }
@@ -510,51 +523,39 @@ import Sync
                 "the click monitor returns \(returns) — anything but `event` swallows the click the user meant for whatever is under the palette")
     }
 
-    /// **⌘K's monitor is now the only way to close the palette from the keyboard.**
+    /// **There is no keyDown monitor any more, and that is the fix.**
     ///
-    /// `a1c96082` suspended ⌘K along with every other chord while the palette is up, so the menu
-    /// item is disabled exactly when the palette is on screen. Before it, a deleted keyDown monitor
-    /// still left ⌘K working through the menu; now deleting it makes ⌘K appear to do nothing at all,
-    /// and `closesThePalette` is pure and static, so all four chord tests below pass without it.
-    /// Same "extracted for testability, one revert from unused" hazard the click monitor has a scan
-    /// for — and `theMonitorHelperInstallsAndDismissDrainsThem` only covers the shared helper, not
-    /// the existence of this particular caller.
-    @Test func theChordMonitorActuallyInstallsTheClosingChord() throws {
+    /// While the panel took key, the menu item could not fire — it reads a `@FocusedValue` from the
+    /// window underneath — so a local monitor was the only path left and it made ⌘K *close* the
+    /// palette. The host keeps key now, so the menu item works throughout, and ⌘K on an open field
+    /// selects what is in it instead (decided 2026-08-18). A monitor left installed would swallow
+    /// the chord before the menu item ever saw it, so its absence is asserted rather than assumed.
+    @Test func thereIsNoKeyDownMonitorSwallowingTheChord() throws {
         let source = Self.masked(try Self.panelSource())
-        let block = try Self.braceBalancedBlock(after: "addMonitor(matching: .keyDown",
-                                                in: source, what: "the ⌘K monitor")
-        #expect(block.contains("Self.closesThePalette("),
-                "the ⌘K monitor no longer consults closesThePalette — the chord rule is extracted and unused")
-        #expect(block.contains("self.dismiss()"), "the ⌘K monitor no longer dismisses")
-        // The chord is SWALLOWED and everything else PASSED ON, and the ORDER is the whole of it.
-        // A set check (`contains("event") && contains("nil")`) passed with the two swapped —
-        // measured — which is the inverted monitor: every non-⌘K keystroke eaten so the palette's
-        // own field receives nothing, and ⌘K handed on to the menu item as well.
-        let returns = Self.returnedExpressions(in: block)
-        #expect(returns.count >= 2, "the ⌘K monitor has \(returns.count) return(s) — it cannot be both passing other keys on and swallowing its own chord")
-        #expect(returns.last == "nil",
-                "the ⌘K monitor's last return is \(returns.last ?? "none") — it must swallow its own chord, or ⌘K reaches the menu item as well")
-        #expect(returns.dropLast().allSatisfy { $0 == "event" },
-                "the ⌘K monitor returns \(returns) — everything that is not the chord must be passed on, or the palette's own field receives nothing")
+        #expect(!source.contains("addMonitor(matching: .keyDown"),
+                "a keyDown monitor is back — ⌘K is being intercepted before the menu item sees it")
+        #expect(!source.contains("closesThePalette"),
+                "the retired chord rule is back in the file")
+        // The click monitor is NOT retired with it: a right- or middle-click moves no key window,
+        // so for two of its three masks it is still the only dismissal path.
+        #expect(source.contains("addMonitor(matching: [.leftMouseDown"))
     }
 
-    /// **The mask fails CLOSED on Swift it cannot lex.**
-    ///
-    /// `masked` is a four-flag scanner, not a Swift lexer, and three constructs defeat it — each
-    /// probed, each producing a wrong verdict rather than a loud one:
-    ///
-    /// - `"""` multi-line literals: the three quotes open/close/open, so a body with an **odd**
-    ///   number of `"` inverts the string state and everything after it is masked backwards (three
-    ///   red tests, all blaming code that was fine).
-    /// - `#"…"#` raw strings: `\` is not an escape and `"#` is the terminator, so the mask ends at
-    ///   the first bare `"` and blanks real code after it — including real braces.
-    /// - interpolation containing a nested literal (`"\(d["k"])"`): the inner quotes close and
-    ///   reopen the outer string, leaking its contents as code.
-    ///
-    /// None is in the file today. This test is what stops "not today" from becoming a silent wrong
-    /// answer the day someone adds one — the scan stops instead of guessing. Also asserts the two
-    /// invariants the callers depend on: the mask preserves length, and the masked file's braces
-    /// balance to zero.
+    /// The dismissal that replaces it: **the observer is on the host**. On the panel it would never
+    /// fire, since a window that cannot take key cannot resign it.
+    @Test func theResignObserverWatchesTheHostRatherThanThePanel() throws {
+        let source = Self.masked(try Self.panelSource())
+        // The registration's ARGUMENTS, not its closure body: `braceBalancedBlock` starts at the
+        // first brace, which is the handler — and `object:` is named before it. Reading the block
+        // asked the wrong side of the call and failed on a correct file.
+        let anchor = try #require(source.range(of: "resignObserver = NotificationCenter.default.addObserver"),
+                                  "the resign observer is gone — nothing closes the palette when focus leaves")
+        let call = String(source[anchor.lowerBound...].prefix(220))
+        #expect(call.contains("object: host"),
+                "the resign observer watches the panel — it can never fire, since a window that cannot take key cannot resign it")
+        #expect(!call.contains("object: panel"))
+    }
+
     @Test func rejectsConstructsTheMaskCannotLex() throws {
         let source = try Self.panelSource()
         #expect(!source.contains("\"\"\""),
@@ -808,48 +809,6 @@ import Sync
         #expect(!CommandPalettePanelController.clickDismissesThePalette(clickedWindow: panel,
                                                                         palette: panel),
                 "clicking the palette dismissed it — its own field and rows would be unusable")
-    }
-
-    // MARK: ⌘K, while the panel holds the keyboard
-
-    /// **The chord must survive Caps Lock.**
-    ///
-    /// While the panel is key the menu item cannot fire — it reads a `@FocusedValue` published by
-    /// the window underneath — so ⌘K comes from a local event monitor, and the obvious way to write
-    /// that test is wrong: `.deviceIndependentFlagsMask` includes `.capsLock`, `.function` and
-    /// `.numericPad`, so comparing the whole intersection to `.command` made ⌘K stop closing the
-    /// palette for anyone with Caps Lock on. Only the four modifiers a chord is made of count.
-    @Test func theClosingChordIgnoresKeyStateThatIsNotPartOfAChord() {
-        typealias C = CommandPalettePanelController
-        #expect(C.closesThePalette(modifiers: [.command], charactersIgnoringModifiers: "k"))
-        #expect(C.closesThePalette(modifiers: [.command, .capsLock], charactersIgnoringModifiers: "K"),
-                "⌘K stopped closing the palette because Caps Lock was on")
-        #expect(C.closesThePalette(modifiers: [.command, .function], charactersIgnoringModifiers: "k"))
-        #expect(C.closesThePalette(modifiers: [.command, .numericPad], charactersIgnoringModifiers: "k"))
-    }
-
-    /// ...and it must not fire for a *different* chord, or the palette would swallow keys that
-    /// belong to the app. A monitor that returns nil eats the event for everyone.
-    @Test func theClosingChordIsOnlyTheChordItself() {
-        typealias C = CommandPalettePanelController
-        #expect(!C.closesThePalette(modifiers: [.command, .shift], charactersIgnoringModifiers: "k"))
-        #expect(!C.closesThePalette(modifiers: [.command, .option], charactersIgnoringModifiers: "k"))
-        #expect(!C.closesThePalette(modifiers: [.command, .control], charactersIgnoringModifiers: "k"))
-        #expect(!C.closesThePalette(modifiers: [], charactersIgnoringModifiers: "k"),
-                "a bare k closed the palette — every letter typed into the field would close it")
-        #expect(!C.closesThePalette(modifiers: [.command], charactersIgnoringModifiers: "j"))
-        #expect(!C.closesThePalette(modifiers: [.command], charactersIgnoringModifiers: nil))
-    }
-
-    /// The chord comes from `AppChord`, so the monitor and the menu item cannot come to disagree
-    /// about which key opens and closes the palette.
-    @Test func theClosingChordIsTheRegisteredOne() {
-        #expect(!CommandPalettePanelController.closesThePalette(
-            modifiers: [.command],
-            charactersIgnoringModifiers: String(AppChord.commandPalette.key.character) + "x"))
-        #expect(CommandPalettePanelController.closesThePalette(
-            modifiers: [.command],
-            charactersIgnoringModifiers: String(AppChord.commandPalette.key.character)))
     }
 
     // MARK: The state the panel owns

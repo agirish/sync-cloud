@@ -52,7 +52,12 @@ extension ContentView {
     /// through to the AppKit file panes underneath it.
     func toggleCommandPalette() {
         if palettePanel.isPresented {
-            palettePanel.dismiss()
+            // **⌘K on an already-open field selects what is in it** rather than closing — decided
+            // 2026-08-18, and it retires the shipped behaviour where the chord toggled. Escape is
+            // the close, which it already was for everything except this one chord, and selecting
+            // is what every other search field on the Mac does: the fastest way to ask a different
+            // question is one keystroke over the old one.
+            goToFocusToken += 1
             return
         }
         // **The suspension has to be on the act, not on one publication.** `a1c96082` suspended ⌘K
@@ -78,16 +83,28 @@ extension ContentView {
         }
         let index = paletteIndex
         let state = CommandPaletteState(index: index)
+        // The field is what the user types into now, so it opens first and the list follows it.
+        goToQuery = ""
+        showCommandPalette = true
+        goToFocusToken += 1
         palettePanel.present(
             over: host, state: state, accent: glassHue.accentColor, glassLevel: glassLevel,
+            // Asked for lazily, and asked again on every window move: the list hangs off the
+            // field's own frame, and the field is a toolbar item that SwiftUI has not necessarily
+            // mounted yet at this instant. `refreshAnchor` retries rather than measuring once.
+            anchor: { Self.goToFieldScreenFrame(in: host) },
             onRun: { [self] route in runPaletteRoute(route) },
-            onDismiss: { showCommandPalette = false })
-        // **After `present`, not before.** `present` retires whatever it replaces, which fires that
-        // presentation's `onDismiss` — so a flag raised first could be lowered by the outgoing
-        // palette a line later, leaving every menu chord suspended with nothing on screen. Nothing
-        // reaches that path today (the toggle above returns early when one is up), which is exactly
-        // why the ordering is worth making unable to matter.
-        showCommandPalette = true
+            onDismiss: {
+                showCommandPalette = false
+                // Cleared on close, which is today's rule. §7's 30-second memory replaces this
+                // line and nothing else.
+                goToQuery = ""
+            })
+        // **The flag is raised BEFORE `present` now, and it has to be**: the panel anchors itself
+        // to the toolbar field, and the field does not exist until this flag says the toolbar item
+        // is open. The hazard the old ordering guarded — `present` retiring a previous
+        // presentation and its `onDismiss` lowering the flag a line later — cannot reach here,
+        // because the toggle above returns early when one is up, so there is nothing to retire.
         // Logged for the same reason the person gather logs its accept: this surface is
         // keyboard-only, its chord is a menu key equivalent, and nothing short of assistive access
         // can drive it from a script — so the log is the only place a run that is not a human's can
@@ -213,6 +230,28 @@ extension ContentView {
     /// rule stays testable without one, and `static` for the reason `isMountedFolder` is.
     static func reachableFolders(_ relatives: [String], under root: String) -> [String] {
         FolderJumpStore.reachable(relatives, underRoot: root, isDirectory: isMountedFolder)
+    }
+
+    /// Where the Go-to field is on screen, or `nil` if the toolbar is not showing one.
+    ///
+    /// Found by looking for the one editable text field in the toolbar rather than by item index:
+    /// the item's identifier is a UUID SwiftUI mints per build, and an index would silently start
+    /// measuring the Info button the first time an item is added before it.
+    ///
+    /// The whole ITEM's view is what is returned, not the text field inside it — the list aligns to
+    /// the control's capsule, which includes the magnifier and the key beside the text.
+    static func goToFieldScreenFrame(in host: NSWindow) -> CGRect? {
+        guard let toolbar = host.toolbar else { return nil }
+        for item in toolbar.items {
+            guard let view = item.view, containsEditableField(view) else { continue }
+            return host.convertToScreen(view.convert(view.bounds, to: nil))
+        }
+        return nil
+    }
+
+    private static func containsEditableField(_ view: NSView) -> Bool {
+        if let field = view as? NSTextField, field.isEditable { return true }
+        return view.subviews.contains(where: containsEditableField)
     }
 
     static func isMountedFolder(_ path: String) -> Bool {

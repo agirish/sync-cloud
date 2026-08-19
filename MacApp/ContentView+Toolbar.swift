@@ -245,6 +245,14 @@ extension ContentView {
         }
     }
 
+    /// Closed or open, from the pair the row resolved. The open case takes its width from
+    /// `styles(...)`, never from the field itself — the field is spending the same row width the
+    /// workspace bar is.
+    var goToFieldMode: GoToFieldBar.Mode {
+        if showCommandPalette, let layout = toolbarStyles.field { return .open(layout) }
+        return .closed(toolbarStyles.search)
+    }
+
     /// The window toolbar — the window-level controls, and only those: which workspace you're in,
     /// and the three utilities (Info, Logs, Settings). Everything else lives where it acts: Scan is
     /// in each pane header, Find Duplicates in the Duplicates lens, and the file actions are
@@ -268,14 +276,24 @@ extension ContentView {
         // member of the utility group: those three are glyph buttons and this is a field-shaped
         // resting surface — dropping it in among them would read as a button that had grown.
         ToolbarItem(placement: .primaryAction) {
-            CommandPaletteBar(style: toolbarStyles.search,
-                              chord: AppChord.commandPalette.display) {
-                toggleCommandPalette()
-            }
+            GoToFieldBar(
+                mode: goToFieldMode,
+                query: $goToQuery,
+                chord: AppChord.commandPalette.display,
+                focusToken: goToFocusToken,
+                accent: glassHue.accentColor,
+                onOpen: { toggleCommandPalette() },
+                onMove: { palettePanel.move(by: $0) },
+                onSubmit: { palettePanel.runSelection() },
+                onCancel: { palettePanel.dismiss() })
             // `toggleCommandPalette` refuses while a pick is pending, and a control that silently
             // does nothing is its own bug: the menu item dims itself for the same reason, and this
             // is the path a mouse user actually takes.
             .disabled(pendingDestination != nil)
+            // 120ms, and on the width rather than on a transition: the pill grows into the field
+            // and back, so the row reads as one control changing size rather than two controls
+            // swapping places.
+            .animation(.easeOut(duration: 0.12), value: showCommandPalette)
         }
 
         ToolbarItemGroup(placement: .primaryAction) {

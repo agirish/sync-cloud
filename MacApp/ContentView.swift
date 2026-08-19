@@ -273,7 +273,22 @@ struct ContentView: View {
     /// Both controls' rungs, resolved together — see `WorkspaceBarMetrics.styles`. One value
     /// because they share one row: two states resolved from two thresholds is how each concludes
     /// it fits a width the other is also spending.
-    @State var toolbarStyles = ToolbarBarStyles(workspace: .iconOnly, search: .compact)
+    /// Both rungs of the toolbar row, resolved together from the window's width — see
+    /// `WorkspaceBarMetrics.styleSet`. Stored as the pair rather than as one answer because the
+    /// field opens on a keystroke, not on a resize.
+    @State var toolbarStyleSet = ToolbarBarStyleSet(
+        closed: ToolbarBarStyles(workspace: .iconOnly, search: .compact),
+        open: ToolbarBarStyles(workspace: .iconOnly, search: .compact,
+                               field: GoToFieldLayout(width: GoToFieldMetrics.floorWidth,
+                                                      placeholder: .short)))
+    /// Whichever of the two the row is actually wearing right now.
+    var toolbarStyles: ToolbarBarStyles { showCommandPalette ? toolbarStyleSet.open : toolbarStyleSet.closed }
+    /// What is typed in the toolbar's Go-to field. Held here rather than in the panel's state so
+    /// the field can redraw (its trailing key becomes a clear button) without observing it.
+    @State var goToQuery = ""
+    /// Bumped to claim the caret: on open, and again on ⌘K while already open — where it also
+    /// selects what is there, so the next keystroke replaces it.
+    @State var goToFocusToken = 0
 
     /// Per-workspace override of the top-pane visibility, a JSON map (workspace raw value →
     /// hidden). Empty means "no overrides — every workspace uses its default". Persisted, so
@@ -691,17 +706,24 @@ struct ContentView: View {
             // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
             // reading `appFontScale` here means a scale change rebuilds this closure and
             // re-resolves; a constant would be correct at exactly one setting.
-            .onGeometryChange(for: ToolbarBarStyles.self) { proxy in
-                WorkspaceBarMetrics.styles(
+            .onGeometryChange(for: ToolbarBarStyleSet.self) { proxy in
+                WorkspaceBarMetrics.styleSet(
                     contentWidth: proxy.size.width,
                     labelWidths: Self.workspaceLabelWidths(scale: appFontScale),
                     searchLabelWidth: CommandPaletteBarMetrics.labelWidth(CommandPaletteBar.label,
                                                                           scale: appFontScale),
                     searchKeycapWidth: CommandPaletteBarMetrics.keycapWidth(
-                        symbol: AppChord.commandPalette.display, scale: appFontScale))
+                        symbol: AppChord.commandPalette.display, scale: appFontScale),
+                    // The OPEN field's key is `esc`, not ⌘K — measured from the same string the
+                    // field draws, so the reserve cannot be right for one and wrong for the other.
+                    fieldKeycapWidth: CommandPaletteBarMetrics.keycapWidth(
+                        symbol: GoToFieldMetrics.closeKeycap, scale: appFontScale),
+                    scale: appFontScale)
             } action: { styles in
-                toolbarStyles = styles
+                toolbarStyleSet = styles
             }
+            // Every keystroke in the toolbar field, forwarded to the list that is answering it.
+            .onChange(of: goToQuery) { _, typed in palettePanel.setQuery(typed) }
             .toolbar { mainToolbar }
         .overlay {
             // The picker wins the precedence: it is a direct answer to an action the user just

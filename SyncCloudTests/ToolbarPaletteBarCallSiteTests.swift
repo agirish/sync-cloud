@@ -33,10 +33,19 @@ import FileExplorer
 
     @Test func theToolbarDrawsThePillAndOpensThePaletteWithIt() throws {
         let toolbar = try Self.source("ContentView+Toolbar.swift")
-        #expect(toolbar.contains("CommandPaletteBar("),
-                "the toolbar no longer draws the ⌘K pill — the render tests are measuring a view nothing shows")
+        // `GoToFieldBar` as of §7: the pill and the field it becomes are one control, and the
+        // toolbar draws that one. It still renders `CommandPaletteBar` for its closed state — the
+        // pill's own suite measures a view the toolbar reaches through this.
+        #expect(toolbar.contains("GoToFieldBar("),
+                "the toolbar no longer draws the Go-to control — the render tests are measuring a view nothing shows")
         #expect(toolbar.contains("toggleCommandPalette()"),
-                "the pill is wired to something other than the palette")
+                "the control is wired to something other than the palette")
+        // The field's keys reach the list, and through the controller rather than by reading rows
+        // in the view: ↑ ↓ and ↩ arrive from the field editor, and a toolbar that drew the field
+        // without wiring them would type beautifully and go nowhere.
+        #expect(toolbar.contains("palettePanel.move(by:"), "↑ / ↓ from the field reach nothing")
+        #expect(toolbar.contains("palettePanel.runSelection()"), "↩ from the field runs nothing")
+        #expect(toolbar.contains("palettePanel.dismiss()"), "esc from the field closes nothing")
         // The chord comes from `AppChord`, not a literal: the pill's key and the menu item's key
         // equivalent must be one registration, or the toolbar can advertise a chord that does
         // nothing — the exact drift `AppChord` was created to end.
@@ -49,8 +58,11 @@ import FileExplorer
         let toolbar = try Self.source("ContentView+Toolbar.swift")
         // A hard-coded `.full` is the failure with no symptom until the window is narrow, and then
         // the symptom is the whole toolbar behind macOS's overflow chevron.
-        #expect(toolbar.contains("style: toolbarStyles.search"),
-                "the pill is drawing a fixed rung — the width ladder no longer reaches it")
+        #expect(toolbar.contains("mode: goToFieldMode"),
+                "the control is drawing a fixed rung — the width ladder no longer reaches it")
+        // And the mode itself comes off the resolved pair, never from a constant width.
+        #expect(toolbar.contains("toolbarStyles.field"))
+        #expect(toolbar.contains(".closed(toolbarStyles.search)"))
         #expect(toolbar.contains("let style = toolbarStyles.workspace"),
                 "the workspace bar is no longer reading the same resolved value the pill does")
     }
@@ -59,9 +71,15 @@ import FileExplorer
         let content = try Self.source("ContentView.swift")
         // One `onGeometryChange`, one value. Two thresholds resolved separately is how each control
         // concludes it fits a width the other is also spending.
-        #expect(content.contains("onGeometryChange(for: ToolbarBarStyles.self)"),
-                "the toolbar's two controls are sizing themselves from separate decisions again")
-        #expect(content.contains("WorkspaceBarMetrics.styles("))
+        #expect(content.contains("onGeometryChange(for: ToolbarBarStyleSet.self)"),
+                "the toolbar's controls are sizing themselves from separate decisions again")
+        // `styleSet`, not `styles`: BOTH answers — closed and open — come out of one call at one
+        // width. Resolving the open one anywhere else is how the field ends up sized for a window
+        // the toolbar no longer has.
+        #expect(content.contains("WorkspaceBarMetrics.styleSet("))
+        // The open field's key is `esc` and is measured from the string the field draws.
+        #expect(content.contains("fieldKeycapWidth: CommandPaletteBarMetrics.keycapWidth("))
+        #expect(content.contains("symbol: GoToFieldMetrics.closeKeycap"))
         // And the pill's own measurements are fed in — a `styles` call that passed zero widths
         // would compile, resolve, and reserve nothing for the control on the row.
         #expect(content.contains("searchLabelWidth: CommandPaletteBarMetrics.labelWidth("))

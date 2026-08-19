@@ -33,12 +33,19 @@ import FileExplorer
 //   transparent, so `CommandPaletteView` draws exactly what it drew before: dimmed backdrop, card
 //   floating near the top. Nothing about the look changes.
 
-/// The panel class, which exists for one overridden line.
+/// The panel class, which exists for one overridden line — and as of §7 that line reads the other
+/// way round.
 ///
-/// A borderless `NSPanel` refuses key by default, and a palette that cannot become key is the bug
-/// this file was written to fix.
+/// A borderless `NSPanel` refuses key by default. While the palette carried its own field, refusing
+/// key was the bug this file was written to fix: the field could not hold the caret. Now the field
+/// is in the toolbar of the host window, so the polarity inverts — **the panel must refuse key, or
+/// taking it would pull the caret out of the field the user is typing into.** Measured before it
+/// was built (ROADMAP_V4 §7, spike 2): with the panel non-key the host stays key, first responder
+/// stays the field editor, typed characters keep landing, and the list's selection fill draws
+/// identically, because the highlight is this app's own `fill(accent)` rather than an AppKit
+/// emphasized selection.
 final class CommandPaletteWindow: NSPanel {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
     /// Never main: the document window stays the app's main window underneath, so the menu bar and
     /// the window title keep describing the app rather than a transient palette.
     override var canBecomeMain: Bool { false }
@@ -53,6 +60,10 @@ final class CommandPaletteWindow: NSPanel {
 final class CommandPaletteState: ObservableObject {
     @Published private(set) var query: String = ""
     @Published var selection: Int?
+    /// Where the toolbar field is, in the panel's own SwiftUI coordinate space. Published rather
+    /// than passed once, because the panel spans the host window and the field moves with every
+    /// resize — a list anchored to where the field *was* is a list beside the field.
+    @Published var fieldFrame: CGRect = .zero
 
     let index: PaletteIndex
 
@@ -84,8 +95,59 @@ final class CommandPalettePanelController: ObservableObject {
     /// behind.
     private var eventMonitors: [Any] = []
     private var onDismiss: (() -> Void)?
+    /// The live presentation's state, so the toolbar field can drive it — the field is outside this
+    /// panel now, and everything it does (typing, ↑ ↓, ↩) has to reach the list somehow.
+    private(set) var state: CommandPaletteState?
+    /// Where the field is, asked again whenever the window moves.
+    private var anchor: (() -> CGRect?)?
+    /// Running a route dismisses first; held so ↩ from the field takes exactly the same path a
+    /// click on a row does.
+    private var runRoute: ((PaletteRoute) -> Void)?
 
     var isPresented: Bool { panel != nil }
+
+    // MARK: Driven from the toolbar field
+
+    /// What the user typed. Goes through `setQuery` so the selection moves with the list.
+    func setQuery(_ query: String) { state?.setQuery(query) }
+
+    /// ↑ / ↓ from the field editor.
+    func move(by step: Int) {
+        guard let state else { return }
+        state.selection = PaletteSelection.moved(from: state.selection, by: step, in: state.rows)
+    }
+
+    /// ↩ from the field editor — **through the same pure rule a click takes**, never by reading the
+    /// row here.
+    func runSelection() {
+        guard let state, let route = PaletteSelection.chosen(at: state.selection, in: state.rows)
+        else { return }
+        runRoute?(route)
+    }
+
+    /// Re-reads where the field is and hands it to the panel's content in ITS coordinate space:
+    /// AppKit measures from the bottom left of the screen, SwiftUI from the top left of the panel.
+    /// One translation, in one place, so nothing downstream has to know which convention it holds.
+    /// - Parameter retriesLeft: the field is a SwiftUI toolbar item that mounts a turn or two
+    ///   after the flag that opens it, so the first look routinely finds nothing. Retried on the
+    ///   main queue rather than measured once, and the panel draws nothing until this succeeds.
+    private func refreshAnchor(retriesLeft: Int = 6) {
+        guard let panel, let state else { return }
+        guard let screenRect = anchor?(), screenRect.width > 0 else {
+            guard retriesLeft > 0 else {
+                // Said out loud: a palette with no anchor is an empty window over the app, and it
+                // has no other trace.
+                Logger.shared.warning("[palette] the Go to field never appeared — the list has nothing to hang from")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in self?.refreshAnchor(retriesLeft: retriesLeft - 1) }
+            return
+        }
+        let bottomLeft = panel.convertPoint(fromScreen: screenRect.origin)
+        state.fieldFrame = CGRect(x: bottomLeft.x,
+                                  y: panel.frame.height - (bottomLeft.y + screenRect.height),
+                                  width: screenRect.width, height: screenRect.height)
+    }
 
     /// Raises the palette over `host`.
     ///
@@ -97,17 +159,24 @@ final class CommandPalettePanelController: ObservableObject {
                  state: CommandPaletteState,
                  accent: Color,
                  glassLevel: GlassLevel,
+                 anchor: @escaping () -> CGRect?,
                  onRun: @escaping (PaletteRoute) -> Void,
                  onDismiss: @escaping () -> Void) {
         dismiss()
         self.onDismiss = onDismiss
+        self.state = state
+        self.anchor = anchor
+        self.runRoute = { [weak self] route in
+            self?.dismiss()
+            onRun(route)
+        }
 
         let content = CommandPalettePanelContent(
             state: state, accent: accent, glassLevel: glassLevel,
             onRun: { [weak self] route in
-                // Dismiss FIRST, so the routing that follows lands on a window that is already
-                // key again — a route that changes workspace while the panel still holds key
-                // leaves the app focused on a window that is about to close.
+                // Dismiss FIRST, so the routing that follows lands on a window whose toolbar field
+                // has already collapsed — a route that changes workspace underneath an open field
+                // leaves the user typing at a list that is about to be replaced.
                 self?.dismiss()
                 onRun(route)
             },
@@ -144,8 +213,11 @@ final class CommandPalettePanelController: ObservableObject {
         // A child window rides the host: it moves, resizes and orders with it, so the scrim cannot
         // come adrift of the window it is dimming.
         host.addChildWindow(panel, ordered: .above)
-        panel.makeKeyAndOrderFront(nil)
+        // `orderFront`, never `makeKeyAndOrderFront`: the host keeps key so its toolbar field keeps
+        // the caret. `addChildWindow` already orders it above; this is the explicit half.
+        panel.orderFront(nil)
         self.panel = panel
+        refreshAnchor()
 
         // **Logged because two rounds of this were guesswork.** Whether the panel takes key decides
         // whether its field holds the caret, and it cannot be observed from a test host.
@@ -181,15 +253,25 @@ final class CommandPalettePanelController: ObservableObject {
         // anywhere, which changes no key window at all; the mouse monitor below is the only thing
         // that covers those. See `clickDismissesThePalette` for the whole boundary and for which
         // parts of it are still unverified.
+        //
+        // **Observed on the HOST now, not on the panel.** The panel cannot become key any more, so
+        // it can never resign it either: an observer on the panel would be a dismissal path that
+        // silently never fires. The host resigning key is the same event it always was — another
+        // window, or another app, taking over.
         resignObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
+            forName: NSWindow.didResignKeyNotification, object: host, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.dismiss() }
             }
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             hostFrameObservers.append(NotificationCenter.default.addObserver(
-                forName: name, object: host, queue: .main) { [weak panel, weak host] _ in
+                forName: name, object: host, queue: .main) { [weak self, weak panel, weak host] _ in
                     guard let panel, let host else { return }
-                    MainActor.assumeIsolated { panel.setFrame(host.frame, display: true) }
+                    MainActor.assumeIsolated {
+                        panel.setFrame(host.frame, display: true)
+                        // The field moved with the window; re-anchor rather than leave the list
+                        // beside it.
+                        self?.refreshAnchor()
+                    }
                 })
         }
         // Clicks in another of this app's windows, dismissing before the event is dispatched rather
@@ -210,17 +292,12 @@ final class CommandPalettePanelController: ObservableObject {
             self.dismiss()
             return event
         }
-        // ⌘K has to keep working while the panel is key, and it cannot come from the menu item:
-        // that reads a `@FocusedValue` published by the window underneath, which is no longer key.
-        // A local monitor is the only path left, and it is scoped to the panel's lifetime.
-        addMonitor(matching: .keyDown) { [weak self] event in
-            guard let self, self.isPresented,
-                  Self.closesThePalette(modifiers: event.modifierFlags,
-                                        charactersIgnoringModifiers: event.charactersIgnoringModifiers)
-            else { return event }
-            self.dismiss()
-            return nil
-        }
+        // **No ⌘K monitor any more, and its absence is the fix rather than an omission.** While the
+        // panel took key, the menu item could not fire — it reads a `@FocusedValue` published by
+        // the window underneath — so a local monitor was the only path left, and it made ⌘K *close*
+        // the palette. The host keeps key now, so the menu item works throughout, and ⌘K on an open
+        // field means what it means in every other search field on the Mac: select what is there so
+        // the next keystroke replaces it. Decided 2026-08-18; `closesThePalette` retired with it.
     }
 
     /// Installs a local monitor and tracks its token, so `dismiss()` has one bag to drain.
@@ -301,29 +378,12 @@ final class CommandPalettePanelController: ObservableObject {
         clickedWindow !== palette
     }
 
-    /// Whether a key-down is the palette's own chord.
-    ///
-    /// **Only the four modifiers a chord is made of are compared.** The obvious form —
-    /// `modifierFlags.intersection(.deviceIndependentFlagsMask) == .command` — is what this
-    /// replaced, and it is wrong for anyone typing with **Caps Lock on**: that mask includes
-    /// `.capsLock` (and `.function`, and `.numericPad`), so the intersection came back as
-    /// `[.command, .capsLock]`, matched nothing, and ⌘K silently stopped closing the palette it had
-    /// opened. Exactly the class of bug this whole surface keeps producing — a chord that works
-    /// until some unrelated key state is different.
-    ///
-    /// Static and pure so the rule can be asserted without an `NSEvent`, which cannot be
-    /// synthesised in a test.
-    static func closesThePalette(modifiers: NSEvent.ModifierFlags,
-                                 charactersIgnoringModifiers: String?) -> Bool {
-        let chordModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
-        guard modifiers.intersection(chordModifiers) == .command else { return false }
-        // Caps Lock also changes the character, so the comparison folds case as well as flags.
-        return charactersIgnoringModifiers?.lowercased() == String(AppChord.commandPalette.key.character)
-    }
-
     /// Idempotent, because six different things call it and two of them can race — esc arriving
     /// as the panel is already resigning key, say.
     func dismiss() {
+        state = nil
+        anchor = nil
+        runRoute = nil
         eventMonitors.forEach(NSEvent.removeMonitor)
         eventMonitors = []
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
@@ -350,12 +410,13 @@ private struct CommandPalettePanelContent: View {
     let onClose: () -> Void
 
     var body: some View {
-        CommandPaletteView(
+        GoToResultsPanel(
             rows: state.rows,
-            query: Binding(get: { state.query }, set: { state.setQuery($0) }),
+            query: state.query,
             selection: Binding(get: { state.selection }, set: { state.selection = $0 }),
             accent: accent,
             glassLevel: glassLevel,
+            fieldFrame: state.fieldFrame,
             onRun: onRun,
             onClose: onClose)
     }

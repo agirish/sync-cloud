@@ -49,6 +49,12 @@ public enum GoToFieldMetrics {
     /// rather than read, and the card it replaces set its own field at 19pt.
     public static let textPointSize: CGFloat = 13.5
 
+    /// The key the open field parks at its trailing end — the one that closes it. Named once and
+    /// read by both the field that draws it and the arithmetic that reserves room for it: the pill
+    /// and the field disagreeing about their own key is the failure with no symptom until the
+    /// toolbar folds behind a chevron.
+    public static let closeKeycap = "esc"
+
     /// The two invitations. The short rung keeps the two nouns a stranger cannot guess at — a
     /// folder and a person — and drops "place", which the list itself shows first.
     public static let fullPlaceholder = "Go to a place, a folder, a person, or an action…"
