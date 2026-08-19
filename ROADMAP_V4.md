@@ -131,9 +131,20 @@ decide. Whoever takes §3 should choose between that, a non-⌥ modifier scanned
 copy-versus-move from context — and should not treat the ⌥⌘V in the rows below as settled.
 
 **One more that followed from those:** with the card gone, anything that only the card could reach
-goes with it. The card lists workspaces, sources, folders and actions at 620pt; a 440pt dropdown
-lists the same groups in a narrower column. Before §7 lands, walk the palette's route table and
-confirm every entry still has a door — this is the release's one silent-removal risk.
+goes with it. ~~Before §7 lands, walk the palette's route table and confirm every entry still has a
+door — this is the release's one silent-removal risk.~~ **Walked 2026-08-19, and it is clean**
+(`PaletteRouteDoorTests`). Every route kind and all seven actions still have a door, the landing
+still leads with all four groups, and two same-leaf folders stay distinguishable at the 620pt
+ceiling *and* the 320pt floor — 1256 differing pixels at 620, 1783 at 320.
+
+Two things the walk had to be rebuilt twice to be able to see, both worth keeping: a fixture of
+`Clients/Legal` against `Archive/Legal` renders **identically at 620 and at 320**, because neither
+width truncates a path that short, so it could not have detected a collapse at either; and one
+pinned against one recent differs by the words "Pinned"/"Recent" rather than by the path, so it
+passes even with the path gone entirely. The fixture that works is two **recents** sharing a long
+head and a leaf and differing in the **middle** — which is exactly what a middle-truncated detail
+elides first. Confirmed by mutation: stop drawing the detail line and both widths go to **zero**
+differing pixels.
 
 ---
 
@@ -598,10 +609,8 @@ runs long — see the note under the list.
    symptom when it is wrong until the toolbar is behind a chevron. ~~The route-table walk from the
    decisions block happens here, before the card is deleted.~~ **It did not** — the card went in
    `7e8fff03` with the walk still outstanding, so it is owed against the deleted card rather than
-   ahead of it. Scoped 2026-08-19: render the landing and a same-leaf query at the 620pt ceiling
-   **and the 320pt floor**, and confirm all fourteen destinations are present *and distinguishable*.
-   The narrow width is the whole risk — the card had room for a row's `detail`, and without it
-   `Clients/Legal` and `Archive/Legal` are both a row reading "Legal".
+   ahead of it. **Done 2026-08-19 — clean**; see the decisions block above for the verdict and for
+   the two fixtures that were too weak to detect the collapse they were written for.
 4. **Go to Folder** (§3). Nearly free once 3 lands, pointless before it.
 5. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
    shortcuts reference gives the chord up rather than take a replacement.
