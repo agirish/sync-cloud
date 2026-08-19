@@ -289,7 +289,7 @@ import Sync
         #expect(!panel.canBecomeMain)
     }
 
-    @Test func presentingRaisesAPanelParentedToAndSizedWithTheHost() {
+    @Test func presentingRaisesAPanelParentedToTheHostButNotSizedWithIt() {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         present(controller, over: host)
@@ -297,11 +297,14 @@ import Sync
         let panel = try? #require(host.childWindows?.compactMap { $0 as? CommandPaletteWindow }.first)
         #expect(panel != nil,
                 "the panel is not a child of the host — it will not move or order with it. \(witness.report(presented: controller.isPresented))")
-        // Sized to the host, because the scrim is inside it and has to dim the whole window —
-        // including the title bar. That sizing is also *why* a title-bar click never moves key: it
-        // lands on this panel, and the scrim's tap dismisses it. Sizing alone was once claimed to
-        // be what made clicking there dismiss; it is not, and it was reported broken twice.
-        #expect(panel?.frame == host.frame)
+        // **No longer sized to the host, and that is the point.** It was, because the scrim inside
+        // it had to dim the whole window; with the dim gone that only meant the palette swallowed
+        // every click over the app. It is sized to its own list now — see
+        // `thePanelCoversItsListAndNotTheWindowUnderIt`, which owns that claim in full.
+        #expect(panel?.frame != host.frame,
+                "the panel is the whole window again — every click over the app will land on it")
+        // Parented is what still has to hold: the list rides the window it hangs off.
+        #expect(panel?.parent === host, "the list is not riding the host — it will not move with it")
         // The polarity, restated where the panel is a real presentation rather than a bare window:
         // `theWindowClassRefusesKeySoTheFieldKeepsTheCaret` holds the class, this holds what was
         // actually raised.
@@ -426,18 +429,74 @@ import Sync
     /// over the user's desktop for the length of this test, which is the whole thing `makeHost` is
     /// arranged to avoid — and `theHostAndItsPanelStayOutOfSight` would not catch it, because it
     /// never resizes.
-    @Test func thePanelFollowsTheHostWhenItResizes() async {
+    @Test func thePanelFollowsTheFieldWhenTheHostResizes() async {
         let host = makeHost()
         let controller = CommandPalettePanelController()
-        present(controller, over: host)
-        let grown = CGSize(width: 1200, height: 800)
-        host.setFrame(CGRect(origin: Self.offscreenOrigin(for: grown), size: grown), display: true)
-        await waitUntil("the panel followed the host's new frame") {
-            host.childWindows?.first?.frame == host.frame
+        // The field moves with the window, so the anchor is read live rather than captured.
+        var field = CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+        present(controller, over: host, anchor: { field })
+        await waitUntil("the panel was placed under the field") {
+            host.childWindows?.first.map { $0.frame.minX == field.minX && $0.frame.width == field.width } ?? false
         }
-        #expect(host.childWindows?.first?.frame == host.frame,
-                "the scrim came adrift of the window it is dimming — \(witness.report(presented: controller.isPresented))")
+        // The field's new rect is set BEFORE the resize, so the anchor answers with the laid-out
+        // toolbar rather than the one being replaced. That ordering is the real one: `didResize` is
+        // posted from inside `setFrame`, and the controller reads again a frame later for exactly
+        // the case where it is not — see the observer in `present`.
+        let grown = CGSize(width: 1200, height: 800)
+        let grownOrigin = Self.offscreenOrigin(for: grown)
+        field = CGRect(x: grownOrigin.x + 90, y: grownOrigin.y + grown.height - 80, width: 520, height: 28)
+        host.setFrame(CGRect(origin: grownOrigin, size: grown), display: true)
+        await waitUntil("the panel followed the field to its new place") {
+            host.childWindows?.first.map { $0.frame.minX == field.minX && $0.frame.width == field.width } ?? false
+        }
+        let panel = host.childWindows?.first
+        #expect(panel?.frame.minX == field.minX && panel?.frame.width == field.width,
+                "the list came adrift of the field it hangs from — \(witness.report(presented: controller.isPresented))")
+        #expect(panel?.frame.maxY == field.minY - GoToResultsPanel.gapBelowField,
+                "the list is no longer sitting just under the field")
         teardown(host, controller)
+    }
+
+    /// **The panel is the list, and must not cover the window.**
+    ///
+    /// This is the regression the click-swallow fix is for, and it is the one thing about this
+    /// surface a user notices immediately: while the panel was sized to the host, its content
+    /// claimed a hit at the host's far corner (measured 2026-08-19, `hitTest → NSHostingView`), so
+    /// every click over the app dismissed the palette *instead of* doing what the user meant. The
+    /// dim that once justified it is gone; clicking away is the mouse monitor's job, and that
+    /// monitor returns the event it dismisses on.
+    ///
+    /// **Verified by mutation, and the mutation has to be both halves of the revert.** Sizing the
+    /// panel back to `host.frame` *alone* does not reproduce it: `NSHostingView` publishes the
+    /// content's intrinsic size, and with the list taking its ideal height (`fixedSize`) AppKit
+    /// shrinks the window straight back — the frame comes out the right size at the wrong origin,
+    /// which the two placement tests catch and this one does not. Make the content flexible
+    /// (`maxWidth/maxHeight: .infinity`, a scrim behind it) *and* size the panel to the host, which
+    /// is what the code actually was, and this fails on `panel.frame.width → 900`.
+    ///
+    /// Worth knowing before "simplifying" either half: each is load-bearing only in the presence of
+    /// the other, so either one alone reads as removable.
+    @Test func thePanelCoversItsListAndNotTheWindowUnderIt() async throws {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        let field = CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+        present(controller, over: host, anchor: { field })
+        await waitUntil("the panel was placed and sized to its content") {
+            (host.childWindows?.first?.frame.width ?? 0) == field.width
+        }
+        let panel = try #require(host.childWindows?.first)
+
+        #expect(panel.frame != host.frame, "the panel is the whole window again — it will eat every click over the app")
+        #expect(panel.frame.width < host.frame.width, "the panel is as wide as the window")
+        #expect(panel.frame.height < host.frame.height, "the panel is as tall as the window")
+        // The corner a user aims at when they mean "the pane, not the palette".
+        let corner = CGPoint(x: host.frame.minX + 30, y: host.frame.minY + 30)
+        #expect(!panel.frame.contains(corner),
+                "a click at the far corner of the window still lands on the palette rather than on what is under it")
+        // Placed means live: an unplaced panel is deliberately inert, so a passing frame check with
+        // this still true would mean the list cannot be clicked either.
+        #expect(panel.ignoresMouseEvents == false, "the panel never became live — its own rows are unclickable")
     }
 
     // MARK: Click-away
@@ -824,28 +883,26 @@ import Sync
                 "the selection is a stale index into the previous results — ↩ would run a row nobody looked at")
     }
 
-    /// **The field's frame arrives in the content's own coordinate space, flipped.**
+    /// **The list is placed under the field, at the field's width and left edge.**
     ///
-    /// AppKit measures up from the bottom left of the screen; SwiftUI measures down from the top
-    /// left of the panel. One translation does both, in `refreshAnchor`, and nothing downstream
-    /// knows which convention it holds — so if it is ever dropped or half-applied the list is
-    /// mirrored about the window's middle and lands at the bottom of the window, which no unit
-    /// elsewhere would notice.
-    ///
-    /// Verified by mutation: dropping the flip (`y: bottomLeft.y`) fails this, and so does losing
-    /// the field's own height from the subtraction.
-    @Test func theFieldsFrameArrivesFlippedIntoTheContentsOwnSpace() {
+    /// The panel is a window now, so this is arithmetic in one coordinate space rather than the
+    /// AppKit→SwiftUI flip it replaced — but it is the same claim, and it is what a user sees as
+    /// "the list belongs to that field". Deliberately not centred and not square, so a transposed
+    /// placement cannot land on the right answer by accident.
+    @Test func theListIsPlacedUnderTheFieldItHangsFrom() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         defer { teardown(host, controller) }
-        // A field 28pt tall whose BOTTOM edge sits 120pt above the host's bottom, 60pt in from its
-        // left. Deliberately not centred and not square, so a transposed or halved translation
-        // cannot land on the right answer by accident.
-        let field = CGRect(x: host.frame.minX + 60, y: host.frame.minY + 120, width: 420, height: 28)
-        let state = present(controller, over: host, anchor: { field })
-        // Its TOP is 120 + 28 = 148 above the bottom, so it is height − 148 below the top.
-        #expect(state.fieldFrame == CGRect(x: 60, y: host.frame.height - 148, width: 420, height: 28),
-                "the list is anchored in the wrong space — it will draw mirrored about the window's middle")
+        let field = CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+        present(controller, over: host, anchor: { field })
+        await waitUntil("the panel was placed") { (host.childWindows?.first?.frame.width ?? 0) == field.width }
+        let panel = try #require(host.childWindows?.first)
+
+        #expect(panel.frame.minX == field.minX, "the list is not aligned with the field's left edge")
+        #expect(panel.frame.width == field.width, "the list is not as wide as the field")
+        #expect(panel.frame.maxY == field.minY - GoToResultsPanel.gapBelowField,
+                "the list is not hanging just under the field — a gap of \(GoToResultsPanel.gapBelowField)pt is what makes the two read as one object")
+        #expect(panel.frame.height > 0, "the list has no height — nothing is drawn")
     }
 
     /// **The anchor keeps looking across runloop turns rather than burning its retries at once.**
@@ -866,14 +923,14 @@ import Sync
         let ready = Date().addingTimeInterval(0.1)
         let field = CGRect(x: host.frame.minX + 60, y: host.frame.minY + 120, width: 420, height: 28)
         let state = present(controller, over: host, anchor: { Date() >= ready ? field : nil })
-        #expect(state.fieldFrame == .zero, "anchored to a field that did not exist yet")
+        #expect(state.listWidth == 0, "anchored to a field that did not exist yet")
         // Bounded, and generously: the budget under test is ~0.6s, and a wait that cannot end is
         // how a regression here becomes a hung suite rather than a failing one.
         let deadline = Date().addingTimeInterval(3)
-        while state.fieldFrame == .zero, Date() < deadline {
+        while state.listWidth == 0, Date() < deadline {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        #expect(state.fieldFrame != .zero,
+        #expect(state.listWidth != 0,
                 "every retry was spent inside one runloop turn — ⌘K opens an empty panel with no list")
     }
 

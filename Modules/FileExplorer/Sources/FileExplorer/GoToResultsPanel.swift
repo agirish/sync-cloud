@@ -9,10 +9,16 @@ import Design
 /// the folder you are looking for, and hiding it while you type its name was the complaint that
 /// started §7.
 ///
-/// The transparent fill behind it still hit-tests, and that is load-bearing rather than
-/// leftover: the panel spans the host window, so this is what turns a click anywhere on the window
-/// into a dismissal instead of a click that also selects a file. `CommandPalettePanelController`
-/// carries the full boundary of what that catches and what the event monitors catch.
+/// **There is no scrim, and its absence is the feature.** This drew a transparent, hit-testing
+/// fill over the whole host window, which turned every click anywhere on the window into a
+/// dismissal *instead of* the click the user meant — measured 2026-08-19: with the palette up, the
+/// panel's content claimed a hit at the far corner of the host (`hitTest → NSHostingView`), and the
+/// panel's frame was the host's frame exactly. That was right while the card dimmed the window and
+/// wrong the moment it stopped: a window you can see through is a window you expect to click.
+///
+/// So the panel is sized to this list now, and clicking away is the mouse monitor's job alone —
+/// which is what it was written for, and why it **returns** the event it dismisses on.
+/// `CommandPalettePanelController.clickDismissesThePalette` carries that boundary.
 public struct GoToResultsPanel: View {
 
     /// Between the field's bottom edge and the list's top. Small enough that the two read as one
@@ -27,45 +33,38 @@ public struct GoToResultsPanel: View {
     @Binding var selection: Int?
     let accent: Color
     let glassLevel: GlassLevel
-    /// The field's frame in this view's own coordinate space — SwiftUI's, so top-left origin. The
-    /// panel spans the host window, so this is where the field is on screen, translated once by
-    /// the controller that owns both.
-    let fieldFrame: CGRect
+    /// How wide the field is, which is how wide this is: the list and the field it hangs from read
+    /// as one object, so they share an edge on both sides.
+    let width: CGFloat
     let onRun: (PaletteRoute) -> Void
-    let onClose: () -> Void
+    /// The height this wants to be, reported up so the panel window can be exactly that tall.
+    /// **A window taller than its content is a click sink**: the surplus is transparent, hit-tests
+    /// to nothing, and AppKit delivers the click to the panel anyway — where nothing answers it.
+    let onHeight: (CGFloat) -> Void
 
     public init(rows: [PaletteRow], query: String, selection: Binding<Int?>, accent: Color,
-                glassLevel: GlassLevel, fieldFrame: CGRect,
-                onRun: @escaping (PaletteRoute) -> Void, onClose: @escaping () -> Void) {
+                glassLevel: GlassLevel, width: CGFloat,
+                onRun: @escaping (PaletteRoute) -> Void, onHeight: @escaping (CGFloat) -> Void) {
         self.rows = rows
         self.query = query
         self._selection = selection
         self.accent = accent
         self.glassLevel = glassLevel
-        self.fieldFrame = fieldFrame
+        self.width = width
         self.onRun = onRun
-        self.onClose = onClose
+        self.onHeight = onHeight
     }
 
     public var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onClose)
-            // Nothing until the field has been found and measured. A list drawn at the origin for
-            // one frame is a flash in the top-left corner of the window, which reads as a glitch
-            // rather than as a palette opening.
-            if fieldFrame.width > 0 {
-            surface
-                .frame(width: fieldFrame.width)
-                // `contentShape` before any padding, for the reason the card's own comment gives:
-                // applied after, the hit region becomes the padded frame and swallows clicks in
-                // the strip beside the list — the strip a user aims at when they mean "outside it".
-                .contentShape(Rectangle())
-                .offset(x: fieldFrame.minX,
-                        y: fieldFrame.maxY + Self.gapBelowField)
-            }
-        }
+        surface
+            .frame(width: width)
+            // **`fixedSize` vertically, and it is what keeps this from oscillating.** The panel's
+            // height is set from the height reported below; if the content then measured itself
+            // against that height, a window one point short would compress the list, report less,
+            // and shrink again to nothing. Taking its ideal height regardless of the proposal makes
+            // the reported value independent of the window, so the loop settles in one pass.
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight($0) }
     }
 
     private var surface: some View {

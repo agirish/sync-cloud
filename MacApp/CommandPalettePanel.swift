@@ -26,18 +26,21 @@ import FileExplorer
 //   moved to the host's toolbar, so the panel must now REFUSE key or taking it would pull the
 //   caret out of the field being typed into. `CommandPaletteWindow` below carries the whole
 //   argument; do not "restore" `canBecomeKey` to `true` on the strength of this paragraph.
-// - **Clicking away.** Split across three mechanisms, and it took four attempts to get here: the
-//   panel spans the host's whole frame, so clicks over the host — content, toolbar band and title
-//   bar alike — land on the panel's own scrim and are dismissed by its tap; a left-click in another
-//   of this app's windows moves key, and resigning key dismisses; a right- or middle-click there
-//   moves no key at all, and only the mouse monitor covers it. `clickDismissesThePalette` carries
-//   the boundary, the corrections, and what is still unverified; read it before changing any half.
-// - **The scrim still belongs to the palette.** The panel is sized to the host window and is
-//   transparent. It drew a dimmed backdrop with a card floating near the top — a view since
-//   deleted — until §7 replaced that with `GoToResultsPanel`: **no dim**, and a list hung under the
-//   toolbar field rather than centred. The scrim survives the redesign as a transparent,
-//   hit-testing fill, which is why clicking anywhere over the window still dismisses; what it no
-//   longer does is say so by darkening.
+// - **Clicking away.** Originally split across three mechanisms, of which the first was the panel
+//   spanning the host's whole frame so that clicks over the host landed on its own scrim. **That
+//   half is gone as of 2026-08-19**, because with the dim removed it meant the palette ate every
+//   click over the app instead of letting it through (measured: the panel's frame was the host's
+//   exactly, and its content claimed a hit at the host's far corner). The panel is sized to its
+//   list now, so what remains is the mouse monitor — which dismisses and **returns** the event, so
+//   the click also does what the user meant — plus resigning key for another app or another window
+//   of this one. `clickDismissesThePalette` carries the boundary and the corrections; read it
+//   before changing any half.
+// - **There is no scrim any more.** The panel drew a dimmed backdrop with a card floating near the
+//   top — a view since deleted — until §7 replaced that with `GoToResultsPanel`: **no dim**, and a
+//   list hung under the toolbar field rather than centred. The transparent hit-testing fill
+//   outlived the dim by one step and was removed with it: a window you can see through is a window
+//   you expect to click. The panel is now exactly its list, placed under the field by
+//   `refreshAnchor`/`place`, and everything outside it belongs to the window underneath.
 
 /// The panel class, which exists for one overridden line — and as of §7 that line reads the other
 /// way round.
@@ -66,10 +69,10 @@ final class CommandPaletteWindow: NSPanel {
 final class CommandPaletteState: ObservableObject {
     @Published private(set) var query: String = ""
     @Published var selection: Int?
-    /// Where the toolbar field is, in the panel's own SwiftUI coordinate space. Published rather
-    /// than passed once, because the panel spans the host window and the field moves with every
-    /// resize — a list anchored to where the field *was* is a list beside the field.
-    @Published var fieldFrame: CGRect = .zero
+    /// How wide the list draws, which is the field's width. Published rather than passed once
+    /// because the field's width is the row's to decide and changes with every window resize.
+    /// Zero until the field has been found — the panel draws nothing at that width.
+    @Published var listWidth: CGFloat = 0
 
     let index: PaletteIndex
 
@@ -106,6 +109,13 @@ final class CommandPalettePanelController: ObservableObject {
     private(set) var state: CommandPaletteState?
     /// Where the field is, asked again whenever the window moves.
     private var anchor: (() -> CGRect?)?
+    /// The window the palette hangs off, so placement can be clamped to it.
+    private weak var host: NSWindow?
+    /// The field's screen rect as last measured, and the content height as last reported. Placement
+    /// needs both and they arrive from different directions, so each is kept and the panel is
+    /// re-placed whenever either moves.
+    private var fieldRect: CGRect?
+    private var contentHeight: CGFloat = 0
     /// Running a route dismisses first; held so ↩ from the field takes exactly the same path a
     /// click on a row does.
     private var runRoute: ((PaletteRoute) -> Void)?
@@ -135,12 +145,18 @@ final class CommandPalettePanelController: ObservableObject {
         runRoute?(route)
     }
 
-    /// Re-reads where the field is and hands it to the panel's content in ITS coordinate space:
-    /// AppKit measures from the bottom left of the screen, SwiftUI from the top left of the panel.
-    /// One translation, in one place, so nothing downstream has to know which convention it holds.
+    /// Re-reads where the field is, and places the panel under it.
+    ///
+    /// **The panel is the list, not the window.** It used to be sized to the host's whole frame so
+    /// a scrim inside it could dim the window; with the dim gone that only meant the palette
+    /// swallowed every click over the app (measured 2026-08-19 — the content claimed a hit at the
+    /// host's far corner). Sized to the list, a click anywhere else lands on the window under it
+    /// and the mouse monitor dismisses on the way past, which is what that monitor was written to
+    /// do.
+    ///
     /// - Parameter retriesLeft: the field is a SwiftUI toolbar item that mounts a turn or two
     ///   after the flag that opens it, so the first look routinely finds nothing. Retried on the
-    ///   main queue rather than measured once, and the panel draws nothing until this succeeds.
+    ///   main queue rather than measured once, and the panel stays out of the way until it lands.
     ///
     ///   **A frame apart, and not six bare `async` hops.** Measured 2026-08-19: blocks queued from
     ///   inside a main-queue drain run in that same drain, so six "retries" were six calls in one
@@ -149,10 +165,10 @@ final class CommandPalettePanelController: ObservableObject {
     ///   with no list in it. Spacing the attempts is what gives the runloop the turn this is
     ///   waiting for.
     private func refreshAnchor(retriesLeft: Int = CommandPalettePanelController.anchorAttempts) {
-        guard let panel, let state else { return }
+        guard let state else { return }
         guard let screenRect = anchor?(), screenRect.width > 0 else {
             guard retriesLeft > 0 else {
-                // Said out loud: a palette with no anchor is an empty window over the app, and it
+                // Said out loud: a palette with no anchor is a palette with nowhere to be, and it
                 // has no other trace.
                 Logger.shared.warning("[palette] the Go to field never appeared — the list has nothing to hang from")
                 return
@@ -162,10 +178,35 @@ final class CommandPalettePanelController: ObservableObject {
             }
             return
         }
-        let bottomLeft = panel.convertPoint(fromScreen: screenRect.origin)
-        state.fieldFrame = CGRect(x: bottomLeft.x,
-                                  y: panel.frame.height - (bottomLeft.y + screenRect.height),
-                                  width: screenRect.width, height: screenRect.height)
+        fieldRect = screenRect
+        state.listWidth = screenRect.width
+        place()
+    }
+
+    /// The height the list reported for itself. Arrives from SwiftUI, on its own schedule.
+    private func noteContentHeight(_ height: CGFloat) {
+        guard height > 0, height != contentHeight else { return }
+        contentHeight = height
+        place()
+    }
+
+    /// Puts the panel under the field, exactly as tall as its content.
+    ///
+    /// Clamped to the host's own bottom edge so a long list in a short window is cut off by the
+    /// window rather than hanging past it — the palette is part of that window, not a thing beside
+    /// it. **The panel ignores the mouse until it has been placed**: an unplaced panel is a
+    /// transparent rectangle sitting somewhere arbitrary, and one of those over the app eats clicks
+    /// exactly the way the scrim used to.
+    private func place() {
+        guard let panel, let field = fieldRect, contentHeight > 0 else { return }
+        let top = field.minY - GoToResultsPanel.gapBelowField
+        let floor = host?.frame.minY ?? (top - contentHeight)
+        let height = max(0, min(contentHeight, top - floor))
+        guard height > 0 else { return }
+        panel.setFrame(CGRect(x: field.minX, y: top - height, width: field.width, height: height),
+                       display: true)
+        panel.ignoresMouseEvents = false
+        panel.alphaValue = 1
     }
 
     /// Raises the palette over `host`.
@@ -185,6 +226,9 @@ final class CommandPalettePanelController: ObservableObject {
         self.onDismiss = onDismiss
         self.state = state
         self.anchor = anchor
+        self.host = host
+        self.fieldRect = nil
+        self.contentHeight = 0
         self.runRoute = { [weak self] route in
             self?.dismiss()
             onRun(route)
@@ -199,10 +243,23 @@ final class CommandPalettePanelController: ObservableObject {
                 self?.dismiss()
                 onRun(route)
             },
-            onClose: { [weak self] in self?.dismiss() })
+            onHeight: { [weak self] height in
+                MainActor.assumeIsolated { self?.noteContentHeight(height) }
+            })
 
-        let panel = CommandPaletteWindow(contentRect: host.frame, styleMask: [.borderless, .nonactivatingPanel],
-                                         backing: .buffered, defer: false)
+        // **Not the host's frame.** The panel is the list; it is placed and sized by `place()`
+        // once the field has been found and the list has said how tall it is. It starts at the
+        // ceiling width and the list's own maximum so SwiftUI has a sane space to lay out in, and
+        // **inert to the mouse** until placed — see `place()`.
+        let panel = CommandPaletteWindow(
+            contentRect: CGRect(x: host.frame.minX, y: host.frame.minY,
+                                width: GoToFieldMetrics.ceilingWidth,
+                                height: GoToResultsPanel.listMaxHeight),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        // Invisible as well as inert until placed: an unplaced panel still *draws*, and a list
+        // rendered at the host's bottom-left corner for a frame reads as a glitch.
+        panel.ignoresMouseEvents = true
+        panel.alphaValue = 0
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -229,8 +286,8 @@ final class CommandPalettePanelController: ObservableObject {
         panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
         panel.contentView = NSHostingView(rootView: AnyView(content))
 
-        // A child window rides the host: it moves, resizes and orders with it, so the scrim cannot
-        // come adrift of the window it is dimming.
+        // A child window rides the host: it moves, resizes and orders with it, so the list cannot
+        // come adrift of the field it hangs from.
         host.addChildWindow(panel, ordered: .above)
         // `orderFront`, never `makeKeyAndOrderFront`: the host keeps key so its toolbar field keeps
         // the caret. `addChildWindow` already orders it above; this is the explicit half.
@@ -284,12 +341,22 @@ final class CommandPalettePanelController: ObservableObject {
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             hostFrameObservers.append(NotificationCenter.default.addObserver(
                 forName: name, object: host, queue: .main) { [weak self, weak panel, weak host] _ in
-                    guard let panel, let host else { return }
+                    guard panel != nil, host != nil else { return }
                     MainActor.assumeIsolated {
-                        panel.setFrame(host.frame, display: true)
-                        // The field moved with the window; re-anchor rather than leave the list
-                        // beside it.
+                        // The field moved with the window — re-measure and re-place. The panel is
+                        // no longer a copy of the host's frame, so there is nothing else to mirror.
+                        //
+                        // **Twice, and the second one is not belt and braces.** `didResize` is
+                        // posted from inside `setFrame`, before the toolbar has re-laid out its
+                        // items, so this first read can still answer with the field's *old* rect —
+                        // which would leave the list at the width and offset it had before the
+                        // drag. The deferred read is the one that sees the new layout; the
+                        // immediate one is what keeps the list with the window during a drag,
+                        // where nothing about the toolbar is changing.
                         self?.refreshAnchor()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.anchorRetryInterval) {
+                            self?.refreshAnchor()
+                        }
                     }
                 })
         }
@@ -403,6 +470,9 @@ final class CommandPalettePanelController: ObservableObject {
         state = nil
         anchor = nil
         runRoute = nil
+        host = nil
+        fieldRect = nil
+        contentHeight = 0
         eventMonitors.forEach(NSEvent.removeMonitor)
         eventMonitors = []
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
@@ -426,7 +496,7 @@ private struct CommandPalettePanelContent: View {
     let accent: Color
     let glassLevel: GlassLevel
     let onRun: (PaletteRoute) -> Void
-    let onClose: () -> Void
+    let onHeight: (CGFloat) -> Void
 
     var body: some View {
         GoToResultsPanel(
@@ -435,8 +505,8 @@ private struct CommandPalettePanelContent: View {
             selection: Binding(get: { state.selection }, set: { state.selection = $0 }),
             accent: accent,
             glassLevel: glassLevel,
-            fieldFrame: state.fieldFrame,
+            width: state.listWidth,
             onRun: onRun,
-            onClose: onClose)
+            onHeight: onHeight)
     }
 }
