@@ -468,6 +468,18 @@ an `NSViewRepresentable` over `NSTextField`, and ↑ ↓ ↩ esc come from the f
 `control(_:textView:doCommandBy:)` rather than `.onKeyPress` — which is the more reliable path for
 arrows anyway.
 
+### Decided 2026-08-18, with him, one question at a time
+
+| Question | Decision | What follows |
+|---|---|---|
+| **How wide on a big window** | **620pt ceiling** — today's card width. | Unchanged from the shape above. Worth knowing the three candidates only differ above ~1150pt of window: at 960 every option gives ~330, at the 760 minimum ~359. 620 is reached at about a 1250pt window. |
+| **A click on the pane while the list is up** | **Dismisses, and stops there** — today's rule, and still no scrim. | The transparent full-window panel keeps hit-testing and swallowing that click; the file is not selected and the click is not passed through. The window looks live and is not, deliberately. |
+| **After ↩ lands you somewhere** | **Collapse, and remember the query.** | The next open prefills it, selected. Not `ExpandingSearchField`'s collapse-and-clear — the one place this field deliberately departs from that idiom, because the query is the expensive part to retype and the folder you just left is the likeliest neighbour of the one you want next. |
+| **How long it is remembered** | **Cleared on a source change, and expired 5 minutes after it was last used.** | Session-only — nothing new is persisted. **Evaluated lazily when the field opens**, by comparing a stored timestamp; no `Timer`, nothing running while the app idles. Both halves are one rule: a query is only worth restoring while it is still the thought you were having. Inject the clock rather than reading `Date()` at the seam, or the expiry is untestable. |
+| **⌘K while it is already open** | **Selects the text**, so the next keystroke replaces it. | **This retires a shipped behaviour**: ⌘K currently *closes* the palette, through `CommandPalettePanelController.closesThePalette` and its local monitor. That rule and its test change rather than move — escape stays the only close, which it already was for everything except this chord. |
+| **The placeholder, which no longer fits** | **Two measured rungs**, like everything else on this row. | Full: *Go to a place, a folder, a person, or an action…*; short: *Go to a folder, person, or action…*. At a 960pt window the field has ~249pt of text room against the full string's ~282pt, so without a rung it is a fragment. The short string goes in the same measured arithmetic as the pill's label, not a width guess. |
+| **A remembered folder that has gone** | **It does not appear.** | Resolved when the list is drawn, and — the reading being taken — **filtered rather than deleted**: the stored entry survives, so a folder on a drive that was asleep at launch comes back when the drive does, while never being offered as a destination it cannot deliver. The accepted cost is that an unreachable recent is simply absent, with nothing on screen saying why. |
+
 ---
 
 ## 8. Window chrome: saying which window is which
