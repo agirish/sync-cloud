@@ -10,9 +10,8 @@ import Sync
 /// standing in one place.
 ///
 /// Two groups in stage 1, and the order is by how much they are worth reading rather than by size.
-/// **In <name>'s folders** is the tree's own filing and dominates by volume — he could reach it
-/// by browsing. **Theirs, filed elsewhere** is the payoff: those rows are candidate misfilings, and
-/// no
+/// **In *name*’s folders** is the tree's own filing and dominates by volume — he could reach it by
+/// browsing. **Theirs, filed elsewhere** is the payoff: those rows are candidate misfilings, and no
 /// amount of browsing produces them.
 ///
 /// Read-only. Nothing here writes a tag, and a row's action is Reveal — confirming a person and

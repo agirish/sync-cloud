@@ -24,6 +24,15 @@ import Design
     /// "Theirs, filed elsewhere" heads y≈155.
     private static let foldersZone = CGRect(x: 0, y: 44, width: 760, height: 90)
     private static let elsewhereZone = CGRect(x: 0, y: 155, width: 760, height: 180)
+    /// The folders group's heading line, which carries the person's name.
+    ///
+    /// **Measured**, by rendering the same set under two names and sweeping 10pt bands: the panel
+    /// header answers at y 0–30 (it shows the name too), nothing moves at 30–50, the heading moves
+    /// at 50–70 by 3,203 pixels, and everything from 70 down is identical. So this band holds the
+    /// heading and not the header above it, and the rows below it are name-independent — which is
+    /// what `theFoldersRowsBelowDoNotCarryTheName` asserts, to keep this band honest.
+    private static let ownFoldersTitleZone = CGRect(x: 0, y: 48, width: 760, height: 24)
+    private static let ownFoldersRowsZone = CGRect(x: 0, y: 80, width: 760, height: 50)
     /// The gathering / failed state's leading glyph and its two text lines.
     ///
     /// **Measured, and the first comment here was wrong twice.** It claimed x=38 excluded the
@@ -320,6 +329,42 @@ import Design
                 "the header paints the same with and without questions — the chip is missing")
         #expect(Self.aditiWithReview.total == Self.aditi.total,
                 "a question was counted as an answer")
+    }
+
+    /// **The folders group is headed with the person's name, and that is a claim only a render can
+    /// make.**
+    ///
+    /// The heading used to read "In her folders", which was wrong for everyone on the roster who is
+    /// not the fixture. It now reads "In \(displayName)’s folders" — and `GenderedCopyTests` cannot
+    /// see the difference between that and "In their folders", because it only proves an ABSENCE.
+    /// Verified against exactly that: with the heading replaced by the constant "In their folders",
+    /// every one of the thirteen tests across both suites still passed. This is the one that fails.
+    ///
+    /// Two names, one set: the only thing that can differ in the heading band is the name.
+    @Test("The folders group is headed with the person's name")
+    func theOwnFoldersTitleNamesThePerson() {
+        let aditi = mount(Self.aditi, name: "Aditi")
+        let bartholomew = mount(Self.aditi, name: "Bartholomew")
+        // Not two blank bands agreeing to differ: the heading has to be painting in both.
+        #expect(ink(aditi, Self.ownFoldersTitleZone) > 200, "the folders heading is not painting")
+        #expect(ink(bartholomew, Self.ownFoldersTitleZone) > 200, "the folders heading is not painting")
+        #expect(differingPixels(aditi, bartholomew, Self.ownFoldersTitleZone) > 500,
+                "the folders heading is the same under two names — it no longer names the person")
+    }
+
+    /// And the band above measures the heading rather than bleeding from the panel header, which
+    /// shows the name as well. The rows carry paths and counts, so they must not move at all.
+    @Test("The folder rows below the heading do not carry the name")
+    func theFoldersRowsBelowDoNotCarryTheName() {
+        let aditi = mount(Self.aditi, name: "Aditi")
+        let bartholomew = mount(Self.aditi, name: "Bartholomew")
+        #expect(ink(aditi, Self.ownFoldersRowsZone) > 200, "the folder rows are not painting")
+        #expect(differingPixels(aditi, bartholomew, Self.ownFoldersRowsZone) == 0,
+                """
+                a folder row changed with the name — either the heading band above is measuring \
+                the wrong region, or the heading wrapped under the longer name and pushed the rows \
+                down (it fits on one line at this width, which is what makes that band stable)
+                """)
     }
 
     /// The two reasons say different things — a row that blurred them would be asking the user to

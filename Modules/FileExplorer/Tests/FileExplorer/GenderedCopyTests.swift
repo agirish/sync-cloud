@@ -59,10 +59,11 @@ import Testing
         "Modules/Sync/Sources/Sync/PeopleStore.swift",
     ]
 
-    /// One file per root, for the same reason — and it is a *different* reason from the surfaces
-    /// above, which all live under `Modules`. Dropping `MacApp` or the CLI from the walk would
-    /// leave every person-surface control green while the sweep quietly stopped covering two of
-    /// its three roots.
+    /// One file per root — a proof of reach too, but against a different failure.
+    ///
+    /// Every surface above lives under `Modules`, so all nine could pass while the walk had
+    /// quietly stopped covering `MacApp` and the CLI entirely. `Design` stands in for a module with
+    /// no person surface in it at all.
     private static let oneFilePerRoot = [
         "Modules/Design/Sources/Design/AppChord.swift",
         "MacApp/SyncCloudApp.swift",
@@ -117,6 +118,15 @@ import Testing
             // And the allowance must not swallow one: a sentence is not a word list.
             #expect(!Self.isWordListLine(old), "“\(old)” was mistaken for a word list")
         }
+        // A `//` inside a string is not a comment. This is the case that made `codeOnly` track
+        // quotes: truncating at the scheme would drop the label and let the copy through.
+        #expect(Self.contains("her", in: Self.codeOnly(#"foo(url: "https://x", label: "In her folders")"#)),
+                "copy after a URL was stripped as a comment — the sweep cannot see it")
+        // …while a real comment still goes, including the one that documents this rule.
+        #expect(!Self.contains("her", in: Self.codeOnly("let n = 1   // named for her")))
+        #expect(!Self.contains("her", in: Self.codeOnly("/// **In her folders** used to be the heading")))
+        // An escaped quote does not end the string, so the `//` after it is still content.
+        #expect(Self.contains("her", in: Self.codeOnly(##"say("a \"b\" c // her")"##)))
         // Bounded on both sides: "other" and "this" are not "her" and "his", and a capitalised
         // pronoun leading a title is one.
         #expect(!Self.contains("her", in: "let others = otherFolders.count"))
@@ -140,17 +150,51 @@ import Testing
         source.range(of: "\\b\(word)\\b", options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    /// `line` with any `//` comment tail removed — doc comments included.
+    /// `line` with its `//` comment tail removed — doc comments included.
     ///
     /// Prose about a pronoun is not a use of one, and this file's own header would otherwise fail
     /// the sweep: a guard that cannot survive being documented is not a guard. It also strips the
     /// sentence in ``PersonView``'s type doc that calls the *user* "he", which is accurate and
-    /// stays. The cost is a `//` inside a string literal truncating that line — acceptable, because
-    /// this decides only whether a token is ABSENT, and the direction of the error is a missed
-    /// occurrence rather than a false alarm on every comment.
+    /// stays.
+    ///
+    /// **A `//` inside a string literal is not a comment**, and the first cut of this treated it as
+    /// one. That is a hole rather than a rough edge: `foo(url: "https://x", label: "In her
+    /// folders")` truncates at the `//` in the scheme and the copy after it is never scanned — a
+    /// real gendered string passing the guard, silently. So quotes are tracked, with `\\` escapes
+    /// respected, and a `//` only ends the line when it is outside one.
+    ///
+    /// A line inside a `"""` block that holds an odd number of quotes leaves the tracker thinking
+    /// it is mid-string, so a `//` on it is kept rather than cut. That is the safe direction: the
+    /// line is scanned in full, and there are no comments inside a string literal to be mistaken
+    /// for copy.
     static func codeOnly(_ line: String) -> String {
-        guard let comment = line.range(of: "//") else { return line }
-        return String(line[line.startIndex..<comment.lowerBound])
+        var inString = false
+        var escaped = false
+        var kept = ""
+        var previousWasSlash = false
+        for character in line {
+            if escaped {
+                escaped = false
+                kept.append(character)
+                previousWasSlash = false
+                continue
+            }
+            switch character {
+            case "\\" where inString:
+                escaped = true
+                previousWasSlash = false
+            case "\"":
+                inString.toggle()
+                previousWasSlash = false
+            case "/" where !inString:
+                if previousWasSlash { kept.removeLast(); return kept }   // drop the first slash too
+                previousWasSlash = true
+            default:
+                previousWasSlash = false
+            }
+            kept.append(character)
+        }
+        return kept
     }
 
     struct SourceFile {
@@ -178,6 +222,13 @@ import Testing
             // the test is what proves the walk found anything.
             let walk = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
             while let url = walk?.nextObject() as? URL {
+                // Turned away at the door rather than filtered per file. `Modules/*/.build` holds
+                // tens of thousands of vendored files — descending into them was 5s of the run,
+                // and it walks a tree another session's build may be writing to.
+                if url.lastPathComponent == ".build" || url.lastPathComponent == "Tests" {
+                    walk?.skipDescendants()
+                    continue
+                }
                 guard url.pathExtension == "swift" else { continue }
                 let path = url.path
                 guard !path.contains("/.build/"), !path.contains("/Tests/") else { continue }

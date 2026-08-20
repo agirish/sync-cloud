@@ -3,8 +3,8 @@ import Foundation
 /// Why a document counts as someone's.
 ///
 /// Ordered by how much it is worth looking at, not by how strong it is. *In their own folders* is
-/// the tree's own filing and dominates by volume; *named elsewhere* is the payoff, because those rows
-/// are candidate misfilings and no amount of browsing produces them.
+/// the tree's own filing and dominates by volume; *named elsewhere* is the payoff, because those
+/// rows are candidate misfilings and no amount of browsing produces them.
 public enum PersonEvidence: String, Sendable, Equatable, CaseIterable {
     /// The document sits under a folder whose `person` axis resolves to them.
     case ownFolder
