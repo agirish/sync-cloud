@@ -71,6 +71,26 @@ Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise th
 | undo/redo moving an item it cannot identify | `liveLocation` |
 | the `poll`/`pump` wait floors | `static func poll` |
 
+### Main-only by rule, so never owed
+
+Recorded so a future audit does not spend an hour deciding these again. Each is a restructure or a
+new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a maintenance line is missing.
+
+- **The app-wide text size becoming a percentage.** `FontSize` stopped being a four-case enum and
+  became a value wrapping an `Int` percentage (90–135). That is a public type changing shape, and
+  the stored `fontSize` default changed with it — `"small"/"medium"/"large"/"extraLarge"` to a
+  number, migrated at launch. Porting it would mean a maintenance line rewriting a user's stored
+  preference for no fix. Symbol to check if this is ever revisited: `migrateLegacyValue` in
+  `Modules/Design/Sources/Design/FontSize.swift`.
+- **The Readability tab.** A new `SettingsTab` case, a new rail row, and Size & spacing moving out
+  of Appearance — a feature and a restructure together. It also lowered `SettingsSheetMetrics
+  .baseSize` (704 → 624), which changes the sheet every tab is drawn in.
+- **`SizePreset` / `SizePresetRow` / `SizeSpacingPreview`.** New types with no counterpart to fix
+  on either line.
+
+The one part of this work that *would* have been portable — a bug fix inside `scaledPointSize` —
+does not exist: the curve was not touched.
+
 ---
 
 ## `v2.x` — owed
@@ -85,6 +105,9 @@ landed on first. No confirmed fix debt was found by this audit.
 - **Storage lens preservation.** `Modules/Sync/Sources/Sync/StorageLensStore.swift` does not exist
   on `v2.x` at all — the lens is a 3.x-and-later feature. Stage 1 answers this; there is nothing to
   port to.
+- **The text-size percentage and the Readability tab.** Main-only by rule for the same reasons
+  spelled out under `v3.x` above — a public type changing shape, a stored default changing with it,
+  and a new Settings tab. Nothing here is a fix `v2.x` is missing.
 
 ---
 
