@@ -31,6 +31,17 @@ gh run view <run-id> --log | grep 'Test run with' || echo 'NO TEST-COUNT LINE �
 Use that form rather than `grep -c`, which **exits 1 when the count is zero** and so reads as a
 failed command instead of an answer.
 
+**And read the number on the end of that line.** A green app-target run on `main` normally ends
+`… passed with 1 known issue` — one, always, and always the same one: the last block of
+`testTheReaderIgnoresDeclarationsThatAreOnlyComments` hands `declarationBody` two identical
+declarations to prove its ambiguity guard refuses them, and `withKnownIssue` absorbs the refusal.
+That line is an assertion *passing*. **Two means something new** — and the run stays green either
+way, so the count is the only thing that says so.
+
+On `v2.x` and `v3.x` the baseline is **0**. Neither line carries `BrowseWorkspaceCallSiteTests` or
+the `declarationBody` guard, so any known issue there is new by definition. Do not port the "1 is
+normal" reading backward; it would wave through the first real one.
+
 ## 1. Match the signature
 
 Read down until one fits. The first four are decided by the *shape* of the failure and need no
