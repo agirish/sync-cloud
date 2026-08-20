@@ -1176,10 +1176,10 @@ struct HelpArticleView: View {
     }
 }
 
-/// The related-topic chips. A simple wrapping row: each chip shows a real topic's title and
-/// jumps the selection when clicked. Ids are validated by `HelpBookTests`, so a lookup miss
-/// here would be a test failure, not a runtime surprise.
 /// The related-topic chips under an article, wrapping onto as many rows as they need.
+///
+/// Each chip shows a real topic's title and jumps the selection when clicked. Ids are validated by
+/// `HelpBookTests`, so a lookup miss here would be a test failure, not a runtime surprise.
 ///
 /// **This was an `HStack`, and "Flexible" was the only flexible thing about it.** An `HStack` given
 /// more children than fit does not wrap — it squeezes — and a capsule with a fixed 12pt horizontal

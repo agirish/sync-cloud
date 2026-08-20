@@ -138,6 +138,12 @@ struct SetupSheet: View {
     let hasFilingProfile: Bool
     /// The engine, for the walk. Nil in a layout test, which never runs one.
     var syncManager: FileSyncManager?
+    /// What the welcome card promises the form will ask. **Injectable for one reason**: the only
+    /// test that can prove this list is *drawn* rather than merely declared is one that renders the
+    /// card twice and finds it shorter without the rows. `SetupFlow.outline` is what the app always
+    /// passes — see the initialiser's default — and `theWelcomeCardGrowsByTheOutlineItDraws` is the
+    /// control. Three tests asserted the table while nothing drew it at all, for two commits.
+    var outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline
     /// Re-reads the filing artifacts after a profile lands, so it takes effect without a relaunch.
     let onProfileWritten: () -> Void
     let onOpenSettings: (SettingsView.SettingsTab) -> Void
@@ -222,6 +228,7 @@ struct SetupSheet: View {
          // passed for a release while real users scrolled.
          placeCandidates: [JurisdictionCandidate] = [],
          peopleCandidates: [PersonCandidate] = [],
+         outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline,
          onProfileWritten: @escaping () -> Void = {},
          onOpenSettings: @escaping (SettingsView.SettingsTab) -> Void,
          onFinish: @escaping () -> Void,
@@ -234,6 +241,7 @@ struct SetupSheet: View {
         self.availableSize = availableSize
         self.hasFilingProfile = hasFilingProfile
         self.syncManager = syncManager
+        self.outlineRows = outlineRows
         _placeCandidates = State(initialValue: placeCandidates)
         _peopleCandidates = State(initialValue: peopleCandidates)
         self.onProfileWritten = onProfileWritten
@@ -275,7 +283,7 @@ struct SetupSheet: View {
             // it then has no source to describe. The first enabled source is the honest default:
             // it is what discovery put at the top, and changing it is one click.
             reconcilePrimary()
-            if case .step(.you) = screen { nameFieldFocused = true }
+            focusFirstFieldIfNeeded()
             seedWalkRoot()
             proposeForCurrentStep()
             Logger.shared.info("Setup opened on \(screenName) — "
@@ -297,7 +305,24 @@ struct SetupSheet: View {
             proposeForCurrentStep()
         }
         // Each step asks for what it needs when it is reached, once per root.
-        .onChange(of: screen) { _, _ in proposeForCurrentStep() }
+        .onChange(of: screen) { _, _ in
+            proposeForCurrentStep()
+            // **Here as well as in `onAppear`, and this is the path that matters.** A fresh install
+            // opens on the welcome card, so by the time the You step is on screen `onAppear` has
+            // long since run — the one machine this form exists for was the one machine whose first
+            // field never took the caret, while a re-run (which opens straight on the rail) did.
+            focusFirstFieldIfNeeded()
+        }
+    }
+
+    /// Puts the caret in the first field of the step that has one.
+    ///
+    /// The rule is ``SetupFlow/wantsFirstFieldFocus(_:)`` rather than a `case` inlined here, for the
+    /// reason every other decision in this form is out in `SetupFlow`: this view cannot be built in
+    /// a test, so a rule spelled inside it is a rule nothing can flip.
+    private func focusFirstFieldIfNeeded() {
+        guard SetupFlow.wantsFirstFieldFocus(screen) else { return }
+        nameFieldFocused = true
     }
 
     /// The hues offered here — a spread across the palette, not the whole of it.
@@ -349,9 +374,13 @@ struct SetupSheet: View {
 
     // MARK: - Welcome
 
-    private var welcomeScreen: some View {
+    /// **`internal`, so a fit test can measure it.** Welcome is not a `Step`, so
+    /// `everyBoundedStepFitsTheCardTheyShare` cannot reach it — and it is the one screen that is
+    /// *only* ever seen on a machine nobody working on this app is using. `theWelcomeScreenFits
+    /// TheCardTheyShare` is what stands in for the eyes it never gets.
+    var welcomeScreen: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 20) {
+            VStack(spacing: 18) {
                 VStack(spacing: 12) {
                     SetupIllustration(art: .welcome, leftName: paneNames.0, rightName: paneNames.1)
                         .frame(height: 104)
@@ -396,11 +425,43 @@ struct SetupSheet: View {
                     }
                 }
 
+                // **What the form is going to ask, before it asks it** — so *Set up SyncCloud* is
+                // a decision rather than a leap.
+                //
+                // This was dropped by `89373824`, which folded the Folders step into Done and
+                // redrew the card; the list went with the redraw and `SetupFlow.outline` stayed
+                // behind with three tests still passing over it, because they assert the DATA and
+                // nothing asserted the render. The step came back in `e52076eb` and the list did
+                // not. Derived from ``SetupFlow/outline``, which is derived from ``SetupFlow/Step``,
+                // so a step added without a line here fails rather than going unannounced.
+                VStack(alignment: .leading, spacing: 5) {
+                    if !outlineRows.isEmpty {
+                        Text("Setting up asks for")
+                            .scaledFont(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(outlineRows, id: \.step) { row in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: row.step.symbolName)
+                                .scaledFont(.caption)
+                                .foregroundStyle(.tint)
+                                .frame(width: 15)
+                                .accessibilityHidden(true)
+                            Text(row.detail)
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 quietNote(SetupFlow.privacyClaim, systemImage: "lock")
             }
             .padding(.horizontal, 30)
-            .padding(.top, 30)
-            .padding(.bottom, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
 
 
             Spacer(minLength: 0)
@@ -467,9 +528,19 @@ struct SetupSheet: View {
             case .done: doneStep
             }
 
+            // **Said before the button that reads the documents, not after it.** Which step that is
+            // comes from `SetupFlow.disclosureStep` rather than from where this happens to be
+            // written, because it has already been in the wrong place once: the notes sat on Done
+            // for as long as Folders was folded into Done, and stayed there when the step came
+            // back — a consent notice on the screen after the act it discloses.
+            if step == SetupFlow.disclosureStep {
+                quietNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
+                quietNote(SetupFlow.surveyThirdPartyNote, systemImage: "sparkles")
+            }
+
             // **The slack goes here, above the closing line, not after it.**
             //
-            // Every step is drawn in a card sized for the tallest of them, so all but one has空
+            // Every step is drawn in a card sized for the tallest of them, so all but one has empty
             // room to place. Left at the end of the content it reads as a card that ran out of
             // things to say; put between the controls and the sentence that explains them, it reads
             // as the margin a form ought to have — and the closing line lands in the same place on
@@ -860,10 +931,16 @@ struct SetupSheet: View {
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(!isEnabled || isPrimary)
             // The label already reads "Primary"; without this the chosen row announces a button
             // somebody can press, which is exactly what it is not.
+            .disabled(!isEnabled || isPrimary)
+            // **Gone, not dimmed, on a source that is switched off.** A disabled source cannot be
+            // primary — `reconcilePrimary` moves the pointer off it the moment the switch flips —
+            // so "Make primary" beside it would offer a state the row cannot reach. Hidden from
+            // VoiceOver too: `.opacity(0)` alone leaves the button in the accessibility tree, where
+            // it is announced as an ordinary dimmed control that is simply invisible on screen.
             .opacity(isEnabled ? 1 : 0)
+            .accessibilityHidden(!isEnabled)
             .help(isPrimary ? "SyncCloud learns your folder conventions from this source."
                   : "Learn folder conventions from \(provider.displayName) instead.")
 
@@ -1448,17 +1525,17 @@ struct SetupSheet: View {
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.secondary.opacity(0.06)))
 
-            // **The survey's disclosure, folded in with the step it belonged to.** Learning your
-            // folders is not in this build yet, so a whole step spent reading about it was a step
-            // with no decision in it. What must not fold away is the promise and its one exception:
-            // this is still the only place either is said in full.
-            quietNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
-            quietNote(SetupFlow.surveyThirdPartyNote, systemImage: "sparkles")
+            // **The disclosure is NOT repeated here.** It was, for as long as the Folders step was
+            // folded into this one — but the step is back and it runs the walk, so the promise and
+            // its exception belong in front of the button that reads the documents, not on the
+            // screen after it. A consent notice shown once the act is done is not a notice.
+            // `theSurveyDisclosureIsOnTheStepThatAsksForIt` is what keeps it there.
 
             if !hasProfile {
-                quietNote("Learning your folders comes next. Until then Organize files by folder "
-                          + "name, which needs no survey — and \(primaryName) is the tree it will "
-                          + "learn from when it lands.", systemImage: "clock")
+                quietNote("You have not learned a folder tree yet. Organize still files by folder "
+                          + "name, which needs no survey — go back to Folders whenever you want "
+                          + "SyncCloud to learn \(primaryName), or run setup again later.",
+                          systemImage: "clock")
             }
 
         }

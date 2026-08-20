@@ -108,6 +108,17 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         "small": .small, "medium": .medium, "large": .large, "extraLarge": .extraLarge
     ]
 
+    /// What a migration did: the string that was on disk, and the size it now holds.
+    ///
+    /// **The raw value is carried out because the log needs it.** Reporting only the `FontSize`
+    /// made the launch line name the value's NEW label — a machine storing `extraLarge` logged
+    /// «migrated from the legacy "Largest" value», a string that was never on disk and that
+    /// nobody grepping for it would find.
+    public struct LegacyMigration: Equatable, Sendable {
+        public let raw: String
+        public let size: FontSize
+    }
+
     /// Rewrites a legacy string value to its percentage, in place. Returns what it resolved to,
     /// or nil when there was nothing to migrate.
     ///
@@ -121,17 +132,6 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     /// attempt to give it one reached `UserDefaults.standard` from a view whose store might be a
     /// scratch suite — machine-dependent. `theAppMigratesTheStoredTextSizeAtLaunch` is what keeps
     /// this call where it has to be.
-    /// What a migration did: the string that was on disk, and the size it now holds.
-    ///
-    /// **The raw value is carried out because the log needs it.** Reporting only the `FontSize`
-    /// made the launch line name the value's NEW label — a machine storing `extraLarge` logged
-    /// «migrated from the legacy "Largest" value», a string that was never on disk and that
-    /// nobody grepping for it would find.
-    public struct LegacyMigration: Equatable, Sendable {
-        public let raw: String
-        public let size: FontSize
-    }
-
     @discardableResult
     public static func migrateLegacyValue(in defaults: UserDefaults = .standard) -> LegacyMigration? {
         // An Int already present is the current shape — nothing to do. Asked first because a

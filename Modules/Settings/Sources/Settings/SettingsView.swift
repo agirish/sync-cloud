@@ -69,10 +69,9 @@ public enum GeneralSettings {
 /// The app's settings window, hosted in the SwiftUI `Settings` scene. Follows the standard
 /// macOS preferences layout: toolbar tabs (Appearance / Providers / Sync) over grouped forms.
 public struct SettingsView: View {
-    /// Identifies a settings tab; raw values are the format of the `settingsSelectedTab`
-    /// default read at window creation, so treat them as stable. `CaseIterable` backs both the
-    /// segmented picker and the search index's "every entry points at a real tab" invariant.
-    /// The rail's rows, in rail order.
+    /// The rail's rows, in rail order — and the format of the `settingsSelectedTab` default read
+    /// at window creation, so the raw values are stable. `CaseIterable` backs both the rail and the
+    /// search index's "every entry points at a real tab" invariant.
     ///
     /// `people` and `intelligence` are NEW CASES rather than renames of `filing`, and the
     /// distinction matters. `providers` → "Sources" was a relabel: the same tab, reworded, so the
@@ -1091,12 +1090,8 @@ struct HueOptionView: View {
     }
 }
 
-// MARK: - Sources
+// MARK: - Readability
 
-/// The sources panes can be pointed at: the cloud accounts discovered on this Mac, and the plain
-/// folders the user added. Two sub-sections, because they are two different kinds of thing — one is
-/// found, the other is chosen — and the controls differ accordingly: a cloud account can be
-/// refreshed but never removed, a folder can be removed but never discovered.
 /// Text size and row spacing, with a preset row over them and a live preview under them.
 ///
 /// **Why this is a tab and not a section of Appearance.** Both controls answer one question — how
@@ -1298,6 +1293,12 @@ struct ReadabilitySettingsTab: View {
     }
 }
 
+// MARK: - Sources
+
+/// The sources panes can be pointed at: the cloud accounts discovered on this Mac, and the plain
+/// folders the user added. Two sub-sections, because they are two different kinds of thing — one is
+/// found, the other is chosen — and the controls differ accordingly: a cloud account can be
+/// refreshed but never removed, a folder can be removed but never discovered.
 struct ProvidersSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
     @State private var isRefreshingProviders = false

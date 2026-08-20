@@ -158,6 +158,42 @@ import Testing
         #expect(aditi.householdParents == 2)
     }
 
+    /// The three sort keys, in the order the documentation now claims — **and the `- Returns:` line
+    /// said something else for the whole of v4.2's development.**
+    ///
+    /// It read "ordered by `folderCount` descending, then by name", which is what the code did in
+    /// an earlier cut and is precisely the ordering the inline comment beside the sort explains was
+    /// wrong (it put `Reference` above every real person). Nothing failed, because every ordering
+    /// test in this file exercises fixtures where the two agree. This one is built so they cannot:
+    /// `Bulk` sits under ONE household folder and eight ordinary ones, `Nadia` under TWO and no
+    /// others — so evidence-first puts Nadia ahead and size-first puts Bulk ahead.
+    @Test func theOrderIsEvidenceFirstNotSizeFirst() throws {
+        let tree = Self.tree(["Family/Nadia", "People/Nadia"]
+                             + ["Family/Bulk"]
+                             + (1...8).map { "Work/Project\($0)/Bulk" })
+        let proposals = PersonCandidates.propose(tree: tree)
+        let nadia = try #require(proposals.firstIndex { $0.name == "Nadia" })
+        let bulk = try #require(proposals.firstIndex { $0.name == "Bulk" })
+
+        // The fixture proves what it claims to: size and evidence really do disagree here.
+        let bulkCandidate = proposals[bulk], nadiaCandidate = proposals[nadia]
+        #expect(bulkCandidate.folderCount > nadiaCandidate.folderCount,
+                "the impostor is not bigger — a size-first sort would agree and this proves nothing")
+        #expect(nadiaCandidate.householdParents > bulkCandidate.householdParents,
+                "the person is not better evidenced — the fixture does not separate the two rules")
+
+        #expect(nadia < bulk,
+                "ordered \(proposals.map(\.name)) — size beat evidence, which is the ordering the comment beside the sort says was wrong")
+    }
+
+    /// Ties on both evidence and size break by name, ascending — the third key, which the
+    /// comparator spells by swapping its operands rather than by negating.
+    @Test func aTieBreaksByNameAscending() {
+        let tree = Self.tree(["Family/Zoya", "Family/Amara"])
+        let names = PersonCandidates.propose(tree: tree).map(\.name)
+        #expect(names == ["Amara", "Zoya"], "ordered \(names) — the name tie-break is inverted")
+    }
+
     @Test func anEmptyTreeProposesNobody() {
         #expect(PersonCandidates.propose(tree: []).isEmpty)
     }

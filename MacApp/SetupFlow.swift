@@ -134,6 +134,21 @@ enum SetupFlow {
         hasCompletedSetup || hasFilingProfile ? .step(.you) : .welcome
     }
 
+    /// Whether this screen opens with the caret already in its first field.
+    ///
+    /// **You alone.** It is the only step whose first control is a text field, and a form that opens
+    /// with nothing focused asks you to click before you can type. The other steps open on a switch,
+    /// a chip or a button, where a claimed caret would be a caret with nowhere to go — and Welcome
+    /// is a card with two buttons on it, where ⏎ is already the default action.
+    ///
+    /// A rule rather than a `case` inside the view, because `SetupSheet` cannot be constructed in a
+    /// test: the version of this that lived in `onAppear` only ever fired on the RE-RUN path (which
+    /// opens on the rail), and never on a first launch (which opens on Welcome and reaches You by a
+    /// screen change). Nothing said so, because nothing could ask.
+    static func wantsFirstFieldFocus(_ screen: Screen) -> Bool {
+        screen == .step(.you)
+    }
+
     // MARK: - The show gate
 
     /// Whether the form opens itself on launch.
@@ -265,6 +280,19 @@ enum SetupFlow {
     /// The four-word reminder carried in the footer of every step once the claim above has been
     /// made properly.
     static let privacyFooter = "Stays on this Mac"
+
+    /// The step the privacy disclosure is made on.
+    ///
+    /// **A named constant with one call site, because this has already been wrong once.** The two
+    /// notes below are the app's whole promise about reading the user's documents, plus its one
+    /// exception. They belong in front of the control that does the reading — *Learn this folder* —
+    /// and while the Folders step was folded into Done they moved there with it. The step came back
+    /// in `e52076eb` and the notes did not, so for two commits the disclosure was made on the screen
+    /// *after* the walk had already run, which is not a disclosure.
+    ///
+    /// `theDisclosureIsDrawnOnTheStepThatAsksForIt` pins the constant AND the call site: a rule
+    /// extracted for testability is one revert from being unused.
+    static let disclosureStep: Step = .survey
 
     /// The local half of the survey step's disclosure — stated where the user authorises reading
     /// their documents, which is the only screen that asks for that.

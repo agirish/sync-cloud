@@ -263,29 +263,6 @@ extension FilingProfileStore {
     /// therefore logs exactly one thing — the rollback in ``land(_:at:index:at:writeIndex:)``,
     /// which is the only fact no thrown error carries (see there). **A caller wiring this up owes
     /// the log line**, and `description` is written to be that line.
-    /// Whether a freshly written profile may become the active one.
-    ///
-    /// **Provenance, not existence — this is the rule that changed, and it changed in one
-    /// direction.** It used to be "only when nothing is active", which protected a hand-built
-    /// profile perfectly and also refused to let the app replace *its own* previous derivation. The
-    /// consequence was not theoretical: on a machine with any active profile, a survey ran to
-    /// completion, wrote a correct `folder-profile.json` under a fresh id, and then nothing read it,
-    /// because `profiles.json` still named the old one and no message said so.
-    ///
-    /// So: re-point when nothing is active, or when what is active is the app's own work. Never
-    /// when it is hand-built — that file also records judgements a walk cannot see (`naming`,
-    /// `folderSemantics`, the `outbound-pack` refusals), so aiming the app at a derived profile
-    /// instead would quietly degrade To File and the rename pass with nothing failing.
-    ///
-    /// **An unreadable active profile counts as hand-built**, on the same principle as
-    /// ``FolderProfile/provenance``: a file this build cannot parse is one it must not decide it
-    /// owns. It refuses to re-point, which leaves the user where they were.
-    static func mayRepoint(activeId: String?, in directory: URL) -> Bool {
-        guard let activeId else { return true }
-        guard let active = profile(id: activeId, in: directory) else { return false }
-        return active.provenance == .derived
-    }
-
     public enum WriteRefusal: Error, Equatable, CustomStringConvertible {
         /// `folder-profile.json` already exists for this id. Never overwritten, never merged.
         case profileExists(id: String)
@@ -310,8 +287,32 @@ extension FilingProfileStore {
         }
     }
 
+    /// Whether a freshly written profile may become the active one.
+    ///
+    /// **Provenance, not existence — this is the rule that changed, and it changed in one
+    /// direction.** It used to be "only when nothing is active", which protected a hand-built
+    /// profile perfectly and also refused to let the app replace *its own* previous derivation. The
+    /// consequence was not theoretical: on a machine with any active profile, a survey ran to
+    /// completion, wrote a correct `folder-profile.json` under a fresh id, and then nothing read it,
+    /// because `profiles.json` still named the old one and no message said so.
+    ///
+    /// So: re-point when nothing is active, or when what is active is the app's own work. Never
+    /// when it is hand-built — that file also records judgements a walk cannot see (`naming`,
+    /// `folderSemantics`, the `outbound-pack` refusals), so aiming the app at a derived profile
+    /// instead would quietly degrade To File and the rename pass with nothing failing.
+    ///
+    /// **An unreadable active profile counts as hand-built**, on the same principle as
+    /// ``FolderProfile/provenance``: a file this build cannot parse is one it must not decide it
+    /// owns. It refuses to re-point, which leaves the user where they were.
+    static func mayRepoint(activeId: String?, in directory: URL) -> Bool {
+        guard let activeId else { return true }
+        guard let active = profile(id: activeId, in: directory) else { return false }
+        return active.provenance == .derived
+    }
+
     /// Writes `profile` as `profiles/<id>/folder-profile.json`, creating the directory if needed,
-    /// and points `profiles.json` at it **only when no profile is active**.
+    /// and points `profiles.json` at it **only when ``mayRepoint(activeId:in:)`` allows it** — that
+    /// is, when nothing is active, or when what is active is the app's own derivation.
     ///
     /// Four guarantees, each of which is a separate test:
     ///
@@ -325,9 +326,10 @@ extension FilingProfileStore {
     ///    profile is removed again: a profile nothing points at is also one every retry would refuse
     ///    with `profileExists`, which is the one state a caller cannot get out of. The empty
     ///    directory is left behind, harmlessly — `createDirectory` does not mind finding it.
-    /// 3. **It touches `profiles.json` only when nothing resolvable is active**, and amends the
-    ///    existing document rather than rewriting it, so a hand-built index keeps every field and
-    ///    every other profile it lists. "Active" is stricter than ``activeProfileId(in:)``'s answer
+    /// 3. **It touches `profiles.json` only when ``mayRepoint(activeId:in:)`` says so** — nothing
+    ///    active, or an active profile this app derived — and amends the existing document rather
+    ///    than rewriting it, so a hand-built index keeps every field and every other profile it
+    ///    lists. "Active" is stricter than ``activeProfileId(in:)``'s answer
     ///    in one direction and looser in another, both deliberately: a field it cannot parse is a
     ///    refusal rather than an absence, while an id naming a profile that is *not on disk* counts
     ///    as nothing active, because a dangling pointer is not an answer and treating it as one left
@@ -337,11 +339,12 @@ extension FilingProfileStore {
     ///    is about content, not bytes; and the read-modify-write is unlocked, so a concurrent edit
     ///    to `profiles.json` between the read and the write is lost.
     ///
-    ///    When something *is* active the index is left completely alone, which means the profile
-    ///    written here is readable by `profile(id:)` but is not what `active(in:)` returns. That is
-    ///    the additive behaviour the id keying intends, not an oversight — but a caller that has
-    ///    promised the user a survey has to check, because "written" and "in use" are different
-    ///    outcomes and this returns the same URL for both.
+    ///    When a **hand-built** profile is active the index is left completely alone, which means
+    ///    the profile written here is readable by `profile(id:)` but is not what `active(in:)`
+    ///    returns. That is the additive behaviour the id keying intends, not an oversight — but a
+    ///    caller that has promised the user a survey has to check, because "written" and "in use"
+    ///    are different outcomes and this returns the same URL for both.
+    ///    ``FileSyncManager/FolderWalkReport/becameActive`` is that check, and its report says so.
     /// 4. **The JSON is the shape the offline generator writes**, so a profile made here and one
     ///    made there are interchangeable — same `schemaVersion` (checked on the way back in by
     ///    ``decode(_:at:what:)``), same `folders` array, same `axes.person` box. Round-tripping
@@ -368,9 +371,10 @@ extension FilingProfileStore {
 
         // The index is composed BEFORE the profile lands, so a `profiles.json` this cannot amend
         // refuses the whole write rather than leaving a profile on disk that the next attempt
-        // would then refuse to replace. Only when nothing is active: re-pointing an index that
-        // already names a profile would aim every read at a tree the user did not choose — the
-        // same class of harm as the overwrite above, one file over.
+        // would then refuse to replace. Whether to re-point at all is `mayRepoint`'s: re-pointing
+        // an index that names a HAND-BUILT profile would aim every read at a tree the user did not
+        // choose — the same class of harm as the overwrite above, one file over — while replacing
+        // this app's own previous derivation costs nothing.
         //
         // **Read once.** The decision and the amendment are taken from the SAME parse, because
         // taking them from two different ones is a hole rather than a redundancy: the decision used
@@ -391,9 +395,10 @@ extension FilingProfileStore {
         // `Finance\/US` for every one of them: unreadable at a glance, and it does not diff against
         // the Python builder's output, which is the comparison this format exists to support.
         //
-        // Changed now because the cost only grows. It alters the bytes of any profile written by
-        // this path, and that set is **empty** — `writeProfile` has no production caller in this
-        // release — so today it is a free change and every release from here makes it a migration.
+        // Changed while the cost was still nothing: it alters the bytes of any profile written by
+        // this path, and at the time that set was empty because `writeProfile` had no production
+        // caller. It has one as of v4.2 — `FileSyncManager.deriveFolderProfile` — so this is now
+        // the shape every walked profile on disk is in, and changing it again would be a migration.
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let document = ProfileDocument(profile: profile, generated: stamp(now), builtBy: builtBy)
         let bytes = try encoder.encode(document)

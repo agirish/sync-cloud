@@ -161,6 +161,37 @@ import Testing
         #expect(Set(SetupFlow.Step.allCases.map(\.symbolName)).count == SetupFlow.Step.allCases.count)
     }
 
+    // MARK: - Focus
+
+    /// The caret goes to the You step's first field — **including on the path a first launch takes.**
+    ///
+    /// The rule lived as `if case .step(.you) = screen` inside `onAppear`, which fires once, before
+    /// the first layout. A re-run opens straight on the rail and got the caret; a FIRST run opens on
+    /// the welcome card and reaches You by a screen change, long after `onAppear` — so the machine
+    /// this whole form exists for was the one machine whose first field never took focus. Asserting
+    /// the rule over both entry points is what says so.
+    @Test func onlyTheYouStepClaimsTheCaret() {
+        #expect(SetupFlow.wantsFirstFieldFocus(.step(.you)))
+        // The welcome card's own default action is ⏎ on "Set up SyncCloud"; a claimed caret there
+        // would be a caret with no field to sit in.
+        #expect(!SetupFlow.wantsFirstFieldFocus(.welcome))
+        for step in SetupFlow.Step.allCases where step != .you {
+            #expect(!SetupFlow.wantsFirstFieldFocus(.step(step)),
+                    "\(step.displayName) claims the caret, and its first control is not a text field")
+        }
+    }
+
+    /// The first-run route reaches the focused step by a screen CHANGE, which is the fact the
+    /// broken version could not see.
+    @Test func aFirstRunReachesTheFocusedStepByAScreenChange() throws {
+        let opening = SetupFlow.initialScreen(hasCompletedSetup: false, hasFilingProfile: false)
+        #expect(!SetupFlow.wantsFirstFieldFocus(opening),
+                "a first run now opens on the focused step, so the `onAppear` claim would suffice")
+        let afterContinue = try #require(SetupFlow.next(after: opening))
+        #expect(SetupFlow.wantsFirstFieldFocus(afterContinue),
+                "the screen after Welcome is not the one that wants the caret")
+    }
+
     // MARK: - The welcome copy
 
     /// The welcome screen says what the form is going to ask before it asks it — for every step
@@ -438,6 +469,62 @@ import Testing
     /// be phrased as an absolute the Refine pass contradicts — “nothing is uploaded” is about the
     /// files SyncCloud reads, and the sentence that follows the user into the survey step is where
     /// the third party is named.
+    /// **The disclosure is made on the step that asks for it, and is drawn from that rule.**
+    ///
+    /// This was wrong for two commits and nothing failed. `89373824` folded the Folders step into
+    /// Done and took the two notes with it; `e52076eb` brought the step back — with the button that
+    /// reads the user's documents on it — and left the notes on Done. A promise about reading
+    /// somebody's files, made on the screen *after* the reading, is not a promise, and every test
+    /// over this copy (`theSurveyDisclosureNamesItsOneException` above included) asserts the
+    /// STRINGS, which were correct the whole time.
+    ///
+    /// So both halves are pinned: the constant, and the one call site that reads it — a rule
+    /// extracted for testability is one revert from being unused.
+    @Test func theDisclosureIsDrawnOnTheStepThatAsksForIt() throws {
+        // The step that runs the walk is the step that asks to read the documents.
+        #expect(SetupFlow.disclosureStep == .survey,
+                "the disclosure is made on \(SetupFlow.disclosureStep.displayName), which is not the step that reads the user's files")
+        #expect(SetupFlow.disclosureStep != .done,
+                "Done comes after the walk — a notice there discloses nothing")
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/SetupSheet.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read SetupSheet.swift — the checks below would be vacuous")
+        try #require(source.count > 500, "SetupSheet.swift is implausibly short")
+
+        // Drawn through the rule, not at a location somebody has to remember.
+        #expect(source.contains("if step == SetupFlow.disclosureStep {"),
+                "the notes are no longer gated on `disclosureStep` — moving the constant would move nothing")
+        // And exactly once each: a second copy is how the two screens came to disagree before.
+        for note in ["SetupFlow.surveyPrivacyNote", "SetupFlow.surveyThirdPartyNote"] {
+            #expect(source.components(separatedBy: note).count - 1 == 1,
+                    "\(note) is drawn \(source.components(separatedBy: note).count - 1) times — one of them is on the wrong screen")
+        }
+    }
+
+    /// Done no longer talks about the folder walk as work that has not shipped.
+    ///
+    /// It said "Learning your folders comes next … \(primary) is the tree it will learn from when
+    /// it lands", written while the step really was unbuilt. The step ships in v4.2, two screens
+    /// earlier, and a summary telling the user to wait for it is telling them to wait for something
+    /// they have already been offered.
+    @Test func doneDoesNotDescribeTheWalkAsUnshipped() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/SetupSheet.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+        for stale in ["Learning your folders comes next", "when it lands",
+                      "not in this build yet"] {
+            #expect(!source.contains(stale),
+                    "the form still says “\(stale)” about a step it now has")
+        }
+        // The positive control: the sweep can see this file's copy at all.
+        #expect(source.contains("You have not learned a folder tree yet"),
+                "the replacement copy is not there — every check above is vacuous")
+    }
+
     @Test func theWelcomeClaimIsAboutWhatSyncCloudItselfDoes() {
         #expect(SetupFlow.privacyClaim.contains("on this Mac"))
         #expect(!SetupFlow.privacyClaim.localizedCaseInsensitiveContains("never"),

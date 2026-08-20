@@ -69,7 +69,8 @@ import Testing
     }
 
     private func sheet(_ settings: SettingsManager, people: PeopleStore? = nil,
-                       hasFilingProfile: Bool = false) -> SetupSheet {
+                       hasFilingProfile: Bool = false,
+                       outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline) -> SetupSheet {
         SetupSheet(
             settings: settings,
             peopleStore: people,
@@ -80,6 +81,7 @@ import Testing
             hasFilingProfile: hasFilingProfile,
             placeCandidates: Self.realisticPlaces,
             peopleCandidates: Self.realisticPeople,
+            outlineRows: outlineRows,
             onOpenSettings: { _ in },
             onFinish: {},
             onDismiss: {}
@@ -207,6 +209,64 @@ import Testing
             #expect(measured <= contentCeiling,
                     "\(step.displayName) lays out at \(Int(measured))pt against a \(Int(contentCeiling))pt opening — it will scroll on a 1280×800 display")
         }
+    }
+
+    /// **The welcome card fits too, and nothing measured it before.**
+    ///
+    /// Welcome is deliberately not a `Step` — it precedes the rail — so `everyBoundedStepFitsThe
+    /// CardTheyShare` above cannot reach it, and it is simultaneously the one screen in this app
+    /// that only ever renders on a machine nobody working on it is using. That combination is how
+    /// its "setting up asks for" list came to be dropped by a redraw with three tests still green
+    /// over the data behind it.
+    ///
+    /// Measured whole (`welcomeScreen`, not a content slice) because unlike a step it has no
+    /// `ScrollView`: it draws its footer itself and simply overflows the card if it is too tall.
+    @Test func theWelcomeScreenFitsTheCardItIsDrawnIn() async throws {
+        let settings = await manager(providerCount: Self.realisticProviderCount)
+        let sheet = sheet(settings)
+        for scale in [1.0, 1.25, 1.35] as [CGFloat] {
+            let host = NSHostingView(
+                rootView: sheet.welcomeScreen
+                    .environment(\.appFontScale, scale)
+                    .frame(width: SetupSheetMetrics.resolvedWidth(availableSize: Self.smallDisplayHost,
+                                                                  scale: scale)))
+            host.layoutSubtreeIfNeeded()
+            let measured = host.fittingSize.height
+            let opening = SetupSheetMetrics.resolvedHeight(availableSize: Self.smallDisplayHost,
+                                                           scale: scale)
+            #expect(measured > 0, "the welcome card measured nothing at all")
+            #expect(measured <= opening,
+                    "the welcome card lays out at \(Int(measured))pt at \(Int(scale * 100))% against a \(Int(opening))pt card — it will overflow on a 1280×800 display")
+        }
+    }
+
+    /// The welcome card really **draws** the outline, not just the data behind it.
+    ///
+    /// **Measured twice, because the failure this catches is a render one.** `SetupFlow.outline`
+    /// and its three tests in `SetupFlowTests` survived `89373824`, which stopped drawing the list
+    /// while redrawing the card, and `e52076eb`, which brought the step it announces back and did
+    /// not bring the row with it. Those tests assert the TABLE, and a table nobody reads is exactly
+    /// as consistent as one somebody does. SwiftUI draws its own text — an `NSTextField` sweep of
+    /// the laid-out tree comes back empty, measured — so the only thing an offscreen host can
+    /// honestly report is the height, and the height is enough: a card that renders the rows is
+    /// taller than one handed none.
+    @Test func theWelcomeCardGrowsByTheOutlineItDraws() async throws {
+        let settings = await manager(providerCount: Self.realisticProviderCount)
+        let width = SetupSheetMetrics.resolvedWidth(availableSize: Self.smallDisplayHost, scale: 1)
+        func measure(_ rows: [SetupFlow.OutlineRow]) -> CGFloat {
+            let host = NSHostingView(rootView: sheet(settings, outlineRows: rows).welcomeScreen
+                .frame(width: width))
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.height
+        }
+        #expect(SetupFlow.outline.count >= 4, "the outline table is thin — this would barely measure")
+        let withRows = measure(SetupFlow.outline)
+        let without = measure([])
+        #expect(without > 0, "the control card measured nothing — both numbers are meaningless")
+        // One row is a line of caption text plus its spacing; four rows and a heading cannot come to
+        // less than this without something having been dropped or clipped.
+        #expect(withRows - without >= CGFloat(SetupFlow.outline.count) * 14,
+                "drawing the outline added only \(Int(withRows - without))pt for \(SetupFlow.outline.count) rows — the card is not rendering the list it declares")
     }
 
     /// Every step is either measured against the shared height or explicitly exempt.

@@ -824,12 +824,8 @@ extension ContentView {
         }
     }
 
-    /// ⌘X / ⌘C / ⌘V, resolved together — see ``ClipboardActions``.
-    ///
-    /// Cut and Copy read the selection at FIRE time rather than capturing it, for the reason
-    /// `shortcutDeleteSelection` records: a menu held open is not re-armed by a republish, so a
-    /// captured array can name rows a background sync has since replaced.
-    /// Edit ▸ Cut / Copy / Paste, over the app's internal clipboard.
+    /// ⌘X / ⌘C / ⌘V, resolved together — see ``ClipboardActions``. Edit ▸ Cut / Copy / Paste, over
+    /// the app's internal clipboard.
     ///
     /// **The source and the destination are resolved by different rules, and that is what makes
     /// cut-and-paste a cross-pane move.** Cut and Copy take `activeSelectionNodes` — wherever the

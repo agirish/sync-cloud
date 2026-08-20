@@ -110,8 +110,13 @@ public enum PersonCandidates {
     ///   - known: names already on the roster, in any spelling. Proposed names that match one are
     ///     dropped: the dialog is for who is *missing*, and offering somebody the user already added
     ///     reads as the app not knowing what it has.
-    /// - Returns: candidates ordered by ``PersonCandidate/folderCount`` descending, then by name, so
-    ///   the strongest is first and the order does not wobble between runs.
+    /// - Returns: candidates ordered by ``PersonCandidate/householdParents`` descending — the
+    ///   evidence, not the size — then by ``PersonCandidate/folderCount``, then by name ascending.
+    ///   The strongest is first and the order does not wobble between runs: names are unique in the
+    ///   result, so the comparison is a total order rather than a stable-sort assumption.
+    ///   Ordering on the raw count instead put `Reference` above every real person on the reference
+    ///   tree, which is why the count only breaks ties. `theOrderIsEvidenceFirstNotSizeFirst` is
+    ///   what holds these three keys in this order.
     public static func propose(tree: [FileNode], known: Set<String> = []) -> [PersonCandidate] {
         var folders: [String] = []
         for node in tree { collect(node, prefix: "", into: &folders) }
@@ -142,16 +147,15 @@ public enum PersonCandidates {
             // **A direct child of a household folder, not a descendant.** `Family` says what its
             // children are; it says nothing about `Family/Photos/Reference`. Matching anywhere in
             // the path proposed 79 names on the reference tree with `Reference(41)` at the top.
-            let underHousehold = parents.contains { parent in
+            //
+            // Counted once and tested as a count: "is it under one at all" is exactly
+            // `householdHits > 0`, and asking the same question twice through two separate
+            // `parents` walks is two places for one rule to drift.
+            let householdHits = parents.count { parent in
                 guard let last = parent.split(separator: "/").last else { return false }
                 return householdParents.contains(last.folded)
             }
-            let branches = Set(parents.compactMap { $0.split(separator: "/").first.map(String.init)?.folded })
-            guard underHousehold else { return nil }
-            let householdHits = parents.filter { parent in
-                guard let last = parent.split(separator: "/").last else { return false }
-                return householdParents.contains(last.folded)
-            }.count
+            guard householdHits > 0 else { return nil }
             return PersonCandidate(name: spelling, parents: parents.sorted(),
                                    folderCount: countByName[key] ?? 0,
                                    householdParents: householdHits)

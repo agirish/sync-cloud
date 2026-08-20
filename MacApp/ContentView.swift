@@ -275,9 +275,15 @@ struct ContentView: View {
     /// it names a scan that only exists in this session.
     @State var duplicateRevealRequest: DuplicateRevealRequest?
 
-    /// Whether the workspace bar can spell its segments out at the window's current width.
+    /// Both rungs of the toolbar row, resolved together from the window's width — see
+    /// `WorkspaceBarMetrics.styleSet`.
     ///
-    /// The *style*, not the width. `.onGeometryChange` only calls its action when the transformed
+    /// **One value, not two decisions.** The workspace bar and the Go-to control share one row, and
+    /// two states resolved from two thresholds is how each concludes it fits a width the other is
+    /// also spending. Stored as the closed/open PAIR for a second reason: the field opens on a
+    /// keystroke rather than on a resize, so the open answer has to already be in hand.
+    ///
+    /// The *styles*, not the width. `.onGeometryChange` only calls its action when the transformed
     /// value changes, so resolving the answer inside the transform means a live window resize
     /// writes this once — when the labels actually shed — instead of once per frame. Storing the
     /// raw width invalidated `ContentView.body` on every frame of every drag to answer a question
@@ -286,12 +292,6 @@ struct ContentView: View {
     /// `.onGeometryChange` rather than a `GeometryReader` writing a preference: it fires outside
     /// the layout pass, which is what keeps a width-driven toolbar from re-entering layout and
     /// tripping the AppKit constraint-loop crash that pattern caused before.
-    /// Both controls' rungs, resolved together — see `WorkspaceBarMetrics.styles`. One value
-    /// because they share one row: two states resolved from two thresholds is how each concludes
-    /// it fits a width the other is also spending.
-    /// Both rungs of the toolbar row, resolved together from the window's width — see
-    /// `WorkspaceBarMetrics.styleSet`. Stored as the pair rather than as one answer because the
-    /// field opens on a keystroke, not on a resize.
     @State var toolbarStyleSet = ToolbarBarStyleSet(
         closed: ToolbarBarStyles(workspace: .iconOnly, search: .compact),
         open: ToolbarBarStyles(workspace: .iconOnly, search: .compact,

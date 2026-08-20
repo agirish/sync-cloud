@@ -561,23 +561,6 @@ extension ContentView {
         )
     }
 
-    /// Points the source pane at an absolute folder inside the current provider.
-    ///
-    /// Silently does nothing for a path outside the root — a relative path computed against the
-    /// wrong root would focus the pane on a folder that does not exist, which looks exactly like a
-    /// broken palette rather than like a stale index.
-    ///
-    /// **The pane it points at is the one the index was built from**, which is not always the left
-    /// one. `lensProviderRootExpanded` follows the focused pane in Compare, so every folder row in
-    /// the palette is relative to the *right* provider's tree when the right pane has focus. This
-    /// revealed into the left pane regardless: the guard passed (the path really is under that
-    /// root), a relative path from one provider's tree was handed to the other's, and the pane
-    /// jumped to a folder that most likely does not exist there — the exact "looks like a broken
-    /// palette" outcome the guard above was written to avoid, reached by a different route.
-    /// - Parameters:
-    ///   - root: the provider root the path is relative to, and `isLeft` the pane that owns it.
-    ///     Passed in rather than re-read, because a caller may already have changed the workspace
-    ///     — and both values follow it. See `aimOrganize`.
     /// Where a reveal lands, or why it cannot.
     ///
     /// **Extracted because the two refusals are otherwise unreachable from a test** — the caller is
@@ -599,8 +582,9 @@ extension ContentView {
         return .focus(relativePath: relative)
     }
 
-    /// Puts a pane on `absolutePath`, or **says why it could not** — the two refusals here are the
-    /// last thing between an accepted route and nothing at all happening.
+    /// Points the source pane at an absolute folder inside the current provider, or **says why it
+    /// could not** — the two refusals here are the last thing between an accepted route and nothing
+    /// at all happening.
     ///
     /// Both were silent `return`s until 2026-08-20. Neither is supposed to be reachable from the
     /// palette: a folder row is built from the survey under this root, and Go to Folder now refuses
@@ -608,6 +592,19 @@ extension ContentView {
     /// "not supposed to be reachable" is exactly the claim a log line is for — the index is a
     /// **snapshot** taken when the palette opened, and the root read here is live, so a provider
     /// that changed underneath an open palette lands here with a row the user watched do nothing.
+    ///
+    /// **The pane it points at is the one the index was built from**, which is not always the left
+    /// one. `lensProviderRootExpanded` follows the focused pane in Compare, so every folder row in
+    /// the palette is relative to the *right* provider's tree when the right pane has focus. This
+    /// revealed into the left pane regardless: the guard passed (the path really is under that
+    /// root), a relative path from one provider's tree was handed to the other's, and the pane
+    /// jumped to a folder that most likely does not exist there — the exact "looks like a broken
+    /// palette" outcome `revealOutcome` was written to avoid, reached by a different route.
+    ///
+    /// - Parameters:
+    ///   - root: the provider root the path is relative to, and `isLeft` the pane that owns it.
+    ///     Passed in rather than re-read, because a caller may already have changed the workspace
+    ///     — and both values follow it. See `aimOrganize`.
     private func revealInSourcePane(_ absolutePath: String,
                                     root: String? = nil, isLeft: Bool? = nil) {
         switch Self.revealOutcome(for: absolutePath, under: root ?? lensProviderRootExpanded) {

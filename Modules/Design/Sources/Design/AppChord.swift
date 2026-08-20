@@ -140,6 +140,7 @@ public extension AppChord {
     /// routing every colliding chord here uses — so the chord can be registered where it can also
     /// be *read*. Before this it appeared in no menu and no ⌘/ row: four working verbs nobody
     /// could find.
+    ///
     /// **Four `static let`s and a resolver, not a constructor.** Built inline at first, which
     /// broke the registry's own accounting: `everyDeclaredChordIsInTheRegistry` counts
     /// `static let … = AppChord(` declarations in this file and requires the registry to hold
