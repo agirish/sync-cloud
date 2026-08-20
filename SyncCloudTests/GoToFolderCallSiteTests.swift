@@ -148,18 +148,32 @@ import FileExplorer
         }
         defer { controller.dismiss(); host.orderOut(nil) }
 
+        // **The second read is taken here rather than waited for, and that is not a shortcut.**
+        // The first version slept 160 ms and hoped the SwiftUI body had run — which it does on an
+        // idle machine and need not under load, and a body that had not run yet would leave one
+        // call recorded and this test passing for the wrong reason, with the mutation surviving.
+        // `rows` is what the body reads; reading it is what the body does.
         controller.setQuery("/Users/x/Documents/Legal")
-        for _ in 0..<8 { try? await Task.sleep(nanoseconds: 20_000_000) }
+        _ = state.rows                                   // the view's read, made to happen
         let afterTyping = counter.calls.count
         #expect(afterTyping >= 1, "the path was never checked at all — the fixture proves nothing")
         #expect(afterTyping == 1,
-                "one keystroke cost \(afterTyping) disk checks; `rows` is read twice per change and the memo is what makes the second free")
+                "one keystroke cost \(afterTyping) disk checks; `rows` is read twice per change — once to re-seat the selection, once by the view — and the memo is what makes the second free")
 
         controller.move(by: 1)
+        _ = state.rows
         controller.move(by: -1)
-        for _ in 0..<8 { try? await Task.sleep(nanoseconds: 20_000_000) }
+        _ = state.rows
         #expect(counter.calls.count == afterTyping,
                 "moving the highlight re-checked the disk \(counter.calls.count - afterTyping) time(s) for a path that had not changed")
+
+        // …and the live view really is a second reader, which is the premise the count above rests
+        // on. Asserted separately so a change in SwiftUI's evaluation cannot make the numbers above
+        // pass by nobody reading at all.
+        let beforeIdle = counter.calls.count
+        for _ in 0..<5 { try? await Task.sleep(nanoseconds: 20_000_000) }
+        #expect(counter.calls.count == beforeIdle,
+                "the mounted view re-checked the disk on its own \(counter.calls.count - beforeIdle) time(s) while nothing changed")
     }
 
     private static func source(_ name: String) throws -> String {

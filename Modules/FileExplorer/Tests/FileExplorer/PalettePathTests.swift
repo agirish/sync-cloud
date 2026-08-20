@@ -206,13 +206,13 @@ import Foundation
     // MARK: The root that decides it
 
     /// **Deliverable is decided by `providerRoot`, because that is what the reveal relativizes
-    /// against.** Not by the owning provider's `isCurrent` flag, and the difference is reachable:
-    /// `providerRoot` comes from `settings.path(for:)`, which reads `availableProviders`, while
-    /// `index.providers` is built from `enabledProviders` — a *filtered* list. Switch off the source
-    /// the pane is currently showing and it disappears from `providers` while the pane keeps showing
-    /// its tree, so a path in the folder on screen answered "Not in any source".
+    /// against** — not by the owning provider's `isCurrent` flag.
     ///
-    /// The fixture is that state exactly: an aimed root with no provider in the list naming it.
+    /// This fixture is the corner where no listed provider names the aimed root at all, which is
+    /// reachable when `enabledProviders` goes empty: `canDisable` refuses to switch off the last
+    /// source, but a source that disappears *afterwards* can still empty the list, and
+    /// `resolvedProviderSelection` then returns nil and leaves the panes on their stale ids. The
+    /// everyday case is `aPathInsideANestedSourceIsStillReachableFromTheOuterPane` below.
     @Test func aPathUnderTheAimedRootWorksEvenWhenNoListedSourceClaimsIt() throws {
         let index = PaletteIndex(
             providers: [PaletteProvider(id: "dropbox", name: "Dropbox", isMounted: true,
@@ -226,6 +226,49 @@ import Foundation
         #expect(row.isAvailable,
                 "a path in the tree the pane is showing was refused with: \(row.unavailable ?? "") — the row and the reveal are asking two different roots")
         #expect(row.route == .folder(path: "\(Self.documents)/Legal"))
+    }
+
+    /// **The case that made this fix worth making, and it is an ordinary configuration.**
+    ///
+    /// `~/Documents` and `~/Documents/Clients` are both reasonable sources to have, and
+    /// `PalettePath.owner` answers with the **innermost** on purpose — it must, or a path deep
+    /// inside the inner one would be handed to the outer, which is what
+    /// `theInnermostSourceClaimsAPathUnderBoth` holds. So with the pane aimed at the outer source,
+    /// the owner of a path inside `Clients` is a provider that is not current, and deciding on
+    /// `isCurrent` refused a folder the pane on screen can show perfectly well.
+    ///
+    /// Two sources pointed at the *same* folder do this too — `SettingsManager` allows it for a
+    /// re-pointed account — and the tie would go to whichever root happened to sort last.
+    @Test func aPathInsideANestedSourceIsStillReachableFromTheOuterPane() throws {
+        let inner = "\(Self.documents)/Clients"
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "docs", name: "Documents", isMounted: true,
+                                        isCurrent: true, root: Self.documents),
+                        PaletteProvider(id: "clients", name: "Clients", isMounted: true,
+                                        isCurrent: false, root: inner)],
+            providerRoot: Self.documents, folders: [], home: Self.home,
+            isScanning: false, hasSurvey: true)
+        let probe = Probe(directories: ["\(inner)/Legal"])
+        let row = try #require(PaletteRouter.rows(query: "~/Documents/Clients/Legal", index: index,
+                                                  probe: probe.kind)
+            .first { $0.id.hasPrefix("path.") })
+        #expect(row.isAvailable,
+                "a folder inside the tree the pane is showing was refused with: \(row.unavailable ?? "") — a nested source claimed it and the check asked the wrong root")
+        #expect(row.route == .folder(path: "\(inner)/Legal"))
+    }
+
+    /// **A question mark is a claim about existence**, and only one of the four refusals makes it.
+    /// Badging "In Dropbox — switch source first" with one says the app does not know whether the
+    /// folder is there, which is both wrong and a different thing from what the row says in words.
+    @Test func onlyTheRefusalThatIsAboutExistenceWearsAQuestionMark() throws {
+        let missing = try #require(Self.row("~/Documents/Nope", probe: Probe()))
+        #expect(missing.symbol == "folder.badge.questionmark")
+        for query in ["~/Downloads/Taxes", "~/Dropbox/Legal", "/Volumes/Backup/2019"] {
+            let row = try #require(Self.row(query, probe: Probe()))
+            #expect(!row.isAvailable, "\(query) is no longer a refusal — this case moved")
+            #expect(row.symbol == "folder",
+                    "\(query) is badged as if the app did not know whether the folder exists, when the reason it gives is that it cannot be reached")
+        }
     }
 
     /// The aimed root itself asleep: the same wording every remembered folder already carries, and

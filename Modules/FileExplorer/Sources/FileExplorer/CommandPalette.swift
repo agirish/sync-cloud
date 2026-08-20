@@ -663,19 +663,37 @@ public enum PaletteRouter {
         // That is the right way round for a refusal — the reason is what the row is *for*, and the
         // path is still sitting in the field above it — but a reason much longer than this one
         // starts eating the folder name, which is the half that says WHICH folder was refused.
-        func refusal(_ reason: String) -> PaletteRow {
+        // `unknown` marks the one refusal that is a claim about *existence*. The other three are
+        // refusals about reachability — the folder is very probably there, in a source that is not
+        // mounted or not the one on screen — and badging those with a question mark says the app
+        // does not know whether the folder exists, which is a different and wronger thing to say.
+        func refusal(_ reason: String, unknown: Bool = false) -> PaletteRow {
             PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed), detail: typed,
-                       symbol: "folder.badge.questionmark", route: .folder(path: typed),
+                       symbol: unknown ? "folder.badge.questionmark" : "folder",
+                       route: .folder(path: typed),
                        unavailable: reason, score: pathRowScore)
         }
         // **Deliverable is decided against `providerRoot`, which is the root the reveal will
         // actually relativize against** — not against the owning provider's `isCurrent` flag.
-        // Those are two different values and they can disagree: `providerRoot` comes from
-        // `settings.path(for:)`, which reads `availableProviders`, while `index.providers` is built
-        // from `enabledProviders` — a *filtered* list. Disable the source the pane is showing and
-        // it vanishes from `providers` while the pane keeps showing it, so the old check answered
-        // "Not in any source" for every path in the tree on screen. Asking the one value the route
-        // is applied with cannot drift from the route.
+        //
+        // **Nested sources are what make those two different, and they are ordinary.** `~/Documents`
+        // and `~/Documents/Clients` are both perfectly reasonable things to configure, and
+        // `PalettePath.owner` deliberately answers with the innermost — it has to, or a path deep
+        // inside the inner one would be handed to the outer. So with the pane aimed at `~/Documents`
+        // and a path typed inside `Clients`, the owner is a provider that is NOT current, and the
+        // old check refused a folder the pane on screen can show perfectly well ("In Clients —
+        // switch source first"). Two sources pointed at the same folder do the same thing, which
+        // `SettingsManager` allows for a re-pointed account.
+        //
+        // Asking `providerRoot` cannot drift from the route, because it *is* the value the route is
+        // applied with. (An earlier version of this comment blamed the `enabledProviders` /
+        // `availableProviders` split instead — disable the source a pane is showing, the reasoning
+        // went, and it leaves the list while the pane keeps it. **That is not reachable**:
+        // `onChange(of: settings.enabledProviders)` re-points any pane whose provider was switched
+        // off. It survives only in the corner where `enabledProviders` goes *empty* — every
+        // discovered source disabled, which `canDisable` refuses to do but a source disappearing
+        // afterwards can still produce — where `resolvedProviderSelection` returns nil and the panes
+        // keep their ids. Reachable, but not the case worth naming.)
         guard PathBoundary.contains(typed, under: index.providerRoot ?? "") else {
             guard let owner = PalettePath.owner(of: typed, in: index.providers) else {
                 // The commonest refusal by far, and the one worth being plain about: this palette
@@ -696,7 +714,7 @@ public enum PaletteRouter {
         if let asleep = index.foldersUnavailable { return refusal(asleep) }
         switch probe(typed) {
         case .missing:
-            return refusal("No folder at that path")
+            return refusal("No folder at that path", unknown: true)
         case .directory:
             return PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed),
                               detail: typed, symbol: "folder", route: .folder(path: typed),

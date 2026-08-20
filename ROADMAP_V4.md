@@ -339,13 +339,20 @@ a folder that has since gone — the same three questions the tab strip already 
   for a writer that has done the handler's work itself, and its caller then drives one reload.
   **v4.3 or later**; expect the reload ordering to be the whole of the work.
 
-  **Reviewed 2026-08-19, two defects found and fixed in the same day.** Deliverability was being
-  decided against the owning provider's `isCurrent` flag while the reveal relativizes against
-  `providerRoot` — two values that can disagree, because `providerRoot` comes from
-  `settings.path(for:)` (which reads `availableProviders`) and the provider list comes from
-  `enabledProviders`, a *filtered* one. Switch off the source the pane is showing and every path in
-  the tree on screen answered "Not in any source". It now asks the one value the route is applied
-  with. And the disk was asked **twice per keystroke and twice per arrow key** — `rows` is read once
+  **Reviewed twice, 2026-08-19/20.** Deliverability was being decided against the owning provider's
+  `isCurrent` flag while the reveal relativizes against `providerRoot` — two values that disagree
+  whenever **sources nest**, which is ordinary: with `~/Documents` and `~/Documents/Clients` both
+  configured and the pane aimed at the outer one, `PalettePath.owner` answers with the inner (it has
+  to, or a deep path goes to the wrong source), so a folder the pane on screen can show perfectly
+  well was refused with "In Clients — switch source first". Two sources pointed at the same folder
+  do it too. It now asks the one value the route is applied with.
+
+  *(The first write-up of that fix blamed the `enabledProviders` / `availableProviders` split —
+  disable the source a pane is showing and it leaves the list while the pane keeps it. **That is not
+  reachable**: `onChange(of: settings.enabledProviders)` re-points any pane whose provider was
+  switched off. It survives only where `enabledProviders` goes empty, which `canDisable` refuses to
+  do but a source disappearing afterwards can still produce. The fix was right and the reason was
+  wrong; both are recorded because the wrong one reads plausibly.)* And the disk was asked **twice per keystroke and twice per arrow key** — `rows` is read once
   by `setQuery` and once by the SwiftUI body, so moving the highlight re-ran the probe against a
   query nobody had touched; a one-entry memo on the state takes that to one and none.
 
