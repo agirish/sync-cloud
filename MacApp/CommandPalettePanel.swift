@@ -209,6 +209,15 @@ final class CommandPalettePanelController: ObservableObject {
     private func refreshAnchor(retriesLeft: Int = CommandPalettePanelController.anchorAttempts) {
         guard let state else { return }
         guard let screenRect = anchor?(), screenRect.width > 0 else {
+            // **A chain outliving its own presentation was chased on 2026-08-20 and is not a
+            // defect — recorded so the next reviewer does not re-derive it.** Escape and ⌘K again
+            // inside the retry window, and the old chain does resume against the new presentation's
+            // state and anchor. It cannot hurt it: a chain only reaches the branch below when the
+            // anchor answers *nil*, and the new presentation's own chain re-places the moment its
+            // field appears — so the worst it can do is hide a list that was not on screen yet, and
+            // put a spurious line in the log. It was a real bug while this branch called `dismiss()`
+            // (it closed the second palette on the first one's leftover budget); `6282ad7d` changing
+            // it to `hide()` removed that, which is a second reason not to change it back.
             guard retriesLeft > 0 else {
                 // Said out loud: a palette with no anchor is a palette with nowhere to be, and it
                 // has no other trace.

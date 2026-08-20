@@ -42,6 +42,11 @@ import FileExplorer
     /// against the index's `home`, and a second expansion would be a second rule. A `~` reaching
     /// this function is a path that genuinely has one in its name.
     @Test func theProbeDoesNotExpandATildeOfItsOwn() {
+        // Asserted as a **contrast**, not as one value: `~` answering `.missing` proves nothing on
+        // its own (any nonsense string does), and would still pass if the probe were broken outright.
+        // The home it would have expanded to really is a directory, and `~` is not it.
+        #expect(ContentView.pathKind(NSHomeDirectory()) == .directory,
+                "the home directory did not read as one — this contrast cannot mean anything")
         #expect(ContentView.pathKind("~") == .missing,
                 "the probe expands tildes as well — two rules for one question, and they will disagree")
     }

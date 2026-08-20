@@ -231,7 +231,16 @@ extension ContentView {
             aimOrganize(lens: lens, scope: scope)
         case .person(let id):
             guard let person = syncManager.filingPersonRegistry?.people.first(where: { $0.id == id })
-            else { return }
+            else {
+                // The index is snapshotted when the palette opens, so a roster that changed
+                // underneath it can leave a row naming somebody the registry no longer has. Said
+                // out loud rather than returned silently: ↩ on a row that visibly offered a person
+                // and then did nothing is exactly the "nothing happened" this surface's whole
+                // logging exists for.
+                Logger.shared.warning("Command palette: person \(id) is no longer in the registry — "
+                    + "the row was listed from an index taken when the palette opened")
+                return
+            }
             acceptPersonScope(person)
         case .provider(let id):
             // Switched on the pane the palette is aimed at, so choosing a source from ⌘K changes
@@ -567,12 +576,48 @@ extension ContentView {
     ///   - root: the provider root the path is relative to, and `isLeft` the pane that owns it.
     ///     Passed in rather than re-read, because a caller may already have changed the workspace
     ///     — and both values follow it. See `aimOrganize`.
+    /// Where a reveal lands, or why it cannot.
+    ///
+    /// **Extracted because the two refusals are otherwise unreachable from a test** — the caller is
+    /// a method on a SwiftUI `View` with `@State`, which nothing can construct — and they are
+    /// precisely the branches worth holding: each is an accepted route delivering nothing.
+    enum RevealOutcome: Equatable {
+        case focus(relativePath: String)
+        /// The aimed pane has no source path at all.
+        case noSource
+        /// The path is real but not inside the root this pane is showing.
+        case outsideSource(root: String)
+    }
+
+    static func revealOutcome(for absolutePath: String, under root: String) -> RevealOutcome {
+        guard !root.isEmpty else { return .noSource }
+        guard let relative = PathBoundary.relativize(absolutePath, under: root) else {
+            return .outsideSource(root: root)
+        }
+        return .focus(relativePath: relative)
+    }
+
+    /// Puts a pane on `absolutePath`, or **says why it could not** — the two refusals here are the
+    /// last thing between an accepted route and nothing at all happening.
+    ///
+    /// Both were silent `return`s until 2026-08-20. Neither is supposed to be reachable from the
+    /// palette: a folder row is built from the survey under this root, and Go to Folder now refuses
+    /// a typed path that is not inside `PaletteIndex.providerRoot` before ever offering it. But
+    /// "not supposed to be reachable" is exactly the claim a log line is for — the index is a
+    /// **snapshot** taken when the palette opened, and the root read here is live, so a provider
+    /// that changed underneath an open palette lands here with a row the user watched do nothing.
     private func revealInSourcePane(_ absolutePath: String,
                                     root: String? = nil, isLeft: Bool? = nil) {
-        let root = root ?? lensProviderRootExpanded
-        guard !root.isEmpty,
-              let relative = PathBoundary.relativize(absolutePath, under: root) else { return }
-        syncManager.focusOn(relativePath: relative, isLeft: isLeft ?? !aimedAtRight)
+        switch Self.revealOutcome(for: absolutePath, under: root ?? lensProviderRootExpanded) {
+        case .focus(let relative):
+            syncManager.focusOn(relativePath: relative, isLeft: isLeft ?? !aimedAtRight)
+        case .noSource:
+            Logger.shared.warning("Command palette: nowhere to reveal \(absolutePath) — "
+                + "the aimed pane has no source path")
+        case .outsideSource(let root):
+            Logger.shared.warning("Command palette: \(absolutePath) is not inside \(root) — "
+                + "the row was offered against a source the pane is no longer showing")
+        }
     }
 
     private func runPaletteAction(_ action: PaletteAction) {

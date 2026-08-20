@@ -78,8 +78,10 @@ import Design
                       pinned: [String] = [],
                       unavailable: String? = nil) -> PaletteIndex {
         PaletteIndex(
-            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true),
-                        PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: false, isCurrent: false)],
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true,
+                                        isCurrent: true, root: root),
+                        PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: false,
+                                        isCurrent: false, root: "/Volumes/Backup")],
             providerRoot: root,
             folders: recents + ["Finance"],
             recentFolders: recents, pinnedFolders: pinned,
@@ -91,7 +93,21 @@ import Design
     /// The queries that reach every builder able to mint a path under the root: the landing
     /// (`emptyQueryRows`), a plain folder match (`folderRows`), and a verb with an object
     /// (`verbRows`).
-    static let pathBearingQueries = ["", "legal", "organize legal", "finance", "organize finance"]
+    static let pathBearingQueries = ["", "legal", "organize legal", "finance", "organize finance",
+                                     // **A typed path is the fourth builder**, and the walk could
+                                     // not see it until 2026-08-20: `pathRow` only fires when a
+                                     // probe is supplied, and the walk called `rows` without one —
+                                     // so the guard written so "a fourth builder cannot be missed
+                                     // the same way" was blind to the fourth builder. It is passed
+                                     // one now (see `probe`), which is what makes that promise true.
+                                     "\(root)/Finance"]
+
+    /// The disk, for the one builder that asks it. Answers `.directory` for anything under the
+    /// fixture's root and `.missing` elsewhere, which is enough for the walk: what is under test is
+    /// whether a route that names a path is *marked*, not whether the folder is there.
+    static let probe: PalettePathProbe = { path in
+        path.hasPrefix(root) ? .directory : .missing
+    }
 
     /// **Every destination the palette can reach still has a door.**
     ///
@@ -131,14 +147,14 @@ import Design
         let index = Self.index(unavailable: "Not available")
         var seen = 0
         for query in Self.pathBearingQueries {
-            for row in PaletteRouter.rows(query: query, index: index) {
+            for row in PaletteRouter.rows(query: query, index: index, probe: Self.probe) {
                 guard let path = Self.pathUnderRoot(of: row.route) else { continue }
                 seen += 1
                 #expect(row.unavailable == "Not available",
                         "“\(query)” offers \(path) as a live destination under a root that did not answer")
             }
         }
-        #expect(seen >= 6,
+        #expect(seen >= 7,
                 "only \(seen) path-bearing rows were reached — the queries no longer cover the builders this is about")
     }
 
@@ -148,12 +164,12 @@ import Design
         let index = Self.index()
         var seen = 0
         for query in Self.pathBearingQueries {
-            for row in PaletteRouter.rows(query: query, index: index) where Self.pathUnderRoot(of: row.route) != nil {
+            for row in PaletteRouter.rows(query: query, index: index, probe: Self.probe) where Self.pathUnderRoot(of: row.route) != nil {
                 seen += 1
                 #expect(row.isAvailable, "“\(query)” refuses a folder under a root that is right there")
             }
         }
-        #expect(seen >= 6, "only \(seen) path-bearing rows were reached — this pair is not measuring the same set")
+        #expect(seen >= 7, "only \(seen) path-bearing rows were reached — this pair is not measuring the same set")
     }
 
     /// The landing alone — what ⌘K opens on — must carry the four groups the card led with.
